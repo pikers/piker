@@ -1,2 +1,3 @@
-# piker
+piker
+------
 Destroy all suits
