@@ -33,8 +33,8 @@ class Client:
     """
     def __init__(self, refresh_token: str):
         self._sess = asks.Session()
+        self.data = {'refresh_token': refresh_token}
         self.refresh_token = refresh_token
-        self.ud = None  # userdata
 
     @classmethod
     async def from_token(cls, refresh_token: str):
@@ -49,29 +49,27 @@ class Client:
         resp = await self._sess.get(
             _refresh_token_ep,
             params={'grant_type': 'refresh_token',
-                    'refresh_token': self.refresh_token}
+                    'refresh_token': self.data['refresh_token']}
         )
         err_on_status(resp)
         data = resp.json()
-
-        self._sess.base_location = data['api_server'] + _version
-        self.access_token = data['access_token']
-        self.expires_in = data['expires_in']
-        self.refresh_token = data['refresh_token']
-        self.token_type = data['token_type']
+        self.data.update(data)
 
         # set auth token for the session
         self._sess.headers.update(
-            {'Authorization': f'{self.token_type} {self.access_token}'}
+            {'Authorization': f"{data['token_type']} {data['access_token']}"}
         )
+        # set base API url (asks shorthand)
+        self._sess.base_location = data['api_server'] + _version
 
     async def get_user_data(self) -> dict:
         """Get and store user data from the ``accounts`` endpoint.
         """
         resp = await self._sess.get(path='/accounts')
         err_on_status(resp)
-        self.ud = resp.json()
-        return self.ud
+        data = resp.json()
+        self.data.update(data)
+        return data
 
 
 async def get_client(refresh_token: str = None) -> Client:
@@ -100,7 +98,7 @@ async def serve_forever(refresh_token: str = None) -> None:
 
 
 def main() -> None:
-    log = get_console_log('INFO')
+    log = get_console_log('INFO', name='questrade')
     argv = sys.argv[1:]
 
     refresh_token = None
@@ -114,6 +112,6 @@ def main() -> None:
         log.exception(err)
     else:
         log.info(
-            f"\nLast refresh_token: {client.refresh_token}\n"
-            f"Last access_token: {client.access_token}"
+            f"\nLast refresh_token: {client.data['refresh_token']}\n"
+            f"Last access_token: {client.data['access_token']}"
         )
