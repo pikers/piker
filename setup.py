@@ -28,7 +28,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'pikerd = piker.brokers.questrade:main',
+            'pikerd = piker.brokers:main',
         ]
     },
     install_requires=['click', 'colorlog', 'trio', 'attrs'],
