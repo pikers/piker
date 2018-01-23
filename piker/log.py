@@ -1,13 +1,12 @@
 """
 Log like a forester!
-(HINT: You can't usually find stupid suits in the forest)
+(You can't usually find stupid suits in the forest)
 """
 import sys
 import logging
 import colorlog
 
 _proj_name = 'piker'
-
 
 # Super sexy formatting thanks to ``colorlog``.
 # (NOTE: we use the '{' format style)
@@ -29,22 +28,17 @@ LEVELS = {
     'QUIET': 1000,
 }
 STD_PALETTE = {
-    'CRITICAL': 'bold_red',
+    'CRITICAL': 'red',
     'ERROR': 'red',
     'WARNING': 'yellow',
     'INFO': 'green',
     'DEBUG': 'purple',
     'TRACE': 'cyan',
+    'GARBAGE': 'blue',
 }
 BOLD_PALETTE = {
     'bold': {
-        'CRITICAL': 'bold_red',
-        'ERROR': 'bold_red',
-        'WARNING': 'bold_yellow',
-        'INFO': 'bold_green',
-        'DEBUG': 'bold_purple',
-        'TRACE': 'bold_cyan',
-    },
+        level: f"bold_{color}" for level, color in STD_PALETTE.items()}
 }
 
 
