@@ -25,7 +25,9 @@ def resproc(
     resp: asks.response_objects.Response,
     return_json: bool = True
 ) -> asks.response_objects.Response:
-    """Raise error on non-200 OK response.
+    """Process response and return its json content.
+
+    Raise the appropriate error on non-200 OK responses.
     """
     data = resp.json()
     log.debug(f"Received json contents:\n{pformat(data)}\n")
@@ -57,18 +59,10 @@ class Client:
     """API client suitable for use as a long running broker daemon.
     """
     def __init__(self, config: dict):
-        sess = self._sess = asks.Session()
-        self.api = API(sess)
+        self._sess = asks.Session()
+        self.api = API(self._sess)
         self.access_data = config
         self.user_data = {}
-        self._conf = None  # possibly set in ``from_config`` factory
-
-    @classmethod
-    async def from_config(cls, config):
-        client = cls(dict(config['questrade']))
-        client._conf = config
-        await client.enable_access()
-        return client
 
     async def _new_auth_token(self) -> dict:
         """Request a new api authorization ``refresh_token``.
@@ -89,7 +83,7 @@ class Client:
 
         return data
 
-    async def _prep_sess(self) -> None:
+    def _prep_sess(self) -> None:
         """Fill http session with auth headers and a base url.
         """
         data = self.access_data
@@ -119,19 +113,16 @@ class Client:
         """
         access_token = self.access_data.get('access_token')
         expires = float(self.access_data.get('expires_at', 0))
-        # expired_by = time.time() - float(self.ttl or 0)
-        # if not access_token or (self.ttl is None) or (expires < time.time()):
         if not access_token or (expires < time.time()) or force_refresh:
-            log.info(
-                f"Access token {access_token} expired @ {expires}, "
-                "refreshing...")
+            log.info(f"Refreshing access token {access_token} which expired at"
+                     f" {expires}")
             data = await self._new_auth_token()
 
             # store absolute token expiry time
             self.access_data['expires_at'] = time.time() + float(
                 data['expires_in'])
 
-        await self._prep_sess()
+        self._prep_sess()
         return self.access_data
 
 
@@ -141,7 +132,7 @@ def get_config() -> "configparser.ConfigParser":
         not conf['questrade'].get('refresh_token')
     ):
         log.warn(
-            f"No valid `questrade` refresh token could be found in {path}")
+            f"No valid refresh token could be found in {path}")
         # get from user
         refresh_token = input("Please provide your Questrade access token: ")
         conf['questrade'] = {'refresh_token': refresh_token}
@@ -152,12 +143,11 @@ def get_config() -> "configparser.ConfigParser":
 @asynccontextmanager
 async def get_client(refresh_token: str = None) -> Client:
     """Spawn a broker client.
-
     """
     conf = get_config()
-    log.debug(f"Loaded questrade config: {conf['questrade']}")
-    log.info("Waiting on api access...")
-    client = await Client.from_config(conf)
+    log.debug(f"Loaded config:\n{pformat(dict(conf['questrade']))}\n")
+    client = Client(dict(conf['questrade']))
+    await client.enable_access()
 
     try:
         try:  # do a test ping to ensure the access token works
@@ -170,6 +160,8 @@ async def get_client(refresh_token: str = None) -> Client:
             await client.enable_access(force_refresh=True)
             await client.api.time()
 
+        accounts = await client.api.accounts()
+        log.info(f"Available accounts:\n{pformat(accounts)}\n")
         yield client
     finally:
         # save access creds for next run
