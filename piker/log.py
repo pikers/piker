@@ -32,9 +32,9 @@ STD_PALETTE = {
     'ERROR': 'red',
     'WARNING': 'yellow',
     'INFO': 'green',
-    'DEBUG': 'purple',
+    'DEBUG': 'blue',
     'TRACE': 'cyan',
-    'GARBAGE': 'blue',
+    'GARBAGE': 'purple',
 }
 BOLD_PALETTE = {
     'bold': {
