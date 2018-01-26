@@ -5,6 +5,7 @@ from . import config
 from ..log import get_logger
 from pprint import pformat
 import time
+import datetime
 from async_generator import asynccontextmanager
 
 # TODO: move to urllib3/requests once supported
@@ -113,14 +114,19 @@ class Client:
         """
         access_token = self.access_data.get('access_token')
         expires = float(self.access_data.get('expires_at', 0))
+        expires_stamp = datetime.datetime.fromtimestamp(
+            expires).strftime('%Y-%m-%d %H:%M:%S')
         if not access_token or (expires < time.time()) or force_refresh:
             log.info(f"Refreshing access token {access_token} which expired at"
-                     f" {expires}")
+                     f" {expires_stamp}")
             data = await self._new_auth_token()
 
             # store absolute token expiry time
             self.access_data['expires_at'] = time.time() + float(
                 data['expires_in'])
+        else:
+            log.info(f"\nCurrent access token {access_token} expires at"
+                     f" {expires_stamp}\n")
 
         self._prep_sess()
         return self.access_data
@@ -141,7 +147,7 @@ def get_config() -> "configparser.ConfigParser":
 
 
 @asynccontextmanager
-async def get_client(refresh_token: str = None) -> Client:
+async def get_client() -> Client:
     """Spawn a broker client.
     """
     conf = get_config()
@@ -150,8 +156,8 @@ async def get_client(refresh_token: str = None) -> Client:
     await client.enable_access()
 
     try:
-        try:  # do a test ping to ensure the access token works
-            log.debug("Check time to ensure access token is valid")
+        log.debug("Check time to ensure access token is valid")
+        try:
             await client.api.time()
         except Exception as err:
             # access token is likely no good
@@ -169,10 +175,10 @@ async def get_client(refresh_token: str = None) -> Client:
         config.write(conf)
 
 
-async def serve_forever(refresh_token: str = None) -> None:
+async def serve_forever() -> None:
     """Start up a client and serve until terminated.
     """
-    async with get_client(refresh_token) as client:
+    async with get_client() as client:
         # pretty sure this doesn't work
         # await client._revoke_auth_token()
         return client
