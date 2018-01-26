@@ -1,6 +1,7 @@
 """
 Questrade API backend.
 """
+import trio
 from . import config
 from ..log import get_logger
 from pprint import pformat
@@ -105,12 +106,14 @@ class Client:
         )
         return resp
 
-    async def enable_access(self, force_refresh: bool = False) -> dict:
-        """Acquire new ``refresh_token`` and/or ``access_token`` if necessary.
+    async def ensure_access(self, force_refresh: bool = False) -> dict:
+        """Acquire new ``access_token`` and/or ``refresh_token`` if necessary.
 
-        Only needs to be called if the locally stored ``refresh_token`` has
+        Checks if the locally cached (file system) ``access_token`` has expired
+        (based on a ``expires_at`` time stamp stored in the brokers.ini config)
         expired (normally has a lifetime of 3 days). If ``false is set then
-        refresh the access token instead of using the locally cached version.
+        and refreshs token if necessary using the ``refresh_token``. If the
+        ``refresh_token`` has expired a new one needs to be provided by the user.
         """
         access_token = self.access_data.get('access_token')
         expires = float(self.access_data.get('expires_at', 0))
@@ -146,6 +149,14 @@ def get_config() -> "configparser.ConfigParser":
     return conf
 
 
+async def token_refresher(client):
+    """Coninually refresh the ``access_token`` near its expiry time.
+    """
+    while True:
+        await trio.sleep(float(client.access_data['expires_at']) - time.time() - .1)
+        await client.ensure_access()
+
+
 @asynccontextmanager
 async def get_client() -> Client:
     """Spawn a broker client.
@@ -153,7 +164,7 @@ async def get_client() -> Client:
     conf = get_config()
     log.debug(f"Loaded config:\n{pformat(dict(conf['questrade']))}\n")
     client = Client(dict(conf['questrade']))
-    await client.enable_access()
+    await client.ensure_access()
 
     try:
         log.debug("Check time to ensure access token is valid")
@@ -163,7 +174,7 @@ async def get_client() -> Client:
             # access token is likely no good
             log.warn(f"Access token {client.access_data['access_token']} seems"
                      f" expired, forcing refresh")
-            await client.enable_access(force_refresh=True)
+            await client.ensure_access(force_refresh=True)
             await client.api.time()
 
         accounts = await client.api.accounts()
@@ -181,4 +192,5 @@ async def serve_forever() -> None:
     async with get_client() as client:
         # pretty sure this doesn't work
         # await client._revoke_auth_token()
-        return client
+        async with trio.open_nursery() as nursery:
+            nursery.start_soon(token_refresher, client)
