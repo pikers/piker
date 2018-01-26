@@ -1,6 +1,7 @@
 """
 Console interface to broker client/daemons.
 """
+import importlib
 from pprint import pformat
 import click
 import trio
@@ -22,8 +23,8 @@ def run(loglevel, main):
 
 @click.command()
 @click.option('--broker', default='questrade', help='Broker backend to use')
-@click.option('--loglevel', '-l', default='warning', help='Logging level')
+@click.option('--loglevel', '-l', default='info', help='Logging level')
 def pikerd(broker, loglevel):
     # import broker module daemon entry point
-    from .questrade import serve_forever
-    run(loglevel, serve_forever)
+    brokermod = importlib.import_module('.' + broker, 'piker.brokers') 
+    run(loglevel, brokermod.serve_forever)
