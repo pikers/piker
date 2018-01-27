@@ -20,7 +20,7 @@ def run(main, loglevel='info'):
     except Exception as err:
         log.exception(err)
     finally:
-        log.debug("Exiting pikerd")
+        log.debug("Exiting piker")
 
 
 @click.command()
@@ -41,9 +41,9 @@ def cli():
 @click.option('--broker', default='questrade', help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.argument('meth', nargs=1)
-@click.argument('kwargs', nargs=-1, required=True)
+@click.argument('kwargs', nargs=-1)
 def api(meth, kwargs, loglevel, broker):
-    """Client for testing broker API methods with pretty printing of output.
+    """client for testing broker API methods with pretty printing of output.
     """
     log = get_console_log(loglevel)
     brokermod = import_module('.' + broker, 'piker.brokers')

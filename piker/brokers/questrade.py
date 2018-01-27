@@ -1,6 +1,7 @@
 """
 Questrade API backend.
 """
+import inspect
 import json
 import time
 import datetime
@@ -47,7 +48,8 @@ def resproc(
 
 
 class Client:
-    """API client suitable for use as a long running broker daemon.
+    """API client suitable for use as a long running broker daemon or
+    for single api requests.
     """
     def __init__(self, config: 'configparser.ConfigParser'):
         self._sess = asks.Session()
@@ -243,13 +245,20 @@ async def serve_forever() -> None:
 
 
 async def api(methname, **kwargs) -> dict:
+    """Make (proxy) through an api call by name and return its result.
+    """
     async with get_client() as client:
         meth = getattr(client.api, methname, None)
         if meth is None:
             log.error(f"No api method `{methname}` could be found?")
-        else:
-            arg = kwargs.get('arg')
-            if arg:
-                return await meth(arg)
-            else:
-                return await meth(**kwargs)
+            return
+        elif not kwargs:
+            # verify kwargs requirements are met
+            sig = inspect.signature(meth)
+            if sig.parameters:
+                log.error(
+                    f"Argument(s) are required by the `{methname}` method: "
+                    f"{tuple(sig.parameters.keys())}")
+                return
+
+        return await meth(**kwargs)
