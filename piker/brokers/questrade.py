@@ -140,6 +140,17 @@ class Client:
         self._prep_sess()
         return self.access_data
 
+    async def tickers2ids(self, tickers):
+        """Helper routine that take a sequence of ticker symbols and returns
+        their corresponding QT symbol ids.
+        """
+        data = await self.api.symbols(names=','.join(tickers))
+        symbols2ids = {}
+        for ticker, symbol in zip(tickers, data['symbols']):
+            symbols2ids[symbol['symbol']] = symbol['symbolId']
+
+        return symbols2ids
+
 
 class API:
     """Questrade API at its finest.
@@ -234,14 +245,33 @@ async def get_client() -> Client:
         write_conf(client)
 
 
-async def serve_forever() -> None:
+async def serve_forever(tasks) -> None:
     """Start up a client and serve until terminated.
     """
     async with get_client() as client:
         # pretty sure this doesn't work
         # await client._revoke_auth_token()
+
         async with trio.open_nursery() as nursery:
+            # launch token manager
             nursery.start_soon(token_refresher, client)
+
+            # launch children
+            for task in tasks:
+                nursery.start_soon(task, client)
+
+
+async def poll_tickers(client, tickers, rate=2):
+    """Auto-poll snap quotes for a sequence of tickers at the given ``rate``
+    per second.
+    """
+    t2ids = await client.tickers2ids(tickers)
+    sleeptime = 1. / rate
+    ids = ','.join(map(str, t2ids.values()))
+
+    while True:  # use an event here to trigger exit?
+        quote_data = await client.api.quotes(ids=ids)
+        await trio.sleep(sleeptime)
 
 
 async def api(methname, **kwargs) -> dict:

@@ -28,7 +28,6 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'pikerd = piker.brokers.cli:pikerd',
             'piker = piker.brokers.cli:cli',
         ]
     },

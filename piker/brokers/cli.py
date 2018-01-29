@@ -1,7 +1,6 @@
 """
 Console interface to broker client/daemons.
 """
-import json
 from functools import partial
 from importlib import import_module
 
@@ -21,15 +20,6 @@ def run(main, loglevel='info'):
         log.exception(err)
     finally:
         log.debug("Exiting piker")
-
-
-@click.command()
-@click.option('--broker', default='questrade', help='Broker backend to use')
-@click.option('--loglevel', '-l', default='info', help='Logging level')
-def pikerd(broker, loglevel):
-    # import broker module daemon entry point
-    brokermod = import_module('.' + broker, 'piker.brokers')
-    run(brokermod.serve_forever, loglevel)
 
 
 @click.group()
@@ -59,3 +49,18 @@ def api(meth, kwargs, loglevel, broker):
     data = run(partial(brokermod.api, meth, **_kwargs), loglevel=loglevel)
     if data:
         click.echo(colorize_json(data))
+
+
+@cli.command()
+@click.option('--broker', default='questrade', help='Broker backend to use')
+@click.option('--loglevel', '-l', default='info', help='Logging level')
+@click.argument('tickers', nargs=-1)
+def stream(broker, loglevel, tickers):
+    # import broker module daemon entry point
+    bm = import_module('.' + broker, 'piker.brokers')
+    run(
+        partial(bm.serve_forever, [
+            partial(bm.poll_tickers, tickers=tickers)
+        ]),
+        loglevel
+    )
