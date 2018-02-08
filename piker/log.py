@@ -1,6 +1,5 @@
 """
 Log like a forester!
-(You can't usually find stupid suits in the forest)
 """
 import sys
 import logging

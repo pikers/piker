@@ -3,11 +3,12 @@ Broker configuration mgmt.
 """
 from os import path
 import configparser
+import click
 from ..log import get_logger
 
 log = get_logger('broker-config')
 
-_broker_conf_path = path.join(path.dirname(__file__), 'brokers.ini')
+_broker_conf_path = path.join(click.get_app_dir('piker'), 'brokers.ini')
 
 
 def load() -> (configparser.ConfigParser, str):
