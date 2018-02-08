@@ -25,15 +25,18 @@ setup(
     packages=[
         'piker',
         'piker.brokers',
+        'piker.ui',
+        'piker.testing',
     ],
     entry_points={
         'console_scripts': [
             'piker = piker.brokers.cli:cli',
+            'watchlist = piker.ui.watchlist:cli',
         ]
     },
     install_requires=[
         'click', 'colorlog', 'trio', 'attrs', 'async_generator',
-        'pygments',
+        'pygments', 'cython', 'kivy', 'asks', 'pandas',
     ],
     extras_require={
         'questrade': ['asks'],
