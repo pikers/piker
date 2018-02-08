@@ -16,7 +16,6 @@ def load() -> (configparser.ConfigParser, str):
     Create a ``broker.ini`` file if one dne.
     """
     config = configparser.ConfigParser()
-    # mode = 'r' if path.exists(_broker_conf_path) else 'a'
     read = config.read(_broker_conf_path)
     log.debug(f"Read config file {_broker_conf_path}")
     return config, _broker_conf_path

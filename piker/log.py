@@ -4,7 +4,9 @@ Log like a forester!
 """
 import sys
 import logging
+import json
 import colorlog
+from pygments import highlight, lexers, formatters
 
 _proj_name = 'piker'
 
@@ -12,7 +14,8 @@ _proj_name = 'piker'
 # (NOTE: we use the '{' format style)
 # Here, `thin_white` is just the laymen's gray.
 LOG_FORMAT = (
-    "{bold_white}{thin_white}{asctime}{reset}"
+    # "{bold_white}{log_color}{asctime}{reset}"
+    "{log_color}{asctime}{reset}"
     " {bold_white}{thin_white}({reset}"
     "{thin_white}{threadName}{reset}{bold_white}{thin_white})"
     " {reset}{log_color}[{reset}{bold_log_color}{levelname}{reset}{log_color}]"
@@ -32,7 +35,7 @@ STD_PALETTE = {
     'ERROR': 'red',
     'WARNING': 'yellow',
     'INFO': 'green',
-    'DEBUG': 'purple',
+    'DEBUG': 'white',
     'TRACE': 'cyan',
     'GARBAGE': 'blue',
 }
@@ -83,3 +86,14 @@ def get_console_log(level: str = None, name: str = None) -> logging.Logger:
         log.addHandler(handler)
 
     return log
+
+
+def colorize_json(data, style='algol_nu'):
+    """Colorize json output using ``pygments``.
+    """
+    formatted_json = json.dumps(data, sort_keys=True, indent=4)
+    return highlight(
+        formatted_json, lexers.JsonLexer(),
+        # likeable styles: algol_nu, tango, monokai
+        formatters.TerminalTrueColorFormatter(style=style)
+    )
