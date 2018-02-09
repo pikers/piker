@@ -75,19 +75,18 @@ def quote(loglevel, broker, tickers, df_output):
     """client for testing broker API methods with pretty printing of output.
     """
     brokermod = import_module('.' + broker, 'piker.brokers')
-    data = run(partial(brokermod.quote, tickers), loglevel=loglevel)
-    quotes = data['quotes']
+    quotes = run(partial(brokermod.quote, tickers), loglevel=loglevel)
     cols = quotes[0].copy()
     cols.pop('symbol')
     if df_output:
         df = pd.DataFrame(
-            data['quotes'],
+            quotes,
             index=[item['symbol'] for item in quotes],
             columns=cols,
         )
         click.echo(df)
     else:
-        click.echo(colorize_json(data))
+        click.echo(colorize_json(quotes))
 
 
 @cli.command()
