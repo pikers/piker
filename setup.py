@@ -30,8 +30,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'piker = piker.brokers.cli:cli',
-            'watchlist = piker.ui.watchlist:cli',
+            'piker = piker.cli:cli',
         ]
     },
     install_requires=[

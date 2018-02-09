@@ -1,5 +1,7 @@
 """
-A real-time, sorted watchlist
+A real-time, sorted watchlist.
+
+Launch with ``piker watch <watchlist name>``.
 """
 from importlib import import_module
 
@@ -15,6 +17,7 @@ from kivy import utils
 from kivy.app import async_runTouchApp
 
 
+from ..cli import cli
 from ..log import get_logger, get_console_log
 log = get_logger('watchlist')
 
@@ -330,33 +333,3 @@ async def _async_main(tickers, brokermod):
 
             nursery.start_soon(run_kivy, widgets['root'], nursery)
             nursery.start_soon(update_quotes, widgets, queue, sd, first_quotes)
-
-
-@click.group()
-def cli():
-    pass
-
-
-@cli.command()
-@click.option('--broker', default='questrade', help='Broker backend to use')
-@click.option('--loglevel', '-l', default='warning', help='Logging level')
-def run(loglevel, broker):
-    """Spawn a watchlist.
-    """
-    get_console_log(loglevel)  # activate console logging
-    brokermod = import_module('.' + broker, 'piker.brokers')
-
-    watchlists = {
-        'cannabis': [
-            'EMH.VN', 'LEAF.TO', 'HVT.VN', 'HMMJ.TO', 'APH.TO',
-            'CBW.VN', 'TRST.CN', 'VFF.TO', 'ACB.TO', 'ABCN.VN',
-            'APH.TO', 'MARI.CN', 'WMD.VN', 'LEAF.TO', 'THCX.VN',
-            'WEED.TO', 'NINE.VN', 'RTI.VN', 'SNN.CN', 'ACB.TO',
-            'OGI.VN', 'IMH.VN', 'FIRE.VN', 'EAT.CN', 'NUU.VN',
-            'WMD.VN', 'HEMP.VN', 'CALI.CN', 'RBQ.CN',
-        ],
-    }
-    # broker_conf_path = os.path.join(
-    #     click.get_app_dir('piker'), 'watchlists.json')
-    # from piker.testing import _quote_streamer as brokermod
-    trio.run(_async_main, watchlists['cannabis'], brokermod)
