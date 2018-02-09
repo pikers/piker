@@ -8,7 +8,7 @@ import click
 import trio
 import pandas as pd
 
-from ..log import get_console_log, colorize_json
+from .log import get_console_log, colorize_json
 
 
 def run(main, loglevel='info'):
