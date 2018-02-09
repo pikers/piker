@@ -1,90 +1,86 @@
 """
 A real-time, sorted watchlist
 """
-import os
 from importlib import import_module
 
 import click
 import trio
 
-from ..log import get_logger, get_console_log
-log = get_logger('watchlist')
-
-# use the trio async loop
-os.environ['KIVY_EVENTLOOP'] = 'trio'
-
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
-from kivy.core.window import Window
 from kivy.lang import Builder
 from kivy import utils
 from kivy.app import async_runTouchApp
+
+
+from ..log import get_logger, get_console_log
+log = get_logger('watchlist')
 
 
 def same_rgb(val):
     return ', '.join(map(str, [val]*3))
 
 
+_colors2hexs = {
+    'darkgray': 'a9a9a9',
+    'gray': '808080',
+    'green': '008000',
+    'forestgreen': '228b22',
+    'seagreen': '2e8b57',
+    'red2': 'ff3333',
+    'red': 'ff0000',
+    'tomato': 'ff6347',
+    'darkred': '8b0000',
+    'firebrick': 'b22222',
+    'maroon': '800000',
+    'gainsboro': 'dcdcdc',
+}
+
+_colors = {key: utils.rgba(val) for key, val in _colors2hexs.items()}
+
+
 def colorcode(name):
-    if not name:
-        name = 'gray'
-    _names2hexs = {
-        'darkgray': 'a9a9a9',
-        'gray': '808080',
-        'green': '008000',
-        'red2': 'ff3333',
-        'red': 'ff0000',
-        'dark_red': '8b0000',
-        'firebrick': 'b22222',
-        'maroon': '800000',
-        'gainsboro': 'dcdcdc',
-    }
-    return utils.rgba(_names2hexs[name])
+    return _colors[name if name else 'gray']
 
 
 _kv = (f'''
 #:kivy 1.10.0
 
-<HeaderCell>
-    # font_size: 18
-    size: self.texture_size
-    # size_hint_y: None
-    # height: 50
-    outline_color: {same_rgb(0.01)}
-    width: 50
-    valign: 'middle'
-    halign: 'center'
-    canvas.before:
-        Color:
-            rgb: {same_rgb(0.13)}
-        Rectangle:
-            pos: self.pos
-            size: self.size
-
 <Cell>
     text_size: self.size
     size: self.texture_size
     # font_size: '15'
+    # size_hint_y: None
     font_color: {colorcode('gray')}
     # font_name: 'sans serif'
+    # height: 50
+    # width: 50
     valign: 'middle'
     halign: 'center'
-    # outline_color: {same_rgb(0.01)}
+    outline_color: {same_rgb(0.001)}
     canvas.before:
         Color:
-            rgb: {same_rgb(0.06)}
-        Rectangle:
+            rgb: {same_rgb(0.03)}
+        RoundedRectangle:
             pos: self.pos
             size: self.size
+            radius: [7,]
+
+<HeaderCell@Cell>
+    canvas.before:
+        Color:
+            rgb: {same_rgb(0.12)}
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [7,]
 
 <TickerTable>
     spacing: '5dp'
     row_force_default: True
     row_default_height: 75
-    # size_hint_y: None
-    size_hint: 1, None
     cols: 1
 
 <Row>
@@ -93,8 +89,7 @@ _kv = (f'''
     minimum_width: 200
     row_force_default: True
     row_default_height: 75
-    outline_color: {same_rgb(2)}
-    size_hint: 1, None
+    outline_color: {same_rgb(.7)}
 ''')
 
 
@@ -188,7 +183,9 @@ class TickerTable(GridLayout):
         super(TickerTable, self).__init__(**kwargs)
         self.symbols2rows = {}
 
-    def append_row(self, record, colorname='firebrick'):
+    def append_row(self, record):
+        """Append a `Row` of `Cell` objects to this table.
+        """
         row = Row(record, headers=('symbol',))
         # store ref to each row
         self.symbols2rows[row._last_record['symbol']] = row
@@ -196,19 +193,18 @@ class TickerTable(GridLayout):
         return row
 
 
-def header_row(headers):
+def header_row(headers, **kwargs):
     """Create a single "header" row from a sequence of keys.
     """
-    # process headers via first quote record
     headers_dict = {key: key for key in headers}
-    row = Row(headers_dict, headers=headers)
+    row = Row(headers_dict, headers=headers, **kwargs)
     return row
 
 
 def ticker_table(quotes, **kwargs):
     """Create a new ticker table from a list of quote dicts.
     """
-    table = TickerTable(cols=1)
+    table = TickerTable(cols=1, **kwargs)
     for ticker_record in quotes:
         table.append_row(ticker_record)
     return table
@@ -229,9 +225,9 @@ async def update_quotes(
         chngcell = row._cell_widgets['%']
         daychange = float(data['%'])
         if daychange < 0.:
-            color = colorcode('red')
+            color = colorcode('red2')
         elif daychange > 0.:
-            color = colorcode('green')
+            color = colorcode('forestgreen')
         else:
             color = colorcode('gray')
 
@@ -273,8 +269,6 @@ async def update_quotes(
         for i, (data, row) in enumerate(
             sorted(all_rows, key=lambda item: float(item[0]['%']))
         ):
-            # print(f"{i} {data['symbol']}")
-            # grid.remove_widget(row)
             grid.add_widget(row, index=i)
 
 
@@ -312,12 +306,18 @@ async def _async_main(tickers, brokermod):
 
             # build out UI
             Builder.load_string(_kv)
-            root = BoxLayout(orientation='vertical')
-            header = header_row(first_quotes[0].keys())
+            root = BoxLayout(orientation='vertical', padding=5, spacing=-20)
+            header = header_row(
+                first_quotes[0].keys(),
+                size_hint=(1, None),
+            )
             root.add_widget(header)
-            grid = ticker_table(first_quotes)
+            grid = ticker_table(
+                first_quotes,
+                size_hint=(1, None),
+            )
             grid.bind(minimum_height=grid.setter('height'))
-            scroll = ScrollView(bar_margin=10, viewport_size=(10, 10))
+            scroll = ScrollView()
             scroll.add_widget(grid)
             root.add_widget(scroll)
 
@@ -356,6 +356,7 @@ def run(loglevel, broker):
             'WMD.VN', 'HEMP.VN', 'CALI.CN', 'RBQ.CN',
         ],
     }
-    # broker_conf_path = os.path.join(click.get_app_dir('piker'), 'watchlists.json')
+    # broker_conf_path = os.path.join(
+    #     click.get_app_dir('piker'), 'watchlists.json')
     # from piker.testing import _quote_streamer as brokermod
     trio.run(_async_main, watchlists['cannabis'], brokermod)
