@@ -7,23 +7,20 @@ from importlib import import_module
 import click
 import trio
 
+from ..log import get_logger, get_console_log
+log = get_logger('watchlist')
+
 # use the trio async loop
 os.environ['KIVY_EVENTLOOP'] = 'trio'
 
-from kivy.uix.widget import Widget
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 from kivy.core.window import Window
-from kivy.properties import DictProperty
 from kivy.lang import Builder
 from kivy import utils
 from kivy.app import async_runTouchApp
-
-from ..log import get_logger, get_console_log
-
-log = get_logger('watchlist')
 
 
 def same_rgb(val):
@@ -32,14 +29,17 @@ def same_rgb(val):
 
 def colorcode(name):
     if not name:
-        name = 'darkgray'
+        name = 'gray'
     _names2hexs = {
         'darkgray': 'a9a9a9',
+        'gray': '808080',
         'green': '008000',
-        'red': 'ff3333',
-        'red2': 'ff0000',
+        'red2': 'ff3333',
+        'red': 'ff0000',
         'dark_red': '8b0000',
         'firebrick': 'b22222',
+        'maroon': '800000',
+        'gainsboro': 'dcdcdc',
     }
     return utils.rgba(_names2hexs[name])
 
@@ -48,12 +48,12 @@ _kv = (f'''
 #:kivy 1.10.0
 
 <HeaderCell>
-    # font_size: '15'
+    # font_size: 18
     size: self.texture_size
     # size_hint_y: None
-    # height: '100dp'
+    # height: 50
     outline_color: {same_rgb(0.01)}
-    width: '100dp'
+    width: 50
     valign: 'middle'
     halign: 'center'
     canvas.before:
@@ -67,14 +67,14 @@ _kv = (f'''
     text_size: self.size
     size: self.texture_size
     # font_size: '15'
-    font_color: {colorcode('darkgray')}
+    font_color: {colorcode('gray')}
     # font_name: 'sans serif'
     valign: 'middle'
     halign: 'center'
     # outline_color: {same_rgb(0.01)}
     canvas.before:
         Color:
-            rgb: {same_rgb(0.05)}
+            rgb: {same_rgb(0.06)}
         Rectangle:
             pos: self.pos
             size: self.size
@@ -88,7 +88,7 @@ _kv = (f'''
     cols: 1
 
 <Row>
-    spacing: '4dp'
+    spacing: '6dp'
     minimum_height: 200  # should be pulled from Cell text size
     minimum_width: 200
     row_force_default: True
@@ -103,34 +103,38 @@ _qt_keys = {
     'lastTradePrice': 'last',
     'lastTradeSize': 'last size',
     'askPrice': 'ask',
-    'askSize': 'ask price',
+    'askSize': 'ask size',
     'bidPrice': 'bid',
     'bidSize': 'bid size',
     'volume': 'vol',
-    'VWAP': 'vwap',
+    'VWAP': 'VWAP',
     'high52w': 'high52w',
     'highPrice': 'high',
     # "lastTradePriceTrHrs": 7.99,
     # "lastTradeTick": "Equal",
     # "lastTradeTime": "2018-01-30T18:28:23.434000-05:00",
-    'low52w': 'low52w',
+    # 'low52w': 'low52w',
     'lowPrice': 'low day',
     'openPrice': 'open',
     # "symbolId": 3575753,
     # "tier": "",
-    'isHalted': 'halted',
-    'delay': 'delay',  # as subscript 'p'
+    # 'isHalted': 'halted',
+    # 'delay': 'delay',  # as subscript 'p'
 }
 
 
-def remap_keys(quote, keymap=_qt_keys):
+def remap_keys(quote: dict, keymap: dict = _qt_keys, symbol_data: dict = None):
     """Remap a list of quote dicts ``quotes`` using
     the mapping of old keys -> new keys ``keymap``.
     """
-    open_price = quote['openPrice']
+    if symbol_data:  # we can only compute % change from symbols data
+        previous = symbol_data[quote['symbol']]['prevDayClosePrice']
+        change = (quote['lastTradePrice'] - previous) / previous * 100
+    else:
+        change = 0
     new = {
         'symbol': quote['symbol'],
-        '%': f"{(quote['lastTradePrice'] - open_price) / open_price:10.2f}"
+        '%': f"{change:.2f}"
     }
     for key, new_key in keymap.items():
         value = quote[key]
@@ -205,59 +209,73 @@ def ticker_table(quotes, **kwargs):
     """Create a new ticker table from a list of quote dicts.
     """
     table = TickerTable(cols=1)
-
     for ticker_record in quotes:
         table.append_row(ticker_record)
-
     return table
 
 
-async def update_quotes(widgets, queue):
+async def update_quotes(
+    widgets: dict,
+    queue: trio.Queue,
+    symbol_data: dict,
+    first_quotes: dict
+):
     """Process live quotes by updating ticker rows.
     """
     grid = widgets['grid']
 
+    def color_row(row, data):
+        hdrcell = row._cell_widgets['symbol']
+        chngcell = row._cell_widgets['%']
+        daychange = float(data['%'])
+        if daychange < 0.:
+            color = colorcode('red')
+        elif daychange > 0.:
+            color = colorcode('green')
+        else:
+            color = colorcode('gray')
+
+        chngcell.color = hdrcell.color = color
+
+    # initial coloring
+    all_rows = []
+    for quote in first_quotes:
+        row = grid.symbols2rows[quote['symbol']]
+        all_rows.append((quote, row))
+        color_row(row, quote)
+
     while True:
         log.debug("Waiting on quotes")
         quotes = await queue.get()
-        rows = []
         for quote in quotes:
-            data = remap_keys(quote)
+            data = remap_keys(quote, symbol_data=symbol_data)
             row = grid.symbols2rows[data['symbol']]
-            rows.append((data, row))
-            new = set(data.items()) - set(row._last_record.items())
-            if new:
-                for key, val in filter(lambda item: item[0] != '%', new):
-                    # logic for value coloring: up-green, down-red
-                    if row._last_record[key] < val:
-                        color = colorcode('green')
-                    elif row._last_record[key] > val:
-                        color = colorcode('red2')
 
-                    cell = row._cell_widgets[key]
-                    cell.text = str(val)
-                    cell.color = color
+            # color changed field values
+            for key, val in data.items():
+                # logic for cell text coloring: up-green, down-red
+                if row._last_record[key] < val:
+                    color = colorcode('green')
+                elif row._last_record[key] > val:
+                    color = colorcode('red')
+                else:
+                    color = colorcode('gray')
 
-                row._last_record = data
+                cell = row._cell_widgets[key]
+                cell.text = str(val)
+                cell.color = color
 
-            hdrcell = row._cell_widgets['symbol']
-            chngcell = row._cell_widgets['%']
-            daychange = float(data['%'])
-            if daychange < 0.:
-                color = colorcode('red2')
-                chngcell.color = hdrcell.color = color
-            elif daychange > 0.:
-                color = colorcode('green')
-                chngcell.color = hdrcell.color = color
+            color_row(row, data)
+            row._last_record = data
 
-        # sort rows by % change
-        for i, pair in enumerate(
-            sorted(rows, key=lambda item: float(item[0]['%']))
+        # sort rows by daily % change since open
+        grid.clear_widgets()
+        for i, (data, row) in enumerate(
+            sorted(all_rows, key=lambda item: float(item[0]['%']))
         ):
-            data, row = pair
-            if grid.children[i] != row:
-                grid.remove_widget(row)
-                grid.add_widget(row, index=i)
+            # print(f"{i} {data['symbol']}")
+            # grid.remove_widget(row)
+            grid.add_widget(row, index=i)
 
 
 async def run_kivy(root, nursery):
@@ -276,23 +294,30 @@ async def _async_main(tickers, brokermod):
 
     async with brokermod.get_client() as client:
         async with trio.open_nursery() as nursery:
+            # get long term data including last days close price
+            sd = await client.symbols(tickers)
+
             nursery.start_soon(brokermod.poll_tickers, client, tickers, queue)
 
             # get first quotes response
-            quotes = []
             pkts = await queue.get()
-            for quote in pkts:
-                quotes.append(remap_keys(quote))
+
+            if pkts[0]['lastTradePrice'] is None:
+                log.error("Questrade API is down temporarily")
+                nursery.cancel_scope.cancel()
+                return
+
+            first_quotes = [
+                remap_keys(quote, symbol_data=sd) for quote in pkts]
 
             # build out UI
             Builder.load_string(_kv)
             root = BoxLayout(orientation='vertical')
-            header = header_row(quotes[0].keys())
+            header = header_row(first_quotes[0].keys())
             root.add_widget(header)
-            grid = ticker_table(quotes)
+            grid = ticker_table(first_quotes)
             grid.bind(minimum_height=grid.setter('height'))
-            scroll = ScrollView(
-                size=(Window.width, Window.height), bar_margin=10)
+            scroll = ScrollView(bar_margin=10, viewport_size=(10, 10))
             scroll.add_widget(grid)
             root.add_widget(scroll)
 
@@ -304,7 +329,7 @@ async def _async_main(tickers, brokermod):
             }
 
             nursery.start_soon(run_kivy, widgets['root'], nursery)
-            nursery.start_soon(update_quotes, widgets, queue)
+            nursery.start_soon(update_quotes, widgets, queue, sd, first_quotes)
 
 
 @click.group()
@@ -324,8 +349,11 @@ def run(loglevel, broker):
     watchlists = {
         'cannabis': [
             'EMH.VN', 'LEAF.TO', 'HVT.VN', 'HMMJ.TO', 'APH.TO',
-            'CBW.VN', 'TRST.CN', 'VFF.TO', 'ACB.TO', 'ABCN.VN'
-            'APH.TO', 'MARI.CN', 'WMD.VN', 'LEAF.TO', 'THCX.VN'
+            'CBW.VN', 'TRST.CN', 'VFF.TO', 'ACB.TO', 'ABCN.VN',
+            'APH.TO', 'MARI.CN', 'WMD.VN', 'LEAF.TO', 'THCX.VN',
+            'WEED.TO', 'NINE.VN', 'RTI.VN', 'SNN.CN', 'ACB.TO',
+            'OGI.VN', 'IMH.VN', 'FIRE.VN', 'EAT.CN', 'NUU.VN',
+            'WMD.VN', 'HEMP.VN', 'CALI.CN', 'RBQ.CN',
         ],
     }
     # broker_conf_path = os.path.join(click.get_app_dir('piker'), 'watchlists.json')
