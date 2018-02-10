@@ -2,14 +2,14 @@
 A real-time, sorted watchlist.
 
 Launch with ``piker watch <watchlist name>``.
-"""
-from importlib import import_module
 
-import click
+(Currently there's a bunch of QT specific stuff in here)
+"""
 import trio
 
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
+from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 from kivy.lang import Builder
@@ -17,8 +17,8 @@ from kivy import utils
 from kivy.app import async_runTouchApp
 
 
-from ..cli import cli
-from ..log import get_logger, get_console_log
+from ..calc import humanize
+from ..log import get_logger
 log = get_logger('watchlist')
 
 
@@ -54,24 +54,28 @@ _kv = (f'''
 <Cell>
     text_size: self.size
     size: self.texture_size
-    # font_size: '15'
+    font_size: '18sp'
     # size_hint_y: None
     font_color: {colorcode('gray')}
-    # font_name: 'sans serif'
+    font_name: 'Roboto-Regular'
     # height: 50
     # width: 50
+    background_color: 0,0,0,0
     valign: 'middle'
     halign: 'center'
-    outline_color: {same_rgb(0.001)}
+    # outline_color: {same_rgb(0.001)}
     canvas.before:
         Color:
-            rgb: {same_rgb(0.03)}
+            rgb: {same_rgb(0.05)}
         RoundedRectangle:
             pos: self.pos
             size: self.size
             radius: [7,]
 
-<HeaderCell@Cell>
+<HeaderCell>
+    bold: True
+    font_size: '18sp'
+    background_color: 0,0,0,0
     canvas.before:
         Color:
             rgb: {same_rgb(0.12)}
@@ -97,15 +101,15 @@ _kv = (f'''
 
 
 _qt_keys = {
-    # 'symbol': 'symbol',  # done manually in remap_keys
+    # 'symbol': 'symbol',  # done manually in qtconvert
     'lastTradePrice': 'last',
-    'lastTradeSize': 'last size',
     'askPrice': 'ask',
-    'askSize': 'ask size',
     'bidPrice': 'bid',
+    'lastTradeSize': 'last size',
     'bidSize': 'bid size',
-    'volume': 'vol',
-    'VWAP': 'VWAP',
+    'askSize': 'ask size',
+    'volume': ('vol', humanize),
+    'VWAP': ('VWAP', "{:.3f}".format),
     'high52w': 'high52w',
     'highPrice': 'high',
     # "lastTradePriceTrHrs": 7.99,
@@ -121,7 +125,7 @@ _qt_keys = {
 }
 
 
-def remap_keys(quote: dict, keymap: dict = _qt_keys, symbol_data: dict = None):
+def qtconvert(quote: dict, keymap: dict = _qt_keys, symbol_data: dict = None):
     """Remap a list of quote dicts ``quotes`` using
     the mapping of old keys -> new keys ``keymap``.
     """
@@ -136,18 +140,46 @@ def remap_keys(quote: dict, keymap: dict = _qt_keys, symbol_data: dict = None):
     }
     for key, new_key in keymap.items():
         value = quote[key]
+        if isinstance(new_key, tuple):
+            new_key, func = new_key
+            value = func(value)
+
         new[new_key] = value
 
     return new
 
 
-class HeaderCell(Label):
+class HeaderCell(Button):
     """Column header cell label.
     """
+    def on_press(self, value=None):
+        # clicking on a col header indicates to rows by this column
+        # in `update_quotes()`
+        if self.row.is_header:
+            self.row.table.sort_key = self.key
+
+            last = self.row.table._last_clicked_col_cell
+            if last and last is not self:
+                last.underline = False
+                last.bold = False
+
+            # outline the header text to indicate it's been the last clicked
+            self.underline = True
+            self.bold = True
+            # mark this cell as the last
+            self.row.table._last_clicked_col_cell = self
+
+        # allow highlighting row headers for visual following of
+        # specific tickers
+        elif self.is_header:
+            if self.background_color == self.color:
+                self.background_color = [0]*4
+            else:
+                self.background_color = self.color
 
 
 class Cell(Label):
-    """Data header cell label.
+    """Data cell label.
     """
 
 
@@ -157,16 +189,25 @@ class Row(GridLayout):
     The row fields can be updated using the ``fields`` property which will in
     turn adjust the text color of the values based on content changes.
     """
-    def __init__(self, record, headers=(), cell_type=Cell, **kwargs):
+    def __init__(
+        self, record, headers=(), table=None, is_header_row=False,
+        **kwargs
+    ):
         super(Row, self).__init__(cols=len(record), **kwargs)
         self._cell_widgets = {}
         self._last_record = record
+        self.table = table
+        self.is_header = is_header_row
 
         # build out row using Cell labels
         for key, val in record.items():
             header = key in headers
             cell = self._append_cell(val, header=header)
             self._cell_widgets[key] = cell
+            cell.key = key
+
+    def get_cell(self, key):
+        return self._cell_widgets[key]
 
     def _append_cell(self, text, colorname=None, header=False):
         if not len(self._cell_widgets) < self.cols:
@@ -175,6 +216,8 @@ class Row(GridLayout):
         # header cells just have a different colour
         celltype = HeaderCell if header else Cell
         cell = celltype(text=str(text), color=colorcode(colorname))
+        cell.is_header = header
+        cell.row = self
         self.add_widget(cell)
         return cell
 
@@ -182,14 +225,17 @@ class Row(GridLayout):
 class TickerTable(GridLayout):
     """A grid for displaying ticker quote records as a table.
     """
-    def __init__(self, **kwargs):
+    def __init__(self, sort_key='%', **kwargs):
         super(TickerTable, self).__init__(**kwargs)
         self.symbols2rows = {}
+        self.sort_key = sort_key
+        # for tracking last clicked column header cell
+        self._last_clicked_col_cell = None
 
     def append_row(self, record):
         """Append a `Row` of `Cell` objects to this table.
         """
-        row = Row(record, headers=('symbol',))
+        row = Row(record, headers=('symbol',), table=self)
         # store ref to each row
         self.symbols2rows[row._last_record['symbol']] = row
         self.add_widget(row)
@@ -200,7 +246,7 @@ def header_row(headers, **kwargs):
     """Create a single "header" row from a sequence of keys.
     """
     headers_dict = {key: key for key in headers}
-    row = Row(headers_dict, headers=headers, **kwargs)
+    row = Row(headers_dict, headers=headers, is_header_row=True, **kwargs)
     return row
 
 
@@ -232,23 +278,30 @@ async def update_quotes(
         elif daychange > 0.:
             color = colorcode('forestgreen')
         else:
-            color = colorcode('gray')
+            color = colorcode('darkgray')
 
         chngcell.color = hdrcell.color = color
 
+        # if the cell has been "highlighted" make sure to change its color
+        if hdrcell.background_color != [0]*4:
+            hdrcell.background_color != color
+
     # initial coloring
-    all_rows = []
+    syms2rows = {}
     for quote in first_quotes:
-        row = grid.symbols2rows[quote['symbol']]
-        all_rows.append((quote, row))
+        sym = quote['symbol']
+        row = grid.symbols2rows[sym]
+        syms2rows[sym] = row
         color_row(row, quote)
 
     while True:
         log.debug("Waiting on quotes")
         quotes = await queue.get()
+        datas = []
         for quote in quotes:
-            data = remap_keys(quote, symbol_data=symbol_data)
+            data = qtconvert(quote, symbol_data=symbol_data)
             row = grid.symbols2rows[data['symbol']]
+            datas.append((data, row))
 
             # color changed field values
             for key, val in data.items():
@@ -269,10 +322,13 @@ async def update_quotes(
 
         # sort rows by daily % change since open
         grid.clear_widgets()
+        sort_key = grid.sort_key
         for i, (data, row) in enumerate(
-            sorted(all_rows, key=lambda item: float(item[0]['%']))
+            reversed(sorted(datas, key=lambda item: item[0][sort_key]))
         ):
-            grid.add_widget(row, index=i)
+            grid.add_widget(row)  # row append
+            # print(f'{i} {data["symbol"]} {data["%"]}')
+            # await trio.sleep(0.1)
 
 
 async def run_kivy(root, nursery):
@@ -284,9 +340,10 @@ async def run_kivy(root, nursery):
     nursery.cancel_scope.cancel()
 
 
-async def _async_main(tickers, brokermod):
+async def _async_main(name, watchlists, brokermod):
     '''Launch kivy app + all other related tasks.
     '''
+    tickers = watchlists[name]
     queue = trio.Queue(1000)
 
     async with brokermod.get_client() as client:
@@ -305,7 +362,7 @@ async def _async_main(tickers, brokermod):
                 return
 
             first_quotes = [
-                remap_keys(quote, symbol_data=sd) for quote in pkts]
+                qtconvert(quote, symbol_data=sd) for quote in pkts]
 
             # build out UI
             Builder.load_string(_kv)
@@ -319,6 +376,14 @@ async def _async_main(tickers, brokermod):
                 first_quotes,
                 size_hint=(1, None),
             )
+
+            # associate the col headers row with the ticker table even
+            # though they're technically wrapped separately in containing BoxLayout
+            header.table = grid
+            # mark the initial sorted column header as bold and underlined
+            sort_cell = header.get_cell(grid.sort_key)
+            sort_cell.bold = sort_cell.underline = True
+
             grid.bind(minimum_height=grid.setter('height'))
             scroll = ScrollView()
             scroll.add_widget(grid)

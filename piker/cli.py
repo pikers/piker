@@ -128,4 +128,4 @@ def watch(loglevel, broker, watchlist_name):
     # broker_conf_path = os.path.join(
     #     click.get_app_dir('piker'), 'watchlists.json')
     # from piker.testing import _quote_streamer as brokermod
-    trio.run(_async_main, watchlists[watchlist_name], brokermod)
+    trio.run(_async_main, watchlist_name, watchlists, brokermod)
