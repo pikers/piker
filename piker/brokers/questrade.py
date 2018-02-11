@@ -40,7 +40,8 @@ def resproc(
     try:
         data = resp.json()
     except json.decoder.JSONDecodeError:
-        log.exception(f"Failed to process {resp}")
+        log.exception(f"Failed to process {resp}:\n{resp.text}")
+        raise QuestradeError(resp.text)
     else:
         log.debug(f"Received json contents:\n{colorize_json(data)}")
 
@@ -124,8 +125,12 @@ class Client:
             try:
                 data = await self._new_auth_token()
             except QuestradeError as qterr:
-                # likely config ``refresh_token`` is expired
-                if qterr.args[0].decode() == 'Bad Request':
+                if "We're making some changes" in qterr.args[0]:
+                    # API service is down
+                    raise QuestradeError("API is down for maintenance")
+
+                elif qterr.args[0].decode() == 'Bad Request':
+                    # likely config ``refresh_token`` is expired
                     _token_from_user(self._conf)
                     self._apply_config(self._conf)
                     data = await self._new_auth_token()
