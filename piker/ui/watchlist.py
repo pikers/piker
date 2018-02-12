@@ -45,6 +45,7 @@ _kv = (f'''
     text_size: self.size
     size: self.texture_size
     font_size: '20'
+    color: {colorcode('gray')}
     # size_hint_y: None
     font_color: {colorcode('gray')}
     font_name: 'Roboto-Regular'
@@ -62,9 +63,9 @@ _kv = (f'''
             size: self.size
 
 <HeaderCell>
-    bold: True
+    # bold: True
     font_size: '20'
-    background_color: 0,0,0,0
+    background_color: [0]*4
     canvas.before:
         Color:
             rgb: [0.13]*4
@@ -288,7 +289,7 @@ async def update_quotes(
         elif daychange > 0.:
             color = colorcode('forestgreen')
         else:
-            color = colorcode('darkgray')
+            color = colorcode('gray')
 
         chngcell.color = hdrcell.color = color
 
@@ -296,23 +297,25 @@ async def update_quotes(
         if hdrcell.background_color != [0]*4:
             hdrcell.background_color != color
 
+    cache = {}
+
     # initial coloring
-    syms2rows = {}
     for quote in first_quotes:
         sym = quote['symbol']
         row = grid.symbols2rows[sym]
-        syms2rows[sym] = row
-        color_row(row, quote)
+        data, _ = qtconvert(quote, symbol_data=symbol_data)
+        color_row(row, data)
+        cache[sym] = (data, row)
 
     # the core cell update loop
     while True:
         log.debug("Waiting on quotes")
         quotes = await queue.get()
-        datas = []
         for quote in quotes:
             data, displayable = qtconvert(quote, symbol_data=symbol_data)
             row = grid.symbols2rows[data['symbol']]
-            datas.append((data, row))
+            # only updates newly timestamped quotes
+            cache[data['symbol']] = (data, row)
 
             # color changed field values
             for key, val in data.items():
@@ -334,8 +337,8 @@ async def update_quotes(
         # sort rows by daily % change since open
         grid.clear_widgets()
         sort_key = grid.sort_key
-        for i, (data, row) in enumerate(
-            reversed(sorted(datas, key=lambda item: item[0][sort_key]))
+        for data, row in reversed(
+            sorted(cache.values(), key=lambda item: item[0][sort_key])
         ):
             grid.add_widget(row)  # row append
 
@@ -411,4 +414,4 @@ async def _async_main(name, watchlists, brokermod):
             }
 
             nursery.start_soon(run_kivy, widgets['root'], nursery)
-            nursery.start_soon(update_quotes, widgets, queue, sd, first_quotes)
+            nursery.start_soon(update_quotes, widgets, queue, sd, pkts)
