@@ -297,6 +297,16 @@ async def update_quotes(
         if hdrcell.background_color != [0]*4:
             hdrcell.background_color != color
 
+    def render_rows(pairs, sort_key='%'):
+        """Sort and render all rows on the ticker grid.
+        """
+        grid.clear_widgets()
+        sort_key = grid.sort_key
+        for data, row in reversed(
+            sorted(pairs.values(), key=lambda item: item[0][sort_key])
+        ):
+            grid.add_widget(row)  # row append
+
     cache = {}
 
     # initial coloring
@@ -306,6 +316,8 @@ async def update_quotes(
         data, _ = qtconvert(quote, symbol_data=symbol_data)
         color_row(row, data)
         cache[sym] = (data, row)
+
+    render_rows(cache, grid.sort_key)
 
     # core cell update loop
     while True:
@@ -320,9 +332,9 @@ async def update_quotes(
             for key, val in data.items():
                 # logic for cell text coloring: up-green, down-red
                 if row._last_record[key] < val:
-                    color = colorcode('green')
+                    color = colorcode('forestgreen')
                 elif row._last_record[key] > val:
-                    color = colorcode('red')
+                    color = colorcode('red2')
                 else:
                     color = colorcode('gray')
 
@@ -333,13 +345,7 @@ async def update_quotes(
             color_row(row, data)
             row._last_record = data
 
-        # sort rows by daily % change since open
-        grid.clear_widgets()
-        sort_key = grid.sort_key
-        for data, row in reversed(
-            sorted(cache.values(), key=lambda item: item[0][sort_key])
-        ):
-            grid.add_widget(row)  # row append
+        render_rows(cache, grid.sort_key)
 
 
 async def run_kivy(root, nursery):
