@@ -35,7 +35,8 @@ setup(
     },
     install_requires=[
         'click', 'colorlog', 'trio', 'attrs', 'async_generator',
-        'pygments', 'cython', 'kivy', 'asks', 'pandas',
+        'pygments', 'cython', 'asks', 'pandas',
+        #'kivy',  see requirement.txt; using a custom branch atm
     ],
     extras_require={
         'questrade': ['asks'],
