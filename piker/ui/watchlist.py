@@ -38,6 +38,9 @@ def colorcode(name):
     return _colors[name if name else 'gray']
 
 
+# border size
+_bs = 5
+
 _kv = (f'''
 #:kivy 1.10.0
 
@@ -58,7 +61,7 @@ _kv = (f'''
     canvas.before:
         Color:
             rgb: [0.08]*4
-        Rectangle:
+        BorderImage:
             pos: self.pos
             size: self.size
 
@@ -68,17 +71,14 @@ _kv = (f'''
     background_color: [0]*4
     canvas.before:
         Color:
-            rgb: [0.13]*4
-        Rectangle:
+            rgb: [0.14]*4
+        BorderImage:  # use a fixed size border
             pos: self.pos
-            size: self.size
-        # RoundedRectangle:
-        #     pos: self.pos
-        #     size: self.size
-        #     radius: [8,]
+            size: [self.size[0] - {_bs}, self.size[1]]
+            border: [0, {_bs} , 0, {_bs}]
 
 <TickerTable>
-    spacing: '5dp'
+    spacing: '{_bs}dp'
     row_force_default: True
     row_default_height: 75
     cols: 1
@@ -307,14 +307,13 @@ async def update_quotes(
         color_row(row, data)
         cache[sym] = (data, row)
 
-    # the core cell update loop
+    # core cell update loop
     while True:
         log.debug("Waiting on quotes")
-        quotes = await queue.get()
+        quotes = await queue.get()  # new quotes data only
         for quote in quotes:
             data, displayable = qtconvert(quote, symbol_data=symbol_data)
             row = grid.symbols2rows[data['symbol']]
-            # only updates newly timestamped quotes
             cache[data['symbol']] = (data, row)
 
             # color changed field values
@@ -346,10 +345,8 @@ async def update_quotes(
 async def run_kivy(root, nursery):
     '''Trio-kivy entry point.
     '''
-    # run kivy
-    await async_runTouchApp(root)
-    # now cancel all the other tasks that may be running
-    nursery.cancel_scope.cancel()
+    await async_runTouchApp(root)  # run kivy
+    nursery.cancel_scope.cancel()  # cancel all other tasks that may be running
 
 
 async def _async_main(name, watchlists, brokermod):
@@ -384,15 +381,12 @@ async def _async_main(name, watchlists, brokermod):
             header = header_row(
                 first_quotes[0].keys(),
                 size_hint=(1, None),
-                # put black lines between cells on the header row
-                spacing='3dp',
             )
             root.add_widget(header)
             grid = ticker_table(
                 first_quotes,
                 size_hint=(1, None),
             )
-
             # associate the col headers row with the ticker table even though
             # they're technically wrapped separately in containing BoxLayout
             header.table = grid
@@ -401,6 +395,7 @@ async def _async_main(name, watchlists, brokermod):
             sort_cell.bold = sort_cell.underline = True
             grid.last_clicked_col_cell = sort_cell
 
+            # set up a scroll view for large ticker lists
             grid.bind(minimum_height=grid.setter('height'))
             scroll = ScrollView()
             scroll.add_widget(grid)
@@ -412,6 +407,5 @@ async def _async_main(name, watchlists, brokermod):
                 'header': header,
                 'scroll': scroll,
             }
-
             nursery.start_soon(run_kivy, widgets['root'], nursery)
             nursery.start_soon(update_quotes, widgets, queue, sd, pkts)
