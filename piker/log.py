@@ -1,6 +1,5 @@
 """
 Log like a forester!
-(You can't usually find stupid suits in the forest)
 """
 import sys
 import logging
@@ -12,7 +11,7 @@ _proj_name = 'piker'
 
 # Super sexy formatting thanks to ``colorlog``.
 # (NOTE: we use the '{' format style)
-# Here, `thin_white` is just the laymen's gray.
+# Here, `thin_white` is just the layperson's gray.
 LOG_FORMAT = (
     # "{bold_white}{log_color}{asctime}{reset}"
     "{log_color}{asctime}{reset}"

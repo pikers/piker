@@ -40,7 +40,8 @@ def resproc(
     try:
         data = resp.json()
     except json.decoder.JSONDecodeError:
-        log.exception(f"Failed to process {resp}")
+        log.exception(f"Failed to process {resp}:\n{resp.text}")
+        raise QuestradeError(resp.text)
     else:
         log.debug(f"Received json contents:\n{colorize_json(data)}")
 
@@ -49,11 +50,13 @@ def resproc(
 
 class Client:
     """API client suitable for use as a long running broker daemon or
-    for single api requests.
+    single api requests.
+
+    Provides a high-level api which wraps the underlying endpoint calls.
     """
     def __init__(self, config: 'configparser.ConfigParser'):
         self._sess = asks.Session()
-        self.api = API(self._sess)
+        self.api = _API(self._sess)
         self._conf = config
         self.access_data = {}
         self.user_data = {}
@@ -122,8 +125,12 @@ class Client:
             try:
                 data = await self._new_auth_token()
             except QuestradeError as qterr:
-                # likely config ``refresh_token`` is expired
-                if qterr.args[0].decode() == 'Bad Request':
+                if "We're making some changes" in qterr.args[0]:
+                    # API service is down
+                    raise QuestradeError("API is down for maintenance")
+
+                elif qterr.args[0].decode() == 'Bad Request':
+                    # likely config ``refresh_token`` is expired
                     _token_from_user(self._conf)
                     self._apply_config(self._conf)
                     data = await self._new_auth_token()
@@ -151,9 +158,28 @@ class Client:
 
         return symbols2ids
 
+    async def quote(self, tickers):
+        """Return quotes for each ticker in ``tickers``.
+        """
+        t2ids = await self.tickers2ids(tickers)
+        ids = ','.join(map(str, t2ids.values()))
+        return (await self.api.quotes(ids=ids))['quotes']
 
-class API:
-    """Questrade API at its finest.
+    async def symbols(self, tickers):
+        """Return quotes for each ticker in ``tickers``.
+        """
+        t2ids = await self.tickers2ids(tickers)
+        ids = ','.join(map(str, t2ids.values()))
+        symbols = {}
+        for pkt in (await self.api.symbols(ids=ids))['symbols']:
+            symbols[pkt['symbol']] = pkt
+
+        return symbols
+
+
+class _API:
+    """Questrade API endpoints exposed as methods and wrapped with an
+    http session.
     """
     def __init__(self, session: asks.Session):
         self._sess = session
@@ -183,6 +209,15 @@ class API:
     async def quotes(self, ids: str) -> dict:
         return await self._request('markets/quotes', params={'ids': ids})
 
+    async def candles(self, id: str, start: str, end, interval) -> dict:
+        return await self._request(f'markets/candles/{id}', params={})
+
+    async def balances(self, id: str) -> dict:
+        return await self._request(f'accounts/{id}/balances')
+
+    async def postions(self, id: str) -> dict:
+        return await self._request(f'accounts/{id}/positions')
+
 
 async def token_refresher(client):
     """Coninually refresh the ``access_token`` near its expiry time.
@@ -194,7 +229,8 @@ async def token_refresher(client):
 
 
 def _token_from_user(conf: 'configparser.ConfigParser') -> None:
-    # get from user
+    """Get API token from the user on the console.
+    """
     refresh_token = input("Please provide your Questrade access token: ")
     conf['questrade'] = {'refresh_token': refresh_token}
 
@@ -261,21 +297,55 @@ async def serve_forever(tasks) -> None:
                 nursery.start_soon(task, client)
 
 
-async def poll_tickers(client, tickers, rate=2):
-    """Auto-poll snap quotes for a sequence of tickers at the given ``rate``
+async def poll_tickers(
+    client: Client, tickers: [str],
+    q: trio.Queue,
+    rate: int = 3,
+    cache: bool = False,  # only deliver "new" changes to the queue
+) -> None:
+    """Stream quotes for a sequence of tickers at the given ``rate``
     per second.
     """
     t2ids = await client.tickers2ids(tickers)
-    sleeptime = 1. / rate
     ids = ','.join(map(str, t2ids.values()))
+    sleeptime = 1. / rate
+    _cache = {}
 
     while True:  # use an event here to trigger exit?
-        quote_data = await client.api.quotes(ids=ids)
-        await trio.sleep(sleeptime)
+        quotes_resp = await client.api.quotes(ids=ids)
+        start = time.time()
+        quotes = quotes_resp['quotes']
+        # log.trace(quotes)
+
+        payload = []
+        for quote in quotes:
+
+            if quote['delay'] > 0:
+                log.warning(f"Delayed quote:\n{quote}")
+
+            if cache:  # if cache is enabled then only deliver "new" changes
+                symbol = quote['symbol']
+                last = _cache.setdefault(symbol, {})
+                new = set(quote.items()) - set(last.items())
+                if new:
+                    log.debug(f"New quote {symbol} data:\n{new}")
+                    _cache[symbol] = quote
+                    payload.append(quote)
+            else:
+                payload.append(quote)
+
+        if payload:
+            q.put_nowait(payload)
+
+        proc_time = time.time() - start
+        delay = sleeptime - proc_time
+        if delay <= 0:
+            log.warn(f"Took {proc_time} seconds for processing quotes?")
+        await trio.sleep(delay)
 
 
-async def api(methname, **kwargs) -> dict:
-    """Make (proxy) through an api call by name and return its result.
+async def api(methname: str, **kwargs) -> dict:
+    """Make (proxy through) an api call by name and return its result.
     """
     async with get_client() as client:
         meth = getattr(client.api, methname, None)
@@ -292,3 +362,10 @@ async def api(methname, **kwargs) -> dict:
                 return
 
         return await meth(**kwargs)
+
+
+async def quote(tickers: [str]) -> dict:
+    """Return quotes dict for ``tickers``.
+    """
+    async with get_client() as client:
+        return await client.quote(tickers)
