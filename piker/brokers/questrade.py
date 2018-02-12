@@ -300,8 +300,8 @@ async def serve_forever(tasks) -> None:
 async def poll_tickers(
     client: Client, tickers: [str],
     q: trio.Queue,
-    rate: int = 3,
-    cache: bool = False,  # only deliver "new" changes to the queue
+    rate: int = 5,  # 200ms delay between quotes
+    time_cached: bool = True,  # only deliver "new" quotes to the queue
 ) -> None:
     """Stream quotes for a sequence of tickers at the given ``rate``
     per second.
@@ -323,12 +323,13 @@ async def poll_tickers(
             if quote['delay'] > 0:
                 log.warning(f"Delayed quote:\n{quote}")
 
-            if cache:  # if cache is enabled then only deliver "new" changes
+            if time_cached:  # if cache is enabled then only deliver "new" changes
                 symbol = quote['symbol']
                 last = _cache.setdefault(symbol, {})
-                new = set(quote.items()) - set(last.items())
-                if new:
-                    log.debug(f"New quote {symbol} data:\n{new}")
+                timekey = 'lastTradeTime'
+                if quote[timekey] != last.get(timekey):
+                    log.info(
+                        f"New quote {quote['symbol']} @ {quote[timekey]}")
                     _cache[symbol] = quote
                     payload.append(quote)
             else:
