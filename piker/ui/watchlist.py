@@ -310,7 +310,7 @@ async def update_quotes(
 
         # if the cell has been "highlighted" make sure to change its color
         if hdrcell.background_color != [0]*4:
-            hdrcell.background_color != color
+            hdrcell.background_color = color
 
     cache = {}
     grid.quote_cache = cache
