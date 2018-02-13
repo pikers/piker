@@ -39,7 +39,8 @@ def colorcode(name):
 
 
 # border size
-_bs = 5
+_bs = 3
+_color = [0.14]*4  # nice shade of gray
 
 _kv = (f'''
 #:kivy 1.10.0
@@ -60,21 +61,21 @@ _kv = (f'''
     outline_color: [0.1]*4
     canvas.before:
         Color:
-            rgb: [0.08]*4
+            rgb: {_color}
         BorderImage:
             pos: self.pos
             size: self.size
 
 <HeaderCell>
-    # bold: True
     font_size: '20'
     background_color: [0]*4
     canvas.before:
         Color:
-            rgb: [0.14]*4
+            rgb: {_color}
         BorderImage:  # use a fixed size border
             pos: self.pos
             size: [self.size[0] - {_bs}, self.size[1]]
+            # 0s are because the containing TickerTable already has spacing
             border: [0, {_bs} , 0, {_bs}]
 
 <TickerTable>
@@ -162,10 +163,11 @@ class HeaderCell(Button):
     def on_press(self, value=None):
         # clicking on a col header indicates to rows by this column
         # in `update_quotes()`
+        table = self.row.table
         if self.row.is_header:
-            self.row.table.sort_key = self.key
+            table.sort_key = self.key
 
-            last = self.row.table.last_clicked_col_cell
+            last = table.last_clicked_col_cell
             if last and last is not self:
                 last.underline = False
                 last.bold = False
@@ -174,7 +176,9 @@ class HeaderCell(Button):
             self.underline = True
             self.bold = True
             # mark this cell as the last
-            self.row.table.last_clicked_col_cell = self
+            table.last_clicked_col_cell = self
+            # sort and render the rows immediately
+            self.row.table.render_rows(table.quote_cache)
 
         # allow highlighting of row headers for tracking
         elif self.is_header:
@@ -236,10 +240,11 @@ class Row(GridLayout):
 class TickerTable(GridLayout):
     """A grid for displaying ticker quote records as a table.
     """
-    def __init__(self, sort_key='%', **kwargs):
+    def __init__(self, sort_key='%', quote_cache={}, **kwargs):
         super(TickerTable, self).__init__(**kwargs)
         self.symbols2rows = {}
         self.sort_key = sort_key
+        self.quote_cache = quote_cache
         # for tracking last clicked column header cell
         self.last_clicked_col_cell = None
 
@@ -251,6 +256,16 @@ class TickerTable(GridLayout):
         self.symbols2rows[row._last_record['symbol']] = row
         self.add_widget(row)
         return row
+
+    def render_rows(self, pairs: (dict, Row), sort_key: str = None):
+        """Sort and render all rows on the ticker grid from ``pairs``.
+        """
+        self.clear_widgets()
+        sort_key = sort_key or self.sort_key
+        for data, row in reversed(
+            sorted(pairs.values(), key=lambda item: item[0][sort_key])
+        ):
+            self.add_widget(row)  # row append
 
 
 def header_row(headers, **kwargs):
@@ -297,17 +312,8 @@ async def update_quotes(
         if hdrcell.background_color != [0]*4:
             hdrcell.background_color != color
 
-    def render_rows(pairs, sort_key='%'):
-        """Sort and render all rows on the ticker grid.
-        """
-        grid.clear_widgets()
-        sort_key = grid.sort_key
-        for data, row in reversed(
-            sorted(pairs.values(), key=lambda item: item[0][sort_key])
-        ):
-            grid.add_widget(row)  # row append
-
     cache = {}
+    grid.quote_cache = cache
 
     # initial coloring
     for quote in first_quotes:
@@ -317,7 +323,7 @@ async def update_quotes(
         color_row(row, data)
         cache[sym] = (data, row)
 
-    render_rows(cache, grid.sort_key)
+    grid.render_rows(cache)
 
     # core cell update loop
     while True:
@@ -345,7 +351,7 @@ async def update_quotes(
             color_row(row, data)
             row._last_record = data
 
-        render_rows(cache, grid.sort_key)
+        grid.render_rows(cache)
 
 
 async def run_kivy(root, nursery):
