@@ -328,8 +328,9 @@ async def poll_tickers(
                 last = _cache.setdefault(symbol, {})
                 timekey = 'lastTradeTime'
                 if quote[timekey] != last.get(timekey):
+                    new = set(quote.items()) - set(last.items())
                     log.info(
-                        f"New quote {quote['symbol']} @ {quote[timekey]}")
+                        f"New quote {quote['symbol']} @ {quote[timekey]}:\n{new}")
                     _cache[symbol] = quote
                     payload.append(quote)
             else:
@@ -342,7 +343,8 @@ async def poll_tickers(
         delay = sleeptime - proc_time
         if delay <= 0:
             log.warn(f"Took {proc_time} seconds for processing quotes?")
-        await trio.sleep(delay)
+        else:
+            await trio.sleep(delay)
 
 
 async def api(methname: str, **kwargs) -> dict:
