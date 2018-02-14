@@ -9,6 +9,10 @@ def humanize(number):
     """Convert large numbers to something with at most 3 digits and
     a letter suffix (eg. k: thousand, M: million, B: billion).
     """
+    try:
+        float(number)
+    except ValueError:
+        return 0
     if not number or number <= 0:
         return number
     mag2suffix = {3: 'k', 6: 'M', 9: 'B'}
