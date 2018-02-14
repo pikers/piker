@@ -301,7 +301,7 @@ async def poll_tickers(
     client: Client, tickers: [str],
     q: trio.Queue,
     rate: int = 5,  # 200ms delay between quotes
-    time_cached: bool = True,  # only deliver "new" quotes to the queue
+    diff_cached: bool = True,  # only deliver "new" quotes to the queue
 ) -> None:
     """Stream quotes for a sequence of tickers at the given ``rate``
     per second.
@@ -323,13 +323,14 @@ async def poll_tickers(
             if quote['delay'] > 0:
                 log.warning(f"Delayed quote:\n{quote}")
 
-            if time_cached:  # if cache is enabled then only deliver "new" changes
+            if diff_cached:
+                # if cache is enabled then only deliver "new" changes
                 symbol = quote['symbol']
                 last = _cache.setdefault(symbol, {})
-                timekey = 'lastTradeTime'
-                if quote[timekey] != last.get(timekey):
+                new = set(quote.items()) - set(last.items())
+                if new:
                     log.info(
-                        f"New quote {quote['symbol']} @ {quote[timekey]}")
+                        f"New quote {quote['symbol']}:\n{new}")
                     _cache[symbol] = quote
                     payload.append(quote)
             else:
@@ -342,7 +343,8 @@ async def poll_tickers(
         delay = sleeptime - proc_time
         if delay <= 0:
             log.warn(f"Took {proc_time} seconds for processing quotes?")
-        await trio.sleep(delay)
+        else:
+            await trio.sleep(delay)
 
 
 async def api(methname: str, **kwargs) -> dict:

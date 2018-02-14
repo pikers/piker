@@ -9,12 +9,18 @@ def humanize(number):
     """Convert large numbers to something with at most 3 digits and
     a letter suffix (eg. k: thousand, M: million, B: billion).
     """
-    if number <= 0:
+    try:
+        float(number)
+    except ValueError:
+        return 0
+    if not number or number <= 0:
         return number
     mag2suffix = {3: 'k', 6: 'M', 9: 'B'}
     mag = math.floor(math.log(number, 10))
+    if mag < 3:
+        return number
     maxmag = max(itertools.takewhile(lambda key: mag >= key, mag2suffix))
-    return "{:.3f}{}".format(number/10**maxmag, mag2suffix[maxmag])
+    return "{:.2f}{}".format(number/10**maxmag, mag2suffix[maxmag])
 
 
 def percent_change(init, new):
