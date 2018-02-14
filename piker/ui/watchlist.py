@@ -41,15 +41,13 @@ def colorcode(name):
     return _colors[name if name else 'gray']
 
 
-# border size
-_bs = 3
+_bs = 3  # border size
 _color = [0.13]*3  # nice shade of gray
-
 _kv = (f'''
 #:kivy 1.10.0
 
 <Cell>
-    font_size: 20
+    font_size: 18
     text_size: self.size
     size: self.texture_size
     color: {colorcode('gray')}
@@ -62,7 +60,7 @@ _kv = (f'''
     outline_color: [0.1]*4
 
 <HeaderCell>
-    font_size: 21
+    font_size: 20
     background_color: [0]*4
     canvas.before:
         Color:
@@ -91,17 +89,19 @@ _kv = (f'''
 ''')
 
 
-# Questrade key conversion
+# Questrade key conversion / column order
 _qt_keys = {
-    # 'symbol': 'symbol',  # done manually in qtconvert
+    'symbol': 'symbol',  # done manually in qtconvert
+    '%': '%',
     'lastTradePrice': 'last',
     'askPrice': 'ask',
     'bidPrice': 'bid',
     'lastTradeSize': 'size',
     'bidSize': 'bsize',
     'askSize': 'asize',
-    'volume': ('vol', humanize),
     'VWAP': ('VWAP', partial(round, ndigits=3)),
+    'volume': ('vol', humanize),
+    'mktcap': ('mktcap', humanize),
     'openPrice': 'open',
     'lowPrice': 'low',
     'highPrice': 'high',
@@ -127,19 +127,25 @@ def qtconvert(
     and the second is the same but with all values converted to a
     "display-friendly" string format.
     """
+    last = quote['lastTradePrice']
+    symbol = quote['symbol']
     if symbol_data:  # we can only compute % change from symbols data
-        previous = symbol_data[quote['symbol']]['prevDayClosePrice']
-        change = percent_change(previous, quote['lastTradePrice'])
+        previous = symbol_data[symbol]['prevDayClosePrice']
+        change = percent_change(previous, last)
+        share_count = symbol_data[symbol].get('outstandingShares', None)
+        mktcap = share_count * last if share_count else 'NA'
     else:
         change = 0
-    new = {
+    computed = {
         'symbol': quote['symbol'],
-        '%': round(change, 3)
+        '%': round(change, 3),
+        'mktcap': mktcap,
     }
-    displayable = new.copy()
+    new = {}
+    displayable = {}
 
     for key, new_key in keymap.items():
-        display_value = value = quote[key]
+        display_value = value = quote.get(key) or computed.get(key)
 
         # API servers can return `None` vals when markets are closed (weekend)
         value = 0 if value is None else value
@@ -263,7 +269,6 @@ class Row(GridLayout):
             'last': ['bid', 'ask'],
             'size': ['bsize', 'asize']
         }
-        # import pdb; pdb.set_trace()
         ba_cells = {}
         layouts = {}
         for key, children in bidasks.items():
@@ -308,6 +313,23 @@ class Row(GridLayout):
         cell.row = self
         self.add_widget(cell)
         return cell
+
+    def update(self, record, displayable):
+        # color changed field values
+        for key, val in record.items():
+            # logic for cell text coloring: up-green, down-red
+            if self._last_record[key] < val:
+                color = colorcode('forestgreen')
+            elif self._last_record[key] > val:
+                color = colorcode('red2')
+            else:
+                color = colorcode('gray')
+
+            cell = self.get_cell(key)
+            cell.text = str(displayable[key])
+            cell.color = color
+
+        self._last_record = record
 
 
 class TickerTable(GridLayout):
@@ -392,9 +414,10 @@ async def update_quotes(
     for quote in first_quotes:
         sym = quote['symbol']
         row = grid.symbols2rows[sym]
-        data, displayable = qtconvert(quote, symbol_data=symbol_data)
-        color_row(row, data)
-        cache[sym] = (data, row)
+        record, displayable = qtconvert(quote, symbol_data=symbol_data)
+        row.update(record, displayable)
+        color_row(row, record)
+        cache[sym] = (record, row)
 
     grid.render_rows(cache)
 
@@ -403,26 +426,11 @@ async def update_quotes(
         log.debug("Waiting on quotes")
         quotes = await queue.get()  # new quotes data only
         for quote in quotes:
-            data, displayable = qtconvert(quote, symbol_data=symbol_data)
-            row = grid.symbols2rows[data['symbol']]
-            cache[data['symbol']] = (data, row)
-
-            # color changed field values
-            for key, val in data.items():
-                # logic for cell text coloring: up-green, down-red
-                if row._last_record[key] < val:
-                    color = colorcode('forestgreen')
-                elif row._last_record[key] > val:
-                    color = colorcode('red2')
-                else:
-                    color = colorcode('gray')
-
-                cell = row.get_cell(key)
-                cell.text = str(displayable[key])
-                cell.color = color
-
-            color_row(row, data)
-            row._last_record = data
+            record, displayable = qtconvert(quote, symbol_data=symbol_data)
+            row = grid.symbols2rows[record['symbol']]
+            cache[record['symbol']] = (record, row)
+            row.update(record, displayable)
+            color_row(row, record)
 
         grid.render_rows(cache)
 
@@ -458,7 +466,7 @@ async def _async_main(name, watchlists, brokermod):
                 return
 
             first_quotes = [
-                qtconvert(quote, symbol_data=sd)[1] for quote in pkts]
+                qtconvert(quote, symbol_data=sd)[0] for quote in pkts]
 
             # build out UI
             Builder.load_string(_kv)
