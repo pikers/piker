@@ -125,15 +125,16 @@ class Client:
             try:
                 data = await self._new_auth_token()
             except QuestradeError as qterr:
-                if "We're making some changes" in qterr.args[0]:
+                if "We're making some changes" in str(qterr.args[0]):
                     # API service is down
                     raise QuestradeError("API is down for maintenance")
-
                 elif qterr.args[0].decode() == 'Bad Request':
                     # likely config ``refresh_token`` is expired
                     _token_from_user(self._conf)
                     self._apply_config(self._conf)
                     data = await self._new_auth_token()
+                else:
+                    raise qterr
 
             # store absolute token expiry time
             self.access_data['expires_at'] = time.time() + float(
