@@ -5,11 +5,14 @@ Launch with ``piker watch <watchlist name>``.
 
 (Currently there's a bunch of QT specific stuff in here)
 """
+from itertools import chain
+from functools import partial
+
 import trio
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
+from kivy.uix.stacklayout import StackLayout
 from kivy.uix.button import Button
-from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 from kivy.lang import Builder
 from kivy import utils
@@ -40,34 +43,26 @@ def colorcode(name):
 
 # border size
 _bs = 3
-_color = [0.14]*4  # nice shade of gray
+_color = [0.13]*3  # nice shade of gray
 
 _kv = (f'''
 #:kivy 1.10.0
 
 <Cell>
+    font_size: 20
     text_size: self.size
     size: self.texture_size
-    font_size: '20'
     color: {colorcode('gray')}
-    # size_hint_y: None
     font_color: {colorcode('gray')}
     font_name: 'Roboto-Regular'
-    # height: 50
-    # width: 50
-    background_color: [0]*4
+    background_color: [0.13]*3 + [1]
+    background_normal: ''
     valign: 'middle'
     halign: 'center'
     outline_color: [0.1]*4
-    canvas.before:
-        Color:
-            rgb: {_color}
-        BorderImage:
-            pos: self.pos
-            size: self.size
 
 <HeaderCell>
-    font_size: '20'
+    font_size: 21
     background_color: [0]*4
     canvas.before:
         Color:
@@ -84,11 +79,14 @@ _kv = (f'''
     row_default_height: 75
     cols: 1
 
+<BidAskLayout>
+    spacing: [{_bs}, 0]
+
 <Row>
-    minimum_height: 200  # should be pulled from Cell text size
-    minimum_width: 200
-    row_force_default: True
-    row_default_height: 75
+    # minimum_height: 200  # should be pulled from Cell text size
+    # minimum_width: 200
+    # row_force_default: True
+    # row_default_height: 75
     outline_color: [.7]*4
 ''')
 
@@ -99,19 +97,19 @@ _qt_keys = {
     'lastTradePrice': 'last',
     'askPrice': 'ask',
     'bidPrice': 'bid',
-    'lastTradeSize': 'last size',
-    'bidSize': 'bid size',
-    'askSize': 'ask size',
+    'lastTradeSize': 'size',
+    'bidSize': 'bsize',
+    'askSize': 'asize',
     'volume': ('vol', humanize),
-    'VWAP': ('VWAP', "{:.3f}".format),
-    'high52w': 'high52w',
+    'VWAP': ('VWAP', partial(round, ndigits=3)),
+    'openPrice': 'open',
+    'lowPrice': 'low',
     'highPrice': 'high',
+    'low52w': 'low52w',
+    'high52w': 'high52w',
     # "lastTradePriceTrHrs": 7.99,
     # "lastTradeTick": "Equal",
     # "lastTradeTime": "2018-01-30T18:28:23.434000-05:00",
-    # 'low52w': 'low52w',
-    'lowPrice': 'low day',
-    'openPrice': 'open',
     # "symbolId": 3575753,
     # "tier": "",
     # 'isHalted': 'halted',
@@ -188,9 +186,60 @@ class HeaderCell(Button):
                 self.background_color = self.color
 
 
-class Cell(Label):
-    """Data cell label.
+class Cell(Button):
+    """Data cell.
     """
+
+
+class BidAskLayout(StackLayout):
+    """Cell which houses three buttons containing a last, bid, and ask in a
+    single unit oriented with the last 2 under the first.
+    """
+    def __init__(self, values, header=False, **kwargs):
+        super(BidAskLayout, self).__init__(orientation='lr-tb', **kwargs)
+        assert len(values) == 3, "You can only provide 3 values: last,bid,ask"
+        self._keys2cells = {}
+        cell_type = HeaderCell if header else Cell
+        top_size = cell_type().font_size
+        small_size = top_size - 5
+        top_prop = 0.7
+        bottom_prop = 1 - top_prop
+        for (key, size_hint, font_size), value in zip(
+            [('last', (1, top_prop), top_size),
+             ('bid', (0.5, bottom_prop), small_size),
+             ('ask', (0.5, bottom_prop), small_size)],
+            values
+        ):
+            cell = cell_type(
+                text=str(value),
+                size_hint=size_hint,
+                width=self.width/2 - 3,
+                font_size=font_size
+            )
+            self._keys2cells[key] = cell
+            cell.key = value
+            cell.is_header = header
+            setattr(self, key, cell)
+            self.add_widget(cell)
+
+        # should be assigned by referrer
+        self.row = None
+
+    def get_cell(self, key):
+        return self._keys2cells[key]
+
+    @property
+    def row(self):
+        return self.row
+
+    @row.setter
+    def row(self, row):
+        for cell in self.cells:
+            cell.row = row
+
+    @property
+    def cells(self):
+        return [self.last, self.bid, self.ask]
 
 
 class Row(GridLayout):
@@ -209,12 +258,41 @@ class Row(GridLayout):
         self.table = table
         self.is_header = is_header_row
 
+        # create `BidAskCells` first
+        bidasks = {
+            'last': ['bid', 'ask'],
+            'size': ['bsize', 'asize']
+        }
+        # import pdb; pdb.set_trace()
+        ba_cells = {}
+        layouts = {}
+        for key, children in bidasks.items():
+            layout = BidAskLayout(
+                [record[key]] + [record[child] for child in children],
+                header=is_header_row
+            )
+            layout.row = self
+            layouts[key] = layout
+            for i, child in enumerate([key] + children):
+                ba_cells[child] = layout.cells[i]
+
+        children_flat = list(chain.from_iterable(bidasks.values()))
+        self._cell_widgets.update(ba_cells)
+
         # build out row using Cell labels
         for (key, val) in record.items():
             header = key in headers
-            cell = self._append_cell(val, header=header)
-            self._cell_widgets[key] = cell
-            cell.key = key
+
+            # handle bidask cells
+            if key in layouts:
+                self.add_widget(layouts[key])
+            elif key in children_flat:
+                # these cells have already been added to the `BidAskLayout`
+                continue
+            else:
+                cell = self._append_cell(val, header=header)
+                cell.key = key
+                self._cell_widgets[key] = cell
 
     def get_cell(self, key):
         return self._cell_widgets[key]
@@ -228,11 +306,6 @@ class Row(GridLayout):
         cell = celltype(text=str(text))
         cell.is_header = header
         cell.row = self
-
-        # don't bold the header row
-        if header and self.is_header:
-            cell.bold = False
-
         self.add_widget(cell)
         return cell
 
@@ -296,8 +369,8 @@ async def update_quotes(
     grid = widgets['grid']
 
     def color_row(row, data):
-        hdrcell = row._cell_widgets['symbol']
-        chngcell = row._cell_widgets['%']
+        hdrcell = row.get_cell('symbol')
+        chngcell = row.get_cell('%')
         daychange = float(data['%'])
         if daychange < 0.:
             color = colorcode('red2')
@@ -319,7 +392,7 @@ async def update_quotes(
     for quote in first_quotes:
         sym = quote['symbol']
         row = grid.symbols2rows[sym]
-        data, _ = qtconvert(quote, symbol_data=symbol_data)
+        data, displayable = qtconvert(quote, symbol_data=symbol_data)
         color_row(row, data)
         cache[sym] = (data, row)
 
@@ -344,7 +417,7 @@ async def update_quotes(
                 else:
                     color = colorcode('gray')
 
-                cell = row._cell_widgets[key]
+                cell = row.get_cell(key)
                 cell.text = str(displayable[key])
                 cell.color = color
 
@@ -385,11 +458,11 @@ async def _async_main(name, watchlists, brokermod):
                 return
 
             first_quotes = [
-                qtconvert(quote, symbol_data=sd)[0] for quote in pkts]
+                qtconvert(quote, symbol_data=sd)[1] for quote in pkts]
 
             # build out UI
             Builder.load_string(_kv)
-            root = BoxLayout(orientation='vertical', padding=5, spacing=-20)
+            root = BoxLayout(orientation='vertical', padding=5, spacing=5)
             header = header_row(
                 first_quotes[0].keys(),
                 size_hint=(1, None),
