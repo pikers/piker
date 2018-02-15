@@ -60,9 +60,10 @@ class Client:
         self._conf = config
         self.access_data = {}
         self.user_data = {}
-        self._apply_config(config)
+        self._reload_config(config)
 
-    def _apply_config(self, config):
+    def _reload_config(self, config=None):
+        self._conf = config or get_config()
         self.access_data = dict(self._conf['questrade'])
 
     async def _new_auth_token(self) -> dict:
@@ -130,8 +131,7 @@ class Client:
                     raise QuestradeError("API is down for maintenance")
                 elif qterr.args[0].decode() == 'Bad Request':
                     # likely config ``refresh_token`` is expired
-                    _token_from_user(self._conf)
-                    self._apply_config(self._conf)
+                    self._reload_config()
                     data = await self._new_auth_token()
                 else:
                     raise qterr
@@ -313,7 +313,14 @@ async def poll_tickers(
     _cache = {}
 
     while True:  # use an event here to trigger exit?
-        quotes_resp = await client.api.quotes(ids=ids)
+        try:
+            quotes_resp = await client.api.quotes(ids=ids)
+        except QuestradeError as qterr:
+            if "Access token is invalid" in str(qterr.args[0]):
+                # out-of-process piker may have renewed already
+                client._reload_config()
+                quotes_resp = await client.api.quotes(ids=ids)
+
         start = time.time()
         quotes = quotes_resp['quotes']
         # log.trace(quotes)
