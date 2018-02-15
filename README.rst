@@ -1,6 +1,6 @@
 piker
-------
-Anti-fragile trading gear for hackers, scientists, quants and underpants warriors.
+-----
+Anti-fragile trading gear for hackers, scientists, stay-at-home quants and underpants warriors.
 
 
 Install
@@ -8,12 +8,11 @@ Install
 ``piker`` is currently under heavy alpha development and as such should
 be cloned from this repo and hacked on directly.
 
-A couple very alpha components are being used atm pertaining to
-async ports of libraries for use with ``trio``.
+A couple bleeding edge components are being used atm pertaining to
+async ports of libraries for use with `trio`_.
 
 Before installing make sure you have ``pip`` and ``virtualenv``.
-
-Then for a development install::
+For a development install::
 
     git clone git@github.com:pikers/piker.git
     cd piker
@@ -22,15 +21,44 @@ Then for a development install::
     pip install cython
     pip install -e ./ -r requirements.txt
 
-To start the real-time watchlist::
+To start the real-time pot-stock watchlist::
 
     piker watch cannabis
 
-If you insist on trying to install it (which should work) please do it
-from this GitHub repository::
 
-    pip install git+git://github.com/pikers/piker.git
+.. _trio: https://github.com/python-trio/trio
 
+Laggy distros
+=============
+For those running pop-culture distros that don't yet ship ``python3.6``
+you'll need to install it as well as `kivy source build`_ dependencies
+since currently there's reliance on an async development branch.
+
+For `ubuntu` this looks like::
+
+    sudo add-apt-repository ppa:jonathonf/python-3.6
+    sudo apt-get update
+    sudo apt-get install -y \
+        build-essential \
+        python3.6 \
+        python3.6-dev \
+        ffmpeg \
+        libsdl2-dev \
+        libsdl2-image-dev \
+        libsdl2-mixer-dev \
+        libsdl2-ttf-dev \
+        libportmidi-dev \
+        libswscale-dev \
+        libavformat-dev \
+        libavcodec-dev \
+        zlib1g-dev
+
+    # then to create your virtualenv with py3.6
+    virtualenv -p $(which python3.6) env
+
+
+.. _kivy source build:
+    https://kivy.org/docs/installation/installation-linux.html#installation-in-a-virtual-environment
 
 Tech
 ****
