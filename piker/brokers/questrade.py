@@ -43,7 +43,7 @@ def resproc(
         log.exception(f"Failed to process {resp}:\n{resp.text}")
         raise QuestradeError(resp.text)
     else:
-        log.debug(f"Received json contents:\n{colorize_json(data)}")
+        log.trace(f"Received json contents:\n{colorize_json(data)}")
 
     return data if return_json else resp
 
@@ -62,8 +62,8 @@ class Client:
         self.user_data = {}
         self._reload_config(config)
 
-    def _reload_config(self, config=None):
-        self._conf = config or get_config()
+    def _reload_config(self, config=None, **kwargs):
+        self._conf = config or get_config(**kwargs)
         self.access_data = dict(self._conf['questrade'])
 
     async def _new_auth_token(self) -> dict:
@@ -130,9 +130,18 @@ class Client:
                     # API service is down
                     raise QuestradeError("API is down for maintenance")
                 elif qterr.args[0].decode() == 'Bad Request':
-                    # likely config ``refresh_token`` is expired
+                    # likely config ``refresh_token`` is expired but may
+                    # be updated in the config file via another piker process
                     self._reload_config()
-                    data = await self._new_auth_token()
+                    try:
+                        data = await self._new_auth_token()
+                    except QuestradeError as qterr:
+                        if qterr.args[0].decode() == 'Bad Request':
+                            # actually expired; get new from user
+                            self._reload_config(force_from_user=True)
+                            data = await self._new_auth_token()
+                        else:
+                            raise qterr
                 else:
                     raise qterr
 
@@ -236,10 +245,11 @@ def _token_from_user(conf: 'configparser.ConfigParser') -> None:
     conf['questrade'] = {'refresh_token': refresh_token}
 
 
-def get_config() -> "configparser.ConfigParser":
+def get_config(force_from_user=False) -> "configparser.ConfigParser":
     conf, path = config.load()
     if not conf.has_section('questrade') or (
-        not conf['questrade'].get('refresh_token')
+        not conf['questrade'].get('refresh_token') or (
+            force_from_user)
     ):
         log.warn(
             f"No valid refresh token could be found in {path}")
