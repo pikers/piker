@@ -1,6 +1,7 @@
 """
 Log like a forester!
 """
+from functools import partial
 import sys
 import logging
 import json
@@ -51,6 +52,13 @@ def get_logger(name: str = None) -> logging.Logger:
     if name and name != _proj_name:
         log = rlog.getChild(name)
         log.level = rlog.level
+
+    # additional levels
+    for name, val in LEVELS.items():
+        logging.addLevelName(val, name)
+        # ex. create ``log.trace()``
+        setattr(log, name.lower(), partial(log.log, val))
+
     return log
 
 
@@ -69,10 +77,6 @@ def get_console_log(level: str = None, name: str = None) -> logging.Logger:
         if getattr(handler, 'stream', None)
     ):
         handler = logging.StreamHandler()
-
-        # additional levels
-        for name, val in LEVELS.items():
-            logging.addLevelName(val, name)
 
         formatter = colorlog.ColoredFormatter(
             LOG_FORMAT,
