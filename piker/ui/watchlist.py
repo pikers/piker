@@ -13,14 +13,16 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.stacklayout import StackLayout
 from kivy.uix.button import Button
-from kivy.uix.scrollview import ScrollView
 from kivy.lang import Builder
 from kivy import utils
 from kivy.app import async_runTouchApp
+from kivy.core.window import Window
 
 
 from ..calc import humanize, percent_change
 from ..log import get_logger
+from .kb import PagerView
+
 log = get_logger('watchlist')
 
 
@@ -86,6 +88,11 @@ _kv = (f'''
     # row_force_default: True
     # row_default_height: 75
     outline_color: [.7]*4
+
+<SearchBar>
+    size_hint: 1, 0.03
+    font_size: 25
+    background_color: [0.13]*3 + [1]
 ''')
 
 
@@ -340,6 +347,7 @@ class TickerTable(GridLayout):
         self.symbols2rows = {}
         self.sort_key = sort_key
         self.quote_cache = quote_cache
+        self.row_filter = lambda item: item
         # for tracking last clicked column header cell
         self.last_clicked_col_cell = None
 
@@ -352,13 +360,18 @@ class TickerTable(GridLayout):
         self.add_widget(row)
         return row
 
-    def render_rows(self, pairs: (dict, Row), sort_key: str = None):
+    def render_rows(
+            self, pairs: (dict, Row), sort_key: str = None, row_filter=None,
+    ):
         """Sort and render all rows on the ticker grid from ``pairs``.
         """
         self.clear_widgets()
         sort_key = sort_key or self.sort_key
-        for data, row in reversed(
-            sorted(pairs.values(), key=lambda item: item[0][sort_key])
+        for data, row in filter(
+            row_filter or self.row_filter,
+                reversed(
+                    sorted(pairs.values(), key=lambda item: item[0][sort_key])
+                )
         ):
             self.add_widget(row)  # row append
 
@@ -469,13 +482,16 @@ async def _async_main(name, watchlists, brokermod):
                 qtconvert(quote, symbol_data=sd)[0] for quote in pkts]
 
             # build out UI
+            Window.set_title(f"watchlist: {name}\t(press ? for help)")
             Builder.load_string(_kv)
-            root = BoxLayout(orientation='vertical', padding=5, spacing=5)
+            # anchor = AnchorLayout(anchor_x='right', anchor_y='bottom')
+            box = BoxLayout(orientation='vertical', padding=5, spacing=5)
+            # anchor.add_widget(box)
             header = header_row(
                 first_quotes[0].keys(),
                 size_hint=(1, None),
             )
-            root.add_widget(header)
+            box.add_widget(header)
             grid = ticker_table(
                 first_quotes,
                 size_hint=(1, None),
@@ -488,17 +504,19 @@ async def _async_main(name, watchlists, brokermod):
             sort_cell.bold = sort_cell.underline = True
             grid.last_clicked_col_cell = sort_cell
 
-            # set up a scroll view for large ticker lists
+            # set up a pager view for large ticker lists
             grid.bind(minimum_height=grid.setter('height'))
-            scroll = ScrollView()
-            scroll.add_widget(grid)
-            root.add_widget(scroll)
+            pager = PagerView(box, nursery)
+            pager.add_widget(grid)
+            box.add_widget(pager)
 
             widgets = {
+                # 'anchor': anchor,
+                'root': box,
                 'grid': grid,
-                'root': root,
+                'box': box,
                 'header': header,
-                'scroll': scroll,
+                'pager': pager,
             }
             nursery.start_soon(run_kivy, widgets['root'], nursery)
             nursery.start_soon(update_quotes, widgets, queue, sd, pkts)
