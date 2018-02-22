@@ -21,7 +21,7 @@ from kivy.core.window import Window
 
 from ..calc import humanize, percent_change
 from ..log import get_logger
-from .kb import PagerView
+from .pager import PagerView
 
 log = get_logger('watchlist')
 
