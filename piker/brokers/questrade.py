@@ -311,7 +311,7 @@ async def serve_forever(tasks) -> None:
 async def poll_tickers(
     client: Client, tickers: [str],
     q: trio.Queue,
-    rate: int = 5,  # 200ms delay between quotes
+    rate: int = 3,  # delay between quote requests
     diff_cached: bool = True,  # only deliver "new" quotes to the queue
 ) -> None:
     """Stream quotes for a sequence of tickers at the given ``rate``
@@ -319,10 +319,11 @@ async def poll_tickers(
     """
     t2ids = await client.tickers2ids(tickers)
     ids = ','.join(map(str, t2ids.values()))
-    sleeptime = 1. / rate
+    sleeptime = round(1. / rate, 3)
     _cache = {}
 
     while True:  # use an event here to trigger exit?
+        prequote_start = time.time()
         try:
             quotes_resp = await client.api.quotes(ids=ids)
         except QuestradeError as qterr:
@@ -330,11 +331,11 @@ async def poll_tickers(
                 # out-of-process piker may have renewed already
                 client._reload_config()
                 quotes_resp = await client.api.quotes(ids=ids)
+            else:
+                raise
 
-        start = time.time()
+        postquote_start = time.time()
         quotes = quotes_resp['quotes']
-        # log.trace(quotes)
-
         payload = []
         for quote in quotes:
 
@@ -357,11 +358,17 @@ async def poll_tickers(
         if payload:
             q.put_nowait(payload)
 
-        proc_time = time.time() - start
-        delay = sleeptime - proc_time
+        req_time = round(postquote_start - prequote_start, 3)
+        proc_time = round(time.time() - postquote_start, 3)
+        tot = req_time + proc_time
+        log.debug(f"Request + processing took {req_time + proc_time}")
+        delay = sleeptime - (req_time + proc_time)
         if delay <= 0:
-            log.warn(f"Took {proc_time} seconds for processing quotes?")
+            log.warn(
+                f"Took {req_time} (request) + {proc_time} (processing) = {tot}"
+                f" secs (> {sleeptime}) for processing quotes?")
         else:
+            log.debug(f"Sleeping for {delay}")
             await trio.sleep(delay)
 
 
