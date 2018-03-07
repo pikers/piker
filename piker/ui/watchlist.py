@@ -126,10 +126,12 @@ _qt_keys = {
 
 
 def qtconvert(
-    quote: dict, keymap: dict = _qt_keys, symbol_data: dict = None
+    quote: dict, symbol_data: dict,
+    keymap: dict = _qt_keys,
 ) -> (dict, dict):
     """Remap a list of quote dicts ``quotes`` using the mapping of old keys
-    -> new keys ``keymap``.
+    -> new keys ``keymap`` returning 2 dicts: one with raw data and the other
+    for display.
 
     Returns 2 dicts: first is the original values mapped by new keys,
     and the second is the same but with all values converted to a
@@ -137,13 +139,10 @@ def qtconvert(
     """
     last = quote['lastTradePrice']
     symbol = quote['symbol']
-    if symbol_data:  # we can only compute % change from symbols data
-        previous = symbol_data[symbol]['prevDayClosePrice']
-        change = percent_change(previous, last)
-        share_count = symbol_data[symbol].get('outstandingShares', None)
-        mktcap = share_count * last if share_count else 'NA'
-    else:
-        change = 0
+    previous = symbol_data[symbol]['prevDayClosePrice']
+    change = percent_change(previous, last)
+    share_count = symbol_data[symbol].get('outstandingShares', None)
+    mktcap = share_count * last if share_count else 'NA'
     computed = {
         'symbol': quote['symbol'],
         '%': round(change, 3),
@@ -158,7 +157,7 @@ def qtconvert(
         # API servers can return `None` vals when markets are closed (weekend)
         value = 0 if value is None else value
 
-        # convert values to a displayble format
+        # convert values to a displayble format using available formatting func
         if isinstance(new_key, tuple):
             new_key, func = new_key
             display_value = func(value)
