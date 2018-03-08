@@ -122,7 +122,13 @@ def watch(loglevel, broker, watchlist_name):
             'APH.TO', 'MARI.CN', 'WMD.VN', 'LEAF.TO', 'THCX.VN',
             'WEED.TO', 'NINE.VN', 'RTI.VN', 'SNN.CN', 'ACB.TO',
             'OGI.VN', 'IMH.VN', 'FIRE.VN', 'EAT.CN', 'NUU.VN',
-            'WMD.VN', 'HEMP.VN', 'CALI.CN', 'RBQ.CN',
+            'WMD.VN', 'HEMP.VN', 'CALI.CN', 'RQB.CN', 'MPX.CN',
+            'SEED.TO', 'HMJR.TO', 'CMED.TO', 'PAS.VN',
+            'CRON',
+        ],
+        'dad': [
+            'GM', 'TSLA', 'DOL.TO', 'CIM', 'SPY',
+            'SHOP.TO',
         ],
     }
     # broker_conf_path = os.path.join(

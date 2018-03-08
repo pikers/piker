@@ -1,5 +1,5 @@
 """
-Keyboard controls
+Pager widget + kb controls
 """
 import inspect
 from functools import partial
@@ -75,30 +75,74 @@ async def handle_input(widget, patts2funcs: dict, patt_len_limit=3):
 
 
 class SearchBar(TextInput):
-    def __init__(self, kbctls: dict, parent, **kwargs):
+    def __init__(self, kbctls: dict, container: 'Widget', pager: 'PagerView',
+                 searcher, **kwargs):
         super(SearchBar, self).__init__(
             multiline=False,
-            # text='/',
+            hint_text='Ticker Search',
+            cursor_blink=False,
             **kwargs
         )
+        self.foreground_color = self.hint_text_color  # actually readable
         self.kbctls = kbctls
-        self._container = parent
+        self._container = container
+        self._pager = pager
+        self._searcher = searcher
         # indicate to ``handle_input`` that search is activated on '/'
         self.kbctls.update({
             ('/',): self.handle_input
         })
+        self._sugg_template = ' '*4 + '{} matches:  '
+        self._matched = []
+
+    def suggest(self, matches):
+        self.suggestion_text = ''
+        suffix = self._sugg_template.format(len(matches) or "No")
+        self.suggestion_text = suffix + '  '.join(matches)
 
     def on_text(self, instance, value):
-        # ``scroll.scroll_to()`` looks super awesome here for when we
-        # our interproc-ticker protocol
-        # async for item in self.async_bind('text'):
-        print(value)
+
+        def unhighlight(cells):
+            for cell in cells:
+                cell.outline_color = [0]*3
+                cell.outline_width = 0
+                self._matched.remove(cell)
+
+        if not value:
+            if self._matched:
+                unhighlight(self._matched.copy())
+            return
+
+        if not value.isupper():
+            self.text = value.upper()
+            return
+
+        text = self.text
+        matches = self._searcher.search(text)
+        self.suggest(matches.keys())
+
+        if matches:
+            # unhighlight old matches
+            unmatched = set(self._matched) - set(matches.keys())
+            unhighlight(unmatched)
+
+            for key, widget in matches.items():
+                cell = widget.get_cell('symbol')
+                # cell.background_color = [0.4]*3 + [1]
+                cell.outline_width = 2
+                cell.outline_color = [0.6] * 3
+                self._matched.append(cell)
+
+            key, widget = list(matches.items())[0]
+            # ensure first match widget is displayed
+            self._pager.scroll_to(widget)
 
     async def handle_input(self):
         self._container.add_widget(self)  # display it
         self.focus = True  # focus immediately (doesn't work from __init__)
         # wait for <enter> to close search bar
         await self.async_bind('on_text_validate').__aiter__().__anext__()
+        log.debug(f"Seach text is {self.text}")
 
         log.debug("Closing search bar")
         self._container.remove_widget(self)  # stop displaying
@@ -108,7 +152,8 @@ class SearchBar(TextInput):
 class PagerView(ScrollView):
     """Pager view that adds less-like scrolling and search.
     """
-    def __init__(self, container, nursery, kbctls: dict = None, **kwargs):
+    def __init__(self, container, contained, nursery, kbctls: dict = None,
+                 **kwargs):
         super(PagerView, self).__init__(**kwargs)
         self._container = container
         self.kbctls = kbctls or {}
@@ -119,7 +164,11 @@ class PagerView(ScrollView):
             ('d',): partial(self.halfpage_y, 'd'),
             # ('?',):
         })
-        self.search = SearchBar(self.kbctls, container)
+        # add contained child widget (can only be one)
+        self._contained = contained
+        self.add_widget(contained)
+        self.search = SearchBar(
+            self.kbctls, container, self, searcher=contained)
         # spawn kb handler task
         nursery.start_soon(handle_input, self, self.kbctls)
 

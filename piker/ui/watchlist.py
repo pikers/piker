@@ -21,7 +21,7 @@ from kivy.core.window import Window
 
 from ..calc import humanize, percent_change
 from ..log import get_logger
-from .kb import PagerView
+from .pager import PagerView
 
 log = get_logger('watchlist')
 
@@ -50,7 +50,7 @@ _kv = (f'''
 
 <Cell>
     font_size: 18
-    text_size: self.size
+    # text_size: self.size
     size: self.texture_size
     color: {colorcode('gray')}
     font_color: {colorcode('gray')}
@@ -59,7 +59,7 @@ _kv = (f'''
     background_normal: ''
     valign: 'middle'
     halign: 'center'
-    outline_color: [0.1]*4
+    # outline_color: [0.1]*4
 
 <HeaderCell>
     font_size: 20
@@ -87,9 +87,10 @@ _kv = (f'''
     # minimum_width: 200
     # row_force_default: True
     # row_default_height: 75
-    outline_color: [.7]*4
+    # outline_color: [.7]*4
 
 <SearchBar>
+    # part of the `PagerView`
     size_hint: 1, 0.03
     font_size: 25
     background_color: [0.13]*3 + [1]
@@ -125,10 +126,12 @@ _qt_keys = {
 
 
 def qtconvert(
-    quote: dict, keymap: dict = _qt_keys, symbol_data: dict = None
+    quote: dict, symbol_data: dict,
+    keymap: dict = _qt_keys,
 ) -> (dict, dict):
     """Remap a list of quote dicts ``quotes`` using the mapping of old keys
-    -> new keys ``keymap``.
+    -> new keys ``keymap`` returning 2 dicts: one with raw data and the other
+    for display.
 
     Returns 2 dicts: first is the original values mapped by new keys,
     and the second is the same but with all values converted to a
@@ -136,13 +139,10 @@ def qtconvert(
     """
     last = quote['lastTradePrice']
     symbol = quote['symbol']
-    if symbol_data:  # we can only compute % change from symbols data
-        previous = symbol_data[symbol]['prevDayClosePrice']
-        change = percent_change(previous, last)
-        share_count = symbol_data[symbol].get('outstandingShares', None)
-        mktcap = share_count * last if share_count else 'NA'
-    else:
-        change = 0
+    previous = symbol_data[symbol]['prevDayClosePrice']
+    change = percent_change(previous, last)
+    share_count = symbol_data[symbol].get('outstandingShares', None)
+    mktcap = share_count * last if share_count else 'NA'
     computed = {
         'symbol': quote['symbol'],
         '%': round(change, 3),
@@ -157,7 +157,7 @@ def qtconvert(
         # API servers can return `None` vals when markets are closed (weekend)
         value = 0 if value is None else value
 
-        # convert values to a displayble format
+        # convert values to a displayble format using available formatting func
         if isinstance(new_key, tuple):
             new_key, func = new_key
             display_value = func(value)
@@ -172,8 +172,9 @@ class HeaderCell(Button):
     """Column header cell label.
     """
     def on_press(self, value=None):
-        # clicking on a col header indicates to rows by this column
-        # in `update_quotes()`
+        """Clicking on a col header indicates to sort rows by this column
+        in `update_quotes()`.
+        """
         table = self.row.table
         if self.row.is_header:
             table.sort_key = self.key
@@ -215,7 +216,7 @@ class BidAskLayout(StackLayout):
         cell_type = HeaderCell if header else Cell
         top_size = cell_type().font_size
         small_size = top_size - 5
-        top_prop = 0.7
+        top_prop = 0.7  # proportion of size used by top cell
         bottom_prop = 1 - top_prop
         for (key, size_hint, font_size), value in zip(
             [('last', (1, top_prop), top_size),
@@ -375,22 +376,18 @@ class TickerTable(GridLayout):
         ):
             self.add_widget(row)  # row append
 
+    def ticker_search(self, patt):
+        """Return sequence of matches when pattern ``patt`` is in a
+        symbol name. Most naive algo possible for the moment.
+        """
+        for symbol, row in self.symbols2rows.items():
+            if patt in symbol:
+                yield symbol, row
 
-def header_row(headers, **kwargs):
-    """Create a single "header" row from a sequence of keys.
-    """
-    headers_dict = {key: key for key in headers}
-    row = Row(headers_dict, headers=headers, is_header_row=True, **kwargs)
-    return row
-
-
-def ticker_table(quotes, **kwargs):
-    """Create a new ticker table from a list of quote dicts.
-    """
-    table = TickerTable(cols=1, **kwargs)
-    for ticker_record in quotes:
-        table.append_row(ticker_record)
-    return table
+    def search(self, patt):
+        """Search bar api compat.
+        """
+        return dict(self.ticker_search(patt)) or {}
 
 
 async def update_quotes(
@@ -484,21 +481,29 @@ async def _async_main(name, watchlists, brokermod):
             # build out UI
             Window.set_title(f"watchlist: {name}\t(press ? for help)")
             Builder.load_string(_kv)
-            # anchor = AnchorLayout(anchor_x='right', anchor_y='bottom')
             box = BoxLayout(orientation='vertical', padding=5, spacing=5)
-            # anchor.add_widget(box)
-            header = header_row(
-                first_quotes[0].keys(),
+
+            # add header row
+            headers = first_quotes[0].keys()
+            header = Row(
+                {key: key for key in headers},
+                headers=headers,
+                is_header_row=True,
                 size_hint=(1, None),
             )
             box.add_widget(header)
-            grid = ticker_table(
-                first_quotes,
+
+            # build grid
+            grid = TickerTable(
+                cols=1,
                 size_hint=(1, None),
             )
+            for ticker_record in first_quotes:
+                grid.append_row(ticker_record)
             # associate the col headers row with the ticker table even though
             # they're technically wrapped separately in containing BoxLayout
             header.table = grid
+
             # mark the initial sorted column header as bold and underlined
             sort_cell = header.get_cell(grid.sort_key)
             sort_cell.bold = sort_cell.underline = True
@@ -506,8 +511,7 @@ async def _async_main(name, watchlists, brokermod):
 
             # set up a pager view for large ticker lists
             grid.bind(minimum_height=grid.setter('height'))
-            pager = PagerView(box, nursery)
-            pager.add_widget(grid)
+            pager = PagerView(box, grid, nursery)
             box.add_widget(pager)
 
             widgets = {
