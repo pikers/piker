@@ -3,7 +3,7 @@ A real-time, sorted watchlist.
 
 Launch with ``piker watch <watchlist name>``.
 
-(Currently there's a bunch of QT specific stuff in here)
+(Currently there's a bunch of questrade specific stuff in here)
 """
 from itertools import chain
 from functools import partial
@@ -17,7 +17,6 @@ from kivy.lang import Builder
 from kivy import utils
 from kivy.app import async_runTouchApp
 from kivy.core.window import Window
-
 
 from ..calc import humanize, percent_change
 from ..log import get_logger
@@ -108,8 +107,10 @@ _qt_keys = {
     'bidSize': 'bsize',
     'askSize': 'asize',
     'VWAP': ('VWAP', partial(round, ndigits=3)),
-    'volume': ('vol', humanize),
     'mktcap': ('mktcap', humanize),
+    '$ vol': ('$ vol', humanize),
+    'volume': ('vol', humanize),
+    'close': 'close',
     'openPrice': 'open',
     'lowPrice': 'low',
     'highPrice': 'high',
@@ -147,6 +148,8 @@ def qtconvert(
         'symbol': quote['symbol'],
         '%': round(change, 3),
         'mktcap': mktcap,
+        '$ vol': round(quote['VWAP'] * quote['volume'], 3),
+        'close': previous,
     }
     new = {}
     displayable = {}
@@ -215,7 +218,7 @@ class BidAskLayout(StackLayout):
         self._keys2cells = {}
         cell_type = HeaderCell if header else Cell
         top_size = cell_type().font_size
-        small_size = top_size - 5
+        small_size = top_size - 2
         top_prop = 0.7  # proportion of size used by top cell
         bottom_prop = 1 - top_prop
         for (key, size_hint, font_size), value in zip(
@@ -275,7 +278,8 @@ class Row(GridLayout):
         # create `BidAskCells` first
         bidasks = {
             'last': ['bid', 'ask'],
-            'size': ['bsize', 'asize']
+            'size': ['bsize', 'asize'],
+            'VWAP': ['low', 'high'],
         }
         ba_cells = {}
         layouts = {}
@@ -452,14 +456,12 @@ async def run_kivy(root, nursery):
     nursery.cancel_scope.cancel()  # cancel all other tasks that may be running
 
 
-async def _async_main(name, watchlists, brokermod):
+async def _async_main(name, tickers, brokermod):
     '''Launch kivy app + all other related tasks.
 
     This is started with cli command `piker watch`.
     '''
-    tickers = watchlists[name]
     queue = trio.Queue(1000)
-
     async with brokermod.get_client() as client:
         async with trio.open_nursery() as nursery:
             # get long term data including last days close price

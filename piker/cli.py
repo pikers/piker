@@ -107,8 +107,8 @@ def stream(broker, loglevel, tickers, keys):
 @cli.command()
 @click.option('--broker', default='questrade', help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
-@click.argument('watchlist-name', nargs=1, required=True)
-def watch(loglevel, broker, watchlist_name):
+@click.argument('name', nargs=1, required=True)
+def watch(loglevel, broker, name):
     """Spawn a watchlist.
     """
     from .ui.watchlist import _async_main
@@ -134,4 +134,4 @@ def watch(loglevel, broker, watchlist_name):
     # broker_conf_path = os.path.join(
     #     click.get_app_dir('piker'), 'watchlists.json')
     # from piker.testing import _quote_streamer as brokermod
-    trio.run(_async_main, watchlist_name, watchlists, brokermod)
+    trio.run(_async_main, name, watchlists[name], brokermod)
