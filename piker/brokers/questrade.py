@@ -271,3 +271,26 @@ async def get_client() -> Client:
         yield client
     finally:
         write_conf(client)
+
+
+@asynccontextmanager
+async def quoter(client: Client, tickers: [str]):
+    t2ids = await client.tickers2ids(tickers)
+    ids = ','.join(map(str, t2ids.values()))
+
+    async def get_quote(tickers):
+        """Query for quotes using cached symbol ids.
+        """
+        try:
+            quotes_resp = await client.api.quotes(ids=ids)
+        except QuestradeError as qterr:
+            if "Access token is invalid" in str(qterr.args[0]):
+                # out-of-process piker may have renewed already
+                client._reload_config()
+                quotes_resp = await client.api.quotes(ids=ids)
+            else:
+                raise
+
+        return quotes_resp['quotes']
+
+    yield get_quote
