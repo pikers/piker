@@ -8,7 +8,10 @@ import click
 import trio
 import pandas as pd
 
-from .log import get_console_log, colorize_json
+from .log import get_console_log, colorize_json, get_logger
+from .brokers import core
+
+log = get_logger('cli')
 
 
 def run(main, loglevel='info'):
@@ -29,7 +32,7 @@ def cli():
 
 
 @cli.command()
-@click.option('--broker', default='questrade', help='Broker backend to use')
+@click.option('--broker', '-b', default='questrade', help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--keys', '-k', multiple=True,
               help='Return results only for these keys')
@@ -49,7 +52,7 @@ def api(meth, kwargs, loglevel, broker, keys):
             key, _, value = kwarg.partition('=')
             _kwargs[key] = value
 
-    data = run(partial(brokermod.api, meth, **_kwargs), loglevel=loglevel)
+    data = run(partial(core.api, brokermod, meth, **_kwargs), loglevel=loglevel)
 
     if keys:
         # filter to requested keys
@@ -66,7 +69,7 @@ def api(meth, kwargs, loglevel, broker, keys):
 
 
 @cli.command()
-@click.option('--broker', default='questrade', help='Broker backend to use')
+@click.option('--broker', '-b', default='questrade', help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--df-output', '-df', flag_value=True,
               help='Ouput in `pandas.DataFrame` format')
@@ -75,8 +78,11 @@ def quote(loglevel, broker, tickers, df_output):
     """client for testing broker API methods with pretty printing of output.
     """
     brokermod = import_module('.' + broker, 'piker.brokers')
-    quotes = run(partial(brokermod.quote, tickers), loglevel=loglevel)
-    cols = quotes[0].copy()
+    quotes = run(partial(core.quote, brokermod, tickers), loglevel=loglevel)
+    if not quotes:
+        log.error(f"No quotes could be found for {tickers}?")
+        return
+    cols = quotes[tickers[0]].copy()
     cols.pop('symbol')
     if df_output:
         df = pd.DataFrame(
@@ -90,22 +96,7 @@ def quote(loglevel, broker, tickers, df_output):
 
 
 @cli.command()
-@click.option('--broker', default='questrade', help='Broker backend to use')
-@click.option('--loglevel', '-l', default='info', help='Logging level')
-@click.argument('tickers', nargs=-1)
-def stream(broker, loglevel, tickers, keys):
-    # import broker module daemon entry point
-    bm = import_module('.' + broker, 'piker.brokers')
-    run(
-        partial(bm.serve_forever, [
-            partial(bm.poll_tickers, tickers=tickers)
-        ]),
-        loglevel
-    )
-
-
-@cli.command()
-@click.option('--broker', default='questrade', help='Broker backend to use')
+@click.option('--broker', '-b', default='questrade', help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.argument('name', nargs=1, required=True)
 def watch(loglevel, broker, name):
@@ -129,6 +120,9 @@ def watch(loglevel, broker, name):
         'dad': [
             'GM', 'TSLA', 'DOL.TO', 'CIM', 'SPY',
             'SHOP.TO',
+        ],
+        'pharma': [
+            'ATE.VN'
         ],
     }
     # broker_conf_path = os.path.join(
