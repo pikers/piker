@@ -50,7 +50,7 @@ async def poll_tickers(
     quoter: AsyncContextManager,
     tickers: [str],
     q: trio.Queue,
-    rate: int = 3,  # delay between quote requests
+    rate: int = 5,  # delay between quote requests
     diff_cached: bool = True,  # only deliver "new" quotes to the queue
 ) -> None:
     """Stream quotes for a sequence of tickers at the given ``rate``
