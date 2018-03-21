@@ -6,7 +6,7 @@ Launch with ``piker watch <watchlist name>``.
 (Currently there's a bunch of questrade specific stuff in here)
 """
 from itertools import chain
-from functools import partial
+from types import ModuleType
 
 import trio
 from kivy.uix.boxlayout import BoxLayout
@@ -18,7 +18,6 @@ from kivy import utils
 from kivy.app import async_runTouchApp
 from kivy.core.window import Window
 
-from ..calc import humanize, percent_change
 from ..log import get_logger
 from .pager import PagerView
 from ..brokers.core import poll_tickers
@@ -95,81 +94,6 @@ _kv = (f'''
     font_size: 25
     background_color: [0.13]*3 + [1]
 ''')
-
-
-# Questrade key conversion / column order
-_qt_keys = {
-    'symbol': 'symbol',  # done manually in qtconvert
-    '%': '%',
-    'lastTradePrice': 'last',
-    'askPrice': 'ask',
-    'bidPrice': 'bid',
-    'lastTradeSize': 'size',
-    'bidSize': 'bsize',
-    'askSize': 'asize',
-    'VWAP': ('VWAP', partial(round, ndigits=3)),
-    'mktcap': ('mktcap', humanize),
-    '$ vol': ('$ vol', humanize),
-    'volume': ('vol', humanize),
-    'close': 'close',
-    'openPrice': 'open',
-    'lowPrice': 'low',
-    'highPrice': 'high',
-    'low52w': 'low52w',
-    'high52w': 'high52w',
-    # "lastTradePriceTrHrs": 7.99,
-    # "lastTradeTick": "Equal",
-    # "lastTradeTime": "2018-01-30T18:28:23.434000-05:00",
-    # "symbolId": 3575753,
-    # "tier": "",
-    # 'isHalted': 'halted',
-    # 'delay': 'delay',  # as subscript 'p'
-}
-
-
-def qtconvert(
-    quote: dict, symbol_data: dict,
-    keymap: dict = _qt_keys,
-) -> (dict, dict):
-    """Remap a list of quote dicts ``quotes`` using the mapping of old keys
-    -> new keys ``keymap`` returning 2 dicts: one with raw data and the other
-    for display.
-
-    Returns 2 dicts: first is the original values mapped by new keys,
-    and the second is the same but with all values converted to a
-    "display-friendly" string format.
-    """
-    last = quote['lastTradePrice']
-    symbol = quote['symbol']
-    previous = symbol_data[symbol]['prevDayClosePrice']
-    change = percent_change(previous, last)
-    share_count = symbol_data[symbol].get('outstandingShares', None)
-    mktcap = share_count * last if share_count else 'NA'
-    computed = {
-        'symbol': quote['symbol'],
-        '%': round(change, 3),
-        'mktcap': mktcap,
-        '$ vol': round(quote['VWAP'] * quote['volume'], 3),
-        'close': previous,
-    }
-    new = {}
-    displayable = {}
-
-    for key, new_key in keymap.items():
-        display_value = value = quote.get(key) or computed.get(key)
-
-        # API servers can return `None` vals when markets are closed (weekend)
-        value = 0 if value is None else value
-
-        # convert values to a displayble format using available formatting func
-        if isinstance(new_key, tuple):
-            new_key, func = new_key
-            display_value = func(value)
-
-        new[new_key] = value
-        displayable[new_key] = display_value
-
-    return new, displayable
 
 
 class HeaderCell(Button):
@@ -267,7 +191,8 @@ class Row(GridLayout):
     turn adjust the text color of the values based on content changes.
     """
     def __init__(
-        self, record, headers=(), bidasks=None, table=None, is_header_row=False,
+        self, record, headers=(), bidasks=None, table=None,
+        is_header_row=False,
         **kwargs
     ):
         super(Row, self).__init__(cols=len(record), **kwargs)
@@ -392,6 +317,7 @@ class TickerTable(GridLayout):
 
 
 async def update_quotes(
+    brokermod: ModuleType,
     widgets: dict,
     queue: trio.Queue,
     symbol_data: dict,
@@ -425,7 +351,9 @@ async def update_quotes(
     for quote in first_quotes:
         sym = quote['symbol']
         row = grid.symbols2rows[sym]
-        record, displayable = qtconvert(quote, symbol_data=symbol_data)
+        # record, displayable = qtconvert(quote, symbol_data=symbol_data)
+        record, displayable = brokermod.format_quote(
+            quote, symbol_data=symbol_data)
         row.update(record, displayable)
         color_row(row, record)
         cache[sym] = (record, row)
@@ -437,7 +365,9 @@ async def update_quotes(
         log.debug("Waiting on quotes")
         quotes = await queue.get()  # new quotes data only
         for quote in quotes:
-            record, displayable = qtconvert(quote, symbol_data=symbol_data)
+            # record, displayable = qtconvert(quote, symbol_data=symbol_data)
+            record, displayable = brokermod.format_quote(
+                quote, symbol_data=symbol_data)
             row = grid.symbols2rows[record['symbol']]
             cache[record['symbol']] = (record, row)
             row.update(record, displayable)
@@ -469,14 +399,15 @@ async def _async_main(name, tickers, brokermod):
 
             # get first quotes response
             pkts = await queue.get()
+            first_quotes = [
+                # qtconvert(quote, symbol_data=sd)[0] for quote in pkts]
+                brokermod.format_quote(quote, symbol_data=sd)[0]
+                for quote in pkts]
 
-            if pkts[0]['lastTradePrice'] is None:
-                log.error("Questrade API is down temporarily")
+            if first_quotes[0].get('last') is None:
+                log.error("Broker API is down temporarily")
                 nursery.cancel_scope.cancel()
                 return
-
-            first_quotes = [
-                qtconvert(quote, symbol_data=sd)[0] for quote in pkts]
 
             # build out UI
             Window.set_title(f"watchlist: {name}\t(press ? for help)")
@@ -484,11 +415,8 @@ async def _async_main(name, tickers, brokermod):
             box = BoxLayout(orientation='vertical', padding=5, spacing=5)
 
             # define bid-ask "stacked" cells
-            bidasks = {
-                'last': ['bid', 'ask'],
-                'size': ['bsize', 'asize'],
-                'VWAP': ['low', 'high'],
-            }
+            # (TODO: needs some rethinking and renaming for sure)
+            bidasks = brokermod._bidasks
 
             # add header row
             headers = first_quotes[0].keys()
@@ -531,4 +459,5 @@ async def _async_main(name, tickers, brokermod):
                 'pager': pager,
             }
             nursery.start_soon(run_kivy, widgets['root'], nursery)
-            nursery.start_soon(update_quotes, widgets, queue, sd, pkts)
+            nursery.start_soon(
+                update_quotes, brokermod, widgets, queue, sd, pkts)
