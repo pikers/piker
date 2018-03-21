@@ -1,8 +1,8 @@
 """
 Robinhood API backend.
 """
-import asks
 from async_generator import asynccontextmanager
+import asks
 
 from ..log import get_logger
 from ._util import resproc
@@ -27,7 +27,8 @@ class _API:
         return await self._request('quotes/', params={'symbols': symbols})
 
     async def fundamentals(self, symbols: str) -> dict:
-        return await self._request('fundamentals/', params={'symbols': symbols})
+        return await self._request(
+            'fundamentals/', params={'symbols': symbols})
 
 
 class Client:
@@ -40,9 +41,9 @@ class Client:
         self.api = _API(self._sess)
 
     async def quote(self, symbols: [str]):
-        resp = await self.api.quotes(','.join(symbols))
-        results = resp['results']
-        return {sym: quote for sym, quote in zip(symbols, results)}
+        results = (await self.api.quotes(','.join(symbols)))['results']
+        return {quote['symbol'] if quote else sym: quote
+                for sym, quote in zip(symbols, results)}
 
 
 @asynccontextmanager

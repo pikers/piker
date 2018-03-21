@@ -152,7 +152,15 @@ class Client:
         t2ids = await self.tickers2ids(tickers)
         ids = ','.join(map(str, t2ids.values()))
         results = (await self.api.quotes(ids=ids))['quotes']
-        return {sym: quote for sym, quote in zip(tickers, results)}
+        quotes = {quote['symbol']: quote for quote in results}
+
+        # set None for all symbols not found
+        if len(t2ids) < len(tickers):
+            for ticker in tickers:
+                if ticker not in quotes:
+                    quotes[ticker] = None
+
+        return quotes
 
     async def symbols(self, tickers):
         """Return quotes for each ticker in ``tickers``.
@@ -275,6 +283,8 @@ async def get_client() -> Client:
 
 @asynccontextmanager
 async def quoter(client: Client, tickers: [str]):
+    """Quoter context.
+    """
     t2ids = await client.tickers2ids(tickers)
     ids = ','.join(map(str, t2ids.values()))
 

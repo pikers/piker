@@ -37,7 +37,12 @@ async def quote(brokermod: ModuleType, tickers: [str]) -> dict:
     """Return quotes dict for ``tickers``.
     """
     async with brokermod.get_client() as client:
-        return await client.quote(tickers)
+        results = await client.quote(tickers)
+        for key, val in results.items():
+            if val is None:
+                brokermod.log.warn(f"Could not find symbol {key}?")
+
+        return results
 
 
 async def poll_tickers(
