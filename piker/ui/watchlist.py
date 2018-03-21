@@ -21,6 +21,7 @@ from kivy.core.window import Window
 from ..calc import humanize, percent_change
 from ..log import get_logger
 from .pager import PagerView
+from ..brokers.core import poll_tickers
 
 log = get_logger('watchlist')
 
@@ -266,7 +267,7 @@ class Row(GridLayout):
     turn adjust the text color of the values based on content changes.
     """
     def __init__(
-        self, record, headers=(), table=None, is_header_row=False,
+        self, record, headers=(), bidasks=None, table=None, is_header_row=False,
         **kwargs
     ):
         super(Row, self).__init__(cols=len(record), **kwargs)
@@ -276,13 +277,9 @@ class Row(GridLayout):
         self.is_header = is_header_row
 
         # create `BidAskCells` first
-        bidasks = {
-            'last': ['bid', 'ask'],
-            'size': ['bsize', 'asize'],
-            'VWAP': ['low', 'high'],
-        }
-        ba_cells = {}
         layouts = {}
+        bidasks = bidasks or {}
+        ba_cells = {}
         for key, children in bidasks.items():
             layout = BidAskLayout(
                 [record[key]] + [record[child] for child in children],
@@ -356,10 +353,10 @@ class TickerTable(GridLayout):
         # for tracking last clicked column header cell
         self.last_clicked_col_cell = None
 
-    def append_row(self, record):
+    def append_row(self, record, bidasks=None):
         """Append a `Row` of `Cell` objects to this table.
         """
-        row = Row(record, headers=('symbol',), table=self)
+        row = Row(record, headers=('symbol',), bidasks=bidasks, table=self)
         # store ref to each row
         self.symbols2rows[row._last_record['symbol']] = row
         self.add_widget(row)
@@ -467,7 +464,8 @@ async def _async_main(name, tickers, brokermod):
             # get long term data including last days close price
             sd = await client.symbols(tickers)
 
-            nursery.start_soon(brokermod.poll_tickers, client, tickers, queue)
+            nursery.start_soon(
+                poll_tickers, client, brokermod.quoter, tickers, queue)
 
             # get first quotes response
             pkts = await queue.get()
@@ -485,11 +483,19 @@ async def _async_main(name, tickers, brokermod):
             Builder.load_string(_kv)
             box = BoxLayout(orientation='vertical', padding=5, spacing=5)
 
+            # define bid-ask "stacked" cells
+            bidasks = {
+                'last': ['bid', 'ask'],
+                'size': ['bsize', 'asize'],
+                'VWAP': ['low', 'high'],
+            }
+
             # add header row
             headers = first_quotes[0].keys()
             header = Row(
                 {key: key for key in headers},
                 headers=headers,
+                bidasks=bidasks,
                 is_header_row=True,
                 size_hint=(1, None),
             )
@@ -501,7 +507,7 @@ async def _async_main(name, tickers, brokermod):
                 size_hint=(1, None),
             )
             for ticker_record in first_quotes:
-                grid.append_row(ticker_record)
+                grid.append_row(ticker_record, bidasks=bidasks)
             # associate the col headers row with the ticker table even though
             # they're technically wrapped separately in containing BoxLayout
             header.table = grid
