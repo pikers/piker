@@ -65,9 +65,12 @@ async def poll_tickers(
             quotes = await get_quotes(tickers)
             postquote_start = time.time()
             payload = []
-            for quote in quotes:
+            for symbol, quote in quotes.items():
+                # TODO: uhh wtf?
+                if not quote:
+                    continue
 
-                if quote['delay'] > 0:
+                if quote.get('delay', 0) > 0:
                     log.warning(f"Delayed quote:\n{quote}")
 
                 if diff_cached:

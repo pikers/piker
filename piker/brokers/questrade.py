@@ -3,10 +3,12 @@ Questrade API backend.
 """
 import time
 import datetime
+from functools import partial
 
 import trio
 from async_generator import asynccontextmanager
 
+from ..calc import humanize, percent_change
 from . import config
 from ._util import resproc, BrokerError
 from ..log import get_logger, colorize_json
@@ -301,6 +303,88 @@ async def quoter(client: Client, tickers: [str]):
             else:
                 raise
 
-        return quotes_resp['quotes']
+        return {quote['symbol']: quote for quote in quotes_resp['quotes']}
 
     yield get_quote
+
+
+# Questrade key conversion / column order
+_qt_keys = {
+    'symbol': 'symbol',  # done manually in qtconvert
+    '%': '%',
+    'lastTradePrice': 'last',
+    'askPrice': 'ask',
+    'bidPrice': 'bid',
+    'lastTradeSize': 'size',
+    'bidSize': 'bsize',
+    'askSize': 'asize',
+    'VWAP': ('VWAP', partial(round, ndigits=3)),
+    'mktcap': ('mktcap', humanize),
+    '$ vol': ('$ vol', humanize),
+    'volume': ('vol', humanize),
+    'close': 'close',
+    'openPrice': 'open',
+    'lowPrice': 'low',
+    'highPrice': 'high',
+    # 'low52w': 'low52w',  # put in info widget
+    # 'high52w': 'high52w',
+    # "lastTradePriceTrHrs": 7.99,
+    # "lastTradeTick": "Equal",
+    # "lastTradeTime": "2018-01-30T18:28:23.434000-05:00",
+    # "symbolId": 3575753,
+    # "tier": "",
+    # 'isHalted': 'halted',  # as subscript 'h'
+    # 'delay': 'delay',  # as subscript 'p'
+}
+
+_bidasks = {
+    'last': ['bid', 'ask'],
+    'size': ['bsize', 'asize'],
+    'VWAP': ['low', 'high'],
+}
+
+
+def format_quote(
+    quote: dict,
+    symbol_data: dict,
+    keymap: dict = _qt_keys,
+) -> (dict, dict):
+    """Remap a list of quote dicts ``quotes`` using the mapping of old keys
+    -> new keys ``keymap`` returning 2 dicts: one with raw data and the other
+    for display.
+
+    Returns 2 dicts: first is the original values mapped by new keys,
+    and the second is the same but with all values converted to a
+    "display-friendly" string format.
+    """
+    last = quote['lastTradePrice']
+    symbol = quote['symbol']
+    previous = symbol_data[symbol]['prevDayClosePrice']
+    change = percent_change(previous, last)
+    share_count = symbol_data[symbol].get('outstandingShares', None)
+    mktcap = share_count * last if share_count else 'NA'
+    computed = {
+        'symbol': quote['symbol'],
+        '%': round(change, 3),
+        'mktcap': mktcap,
+        '$ vol': round(quote['VWAP'] * quote['volume'], 3),
+        'close': previous,
+    }
+    new = {}
+    displayable = {}
+
+    for key, new_key in keymap.items():
+        display_value = value = computed.get(key) or quote.get(key)
+
+        # API servers can return `None` vals when markets are closed (weekend)
+        value = 0 if value is None else value
+
+        # convert values to a displayble format using available formatting func
+        if isinstance(new_key, tuple):
+            new_key, func = new_key
+            display_value = func(value)
+
+        new[new_key] = value
+        displayable[new_key] = display_value
+
+    return new, displayable
