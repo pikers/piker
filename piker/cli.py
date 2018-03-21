@@ -32,7 +32,8 @@ def cli():
 
 
 @cli.command()
-@click.option('--broker', '-b', default='questrade', help='Broker backend to use')
+@click.option('--broker', '-b', default='questrade',
+              help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--keys', '-k', multiple=True,
               help='Return results only for these keys')
@@ -52,7 +53,8 @@ def api(meth, kwargs, loglevel, broker, keys):
             key, _, value = kwarg.partition('=')
             _kwargs[key] = value
 
-    data = run(partial(core.api, brokermod, meth, **_kwargs), loglevel=loglevel)
+    data = run(
+        partial(core.api, brokermod, meth, **_kwargs), loglevel=loglevel)
 
     if keys:
         # filter to requested keys
@@ -69,7 +71,8 @@ def api(meth, kwargs, loglevel, broker, keys):
 
 
 @cli.command()
-@click.option('--broker', '-b', default='questrade', help='Broker backend to use')
+@click.option('--broker', '-b', default='questrade',
+              help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--df-output', '-df', flag_value=True,
               help='Ouput in `pandas.DataFrame` format')
@@ -82,12 +85,13 @@ def quote(loglevel, broker, tickers, df_output):
     if not quotes:
         log.error(f"No quotes could be found for {tickers}?")
         return
-    cols = quotes[tickers[0]].copy()
+
+    cols = next(filter(bool, quotes.values())).copy()
     cols.pop('symbol')
     if df_output:
         df = pd.DataFrame(
-            quotes,
-            index=[item['symbol'] for item in quotes],
+            (quote or {} for quote in quotes.values()),
+            index=quotes.keys(),
             columns=cols,
         )
         click.echo(df)
@@ -96,7 +100,8 @@ def quote(loglevel, broker, tickers, df_output):
 
 
 @cli.command()
-@click.option('--broker', '-b', default='questrade', help='Broker backend to use')
+@click.option('--broker', '-b', default='questrade',
+              help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.argument('name', nargs=1, required=True)
 def watch(loglevel, broker, name):
