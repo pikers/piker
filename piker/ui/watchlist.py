@@ -7,6 +7,7 @@ Launch with ``piker watch <watchlist name>``.
 """
 from itertools import chain
 from types import ModuleType
+from functools import partial
 
 import trio
 from kivy.uix.boxlayout import BoxLayout
@@ -383,7 +384,7 @@ async def run_kivy(root, nursery):
     nursery.cancel_scope.cancel()  # cancel all other tasks that may be running
 
 
-async def _async_main(name, tickers, brokermod):
+async def _async_main(name, tickers, brokermod, rate):
     '''Launch kivy app + all other related tasks.
 
     This is started with cli command `piker watch`.
@@ -395,7 +396,9 @@ async def _async_main(name, tickers, brokermod):
             sd = await client.symbols(tickers)
 
             nursery.start_soon(
-                poll_tickers, client, brokermod.quoter, tickers, queue)
+                partial(poll_tickers, client, brokermod.quoter, tickers, queue,
+                rate=rate)
+            )
 
             # get first quotes response
             pkts = await queue.get()
