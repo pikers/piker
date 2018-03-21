@@ -21,6 +21,7 @@ log = get_logger('questrade')
 
 _refresh_token_ep = 'https://login.questrade.com/oauth2/'
 _version = 'v1'
+_rate_limit = 3  # queries/sec
 
 
 class QuestradeError(Exception):
