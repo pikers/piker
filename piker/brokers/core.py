@@ -55,9 +55,12 @@ async def poll_tickers(
 ) -> None:
     """Stream quotes for a sequence of tickers at the given ``rate``
     per second.
+
+    A broker-client ``quoter`` async context manager must be provided which
+    returns an async quote function.
     """
     sleeptime = round(1. / rate, 3)
-    _cache = {}
+    _cache = {}  # ticker to quote caching
 
     async with quoter(client, tickers) as get_quotes:
         while True:  # use an event here to trigger exit?
@@ -66,8 +69,9 @@ async def poll_tickers(
             postquote_start = time.time()
             payload = []
             for symbol, quote in quotes.items():
-                # TODO: uhh wtf?
-                if not quote:
+                # FIXME: None is returned if a symbol can't be found.
+                # Consider filtering out such symbols before starting poll loop
+                if quote is None:
                     continue
 
                 if quote.get('delay', 0) > 0:
@@ -92,8 +96,8 @@ async def poll_tickers(
             req_time = round(postquote_start - prequote_start, 3)
             proc_time = round(time.time() - postquote_start, 3)
             tot = req_time + proc_time
-            log.debug(f"Request + processing took {req_time + proc_time}")
-            delay = sleeptime - (req_time + proc_time)
+            log.debug(f"Request + processing took {tot}")
+            delay = sleeptime - tot
             if delay <= 0:
                 log.warn(
                     f"Took {req_time} (request) + {proc_time} (processing) = {tot}"
