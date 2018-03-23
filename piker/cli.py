@@ -3,7 +3,7 @@ Console interface to broker client/daemons.
 """
 from functools import partial
 from importlib import import_module
-from os import path, makedirs, stat
+import os
 from collections import defaultdict
 import json
 import ast
@@ -19,7 +19,7 @@ log = get_logger('cli')
 DEFAULT_BROKER = 'robinhood'
 
 _config_dir = click.get_app_dir('piker')
-_watchlists_data_path = path.join(_config_dir, 'watchlists.json')
+_watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
 
 def run(main, loglevel='info'):
     log = get_console_log(loglevel)
@@ -149,6 +149,14 @@ def watch(loglevel, broker, rate, name):
     trio.run(_async_main, name, watchlists[name], brokermod)
 
 
+def json_sorted_writer(watchlist, open_file):
+    for key in watchlist:
+        watchlist[key].sort()
+        s = set(watchlist[key])
+        watchlist[key] = list(s)
+    json.dump(watchlist, open_file, sort_keys=True)
+
+
 @cli.group()
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.pass_context
@@ -160,18 +168,19 @@ def watchlists(ctx, loglevel):
 
     ctx.obj = {}
 
-    if not path.isdir(_config_dir):
+    if not os.path.isdir(_config_dir):
         log.debug(f"Creating config dir {_config_dir}")
-        makedirs(_config_dir)
+        os.makedirs(_config_dir)
 
-    if path.isfile(_watchlists_data_path):
+    if os.path.isfile(_watchlists_data_path):
         f = open(_watchlists_data_path, 'r')
-        if not stat(_watchlists_data_path).st_size == 0:
+        if not os.stat(_watchlists_data_path).st_size == 0:
             ctx.obj = json.load(f)
         f.close()
     else:
         f = open(_watchlists_data_path, 'w')
         f.close()
+
 
 @watchlists.command(help='show watchlist')
 @click.argument('name', nargs=1, required=False)
@@ -189,7 +198,7 @@ def new(ctx, name):
     watchlist = ctx.obj
     f = open(_watchlists_data_path, 'w')
     watchlist.setdefault(name, [])
-    json.dump(watchlist, f)
+    json_sorted_writer(watchlist, f)
     f.close()
 
 
@@ -202,7 +211,7 @@ def add(ctx, name, ticker_name):
     f = open(_watchlists_data_path, 'w')
     if name in watchlist:
         watchlist[name].append(str(ticker_name).upper())
-    json.dump(watchlist, f)
+    json_sorted_writer(watchlist, f)
     f.close()
 
 
@@ -215,7 +224,7 @@ def remove(ctx, name, ticker_name):
     f = open(_watchlists_data_path, 'w')
     if name in watchlist:
         watchlist[name].remove(str(ticker_name).upper())
-    json.dump(watchlist, f)
+    json_sorted_writer(watchlist, f)
     f.close()
 
 
@@ -227,7 +236,7 @@ def delete(ctx, name):
     f = open(_watchlists_data_path, 'w')
     if name in watchlist:
         del watchlist[name]
-    json.dump(watchlist, f)
+    json_sorted_writer(watchlist, f)
     f.close()
 
 
@@ -242,9 +251,9 @@ def merge(ctx, watchlist_to_merge):
     for d in (watchlist, watchlist_to_merge):
         for key, value in d.items():
             merged_watchlist[key].extend(value)
-    json.dump(merged_watchlist, f)
+    json_sorted_writer(merged_watchlist, f)
     f.close()
-    print('merge these') #remember to convert to set
+
 
 @watchlists.command(help='dump a text respresentation of a watchlist to console')
 @click.argument('name', nargs=1, required=False)
@@ -254,3 +263,9 @@ def dump(ctx, name):
     f = open(_watchlists_data_path, 'r')
     print(json.dumps(watchlist))
     f.close()
+
+
+@watchlists.command(help='purge watchlists and remove json file')
+def purge():
+    # import pdb; pdb.set_trace()
+    os.remove(_watchlists_data_path)
