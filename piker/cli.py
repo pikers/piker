@@ -8,7 +8,11 @@ import click
 import trio
 import pandas as pd
 
-from .log import get_console_log, colorize_json
+from .log import get_console_log, colorize_json, get_logger
+from .brokers import core
+
+log = get_logger('cli')
+DEFAULT_BROKER = 'robinhood'
 
 
 def run(main, loglevel='info'):
@@ -29,7 +33,8 @@ def cli():
 
 
 @cli.command()
-@click.option('--broker', default='questrade', help='Broker backend to use')
+@click.option('--broker', '-b', default=DEFAULT_BROKER,
+              help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--keys', '-k', multiple=True,
               help='Return results only for these keys')
@@ -49,7 +54,8 @@ def api(meth, kwargs, loglevel, broker, keys):
             key, _, value = kwarg.partition('=')
             _kwargs[key] = value
 
-    data = run(partial(brokermod.api, meth, **_kwargs), loglevel=loglevel)
+    data = run(
+        partial(core.api, brokermod, meth, **_kwargs), loglevel=loglevel)
 
     if keys:
         # filter to requested keys
@@ -66,7 +72,8 @@ def api(meth, kwargs, loglevel, broker, keys):
 
 
 @cli.command()
-@click.option('--broker', default='questrade', help='Broker backend to use')
+@click.option('--broker', '-b', default=DEFAULT_BROKER,
+              help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--df-output', '-df', flag_value=True,
               help='Ouput in `pandas.DataFrame` format')
@@ -75,13 +82,17 @@ def quote(loglevel, broker, tickers, df_output):
     """client for testing broker API methods with pretty printing of output.
     """
     brokermod = import_module('.' + broker, 'piker.brokers')
-    quotes = run(partial(brokermod.quote, tickers), loglevel=loglevel)
-    cols = quotes[0].copy()
+    quotes = run(partial(core.quote, brokermod, tickers), loglevel=loglevel)
+    if not quotes:
+        log.error(f"No quotes could be found for {tickers}?")
+        return
+
+    cols = next(filter(bool, quotes.values())).copy()
     cols.pop('symbol')
     if df_output:
         df = pd.DataFrame(
-            quotes,
-            index=[item['symbol'] for item in quotes],
+            (quote or {} for quote in quotes.values()),
+            index=quotes.keys(),
             columns=cols,
         )
         click.echo(df)
@@ -90,29 +101,16 @@ def quote(loglevel, broker, tickers, df_output):
 
 
 @cli.command()
-@click.option('--broker', default='questrade', help='Broker backend to use')
-@click.option('--loglevel', '-l', default='info', help='Logging level')
-@click.argument('tickers', nargs=-1)
-def stream(broker, loglevel, tickers, keys):
-    # import broker module daemon entry point
-    bm = import_module('.' + broker, 'piker.brokers')
-    run(
-        partial(bm.serve_forever, [
-            partial(bm.poll_tickers, tickers=tickers)
-        ]),
-        loglevel
-    )
-
-
-@cli.command()
-@click.option('--broker', default='questrade', help='Broker backend to use')
+@click.option('--broker', '-b', default=DEFAULT_BROKER,
+              help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
+@click.option('--rate', '-r', default=5, help='Logging level')
 @click.argument('name', nargs=1, required=True)
-def watch(loglevel, broker, name):
+def watch(loglevel, broker, rate, name):
     """Spawn a watchlist.
     """
     from .ui.watchlist import _async_main
-    get_console_log(loglevel)  # activate console logging
+    log = get_console_log(loglevel)  # activate console logging
     brokermod = import_module('.' + broker, 'piker.brokers')
 
     watchlists = {
@@ -126,12 +124,15 @@ def watch(loglevel, broker, name):
             'SEED.TO', 'HMJR.TO', 'CMED.TO', 'PAS.VN',
             'CRON',
         ],
-        'dad': [
-            'GM', 'TSLA', 'DOL.TO', 'CIM', 'SPY',
-            'SHOP.TO',
-        ],
+        'dad': ['GM', 'TSLA', 'DOL.TO', 'CIM', 'SPY', 'SHOP.TO'],
+        'pharma': ['ATE.VN'],
+        'indexes': ['SPY', 'DAX', 'QQQ', 'DIA'],
     }
     # broker_conf_path = os.path.join(
     #     click.get_app_dir('piker'), 'watchlists.json')
     # from piker.testing import _quote_streamer as brokermod
-    trio.run(_async_main, name, watchlists[name], brokermod)
+    broker_limit = getattr(brokermod, '_rate_limit', float('inf'))
+    if broker_limit < rate:
+        rate = broker_limit
+        log.warn(f"Limiting {brokermod.__name__} query rate to {rate}/sec")
+    trio.run(_async_main, name, watchlists[name], brokermod, rate)

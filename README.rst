@@ -21,9 +21,15 @@ For a development install::
     pip install cython
     pip install -e ./ -r requirements.txt
 
-To start the real-time pot-stock watchlist::
+To start the real-time index ETF watchlist::
 
-    piker watch cannabis
+    piker watch indexes -l info
+
+
+If you want to see super granular price changes, increase the
+broker quote query ``rate`` with ``-r``::
+
+    piker watch indexes -l info -r 10
 
 
 .. _trio: https://github.com/python-trio/trio

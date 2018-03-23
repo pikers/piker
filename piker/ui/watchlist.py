@@ -6,6 +6,7 @@ Launch with ``piker watch <watchlist name>``.
 (Currently there's a bunch of questrade specific stuff in here)
 """
 from itertools import chain
+from types import ModuleType
 from functools import partial
 
 import trio
@@ -18,9 +19,9 @@ from kivy import utils
 from kivy.app import async_runTouchApp
 from kivy.core.window import Window
 
-from ..calc import humanize, percent_change
 from ..log import get_logger
 from .pager import PagerView
+from ..brokers.core import poll_tickers
 
 log = get_logger('watchlist')
 
@@ -94,81 +95,6 @@ _kv = (f'''
     font_size: 25
     background_color: [0.13]*3 + [1]
 ''')
-
-
-# Questrade key conversion / column order
-_qt_keys = {
-    'symbol': 'symbol',  # done manually in qtconvert
-    '%': '%',
-    'lastTradePrice': 'last',
-    'askPrice': 'ask',
-    'bidPrice': 'bid',
-    'lastTradeSize': 'size',
-    'bidSize': 'bsize',
-    'askSize': 'asize',
-    'VWAP': ('VWAP', partial(round, ndigits=3)),
-    'mktcap': ('mktcap', humanize),
-    '$ vol': ('$ vol', humanize),
-    'volume': ('vol', humanize),
-    'close': 'close',
-    'openPrice': 'open',
-    'lowPrice': 'low',
-    'highPrice': 'high',
-    'low52w': 'low52w',
-    'high52w': 'high52w',
-    # "lastTradePriceTrHrs": 7.99,
-    # "lastTradeTick": "Equal",
-    # "lastTradeTime": "2018-01-30T18:28:23.434000-05:00",
-    # "symbolId": 3575753,
-    # "tier": "",
-    # 'isHalted': 'halted',
-    # 'delay': 'delay',  # as subscript 'p'
-}
-
-
-def qtconvert(
-    quote: dict, symbol_data: dict,
-    keymap: dict = _qt_keys,
-) -> (dict, dict):
-    """Remap a list of quote dicts ``quotes`` using the mapping of old keys
-    -> new keys ``keymap`` returning 2 dicts: one with raw data and the other
-    for display.
-
-    Returns 2 dicts: first is the original values mapped by new keys,
-    and the second is the same but with all values converted to a
-    "display-friendly" string format.
-    """
-    last = quote['lastTradePrice']
-    symbol = quote['symbol']
-    previous = symbol_data[symbol]['prevDayClosePrice']
-    change = percent_change(previous, last)
-    share_count = symbol_data[symbol].get('outstandingShares', None)
-    mktcap = share_count * last if share_count else 'NA'
-    computed = {
-        'symbol': quote['symbol'],
-        '%': round(change, 3),
-        'mktcap': mktcap,
-        '$ vol': round(quote['VWAP'] * quote['volume'], 3),
-        'close': previous,
-    }
-    new = {}
-    displayable = {}
-
-    for key, new_key in keymap.items():
-        display_value = value = quote.get(key) or computed.get(key)
-
-        # API servers can return `None` vals when markets are closed (weekend)
-        value = 0 if value is None else value
-
-        # convert values to a displayble format using available formatting func
-        if isinstance(new_key, tuple):
-            new_key, func = new_key
-            display_value = func(value)
-
-        new[new_key] = value
-        displayable[new_key] = display_value
-
-    return new, displayable
 
 
 class HeaderCell(Button):
@@ -266,7 +192,8 @@ class Row(GridLayout):
     turn adjust the text color of the values based on content changes.
     """
     def __init__(
-        self, record, headers=(), table=None, is_header_row=False,
+        self, record, headers=(), bidasks=None, table=None,
+        is_header_row=False,
         **kwargs
     ):
         super(Row, self).__init__(cols=len(record), **kwargs)
@@ -276,13 +203,9 @@ class Row(GridLayout):
         self.is_header = is_header_row
 
         # create `BidAskCells` first
-        bidasks = {
-            'last': ['bid', 'ask'],
-            'size': ['bsize', 'asize'],
-            'VWAP': ['low', 'high'],
-        }
-        ba_cells = {}
         layouts = {}
+        bidasks = bidasks or {}
+        ba_cells = {}
         for key, children in bidasks.items():
             layout = BidAskLayout(
                 [record[key]] + [record[child] for child in children],
@@ -356,10 +279,10 @@ class TickerTable(GridLayout):
         # for tracking last clicked column header cell
         self.last_clicked_col_cell = None
 
-    def append_row(self, record):
+    def append_row(self, record, bidasks=None):
         """Append a `Row` of `Cell` objects to this table.
         """
-        row = Row(record, headers=('symbol',), table=self)
+        row = Row(record, headers=('symbol',), bidasks=bidasks, table=self)
         # store ref to each row
         self.symbols2rows[row._last_record['symbol']] = row
         self.add_widget(row)
@@ -395,6 +318,7 @@ class TickerTable(GridLayout):
 
 
 async def update_quotes(
+    brokermod: ModuleType,
     widgets: dict,
     queue: trio.Queue,
     symbol_data: dict,
@@ -428,7 +352,9 @@ async def update_quotes(
     for quote in first_quotes:
         sym = quote['symbol']
         row = grid.symbols2rows[sym]
-        record, displayable = qtconvert(quote, symbol_data=symbol_data)
+        # record, displayable = qtconvert(quote, symbol_data=symbol_data)
+        record, displayable = brokermod.format_quote(
+            quote, symbol_data=symbol_data)
         row.update(record, displayable)
         color_row(row, record)
         cache[sym] = (record, row)
@@ -440,7 +366,9 @@ async def update_quotes(
         log.debug("Waiting on quotes")
         quotes = await queue.get()  # new quotes data only
         for quote in quotes:
-            record, displayable = qtconvert(quote, symbol_data=symbol_data)
+            # record, displayable = qtconvert(quote, symbol_data=symbol_data)
+            record, displayable = brokermod.format_quote(
+                quote, symbol_data=symbol_data)
             row = grid.symbols2rows[record['symbol']]
             cache[record['symbol']] = (record, row)
             row.update(record, displayable)
@@ -456,7 +384,7 @@ async def run_kivy(root, nursery):
     nursery.cancel_scope.cancel()  # cancel all other tasks that may be running
 
 
-async def _async_main(name, tickers, brokermod):
+async def _async_main(name, tickers, brokermod, rate):
     '''Launch kivy app + all other related tasks.
 
     This is started with cli command `piker watch`.
@@ -467,29 +395,38 @@ async def _async_main(name, tickers, brokermod):
             # get long term data including last days close price
             sd = await client.symbols(tickers)
 
-            nursery.start_soon(brokermod.poll_tickers, client, tickers, queue)
+            nursery.start_soon(
+                partial(poll_tickers, client, brokermod.quoter, tickers, queue,
+                rate=rate)
+            )
 
             # get first quotes response
             pkts = await queue.get()
+            first_quotes = [
+                # qtconvert(quote, symbol_data=sd)[0] for quote in pkts]
+                brokermod.format_quote(quote, symbol_data=sd)[0]
+                for quote in pkts]
 
-            if pkts[0]['lastTradePrice'] is None:
-                log.error("Questrade API is down temporarily")
+            if first_quotes[0].get('last') is None:
+                log.error("Broker API is down temporarily")
                 nursery.cancel_scope.cancel()
                 return
-
-            first_quotes = [
-                qtconvert(quote, symbol_data=sd)[0] for quote in pkts]
 
             # build out UI
             Window.set_title(f"watchlist: {name}\t(press ? for help)")
             Builder.load_string(_kv)
             box = BoxLayout(orientation='vertical', padding=5, spacing=5)
 
+            # define bid-ask "stacked" cells
+            # (TODO: needs some rethinking and renaming for sure)
+            bidasks = brokermod._bidasks
+
             # add header row
             headers = first_quotes[0].keys()
             header = Row(
                 {key: key for key in headers},
                 headers=headers,
+                bidasks=bidasks,
                 is_header_row=True,
                 size_hint=(1, None),
             )
@@ -501,7 +438,7 @@ async def _async_main(name, tickers, brokermod):
                 size_hint=(1, None),
             )
             for ticker_record in first_quotes:
-                grid.append_row(ticker_record)
+                grid.append_row(ticker_record, bidasks=bidasks)
             # associate the col headers row with the ticker table even though
             # they're technically wrapped separately in containing BoxLayout
             header.table = grid
@@ -525,4 +462,5 @@ async def _async_main(name, tickers, brokermod):
                 'pager': pager,
             }
             nursery.start_soon(run_kivy, widgets['root'], nursery)
-            nursery.start_soon(update_quotes, widgets, queue, sd, pkts)
+            nursery.start_soon(
+                update_quotes, brokermod, widgets, queue, sd, pkts)
