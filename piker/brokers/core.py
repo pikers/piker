@@ -8,7 +8,6 @@ from typing import AsyncContextManager
 
 import trio
 
-from .questrade import QuestradeError
 from ..log import get_logger
 log = get_logger('broker.core')
 
@@ -100,8 +99,8 @@ async def poll_tickers(
             delay = sleeptime - tot
             if delay <= 0:
                 log.warn(
-                    f"Took {req_time} (request) + {proc_time} (processing) = {tot}"
-                    f" secs (> {sleeptime}) for processing quotes?")
+                    f"Took {req_time} (request) + {proc_time} (processing) "
+                    f"= {tot} secs (> {sleeptime}) for processing quotes?")
             else:
                 log.debug(f"Sleeping for {delay}")
                 await trio.sleep(delay)
