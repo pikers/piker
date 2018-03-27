@@ -393,11 +393,11 @@ async def _async_main(name, tickers, brokermod, rate):
     async with brokermod.get_client() as client:
         async with trio.open_nursery() as nursery:
             # get long term data including last days close price
-            sd = await client.symbols(tickers)
+            sd = await client.symbol_data(tickers)
 
             nursery.start_soon(
                 partial(poll_tickers, client, brokermod.quoter, tickers, queue,
-                rate=rate)
+                        rate=rate)
             )
 
             # get first quotes response
