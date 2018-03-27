@@ -2,14 +2,13 @@
 Console interface to broker client/daemons.
 """
 from functools import partial
-from importlib import import_module
 
 import click
 import trio
 import pandas as pd
 
 from .log import get_console_log, colorize_json, get_logger
-from .brokers import core
+from .brokers import core, get_brokermod
 
 log = get_logger('cli')
 DEFAULT_BROKER = 'robinhood'
@@ -44,7 +43,7 @@ def api(meth, kwargs, loglevel, broker, keys):
     """client for testing broker API methods with pretty printing of output.
     """
     log = get_console_log(loglevel)
-    brokermod = import_module('.' + broker, 'piker.brokers')
+    brokermod = get_brokermod(broker)
 
     _kwargs = {}
     for kwarg in kwargs:
@@ -77,11 +76,11 @@ def api(meth, kwargs, loglevel, broker, keys):
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--df-output', '-df', flag_value=True,
               help='Ouput in `pandas.DataFrame` format')
-@click.argument('tickers', nargs=-1)
+@click.argument('tickers', nargs=-1, required=True)
 def quote(loglevel, broker, tickers, df_output):
     """client for testing broker API methods with pretty printing of output.
     """
-    brokermod = import_module('.' + broker, 'piker.brokers')
+    brokermod = get_brokermod(broker)
     quotes = run(partial(core.quote, brokermod, tickers), loglevel=loglevel)
     if not quotes:
         log.error(f"No quotes could be found for {tickers}?")
@@ -111,7 +110,7 @@ def watch(loglevel, broker, rate, name):
     """
     from .ui.watchlist import _async_main
     log = get_console_log(loglevel)  # activate console logging
-    brokermod = import_module('.' + broker, 'piker.brokers')
+    brokermod = get_brokermod(broker)
 
     watchlists = {
         'cannabis': [
