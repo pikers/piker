@@ -17,7 +17,7 @@ from ..log import get_logger, colorize_json
 import asks
 asks.init('trio')
 
-log = get_logger('questrade')
+log = get_logger(__name__)
 
 _refresh_token_ep = 'https://login.questrade.com/oauth2/'
 _version = 'v1'
@@ -165,8 +165,8 @@ class Client:
 
         return quotes
 
-    async def symbols(self, tickers):
-        """Return quotes for each ticker in ``tickers``.
+    async def symbol_data(self, tickers: [str]):
+        """Return symbol data for ``tickers``.
         """
         t2ids = await self.tickers2ids(tickers)
         ids = ','.join(map(str, t2ids.values()))

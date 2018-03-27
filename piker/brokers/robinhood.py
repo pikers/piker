@@ -4,14 +4,15 @@ Robinhood API backend.
 from functools import partial
 
 from async_generator import asynccontextmanager
+# TODO: move to urllib3/requests once supported
 import asks
 
 from ..log import get_logger
 from ._util import resproc
 from ..calc import percent_change
 
-log = get_logger('robinhood')
-
+asks.init('trio')
+log = get_logger(__name__)
 _service_ep = 'https://api.robinhood.com'
 
 
@@ -43,15 +44,25 @@ class Client:
         self._sess.base_location = _service_ep
         self.api = _API(self._sess)
 
-    async def quote(self, symbols: [str]):
-        results = (await self.api.quotes(','.join(symbols)))['results']
-        return {quote['symbol'] if quote else sym: quote
-                for sym, quote in zip(symbols, results)}
+    def _zip_in_order(self, symbols: [str], results_dict: dict):
+        return {quote.get('symbol', sym) if quote else sym: quote
+                for sym, quote in zip(symbols, results_dict)}
 
-    async def symbols(self, tickers: [str]):
-        """Placeholder for the watchlist calling code...
+    async def quote(self, symbols: [str]):
+        """Retrieve quotes for a list of ``symbols``.
         """
-        return {}
+        return self._zip_in_order(
+            symbols,
+            (await self.api.quotes(','.join(symbols)))['results']
+        )
+
+    async def symbol_data(self, symbols: [str]):
+        """Retrieve symbol data via the ``fundmentals`` endpoint.
+        """
+        return self._zip_in_order(
+            symbols,
+            (await self.api.fundamentals(','.join(symbols)))['results']
+        )
 
 
 @asynccontextmanager
