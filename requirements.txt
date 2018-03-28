@@ -1,2 +1,2 @@
 # matham's next-gen async port of kivy
-git+git://github.com/matham/kivy.git@async-loop
+git+git://github.com/matham/kivy.git@async-loop#egg=kivy
