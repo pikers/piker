@@ -13,6 +13,7 @@ pdbpp = "*"
 [dev-packages]
 pytest = "*"
 pdbpp = "*"
+"e1839a8" = {path = ".", editable = true}
 
 [requires]
 python_version = "3.6"
