@@ -11,15 +11,13 @@ be cloned from this repo and hacked on directly.
 A couple bleeding edge components are being used atm pertaining to
 async ports of libraries for use with `trio`_.
 
-Before installing make sure you have ``pip`` and ``virtualenv``.
+Before installing make sure you have `pipenv`_.
 For a development install::
 
     git clone git@github.com:pikers/piker.git
     cd piker
-    virtualenv env
-    source ./env/bin/activate
-    pip install cython
-    pip install -e ./ -r requirements.txt
+    pipenv install --dev -e .
+    pipenv shell
 
 To start the real-time index ETF watchlist::
 
@@ -33,6 +31,7 @@ broker quote query ``rate`` with ``-r``::
 
 
 .. _trio: https://github.com/python-trio/trio
+.. _pipenv: https://docs.pipenv.org/
 
 Laggy distros
 =============
