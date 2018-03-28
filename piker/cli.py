@@ -118,7 +118,7 @@ def watch(loglevel, broker, rate, name):
             'CBW.VN', 'TRST.CN', 'VFF.TO', 'ACB.TO', 'ABCN.VN',
             'APH.TO', 'MARI.CN', 'WMD.VN', 'LEAF.TO', 'THCX.VN',
             'WEED.TO', 'NINE.VN', 'RTI.VN', 'SNN.CN', 'ACB.TO',
-            'OGI.VN', 'IMH.VN', 'FIRE.VN', 'EAT.CN', 'NUU.VN',
+            'OGI.VN', 'IMH.VN', 'FIRE.VN', 'EAT.CN',
             'WMD.VN', 'HEMP.VN', 'CALI.CN', 'RQB.CN', 'MPX.CN',
             'SEED.TO', 'HMJR.TO', 'CMED.TO', 'PAS.VN',
             'CRON',
