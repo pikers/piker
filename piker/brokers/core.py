@@ -66,28 +66,24 @@ async def poll_tickers(
             prequote_start = time.time()
             quotes = await get_quotes(tickers)
             postquote_start = time.time()
-            payload = []
+            payload = {}
             for symbol, quote in quotes.items():
                 # FIXME: None is returned if a symbol can't be found.
                 # Consider filtering out such symbols before starting poll loop
                 if quote is None:
                     continue
 
-                if quote.get('delay', 0) > 0:
-                    log.warning(f"Delayed quote:\n{quote}")
-
                 if diff_cached:
                     # if cache is enabled then only deliver "new" changes
-                    symbol = quote['symbol']
                     last = _cache.setdefault(symbol, {})
                     new = set(quote.items()) - set(last.items())
                     if new:
                         log.info(
                             f"New quote {quote['symbol']}:\n{new}")
                         _cache[symbol] = quote
-                        payload.append(quote)
+                        payload[symbol] = quote
                 else:
-                    payload.append(quote)
+                    payload[symbol] = quote
 
             if payload:
                 q.put_nowait(payload)
