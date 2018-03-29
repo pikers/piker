@@ -1,8 +1,10 @@
 import os
 import json
-import ast
 from collections import defaultdict
 
+from .log import get_logger
+
+log = get_logger(__name__)
 
 def write_sorted_json(watchlist, path):
     for key in watchlist:
@@ -56,7 +58,7 @@ def delete_group(name, watchlist, path):
 
 def merge_watchlist(watchlist_to_merge, watchlist, path):
     merged_watchlist = defaultdict(list)
-    watchlist_to_merge = ast.literal_eval(watchlist_to_merge)
+    watchlist_to_merge = json.loads(watchlist_to_merge)
     for d in (watchlist, watchlist_to_merge):
         for key, value in d.items():
             merged_watchlist[key].extend(value)

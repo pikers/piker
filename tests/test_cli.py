@@ -4,7 +4,11 @@ CLI testing, dawg.
 import json
 import subprocess
 import pytest
+import tempfile
+import os.path
+import logging
 
+from piker.watchlists import make_config_dir
 
 def run(cmd):
     """Run cmd and check for zero return code.
@@ -85,3 +89,18 @@ def test_api_method_not_found(nyse_tickers, capfd):
     out, err = capfd.readouterr()
     assert 'null' in out
     assert f'No api method `{bad_meth}` could be found?' in err
+
+
+def test_watchlists_config_dir_created(caplog):
+    """Ensure that a config directory is created
+    """
+    #Create temporary directory
+    config_dir = os.path.join(tempfile.gettempdir(), 'piker')
+    with caplog.at_level(logging.DEBUG):
+        make_config_dir(config_dir)
+    assert len(caplog.records) == 1
+    record = caplog.records[0]
+    assert record.levelname == 'DEBUG'
+    assert record.message == f"Creating config dir {config_dir}"
+    assert os.path.isdir(config_dir)
+    os.rmdir(config_dir)

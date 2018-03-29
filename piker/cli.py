@@ -14,7 +14,7 @@ import pandas as pd
 
 from .log import get_console_log, colorize_json, get_logger
 from . import watchlists as wl
-from .brokers import core
+from .brokers import core, get_brokermod
 
 log = get_logger('cli')
 DEFAULT_BROKER = 'robinhood'
