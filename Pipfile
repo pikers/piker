@@ -1,0 +1,19 @@
+[[source]]
+url = "https://pypi.python.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+"e1839a8" = {path = ".", editable = true}
+Cython = "*"
+# matham's next-gen async port of kivy
+Kivy = {git = "git://github.com/matham/kivy.git", ref = "async-loop"}
+pdbpp = "*"
+
+[dev-packages]
+pytest = "*"
+pdbpp = "*"
+"e1839a8" = {path = ".", editable = true}
+
+[requires]
+python_version = "3.6"
