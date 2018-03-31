@@ -154,9 +154,8 @@ def watch(loglevel, broker, rate, name):
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.pass_context
 def watchlists(ctx, loglevel):
-    """Watchlists cl commands and operations
+    """Watchlists commands and operations
     """
-    # import pdb; pdb.set_trace()
     get_console_log(loglevel)  # activate console logging
     wl.make_config_dir(_config_dir)
     ctx.obj = wl.ensure_watchlists(_watchlists_data_path)
@@ -168,7 +167,7 @@ def watchlists(ctx, loglevel):
 def show(ctx, name):
     watchlist = ctx.obj
     click.echo(colorize_json(
-            watchlist if name is None else watchlist[name]))
+               watchlist if name is None else watchlist[name]))
 
 
 @watchlists.command(help='load passed in watchlist')
@@ -176,17 +175,10 @@ def show(ctx, name):
 @click.pass_context
 def load(ctx, data):
     try:
-        wl.load_watchlists(data, _watchlists_data_path)
+        wl.write_watchlists(data, _watchlists_data_path)
     except (json.JSONDecodeError, IndexError):
-        click.echo('You must pass in a text respresentation of a json object. Try again.')
-
-
-@watchlists.command(help='add a new watchlist')
-@click.argument('name', nargs=1, required=True)
-@click.pass_context
-def new(ctx, name):
-    watchlist = ctx.obj
-    wl.new_group(name, watchlist, _watchlists_data_path)
+        click.echo('You have passed an invalid text respresentation of a '
+                   'JSON object. Try again.')
 
 
 @watchlists.command(help='add ticker to watchlist')
@@ -207,7 +199,7 @@ def remove(ctx, name, ticker_name):
     wl.remove_ticker(name, ticker_name, watchlist, _watchlists_data_path)
 
 
-@watchlists.command(help='delete watchlist')
+@watchlists.command(help='delete watchlist group')
 @click.argument('name', nargs=1, required=True)
 @click.pass_context
 def delete(ctx, name):
@@ -223,9 +215,9 @@ def merge(ctx, watchlist_to_merge):
     wl.merge_watchlist(watchlist_to_merge, watchlist, _watchlists_data_path)
 
 
-@watchlists.command(help='dump a text respresentation of a watchlist to console')
+@watchlists.command(help='dump text respresentation of a watchlist to console')
 @click.argument('name', nargs=1, required=False)
 @click.pass_context
 def dump(ctx, name):
     watchlist = ctx.obj
-    print(json.dumps(watchlist))
+    click.echo(json.dumps(watchlist))
