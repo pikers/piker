@@ -8,9 +8,9 @@ log = get_logger(__name__)
 
 def write_sorted_json(watchlist, path):
     for key in watchlist:
-        watchlist[key].sort()
         s = set(watchlist[key])
         watchlist[key] = list(s)
+        watchlist[key].sort()
     with open(path, 'w') as f:
         json.dump(watchlist, f, sort_keys=True)
 
