@@ -51,7 +51,11 @@ async def wait_for_network(get_quotes, sleep=1):
     """
     while True:
         try:
-            return await get_quotes()
+            with trio.move_on_after(1) as cancel_scope:
+                return await get_quotes()
+            if cancel_scope.cancelled_caught:
+                log.warn("Quote query timed out")
+                continue
         except socket.gaierror:
             log.warn(f"Network is down waiting for reestablishment...")
             await trio.sleep(sleep)
