@@ -304,7 +304,24 @@ async def quoter(client: Client, tickers: [str]):
             else:
                 raise
 
-        return {quote['symbol']: quote for quote in quotes_resp['quotes']}
+        # dict packing and post-processing
+        quotes = {}
+        for quote in quotes_resp['quotes']:
+            quotes[quote['symbol']] = quote
+
+            if quote.get('delay', 0) > 0:
+                log.warning(f"Delayed quote:\n{quote}")
+
+        return quotes
+
+    first_quotes_dict = await get_quote(tickers)
+    for symbol, quote in first_quotes_dict.items():
+        if quote['low52w'] is None:
+            log.warn(f"{symbol} seems to be defunct discarding from tickers")
+            t2ids.pop(symbol)
+
+    # re-save symbol ids cache
+    ids = ','.join(map(str, t2ids.values()))
 
     yield get_quote
 

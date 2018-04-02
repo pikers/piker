@@ -3,6 +3,8 @@ Core broker-daemon tasks and API.
 """
 import time
 import inspect
+from functools import partial
+import socket
 from types import ModuleType
 from typing import AsyncContextManager
 
@@ -44,6 +46,21 @@ async def quote(brokermod: ModuleType, tickers: [str]) -> dict:
         return results
 
 
+async def wait_for_network(get_quotes, sleep=1):
+    """Wait until the network comes back up.
+    """
+    while True:
+        try:
+            with trio.move_on_after(1) as cancel_scope:
+                return await get_quotes()
+            if cancel_scope.cancelled_caught:
+                log.warn("Quote query timed out")
+                continue
+        except socket.gaierror:
+            log.warn(f"Network is down waiting for reestablishment...")
+            await trio.sleep(sleep)
+
+
 async def poll_tickers(
     client: 'Client',
     quoter: AsyncContextManager,
@@ -64,30 +81,35 @@ async def poll_tickers(
     async with quoter(client, tickers) as get_quotes:
         while True:  # use an event here to trigger exit?
             prequote_start = time.time()
-            quotes = await get_quotes(tickers)
+
+            with trio.move_on_after(3) as cancel_scope:
+                quotes = await get_quotes(tickers)
+
+            cancelled = cancel_scope.cancelled_caught
+            if cancelled:
+                log.warn("Quote query timed out after 3 seconds, retrying...")
+                # handle network outages by idling until response is received
+                quotes = await wait_for_network(partial(get_quotes, tickers))
+
             postquote_start = time.time()
-            payload = []
+            payload = {}
             for symbol, quote in quotes.items():
                 # FIXME: None is returned if a symbol can't be found.
                 # Consider filtering out such symbols before starting poll loop
                 if quote is None:
                     continue
 
-                if quote.get('delay', 0) > 0:
-                    log.warning(f"Delayed quote:\n{quote}")
-
                 if diff_cached:
                     # if cache is enabled then only deliver "new" changes
-                    symbol = quote['symbol']
                     last = _cache.setdefault(symbol, {})
                     new = set(quote.items()) - set(last.items())
                     if new:
                         log.info(
                             f"New quote {quote['symbol']}:\n{new}")
                         _cache[symbol] = quote
-                        payload.append(quote)
+                        payload[symbol] = quote
                 else:
-                    payload.append(quote)
+                    payload[symbol] = quote
 
             if payload:
                 q.put_nowait(payload)

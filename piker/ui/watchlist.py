@@ -349,10 +349,8 @@ async def update_quotes(
     grid.quote_cache = cache
 
     # initial coloring
-    for quote in first_quotes:
-        sym = quote['symbol']
+    for sym, quote in first_quotes.items():
         row = grid.symbols2rows[sym]
-        # record, displayable = qtconvert(quote, symbol_data=symbol_data)
         record, displayable = brokermod.format_quote(
             quote, symbol_data=symbol_data)
         row.update(record, displayable)
@@ -365,12 +363,11 @@ async def update_quotes(
     while True:
         log.debug("Waiting on quotes")
         quotes = await queue.get()  # new quotes data only
-        for quote in quotes:
-            # record, displayable = qtconvert(quote, symbol_data=symbol_data)
+        for symbol, quote in quotes.items():
             record, displayable = brokermod.format_quote(
                 quote, symbol_data=symbol_data)
-            row = grid.symbols2rows[record['symbol']]
-            cache[record['symbol']] = (record, row)
+            row = grid.symbols2rows[symbol]
+            cache[symbol] = (record, row)
             row.update(record, displayable)
             color_row(row, record)
 
@@ -401,11 +398,10 @@ async def _async_main(name, tickers, brokermod, rate):
             )
 
             # get first quotes response
-            pkts = await queue.get()
+            quotes = await queue.get()
             first_quotes = [
-                # qtconvert(quote, symbol_data=sd)[0] for quote in pkts]
                 brokermod.format_quote(quote, symbol_data=sd)[0]
-                for quote in pkts]
+                for quote in quotes.values()]
 
             if first_quotes[0].get('last') is None:
                 log.error("Broker API is down temporarily")
@@ -463,4 +459,4 @@ async def _async_main(name, tickers, brokermod, rate):
             }
             nursery.start_soon(run_kivy, widgets['root'], nursery)
             nursery.start_soon(
-                update_quotes, brokermod, widgets, queue, sd, pkts)
+                update_quotes, brokermod, widgets, queue, sd, quotes)
