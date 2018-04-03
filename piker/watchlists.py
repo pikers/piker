@@ -26,33 +26,29 @@ def ensure_watchlists(file_path):
         return json.load(f) if not os.stat(file_path).st_size == 0 else {}
 
 
-def write_watchlists(watchlist, path):
-    write_sorted_json(json.loads(watchlist), path)
-
-
-def add_ticker(name, ticker_name, watchlist, path):
+def add_ticker(name, ticker_name, watchlist):
     watchlist.setdefault(name, []).append(str(ticker_name).upper())
-    write_sorted_json(watchlist, path)
+    return watchlist
 
 
-def remove_ticker(name, ticker_name, watchlist, path):
+def remove_ticker(name, ticker_name, watchlist):
     if name in watchlist:
         watchlist[name].remove(str(ticker_name).upper())
         if watchlist[name] == []:
             del watchlist[name]
-    write_sorted_json(watchlist, path)
+    return watchlist
 
 
-def delete_group(name, watchlist, path):
+def delete_group(name, watchlist):
     if name in watchlist:
         del watchlist[name]
-    write_sorted_json(watchlist, path)
+    return watchlist
 
 
-def merge_watchlist(watchlist_to_merge, watchlist, path):
+def merge_watchlist(watchlist_to_merge, watchlist):
     merged_watchlist = defaultdict(list)
     watchlist_to_merge = json.loads(watchlist_to_merge)
     for d in (watchlist, watchlist_to_merge):
         for key, value in d.items():
             merged_watchlist[key].extend(value)
-    write_sorted_json(merged_watchlist, path)
+    return merged_watchlist

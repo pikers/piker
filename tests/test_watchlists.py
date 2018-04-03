@@ -59,48 +59,43 @@ def test_watchlist_is_read_from_file(piker_dir):
     """
     wl_temp = wl.ensure_watchlists(piker_dir)
     assert wl_temp == {}
-    wl_temp2 = '{"AA": ["TEST.CN"]}'
-    wl.write_watchlists(wl_temp2, piker_dir)
-    assert json.loads(wl_temp2) == wl.ensure_watchlists(piker_dir)
+    wl_temp2 = {"AA": ["TEST.CN"]}
+    wl.write_sorted_json(wl_temp2, piker_dir)
+    assert wl_temp2 == wl.ensure_watchlists(piker_dir)
 
 
-def test_new_ticker_added(piker_dir):
+def test_new_ticker_added():
     """Ensure that a new ticker is added to a watchlist for both cases.
     """
-    wl.add_ticker('test', 'TEST.CN', {'test': ['TEST2.CN']}, piker_dir)
-    wl_temp = wl.ensure_watchlists(piker_dir)
+    wl_temp = wl.add_ticker('test', 'TEST.CN', {'test': ['TEST2.CN']})
     assert len(wl_temp['test']) == 2
-    wl.add_ticker('test2', 'TEST.CN', wl_temp, piker_dir)
-    wl_temp = wl.ensure_watchlists(piker_dir)
+    wl_temp = wl.add_ticker('test2', 'TEST.CN', wl_temp)
     assert wl_temp['test2']
 
 
-def test_ticker_is_removed(piker_dir):
+def test_ticker_is_removed():
     """Verify that passed in ticker is removed and that a group is removed
     if no tickers left.
     """
     wl_temp = {'test': ['TEST.CN', 'TEST2.CN'], 'test2': ['TEST.CN']}
-    wl.remove_ticker('test', 'TEST.CN', wl_temp, piker_dir)
-    wl.remove_ticker('test2', 'TEST.CN', wl_temp, piker_dir)
-    wl_temp = wl.ensure_watchlists(piker_dir)
+    wl_temp = wl.remove_ticker('test', 'TEST.CN', wl_temp)
+    wl_temp = wl.remove_ticker('test2', 'TEST.CN', wl_temp)
     assert wl_temp == {'test': ['TEST2.CN']}
     assert not wl_temp.get('test2')
 
 
-def test_group_is_deleted(piker_dir):
+def test_group_is_deleted():
     """Check that watchlist group is removed.
     """
     wl_temp = {'test': ['TEST.CN']}
-    wl.delete_group('test', wl_temp, piker_dir)
-    wl_temp = wl.ensure_watchlists(piker_dir)
+    wl_temp = wl.delete_group('test', wl_temp)
     assert not wl_temp.get('test')
 
 
-def test_watchlist_is_merged(piker_dir):
+def test_watchlist_is_merged():
     """Ensure that watchlist is merged.
     """
     wl_temp = {'test': ['TEST.CN']}
     wl_temp2 = '{"test2": ["TEST2.CN"]}'
-    wl.merge_watchlist(wl_temp2, wl_temp, piker_dir)
-    wl_temp3 = wl.ensure_watchlists(piker_dir)
+    wl_temp3 = wl.merge_watchlist(wl_temp2, wl_temp)
     assert wl_temp3 == {'test': ['TEST.CN'], 'test2': ['TEST2.CN']}

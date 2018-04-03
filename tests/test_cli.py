@@ -100,8 +100,7 @@ def temp_dir():
     testing.
     """
     with tempfile.TemporaryDirectory() as tempdir:
-        config_dir = os.path.join(tempdir, 'piker')
-        yield config_dir
+        yield os.path.join(tempdir, 'piker')
 
 
 @pytest.fixture

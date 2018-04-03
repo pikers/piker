@@ -121,7 +121,7 @@ def watch(loglevel, broker, rate, name):
     log = get_console_log(loglevel)  # activate console logging
     brokermod = get_brokermod(broker)
 
-    watchlists = {
+    watchlists = json.dumps({
         'cannabis': [
             'EMH.VN', 'LEAF.TO', 'HVT.VN', 'HMMJ.TO', 'APH.TO',
             'CBW.VN', 'TRST.CN', 'VFF.TO', 'ACB.TO', 'ABCN.VN',
@@ -135,7 +135,7 @@ def watch(loglevel, broker, rate, name):
         'dad': ['GM', 'TSLA', 'DOL.TO', 'CIM', 'SPY', 'SHOP.TO'],
         'pharma': ['ATE.VN'],
         'indexes': ['SPY', 'DAX', 'QQQ', 'DIA'],
-    }
+    })
     # broker_conf_path = os.path.join(
     #     click.get_app_dir('piker'), 'watchlists.json')
     # from piker.testing import _quote_streamer as brokermod
@@ -179,7 +179,7 @@ def show(ctx, name):
 @click.pass_context
 def load(ctx, data):
     try:
-        wl.write_watchlists(data, ctx.obj['path'])
+        wl.write_sorted_json(json.loads(data), ctx.obj['path'])
     except (json.JSONDecodeError, IndexError):
         click.echo('You have passed an invalid text respresentation of a '
                    'JSON object. Try again.')
@@ -190,8 +190,9 @@ def load(ctx, data):
 @click.argument('ticker_name', nargs=1, required=True)
 @click.pass_context
 def add(ctx, name, ticker_name):
-    watchlist = ctx.obj['watchlist']
-    wl.add_ticker(name, ticker_name, watchlist, ctx.obj['path'])
+    watchlist = wl.add_ticker(name, ticker_name,
+                              ctx.obj['watchlist'])
+    wl.write_sorted_json(watchlist, ctx.obj['path'])
 
 
 @watchlists.command(help='remove ticker from watchlist')
@@ -199,29 +200,29 @@ def add(ctx, name, ticker_name):
 @click.argument('ticker_name', nargs=1, required=True)
 @click.pass_context
 def remove(ctx, name, ticker_name):
-    watchlist = ctx.obj['watchlist']
-    wl.remove_ticker(name, ticker_name, watchlist, ctx.obj['path'])
+    watchlist = wl.remove_ticker(name, ticker_name, ctx.obj['watchlist'])
+    wl.write_sorted_json(watchlist, ctx.obj['path'])
 
 
 @watchlists.command(help='delete watchlist group')
 @click.argument('name', nargs=1, required=True)
 @click.pass_context
 def delete(ctx, name):
-    watchlist = ctx.obj['watchlist']
-    wl.delete_group(name, watchlist, ctx.obj['path'])
+    watchlist = wl.delete_group(name, ctx.obj['watchlist'])
+    wl.write_sorted_json(watchlist, ctx.obj['path'])
 
 
 @watchlists.command(help='merge a watchlist from another user')
 @click.argument('watchlist_to_merge', nargs=1, required=True)
 @click.pass_context
 def merge(ctx, watchlist_to_merge):
-    watchlist = ctx.obj['watchlist']
-    wl.merge_watchlist(watchlist_to_merge, watchlist, ctx.obj['path'])
+    merged_watchlist = wl.merge_watchlist(watchlist_to_merge,
+                                          ctx.obj['watchlist'])
+    wl.write_sorted_json(merged_watchlist, ctx.obj['path'])
 
 
 @watchlists.command(help='dump text respresentation of a watchlist to console')
 @click.argument('name', nargs=1, required=False)
 @click.pass_context
 def dump(ctx, name):
-    watchlist = ctx.obj['watchlist']
-    click.echo(json.dumps(watchlist))
+    click.echo(json.dumps(ctx.obj['watchlist']))
