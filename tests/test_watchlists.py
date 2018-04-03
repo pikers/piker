@@ -13,7 +13,6 @@ import piker.watchlists as wl
 @pytest.fixture
 def temp_dir():
     """Creates a path to a pretend config dir in a temporary directory for
-
     testing.
     """
     with tempfile.TemporaryDirectory() as tempdir:
@@ -56,7 +55,6 @@ def test_watchlists_config_dir_created(caplog, temp_dir):
 
 def test_watchlist_is_read_from_file(piker_dir):
     """Ensure json info is read from file or an empty dict is generated
-
     and that text respresentation of a watchlist is saved to file.
     """
     wl_temp = wl.ensure_watchlists(piker_dir)
@@ -79,7 +77,6 @@ def test_new_ticker_added(piker_dir):
 
 def test_ticker_is_removed(piker_dir):
     """Verify that passed in ticker is removed and that a group is removed
-
     if no tickers left.
     """
     wl_temp = {'test': ['TEST.CN', 'TEST2.CN'], 'test2': ['TEST.CN']}
