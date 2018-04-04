@@ -96,6 +96,6 @@ def test_watchlist_is_merged():
     """Ensure that watchlist is merged.
     """
     wl_temp = {'test': ['TEST.CN']}
-    wl_temp2 = '{"test2": ["TEST2.CN"]}'
+    wl_temp2 = {'test': ['TOAST'], "test2": ["TEST2.CN"]}
     wl_temp3 = wl.merge_watchlist(wl_temp2, wl_temp)
-    assert wl_temp3 == {'test': ['TEST.CN'], 'test2': ['TEST2.CN']}
+    assert wl_temp3 == {'test': ['TEST.CN', 'TOAST'], 'test2': ['TEST2.CN']}

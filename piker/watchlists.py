@@ -40,14 +40,12 @@ def remove_ticker(name, ticker_name, watchlist):
 
 
 def delete_group(name, watchlist):
-    if name in watchlist:
-        del watchlist[name]
+    watchlist.pop(name, None)
     return watchlist
 
 
 def merge_watchlist(watchlist_to_merge, watchlist):
     merged_watchlist = defaultdict(list)
-    watchlist_to_merge = json.loads(watchlist_to_merge)
     for d in (watchlist, watchlist_to_merge):
         for key, value in d.items():
             merged_watchlist[key].extend(value)

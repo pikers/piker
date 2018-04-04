@@ -121,7 +121,7 @@ def watch(loglevel, broker, rate, name):
     log = get_console_log(loglevel)  # activate console logging
     brokermod = get_brokermod(broker)
 
-    watchlists = json.dumps({
+    watchlists_base = {
         'cannabis': [
             'EMH.VN', 'LEAF.TO', 'HVT.VN', 'HMMJ.TO', 'APH.TO',
             'CBW.VN', 'TRST.CN', 'VFF.TO', 'ACB.TO', 'ABCN.VN',
@@ -135,7 +135,9 @@ def watch(loglevel, broker, rate, name):
         'dad': ['GM', 'TSLA', 'DOL.TO', 'CIM', 'SPY', 'SHOP.TO'],
         'pharma': ['ATE.VN'],
         'indexes': ['SPY', 'DAX', 'QQQ', 'DIA'],
-    })
+    }
+    watchlist_from_file = wl.ensure_watchlists(_watchlists_data_path)
+    watchlists = wl.merge_watchlist(watchlist_from_file, watchlists_base)
     # broker_conf_path = os.path.join(
     #     click.get_app_dir('piker'), 'watchlists.json')
     # from piker.testing import _quote_streamer as brokermod
@@ -144,11 +146,9 @@ def watch(loglevel, broker, rate, name):
         rate = broker_limit
         log.warn(f"Limiting {brokermod.__name__} query rate to {rate}/sec")
     trio.run(_async_main, name, watchlists[name], brokermod, rate)
-
     # broker_conf_path = os.path.join(
     #     click.get_app_dir('piker'), 'watchlists.json')
     # from piker.testing import _quote_streamer as brokermod
-    trio.run(_async_main, name, watchlists[name], brokermod)
 
 
 @cli.group()
@@ -216,7 +216,7 @@ def delete(ctx, name):
 @click.argument('watchlist_to_merge', nargs=1, required=True)
 @click.pass_context
 def merge(ctx, watchlist_to_merge):
-    merged_watchlist = wl.merge_watchlist(watchlist_to_merge,
+    merged_watchlist = wl.merge_watchlist(json.loads(watchlist_to_merge),
                                           ctx.obj['watchlist'])
     wl.write_sorted_json(merged_watchlist, ctx.obj['path'])
 

@@ -175,32 +175,30 @@ def test_group_deleted_from_watchlists(capfd, piker_dir):
 
 
 def test_watchlists_loaded(capfd, piker_dir):
-    expected_out_text = json.dumps({
-        'dad': ['CIM', 'DOL.TO', 'GM', 'SHOP.TO', 'SPY', 'TSLA'],
-        'pharma': ['ATE.VN'],
-    })
     expected_out = {
         'dad': ['CIM', 'DOL.TO', 'GM', 'SHOP.TO', 'SPY', 'TSLA'],
         'pharma': ['ATE.VN'],
     }
+    expected_out_text = json.dumps(expected_out)
     run(f"piker watchlists -d {piker_dir} load", expected_out_text)
     out = wl.ensure_watchlists(piker_dir)
     assert out == expected_out
 
 
-def test_watchlists_is_merge(capfd, piker_dir):
+def test_watchlists_are_merged(capfd, piker_dir):
     orig_watchlist = {
         'dad': ['CIM', 'DOL.TO', 'GM', 'SHOP.TO', 'SPY', 'TSLA'],
         'indexes': ['DAX', 'DIA', 'QQQ', 'SPY'],
         'pharma': ['ATE.VN'],
     }
     list_to_merge = json.dumps({
-        'drugs': ['CRACK']
+        'drugs': ['CRACK'],
+        'pharma': ['ATE.VN', 'MALI', 'PERCOCET']
     })
     expected_out = {
         'dad': ['CIM', 'DOL.TO', 'GM', 'SHOP.TO', 'SPY', 'TSLA'],
         'indexes': ['DAX', 'DIA', 'QQQ', 'SPY'],
-        'pharma': ['ATE.VN'],
+        'pharma': ['ATE.VN', 'MALI', 'PERCOCET'],
         'drugs': ['CRACK']
     }
     wl.write_sorted_json(orig_watchlist, piker_dir)
