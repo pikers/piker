@@ -120,35 +120,15 @@ def watch(loglevel, broker, rate, name):
     from .ui.watchlist import _async_main
     log = get_console_log(loglevel)  # activate console logging
     brokermod = get_brokermod(broker)
-
-    watchlists_base = {
-        'cannabis': [
-            'EMH.VN', 'LEAF.TO', 'HVT.VN', 'HMMJ.TO', 'APH.TO',
-            'CBW.VN', 'TRST.CN', 'VFF.TO', 'ACB.TO', 'ABCN.VN',
-            'APH.TO', 'MARI.CN', 'WMD.VN', 'LEAF.TO', 'THCX.VN',
-            'WEED.TO', 'NINE.VN', 'RTI.VN', 'SNN.CN', 'ACB.TO',
-            'OGI.VN', 'IMH.VN', 'FIRE.VN', 'EAT.CN',
-            'WMD.VN', 'HEMP.VN', 'CALI.CN', 'RQB.CN', 'MPX.CN',
-            'SEED.TO', 'HMJR.TO', 'CMED.TO', 'PAS.VN',
-            'CRON',
-        ],
-        'dad': ['GM', 'TSLA', 'DOL.TO', 'CIM', 'SPY', 'SHOP.TO'],
-        'pharma': ['ATE.VN'],
-        'indexes': ['SPY', 'DAX', 'QQQ', 'DIA'],
-    }
     watchlist_from_file = wl.ensure_watchlists(_watchlists_data_path)
-    watchlists = wl.merge_watchlist(watchlist_from_file, watchlists_base)
-    # broker_conf_path = os.path.join(
-    #     click.get_app_dir('piker'), 'watchlists.json')
-    # from piker.testing import _quote_streamer as brokermod
+    watchlists = wl.merge_watchlist(watchlist_from_file, wl._builtins)
     broker_limit = getattr(brokermod, '_rate_limit', float('inf'))
+
     if broker_limit < rate:
         rate = broker_limit
         log.warn(f"Limiting {brokermod.__name__} query rate to {rate}/sec")
+
     trio.run(_async_main, name, watchlists[name], brokermod, rate)
-    # broker_conf_path = os.path.join(
-    #     click.get_app_dir('piker'), 'watchlists.json')
-    # from piker.testing import _quote_streamer as brokermod
 
 
 @cli.group()
