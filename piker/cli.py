@@ -159,7 +159,7 @@ def show(ctx, name):
 @click.pass_context
 def load(ctx, data):
     try:
-        wl.write_sorted_json(json.loads(data), ctx.obj['path'])
+        wl.write_to_file(json.loads(data), ctx.obj['path'])
     except (json.JSONDecodeError, IndexError):
         click.echo('You have passed an invalid text respresentation of a '
                    'JSON object. Try again.')
@@ -172,7 +172,7 @@ def load(ctx, data):
 def add(ctx, name, ticker_name):
     watchlist = wl.add_ticker(name, ticker_name,
                               ctx.obj['watchlist'])
-    wl.write_sorted_json(watchlist, ctx.obj['path'])
+    wl.write_to_file(watchlist, ctx.obj['path'])
 
 
 @watchlists.command(help='remove ticker from watchlist')
@@ -181,7 +181,7 @@ def add(ctx, name, ticker_name):
 @click.pass_context
 def remove(ctx, name, ticker_name):
     watchlist = wl.remove_ticker(name, ticker_name, ctx.obj['watchlist'])
-    wl.write_sorted_json(watchlist, ctx.obj['path'])
+    wl.write_to_file(watchlist, ctx.obj['path'])
 
 
 @watchlists.command(help='delete watchlist group')
@@ -189,7 +189,7 @@ def remove(ctx, name, ticker_name):
 @click.pass_context
 def delete(ctx, name):
     watchlist = wl.delete_group(name, ctx.obj['watchlist'])
-    wl.write_sorted_json(watchlist, ctx.obj['path'])
+    wl.write_to_file(watchlist, ctx.obj['path'])
 
 
 @watchlists.command(help='merge a watchlist from another user')
@@ -198,7 +198,7 @@ def delete(ctx, name):
 def merge(ctx, watchlist_to_merge):
     merged_watchlist = wl.merge_watchlist(json.loads(watchlist_to_merge),
                                           ctx.obj['watchlist'])
-    wl.write_sorted_json(merged_watchlist, ctx.obj['path'])
+    wl.write_to_file(merged_watchlist, ctx.obj['path'])
 
 
 @watchlists.command(help='dump text respresentation of a watchlist to console')

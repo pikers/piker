@@ -11,7 +11,7 @@ _builtins = {
 }
 
 
-def write_sorted_json(watchlist, path):
+def write_to_file(watchlist, path):
     for key in watchlist:
         watchlist[key] = sorted(list(set(watchlist[key])))
     with open(path, 'w') as f:

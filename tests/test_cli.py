@@ -112,7 +112,7 @@ def piker_dir(temp_dir):
         'pharma': ['ATE.VN'],
         'indexes': ['SPY', 'DAX', 'QQQ', 'DIA'],
     }
-    wl.write_sorted_json(watchlist, json_file_path)
+    wl.write_to_file(watchlist, json_file_path)
     yield json_file_path
 
 
@@ -201,7 +201,7 @@ def test_watchlists_are_merged(capfd, piker_dir):
         'pharma': ['ATE.VN', 'MALI', 'PERCOCET'],
         'drugs': ['CRACK']
     }
-    wl.write_sorted_json(orig_watchlist, piker_dir)
+    wl.write_to_file(orig_watchlist, piker_dir)
     run(f"piker watchlists -d {piker_dir} merge", list_to_merge)
     out = wl.ensure_watchlists(piker_dir)
     assert out == expected_out
