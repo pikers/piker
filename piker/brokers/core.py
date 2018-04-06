@@ -49,15 +49,21 @@ async def quote(brokermod: ModuleType, tickers: [str]) -> dict:
 async def wait_for_network(get_quotes, sleep=1):
     """Wait until the network comes back up.
     """
+    down = False
     while True:
         try:
             with trio.move_on_after(1) as cancel_scope:
-                return await get_quotes()
+                quotes = await get_quotes()
+                if down:
+                    log.warn("Network is back up")
+                return quotes
             if cancel_scope.cancelled_caught:
                 log.warn("Quote query timed out")
                 continue
         except socket.gaierror:
-            log.warn(f"Network is down waiting for reestablishment...")
+            if not down:  # only report/log network down once
+                log.warn(f"Network is down waiting for re-establishment...")
+                down = True
             await trio.sleep(sleep)
 
 
