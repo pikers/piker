@@ -149,7 +149,7 @@ def watchlists(ctx, loglevel, config_dir):
 @click.argument('name', nargs=1, required=False)
 @click.pass_context
 def show(ctx, name):
-    watchlist = ctx.obj['watchlist']
+    watchlist = wl.merge_watchlist(ctx.obj['watchlist'], wl._builtins)
     click.echo(colorize_json(
                watchlist if name is None else watchlist[name]))
 
@@ -180,8 +180,18 @@ def add(ctx, name, ticker_name):
 @click.argument('ticker_name', nargs=1, required=True)
 @click.pass_context
 def remove(ctx, name, ticker_name):
-    watchlist = wl.remove_ticker(name, ticker_name, ctx.obj['watchlist'])
-    wl.write_to_file(watchlist, ctx.obj['path'])
+    try:
+        watchlist = wl.remove_ticker(name, ticker_name, ctx.obj['watchlist'])
+    except KeyError:
+        log.error(f"No watchlist with name `{name}` could be found?")
+    except ValueError:
+        if name in wl._builtins and ticker_name in wl._builtins[name]:
+            log.error(f"Can not remove ticker `{ticker_name}` from built-in "
+                      f"list `{name}`")
+        else:
+            log.error(f"Ticker `{ticker_name}` not found in list `{name}`")
+    else:
+        wl.write_to_file(watchlist, ctx.obj['path'])
 
 
 @watchlists.command(help='delete watchlist group')
