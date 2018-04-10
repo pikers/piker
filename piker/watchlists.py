@@ -36,10 +36,9 @@ def add_ticker(name, ticker_name, watchlist):
 
 
 def remove_ticker(name, ticker_name, watchlist):
-    if name in watchlist:
-        watchlist[name].remove(str(ticker_name).upper())
-        if watchlist[name] == []:
-            del watchlist[name]
+    watchlist[name].remove(str(ticker_name).upper())
+    if watchlist[name] == []:
+        del watchlist[name]
     return watchlist
 
 
