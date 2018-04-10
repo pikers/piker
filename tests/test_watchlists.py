@@ -83,6 +83,14 @@ def test_ticker_is_removed():
     assert wl_temp == {'test': ['TEST2.CN']}
     assert not wl_temp.get('test2')
 
+    # verify trying to remove from nonexistant list
+    with pytest.raises(KeyError):
+        wl.remove_ticker('doggy', 'TEST.CN', wl_temp)
+
+    # verify trying to remove non-existing ticker
+    with pytest.raises(ValueError):
+        wl.remove_ticker('test', 'TEST.CN', wl_temp)
+
 
 def test_group_is_deleted():
     """Check that watchlist group is removed.
