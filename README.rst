@@ -2,6 +2,10 @@ piker
 -----
 Anti-fragile trading gear for hackers, scientists, stay-at-home quants and underpants warriors.
 
+|pypi| |travis| |versions| |license| |docs|
+
+.. |travis| image:: https://img.shields.io/travis/pikers/piker/master.svg
+    :target: https://travis-ci.org/pikers/piker
 
 Install
 *******
@@ -38,29 +42,6 @@ Laggy distros
 For those running pop-culture distros that don't yet ship ``python3.6``
 you'll need to install it as well as `kivy source build`_ dependencies
 since currently there's reliance on an async development branch.
-
-For `ubuntu` this looks like::
-
-    sudo add-apt-repository ppa:jonathonf/python-3.6
-    sudo apt-get update
-    sudo apt-get install -y \
-        build-essential \
-        python3.6 \
-        python3.6-dev \
-        ffmpeg \
-        libsdl2-dev \
-        libsdl2-image-dev \
-        libsdl2-mixer-dev \
-        libsdl2-ttf-dev \
-        libportmidi-dev \
-        libswscale-dev \
-        libavformat-dev \
-        libavcodec-dev \
-        zlib1g-dev
-
-    # then to create your virtualenv with py3.6
-    virtualenv -p $(which python3.6) env
-
 
 .. _kivy source build:
     https://kivy.org/docs/installation/installation-linux.html#installation-in-a-virtual-environment

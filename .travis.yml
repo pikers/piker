@@ -1,0 +1,20 @@
+language: python
+python:
+    - '3.6'
+    # setup.py reading README breaks this?
+    # - pypy
+    # no pandas support
+    # - nightly
+
+before_install:
+    - sudo apt-get -qq update
+    # deps to build kivy from sources for use with trio
+    - sudo apt-get install -y build-essential libav-tools libgles2-mesa-dev libgles2-mesa-dev libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev zlib1g-dev
+
+install:
+    - pip install pipenv
+    - cd $TRAVIS_BUILD_DIR
+    - pipenv install --dev -e .
+
+script:
+    - pipenv run pytest tests/
