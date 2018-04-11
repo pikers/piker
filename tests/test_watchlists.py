@@ -30,7 +30,7 @@ def test_watchlist_is_sorted_no_dups_and_saved_to_file(piker_dir):
     wl_temp = {'test': ['TEST.CN', 'AAA'], 'AA': ['TEST.CN', 'TEST.CN'],
                'AA': ['TEST.CN']}
     wl_sort = {'AA': ['TEST.CN'], 'test': ['AAA', 'TEST.CN']}
-    wl.write_sorted_json(wl_temp, piker_dir)
+    wl.write_to_file(wl_temp, piker_dir)
     temp_sorted = wl.ensure_watchlists(piker_dir)
     assert temp_sorted == wl_sort
 
@@ -60,7 +60,7 @@ def test_watchlist_is_read_from_file(piker_dir):
     wl_temp = wl.ensure_watchlists(piker_dir)
     assert wl_temp == {}
     wl_temp2 = {"AA": ["TEST.CN"]}
-    wl.write_sorted_json(wl_temp2, piker_dir)
+    wl.write_to_file(wl_temp2, piker_dir)
     assert wl_temp2 == wl.ensure_watchlists(piker_dir)
 
 
@@ -82,6 +82,14 @@ def test_ticker_is_removed():
     wl_temp = wl.remove_ticker('test2', 'TEST.CN', wl_temp)
     assert wl_temp == {'test': ['TEST2.CN']}
     assert not wl_temp.get('test2')
+
+    # verify trying to remove from nonexistant list
+    with pytest.raises(KeyError):
+        wl.remove_ticker('doggy', 'TEST.CN', wl_temp)
+
+    # verify trying to remove non-existing ticker
+    with pytest.raises(ValueError):
+        wl.remove_ticker('test', 'TEST.CN', wl_temp)
 
 
 def test_group_is_deleted():

@@ -120,35 +120,15 @@ def watch(loglevel, broker, rate, name):
     from .ui.watchlist import _async_main
     log = get_console_log(loglevel)  # activate console logging
     brokermod = get_brokermod(broker)
-
-    watchlists_base = {
-        'cannabis': [
-            'EMH.VN', 'LEAF.TO', 'HVT.VN', 'HMMJ.TO', 'APH.TO',
-            'CBW.VN', 'TRST.CN', 'VFF.TO', 'ACB.TO', 'ABCN.VN',
-            'APH.TO', 'MARI.CN', 'WMD.VN', 'LEAF.TO', 'THCX.VN',
-            'WEED.TO', 'NINE.VN', 'RTI.VN', 'SNN.CN', 'ACB.TO',
-            'OGI.VN', 'IMH.VN', 'FIRE.VN', 'EAT.CN',
-            'WMD.VN', 'HEMP.VN', 'CALI.CN', 'RQB.CN', 'MPX.CN',
-            'SEED.TO', 'HMJR.TO', 'CMED.TO', 'PAS.VN',
-            'CRON',
-        ],
-        'dad': ['GM', 'TSLA', 'DOL.TO', 'CIM', 'SPY', 'SHOP.TO'],
-        'pharma': ['ATE.VN'],
-        'indexes': ['SPY', 'DAX', 'QQQ', 'DIA'],
-    }
     watchlist_from_file = wl.ensure_watchlists(_watchlists_data_path)
-    watchlists = wl.merge_watchlist(watchlist_from_file, watchlists_base)
-    # broker_conf_path = os.path.join(
-    #     click.get_app_dir('piker'), 'watchlists.json')
-    # from piker.testing import _quote_streamer as brokermod
+    watchlists = wl.merge_watchlist(watchlist_from_file, wl._builtins)
     broker_limit = getattr(brokermod, '_rate_limit', float('inf'))
+
     if broker_limit < rate:
         rate = broker_limit
         log.warn(f"Limiting {brokermod.__name__} query rate to {rate}/sec")
+
     trio.run(_async_main, name, watchlists[name], brokermod, rate)
-    # broker_conf_path = os.path.join(
-    #     click.get_app_dir('piker'), 'watchlists.json')
-    # from piker.testing import _quote_streamer as brokermod
 
 
 @cli.group()
@@ -169,7 +149,7 @@ def watchlists(ctx, loglevel, config_dir):
 @click.argument('name', nargs=1, required=False)
 @click.pass_context
 def show(ctx, name):
-    watchlist = ctx.obj['watchlist']
+    watchlist = wl.merge_watchlist(ctx.obj['watchlist'], wl._builtins)
     click.echo(colorize_json(
                watchlist if name is None else watchlist[name]))
 
@@ -179,7 +159,7 @@ def show(ctx, name):
 @click.pass_context
 def load(ctx, data):
     try:
-        wl.write_sorted_json(json.loads(data), ctx.obj['path'])
+        wl.write_to_file(json.loads(data), ctx.obj['path'])
     except (json.JSONDecodeError, IndexError):
         click.echo('You have passed an invalid text respresentation of a '
                    'JSON object. Try again.')
@@ -192,7 +172,7 @@ def load(ctx, data):
 def add(ctx, name, ticker_name):
     watchlist = wl.add_ticker(name, ticker_name,
                               ctx.obj['watchlist'])
-    wl.write_sorted_json(watchlist, ctx.obj['path'])
+    wl.write_to_file(watchlist, ctx.obj['path'])
 
 
 @watchlists.command(help='remove ticker from watchlist')
@@ -200,8 +180,18 @@ def add(ctx, name, ticker_name):
 @click.argument('ticker_name', nargs=1, required=True)
 @click.pass_context
 def remove(ctx, name, ticker_name):
-    watchlist = wl.remove_ticker(name, ticker_name, ctx.obj['watchlist'])
-    wl.write_sorted_json(watchlist, ctx.obj['path'])
+    try:
+        watchlist = wl.remove_ticker(name, ticker_name, ctx.obj['watchlist'])
+    except KeyError:
+        log.error(f"No watchlist with name `{name}` could be found?")
+    except ValueError:
+        if name in wl._builtins and ticker_name in wl._builtins[name]:
+            log.error(f"Can not remove ticker `{ticker_name}` from built-in "
+                      f"list `{name}`")
+        else:
+            log.error(f"Ticker `{ticker_name}` not found in list `{name}`")
+    else:
+        wl.write_to_file(watchlist, ctx.obj['path'])
 
 
 @watchlists.command(help='delete watchlist group')
@@ -209,7 +199,7 @@ def remove(ctx, name, ticker_name):
 @click.pass_context
 def delete(ctx, name):
     watchlist = wl.delete_group(name, ctx.obj['watchlist'])
-    wl.write_sorted_json(watchlist, ctx.obj['path'])
+    wl.write_to_file(watchlist, ctx.obj['path'])
 
 
 @watchlists.command(help='merge a watchlist from another user')
@@ -218,7 +208,7 @@ def delete(ctx, name):
 def merge(ctx, watchlist_to_merge):
     merged_watchlist = wl.merge_watchlist(json.loads(watchlist_to_merge),
                                           ctx.obj['watchlist'])
-    wl.write_sorted_json(merged_watchlist, ctx.obj['path'])
+    wl.write_to_file(merged_watchlist, ctx.obj['path'])
 
 
 @watchlists.command(help='dump text respresentation of a watchlist to console')

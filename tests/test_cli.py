@@ -6,11 +6,8 @@ import subprocess
 import pytest
 import tempfile
 import os.path
-import logging
 
 import piker.watchlists as wl
-import piker.cli as cli
-from piker.log import colorize_json
 
 
 def run(cmd, *args):
@@ -104,71 +101,77 @@ def temp_dir():
 
 
 @pytest.fixture
-def piker_dir(temp_dir):
+def ex_watchlists():
+    """Made up watchlists to use for expected outputs.
+    """
+    watchlists = {
+        'dad': list(sorted(['GM', 'TSLA', 'DOL.TO', 'CIM', 'SPY', 'SHOP.TO'])),
+        'pharma': ['ATE.VN'],
+    }
+    return watchlists
+
+
+@pytest.fixture
+def ex_watchlists_wbi(ex_watchlists):
+    """Made up watchlists + built-in list(s) to use for expected outputs.
+    """
+    with_builtins = ex_watchlists.copy()
+    with_builtins.update(wl._builtins)
+    return with_builtins
+
+
+@pytest.fixture
+def piker_dir(temp_dir, ex_watchlists):
     wl.make_config_dir(temp_dir)
     json_file_path = os.path.join(temp_dir, 'watchlists.json')
-    watchlist = {
-        'dad': ['GM', 'TSLA', 'DOL.TO', 'CIM', 'SPY', 'SHOP.TO'],
-        'pharma': ['ATE.VN'],
-        'indexes': ['SPY', 'DAX', 'QQQ', 'DIA'],
-    }
-    wl.write_sorted_json(watchlist, json_file_path)
+    # push test watchlists to file without built-ins
+    to_write = ex_watchlists.copy()
+    wl.write_to_file(to_write, json_file_path)
     yield json_file_path
 
 
-def test_show_watchlists(capfd, piker_dir):
-    """Ensure a watchlist is printed.
+def test_show_watchlists(capfd, piker_dir, ex_watchlists_wbi):
+    """Ensure all watchlists are printed as json to stdout.
+
+    (Can't seem to get pretty formatting to work, pytest thing?)
     """
-    expected_out = json.dumps({
-        'dad': ['CIM', 'DOL.TO', 'GM', 'SHOP.TO', 'SPY', 'TSLA'],
-        'indexes': ['DAX', 'DIA', 'QQQ', 'SPY'],
-        'pharma': ['ATE.VN'],
-    }, indent=4)
+    expected_out = json.dumps(ex_watchlists_wbi, indent=4, sort_keys=True)
     run(f"piker watchlists -d {piker_dir} show")
     out, err = capfd.readouterr()
     assert out.strip() == expected_out
 
 
-def test_dump_watchlists(capfd, piker_dir):
-    """Ensure watchlist is dumped.
+def test_dump_watchlists(capfd, piker_dir, ex_watchlists):
+    """Ensure watchlist is dumped without built-in lists.
     """
-    expected_out = json.dumps({
-        'dad': ['CIM', 'DOL.TO', 'GM', 'SHOP.TO', 'SPY', 'TSLA'],
-        'indexes': ['DAX', 'DIA', 'QQQ', 'SPY'],
-        'pharma': ['ATE.VN'],
-    })
+    expected_out = json.dumps(ex_watchlists)
     run(f"piker watchlists -d {piker_dir} dump")
     out, err = capfd.readouterr()
     assert out.strip() == expected_out
 
 
-def test_ticker_added_to_watchlists(capfd, piker_dir):
-    expected_out = {
-        'dad': ['CIM', 'DOL.TO', 'GM', 'SHOP.TO', 'SPY', 'TSLA'],
-        'indexes': ['DAX', 'DIA', 'QQQ', 'SPY'],
-        'pharma': ['ATE.VN', 'CRACK'],
-    }
+def test_ticker_added_to_watchlists(capfd, piker_dir, ex_watchlists):
+    ex_watchlists['pharma'].append('CRACK')
     run(f"piker watchlists -d {piker_dir} add pharma CRACK")
     out = wl.ensure_watchlists(piker_dir)
-    assert out == expected_out
+    assert out == ex_watchlists
 
 
-def test_ticker_removed_from_watchlists(capfd, piker_dir):
-    expected_out = {
-        'dad': ['CIM', 'DOL.TO', 'GM', 'SHOP.TO', 'SPY', 'TSLA'],
-        'indexes': ['DAX', 'DIA', 'SPY'],
-        'pharma': ['ATE.VN'],
-    }
-    run(f"piker watchlists -d {piker_dir} remove indexes QQQ")
+def test_ticker_removed_from_watchlists(capfd, piker_dir, ex_watchlists):
+    expected_out = ex_watchlists.copy()
+    expected_out['dad'].remove('SPY')
+    run(f"piker watchlists -d {piker_dir} remove dad SPY")
     out = wl.ensure_watchlists(piker_dir)
     assert out == expected_out
 
+    # removing a non-entry should be a no-op
+    run(f"piker watchlists -d {piker_dir} remove dad SPY")
+    out = wl.ensure_watchlists(piker_dir)
 
-def test_group_deleted_from_watchlists(capfd, piker_dir):
-    expected_out = {
-        'dad': ['CIM', 'DOL.TO', 'GM', 'SHOP.TO', 'SPY', 'TSLA'],
-        'indexes': ['DAX', 'DIA', 'QQQ', 'SPY'],
-    }
+
+def test_group_deleted_from_watchlists(capfd, piker_dir, ex_watchlists):
+    expected_out = ex_watchlists.copy()
+    expected_out.pop('pharma')
     run(f"piker watchlists -d {piker_dir} delete pharma")
     out = wl.ensure_watchlists(piker_dir)
     assert out == expected_out
@@ -201,7 +204,7 @@ def test_watchlists_are_merged(capfd, piker_dir):
         'pharma': ['ATE.VN', 'MALI', 'PERCOCET'],
         'drugs': ['CRACK']
     }
-    wl.write_sorted_json(orig_watchlist, piker_dir)
+    wl.write_to_file(orig_watchlist, piker_dir)
     run(f"piker watchlists -d {piker_dir} merge", list_to_merge)
     out = wl.ensure_watchlists(piker_dir)
     assert out == expected_out

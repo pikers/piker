@@ -6,12 +6,16 @@ from .log import get_logger
 
 log = get_logger(__name__)
 
+_builtins = {
+    'indexes': ['SPY', 'DAX', 'QQQ', 'DIA'],
+}
 
-def write_sorted_json(watchlist, path):
+
+def write_to_file(watchlist, path):
     for key in watchlist:
         watchlist[key] = sorted(list(set(watchlist[key])))
     with open(path, 'w') as f:
-        json.dump(watchlist, f, sort_keys=True)
+        json.dump(watchlist, f, sort_keys=True, indent=4)
 
 
 def make_config_dir(dir_path):
@@ -32,10 +36,9 @@ def add_ticker(name, ticker_name, watchlist):
 
 
 def remove_ticker(name, ticker_name, watchlist):
-    if name in watchlist:
-        watchlist[name].remove(str(ticker_name).upper())
-        if watchlist[name] == []:
-            del watchlist[name]
+    watchlist[name].remove(str(ticker_name).upper())
+    if watchlist[name] == []:
+        del watchlist[name]
     return watchlist
 
 
