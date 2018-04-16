@@ -134,12 +134,6 @@ def watch(loglevel, broker, rate, name):
     brokermod = get_brokermod(broker)
     watchlist_from_file = wl.ensure_watchlists(_watchlists_data_path)
     watchlists = wl.merge_watchlist(watchlist_from_file, wl._builtins)
-    broker_limit = getattr(brokermod, '_rate_limit', float('inf'))
-
-    if broker_limit < rate:
-        rate = broker_limit
-        log.warn(f"Limiting {brokermod.__name__} query rate to {rate}/sec")
-
     trio.run(_async_main, name, watchlists[name], brokermod, rate)
 
 

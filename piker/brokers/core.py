@@ -80,36 +80,49 @@ class StreamQueue:
         self.stream = stream
         self._delim = delim
         self.peer = stream.socket.getpeername()
+        self._agen = self._iter_packets()
 
-    async def get(self):
+    async def _iter_packets(self):
         """Get a packet from the underlying stream.
         """
         delim = self._delim
         buff = b''
         while True:
-            data = await self.stream.receive_some(2**10)
+            packets = []
+            try:
+                data = await self.stream.receive_some(2**10)
+            except trio.BrokenStreamError as err:
+                log.debug("Stream connection was broken")
+                return
+
             log.trace(f"Data is {data}")
             if data == b'':
-                raise Disconnect("Stream connection was closed")
-            buff += data
-            if delim in buff:
+                log.debug("Stream connection was closed")
+                return
+
+            if buff:  # last received packet was segmented
+                data = buff + data
+
+            # if last packet has not fully arrived it will
+            # be a truncated byte-stream
+            packets = data.split(delim)
+            buff = packets.pop()
+
+            for packet in packets:
                 try:
-                    return json.loads(buff)
+                    yield json.loads(packet)
                 except json.decoder.JSONDecodeError:
-                    log.exception("Failed to process JSON packet:")
+                    log.exception(f"Failed to process JSON packet: {buff}")
                     continue
 
     async def put(self, data):
         return await self.stream.send_all(json.dumps(data).encode() + b'\n')
 
-    async def __aiter__(self):
-        return self
+    async def get(self):
+        return await self._agen.asend(None)
 
-    async def __anext__(self):
-        try:
-            return await self.get()
-        except Disconnect:
-            raise StopAsyncIteration
+    async def __aiter__(self):
+        return self._agen
 
 
 async def poll_tickers(
@@ -205,6 +218,12 @@ async def _handle_subs(
 async def _daemon_main(brokermod):
     """Main entry point for the piker daemon.
     """
+    rate = 5
+    broker_limit = getattr(brokermod, '_rate_limit', float('inf'))
+    if broker_limit < rate:
+        rate = broker_limit
+        log.warn(f"Limiting {brokermod.__name__} query rate to {rate}/sec")
+
     stream2tickers = {}
     async with brokermod.get_client() as client:
 
@@ -217,8 +236,9 @@ async def _daemon_main(brokermod):
                 await nursery.start(
                     _handle_subs, queue, stream2tickers, nursery)
                 nursery.start_soon(
-                    poll_tickers, client, brokermod.quoter,
-                    stream2tickers[queue.peer], queue
+                    partial(
+                        poll_tickers, client, brokermod.quoter,
+                        stream2tickers[queue.peer], queue, rate=rate)
                 )
 
         async with trio.open_nursery() as nursery:
