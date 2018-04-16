@@ -31,6 +31,7 @@ setup(
     entry_points={
         'console_scripts': [
             'piker = piker.cli:cli',
+            'pikerd = piker.cli:pikerd',
         ]
     },
     install_requires=[

@@ -35,6 +35,18 @@ def run(main, loglevel='info'):
         log.debug("Exiting piker")
 
 
+@click.command()
+@click.option('--broker', '-b', default=DEFAULT_BROKER,
+              help='Broker backend to use')
+@click.option('--loglevel', '-l', default='warning', help='Logging level')
+def pikerd(broker, loglevel):
+    """Spawn the piker daemon.
+    """
+    from piker.brokers.core import _daemon_main
+    brokermod = get_brokermod(broker)
+    run(partial(_daemon_main, brokermod), loglevel)
+
+
 @click.group()
 def cli():
     pass
