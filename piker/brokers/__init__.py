@@ -13,7 +13,10 @@ __brokers__ = [
 def get_brokermod(brokername: str) -> ModuleType:
     """Return the imported broker module by name.
     """
-    return import_module('.' + brokername, 'piker.brokers')
+    module = import_module('.' + brokername, 'piker.brokers')
+    # we only allows monkeys because it's for internal keying
+    module.name =  module.__name__.split('.')[-1]
+    return module
 
 
 def iter_brokermods():
