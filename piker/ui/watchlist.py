@@ -316,9 +316,10 @@ class TickerTable(GridLayout):
 
 
 async def update_quotes(
+    nursery: 'Nursery',
     brokermod: ModuleType,
     widgets: dict,
-    queue: trio.Queue,
+    queue: 'StreamQueue',
     symbol_data: dict,
     first_quotes: dict
 ):
@@ -358,9 +359,7 @@ async def update_quotes(
     grid.render_rows(cache)
 
     # core cell update loop
-    while True:
-        log.debug("Waiting on quotes")
-        quotes = await queue.get()  # new quotes data only
+    async for quotes in queue:  # new quotes data only
         for symbol, quote in quotes.items():
             record, displayable = brokermod.format_quote(
                 quote, symbol_data=symbol_data)
@@ -370,7 +369,10 @@ async def update_quotes(
             color_row(row, record)
 
         grid.render_rows(cache)
+        log.debug("Waiting on quotes")
 
+    log.warn("Server connection dropped")
+    nursery.cancel_scope.cancel()
 
 async def run_kivy(root, nursery):
     '''Trio-kivy entry point.
@@ -387,7 +389,7 @@ async def _async_main(name, tickers, brokermod, rate):
     # setup ticker stream
     from ..brokers.core import StreamQueue
     queue = StreamQueue(await trio.open_tcp_stream('127.0.0.1', 1616))
-    await queue.put(tickers)  # initial request for symbols price streams
+    await queue.put((brokermod.name, tickers))  # initial request for symbols price streams
 
     # get initial symbol data
     async with brokermod.get_client() as client:
@@ -457,4 +459,4 @@ async def _async_main(name, tickers, brokermod, rate):
         }
         nursery.start_soon(run_kivy, widgets['root'], nursery)
         nursery.start_soon(
-            update_quotes, brokermod, widgets, queue, sd, quotes)
+            update_quotes, nursery, brokermod, widgets, queue, sd, quotes)
