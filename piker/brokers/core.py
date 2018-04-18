@@ -139,13 +139,13 @@ async def poll_tickers(
     A broker-client ``quoter`` async context manager must be provided which
     returns an async quote function.
     """
-    sleeptime = round(1. / rate, 3)
-    _cache = {}  # ticker to quote caching
-
     broker_limit = getattr(brokermod, '_rate_limit', float('inf'))
     if broker_limit < rate:
         rate = broker_limit
         log.warn(f"Limiting {brokermod.__name__} query rate to {rate}/sec")
+
+    sleeptime = round(1. / rate, 3)
+    _cache = {}  # ticker to quote caching
 
     while True:  # use an event here to trigger exit?
         prequote_start = time.time()
