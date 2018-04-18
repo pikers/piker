@@ -36,7 +36,7 @@ setup(
     },
     install_requires=[
         'click', 'colorlog', 'trio', 'attrs', 'async_generator',
-        'pygments', 'cython', 'asks', 'pandas',
+        'pygments', 'cython', 'asks', 'pandas', 'msgpack',
         #'kivy',  see requirement.txt; using a custom branch atm
     ],
     extras_require={
