@@ -284,7 +284,6 @@ async def get_client() -> Client:
         write_conf(client)
 
 
-@asynccontextmanager
 async def quoter(client: Client, tickers: [str]):
     """Quoter context.
     """
@@ -328,7 +327,7 @@ async def quoter(client: Client, tickers: [str]):
             quotes[quote['symbol']] = quote
 
             if quote.get('delay', 0) > 0:
-                log.warning(f"Delayed quote:\n{quote}")
+                log.warn(f"Delayed quote:\n{quote}")
 
         return quotes
 
@@ -338,7 +337,7 @@ async def quoter(client: Client, tickers: [str]):
     # re-save symbol ids cache
     ids = ','.join(map(str, t2ids.values()))
 
-    yield get_quote
+    return get_quote
 
 
 # Questrade key conversion / column order
