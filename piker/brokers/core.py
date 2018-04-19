@@ -333,8 +333,9 @@ async def start_quoter(stream: trio.SocketStream) -> None:
                 await client.__aexit__()
 
 
-async def _daemon_main(brokermod: ModuleType) -> None:
-    """Entry point for the broker daemon.
+async def _daemon_main() -> None:
+    """Entry point for the broker daemon which waits for connections
+    before spawning micro-services.
     """
     async with trio.open_nursery() as nursery:
         listeners = await nursery.start(
