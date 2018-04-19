@@ -382,86 +382,77 @@ async def run_kivy(root, nursery):
     nursery.cancel_scope.cancel()  # cancel all other tasks that may be running
 
 
-async def _async_main(name, tickers, brokermod, rate):
+async def _async_main(name, client, tickers, brokermod, rate):
     '''Launch kivy app + all other related tasks.
 
     This is started with cli command `piker watch`.
     '''
-    # setup ticker stream
-    from ..brokers.core import Client
+    # get initial symbol data
+    async with brokermod.get_client() as bclient:
+        # get long term data including last days close price
+        sd = await bclient.symbol_data(tickers)
 
-    async def subscribe(client):
-        # initial request for symbols price streams
-        await client.send((brokermod.name, tickers))
+    async with trio.open_nursery() as nursery:
+        # get first quotes response
+        quotes = await client.recv()
+        first_quotes = [
+            brokermod.format_quote(quote, symbol_data=sd)[0]
+            for quote in quotes.values()]
 
-    async with Client(('127.0.0.1', 1616), subscribe) as client:
+        if first_quotes[0].get('last') is None:
+            log.error("Broker API is down temporarily")
+            nursery.cancel_scope.cancel()
+            return
 
-        # get initial symbol data
-        async with brokermod.get_client() as bclient:
-            # get long term data including last days close price
-            sd = await bclient.symbol_data(tickers)
+        # build out UI
+        Window.set_title(f"watchlist: {name}\t(press ? for help)")
+        Builder.load_string(_kv)
+        box = BoxLayout(orientation='vertical', padding=5, spacing=5)
 
-        async with trio.open_nursery() as nursery:
-            # get first quotes response
-            quotes = await client.recv()
-            first_quotes = [
-                brokermod.format_quote(quote, symbol_data=sd)[0]
-                for quote in quotes.values()]
+        # define bid-ask "stacked" cells
+        # (TODO: needs some rethinking and renaming for sure)
+        bidasks = brokermod._bidasks
 
-            if first_quotes[0].get('last') is None:
-                log.error("Broker API is down temporarily")
-                nursery.cancel_scope.cancel()
-                return
+        # add header row
+        headers = first_quotes[0].keys()
+        header = Row(
+            {key: key for key in headers},
+            headers=headers,
+            bidasks=bidasks,
+            is_header_row=True,
+            size_hint=(1, None),
+        )
+        box.add_widget(header)
 
-            # build out UI
-            Window.set_title(f"watchlist: {name}\t(press ? for help)")
-            Builder.load_string(_kv)
-            box = BoxLayout(orientation='vertical', padding=5, spacing=5)
+        # build grid
+        grid = TickerTable(
+            cols=1,
+            size_hint=(1, None),
+        )
+        for ticker_record in first_quotes:
+            grid.append_row(ticker_record, bidasks=bidasks)
+        # associate the col headers row with the ticker table even though
+        # they're technically wrapped separately in containing BoxLayout
+        header.table = grid
 
-            # define bid-ask "stacked" cells
-            # (TODO: needs some rethinking and renaming for sure)
-            bidasks = brokermod._bidasks
+        # mark the initial sorted column header as bold and underlined
+        sort_cell = header.get_cell(grid.sort_key)
+        sort_cell.bold = sort_cell.underline = True
+        grid.last_clicked_col_cell = sort_cell
 
-            # add header row
-            headers = first_quotes[0].keys()
-            header = Row(
-                {key: key for key in headers},
-                headers=headers,
-                bidasks=bidasks,
-                is_header_row=True,
-                size_hint=(1, None),
-            )
-            box.add_widget(header)
+        # set up a pager view for large ticker lists
+        grid.bind(minimum_height=grid.setter('height'))
+        pager = PagerView(box, grid, nursery)
+        box.add_widget(pager)
 
-            # build grid
-            grid = TickerTable(
-                cols=1,
-                size_hint=(1, None),
-            )
-            for ticker_record in first_quotes:
-                grid.append_row(ticker_record, bidasks=bidasks)
-            # associate the col headers row with the ticker table even though
-            # they're technically wrapped separately in containing BoxLayout
-            header.table = grid
-
-            # mark the initial sorted column header as bold and underlined
-            sort_cell = header.get_cell(grid.sort_key)
-            sort_cell.bold = sort_cell.underline = True
-            grid.last_clicked_col_cell = sort_cell
-
-            # set up a pager view for large ticker lists
-            grid.bind(minimum_height=grid.setter('height'))
-            pager = PagerView(box, grid, nursery)
-            box.add_widget(pager)
-
-            widgets = {
-                # 'anchor': anchor,
-                'root': box,
-                'grid': grid,
-                'box': box,
-                'header': header,
-                'pager': pager,
-            }
-            nursery.start_soon(run_kivy, widgets['root'], nursery)
-            nursery.start_soon(
-                update_quotes, nursery, brokermod, widgets, client, sd, quotes)
+        widgets = {
+            # 'anchor': anchor,
+            'root': box,
+            'grid': grid,
+            'box': box,
+            'header': header,
+            'pager': pager,
+        }
+        nursery.start_soon(run_kivy, widgets['root'], nursery)
+        nursery.start_soon(
+            update_quotes, nursery, brokermod, widgets, client, sd, quotes)
