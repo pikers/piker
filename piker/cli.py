@@ -126,7 +126,7 @@ def quote(loglevel, broker, tickers, df_output):
 @click.option('--rate', '-r', default=5, help='Logging level')
 @click.argument('name', nargs=1, required=True)
 def watch(loglevel, broker, rate, name):
-    """Spawn a watchlist.
+    """Spawn a real-time watchlist.
     """
     from .ui.watchlist import _async_main
     log = get_console_log(loglevel)  # activate console logging
@@ -145,12 +145,15 @@ def watch(loglevel, broker, rate, name):
 
         client = Client(('127.0.0.1', 1616), subscribe)
         start = time.time()
+        down = False
         while True:
             try:
                 await client.connect()
                 break
             except OSError as oserr:
-                log.info("Waiting on daemon to come up...")
+                if not down:
+                    log.info("Waiting on daemon to come up...")
+                    down = True
                 await trio.sleep(0.1)
                 if time.time() - start > timeout:
                     raise
@@ -162,24 +165,22 @@ def watch(loglevel, broker, rate, name):
                 brokermod, rate
             )
 
+        # signal exit of stream handler task
+        await client.aclose()
+
     try:
         trio.run(main)
     except OSError as oserr:
-        log.exception(oserr)
-        answer = input(
-            "\nWould you like to spawn a broker daemon locally? [Y/n]")
-        if answer is not 'n':
-            child = Process(
-                target=run,
-                args=(_daemon_main, loglevel),
-                daemon=True,
-            )
-            child.daemon = True
-            child.start()
-            trio.run(main, 5)
-            # trio dies with a keyboard interrupt
-            os.kill(child.pid, signal.SIGINT)
-            child.join()
+        log.error(oserr)
+        log.info("Spawning local broker-daemon...")
+        child = Process(
+            target=run,
+            args=(_daemon_main, loglevel),
+            daemon=True,
+        )
+        child.start()
+        trio.run(main, 5)
+        child.join()
 
 
 @cli.group()
