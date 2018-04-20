@@ -171,7 +171,7 @@ def watch(loglevel, broker, rate, name):
     try:
         trio.run(main)
     except OSError as oserr:
-        log.error(oserr)
+        log.warn(oserr)
         log.info("Spawning local broker-daemon...")
         child = Process(
             target=run,

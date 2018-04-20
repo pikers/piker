@@ -307,7 +307,7 @@ async def quoter(client: Client, tickers: [str]):
         new, current = set(tickers), set(t2ids.keys())
         if new != current:
             # update ticker ids cache
-            log.info(f"Tickers set changed {new - current}")
+            log.debug(f"Tickers set changed {new - current}")
             t2ids = await client.tickers2ids(tickers)
             ids = ','.join(map(str, t2ids.values()))
 

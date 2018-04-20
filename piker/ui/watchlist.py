@@ -394,6 +394,7 @@ async def _async_main(name, client, tickers, brokermod, rate):
 
     async with trio.open_nursery() as nursery:
         # get first quotes response
+        log.debug("Waiting on first quote...")
         quotes = await client.recv()
         first_quotes = [
             brokermod.format_quote(quote, symbol_data=sd)[0]
