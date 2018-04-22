@@ -1,14 +1,10 @@
 """
 Console interface to broker client/daemons.
 """
-from collections import defaultdict
 from functools import partial
-from importlib import import_module
 from multiprocessing import Process
 import json
 import os
-import signal
-import time
 
 import click
 import pandas as pd
@@ -16,7 +12,7 @@ import trio
 
 from . import watchlists as wl
 from .brokers import core, get_brokermod
-from .brokers.core import _daemon_main
+from .brokers.core import _daemon_main, Client
 from .log import get_console_log, colorize_json, get_logger
 
 log = get_logger('cli')
@@ -135,29 +131,19 @@ def watch(loglevel, broker, rate, name):
     watchlists = wl.merge_watchlist(watchlist_from_file, wl._builtins)
     tickers = watchlists[name]
 
-    # setup ticker stream
-    from .brokers.core import Client
-
     async def main(timeout=1):
+
         async def subscribe(client):
             # initial request for symbols price streams
             await client.send((brokermod.name, tickers))
 
         client = Client(('127.0.0.1', 1616), subscribe)
-        start = time.time()
-        down = False
-        while True:
-            try:
-                await client.connect()
-                break
-            except OSError as oserr:
-                if not down:
-                    log.info("Waiting on daemon to come up...")
-                    down = True
-                await trio.sleep(0.1)
-                if time.time() - start > timeout:
-                    raise
-                continue
+        try:
+            await client.connect()
+        except OSError as oserr:
+            await trio.sleep(0.5)
+            # will raise indicating child proc should be spawned
+            await client.connect()
 
         async with trio.open_nursery() as nursery:
             nursery.start_soon(
@@ -171,8 +157,9 @@ def watch(loglevel, broker, rate, name):
     try:
         trio.run(main)
     except OSError as oserr:
+        log.warn("No broker daemon could be found")
         log.warn(oserr)
-        log.info("Spawning local broker-daemon...")
+        log.warning("Spawning local broker-daemon...")
         child = Process(
             target=run,
             args=(_daemon_main, loglevel),
