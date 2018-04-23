@@ -2,19 +2,18 @@
 Console interface to broker client/daemons.
 """
 from functools import partial
-from importlib import import_module
-import os
-from collections import defaultdict
+from multiprocessing import Process
 import json
+import os
 
 import click
-import trio
 import pandas as pd
+import trio
 
-
-from .log import get_console_log, colorize_json, get_logger
 from . import watchlists as wl
 from .brokers import core, get_brokermod
+from .brokers.core import _daemon_main, Client
+from .log import get_console_log, colorize_json, get_logger
 
 log = get_logger('cli')
 DEFAULT_BROKER = 'robinhood'
@@ -33,6 +32,14 @@ def run(main, loglevel='info'):
         log.exception(err)
     finally:
         log.debug("Exiting piker")
+
+
+@click.command()
+@click.option('--loglevel', '-l', default='warning', help='Logging level')
+def pikerd(loglevel):
+    """Spawn the piker daemon.
+    """
+    run(_daemon_main, loglevel)
 
 
 @click.group()
@@ -115,20 +122,52 @@ def quote(loglevel, broker, tickers, df_output):
 @click.option('--rate', '-r', default=5, help='Logging level')
 @click.argument('name', nargs=1, required=True)
 def watch(loglevel, broker, rate, name):
-    """Spawn a watchlist.
+    """Spawn a real-time watchlist.
     """
     from .ui.watchlist import _async_main
     log = get_console_log(loglevel)  # activate console logging
     brokermod = get_brokermod(broker)
     watchlist_from_file = wl.ensure_watchlists(_watchlists_data_path)
     watchlists = wl.merge_watchlist(watchlist_from_file, wl._builtins)
-    broker_limit = getattr(brokermod, '_rate_limit', float('inf'))
+    tickers = watchlists[name]
 
-    if broker_limit < rate:
-        rate = broker_limit
-        log.warn(f"Limiting {brokermod.__name__} query rate to {rate}/sec")
+    async def main(timeout=1):
 
-    trio.run(_async_main, name, watchlists[name], brokermod, rate)
+        async def subscribe(client):
+            # initial request for symbols price streams
+            await client.send((brokermod.name, tickers))
+
+        client = Client(('127.0.0.1', 1616), subscribe)
+        try:
+            await client.connect()
+        except OSError as oserr:
+            await trio.sleep(0.5)
+            # will raise indicating child proc should be spawned
+            await client.connect()
+
+        async with trio.open_nursery() as nursery:
+            nursery.start_soon(
+                _async_main, name, client, tickers,
+                brokermod, rate
+            )
+
+        # signal exit of stream handler task
+        await client.aclose()
+
+    try:
+        trio.run(main)
+    except OSError as oserr:
+        log.warn("No broker daemon could be found")
+        log.warn(oserr)
+        log.warning("Spawning local broker-daemon...")
+        child = Process(
+            target=run,
+            args=(_daemon_main, loglevel),
+            daemon=True,
+        )
+        child.start()
+        trio.run(main, 5)
+        child.join()
 
 
 @cli.group()

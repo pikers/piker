@@ -72,11 +72,10 @@ async def get_client() -> Client:
     yield Client()
 
 
-@asynccontextmanager
 async def quoter(client: Client, tickers: [str]):
     """Quoter context.
     """
-    yield client.quote
+    return client.quote
 
 
 # Robinhood key conversion / column order

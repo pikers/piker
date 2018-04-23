@@ -34,6 +34,15 @@ broker quote query ``rate`` with ``-r``::
     piker watch indexes -l info -r 10
 
 
+It is also possible to run the broker-client micro service as a daemon::
+
+    pikerd -l info
+
+Then start the client app as normal::
+
+    piker watch indexes -l info
+
+
 .. _trio: https://github.com/python-trio/trio
 .. _pipenv: https://docs.pipenv.org/
 

@@ -284,16 +284,33 @@ async def get_client() -> Client:
         write_conf(client)
 
 
-@asynccontextmanager
 async def quoter(client: Client, tickers: [str]):
     """Quoter context.
     """
-    t2ids = await client.tickers2ids(tickers)
-    ids = ','.join(map(str, t2ids.values()))
+    t2ids = {}
+    ids = ''
+
+    def filter_symbols(quotes_dict):
+        nonlocal t2ids
+        for symbol, quote in quotes_dict.items():
+            if quote['low52w'] is None:
+                log.warn(
+                    f"{symbol} seems to be defunct discarding from tickers")
+                t2ids.pop(symbol)
 
     async def get_quote(tickers):
         """Query for quotes using cached symbol ids.
         """
+        if not tickers:
+            return {}
+        nonlocal ids, t2ids
+        new, current = set(tickers), set(t2ids.keys())
+        if new != current:
+            # update ticker ids cache
+            log.debug(f"Tickers set changed {new - current}")
+            t2ids = await client.tickers2ids(tickers)
+            ids = ','.join(map(str, t2ids.values()))
+
         try:
             quotes_resp = await client.api.quotes(ids=ids)
         except QuestradeError as qterr:
@@ -310,20 +327,17 @@ async def quoter(client: Client, tickers: [str]):
             quotes[quote['symbol']] = quote
 
             if quote.get('delay', 0) > 0:
-                log.warning(f"Delayed quote:\n{quote}")
+                log.warn(f"Delayed quote:\n{quote}")
 
         return quotes
 
     first_quotes_dict = await get_quote(tickers)
-    for symbol, quote in first_quotes_dict.items():
-        if quote['low52w'] is None:
-            log.warn(f"{symbol} seems to be defunct discarding from tickers")
-            t2ids.pop(symbol)
+    filter_symbols(first_quotes_dict)
 
     # re-save symbol ids cache
     ids = ','.join(map(str, t2ids.values()))
 
-    yield get_quote
+    return get_quote
 
 
 # Questrade key conversion / column order
