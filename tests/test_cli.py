@@ -150,9 +150,15 @@ def test_dump_watchlists(capfd, piker_dir, ex_watchlists):
     assert out.strip() == expected_out
 
 
-def test_ticker_added_to_watchlists(capfd, piker_dir, ex_watchlists):
-    ex_watchlists['pharma'].append('CRACK')
-    run(f"piker watchlists -d {piker_dir} add pharma CRACK")
+@pytest.mark.parametrize(
+    'tickers', [('CRACK',), ('CRACK', 'SUIT',)]
+)
+def test_ticker_added_to_watchlists(capfd, piker_dir, ex_watchlists, tickers):
+    """Verify that single or multi-ticker lists can be added.
+    """
+    for ticker in tickers:
+        ex_watchlists['pharma'].append(ticker)
+    run(f"piker watchlists -d {piker_dir} add pharma {' '.join(tickers)}")
     out = wl.ensure_watchlists(piker_dir)
     assert out == ex_watchlists
 
