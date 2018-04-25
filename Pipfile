@@ -9,6 +9,7 @@ Cython = "*"
 # matham's next-gen async port of kivy
 Kivy = {git = "git://github.com/matham/kivy.git", ref = "async-loop"}
 pdbpp = "*"
+msgpack = "*"
 
 [dev-packages]
 pytest = "*"
