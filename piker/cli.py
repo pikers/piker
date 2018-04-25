@@ -206,11 +206,12 @@ def load(ctx, data):
 
 @watchlists.command(help='add ticker to watchlist')
 @click.argument('name', nargs=1, required=True)
-@click.argument('ticker_name', nargs=1, required=True)
+@click.argument('ticker_names', nargs=-1, required=True)
 @click.pass_context
-def add(ctx, name, ticker_name):
-    watchlist = wl.add_ticker(name, ticker_name,
-                              ctx.obj['watchlist'])
+def add(ctx, name, ticker_names):
+    for ticker in ticker_names:
+        watchlist = wl.add_ticker(
+            name, ticker, ctx.obj['watchlist'])
     wl.write_to_file(watchlist, ctx.obj['path'])
 
 
