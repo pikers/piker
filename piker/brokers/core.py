@@ -376,7 +376,7 @@ async def start_quoter(
             await cntxmng.__aexit__(None, None, None)
 
 
-async def _daemon_main() -> None:
+async def _daemon_main(host) -> None:
     """Entry point for the broker daemon which waits for connections
     before spawning micro-services.
     """
@@ -393,7 +393,7 @@ async def _daemon_main() -> None:
                     start_quoter, broker2tickersubs, clients,
                     dtasks, nursery
                 ),
-                1616, host='127.0.0.1'
+                1616, host=host,
             )
         )
         log.debug(f"Spawned {listeners}")
