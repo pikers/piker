@@ -23,23 +23,17 @@ _watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
 
 
 def run(main, loglevel='info'):
-    log = get_console_log(loglevel)
-
-    # main sandwich
-    try:
-        return trio.run(main)
-    except Exception as err:
-        log.exception(err)
-    finally:
-        log.debug("Exiting piker")
+    get_console_log(loglevel)
+    return trio.run(main)
 
 
 @click.command()
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
-def pikerd(loglevel):
+@click.option('--host', '-h', default='127.0.0.1', help='Host address to bind')
+def pikerd(loglevel, host):
     """Spawn the piker daemon.
     """
-    run(_daemon_main, loglevel)
+    run(partial(_daemon_main, host), loglevel)
 
 
 @click.group()
@@ -120,8 +114,10 @@ def quote(loglevel, broker, tickers, df_output):
               help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--rate', '-r', default=5, help='Logging level')
+@click.option('--dhost', '-dh', default='127.0.0.1',
+              help='Daemon host address to connect to')
 @click.argument('name', nargs=1, required=True)
-def watch(loglevel, broker, rate, name):
+def watch(loglevel, broker, rate, name, dhost):
     """Spawn a real-time watchlist.
     """
     from .ui.watchlist import _async_main
@@ -131,17 +127,20 @@ def watch(loglevel, broker, rate, name):
     watchlists = wl.merge_watchlist(watchlist_from_file, wl._builtins)
     tickers = watchlists[name]
 
-    async def main(timeout=1):
+    async def launch_client(sleep=0.5, tries=10):
 
         async def subscribe(client):
             # initial request for symbols price streams
             await client.send((brokermod.name, tickers))
 
-        client = Client(('127.0.0.1', 1616), subscribe)
-        try:
-            await client.connect()
-        except OSError as oserr:
-            await trio.sleep(0.5)
+        client = Client((dhost, 1616), subscribe)
+        for _ in range(tries):  # try for 5 seconds
+            try:
+                await client.connect()
+                break
+            except OSError as oserr:
+                await trio.sleep(sleep)
+        else:
             # will raise indicating child proc should be spawned
             await client.connect()
 
@@ -155,18 +154,18 @@ def watch(loglevel, broker, rate, name):
         await client.aclose()
 
     try:
-        trio.run(main)
+        trio.run(partial(launch_client, tries=1))
     except OSError as oserr:
         log.warn("No broker daemon could be found")
         log.warn(oserr)
         log.warning("Spawning local broker-daemon...")
         child = Process(
             target=run,
-            args=(_daemon_main, loglevel),
+            args=(partial(_daemon_main, dhost), loglevel),
             daemon=True,
         )
         child.start()
-        trio.run(main, 5)
+        trio.run(launch_client, 5)
         child.join()
 
 
