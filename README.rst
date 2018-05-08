@@ -1,11 +1,13 @@
 piker
 -----
-Anti-fragile trading gear for hackers, scientists, stay-at-home quants and underpants warriors.
+Anti-fragile_ trading gear for hackers, scientists, stay-at-home quants and underpants warriors.
 
 |pypi| |travis| |versions| |license| |docs|
 
 .. |travis| image:: https://img.shields.io/travis/pikers/piker/master.svg
     :target: https://travis-ci.org/pikers/piker
+
+.. _Anti-fragile: https://www.sciencedirect.com/science/article/pii/S1877050916302290
 
 Install
 *******
