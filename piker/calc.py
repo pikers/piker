@@ -27,4 +27,6 @@ def percent_change(init, new):
     """Calcuate the percentage change of some ``new`` value
     from some initial value, ``init``.
     """
+    if not (init and new):
+        return 0
     return (new - init) / init * 100.
