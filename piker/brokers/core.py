@@ -325,12 +325,18 @@ async def start_quoter(
             log.warn(f"Retrieving smoke quote for {queue.peer}")
             quotes = await get_quotes(tickers)
             # pop any tickers that aren't returned in the first quote
-            tickers = set(tickers) - set(quotes)
-            for ticker in tickers:
+            valid_tickers = set(tickers) - set(quotes)
+            for ticker in valid_tickers:
                 log.warn(
                     f"Symbol `{ticker}` not found by broker `{brokermod.name}`"
                 )
                 tickers2qs.pop(ticker, None)
+
+            # first respond with symbol data for all tickers (allows
+            # clients to receive broker specific setup info)
+            sd = await client.symbol_data(tickers)
+            assert sd, "No symbol data could be found?"
+            await queue.put(sd)
 
             # pop any tickers that return "empty" quotes
             payload = {}
