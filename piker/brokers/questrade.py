@@ -414,7 +414,8 @@ def format_quote(
         # convert values to a displayble format using available formatting func
         if isinstance(new_key, tuple):
             new_key, func = new_key
-            display_value = func(value)
+            display_value = func(value) if value else value
+
 
         new[new_key] = value
         displayable[new_key] = display_value
