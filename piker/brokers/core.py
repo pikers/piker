@@ -306,15 +306,11 @@ async def start_quoter(
                 get_quotes = await brokermod.quoter(client, tickers)
                 clients[broker] = (
                     brokermod, client, client_cntxmng, get_quotes)
-                tickers2qs = broker2tickersubs.setdefault(
-                    broker, {}.fromkeys(tickers, {queue, }))
+                tickers2qs = broker2tickersubs.setdefault(broker, {})
             else:
                 log.info(f"Subscribing with existing `{broker}` daemon")
                 brokermod, client, _, get_quotes = clients[broker]
                 tickers2qs = broker2tickersubs[broker]
-                # update map from each symbol to requesting client's queue
-                for ticker in tickers:
-                    tickers2qs.setdefault(ticker, set()).add(queue)
 
             # beginning of section to be trimmed out with #37
             #################################################
@@ -324,19 +320,13 @@ async def start_quoter(
             # since the new client needs to know what symbols are accepted
             log.warn(f"Retrieving smoke quote for {queue.peer}")
             quotes = await get_quotes(tickers)
-            # pop any tickers that aren't returned in the first quote
-            valid_tickers = set(tickers) - set(quotes)
-            for ticker in valid_tickers:
+            # report any tickers that aren't returned in the first quote
+            invalid_tickers = set(tickers) - set(quotes)
+            for symbol in invalid_tickers:
+                tickers.remove(symbol)
                 log.warn(
-                    f"Symbol `{ticker}` not found by broker `{brokermod.name}`"
+                    f"Symbol `{symbol}` not found by broker `{brokermod.name}`"
                 )
-                tickers2qs.pop(ticker, None)
-
-            # first respond with symbol data for all tickers (allows
-            # clients to receive broker specific setup info)
-            sd = await client.symbol_data(tickers)
-            assert sd, "No symbol data could be found?"
-            await queue.put(sd)
 
             # pop any tickers that return "empty" quotes
             payload = {}
@@ -345,15 +335,25 @@ async def start_quoter(
                     log.warn(
                         f"Symbol `{symbol}` not found by broker"
                         f" `{brokermod.name}`")
-                    tickers2qs.pop(symbol, None)
+                    tickers.remove(symbol)
                     continue
                 payload[symbol] = quote
 
-            # push initial quotes response for client initialization
-            await queue.put(payload)
-
             # end of section to be trimmed out with #37
             ###########################################
+
+            # first respond with symbol data for all tickers (allows
+            # clients to receive broker specific setup info)
+            sd = await client.symbol_data(tickers)
+            assert sd, "No symbol data could be found?"
+            await queue.put(sd)
+
+            # update map from each symbol to requesting client's queue
+            for ticker in tickers:
+                tickers2qs.setdefault(ticker, set()).add(queue)
+
+            # push initial quotes response for client initialization
+            await queue.put(payload)
 
             if broker not in dtasks:  # no quoter task yet
                 # task should begin on the next checkpoint/iteration
