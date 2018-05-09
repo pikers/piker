@@ -387,10 +387,9 @@ async def _async_main(name, client, tickers, brokermod, rate):
 
     This is started with cli command `piker watch`.
     '''
-    # get initial symbol data
-    async with brokermod.get_client() as bclient:
-        # get long term data including last days close price
-        sd = await bclient.symbol_data(tickers)
+    # get initial symbol data (long term data including last days close price)
+    # TODO: need something better this this toy protocol
+    sd = await client.recv()
 
     async with trio.open_nursery() as nursery:
         # get first quotes response
