@@ -96,9 +96,9 @@ def quote(loglevel, broker, tickers, df_output):
         log.error(f"No quotes could be found for {tickers}?")
         return
 
-    cols = next(filter(bool, quotes.values())).copy()
-    cols.pop('symbol')
     if df_output:
+        cols = next(filter(bool, quotes.values())).copy()
+        cols.pop('symbol')
         df = pd.DataFrame(
             (quote or {} for quote in quotes.values()),
             index=quotes.keys(),
