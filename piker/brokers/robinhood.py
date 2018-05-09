@@ -8,7 +8,7 @@ from async_generator import asynccontextmanager
 import asks
 
 from ..log import get_logger
-from ._util import resproc
+from ._util import resproc, BrokerError
 from ..calc import percent_change
 
 asks.init('trio')
@@ -51,10 +51,12 @@ class Client:
     async def quote(self, symbols: [str]):
         """Retrieve quotes for a list of ``symbols``.
         """
-        return self._zip_in_order(
-            symbols,
-            (await self.api.quotes(','.join(symbols)))['results']
-        )
+        try:
+            resp = await self.api.quotes(','.join(symbols))
+        except BrokerError:
+            resp = {'results': [None] * len(symbols)}
+
+        return self._zip_in_order(symbols, resp['results'])
 
     async def symbol_data(self, symbols: [str]):
         """Retrieve symbol data via the ``fundmentals`` endpoint.
