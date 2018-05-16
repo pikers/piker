@@ -116,11 +116,11 @@ class Client:
     """
     def __init__(
         self, sockaddr: tuple,
-        startup_seq: Coroutine,
+        on_reconnect: Coroutine,
         auto_reconnect: bool = True,
     ):
         self.sockaddr = sockaddr
-        self._startup_seq = startup_seq
+        self._recon_seq = on_reconnect
         self._autorecon = auto_reconnect
         self.squeue = None
 
@@ -128,7 +128,6 @@ class Client:
         sockaddr = sockaddr or self.sockaddr
         stream = await trio.open_tcp_stream(*sockaddr, **kwargs)
         self.squeue = StreamQueue(stream)
-        await self._startup_seq(self)
         return stream
 
     async def send(self, item):
@@ -168,6 +167,8 @@ class Client:
                     continue
                 else:
                     log.warn("Stream connection re-established!")
+                    # run any reconnection sequence
+                    await self._recon_seq(self)
                     break
             except (OSError, ConnectionRefusedError):
                 if not down:
