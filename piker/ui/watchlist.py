@@ -387,6 +387,8 @@ async def _async_main(name, client, tickers, brokermod, rate):
 
     This is started with cli command `piker watch`.
     '''
+    # subscribe for tickers
+    await client.send((brokermod.name, tickers))
     # get initial symbol data (long term data including last days close price)
     # TODO: need something better this this toy protocol
     sd = await client.recv()
