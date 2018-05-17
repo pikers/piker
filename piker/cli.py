@@ -126,14 +126,20 @@ def watch(loglevel, broker, rate, name, dhost):
     watchlist_from_file = wl.ensure_watchlists(_watchlists_data_path)
     watchlists = wl.merge_watchlist(watchlist_from_file, wl._builtins)
     tickers = watchlists[name]
+    if not tickers:
+        log.error(f"No symbols found for watchlist `{name}`?")
+        return
 
     async def launch_client(sleep=0.5, tries=10):
 
         async def subscribe(client):
-            # initial request for symbols price streams
+            # initial subs request for symbols
             await client.send((brokermod.name, tickers))
+            # symbol data is returned in first response which we'll
+            # ignore on reconnect
+            await client.recv()
 
-        client = Client((dhost, 1616), subscribe)
+        client = Client((dhost, 1616), on_reconnect=subscribe)
         for _ in range(tries):  # try for 5 seconds
             try:
                 await client.connect()
@@ -163,9 +169,10 @@ def watch(loglevel, broker, rate, name, dhost):
             target=run,
             args=(partial(_daemon_main, dhost), loglevel),
             daemon=True,
+            name='pikerd',
         )
         child.start()
-        trio.run(launch_client, 5)
+        trio.run(partial(launch_client, tries=5))
         child.join()
 
 
