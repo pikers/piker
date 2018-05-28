@@ -17,7 +17,7 @@ LOG_FORMAT = (
     # "{bold_white}{log_color}{asctime}{reset}"
     "{log_color}{asctime}{reset}"
     " {bold_white}{thin_white}({reset}"
-    "{thin_white}{threadName}{reset}{bold_white}{thin_white})"
+    "{thin_white}{processName}: {threadName}{reset}{bold_white}{thin_white})"
     " {reset}{log_color}[{reset}{bold_log_color}{levelname}{reset}{log_color}]"
     " {log_color}{name}"
     " {thin_white}{filename}{log_color}:{reset}{thin_white}{lineno}{log_color}"
