@@ -12,7 +12,8 @@ import trio
 
 from . import watchlists as wl
 from .brokers import core, get_brokermod
-from .brokers.core import _daemon_main, Client
+from .brokers.core import _brokerd_main
+from .ipc import Client
 from .log import get_console_log, colorize_json, get_logger
 
 log = get_logger('cli')
@@ -33,7 +34,7 @@ def run(main, loglevel='info'):
 def pikerd(loglevel, host):
     """Spawn the piker daemon.
     """
-    run(partial(_daemon_main, host), loglevel)
+    run(partial(_brokerd_main, host), loglevel)
 
 
 @click.group()
@@ -167,7 +168,7 @@ def watch(loglevel, broker, rate, name, dhost):
         log.warning("Spawning local broker-daemon...")
         child = Process(
             target=run,
-            args=(partial(_daemon_main, dhost), loglevel),
+            args=(partial(_brokerd_main, dhost), loglevel),
             daemon=True,
             name='pikerd',
         )
