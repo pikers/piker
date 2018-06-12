@@ -394,12 +394,13 @@ def format_quote(
     previous = symbol_data[symbol]['prevDayClosePrice']
     change = percent_change(previous, last)
     share_count = symbol_data[symbol].get('outstandingShares', None)
-    mktcap = share_count * last if share_count else 'NA'
+    mktcap = share_count * last if (last and share_count) else 'NA'
     computed = {
         'symbol': quote['symbol'],
         '%': round(change, 3),
         'mktcap': mktcap,
-        '$ vol': round(quote['VWAP'] * quote['volume'], 3),
+        # why QT do you have to be an asshole shipping null values!!!
+        '$ vol': round((quote['VWAP'] or 0) * (quote['volume'] or 0), 3),
         'close': previous,
     }
     new = {}
