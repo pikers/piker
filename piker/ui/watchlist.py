@@ -6,7 +6,7 @@ Launch with ``piker watch <watchlist name>``.
 (Currently there's a bunch of questrade specific stuff in here)
 """
 from itertools import chain
-from types import ModuleType
+from types import ModuleType, AsyncGeneratorType
 
 import trio
 from kivy.uix.boxlayout import BoxLayout
@@ -319,7 +319,7 @@ async def update_quotes(
     nursery: 'Nursery',
     brokermod: ModuleType,
     widgets: dict,
-    client: 'Client',
+    agen: AsyncGeneratorType,
     symbol_data: dict,
     first_quotes: dict
 ):
@@ -359,7 +359,7 @@ async def update_quotes(
     grid.render_rows(cache)
 
     # core cell update loop
-    async for quotes in client.aiter_recv():  # new quotes data only
+    async for quotes in agen:  # new quotes data only
         for symbol, quote in quotes.items():
             record, displayable = brokermod.format_quote(
                 quote, symbol_data=symbol_data)
@@ -375,28 +375,26 @@ async def update_quotes(
     nursery.cancel_scope.cancel()
 
 
-async def run_kivy(root, nursery):
-    '''Trio-kivy entry point.
-    '''
-    await async_runTouchApp(root)  # run kivy
-    nursery.cancel_scope.cancel()  # cancel all other tasks that may be running
-
-
-async def _async_main(name, client, tickers, brokermod, rate):
+async def _async_main(name, portal, tickers, brokermod, rate):
     '''Launch kivy app + all other related tasks.
 
     This is started with cli command `piker watch`.
     '''
-    # subscribe for tickers
-    await client.send((brokermod.name, tickers))
-    # get initial symbol data (long term data including last days close price)
-    # TODO: need something better this this toy protocol
-    sd = await client.recv()
+    # subscribe for tickers (this performs a possible filtering
+    # where invalid symbols are discarded)
+    sd = await portal.run(
+        "piker.brokers.core", 'symbol_data',
+        broker=brokermod.name, tickers=tickers)
+
+    # an async generator instance
+    agen = await portal.run(
+        "piker.brokers.core", 'start_quote_stream',
+        broker=brokermod.name, tickers=tickers)
 
     async with trio.open_nursery() as nursery:
         # get first quotes response
         log.debug("Waiting on first quote...")
-        quotes = await client.recv()
+        quotes = await agen.__anext__()
         first_quotes = [
             brokermod.format_quote(quote, symbol_data=sd)[0]
             for quote in quotes.values()]
@@ -455,6 +453,13 @@ async def _async_main(name, client, tickers, brokermod, rate):
             'header': header,
             'pager': pager,
         }
-        nursery.start_soon(run_kivy, widgets['root'], nursery)
+        # nursery.start_soon(run_kivy, widgets['root'], nursery)
         nursery.start_soon(
-            update_quotes, nursery, brokermod, widgets, client, sd, quotes)
+            update_quotes, nursery, brokermod, widgets, agen, sd, quotes)
+
+        # Trio-kivy entry point.
+        await async_runTouchApp(widgets['root'])  # run kivy
+        await agen.aclose()  # cancel aysnc gen call
+        await portal.run(
+            "piker.brokers.core", 'modify_quote_stream',
+            broker=brokermod.name, tickers=[])
