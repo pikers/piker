@@ -202,7 +202,7 @@ class _API:
             'symbols/search', params={'prefix': prefix})
 
     async def symbols(self, ids: str = '', names: str = '') -> dict:
-        log.debug(f"Symbol lookup for {ids}")
+        log.debug(f"Symbol lookup for {ids or names}")
         return await self._request(
             'symbols', params={'ids': ids, 'names': names})
 
