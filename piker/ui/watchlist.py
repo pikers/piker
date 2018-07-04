@@ -453,7 +453,6 @@ async def _async_main(name, portal, tickers, brokermod, rate):
             'header': header,
             'pager': pager,
         }
-        # nursery.start_soon(run_kivy, widgets['root'], nursery)
         nursery.start_soon(
             update_quotes, nursery, brokermod, widgets, agen, sd, quotes)
 
@@ -463,3 +462,6 @@ async def _async_main(name, portal, tickers, brokermod, rate):
         await portal.run(
             "piker.brokers.core", 'modify_quote_stream',
             broker=brokermod.name, tickers=[])
+
+        # cancel GUI update task
+        nursery.cancel_scope.cancel()
