@@ -29,14 +29,14 @@ def pikerd(loglevel, host):
     """
     get_console_log(loglevel)
     tractor.run(
-        None,  # no main task
+        None,  # no main task - this is a daemon
         statespace={
-            'boker2tickersubs': {},
+            'broker2tickersubs': {},
             'clients': {},
             'dtasks': set(),
         },
         outlive_main=True,  # run daemon forever
-        rpc_module_paths=['piker.broker.core'],
+        rpc_module_paths=['piker.brokers.core'],
         name='brokerd',
     )
 
@@ -140,9 +140,9 @@ def watch(loglevel, broker, rate, name, dhost):
 
     async def launch_client(sleep=0.5, tries=10):
 
-        async with tractor.find_actor('brokerd') as portals:
-            async with tractor.open_nursery() as nursery:
-                if not portals:
+        async with tractor.open_nursery() as nursery:
+            async with tractor.find_actor('brokerd') as portal:
+                if not portal:
                     log.warn("No broker daemon could be found")
                     log.warning("Spawning local brokerd..")
                     portal = await nursery.start_actor(
@@ -157,13 +157,11 @@ def watch(loglevel, broker, rate, name, dhost):
                         rpc_module_paths=['piker.brokers.core'],
                         loglevel=loglevel,
                     )
-                else:
-                    portal = portals[0]
 
                 # run kivy app
                 await _async_main(name, portal, tickers, brokermod, rate)
 
-    tractor.run(partial(launch_client, tries=1))
+    tractor.run(partial(launch_client, tries=1), name='kivy-watchlist')
 
 
 @cli.group()
