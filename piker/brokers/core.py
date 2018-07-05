@@ -8,11 +8,14 @@ import socket
 from types import ModuleType
 from typing import Coroutine, Callable
 
-import msgpack
 import trio
 
+from .. import tractor
 from ..log import get_logger
+from ..ipc import Channel
 from . import get_brokermod
+
+
 log = get_logger('broker.core')
 
 
@@ -69,138 +72,13 @@ async def wait_for_network(net_func: Callable, sleep: int = 1) -> dict:
             await trio.sleep(sleep)
 
 
-class StreamQueue:
-    """Stream wrapped as a queue that delivers ``msgpack`` serialized objects.
-    """
-    def __init__(self, stream):
-        self.stream = stream
-        self.peer = stream.socket.getpeername()
-        self._agen = self._iter_packets()
-
-    async def _iter_packets(self):
-        """Yield packets from the underlying stream.
-        """
-        unpacker = msgpack.Unpacker(raw=False)
-        while True:
-            try:
-                data = await self.stream.receive_some(2**10)
-                log.trace(f"Data is {data}")
-            except trio.BrokenStreamError:
-                log.error(f"Stream connection {self.peer} broke")
-                return
-
-            if data == b'':
-                log.debug("Stream connection was closed")
-                return
-
-            unpacker.feed(data)
-            for packet in unpacker:
-                yield packet
-
-    async def put(self, data):
-        return await self.stream.send_all(
-            msgpack.dumps(data, use_bin_type=True))
-
-    async def get(self):
-        return await self._agen.asend(None)
-
-    async def __aiter__(self):
-        return self._agen
-
-
-class Client:
-    """The most basic client.
-
-    Use this to talk to any micro-service daemon or other client(s) over a
-    TCP socket managed by ``trio``.
-    """
-    def __init__(
-        self, sockaddr: tuple,
-        on_reconnect: Coroutine,
-        auto_reconnect: bool = True,
-    ):
-        self.sockaddr = sockaddr
-        self._recon_seq = on_reconnect
-        self._autorecon = auto_reconnect
-        self.squeue = None
-
-    async def connect(self, sockaddr: tuple = None, **kwargs):
-        sockaddr = sockaddr or self.sockaddr
-        stream = await trio.open_tcp_stream(*sockaddr, **kwargs)
-        self.squeue = StreamQueue(stream)
-        return stream
-
-    async def send(self, item):
-        await self.squeue.put(item)
-
-    async def recv(self):
-        try:
-            return await self.squeue.get()
-        except trio.BrokenStreamError as err:
-            if self._autorecon:
-                await self._reconnect()
-                return await self.recv()
-
-    async def aclose(self, *args):
-        await self.squeue.stream.aclose()
-
-    async def __aenter__(self):
-        await self.connect(self.sockaddr)
-        return self
-
-    async def __aexit__(self, *args):
-        await self.aclose(*args)
-
-    async def _reconnect(self):
-        """Handle connection failures by polling until a reconnect can be
-        established.
-        """
-        down = False
-        while True:
-            try:
-                with trio.move_on_after(3) as cancel_scope:
-                    await self.connect()
-                cancelled = cancel_scope.cancelled_caught
-                if cancelled:
-                    log.warn(
-                        "Reconnect timed out after 3 seconds, retrying...")
-                    continue
-                else:
-                    log.warn("Stream connection re-established!")
-                    # run any reconnection sequence
-                    await self._recon_seq(self)
-                    break
-            except (OSError, ConnectionRefusedError):
-                if not down:
-                    down = True
-                    log.warn(
-                        f"Connection to {self.sockaddr} went down, waiting"
-                        " for re-establishment")
-                await trio.sleep(1)
-
-    async def aiter_recv(self):
-        """Async iterate items from underlying stream.
-        """
-        while True:
-            try:
-                async for item in self.squeue:
-                    yield item
-            except trio.BrokenStreamError as err:
-                if not self._autorecon:
-                    raise
-            if self._autorecon:  # attempt reconnect
-                await self._reconnect()
-                continue
-            else:
-                return
-
-
 async def stream_quotes(
     brokermod: ModuleType,
     get_quotes: Coroutine,
-    tickers2qs: {str: StreamQueue},
+    tickers2chans: {str: Channel},
     rate: int = 5,  # delay between quote requests
     diff_cached: bool = True,  # only deliver "new" quotes to the queue
+    cid: str = None,
 ) -> None:
     """Stream quotes for a sequence of tickers at the given ``rate``
     per second.
@@ -219,11 +97,11 @@ async def stream_quotes(
     while True:  # use an event here to trigger exit?
         prequote_start = time.time()
 
-        if not any(tickers2qs.values()):
+        if not any(tickers2chans.values()):
             log.warn(f"No subs left for broker {brokermod.name}, exiting task")
             break
 
-        tickers = list(tickers2qs.keys())
+        tickers = list(tickers2chans.keys())
         with trio.move_on_after(3) as cancel_scope:
             quotes = await get_quotes(tickers)
 
@@ -234,7 +112,7 @@ async def stream_quotes(
             quotes = await wait_for_network(partial(get_quotes, tickers))
 
         postquote_start = time.time()
-        q_payloads = {}
+        chan_payloads = {}
         for symbol, quote in quotes.items():
             if diff_cached:
                 # if cache is enabled then only deliver "new" changes
@@ -244,25 +122,31 @@ async def stream_quotes(
                     log.info(
                         f"New quote {quote['symbol']}:\n{new}")
                     _cache[symbol] = quote
-                    for queue in tickers2qs[symbol]:
-                        q_payloads.setdefault(queue, {})[symbol] = quote
+                    for chan, cid in tickers2chans.get(symbol, set()):
+                        chan_payloads.setdefault(
+                            chan,
+                            {'yield': {}, 'cid': cid}
+                        )['yield'][symbol] = quote
             else:
-                for queue in tickers2qs[symbol]:
-                    q_payloads.setdefault(queue, {})[symbol] = quote
+                for chan, cid in tickers2chans[symbol]:
+                    chan_payloads.setdefault(
+                        chan,
+                        {'yield': {}, 'cid': cid}
+                    )['yield'][symbol] = quote
 
         # deliver to each subscriber
-        if q_payloads:
-            for queue, payload in q_payloads.items():
+        if chan_payloads:
+            for chan, payload in chan_payloads.items():
                 try:
-                    await queue.put(payload)
+                    await chan.send(payload)
                 except (
                     # That's right, anything you can think of...
                     trio.ClosedStreamError, ConnectionResetError,
                     ConnectionRefusedError,
                 ):
-                    log.warn(f"{queue.peer} went down?")
-                    for qset in tickers2qs.values():
-                        qset.discard(queue)
+                    log.warn(f"{chan} went down?")
+                    for chanset in tickers2chans.values():
+                        chanset.discard((chan, cid))
 
         req_time = round(postquote_start - prequote_start, 3)
         proc_time = round(time.time() - postquote_start, 3)
@@ -277,13 +161,104 @@ async def stream_quotes(
             log.debug(f"Sleeping for {delay}")
             await trio.sleep(delay)
 
+    log.info(f"Terminating stream quoter task for {brokermod.name}")
 
-async def start_quoter(
-    broker2tickersubs: dict,
-    clients: dict,
-    dtasks: set,  # daemon task registry
-    nursery: "Nusery",
-    stream: trio.SocketStream,
+
+async def get_cached_client(broker, tickers):
+    """Get the current actor's cached broker client if available or create a
+    new one.
+    """
+    # check if a cached client is in the local actor's statespace
+    clients = tractor.current_actor().statespace.setdefault('clients', {})
+    try:
+        return clients[broker]
+    except KeyError:
+        log.info(f"Creating new client for broker {broker}")
+        brokermod = get_brokermod(broker)
+        # TODO: move to AsyncExitStack in 3.7
+        client_cntxmng = brokermod.get_client()
+        client = await client_cntxmng.__aenter__()
+        get_quotes = await brokermod.quoter(client, tickers)
+        clients[broker] = (
+            brokermod, client, client_cntxmng, get_quotes)
+
+        return brokermod, client, client_cntxmng, get_quotes
+
+
+async def symbol_data(broker, tickers):
+    """Retrieve baseline symbol info from broker.
+    """
+    _, client, _, get_quotes = await get_cached_client(broker, tickers)
+    return await client.symbol_data(tickers)
+
+
+async def smoke_quote(get_quotes, tickers, broker):
+    """Do an initial "smoke" request for symbols in ``tickers`` filtering
+    out any symbols not supported by the broker queried in the call to
+    ``get_quotes()``.
+    """
+    # TODO: trim out with #37
+    #################################################
+    # get a single quote filtering out any bad tickers
+    # NOTE: this code is always run for every new client
+    # subscription even when a broker quoter task is already running
+    # since the new client needs to know what symbols are accepted
+    log.warn(f"Retrieving smoke quote for symbols {tickers}")
+    quotes = await get_quotes(tickers)
+    # report any tickers that aren't returned in the first quote
+    invalid_tickers = set(tickers) - set(quotes)
+    for symbol in invalid_tickers:
+        tickers.remove(symbol)
+        log.warn(
+            f"Symbol `{symbol}` not found by broker `{broker}`"
+        )
+
+    # pop any tickers that return "empty" quotes
+    payload = {}
+    for symbol, quote in quotes.items():
+        if quote is None:
+            log.warn(
+                f"Symbol `{symbol}` not found by broker"
+                f" `{broker}`")
+            # XXX: not this mutates the input list (for now)
+            tickers.remove(symbol)
+            continue
+        payload[symbol] = quote
+
+    return payload
+
+    # end of section to be trimmed out with #37
+    ###########################################
+
+
+def modify_quote_stream(broker, tickers, chan=None, cid=None):
+    """Absolute symbol subscription list for each quote stream.
+    """
+    log.info(f"{chan} changed symbol subscription to {tickers}")
+    ss = tractor.current_actor().statespace
+    broker2tickersubs = ss['broker2tickersubs']
+    tickers2chans = broker2tickersubs.get(broker)
+    # update map from each symbol to requesting client's chan
+    for ticker in tickers:
+        tickers2chans.setdefault(ticker, set()).add((chan, cid))
+
+    for ticker in filter(
+        lambda ticker: ticker not in tickers, tickers2chans.copy()
+    ):
+        chanset = tickers2chans.get(ticker)
+        if chanset:
+            chanset.discard((chan, cid))
+
+        if not chanset:
+            # pop empty sets which will trigger bg quoter task termination
+            tickers2chans.pop(ticker)
+
+
+async def start_quote_stream(
+    broker: str,
+    tickers: [str],
+    chan: 'Channel' = None,
+    cid: str = None,
 ) -> None:
     """Handle per-broker quote stream subscriptions.
 
@@ -291,116 +266,76 @@ async def start_quoter(
     Since most brokers seems to support batch quote requests we
     limit to one task per process for now.
     """
-    queue = StreamQueue(stream)  # wrap in a shabby queue-like api
-    log.info(f"Accepted new connection from {queue.peer}")
-    async with queue.stream:
-        async for broker, tickers in queue:
-            log.info(
-                f"{queue.peer} subscribed to {broker} for tickers {tickers}")
+    # pull global vars from local actor
+    ss = tractor.current_actor().statespace
+    broker2tickersubs = ss['broker2tickersubs']
+    clients = ss['clients']
+    dtasks = ss['dtasks']
+    tickers = list(tickers)
+    log.info(
+        f"{chan.uid} subscribed to {broker} for tickers {tickers}")
 
-            if broker not in broker2tickersubs:
-                brokermod = get_brokermod(broker)
+    brokermod, client, _, get_quotes = await get_cached_client(broker, tickers)
+    if broker not in broker2tickersubs:
+        tickers2chans = broker2tickersubs.setdefault(broker, {})
+    else:
+        log.info(f"Subscribing with existing `{broker}` daemon")
+        tickers2chans = broker2tickersubs[broker]
 
-                # TODO: move to AsyncExitStack in 3.7
-                client_cntxmng = brokermod.get_client()
-                client = await client_cntxmng.__aenter__()
-                get_quotes = await brokermod.quoter(client, tickers)
-                clients[broker] = (
-                    brokermod, client, client_cntxmng, get_quotes)
-                tickers2qs = broker2tickersubs.setdefault(broker, {})
-            else:
-                log.info(f"Subscribing with existing `{broker}` daemon")
-                brokermod, client, _, get_quotes = clients[broker]
-                tickers2qs = broker2tickersubs[broker]
+    # do a smoke quote (not this mutates the input list and filters out bad
+    # symbols for now)
+    payload = await smoke_quote(get_quotes, tickers, broker)
+    # push initial smoke quote response for client initialization
+    await chan.send({'yield': payload, 'cid': cid})
 
-            # beginning of section to be trimmed out with #37
-            #################################################
-            # get a single quote filtering out any bad tickers
-            # NOTE: this code is always run for every new client
-            # subscription even when a broker quoter task is already running
-            # since the new client needs to know what symbols are accepted
-            log.warn(f"Retrieving smoke quote for {queue.peer}")
-            quotes = await get_quotes(tickers)
-            # report any tickers that aren't returned in the first quote
-            invalid_tickers = set(tickers) - set(quotes)
-            for symbol in invalid_tickers:
-                tickers.remove(symbol)
-                log.warn(
-                    f"Symbol `{symbol}` not found by broker `{brokermod.name}`"
+    # update map from each symbol to requesting client's chan
+    modify_quote_stream(broker, tickers, chan=chan, cid=cid)
+
+    try:
+        if broker not in dtasks:  # no quoter task yet
+            # task should begin on the next checkpoint/iteration
+            # with trio.open_cancel_scope(shield=True):
+            log.info(f"Spawning quoter task for {brokermod.name}")
+            # await actor._root_nursery.start(partial(
+            async with trio.open_nursery() as nursery:
+                nursery.start_soon(partial(
+                    stream_quotes, brokermod, get_quotes, tickers2chans,
+                    cid=cid)
                 )
-
-            # pop any tickers that return "empty" quotes
-            payload = {}
-            for symbol, quote in quotes.items():
-                if quote is None:
-                    log.warn(
-                        f"Symbol `{symbol}` not found by broker"
-                        f" `{brokermod.name}`")
-                    tickers.remove(symbol)
-                    continue
-                payload[symbol] = quote
-
-            # end of section to be trimmed out with #37
-            ###########################################
-
-            # first respond with symbol data for all tickers (allows
-            # clients to receive broker specific setup info)
-            sd = await client.symbol_data(tickers)
-            assert sd, "No symbol data could be found?"
-            await queue.put(sd)
-
-            # update map from each symbol to requesting client's queue
-            for ticker in tickers:
-                tickers2qs.setdefault(ticker, set()).add(queue)
-
-            # push initial quotes response for client initialization
-            await queue.put(payload)
-
-            if broker not in dtasks:  # no quoter task yet
-                # task should begin on the next checkpoint/iteration
-                log.info(f"Spawning quoter task for {brokermod.name}")
-                nursery.start_soon(
-                    stream_quotes, brokermod, get_quotes, tickers2qs)
                 dtasks.add(broker)
 
-            log.debug("Waiting on subscription request")
-        else:
-            log.info(f"client @ {queue.peer} disconnected")
-            # drop any lingering subscriptions
-            for ticker, qset in tickers2qs.items():
-                qset.discard(queue)
+            # unblocks when no more symbols subscriptions exist and the
+            # quote streamer task terminates (usually because another call
+            # was made to `modify_quoter` to unsubscribe from streaming
+            # symbols)
+            log.info(f"Terminated quoter task for {brokermod.name}")
 
-            # if there are no more subscriptions with this broker
-            # drop from broker subs dict
-            if not any(tickers2qs.values()):
-                log.info(f"No more subscriptions for {broker}")
-                broker2tickersubs.pop(broker, None)
-                dtasks.discard(broker)
+            # TODO: move to AsyncExitStack in 3.7
+            for _, _, cntxmng, _ in clients.values():
+                # FIXME: yes I know there's no error handling..
+                await cntxmng.__aexit__(None, None, None)
+    finally:
+        # if there are truly no more subscriptions with this broker
+        # drop from broker subs dict
+        if not any(tickers2chans.values()):
+            log.info(f"No more subscriptions for {broker}")
+            broker2tickersubs.pop(broker, None)
+            dtasks.discard(broker)
 
-        # TODO: move to AsyncExitStack in 3.7
-        for _, _, cntxmng, _ in clients.values():
-            # FIXME: yes I know it's totally wrong...
-            await cntxmng.__aexit__(None, None, None)
 
-
-async def _daemon_main(host) -> None:
-    """Entry point for the broker daemon which waits for connections
-    before spawning micro-services.
+async def _test_price_stream(broker, symbols, *, chan=None, cid=None):
+    """Test function for initial tractor draft.
     """
-    # global space for broker-daemon subscriptions
-    broker2tickersubs = {}
-    clients = {}
-    dtasks = set()
+    brokermod = get_brokermod(broker)
+    client_cntxmng = brokermod.get_client()
+    client = await client_cntxmng.__aenter__()
+    get_quotes = await brokermod.quoter(client, symbols)
+    log.info(f"Spawning quoter task for {brokermod.name}")
+    assert chan
+    tickers2chans = {}.fromkeys(symbols, {(chan, cid), })
 
     async with trio.open_nursery() as nursery:
-        listeners = await nursery.start(
+        nursery.start_soon(
             partial(
-                trio.serve_tcp,
-                partial(
-                    start_quoter, broker2tickersubs, clients,
-                    dtasks, nursery
-                ),
-                1616, host=host,
-            )
+                stream_quotes, brokermod, get_quotes, tickers2chans, cid=cid)
         )
-        log.debug(f"Spawned {listeners}")

@@ -6,7 +6,7 @@ Launch with ``piker watch <watchlist name>``.
 (Currently there's a bunch of questrade specific stuff in here)
 """
 from itertools import chain
-from types import ModuleType
+from types import ModuleType, AsyncGeneratorType
 
 import trio
 from kivy.uix.boxlayout import BoxLayout
@@ -319,7 +319,7 @@ async def update_quotes(
     nursery: 'Nursery',
     brokermod: ModuleType,
     widgets: dict,
-    client: 'Client',
+    agen: AsyncGeneratorType,
     symbol_data: dict,
     first_quotes: dict
 ):
@@ -359,7 +359,7 @@ async def update_quotes(
     grid.render_rows(cache)
 
     # core cell update loop
-    async for quotes in client.aiter_recv():  # new quotes data only
+    async for quotes in agen:  # new quotes data only
         for symbol, quote in quotes.items():
             record, displayable = brokermod.format_quote(
                 quote, symbol_data=symbol_data)
@@ -375,86 +375,96 @@ async def update_quotes(
     nursery.cancel_scope.cancel()
 
 
-async def run_kivy(root, nursery):
-    '''Trio-kivy entry point.
-    '''
-    await async_runTouchApp(root)  # run kivy
-    nursery.cancel_scope.cancel()  # cancel all other tasks that may be running
-
-
-async def _async_main(name, client, tickers, brokermod, rate):
+async def _async_main(name, portal, tickers, brokermod, rate):
     '''Launch kivy app + all other related tasks.
 
     This is started with cli command `piker watch`.
     '''
-    # subscribe for tickers
-    await client.send((brokermod.name, tickers))
-    # get initial symbol data (long term data including last days close price)
-    # TODO: need something better this this toy protocol
-    sd = await client.recv()
+    # subscribe for tickers (this performs a possible filtering
+    # where invalid symbols are discarded)
+    sd = await portal.run(
+        "piker.brokers.core", 'symbol_data',
+        broker=brokermod.name, tickers=tickers)
 
-    async with trio.open_nursery() as nursery:
-        # get first quotes response
-        log.debug("Waiting on first quote...")
-        quotes = await client.recv()
-        first_quotes = [
-            brokermod.format_quote(quote, symbol_data=sd)[0]
-            for quote in quotes.values()]
+    # an async generator instance
+    agen = await portal.run(
+        "piker.brokers.core", 'start_quote_stream',
+        broker=brokermod.name, tickers=tickers)
 
-        if first_quotes[0].get('last') is None:
-            log.error("Broker API is down temporarily")
-            nursery.cancel_scope.cancel()
-            return
+    try:
+        async with trio.open_nursery() as nursery:
+            # get first quotes response
+            log.debug("Waiting on first quote...")
+            quotes = await agen.__anext__()
+            first_quotes = [
+                brokermod.format_quote(quote, symbol_data=sd)[0]
+                for quote in quotes.values()]
 
-        # build out UI
-        Window.set_title(f"watchlist: {name}\t(press ? for help)")
-        Builder.load_string(_kv)
-        box = BoxLayout(orientation='vertical', padding=5, spacing=5)
+            if first_quotes[0].get('last') is None:
+                log.error("Broker API is down temporarily")
+                nursery.cancel_scope.cancel()
+                return
 
-        # define bid-ask "stacked" cells
-        # (TODO: needs some rethinking and renaming for sure)
-        bidasks = brokermod._bidasks
+            # build out UI
+            Window.set_title(f"watchlist: {name}\t(press ? for help)")
+            Builder.load_string(_kv)
+            box = BoxLayout(orientation='vertical', padding=5, spacing=5)
 
-        # add header row
-        headers = first_quotes[0].keys()
-        header = Row(
-            {key: key for key in headers},
-            headers=headers,
-            bidasks=bidasks,
-            is_header_row=True,
-            size_hint=(1, None),
-        )
-        box.add_widget(header)
+            # define bid-ask "stacked" cells
+            # (TODO: needs some rethinking and renaming for sure)
+            bidasks = brokermod._bidasks
 
-        # build grid
-        grid = TickerTable(
-            cols=1,
-            size_hint=(1, None),
-        )
-        for ticker_record in first_quotes:
-            grid.append_row(ticker_record, bidasks=bidasks)
-        # associate the col headers row with the ticker table even though
-        # they're technically wrapped separately in containing BoxLayout
-        header.table = grid
+            # add header row
+            headers = first_quotes[0].keys()
+            header = Row(
+                {key: key for key in headers},
+                headers=headers,
+                bidasks=bidasks,
+                is_header_row=True,
+                size_hint=(1, None),
+            )
+            box.add_widget(header)
 
-        # mark the initial sorted column header as bold and underlined
-        sort_cell = header.get_cell(grid.sort_key)
-        sort_cell.bold = sort_cell.underline = True
-        grid.last_clicked_col_cell = sort_cell
+            # build grid
+            grid = TickerTable(
+                cols=1,
+                size_hint=(1, None),
+            )
+            for ticker_record in first_quotes:
+                grid.append_row(ticker_record, bidasks=bidasks)
+            # associate the col headers row with the ticker table even though
+            # they're technically wrapped separately in containing BoxLayout
+            header.table = grid
 
-        # set up a pager view for large ticker lists
-        grid.bind(minimum_height=grid.setter('height'))
-        pager = PagerView(box, grid, nursery)
-        box.add_widget(pager)
+            # mark the initial sorted column header as bold and underlined
+            sort_cell = header.get_cell(grid.sort_key)
+            sort_cell.bold = sort_cell.underline = True
+            grid.last_clicked_col_cell = sort_cell
 
-        widgets = {
-            # 'anchor': anchor,
-            'root': box,
-            'grid': grid,
-            'box': box,
-            'header': header,
-            'pager': pager,
-        }
-        nursery.start_soon(run_kivy, widgets['root'], nursery)
-        nursery.start_soon(
-            update_quotes, nursery, brokermod, widgets, client, sd, quotes)
+            # set up a pager view for large ticker lists
+            grid.bind(minimum_height=grid.setter('height'))
+            pager = PagerView(box, grid, nursery)
+            box.add_widget(pager)
+
+            widgets = {
+                # 'anchor': anchor,
+                'root': box,
+                'grid': grid,
+                'box': box,
+                'header': header,
+                'pager': pager,
+            }
+            nursery.start_soon(
+                update_quotes, nursery, brokermod, widgets, agen, sd, quotes)
+
+            # Trio-kivy entry point.
+            await async_runTouchApp(widgets['root'])  # run kivy
+            await agen.aclose()  # cancel aysnc gen call
+    finally:
+        # un-subscribe from symbols stream
+        await portal.run(
+            "piker.brokers.core", 'modify_quote_stream',
+            broker=brokermod.name, tickers=[])
+
+        # cancel GUI update task
+        nursery.cancel_scope.cancel()
