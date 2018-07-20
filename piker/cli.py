@@ -8,11 +8,11 @@ import os
 import click
 import pandas as pd
 import trio
+import tractor
 
 from . import watchlists as wl
 from .brokers import core, get_brokermod
 from .log import get_console_log, colorize_json, get_logger
-from . import tractor
 
 log = get_logger('cli')
 DEFAULT_BROKER = 'robinhood'
@@ -38,6 +38,7 @@ def pikerd(loglevel, host):
         outlive_main=True,  # run daemon forever
         rpc_module_paths=['piker.brokers.core'],
         name='brokerd',
+        loglevel=loglevel,
     )
 
 

@@ -371,7 +371,7 @@ async def update_quotes(
         grid.render_rows(cache)
         log.debug("Waiting on quotes")
 
-    log.warn("Server connection dropped")
+    log.warn("`brokerd` connection dropped")
     nursery.cancel_scope.cancel()
 
 
@@ -391,80 +391,82 @@ async def _async_main(name, portal, tickers, brokermod, rate):
         "piker.brokers.core", 'start_quote_stream',
         broker=brokermod.name, tickers=tickers)
 
-    try:
-        async with trio.open_nursery() as nursery:
-            # get first quotes response
-            log.debug("Waiting on first quote...")
-            quotes = await agen.__anext__()
-            first_quotes = [
-                brokermod.format_quote(quote, symbol_data=sd)[0]
-                for quote in quotes.values()]
+    async with trio.open_nursery() as nursery:
+        # get first quotes response
+        log.debug("Waiting on first quote...")
+        quotes = await agen.__anext__()
+        first_quotes = [
+            brokermod.format_quote(quote, symbol_data=sd)[0]
+            for quote in quotes.values()]
 
-            if first_quotes[0].get('last') is None:
-                log.error("Broker API is down temporarily")
-                nursery.cancel_scope.cancel()
-                return
+        if first_quotes[0].get('last') is None:
+            log.error("Broker API is down temporarily")
+            nursery.cancel_scope.cancel()
+            return
 
-            # build out UI
-            Window.set_title(f"watchlist: {name}\t(press ? for help)")
-            Builder.load_string(_kv)
-            box = BoxLayout(orientation='vertical', padding=5, spacing=5)
+        # build out UI
+        Window.set_title(f"watchlist: {name}\t(press ? for help)")
+        Builder.load_string(_kv)
+        box = BoxLayout(orientation='vertical', padding=5, spacing=5)
 
-            # define bid-ask "stacked" cells
-            # (TODO: needs some rethinking and renaming for sure)
-            bidasks = brokermod._bidasks
+        # define bid-ask "stacked" cells
+        # (TODO: needs some rethinking and renaming for sure)
+        bidasks = brokermod._bidasks
 
-            # add header row
-            headers = first_quotes[0].keys()
-            header = Row(
-                {key: key for key in headers},
-                headers=headers,
-                bidasks=bidasks,
-                is_header_row=True,
-                size_hint=(1, None),
-            )
-            box.add_widget(header)
+        # add header row
+        headers = first_quotes[0].keys()
+        header = Row(
+            {key: key for key in headers},
+            headers=headers,
+            bidasks=bidasks,
+            is_header_row=True,
+            size_hint=(1, None),
+        )
+        box.add_widget(header)
 
-            # build grid
-            grid = TickerTable(
-                cols=1,
-                size_hint=(1, None),
-            )
-            for ticker_record in first_quotes:
-                grid.append_row(ticker_record, bidasks=bidasks)
-            # associate the col headers row with the ticker table even though
-            # they're technically wrapped separately in containing BoxLayout
-            header.table = grid
+        # build grid
+        grid = TickerTable(
+            cols=1,
+            size_hint=(1, None),
+        )
+        for ticker_record in first_quotes:
+            grid.append_row(ticker_record, bidasks=bidasks)
+        # associate the col headers row with the ticker table even though
+        # they're technically wrapped separately in containing BoxLayout
+        header.table = grid
 
-            # mark the initial sorted column header as bold and underlined
-            sort_cell = header.get_cell(grid.sort_key)
-            sort_cell.bold = sort_cell.underline = True
-            grid.last_clicked_col_cell = sort_cell
+        # mark the initial sorted column header as bold and underlined
+        sort_cell = header.get_cell(grid.sort_key)
+        sort_cell.bold = sort_cell.underline = True
+        grid.last_clicked_col_cell = sort_cell
 
-            # set up a pager view for large ticker lists
-            grid.bind(minimum_height=grid.setter('height'))
-            pager = PagerView(box, grid, nursery)
-            box.add_widget(pager)
+        # set up a pager view for large ticker lists
+        grid.bind(minimum_height=grid.setter('height'))
+        pager = PagerView(box, grid, nursery)
+        box.add_widget(pager)
 
-            widgets = {
-                # 'anchor': anchor,
-                'root': box,
-                'grid': grid,
-                'box': box,
-                'header': header,
-                'pager': pager,
-            }
-            nursery.start_soon(
-                update_quotes, nursery, brokermod, widgets, agen, sd, quotes)
+        widgets = {
+            # 'anchor': anchor,
+            'root': box,
+            'grid': grid,
+            'box': box,
+            'header': header,
+            'pager': pager,
+        }
+        nursery.start_soon(
+            update_quotes, nursery, brokermod, widgets, agen, sd, quotes)
 
+        try:
             # Trio-kivy entry point.
             await async_runTouchApp(widgets['root'])  # run kivy
             await agen.aclose()  # cancel aysnc gen call
-    finally:
-        # un-subscribe from symbols stream
-        await portal.run(
-            "piker.brokers.core", 'modify_quote_stream',
-            broker=brokermod.name, tickers=[])
+        finally:
+            # un-subscribe from symbols stream (cancel if brokerd
+            # was already torn down - say by SIGINT)
+            with trio.move_on_after(0.2):
+                await portal.run(
+                    "piker.brokers.core", 'modify_quote_stream',
+                    broker=brokermod.name, tickers=[])
 
-        # cancel GUI update task
-        nursery.cancel_scope.cancel()
+            # cancel GUI update task
+            nursery.cancel_scope.cancel()
