@@ -17,6 +17,3 @@ trio = "*"
 pytest = "*"
 pdbpp = "*"
 piker = {editable = true, path = "."}
-
-[requires]
-python_version = "3.6"

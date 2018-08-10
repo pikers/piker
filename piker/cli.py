@@ -35,7 +35,6 @@ def pikerd(loglevel, host):
             'clients': {},
             'dtasks': set(),
         },
-        outlive_main=True,  # run daemon forever
         rpc_module_paths=['piker.brokers.core'],
         name='brokerd',
         loglevel=loglevel,
@@ -148,13 +147,11 @@ def watch(loglevel, broker, rate, name, dhost):
                     log.warning("Spawning local brokerd..")
                     portal = await nursery.start_actor(
                         'brokerd',
-                        main=None,  # no main task
                         statespace={
                             'broker2tickersubs': {},
                             'clients': {},
                             'dtasks': set(),
                         },
-                        outlive_main=True,  # run daemon forever
                         rpc_module_paths=['piker.brokers.core'],
                         loglevel=loglevel,
                     )
