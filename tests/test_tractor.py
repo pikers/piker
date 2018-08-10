@@ -26,7 +26,6 @@ async def rx_price_quotes_from_brokerd(us_symbols):
                         'clients': {},
                         'dtasks': set()
                     },
-                    main=None,  # don't start a main func - use rpc
                 )
 
                 # gotta expose in a broker agnostic way...
