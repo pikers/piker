@@ -4,6 +4,7 @@ Questrade API backend.
 import time
 import datetime
 from functools import partial
+import configparser
 
 import trio
 from async_generator import asynccontextmanager
@@ -34,7 +35,7 @@ class Client:
 
     Provides a high-level api which wraps the underlying endpoint calls.
     """
-    def __init__(self, config: 'configparser.ConfigParser'):
+    def __init__(self, config: configparser.ConfigParser):
         self._sess = asks.Session()
         self.api = _API(self._sess)
         self._conf = config
@@ -43,6 +44,7 @@ class Client:
         self._reload_config(config)
 
     def _reload_config(self, config=None, **kwargs):
+        log.warn("Reloading access config data")
         self._conf = config or get_config(**kwargs)
         self.access_data = dict(self._conf['questrade'])
 
@@ -270,7 +272,7 @@ async def get_client() -> Client:
         log.debug("Check time to ensure access token is valid")
         try:
             await client.api.time()
-        except Exception as err:
+        except Exception:
             # access token is likely no good
             log.warn(f"Access token {client.access_data['access_token']} seems"
                      f" expired, forcing refresh")
@@ -313,11 +315,15 @@ async def quoter(client: Client, tickers: [str]):
 
         try:
             quotes_resp = await client.api.quotes(ids=ids)
-        except QuestradeError as qterr:
+        except (QuestradeError, BrokerError) as qterr:
             if "Access token is invalid" in str(qterr.args[0]):
                 # out-of-process piker may have renewed already
                 client._reload_config()
-                quotes_resp = await client.api.quotes(ids=ids)
+                try:
+                    quotes_resp = await client.api.quotes(ids=ids)
+                except BrokerError as qterr:
+                    if "Access token is invalid" in str(qterr.args[0]):
+                        await client.ensure_access(force_refresh=True)
             else:
                 raise
 
@@ -340,7 +346,10 @@ async def quoter(client: Client, tickers: [str]):
     return get_quote
 
 
-# Questrade key conversion / column order
+# Questrade column order / value conversion
+# XXX: keys-values in this map define the final column values which will
+# be "displayable" but not necessarily used for "data processing"
+# (i.e. comparisons for sorting purposes or other calculations).
 _qt_keys = {
     'symbol': 'symbol',  # done manually in qtconvert
     '%': '%',
@@ -416,7 +425,6 @@ def format_quote(
         if isinstance(new_key, tuple):
             new_key, func = new_key
             display_value = func(value) if value else value
-
 
         new[new_key] = value
         displayable[new_key] = display_value
