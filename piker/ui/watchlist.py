@@ -287,7 +287,7 @@ class TickerTable(GridLayout):
         return row
 
     def render_rows(
-            self, pairs: (dict, Row), sort_key: str = None, row_filter=None,
+            self, pairs: {str: (dict, Row)}, sort_key: str = None, row_filter=None,
     ):
         """Sort and render all rows on the ticker grid from ``pairs``.
         """
