@@ -403,7 +403,7 @@ def format_quote(
     previous = symbol_data[symbol]['prevDayClosePrice']
     change = percent_change(previous, last)
     share_count = symbol_data[symbol].get('outstandingShares', None)
-    mktcap = share_count * last if (last and share_count) else 'NA'
+    mktcap = share_count * last if (last and share_count) else 0
     computed = {
         'symbol': quote['symbol'],
         '%': round(change, 3),
