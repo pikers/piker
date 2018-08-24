@@ -125,10 +125,10 @@ def quote(loglevel, broker, tickers, df_output):
 @click.option('--dhost', '-dh', default='127.0.0.1',
               help='Daemon host address to connect to')
 @click.argument('name', nargs=1, required=True)
-def watch(loglevel, broker, rate, name, dhost):
+def monitor(loglevel, broker, rate, name, dhost):
     """Spawn a real-time watchlist.
     """
-    from .ui.watchlist import _async_main
+    from .ui.monitor import _async_main
     log = get_console_log(loglevel)  # activate console logging
     brokermod = get_brokermod(broker)
     watchlist_from_file = wl.ensure_watchlists(_watchlists_data_path)

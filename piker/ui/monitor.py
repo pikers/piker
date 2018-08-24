@@ -1,7 +1,7 @@
 """
-A real-time, sorted watchlist.
+monitor: a real-time, sorted watchlist.
 
-Launch with ``piker watch <watchlist name>``.
+Launch with ``piker monitor <watchlist name>``.
 
 (Currently there's a bunch of questrade specific stuff in here)
 """
@@ -21,7 +21,7 @@ from kivy.core.window import Window
 from ..log import get_logger
 from .pager import PagerView
 
-log = get_logger('watchlist')
+log = get_logger('monitor')
 
 
 _colors2hexs = {
@@ -405,7 +405,7 @@ async def _async_main(name, portal, tickers, brokermod, rate):
             return
 
         # build out UI
-        Window.set_title(f"watchlist: {name}\t(press ? for help)")
+        Window.set_title(f"monitor: {name}\t(press ? for help)")
         Builder.load_string(_kv)
         box = BoxLayout(orientation='vertical', padding=5, spacing=5)
 
