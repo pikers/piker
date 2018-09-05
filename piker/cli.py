@@ -29,7 +29,7 @@ def pikerd(loglevel, host):
     """
     get_console_log(loglevel)
     tractor.run(
-        None,  # no main task - this is a daemon
+        partial(trio.sleep, float('inf')),  # daemon / arbiter
         statespace={
             'broker2tickersubs': {},
             'clients': {},
