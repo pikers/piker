@@ -28,14 +28,13 @@ def pikerd(loglevel, host):
     """Spawn the piker daemon.
     """
     get_console_log(loglevel)
-    tractor.run(
-        partial(trio.sleep, float('inf')),  # daemon / arbiter
+    tractor.run_daemon(
+        rpc_module_paths=['piker.brokers.core'],
         statespace={
             'broker2tickersubs': {},
             'clients': {},
             'dtasks': set(),
         },
-        rpc_module_paths=['piker.brokers.core'],
         name='brokerd',
         loglevel=loglevel,
     )
