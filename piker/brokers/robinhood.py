@@ -59,7 +59,7 @@ class Client:
         return self._zip_in_order(symbols, resp['results'])
 
     async def symbol_data(self, symbols: [str]):
-        """Retrieve symbol data via the ``fundmentals`` endpoint.
+        """Retrieve symbol data via the ``fundamentals`` endpoint.
         """
         return self._zip_in_order(
             symbols,
