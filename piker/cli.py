@@ -90,7 +90,7 @@ def api(meth, kwargs, loglevel, broker, keys):
               help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--df-output', '-df', flag_value=True,
-              help='Ouput in `pandas.DataFrame` format')
+              help='Output in `pandas.DataFrame` format')
 @click.argument('tickers', nargs=-1, required=True)
 def quote(loglevel, broker, tickers, df_output):
     """Retreive symbol quotes on the console in either json or dataframe
@@ -98,7 +98,7 @@ def quote(loglevel, broker, tickers, df_output):
     """
     brokermod = get_brokermod(broker)
     get_console_log(loglevel)
-    quotes = trio.run(partial(core.quote, brokermod, tickers))
+    quotes = trio.run(partial(core.stocks_quote, brokermod, tickers))
     if not quotes:
         log.error(f"No quotes could be found for {tickers}?")
         return
