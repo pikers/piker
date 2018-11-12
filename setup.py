@@ -43,7 +43,7 @@ setup(
         'questrade': ['asks'],
     },
     tests_require=['pytest'],
-    python_requires=">=3.6",
+    python_requires=">=3.7",  # literally for ``datetime.datetime.fromisoformat``...
     keywords=["async", "trading", "finance", "quant", "charting"],
     classifiers=[
         'Development Status :: 3 - Alpha',
