@@ -5,11 +5,6 @@ import pytest
 import tractor
 
 
-@pytest.fixture
-def us_symbols():
-    return ['TSLA', 'AAPL', 'CGC', 'CRON']
-
-
 async def rx_price_quotes_from_brokerd(us_symbols):
     """Verify we can spawn a daemon actor and retrieve streamed price data.
     """
