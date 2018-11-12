@@ -8,7 +8,7 @@ name = "pypi"
 Cython = "*"
 # matham's next-gen async port of kivy
 Kivy = {git = "git://github.com/matham/kivy.git", ref = "async-loop"}
-tractor = {git = "git://github.com/tgoodlet/tractor.git", ref = "master"}
+tractor = {git = "git://github.com/tgoodlet/tractor.git"}
 pdbpp = "*"
 msgpack = "*"
 trio = "*"
