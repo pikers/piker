@@ -5,6 +5,7 @@ from trio.testing import trio_test
 from piker.brokers import questrade as qt
 
 
+# stock quote
 _ex_quote = {
     "VWAP": 7.383792,
     "askPrice": 7.56,
@@ -28,6 +29,39 @@ _ex_quote = {
     "tier": "",
     "volume": 5357805
 }
+
+
+# option quote
+_ex_contract = {
+    'VWAP': 0,
+    'askPrice': None,
+    'askSize': 0,
+    'bidPrice': None,
+    'bidSize': 0,
+    'delay': 0,
+    'delta': -0.212857,
+    'gamma': 0.003524,
+    'highPrice': 0,
+    'isHalted': False,
+    'lastTradePrice': 22,
+    'lastTradePriceTrHrs': None,
+    'lastTradeSize': 0,
+    'lastTradeTick': 'Equal',
+    'lastTradeTime': '2018-10-23T00:00:00.000000-04:00',
+    'lowPrice': 0,
+    'openInterest': 1,
+    'openPrice': 0,
+    'rho': -0.891868,
+    'symbol': 'WEED15Jan21P54.00.MX',
+    'symbolId': 22739148,
+    'theta': -0.012911,
+    'underlying': 'WEED.TO',
+    'underlyingId': 16529510,
+    'vega': 0.220885,
+    'volatility': 75.514171,
+    'volume': 0
+}
+
 
 
 def match_packet(symbols, quotes):
@@ -66,3 +100,37 @@ async def test_quoter_context(us_symbols):
         quoter = await qt.quoter(client, us_symbols)
         quotes = await quoter(us_symbols)
         match_packet(us_symbols, quotes)
+
+
+@trio_test
+async def test_option_contracts(tmx_symbols):
+    """Verify we can retrieve contracts by expiry.
+    """
+    async with qt.get_client() as client:
+        for symbol in tmx_symbols:
+            id, contracts = await client.option_contracts(symbol)
+            assert isinstance(id, int)
+            assert isinstance(contracts, dict)
+            ordered = sorted(contracts)
+            for dt in contracts:
+                assert dt.isoformat(
+                    timespec='microseconds') == contracts[dt]['expiryDate']
+
+
+@trio_test
+async def test_option_chain(tmx_symbols):
+    """Verify we can retrieve all option chains for a list of symbols.
+    """
+    async with qt.get_client() as client:
+        # contract lookup - should be cached
+        ids, max_expiry = await client.max_contract_expiry(tmx_symbols)
+        # chains quote for all symbols
+        quotes = await client.option_chains(ids, max_expiry)
+        for key in tmx_symbols:
+            contracts = quotes.pop(key)
+            for key, quote in contracts.items():
+                for key in _ex_contract:
+                    quote.pop(key)
+                assert not quote
+        # chains for each symbol were retreived
+        assert not quotes
