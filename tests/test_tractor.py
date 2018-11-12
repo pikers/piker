@@ -17,7 +17,7 @@ async def rx_price_quotes_from_brokerd(us_symbols):
                     'brokerd',
                     rpc_module_paths=['piker.brokers.core'],
                     statespace={
-                        'brokers2tickersubs': {},
+                        'broker2tickersubs': {},
                         'clients': {},
                         'dtasks': set()
                     },
@@ -31,9 +31,9 @@ async def rx_price_quotes_from_brokerd(us_symbols):
 
                 gen = await portal.run(
                     'piker.brokers.core',
-                    '_test_price_stream',
+                    'start_quote_stream',
                     broker='robinhood',
-                    symbols=us_symbols,
+                    tickers=us_symbols,
                 )
                 # it'd sure be nice to have an asyncitertools here...
                 async for quotes in gen:
