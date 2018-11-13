@@ -78,8 +78,7 @@ class _API:
 
     async def option_quotes(
         self,
-        ids: List[int],
-        expiry: str,
+        contracts: Dict[int, Dict[str, dict]],
         option_ids: List[int] = [],  # if you don't want them all
     ) -> dict:
         "Retrieve option chain quotes for all option ids or by filter(s)."
@@ -87,14 +86,17 @@ class _API:
             {
                 "underlyingId": int(symbol_id),
                 "expiryDate": str(expiry),
-            } for symbol_id in ids
+            }
+            # every expiry per symbol id
+            for symbol_id, expiries in contracts.items()
+            for expiry in expiries
         ]
 
         resp = await self._sess.post(
             path=f'/markets/quotes/options',
             json={'filters': filters, 'optionIds': option_ids}
         )
-        return resproc(resp, log)
+        return resproc(resp, log)['optionQuotes']
 
 
 class Client:
@@ -263,37 +265,41 @@ class Client:
             item for item in contracts
         }
 
-    async def max_contract_expiry(
+    async def get_contracts(
         self,
         symbols: List[str]
-    ) -> Tuple[List[int], datetime]:
+        # {symbol_id: {dt_iso_contract: {strike_price: {contract_id: id}}}}
+    ) -> Dict[int, Dict[str, Dict[int, Any]]]:
         """Look up all contracts for each symbol in ``symbols`` and return the
-        list of symbol ids as well as the maximum possible option contract
-        expiry out of the bunch.
+        of symbol ids to contracts by further organized by expiry and strike
+        price.
 
         This routine is a bit slow doing all the contract lookups (a request
         per symbol) and thus the return values should be cached for use with
         ``option_chains()``.
         """
-        batch = {}
+        by_id = {}
         for symbol in symbols:
             id, contracts = await self.option_contracts(symbol)
-            batch[id] = max(contracts)
-
-        return tuple(batch.keys()), max(batch.values())
+            by_id[id] = {
+                dt.isoformat(timespec='microseconds'): {
+                    item['strikePrice']: item for item in
+                    byroot['chainPerRoot'][0]['chainPerStrikePrice']
+                }
+                for dt, byroot in  sorted(
+                    # sort by datetime
+                    contracts.items(), key=lambda item: item[0]
+                )
+            }
+        return by_id
 
     async def option_chains(
         self,
-        symbol_ids: List[int],
-        max_expiry: str  # iso format datetime (microseconds)
+        contracts: dict,  # see ``get_contracts()``
     ) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """Return option chain snap quote for each ticker in ``symbols``.
         """
-        quotes = (await self.api.option_quotes(
-            ids=symbol_ids,
-            expiry=max_expiry.isoformat(timespec='microseconds')
-        ))['optionQuotes']
-
+        quotes = await self.api.option_quotes(contracts)
         batch = {}
         for quote in quotes:
             batch.setdefault(quote['underlying'], {})[quote['symbol']] = quote
@@ -416,6 +422,7 @@ async def quoter(client: Client, tickers: List[str]):
                         # `client.ensure_access()` locally thus blocking until
                         # the user provides an API key on the "client side"
                         await client.ensure_access(force_refresh=True)
+                        quotes_resp = await client.api.quotes(ids=ids)
             else:
                 raise
 
@@ -449,7 +456,6 @@ _qt_keys = {
     'askPrice': 'ask',
     'bidPrice': 'bid',
     'lastTradeSize': 'size',
-    'lastTradeTime': ('time', datetime.fromisoformat),
     'bidSize': 'bsize',
     'askSize': 'asize',
     'VWAP': ('VWAP', partial(round, ndigits=3)),
@@ -463,6 +469,7 @@ _qt_keys = {
     # 'low52w': 'low52w',  # put in info widget
     # 'high52w': 'high52w',
     # "lastTradePriceTrHrs": 7.99,
+    # 'lastTradeTime': ('time', datetime.fromisoformat),
     # "lastTradeTick": "Equal",
     # "symbolId": 3575753,
     # "tier": "",

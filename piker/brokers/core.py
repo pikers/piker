@@ -60,6 +60,17 @@ async def stocks_quote(
         return results
 
 
+async def option_chain(
+    brokermod: ModuleType,
+    symbol: str,
+) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    """Return option chain (all expiries) for ``symbol``.
+    """
+    async with brokermod.get_client() as client:
+        return await client.option_chains(
+            await client.get_contracts([symbol]))
+
+
 async def wait_for_network(net_func: Callable, sleep: int = 1) -> dict:
     """Wait until the network comes back up.
     """
