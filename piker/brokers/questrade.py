@@ -477,10 +477,13 @@ _qt_keys = {
     # 'delay': 'delay',  # as subscript 'p'
 }
 
+# BidAskLayout columns which will contain three cells the first stacked on top
+# of the other 2
 _bidasks = {
     'last': ['bid', 'ask'],
     'size': ['bsize', 'asize'],
     'VWAP': ['low', 'high'],
+    'mktcap': ['vol', '$ vol'],
 }
 
 
