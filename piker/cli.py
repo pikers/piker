@@ -120,6 +120,36 @@ def quote(loglevel, broker, tickers, df_output):
 @click.option('--broker', '-b', default=DEFAULT_BROKER,
               help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
+@click.option('--df-output', '-df', flag_value=True,
+              help='Output in `pandas.DataFrame` format')
+@click.argument('symbol', required=True)
+def option_chain(loglevel, broker, symbol, df_output):
+    """Retreive symbol quotes on the console in either json or dataframe
+    format.
+    """
+    brokermod = get_brokermod(broker)
+    get_console_log(loglevel)
+    quotes = trio.run(partial(core.option_chain, brokermod, symbol))[symbol]
+    if not quotes:
+        log.error(f"No quotes could be found for {tickers}?")
+        return
+
+    if df_output:
+        cols = next(filter(bool, quotes.values())).copy()
+        df = pd.DataFrame(
+            (quote.values() for contract, quote in quotes.items()),
+            index=quotes.keys(),
+            columns=cols.keys(),
+        )
+        click.echo(df)
+    else:
+        click.echo(colorize_json(quotes))
+
+
+@cli.command()
+@click.option('--broker', '-b', default=DEFAULT_BROKER,
+              help='Broker backend to use')
+@click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--rate', '-r', default=5, help='Logging level')
 @click.option('--dhost', '-dh', default='127.0.0.1',
               help='Daemon host address to connect to')
