@@ -111,7 +111,6 @@ async def test_option_contracts(tmx_symbols):
             id, contracts = await client.option_contracts(symbol)
             assert isinstance(id, int)
             assert isinstance(contracts, dict)
-            ordered = sorted(contracts)
             for dt in contracts:
                 assert dt.isoformat(
                     timespec='microseconds') == contracts[dt]['expiryDate']
@@ -123,9 +122,9 @@ async def test_option_chain(tmx_symbols):
     """
     async with qt.get_client() as client:
         # contract lookup - should be cached
-        ids, max_expiry = await client.max_contract_expiry(tmx_symbols)
+        contracts = await client.get_contracts(tmx_symbols)
         # chains quote for all symbols
-        quotes = await client.option_chains(ids, max_expiry)
+        quotes = await client.option_chains(contracts)
         for key in tmx_symbols:
             contracts = quotes.pop(key)
             for key, quote in contracts.items():
