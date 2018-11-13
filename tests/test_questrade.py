@@ -1,6 +1,9 @@
 """
 Questrade broker testing
 """
+import time
+
+import trio
 from trio.testing import trio_test
 from piker.brokers import questrade as qt
 
@@ -133,3 +136,29 @@ async def test_option_chain(tmx_symbols):
                 assert not quote
         # chains for each symbol were retreived
         assert not quotes
+
+
+@trio_test
+async def test_option_quote_latency(tmx_symbols):
+    """Audit option quote latencies.
+    """
+    async with qt.get_client() as client:
+        # all contracts lookup - should be cached
+        contracts = await client.get_contracts(['WEED.TO'])
+
+        # build single expriry contract
+        id, by_expiry = next(iter(contracts.items()))
+        dt, by_strike = next(iter(by_expiry.items()))
+        single = {id: {dt: by_strike}}
+
+        for expected_latency, contract in [
+            (2, contracts), (0.5, single)
+        ]:
+            for _ in range(10):
+                # chains quote for all symbols
+                start = time.time()
+                quotes = await client.option_chains(contract)
+                took = time.time() - start
+                print(f"Request took {took}")
+                assert took <= expected_latency
+                await trio.sleep(0.1)
