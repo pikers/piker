@@ -29,7 +29,7 @@ def pikerd(loglevel, host):
     """
     get_console_log(loglevel)
     tractor.run_daemon(
-        rpc_module_paths=['piker.brokers.core'],
+        rpc_module_paths=['piker.brokers.data'],
         statespace={
             'broker2tickersubs': {},
             'clients': {},
@@ -123,7 +123,7 @@ def quote(loglevel, broker, tickers, df_output):
 @click.option('--df-output', '-df', flag_value=True,
               help='Output in `pandas.DataFrame` format')
 @click.argument('symbol', required=True)
-def option_chain(loglevel, broker, symbol, df_output):
+def option_chain_quote(loglevel, broker, symbol, df_output):
     """Retreive symbol quotes on the console in either json or dataframe
     format.
     """
@@ -131,7 +131,7 @@ def option_chain(loglevel, broker, symbol, df_output):
     get_console_log(loglevel)
     quotes = trio.run(partial(core.option_chain, brokermod, symbol))[symbol]
     if not quotes:
-        log.error(f"No quotes could be found for {tickers}?")
+        log.error(f"No quotes could be found for {symbol}?")
         return
 
     if df_output:
@@ -181,7 +181,7 @@ def monitor(loglevel, broker, rate, name, dhost):
                             'clients': {},
                             'dtasks': set(),
                         },
-                        rpc_module_paths=['piker.brokers.core'],
+                        rpc_module_paths=['piker.brokers.data'],
                         loglevel=loglevel,
                     )
 
