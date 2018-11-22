@@ -111,7 +111,7 @@ async def test_option_contracts(tmx_symbols):
     """
     async with qt.get_client() as client:
         for symbol in tmx_symbols:
-            id, contracts = await client.option_contracts(symbol)
+            id, contracts = await client.symbol2contracts(symbol)
             assert isinstance(id, int)
             assert isinstance(contracts, dict)
             for dt in contracts:
@@ -125,7 +125,7 @@ async def test_option_chain(tmx_symbols):
     """
     async with qt.get_client() as client:
         # contract lookup - should be cached
-        contracts = await client.get_contracts(tmx_symbols)
+        contracts = await client.get_all_contracts(tmx_symbols)
         # chains quote for all symbols
         quotes = await client.option_chains(contracts)
         for key in tmx_symbols:
@@ -144,15 +144,16 @@ async def test_option_quote_latency(tmx_symbols):
     """
     async with qt.get_client() as client:
         # all contracts lookup - should be cached
-        contracts = await client.get_contracts(['WEED.TO'])
+        contracts = await client.get_all_contracts(['WEED.TO'])
 
         # build single expriry contract
         id, by_expiry = next(iter(contracts.items()))
         dt, by_strike = next(iter(by_expiry.items()))
-        single = {id: {dt: by_strike}}
+        single = {id: {dt: None}}
 
         for expected_latency, contract in [
-            (2, contracts), (0.5, single)
+            # NOTE: request latency is usually 2x faster that these
+            (5, contracts), (0.5, single)
         ]:
             for _ in range(10):
                 # chains quote for all symbols
