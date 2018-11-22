@@ -1,9 +1,9 @@
 """
-Core broker-daemon tasks and API.
+Broker high level API layer.
 """
 import inspect
 from types import ModuleType
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from ..log import get_logger
 
@@ -56,9 +56,31 @@ async def stocks_quote(
 async def option_chain(
     brokermod: ModuleType,
     symbol: str,
+    date: Optional[str] = None,
 ) -> Dict[str, Dict[str, Dict[str, Any]]]:
-    """Return option chain (all expiries) for ``symbol``.
+    """Return option chain for ``symbol`` for ``date``.
+
+    By default all expiries are returned. If ``date`` is provided
+    then contract quotes for that single expiry are returned.
     """
     async with brokermod.get_client() as client:
-        return await client.option_chains(
-            await client.get_contracts([symbol]))
+        if date:
+            id = int((await client.tickers2ids([symbol]))[symbol])
+            # build contracts dict for single expiry
+            return await client.option_chains({id: {date: None}})
+        else:
+            # get all contract expiries
+            # (takes a long-ass time on QT fwiw)
+            contracts = await client.get_all_contracts([symbol])
+            # return chains for all dates
+            return await client.option_chains(contracts)
+
+
+async def contracts(
+    brokermod: ModuleType,
+    symbol: str,
+) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    """Return option contracts (all expiries) for ``symbol``.
+    """
+    async with brokermod.get_client() as client:
+        return await client.get_all_contracts([symbol])
