@@ -15,7 +15,7 @@ async def rx_price_quotes_from_brokerd(us_symbols):
                 # no brokerd actor found
                 portal = await nursery.start_actor(
                     'brokerd',
-                    rpc_module_paths=['piker.brokers.core'],
+                    rpc_module_paths=['piker.brokers.data'],
                     statespace={
                         'broker2tickersubs': {},
                         'clients': {},
@@ -26,11 +26,11 @@ async def rx_price_quotes_from_brokerd(us_symbols):
                 # gotta expose in a broker agnostic way...
                 # retrieve initial symbol data
                 # sd = await portal.run(
-                #     'piker.brokers.core', 'symbol_data', symbols=us_symbols)
+                #     'piker.brokers.data', 'symbol_data', symbols=us_symbols)
                 # assert list(sd.keys()) == us_symbols
 
                 gen = await portal.run(
-                    'piker.brokers.core',
+                    'piker.brokers.data',
                     'start_quote_stream',
                     broker='robinhood',
                     tickers=us_symbols,
