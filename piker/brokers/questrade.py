@@ -248,11 +248,11 @@ class Client:
 
         return quotes
 
-    async def option_contracts(
+    async def symbol2contracts(
         self,
         symbol: str
     ) -> Tuple[int, Dict[datetime, dict]]:
-        """Return option contract dat for the given symbol.
+        """Return option contract for the given symbol.
 
         The most useful part is the expiries which can be passed to the option
         chain endpoint but specifc contract ids can be pulled here as well.
@@ -265,9 +265,9 @@ class Client:
             item for item in contracts
         }
 
-    async def get_contracts(
+    async def get_all_contracts(
         self,
-        symbols: List[str]
+        symbols: List[str],
         # {symbol_id: {dt_iso_contract: {strike_price: {contract_id: id}}}}
     ) -> Dict[int, Dict[str, Dict[int, Any]]]:
         """Look up all contracts for each symbol in ``symbols`` and return the
@@ -280,29 +280,33 @@ class Client:
         """
         by_id = {}
         for symbol in symbols:
-            id, contracts = await self.option_contracts(symbol)
+            id, contracts = await self.symbol2contracts(symbol)
             by_id[id] = {
                 dt.isoformat(timespec='microseconds'): {
                     item['strikePrice']: item for item in
                     byroot['chainPerRoot'][0]['chainPerStrikePrice']
                 }
-                for dt, byroot in  sorted(
+                for dt, byroot in sorted(
                     # sort by datetime
-                    contracts.items(), key=lambda item: item[0]
+                    contracts.items(),
+                    key=lambda item: item[0]
                 )
             }
         return by_id
 
     async def option_chains(
         self,
-        contracts: dict,  # see ``get_contracts()``
+        # see dict output from ``get_all_contracts()``
+        contracts: dict,
     ) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """Return option chain snap quote for each ticker in ``symbols``.
         """
         quotes = await self.api.option_quotes(contracts)
         batch = {}
         for quote in quotes:
-            batch.setdefault(quote['underlying'], {})[quote['symbol']] = quote
+            batch.setdefault(
+                quote['underlying'], {}
+            )[quote['symbol']] = quote
 
         return batch
 
@@ -373,7 +377,7 @@ async def get_client() -> Client:
 
 
 async def quoter(client: Client, tickers: List[str]):
-    """Quoter context.
+    """Stock Quoter context.
 
     Yeah so fun times..QT has this symbol to ``int`` id lookup system that you
     have to use to get any quotes. That means we try to be smart and maintain
@@ -409,7 +413,8 @@ async def quoter(client: Client, tickers: List[str]):
             quotes_resp = await client.api.quotes(ids=ids)
         except (QuestradeError, BrokerError) as qterr:
             if "Access token is invalid" in str(qterr.args[0]):
-                # out-of-process piker may have renewed already
+                # out-of-process piker actor may have
+                # renewed already..
                 client._reload_config()
                 try:
                     quotes_resp = await client.api.quotes(ids=ids)
@@ -436,9 +441,9 @@ async def quoter(client: Client, tickers: List[str]):
 
         return quotes
 
+    # strip out unknown/invalid symbols
     first_quotes_dict = await get_quote(tickers)
     filter_symbols(first_quotes_dict)
-
     # re-save symbol -> ids cache
     ids = ','.join(map(str, t2ids.values()))
 
@@ -449,7 +454,7 @@ async def quoter(client: Client, tickers: List[str]):
 # XXX: keys-values in this map define the final column values which will
 # be "displayable" but not necessarily used for "data processing"
 # (i.e. comparisons for sorting purposes or other calculations).
-_qt_keys = {
+_qt_stock_keys = {
     'symbol': 'symbol',  # done manually in qtconvert
     '%': '%',
     'lastTradePrice': 'last',
@@ -490,7 +495,7 @@ _bidasks = {
 def format_quote(
     quote: dict,
     symbol_data: dict,
-    keymap: dict = _qt_keys,
+    keymap: dict = _qt_stock_keys,
 ) -> Tuple[dict, dict]:
     """Remap a list of quote dicts ``quotes`` using the mapping of old keys
     -> new keys ``keymap`` returning 2 dicts: one with raw data and the other
