@@ -1,7 +1,6 @@
 """
 Watchlists testing.
 """
-import json
 import pytest
 import tempfile
 import os.path

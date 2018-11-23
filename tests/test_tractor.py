@@ -5,11 +5,6 @@ import pytest
 import tractor
 
 
-@pytest.fixture
-def us_symbols():
-    return ['TSLA', 'AAPL', 'CGC', 'CRON']
-
-
 async def rx_price_quotes_from_brokerd(us_symbols):
     """Verify we can spawn a daemon actor and retrieve streamed price data.
     """
@@ -20,9 +15,9 @@ async def rx_price_quotes_from_brokerd(us_symbols):
                 # no brokerd actor found
                 portal = await nursery.start_actor(
                     'brokerd',
-                    rpc_module_paths=['piker.brokers.core'],
+                    rpc_module_paths=['piker.brokers.data'],
                     statespace={
-                        'brokers2tickersubs': {},
+                        'broker2tickersubs': {},
                         'clients': {},
                         'dtasks': set()
                     },
@@ -31,14 +26,14 @@ async def rx_price_quotes_from_brokerd(us_symbols):
                 # gotta expose in a broker agnostic way...
                 # retrieve initial symbol data
                 # sd = await portal.run(
-                #     'piker.brokers.core', 'symbol_data', symbols=us_symbols)
+                #     'piker.brokers.data', 'symbol_data', symbols=us_symbols)
                 # assert list(sd.keys()) == us_symbols
 
                 gen = await portal.run(
-                    'piker.brokers.core',
-                    '_test_price_stream',
+                    'piker.brokers.data',
+                    'start_quote_stream',
                     broker='robinhood',
-                    symbols=us_symbols,
+                    tickers=us_symbols,
                 )
                 # it'd sure be nice to have an asyncitertools here...
                 async for quotes in gen:

@@ -1,10 +1,21 @@
 #!/usr/bin/env python
-#
+
+# piker: destroy all suits
 # Copyright 2018 Tyler Goodlet
-#
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 from setuptools import setup
 
 with open('README.rst', encoding='utf-8') as f:
@@ -43,7 +54,7 @@ setup(
         'questrade': ['asks'],
     },
     tests_require=['pytest'],
-    python_requires=">=3.6",
+    python_requires=">=3.7",  # literally for ``datetime.datetime.fromisoformat``...
     keywords=["async", "trading", "finance", "quant", "charting"],
     classifiers=[
         'Development Status :: 3 - Alpha',

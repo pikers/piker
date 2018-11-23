@@ -5,7 +5,7 @@ import math
 import itertools
 
 
-def humanize(number):
+def humanize(number, digits=1):
     """Convert large numbers to something with at most 3 digits and
     a letter suffix (eg. k: thousand, M: million, B: billion).
     """
@@ -20,7 +20,8 @@ def humanize(number):
     if mag < 3:
         return number
     maxmag = max(itertools.takewhile(lambda key: mag >= key, mag2suffix))
-    return "{:.2f}{}".format(number/10**maxmag, mag2suffix[maxmag])
+    return "{:.{digits}f}{}".format(
+        number/10**maxmag, mag2suffix[maxmag], digits=digits)
 
 
 def percent_change(init, new):

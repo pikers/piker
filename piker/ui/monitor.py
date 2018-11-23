@@ -41,7 +41,7 @@ def colorcode(name):
     return _colors[name if name else 'gray']
 
 
-_bs = 3  # border size
+_bs = 4  # border size
 _color = [0.13]*3  # nice shade of gray
 _kv = (f'''
 #:kivy 1.10.0
@@ -74,7 +74,7 @@ _kv = (f'''
 <TickerTable>
     spacing: '{_bs}dp'
     row_force_default: True
-    row_default_height: 75
+    row_default_height: 63
     cols: 1
 
 <BidAskLayout>
@@ -143,7 +143,7 @@ class BidAskLayout(StackLayout):
         cell_type = HeaderCell if header else Cell
         top_size = cell_type().font_size
         small_size = top_size - 2
-        top_prop = 0.7  # proportion of size used by top cell
+        top_prop = 0.55  # proportion of size used by top cell
         bottom_prop = 1 - top_prop
         for (key, size_hint, font_size), value in zip(
             [('last', (1, top_prop), top_size),
@@ -175,6 +175,7 @@ class BidAskLayout(StackLayout):
 
     @row.setter
     def row(self, row):
+        # so hideous
         for cell in self.cells:
             cell.row = row
 
@@ -338,7 +339,11 @@ async def update_quotes(
         else:
             color = colorcode('gray')
 
+        # row header and % cell color
         chngcell.color = hdrcell.color = color
+        # bgcolor = color.copy()
+        # bgcolor[-1] = 0.25
+        # chngcell.background_color = bgcolor
 
         # if the cell has been "highlighted" make sure to change its color
         if hdrcell.background_color != [0]*4:
@@ -356,9 +361,10 @@ async def update_quotes(
         color_row(row, record)
         cache[sym] = (record, row)
 
+    # render all rows once up front
     grid.render_rows(cache)
 
-    # core cell update loop
+    # real-time cell update loop
     async for quotes in agen:  # new quotes data only
         for symbol, quote in quotes.items():
             record, displayable = brokermod.format_quote(
@@ -378,7 +384,7 @@ async def update_quotes(
 async def _async_main(name, portal, tickers, brokermod, rate):
     '''Launch kivy app + all other related tasks.
 
-    This is started with cli command `piker watch`.
+    This is started with cli cmd `piker monitor`.
     '''
     # subscribe for tickers (this performs a possible filtering
     # where invalid symbols are discarded)
