@@ -6,6 +6,15 @@ import time
 import trio
 from trio.testing import trio_test
 from piker.brokers import questrade as qt
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def check_qt_conf_section(brokerconf):
+    """Skip this module's tests if we have not quetrade API creds.
+    """
+    if not brokerconf.has_section('questrade'):
+        pytest.skip("No questrade API credentials available")
 
 
 # stock quote
@@ -64,7 +73,6 @@ _ex_contract = {
     'volatility': 75.514171,
     'volume': 0
 }
-
 
 
 def match_packet(symbols, quotes):
@@ -158,7 +166,7 @@ async def test_option_quote_latency(tmx_symbols):
             for _ in range(10):
                 # chains quote for all symbols
                 start = time.time()
-                quotes = await client.option_chains(contract)
+                await client.option_chains(contract)
                 took = time.time() - start
                 print(f"Request took {took}")
                 assert took <= expected_latency

@@ -2,6 +2,12 @@ import pytest
 
 
 @pytest.fixture
+def brokerconf():
+    from piker.brokers import config
+    return config.load()[0]
+
+
+@pytest.fixture
 def us_symbols():
     return ['TSLA', 'AAPL', 'CGC', 'CRON']
 
