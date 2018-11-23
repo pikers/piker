@@ -1,13 +1,11 @@
 piker
 -----
-Anti-fragile_ trading gear for hackers, scientists, stay-at-home quants and underpants warriors.
+Trading gear for hackers.
 
 |pypi| |travis| |versions| |license| |docs|
 
 .. |travis| image:: https://img.shields.io/travis/pikers/piker/master.svg
     :target: https://travis-ci.org/pikers/piker
-
-.. _Anti-fragile: https://www.sciencedirect.com/science/article/pii/S1877050916302290
 
 Install
 *******
@@ -25,7 +23,7 @@ For a development install::
     pipenv install --dev -e .
     pipenv shell
 
-To start the real-time index ETF watchlist::
+To start the real-time index ETF watchlist with the `robinhood` backend::
 
     piker watch indexes -l info
 
@@ -50,7 +48,7 @@ Then start the client app as normal::
 
 Laggy distros
 =============
-For those running pop-culture distros that don't yet ship ``python3.6``
+For those running pop-culture distros that don't yet ship ``python3.7``
 you'll need to install it as well as `kivy source build`_ dependencies
 since currently there's reliance on an async development branch.
 
@@ -60,5 +58,10 @@ since currently there's reliance on an async development branch.
 Tech
 ****
 ``piker`` is an attempt at a pro-grade, next-gen open source toolset
-for trading and financial analysis. As such, it tries to use as much
-cutting edge tech as possible including Python 3.6+ and ``trio``.
+for real-time trading and financial analysis.
+
+It tries to use as much cutting edge tech as possible including (but not limited to):
+
+- Python 3.7+
+- ``trio``
+- ``tractor``
