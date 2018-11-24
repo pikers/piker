@@ -19,9 +19,11 @@ from kivy.lang import Builder
 from kivy import utils
 from kivy.app import async_runTouchApp
 from kivy.core.window import Window
+from kivy.graphics import Color, Rectangle, RoundedRectangle
 
 from ..log import get_logger
 from .pager import PagerView
+from .kivy.hoverable import HoverBehavior
 
 log = get_logger('monitor')
 
@@ -44,13 +46,16 @@ def colorcode(name):
 
 
 _bs = 0.75  # border size
+
 # medium shade of gray that seems to match the
 # default i3 window borders
 _i3_rgba = [0.14]*3 + [1]
+
 # slightly off black like the jellybean bg from
 # vim colorscheme
 _cell_rgba = [0.07]*3 + [1]
 _black_rgba = [0]*4
+
 _kv = (f'''
 #:kivy 1.10.0
 
@@ -126,6 +131,50 @@ _kv = (f'''
     font_size: 25
     background_color: {_i3_rgba}
 ''')
+
+
+class HighlightRowHoverable(HoverBehavior):
+    def on_enter(self):
+        """Highlight row on enter.
+        """
+        log.debug(
+            f"Entered cell {self} through {self.border_point}")
+        row = self
+        if row.mouse_over or row.is_header:
+            return
+
+        # add draw instructions
+        color = row._color = Color(*_i3_rgba)
+        rect = row._rect = RoundedRectangle(
+            size=row.size,
+            pos=row.pos,
+            radius=(10,)
+        )
+        # add to canvas
+        canvas = row.canvas
+        if row._rect not in canvas.before.children:
+            canvas.before.add(color)
+            canvas.before.add(rect)
+
+            # mark row as being "selected"
+            row.mouse_over = True
+
+    def on_leave(self):
+        """Un-highlight row on exit.
+        """
+        log.debug(
+            f"Left cell {self} through {self.border_point}")
+        row = self
+        if not row.mouse_over or row.is_header:
+            return
+        canvas = row.canvas
+        # remove instructions from canvas
+        if row._color in canvas.before.children:
+            canvas.before.remove(row._color)
+            canvas.before.remove(row._rect)
+
+            # mark row as being "un-selected"
+            row.mouse_over = False
 
 
 class HeaderCell(Button):
@@ -224,7 +273,7 @@ class BidAskLayout(StackLayout):
         return [self.last, self.bid, self.ask]
 
 
-class Row(GridLayout):
+class Row(GridLayout, HighlightRowHoverable):
     """A grid for displaying a row of ticker quote data.
 
     The row fields can be updated using the ``fields`` property which will in
@@ -232,14 +281,17 @@ class Row(GridLayout):
     """
     def __init__(
         self, record, headers=(), bidasks=None, table=None,
-        is_header_row=False,
+        is_header=False,
         **kwargs
     ):
         super(Row, self).__init__(cols=len(record), **kwargs)
         self._cell_widgets = {}
         self._last_record = record
         self.table = table
-        self.is_header = is_header_row
+        self.is_header = is_header
+
+        # selection state
+        self.mouse_over = False
 
         # create `BidAskCells` first
         layouts = {}
@@ -248,7 +300,7 @@ class Row(GridLayout):
         for key, children in bidasks.items():
             layout = BidAskLayout(
                 [record[key]] + [record[child] for child in children],
-                header=is_header_row
+                header=is_header
             )
             layout.row = self
             layouts[key] = layout
@@ -518,7 +570,7 @@ async def _async_main(
             {key: key for key in headers},
             headers=headers,
             bidasks=bidasks,
-            is_header_row=True,
+            is_header=True,
             size_hint=(1, None),
         )
         box.add_widget(header)
