@@ -19,7 +19,6 @@ from kivy.lang import Builder
 from kivy import utils
 from kivy.app import async_runTouchApp
 from kivy.core.window import Window
-from kivy.graphics import Color, Rectangle, RoundedRectangle
 
 from ..log import get_logger
 from .pager import PagerView
@@ -121,6 +120,14 @@ _kv = (f'''
             # self here refers to the widget i.e Row(GridLayout)
             pos: self.pos
             size: self.size
+        # row higlighting on mouse over
+        Color:
+            rgba: {_i3_rgba}
+        RoundedRectangle:
+            size: self.width, self.height if self.hovered else 1
+            pos: self.pos
+            radius: (10,)
+
 
 
 # part of the `PagerView`
@@ -133,51 +140,17 @@ _kv = (f'''
 ''')
 
 
-class HighlightRowHoverable(HoverBehavior):
-    def on_enter(self):
-        """Highlight row on enter.
-        """
-        log.debug(
-            f"Entered cell {self} through {self.border_point}")
-        row = self
-        if row.mouse_over or row.is_header:
-            return
+class Cell(Button):
+    """Data cell: the fundemental widget.
 
-        # add draw instructions
-        color = row._color = Color(*_i3_rgba)
-        rect = row._rect = RoundedRectangle(
-            size=row.size,
-            pos=row.pos,
-            radius=(10,)
-        )
-        # add to canvas
-        canvas = row.canvas
-        if row._rect not in canvas.before.children:
-            canvas.before.add(color)
-            canvas.before.add(rect)
-
-            # mark row as being "selected"
-            row.mouse_over = True
-
-    def on_leave(self):
-        """Un-highlight row on exit.
-        """
-        log.debug(
-            f"Left cell {self} through {self.border_point}")
-        row = self
-        if not row.mouse_over or row.is_header:
-            return
-        canvas = row.canvas
-        # remove instructions from canvas
-        if row._color in canvas.before.children:
-            canvas.before.remove(row._color)
-            canvas.before.remove(row._rect)
-
-            # mark row as being "un-selected"
-            row.mouse_over = False
+    ``key`` is the column name index value.
+    """
+    def __init__(self, key=None, **kwargs):
+        super(Cell, self).__init__(**kwargs)
+        self.key = key
 
 
-class HeaderCell(Button):
+class HeaderCell(Cell):
     """Column header cell label.
     """
     def on_press(self, value=None):
@@ -208,11 +181,6 @@ class HeaderCell(Button):
                 self.background_color = _black_rgba
             else:
                 self.background_color = self.color
-
-
-class Cell(Button):
-    """Data cell.
-    """
 
 
 class BidAskLayout(StackLayout):
@@ -273,7 +241,7 @@ class BidAskLayout(StackLayout):
         return [self.last, self.bid, self.ask]
 
 
-class Row(GridLayout, HighlightRowHoverable):
+class Row(GridLayout, HoverBehavior):
     """A grid for displaying a row of ticker quote data.
 
     The row fields can be updated using the ``fields`` property which will in
@@ -321,20 +289,20 @@ class Row(GridLayout, HighlightRowHoverable):
                 # these cells have already been added to the `BidAskLayout`
                 continue
             else:
-                cell = self._append_cell(val, header=header)
+                cell = self._append_cell(val, key, header=header)
                 cell.key = key
                 self._cell_widgets[key] = cell
 
     def get_cell(self, key):
         return self._cell_widgets[key]
 
-    def _append_cell(self, text, header=False):
+    def _append_cell(self, text, key, header=False):
         if not len(self._cell_widgets) < self.cols:
             raise ValueError(f"Can not append more then {self.cols} cells")
 
         # header cells just have a different colour
         celltype = HeaderCell if header else Cell
-        cell = celltype(text=str(text))
+        cell = celltype(text=str(text), key=key)
         cell.is_header = header
         cell.row = self
         self.add_widget(cell)
@@ -367,6 +335,22 @@ class Row(GridLayout, HighlightRowHoverable):
 
         self._last_record = record
         return cells
+
+    # mouse over handlers
+    def on_enter(self):
+        """Highlight layout on enter.
+        """
+        log.debug(
+            f"Entered row {type(self)} through {self.border_point}")
+        # don't highlight header row
+        if getattr(self, 'is_header', None):
+            self.hovered = False
+
+    def on_leave(self):
+        """Un-highlight layout on exit.
+        """
+        log.debug(
+            f"Left row {type(self)} through {self.border_point}")
 
 
 class TickerTable(GridLayout):

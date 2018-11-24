@@ -31,7 +31,7 @@ class HoverBehavior(object):
         super(HoverBehavior, self).__init__(**kwargs)
 
     def on_mouse_pos(self, *args):
-        # do proceed if I'm not displayed <=> If have no parent
+        # don't proceed if I'm not displayed <=> If have no parent
         if not self.get_root_window():
             return
         pos = args[1]
