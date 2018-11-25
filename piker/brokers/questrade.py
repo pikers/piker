@@ -14,6 +14,7 @@ from ..calc import humanize, percent_change
 from . import config
 from ._util import resproc, BrokerError
 from ..log import get_logger, colorize_json
+from .._async_utils import alifo_cache
 
 # TODO: move to urllib3/requests once supported
 import asks
@@ -112,6 +113,7 @@ class Client:
         self.access_data = {}
         self.user_data = {}
         self._reload_config(config)
+        self._symbol_cache = {}
 
     def _reload_config(self, config=None, **kwargs):
         log.warn("Reloading access config data")
@@ -212,12 +214,25 @@ class Client:
 
     async def tickers2ids(self, tickers):
         """Helper routine that take a sequence of ticker symbols and returns
-        their corresponding QT symbol ids.
+        their corresponding QT numeric symbol ids.
+
+        Cache any symbol to id lookups for later use.
         """
-        data = await self.api.symbols(names=','.join(tickers))
+        cache = self._symbol_cache
         symbols2ids = {}
-        for ticker, symbol in zip(tickers, data['symbols']):
-            symbols2ids[symbol['symbol']] = str(symbol['symbolId'])
+        for symbol in tickers:
+            id = cache.get(symbol)
+            if id is not None:
+                symbols2ids[symbol] = id
+
+        # still missing uncached values - hit the server
+        to_lookup = list(set(tickers) - set(symbols2ids))
+        if to_lookup:
+            data = await self.api.symbols(names=','.join(to_lookup))
+            for ticker, symbol in zip(to_lookup, data['symbols']):
+                name = symbol['symbol']
+                assert name == ticker
+                cache[name] = symbols2ids[name] = str(symbol['symbolId'])
 
         return symbols2ids
 
@@ -384,30 +399,21 @@ async def quoter(client: Client, tickers: List[str]):
     a cache of this map lazily as requests from in for new tickers/symbols.
     Most of the closure variables here are to deal with that.
     """
-    t2ids = {}
-    ids = ''
 
-    def filter_symbols(quotes_dict: dict):
-        nonlocal t2ids
-        for symbol, quote in quotes_dict.items():
-            if quote['low52w'] is None:
-                log.warn(
-                    f"{symbol} seems to be defunct discarding from tickers")
-                t2ids.pop(symbol)
+    @alifo_cache(maxsize=128)
+    async def get_symbol_id_seq(symbols: Tuple[str]):
+        """For each tuple ``(symbol_1, symbol_2, ... , symbol_n)``
+        return a symbol id sequence string ``'id_1,id_2, ... , id_n'``.
+        """
+        return ','.join(map(str, (await client.tickers2ids(symbols)).values()))
 
     async def get_quote(tickers):
         """Query for quotes using cached symbol ids.
         """
         if not tickers:
             return {}
-        nonlocal ids, t2ids
-        new, current = set(tickers), set(t2ids.keys())
-        if new != current:
-            # update ticker ids cache
-            log.debug(f"Tickers set changed {new - current}")
-            t2ids = await client.tickers2ids(tickers)
-            # re-save symbol -> ids cache
-            ids = ','.join(map(str, t2ids.values()))
+
+        ids = await get_symbol_id_seq(tuple(tickers))
 
         try:
             quotes_resp = await client.api.quotes(ids=ids)
@@ -443,9 +449,10 @@ async def quoter(client: Client, tickers: List[str]):
 
     # strip out unknown/invalid symbols
     first_quotes_dict = await get_quote(tickers)
-    filter_symbols(first_quotes_dict)
-    # re-save symbol -> ids cache
-    ids = ','.join(map(str, t2ids.values()))
+    for symbol, quote in first_quotes_dict.items():
+        if quote['low52w'] is None:
+            log.warn(
+                f"{symbol} seems to be defunct")
 
     return get_quote
 
