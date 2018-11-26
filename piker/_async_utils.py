@@ -4,7 +4,7 @@ Async utils no one seems to have built into a core lib (yet).
 from collections import OrderedDict
 
 
-def alifo_cache(maxsize=128):
+def async_lifo_cache(maxsize=128):
     """Async ``cache`` with a LIFO policy.
 
     Implemented my own since no one else seems to have

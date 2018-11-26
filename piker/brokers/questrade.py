@@ -14,7 +14,7 @@ from ..calc import humanize, percent_change
 from . import config
 from ._util import resproc, BrokerError
 from ..log import get_logger, colorize_json
-from .._async_utils import alifo_cache
+from .._async_utils import async_lifo_cache
 
 # TODO: move to urllib3/requests once supported
 import asks
@@ -400,7 +400,7 @@ async def quoter(client: Client, tickers: List[str]):
     Most of the closure variables here are to deal with that.
     """
 
-    @alifo_cache(maxsize=128)
+    @async_lifo_cache(maxsize=128)
     async def get_symbol_id_seq(symbols: Tuple[str]):
         """For each tuple ``(symbol_1, symbol_2, ... , symbol_n)``
         return a symbol id sequence string ``'id_1,id_2, ... , id_n'``.
