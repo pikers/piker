@@ -6,6 +6,7 @@ from types import ModuleType
 from typing import List, Dict, Any, Optional
 
 from ..log import get_logger
+from .data import DataFeed
 
 
 log = get_logger('broker.core')
@@ -19,7 +20,7 @@ async def api(brokermod: ModuleType, methname: str, **kwargs) -> dict:
         meth = getattr(client.api, methname, None)
         if meth is None:
             log.warning(
-                "Couldn't find API method {methname} looking up on client")
+                f"Couldn't find API method {methname} looking up on client")
             meth = getattr(client, methname, None)
 
         if meth is None:
@@ -46,13 +47,14 @@ async def stocks_quote(
     """
     async with brokermod.get_client() as client:
         results = await client.quote(tickers)
-        for key, val in results.items():
+        for val in results:
             if val is None:
                 brokermod.log.warn(f"Could not find symbol {key}?")
 
         return results
 
 
+# TODO: these need tests
 async def option_chain(
     brokermod: ModuleType,
     symbol: str,
@@ -67,7 +69,8 @@ async def option_chain(
         if date:
             id = int((await client.tickers2ids([symbol]))[symbol])
             # build contracts dict for single expiry
-            return await client.option_chains({id: {date: None}})
+            return await client.option_chains(
+                {(symbol, id, date): {}})
         else:
             # get all contract expiries
             # (takes a long-ass time on QT fwiw)
@@ -83,4 +86,5 @@ async def contracts(
     """Return option contracts (all expiries) for ``symbol``.
     """
     async with brokermod.get_client() as client:
+        # return await client.get_all_contracts([symbol])
         return await client.get_all_contracts([symbol])
