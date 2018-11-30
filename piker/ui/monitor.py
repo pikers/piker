@@ -19,6 +19,7 @@ from kivy.lang import Builder
 from kivy import utils
 from kivy.app import async_runTouchApp
 from kivy.core.window import Window
+from async_generator import aclosing
 
 from ..log import get_logger
 from .pager import PagerView
@@ -513,13 +514,24 @@ async def _async_main(
     tickers: List[str],
     brokermod: ModuleType,
     rate: int,
-    # an async generator instance which yields quotes dict packets
-    quote_gen: AsyncGeneratorType,
+    test: bool = False
 ) -> None:
     '''Launch kivy app + all other related tasks.
 
     This is started with cli cmd `piker monitor`.
     '''
+    if test:
+        # stream from a local test file
+        quote_gen = await portal.run(
+            "piker.brokers.data", 'stream_from_file',
+            filename=test
+        )
+    else:
+        # start live streaming from broker daemon
+        quote_gen = await portal.run(
+            "piker.brokers.data", 'start_quote_stream',
+            broker=brokermod.name, symbols=tickers)
+
     # subscribe for tickers (this performs a possible filtering
     # where invalid symbols are discarded)
     sd = await portal.run(
@@ -594,14 +606,17 @@ async def _async_main(
         try:
             # Trio-kivy entry point.
             await async_runTouchApp(widgets['root'])  # run kivy
-            await quote_gen.aclose()  # cancel aysnc gen call
         finally:
+            await quote_gen.aclose()  # cancel aysnc gen call
             # un-subscribe from symbols stream (cancel if brokerd
             # was already torn down - say by SIGINT)
             with trio.move_on_after(0.2):
                 await portal.run(
                     "piker.brokers.data", 'modify_quote_stream',
-                    broker=brokermod.name, tickers=[])
+                    broker=brokermod.name,
+                    feed_type='stock',
+                    tickers=[]
+                )
 
             # cancel GUI update task
             nursery.cancel_scope.cancel()
