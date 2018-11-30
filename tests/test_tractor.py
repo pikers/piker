@@ -16,11 +16,6 @@ async def rx_price_quotes_from_brokerd(us_symbols):
                 portal = await nursery.start_actor(
                     'brokerd',
                     rpc_module_paths=['piker.brokers.data'],
-                    statespace={
-                        'broker2tickersubs': {},
-                        'clients': {},
-                        'dtasks': set()
-                    },
                 )
 
                 # gotta expose in a broker agnostic way...
