@@ -4,6 +4,8 @@ Console interface to broker client/daemons.
 from functools import partial
 import json
 import os
+from operator import attrgetter
+from operator import itemgetter
 
 import click
 import pandas as pd
@@ -32,11 +34,6 @@ def pikerd(loglevel, host, tl):
     get_console_log(loglevel)
     tractor.run_daemon(
         rpc_module_paths=['piker.brokers.data'],
-        statespace={
-            'broker2tickersubs': {},
-            'clients': {},
-            'dtasks': set(),
-        },
         name='brokerd',
         loglevel=loglevel if tl else None,
     )
@@ -105,6 +102,12 @@ def quote(loglevel, broker, tickers, df_output):
         log.error(f"No quotes could be found for {tickers}?")
         return
 
+    if len(quotes) < len(tickers):
+        syms = tuple(map(itemgetter('symbol'), quotes))
+        for ticker in tickers:
+            if ticker not in syms:
+                brokermod.log.warn(f"Could not find symbol {ticker}?")
+
     if df_output:
         cols = next(filter(bool, quotes.values())).copy()
         cols.pop('symbol')
@@ -130,11 +133,6 @@ async def maybe_spawn_brokerd_as_subactor(sleep=0.5, tries=10, loglevel=None):
                     "No broker daemon could be found, spawning brokerd..")
                 portal = await nursery.start_actor(
                     'brokerd',
-                    statespace={
-                        'broker2tickersubs': {},
-                        'clients': {},
-                        'dtasks': set(),
-                    },
                     rpc_module_paths=['piker.brokers.data'],
                     loglevel=loglevel,
                 )
@@ -168,23 +166,10 @@ def monitor(loglevel, broker, rate, name, dhost, test, tl):
         async with maybe_spawn_brokerd_as_subactor(
             tries=tries, loglevel=loglevel
         ) as portal:
-            if test:
-                # stream from a local test file
-                agen = await portal.run(
-                    "piker.brokers.data", 'stream_from_file',
-                    filename=test
-                )
-                # agen = data.stream_from_file(test)
-            else:
-                # start live streaming from broker daemon
-                agen = await portal.run(
-                    "piker.brokers.data", 'start_quote_stream',
-                    broker=brokermod.name, tickers=tickers)
-
             # run app "main"
             await _async_main(
                 name, portal, tickers,
-                brokermod, rate, agen,
+                brokermod, rate, test=test,
             )
 
     tractor.run(
@@ -330,14 +315,16 @@ def dump(ctx, name):
 def contracts(loglevel, broker, symbol, ids):
     brokermod = get_brokermod(broker)
     get_console_log(loglevel)
-    quotes = trio.run(partial(core.contracts, brokermod, symbol))
+    contracts = trio.run(partial(core.contracts, brokermod, symbol))
     if not ids:
         # just print out expiry dates which can be used with
         # the option_chain_quote cmd
-        id, contracts = next(iter(quotes.items()))
-        quotes = list(contracts)
+        output = tuple(map(attrgetter('expiry'), contracts))
+    else:
+        output = tuple(contracts.items())
 
-    click.echo(colorize_json(quotes))
+    # TODO: need a cli test to verify
+    click.echo(colorize_json(output))
 
 
 @cli.command()
@@ -358,17 +345,15 @@ def optsquote(loglevel, broker, symbol, df_output, date):
         partial(
             core.option_chain, brokermod, symbol, date
         )
-    )[symbol]
+    )
     if not quotes:
-        log.error(f"No quotes could be found for {symbol}?")
+        log.error(f"No option quotes could be found for {symbol}?")
         return
 
     if df_output:
-        cols = next(filter(bool, quotes.values())).copy()
         df = pd.DataFrame(
-            (quote.values() for contract, quote in quotes.items()),
-            index=quotes.keys(),
-            columns=cols.keys(),
+            (quote.values() for quote in quotes),
+            columns=quotes[0].keys(),
         )
         click.echo(df)
     else:
