@@ -46,12 +46,7 @@ async def stocks_quote(
     """Return quotes dict for ``tickers``.
     """
     async with brokermod.get_client() as client:
-        results = await client.quote(tickers)
-        for val in results:
-            if val is None:
-                brokermod.log.warn(f"Could not find symbol {key}?")
-
-        return results
+        return await client.quote(tickers)
 
 
 # TODO: these need tests

@@ -5,6 +5,7 @@ from functools import partial
 import json
 import os
 from operator import attrgetter
+from operator import itemgetter
 
 import click
 import pandas as pd
@@ -100,6 +101,12 @@ def quote(loglevel, broker, tickers, df_output):
     if not quotes:
         log.error(f"No quotes could be found for {tickers}?")
         return
+
+    if len(quotes) < len(tickers):
+        syms = tuple(map(itemgetter('symbol'), quotes))
+        for ticker in tickers:
+            if ticker not in syms:
+                brokermod.log.warn(f"Could not find symbol {ticker}?")
 
     if df_output:
         cols = next(filter(bool, quotes.values())).copy()
