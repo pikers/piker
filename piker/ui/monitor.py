@@ -615,7 +615,7 @@ async def _async_main(
                     "piker.brokers.data", 'modify_quote_stream',
                     broker=brokermod.name,
                     feed_type='stock',
-                    tickers=[]
+                    symbols=[]
                 )
 
             # cancel GUI update task

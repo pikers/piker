@@ -233,23 +233,23 @@ async def smoke_quote(get_quotes, tickers, broker):
     ###########################################
 
 
-async def modify_quote_stream(broker, feed_type, tickers, chan=None, cid=None):
+async def modify_quote_stream(broker, feed_type, symbols, chan=None, cid=None):
     """Absolute symbol subscription list for each quote stream.
 
     Effectively a symbol subscription api.
     """
-    log.info(f"{chan} changed symbol subscription to {tickers}")
+    log.info(f"{chan} changed symbol subscription to {symbols}")
     feed = await get_cached_feed(broker)
     symbols2chans = feed.subscriptions[feed_type]
     # update map from each symbol to requesting client's chan
-    for ticker in tickers:
+    for ticker in symbols:
         symbols2chans.setdefault(ticker, set()).add((chan, cid))
 
     # remove any existing symbol subscriptions if symbol is not
-    # found in ``tickers``
+    # found in ``symbols``
     # TODO: this can likely be factored out into the pub-sub api
     for ticker in filter(
-        lambda ticker: ticker not in tickers, symbols2chans.copy()
+        lambda ticker: ticker not in symbols, symbols2chans.copy()
     ):
         chanset = symbols2chans.get(ticker)
         # XXX: cid will be different on unsub call
