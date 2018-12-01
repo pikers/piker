@@ -23,7 +23,7 @@ from async_generator import aclosing
 
 from ..log import get_logger
 from .pager import PagerView
-from .kivy.hoverable import HoverBehavior
+from .kivy.mouse_over import HoverBehavior
 
 log = get_logger('monitor')
 
