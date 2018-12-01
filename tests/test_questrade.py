@@ -178,8 +178,98 @@ async def test_option_quote_latency(tmx_symbols):
                 await trio.sleep(0.1)
 
 
+async def stream_option_chain(portal, symbols):
+    """Start up an option quote stream.
+
+    ``symbols`` arg is ignored here.
+    """
+    symbol = 'APHA.TO'  # your fave greenhouse LP
+    async with qt.get_client() as client:
+        contracts = await client.get_all_contracts([symbol])
+
+    contractkey = next(iter(contracts))
+    subs_keys = list(
+        map(lambda item: (item.symbol, item.expiry), contracts))
+    sub = subs_keys[0]
+
+    agen = await portal.run(
+        'piker.brokers.data',
+        'start_quote_stream',
+        broker='questrade',
+        symbols=[sub],
+        feed_type='option',
+        diff_cached=False,
+    )
+    try:
+        # wait on the data streamer to actually start
+        # delivering
+        await agen.__anext__()
+
+        # it'd sure be nice to have an asyncitertools here...
+        with trio.fail_after(2.1):
+            loops = 8
+            count = 0
+            async for quotes in agen:
+                # print(f'got quotes for {quotes.keys()}')
+                # we should receive all calls and puts
+                assert len(quotes) == len(contracts[contractkey]) * 2
+                for symbol, quote in quotes.items():
+                    assert quote['key'] == sub
+                    for key in _ex_quotes['option']:
+                        quote.pop(key)
+                    assert not quote
+                count += 1
+                if count == loops:
+                    break
+    finally:
+        # unsub
+        await portal.run(
+            'piker.brokers.data',
+            'modify_quote_stream',
+            broker='questrade',
+            feed_type='option',
+            symbols=[],
+        )
+
+
+async def stream_stocks(portal, symbols):
+    """Start up a stock quote stream.
+    """
+    agen = await portal.run(
+        'piker.brokers.data',
+        'start_quote_stream',
+        broker='questrade',
+        symbols=symbols,
+    )
+    try:
+        # it'd sure be nice to have an asyncitertools here...
+        async for quotes in agen:
+            assert quotes
+            for key in quotes:
+                assert key in symbols
+            break
+    finally:
+        # unsub
+        await portal.run(
+            'piker.brokers.data',
+            'modify_quote_stream',
+            broker='questrade',
+            feed_type='stock',
+            symbols=[],
+        )
+
+
+@pytest.mark.parametrize(
+    'stream_what',
+    [
+        (stream_stocks,),
+        (stream_option_chain,),
+        (stream_stocks, stream_option_chain),
+    ],
+    ids=['stocks', 'options', 'stocks_and_options'],
+)
 @tractor_test
-async def test_option_streaming(tmx_symbols, loglevel):
+async def test_quote_streaming(tmx_symbols, loglevel, stream_what):
     """Set up option streaming using the broker daemon.
     """
     async with tractor.find_actor('brokerd') as portal:
@@ -194,53 +284,9 @@ async def test_option_streaming(tmx_symbols, loglevel):
                         'piker.brokers.core'
                     ],
                 )
+                async with trio.open_nursery() as n:
+                    for func in stream_what:
+                        n.start_soon(func, portal, tmx_symbols)
 
-            symbol = 'APHA.TO'  # your fave greenhouse LP
-            async with qt.get_client() as client:
-                contracts = await client.get_all_contracts([symbol])
-
-            contractkey = next(iter(contracts))
-            subs_keys = list(
-                map(lambda item: (item.symbol, item.expiry), contracts))
-            sub = subs_keys[0]
-
-            agen = await portal.run(
-                'piker.brokers.data',
-                'start_quote_stream',
-                broker='questrade',
-                symbols=[sub],
-                feed_type='option',
-                diff_cached=False,
-            )
-            try:
-                # wait on the data streamer to actually start
-                # delivering
-                await agen.__anext__()
-
-                # it'd sure be nice to have an asyncitertools here...
-                with trio.fail_after(2.1):
-                    loops = 8
-                    count = 0
-                    async for quotes in agen:
-                        # print(f'got quotes for {quotes.keys()}')
-                        # we should receive all calls and puts
-                        assert len(quotes) == len(contracts[contractkey]) * 2
-                        for symbol, quote in quotes.items():
-                            assert quote['key'] == sub
-                            for key in _ex_quotes['option']:
-                                quote.pop(key)
-                            assert not quote
-                        count += 1
-                        if count == loops:
-                            break
-            finally:
-                # unsub
-                await portal.run(
-                    'piker.brokers.data',
-                    'modify_quote_stream',
-                    broker='questrade',
-                    feed_type='option',
-                    tickers=[],
-                )
-                # stop all spawned subactors
-                await nursery.cancel()
+            # stop all spawned subactors
+            await nursery.cancel()
