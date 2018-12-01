@@ -2,6 +2,7 @@
 Robinhood API backend.
 """
 from functools import partial
+from typing import List
 
 from async_generator import asynccontextmanager
 # TODO: move to urllib3/requests once supported
@@ -44,7 +45,7 @@ class Client:
         self._sess.base_location = _service_ep
         self.api = _API(self._sess)
 
-    def _zip_in_order(self, symbols: [str], results_dict: dict):
+    def _zip_in_order(self, symbols: [str], quotes: List[dict]):
         return {quote.get('symbol', sym) if quote else sym: quote
                 for sym, quote in zip(symbols, results_dict)}
 
@@ -52,11 +53,16 @@ class Client:
         """Retrieve quotes for a list of ``symbols``.
         """
         try:
-            resp = await self.api.quotes(','.join(symbols))
+            quotes = (await self.api.quotes(','.join(symbols)))['results']
         except BrokerError:
-            resp = {'results': [None] * len(symbols)}
+            quotes = [None] * len(symbols)
 
-        return self._zip_in_order(symbols, resp['results'])
+        for quote in quotes:
+            # insert our subscription key field
+            if quote is not None:
+                quote['key'] = quote['symbol']
+
+        return list(filter(bool, quotes))
 
     async def symbol_data(self, symbols: [str]):
         """Retrieve symbol data via the ``fundamentals`` endpoint.
