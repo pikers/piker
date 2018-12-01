@@ -261,14 +261,10 @@ class Client:
         """Return stock quotes for each ticker in ``tickers``.
         """
         t2ids = await self.tickers2ids(tickers)
-        ids = ','.join(t2ids.values())
-        quotes = (await self.api.quotes(ids=ids))
-
-        # set None for all symbols not found
-        if len(t2ids) < len(tickers):
-            for ticker in tickers:
-                if ticker not in quotes:
-                    quotes[ticker] = None
+        quotes = []
+        if t2ids:
+            ids = ','.join(t2ids.values())
+            quotes = (await self.api.quotes(ids=ids))
 
         return quotes
 
