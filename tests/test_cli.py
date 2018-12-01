@@ -18,11 +18,11 @@ def run(cmd, *args):
     return cp
 
 
-def verify_keys(tickers, quotes_dict):
+def verify_keys(tickers, quotes):
     """Verify all ticker names are keys in ``quotes_dict``.
     """
-    for key, quote in quotes_dict.items():
-        assert key in tickers
+    for quote in quotes:
+        assert quote['key'] in tickers
 
 
 @pytest.fixture
@@ -39,8 +39,8 @@ def test_known_quotes(capfd, nyse_tickers):
 
     # verify output can be parsed as json
     out, err = capfd.readouterr()
-    quotes_dict = json.loads(out)
-    verify_keys(nyse_tickers, quotes_dict)
+    quotes = json.loads(out)
+    verify_keys(nyse_tickers, quotes)
 
 
 @pytest.mark.parametrize(
@@ -61,8 +61,8 @@ def test_quotes_ticker_not_found(
     out, err = capfd.readouterr()
     if out:
         # verify output can be parsed as json
-        quotes_dict = json.loads(out)
-        verify_keys(tickers, quotes_dict)
+        quotes = json.loads(out)
+        verify_keys(tickers, quotes)
         # check for warning log message when some quotes are found
         warnmsg = f'Could not find symbol {bad_ticker[0]}'
         assert warnmsg in err
