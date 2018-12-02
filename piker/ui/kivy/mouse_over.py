@@ -1,15 +1,16 @@
-"""Hoverable Behaviour (changing when the mouse is on the widget by O. Poyen.
-License: LGPL
+"""Mouse over behaviour.
+
+Based on initial LGPL work by O. Poyen. here:
+https://gist.github.com/opqopq/15c707dc4cffc2b6455f
 """
-__author__ = 'Olivier Poyen'
 
 
 from kivy.properties import BooleanProperty, ObjectProperty
 from kivy.core.window import Window
 
 
-class HoverBehavior(object):
-    """Hover behavior.
+class MouseOverBehavior(object):
+    """Mouse over behavior.
 
     :Events:
         `on_enter`
@@ -28,8 +29,8 @@ class HoverBehavior(object):
     def __init__(self, **kwargs):
         self.register_event_type('on_enter')
         self.register_event_type('on_leave')
-        HoverBehavior._widgets.append(self)
-        super(HoverBehavior, self).__init__(**kwargs)
+        MouseOverBehavior._widgets.append(self)
+        super(MouseOverBehavior, self).__init__(**kwargs)
         Window.bind(mouse_pos=self.on_mouse_pos)
 
     @classmethod
@@ -69,3 +70,15 @@ class HoverBehavior(object):
     @classmethod
     def on_leave(cls):
         pass
+
+
+def new_mouse_over_group():
+    """Return a new *mouse over group*, a class that can be mixed
+    in to a group of widgets which can be mutex highlighted based
+    on the mouse position.
+    """
+    return type(
+        'MouseOverBehavior',
+        (MouseOverBehavior,),
+        {},
+    )
