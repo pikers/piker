@@ -124,6 +124,7 @@ class Client:
         self._reload_config(config)
         self._symbol_cache: Dict[str, int] = {}
         self._contracts2expiries = {}
+        self._optids2contractinfo = {}
 
     def _reload_config(self, config=None, **kwargs):
         log.warn("Reloading access config data")
@@ -323,6 +324,16 @@ class Client:
                     item['strikePrice']: item for item in
                     byroot['chainPerRoot'][0]['chainPerStrikePrice']
                 }
+
+        # fill out contract id to strike expiry map
+        for key, bystrikes in by_key.items():
+            for strike, ids in bystrikes.items():
+                for elem in ('callSymbolId', 'putSymbolId'):
+                    self._optids2contractinfo[
+                        ids[elem]] = {
+                            'strike': strike,
+                            'expiry': key.expiry,
+                        }
         return by_key
 
     async def option_chains(
@@ -339,6 +350,12 @@ class Client:
                 # index by .symbol, .expiry since that's what
                 # a subscriber (currently) sends initially
                 quote['key'] = (key[0], key[2])
+                # update with expiry and strike (Obviously the
+                # QT api designers are using some kind of severely
+                # stupid disparate table system where they keep
+                # contract info in a separate table from the quote format
+                # keys. I'm really not surprised though - windows shop..)
+                quote.update(self._optids2contractinfo[quote['symbolId']])
             batch.extend(quotes)
 
         return batch
@@ -471,9 +488,7 @@ async def option_quoter(client: Client, tickers: List[str]):
     if isinstance(tickers[0], tuple):
         datetime.fromisoformat(tickers[0][1])
     else:
-        log.warn(f"Ignoring option quoter call with {tickers}")
-        # TODO make caller always check that a quoter has been set
-        return
+        raise ValueError(f'Option subscription format is (symbol, expiry)')
 
     @async_lifo_cache(maxsize=128)
     async def get_contract_by_date(sym_date_pairs: Tuple[Tuple[str, str]]):
