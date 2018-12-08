@@ -326,13 +326,16 @@ class Client:
                 }
 
         # fill out contract id to strike expiry map
-        for key, bystrikes in by_key.items():
+        for tup, bystrikes in by_key.items():
             for strike, ids in bystrikes.items():
-                for elem in ('callSymbolId', 'putSymbolId'):
+                for key, contract_type in (
+                    ('callSymbolId', 'call'), ('putSymbolId', 'put')
+                ):
                     self._optids2contractinfo[
-                        ids[elem]] = {
+                        ids[key]] = {
                             'strike': strike,
-                            'expiry': key.expiry,
+                            'expiry': tup.expiry,
+                            'contract_type': contract_type,
                         }
         return by_key
 
@@ -571,15 +574,15 @@ _qt_stock_keys = {
 
 # BidAskLayout columns which will contain three cells the first stacked on top
 # of the other 2
-_bidasks = {
+_stock_bidasks = {
     'last': ['bid', 'ask'],
     'size': ['bsize', 'asize'],
     'VWAP': ['low', 'high'],
-    'mktcap': ['vol', '$ vol'],
+    'vol': ['mktcap', '$ vol'],
 }
 
 
-def format_quote(
+def format_stock_quote(
     quote: dict,
     symbol_data: dict,
     keymap: dict = _qt_stock_keys,
@@ -609,6 +612,100 @@ def format_quote(
     new = {}
     displayable = {}
 
+    for key, new_key in keymap.items():
+        display_value = value = computed.get(key) or quote.get(key)
+
+        # API servers can return `None` vals when markets are closed (weekend)
+        value = 0 if value is None else value
+
+        # convert values to a displayble format using available formatting func
+        if isinstance(new_key, tuple):
+            new_key, func = new_key
+            display_value = func(value) if value else value
+
+        new[new_key] = value
+        displayable[new_key] = display_value
+
+    return new, displayable
+
+
+_qt_option_keys = {
+    "lastTradePrice": 'last',
+    "askPrice": 'ask',
+    "bidPrice": 'bid',
+    "lastTradeSize": 'size',
+    "bidSize": 'bsize',
+    "askSize": 'asize',
+    "volume": 'vol',
+    "VWAP": 'VWAP',
+    "lowPrice": 'low',
+    "highPrice": 'high',
+    # "expiry": "expiry",
+    # "delay": 0,
+    "delta": 'delta',
+    "gamma": 'gamma',
+    "rho": 'rho',
+    "theta": 'theta',
+    "vega": 'vega',
+    "$ vol": '$ vol',
+    # "2021-01-15T00:00:00.000000-05:00",
+    # "isHalted": false,
+    # "key": [
+    #     "APHA.TO",
+    #     "2021-01-15T00:00:00.000000-05:00"
+    # ],
+    # "lastTradePriceTrHrs": null,
+    # "lastTradeTick": 'tick',
+    "lastTradeTime": 'time',
+    "openInterest": 'open_interest',
+    "openPrice": 'open',
+    # "strike": 'strike',
+    # "symbol": "APHA15Jan21P8.00.MX",
+    # "symbolId": 23881868,
+    # "underlying": "APHA.TO",
+    # "underlyingId": 8297492,
+    "symbol": 'symbol',
+    "contract_type": 'contract_type',
+    "volatility": 'volatility',
+    "strike": 'strike',
+}
+
+_option_bidasks = {
+    'last': ['bid', 'ask'],
+    'size': ['bsize', 'asize'],
+    'VWAP': ['low', 'high'],
+    'vol': ['open_interest', '$ vol'],
+}
+
+
+def format_option_quote(
+    quote: dict,
+    symbol_data: dict,
+    keymap: dict = _qt_option_keys,
+) -> Tuple[dict, dict]:
+    """Remap a list of quote dicts ``quotes`` using the mapping of old keys
+    -> new keys ``keymap`` returning 2 dicts: one with raw data and the other
+    for display.
+
+    Returns 2 dicts: first is the original values mapped by new keys,
+    and the second is the same but with all values converted to a
+    "display-friendly" string format.
+    """
+    # TODO: need historical data..
+    # (cause why would QT keep their quote structure consistent across
+    # assets..)
+    # previous = symbol_data[symbol]['prevDayClosePrice']
+    # change = percent_change(previous, last)
+    computed = {
+        # why QT do you have to be an asshole shipping null values!!!
+        '$ vol': round((quote['VWAP'] or 0) * (quote['volume'] or 0), 3),
+        # '%': round(change, 3),
+        # 'close': previous,
+    }
+    new = {}
+    displayable = {}
+
+    # structuring and normalization
     for key, new_key in keymap.items():
         display_value = value = computed.get(key) or quote.get(key)
 
