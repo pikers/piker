@@ -636,18 +636,18 @@ _qt_option_keys = {
     "lastTradeSize": 'size',
     "bidSize": 'bsize',
     "askSize": 'asize',
-    "volume": 'vol',
-    "VWAP": 'VWAP',
+    'VWAP': ('VWAP', partial(round, ndigits=3)),
     "lowPrice": 'low',
     "highPrice": 'high',
     # "expiry": "expiry",
     # "delay": 0,
-    "delta": 'delta',
-    "gamma": 'gamma',
-    "rho": 'rho',
-    "theta": 'theta',
-    "vega": 'vega',
-    "$ vol": '$ vol',
+    "delta": ('delta', partial(round, ndigits=3)),
+    "gamma": ('gama', partial(round, ndigits=3)),
+    "rho": ('rho', partial(round, ndigits=3)),
+    "theta": ('theta', partial(round, ndigits=3)),
+    "vega": ('vega', partial(round, ndigits=3)),
+    '$ vol': ('$ vol', humanize),
+    'volume': ('vol', humanize),
     # "2021-01-15T00:00:00.000000-05:00",
     # "isHalted": false,
     # "key": [
@@ -657,7 +657,7 @@ _qt_option_keys = {
     # "lastTradePriceTrHrs": null,
     # "lastTradeTick": 'tick',
     "lastTradeTime": 'time',
-    "openInterest": 'open_interest',
+    "openInterest": 'oi',
     "openPrice": 'open',
     # "strike": 'strike',
     # "symbol": "APHA15Jan21P8.00.MX",
@@ -666,7 +666,7 @@ _qt_option_keys = {
     # "underlyingId": 8297492,
     "symbol": 'symbol',
     "contract_type": 'contract_type',
-    "volatility": 'volatility',
+    "volatility": ('volatility', partial(round, ndigits=3)),
     "strike": 'strike',
 }
 
@@ -674,7 +674,7 @@ _option_bidasks = {
     'last': ['bid', 'ask'],
     'size': ['bsize', 'asize'],
     'VWAP': ['low', 'high'],
-    'vol': ['open_interest', '$ vol'],
+    'vol': ['oi', '$ vol'],
 }
 
 
