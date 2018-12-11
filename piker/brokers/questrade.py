@@ -25,7 +25,10 @@ log = get_logger(__name__)
 
 _refresh_token_ep = 'https://login.questrade.com/oauth2/'
 _version = 'v1'
-_rate_limit = 4  # queries/sec
+
+# stock queries/sec
+# it seems 4 rps is best we can do total
+_rate_limit = 4
 
 
 class QuestradeError(Exception):
@@ -414,8 +417,10 @@ async def get_client() -> Client:
     try:
         log.debug("Check time to ensure access token is valid")
         try:
-            await client.api.time()
-        except Exception:
+            # await client.api.time()
+            quote = await client.quote(['RY.TO'])
+        except Exception as err:
+            # import pdb; pdb.set_trace()
             # access token is likely no good
             log.warn(f"Access token {client.access_data['access_token']} seems"
                      f" expired, forcing refresh")
@@ -642,10 +647,10 @@ _qt_option_keys = {
     # "expiry": "expiry",
     # "delay": 0,
     "delta": ('delta', partial(round, ndigits=3)),
-    "gamma": ('gama', partial(round, ndigits=3)),
-    "rho": ('rho', partial(round, ndigits=3)),
-    "theta": ('theta', partial(round, ndigits=3)),
-    "vega": ('vega', partial(round, ndigits=3)),
+    # "gamma": ('gama', partial(round, ndigits=3)),
+    # "rho": ('rho', partial(round, ndigits=3)),
+    # "theta": ('theta', partial(round, ndigits=3)),
+    # "vega": ('vega', partial(round, ndigits=3)),
     '$ vol': ('$ vol', humanize),
     'volume': ('vol', humanize),
     # "2021-01-15T00:00:00.000000-05:00",
@@ -666,7 +671,10 @@ _qt_option_keys = {
     # "underlyingId": 8297492,
     "symbol": 'symbol',
     "contract_type": 'contract_type',
-    "volatility": ('volatility', partial(round, ndigits=3)),
+    "volatility": (
+        'volatility',
+        lambda v: '{}%'.format(round(v, ndigits=2))
+    ),
     "strike": 'strike',
 }
 
