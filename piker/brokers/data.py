@@ -90,6 +90,7 @@ async def stream_quotes(
                     new_quotes.append(quote)
         else:
             new_quotes = quotes
+            log.info(f"Delivering quotes:\n{quotes}")
 
         yield new_quotes
 
