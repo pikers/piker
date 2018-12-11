@@ -424,7 +424,7 @@ class TickerTable(GridLayout):
         symbol name. Most naive algo possible for the moment.
         """
         for symbol, row in self.symbols2rows.items():
-            if patt in symbol:
+           if patt in symbol:
                 yield symbol, row
 
     def get_row(self, symbol: str) -> Row:
@@ -546,7 +546,7 @@ async def _async_main(
     portal: tractor._portal.Portal,
     tickers: List[str],
     brokermod: ModuleType,
-    rate: int,
+    rate: int = 3,
     test: bool = False
 ) -> None:
     '''Launch kivy app + all other related tasks.
@@ -565,8 +565,12 @@ async def _async_main(
     else:
         # start live streaming from broker daemon
         quote_gen = await portal.run(
-            "piker.brokers.data", 'start_quote_stream',
-            broker=brokermod.name, symbols=tickers)
+            "piker.brokers.data",
+            'start_quote_stream',
+            broker=brokermod.name,
+            symbols=tickers,
+            rate=3,
+        )
 
     # subscribe for tickers (this performs a possible filtering
     # where invalid symbols are discarded)
@@ -657,16 +661,7 @@ async def _async_main(
             # Trio-kivy entry point.
             await async_runTouchApp(widgets['root'])  # run kivy
         finally:
-            await quote_gen.aclose()  # cancel aysnc gen call
-            # un-subscribe from symbols stream (cancel if brokerd
-            # was already torn down - say by SIGINT)
-            with trio.move_on_after(0.2):
-                await portal.run(
-                    "piker.brokers.data", 'modify_quote_stream',
-                    broker=brokermod.name,
-                    feed_type='stock',
-                    symbols=[]
-                )
-
+            # cancel aysnc gen call
+            await quote_gen.aclose()
             # cancel GUI update task
             nursery.cancel_scope.cancel()
