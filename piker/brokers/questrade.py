@@ -504,8 +504,7 @@ async def option_quoter(client: Client, tickers: List[str]):
         ``(symbol_date_1, symbol_date_2, ... , symbol_date_n)``
         return a contract dict.
         """
-        symbols = map(itemgetter(0), sym_date_pairs)
-        dates = map(itemgetter(1), sym_date_pairs)
+        symbols, dates = zip(*sym_date_pairs)
         contracts = await client.get_all_contracts(symbols)
         selected = {}
         for key, val in contracts.items():
