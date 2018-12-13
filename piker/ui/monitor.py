@@ -304,6 +304,9 @@ class Row(GridLayout, HoverBehavior):
                 cell.key = key
                 self._cell_widgets[key] = cell
 
+    def iter_cells(self):
+        return self._cell_widgets.items()
+
     def get_cell(self, key):
         return self._cell_widgets.get(key)
 
@@ -356,7 +359,7 @@ class Row(GridLayout, HoverBehavior):
         """Highlight layout on enter.
         """
         log.debug(
-            f"Entered row {type(self)} through {self.border_point}")
+            f"Entered row {self} through {self.border_point}")
         # don't highlight header row
         if getattr(self, 'is_header', None):
             self.hovered = False
@@ -365,7 +368,7 @@ class Row(GridLayout, HoverBehavior):
         """Un-highlight layout on exit.
         """
         log.debug(
-            f"Left row {type(self)} through {self.border_point}")
+            f"Left row {self} through {self.border_point}")
 
 
 class TickerTable(GridLayout):
@@ -424,7 +427,7 @@ class TickerTable(GridLayout):
         symbol name. Most naive algo possible for the moment.
         """
         for symbol, row in self.symbols2rows.items():
-           if patt in symbol:
+            if patt in symbol:
                 yield symbol, row
 
     def get_row(self, symbol: str) -> Row:
@@ -442,10 +445,12 @@ async def update_quotes(
     widgets: dict,
     agen: AsyncGeneratorType,
     symbol_data: dict,
-    first_quotes: dict
+    first_quotes: dict,
+    task_status: trio._core._run._TaskStatus = trio.TASK_STATUS_IGNORED,
 ):
     """Process live quotes by updating ticker rows.
     """
+    log.debug("Initializing UI update loop")
     table = widgets['table']
     flash_keys = {'low', 'high'}
 
@@ -521,9 +526,8 @@ async def update_quotes(
         color_row(row, record, {})
         cache[sym] = row
 
-    # render all rows once up front
-    table.render_rows(cache)
-
+    log.debug("Finished initializing update loop")
+    task_status.started()
     # real-time cell update loop
     async for quotes in agen:  # new quotes data only
         for symbol, quote in quotes.items():
@@ -538,6 +542,7 @@ async def update_quotes(
         log.debug("Waiting on quotes")
 
     log.warn("Data feed connection dropped")
+    # XXX: if we're cancelled this should never get called
     nursery.cancel_scope.cancel()
 
 
@@ -617,7 +622,8 @@ async def _async_main(
     for ticker_record in first_quotes:
         table.append_row(
             ticker_record['symbol'],
-            Row(ticker_record, headers=('symbol',), bidasks=bidasks, table=table)
+            Row(ticker_record, headers=('symbol',),
+                bidasks=bidasks, table=table)
         )
 
     # associate the col headers row with the ticker table even though
