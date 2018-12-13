@@ -499,15 +499,20 @@ async def option_quoter(client: Client, tickers: List[str]):
         raise ValueError(f'Option subscription format is (symbol, expiry)')
 
     @async_lifo_cache(maxsize=128)
-    async def get_contract_by_date(sym_date_pairs: Tuple[Tuple[str, str]]):
+    async def get_contract_by_date(
+        sym_date_pairs: Tuple[Tuple[str, str]],
+        _contract_cache: dict = {}
+    ):
         """For each tuple,
         ``(symbol_date_1, symbol_date_2, ... , symbol_date_n)``
         return a contract dict.
         """
         symbols, dates = zip(*sym_date_pairs)
-        contracts = await client.get_all_contracts(symbols)
+        if not _contract_cache:
+            contracts = await client.get_all_contracts(symbols)
+            _contract_cache.update(contracts)
         selected = {}
-        for key, val in contracts.items():
+        for key, val in _contract_cache.items():
             if key.expiry in dates:
                 selected[key] = val
 
