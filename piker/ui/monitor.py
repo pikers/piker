@@ -8,6 +8,7 @@ Launch with ``piker monitor <watchlist name>``.
 from itertools import chain
 from types import ModuleType, AsyncGeneratorType
 from typing import List, Callable, Dict
+from bisect import bisect
 
 import trio
 import tractor
@@ -19,6 +20,7 @@ from kivy.lang import Builder
 from kivy import utils
 from kivy.app import async_runTouchApp
 from kivy.core.window import Window
+from kivy.properties import BooleanProperty
 
 from ..log import get_logger
 from .pager import PagerView
@@ -69,8 +71,10 @@ _kv = (f'''
     size: self.texture_size
     # color: {colorcode('gray')}
     # font_color: {colorcode('gray')}
-    font_name: 'Roboto-Regular'
-    background_color: [0]*4  # by default transparent; use row color
+    # font_name: 'Hack-Regular'
+    # by default transparent; use row color
+    # if `highlight` is set use i3
+    background_color: {_i3_rgba} if self.click_toggle else [0]*4
     # background_color: {_cell_rgba}
     # spacing: 0, 0
     # padding: [0]*4
@@ -148,6 +152,8 @@ class Cell(Button):
 
     ``key`` is the column name index value.
     """
+    click_toggle = BooleanProperty(False)
+
     def __init__(self, key=None, is_header=False, **kwargs):
         super(Cell, self).__init__(**kwargs)
         self.key = key
@@ -177,7 +183,7 @@ class HeaderCell(Cell):
             # mark this cell as the last selected
             table.last_clicked_col_cell = self
             # sort and render the rows immediately
-            self.row.table.render_rows(table.quote_cache)
+            self.row.table.render_rows(table.symbols2rows.values())
 
         # TODO: make this some kind of small geometry instead
         # (maybe like how trading view does it).
@@ -310,6 +316,9 @@ class Row(GridLayout, HoverBehavior):
     def get_cell(self, key):
         return self._cell_widgets.get(key)
 
+    def get_field(self, key):
+        return self._last_record[key]
+
     def _append_cell(self, text, key, header=False):
         if not len(self._cell_widgets) < self.cols:
             raise ValueError(f"Can not append more then {self.cols} cells")
@@ -378,12 +387,10 @@ class TickerTable(GridLayout):
         super(TickerTable, self).__init__(**kwargs)
         self.symbols2rows = {}
         self.sort_key = sort_key
-        self.quote_cache = {}
-        self.row_filter = lambda item: item
         # for tracking last clicked column header cell
         self.last_clicked_col_cell = None
-        self._last_row_toggle = 0
-        self._rendered = set()
+        self._symbols2index = {}
+        self._sorted = []
 
     def append_row(self, key, row):
         """Append a `Row` of `Cell` objects to this table.
@@ -391,36 +398,51 @@ class TickerTable(GridLayout):
         # store ref to each row
         self.symbols2rows[key] = row
         self.add_widget(row)
+        self._sorted.append(row)
         return row
+
+    def clear(self):
+        self.clear_widgets()
+        self._sorted.clear()
 
     def render_rows(
         self,
-        pairs: Dict[str,  Row],
+        changed: set,
         sort_key: str = None,
-        row_filter=None,
     ):
-        """Sort and render all rows on the ticker grid from ``pairs``.
+        """Sort and render all rows on the ticker grid from ``syms2rows``.
         """
-        self.clear_widgets()
-        self._rendered.clear()
         sort_key = sort_key or self.sort_key
-        # TODO: intead of constantly re-rendering on every
-        # change do a binary search insert using ``bisect.insort()``
-        for row in filter(
-            row_filter or self.row_filter,
-                reversed(
-                    sorted(
-                        pairs.values(),
-                        key=lambda row: row._last_record[sort_key]
-                    )
-                )
-        ):
-            widget = row.widget
-            if widget not in self._rendered:
-                self.add_widget(widget)  # row append
-                self._rendered.add(widget)
+        key_row_pairs = list(sorted(
+                [(row.get_field(sort_key), row) for row in self._sorted],
+                key=lambda item: item[0],
+        ))
+        if key_row_pairs:
+            sorted_keys, sorted_rows = zip(*key_row_pairs)
+            sorted_keys, sorted_rows = list(sorted_keys), list(sorted_rows)
+        else:
+            sorted_keys, sorted_rows = [], []
+
+        # now remove and re-insert any rows that need to be shuffled
+        # due to new a new field change
+        for row in changed:
+            try:
+                old_index = sorted_rows.index(row)
+            except ValueError:
+                # row is not yet added so nothing to remove
+                pass
             else:
-                log.debug(f"Skipping adding widget {widget}")
+                del sorted_rows[old_index]
+                del sorted_keys[old_index]
+                self._sorted.remove(row)
+                self.remove_widget(row)
+
+        for row in changed:
+            key = row.get_field(sort_key)
+            index = bisect(sorted_keys, key)
+            sorted_keys.insert(index, key)
+            self._sorted.insert(index, row)
+            self.add_widget(row, index=index)
 
     def ticker_search(self, patt):
         """Return sequence of matches when pattern ``patt`` is in a
@@ -514,36 +536,41 @@ async def update_quotes(
         # revert flash state momentarily
         nursery.start_soon(revert_cells_color, unflash)
 
-    cache = {}
-    table.quote_cache = cache
-
     # initial coloring
+    to_sort = set()
     for sym, quote in first_quotes.items():
         row = table.get_row(sym)
         record, displayable = formatter(
             quote, symbol_data=symbol_data)
         row.update(record, displayable)
         color_row(row, record, {})
-        cache[sym] = row
+        to_sort.add(row.widget)
+
+    table.render_rows(to_sort)
 
     log.debug("Finished initializing update loop")
     task_status.started()
     # real-time cell update loop
     async for quotes in agen:  # new quotes data only
+        to_sort = set()
         for symbol, quote in quotes.items():
             record, displayable = formatter(
                 quote, symbol_data=symbol_data)
             row = table.get_row(symbol)
             cells = row.update(record, displayable)
             color_row(row, record, cells)
-            cache[symbol] = row
 
-        table.render_rows(cache)
+            if table.sort_key in record:
+                to_sort.add(row.widget)
+
+        if to_sort:
+            table.render_rows(to_sort)
+
         log.debug("Waiting on quotes")
 
     log.warn("Data feed connection dropped")
     # XXX: if we're cancelled this should never get called
-    nursery.cancel_scope.cancel()
+    # nursery.cancel_scope.cancel()
 
 
 async def _async_main(
@@ -638,36 +665,37 @@ async def _async_main(
     # set up a pager view for large ticker lists
     table.bind(minimum_height=table.setter('height'))
 
-    async with trio.open_nursery() as nursery:
-        pager = PagerView(
-            container=box,
-            contained=table,
-            nursery=nursery
-        )
-        box.add_widget(pager)
+    try:
+        async with trio.open_nursery() as nursery:
+            pager = PagerView(
+                container=box,
+                contained=table,
+                nursery=nursery
+            )
+            box.add_widget(pager)
 
-        widgets = {
-            'root': box,
-            'table': table,
-            'box': box,
-            'header': header,
-            'pager': pager,
-        }
-        nursery.start_soon(
-            update_quotes,
-            nursery,
-            brokermod.format_stock_quote,
-            widgets,
-            quote_gen,
-            sd,
-            quotes
-        )
+            widgets = {
+                'root': box,
+                'table': table,
+                'box': box,
+                'header': header,
+                'pager': pager,
+            }
+            nursery.start_soon(
+                update_quotes,
+                nursery,
+                brokermod.format_stock_quote,
+                widgets,
+                quote_gen,
+                sd,
+                quotes
+            )
 
-        try:
             # Trio-kivy entry point.
             await async_runTouchApp(widgets['root'])  # run kivy
-        finally:
-            # cancel aysnc gen call
-            await quote_gen.aclose()
             # cancel GUI update task
             nursery.cancel_scope.cancel()
+    finally:
+        with trio.open_cancel_scope(shield=True):
+            # cancel aysnc gen call
+            await quote_gen.aclose()
