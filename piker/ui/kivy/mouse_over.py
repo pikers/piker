@@ -89,14 +89,17 @@ class MouseOverBehavior(object):
     def __init__(self, **kwargs):
         self.register_event_type('on_enter')
         self.register_event_type('on_leave')
-        MouseOverBehavior._widgets.append(self)
         super().__init__(**kwargs)
         Window.bind(mouse_pos=self._on_mouse_pos)
+        self._widgets.append(self)
+
+    def __del__(self):
+        MouseOverBehavior.remove(self)
 
     @classmethod
     # try throttling to 1ms latency (doesn't seem to work
-    # best I can get is 0.01...)
-    @triggered(timeout=0.001, interval=False)
+    # best I can get is 0.01 ?)
+    @triggered(timeout=0.015, interval=False)
     def _on_mouse_pos(cls, *args):
         log.debug(f"{cls} time since last call: {time.time() - cls._last_time}")
         cls._last_time = time.time()
@@ -107,10 +110,11 @@ class MouseOverBehavior(object):
 
         pos = args[1]
         # Next line to_widget allow to compensate for relative layout
-        for widget in cls._widgets.copy():
+        for widget in cls._widgets:
             w_coords = widget.to_widget(*pos)
             inside = widget.collide_point(*w_coords)
             if inside and widget.hovered:
+                log.debug('already hovered')
                 return
             elif inside:
                 # un-highlight the last highlighted
