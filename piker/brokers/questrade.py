@@ -676,8 +676,8 @@ _qt_option_keys = {
     "symbol": 'symbol',
     "contract_type": 'contract_type',
     "volatility": (
-        'volatility',
-        lambda v: '{}%'.format(round(v, ndigits=2))
+        'IV %',
+        lambda v: '{}'.format(round(v, ndigits=2))
     ),
     "strike": 'strike',
 }
