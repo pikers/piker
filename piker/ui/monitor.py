@@ -64,25 +64,29 @@ _kv = (f'''
 
 <Cell>
     font_size: 21
+
     # make text wrap to botom
     text_size: self.size
     halign: 'center'
     valign: 'middle'
     size: self.texture_size
+
+    # don't set these as the update loop already does it
     # color: {colorcode('gray')}
     # font_color: {colorcode('gray')}
     # font_name: 'Hack-Regular'
-    # by default transparent; use row color
-    # if `highlight` is set use i3
-    background_color: {_i3_rgba} if self.click_toggle else [0]*4
-    # background_color: {_cell_rgba}
+
+    # if `highlight` is set use i3 color by default transparent; use row color
+    # this is currently used for expiry cells on the options chain
+    background_color: {_i3_rgba} if self.click_toggle else {_black_rgba}
+    # must be set to allow 'plain bg colors' since default texture is grey
+    # background_normal: ''
     # spacing: 0, 0
-    # padding: [0]*4
+    # padding: 3, 3
+
 
 <HeaderCell>
     font_size: 21
-    background_color: [0]*4  # by default transparent; use row color
-    # background_color: {_cell_rgba}
     # canvas.before:
     #     Color:
     #         rgba: [0.13]*4
@@ -93,6 +97,7 @@ _kv = (f'''
     #         # border: [0, {_bs} , 0, {_bs}]
     #         border: [0, {_bs} , 0, 0]
 
+
 <TickerTable>
     spacing: [{_bs}]
     # row_force_default: True
@@ -102,14 +107,15 @@ _kv = (f'''
         Color:
             # i3 style gray as background
             rgba: {_i3_rgba}
-            # rgba: {_cell_rgba}
         Rectangle:
             # scale with container self here refers to the widget i.e BoxLayout
             pos: self.pos
             size: self.size
 
+
 <BidAskLayout>
     spacing: [{_bs}, 0]
+
 
 <Row>
     # minimum_height: 200  # should be pulled from Cell text size
@@ -120,7 +126,6 @@ _kv = (f'''
     spacing: [0]
     canvas.before:
         Color:
-            # rgba: [0]*4
             rgba: {_cell_rgba}
         Rectangle:
             # self here refers to the widget i.e Row(GridLayout)
@@ -134,7 +139,6 @@ _kv = (f'''
             size: self.width, self.height if self.hovered else 1
             pos: self.pos
             # radius: (0,)
-
 
 
 # part of the `PagerView`
