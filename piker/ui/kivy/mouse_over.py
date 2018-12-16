@@ -97,9 +97,8 @@ class MouseOverBehavior(object):
         MouseOverBehavior.remove(self)
 
     @classmethod
-    # try throttling to 1ms latency (doesn't seem to work
-    # best I can get is 0.01 ?)
-    @triggered(timeout=0.015, interval=False)
+    # throttle at 10ms latency
+    @triggered(timeout=0.01, interval=False)
     def _on_mouse_pos(cls, *args):
         log.debug(f"{cls} time since last call: {time.time() - cls._last_time}")
         cls._last_time = time.time()
