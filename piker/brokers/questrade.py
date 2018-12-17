@@ -5,7 +5,6 @@ import time
 from datetime import datetime
 from functools import partial
 import configparser
-from operator import itemgetter
 from typing import List, Tuple, Dict, Any, Iterator, NamedTuple
 
 import trio
@@ -418,9 +417,8 @@ async def get_client() -> Client:
         log.debug("Check time to ensure access token is valid")
         try:
             # await client.api.time()
-            quote = await client.quote(['RY.TO'])
-        except Exception as err:
-            # import pdb; pdb.set_trace()
+            await client.quote(['RY.TO'])
+        except Exception:
             # access token is likely no good
             log.warn(f"Access token {client.access_data['access_token']} seems"
                      f" expired, forcing refresh")
@@ -501,18 +499,15 @@ async def option_quoter(client: Client, tickers: List[str]):
     @async_lifo_cache(maxsize=128)
     async def get_contract_by_date(
         sym_date_pairs: Tuple[Tuple[str, str]],
-        _contract_cache: dict = {}
     ):
         """For each tuple,
         ``(symbol_date_1, symbol_date_2, ... , symbol_date_n)``
         return a contract dict.
         """
         symbols, dates = zip(*sym_date_pairs)
-        if not _contract_cache:
-            contracts = await client.get_all_contracts(symbols)
-            _contract_cache.update(contracts)
+        contracts = await client.get_all_contracts(symbols)
         selected = {}
-        for key, val in _contract_cache.items():
+        for key, val in contracts.items():
             if key.expiry in dates:
                 selected[key] = val
 
