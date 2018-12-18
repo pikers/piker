@@ -158,17 +158,14 @@ async def fan_out_to_chans(
         diff_cached=diff_cached,
     ):
         chan_payloads = {}
-        payload = {}
         for quote in quotes:
-            # is this too QT specific?
-            symbol = quote['symbol']
-            payload[symbol] = quote
             # set symbol quotes for each subscriber
-            for chan, cid in symbols2chans.get(quote['key'], set()):
+            # for chan, cid in symbols2chans.get(quote['key'], set()):
+            for chan, cid in symbols2chans[quote['key']]:
                 chan_payloads.setdefault(
                     chan,
-                    {'yield': payload, 'cid': cid}
-                )
+                    {'yield': {}, 'cid': cid}
+                    )['yield'].update({quote['symbol']: quote})
 
         # deliver to each subscriber (fan out)
         if chan_payloads:
