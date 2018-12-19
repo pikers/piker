@@ -7,7 +7,7 @@ Launch with ``piker monitor <watchlist name>``.
 """
 from itertools import chain
 from types import ModuleType, AsyncGeneratorType
-from typing import List, Callable, Dict
+from typing import List, Callable
 from bisect import bisect
 
 import trio
@@ -21,6 +21,7 @@ from kivy import utils
 from kivy.app import async_runTouchApp
 from kivy.core.window import Window
 from kivy.properties import BooleanProperty
+from kivy.uix.behaviors import ButtonBehavior
 
 from ..log import get_logger
 from .pager import PagerView
@@ -161,7 +162,11 @@ class Cell(Button):
     def __init__(self, key=None, is_header=False, **kwargs):
         super(Cell, self).__init__(**kwargs)
         self.key = key
+        self.row = None
         self.is_header = is_header
+
+    # def on_press(self, value=None):
+    #     self.row.on_press()
 
 
 class HeaderCell(Cell):
@@ -257,7 +262,7 @@ class BidAskLayout(StackLayout):
         return [self.last, self.bid, self.ask]
 
 
-class Row(GridLayout, HoverBehavior):
+class Row(ButtonBehavior, HoverBehavior, GridLayout):
     """A grid for displaying a row of ticker quote data.
     """
     def __init__(
@@ -271,7 +276,7 @@ class Row(GridLayout, HoverBehavior):
         cell_type=None,
         **kwargs
     ):
-        super(Row, self).__init__(cols=len(record), **kwargs)
+        super().__init__(cols=len(record), **kwargs)
         self._cell_widgets = {}
         self._last_record = record
         self.table = table
@@ -383,16 +388,20 @@ class Row(GridLayout, HoverBehavior):
         log.debug(
             f"Left row {self} through {self.border_point}")
 
+    def on_press(self, value=None):
+        log.info(f"Pressed row for {self._last_record['symbol']}")
+
 
 class TickerTable(GridLayout):
     """A grid for displaying ticker quote records as a table.
     """
-    def __init__(self, sort_key='%', **kwargs):
+    def __init__(self, sort_key='%', auto_sort=True, **kwargs):
         super(TickerTable, self).__init__(**kwargs)
         self.symbols2rows = {}
         self.sort_key = sort_key
         # for tracking last clicked column header cell
         self.last_clicked_col_cell = None
+        self._auto_sort = auto_sort
         self._symbols2index = {}
         self._sorted = []
 
@@ -558,14 +567,20 @@ async def update_quotes(
     async for quotes in agen:  # new quotes data only
         to_sort = set()
         for symbol, quote in quotes.items():
+            row = table.get_row(symbol)
             record, displayable = formatter(
                 quote, symbol_data=symbol_data)
-            row = table.get_row(symbol)
+
+            # determine if sorting should happen
+            sort_key = table.sort_key
+            new = record[sort_key]
+            last = row.get_field(sort_key)
+            if new != last:
+                to_sort.add(row.widget)
+
+            # update and color
             cells = row.update(record, displayable)
             color_row(row, record, cells)
-
-            if table.sort_key in record:
-                to_sort.add(row.widget)
 
         if to_sort:
             table.render_rows(to_sort)
