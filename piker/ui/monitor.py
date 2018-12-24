@@ -81,6 +81,7 @@ _kv = (f'''
     # this is currently used for expiry cells on the options chain
     background_color: {_i3_rgba} if self.click_toggle else {_black_rgba}
     # must be set to allow 'plain bg colors' since default texture is grey
+    # but right now is only set for option chain expiry buttons
     # background_normal: ''
     # spacing: 0, 0
     # padding: 3, 3
@@ -165,8 +166,8 @@ class Cell(Button):
         self.row = None
         self.is_header = is_header
 
-    # def on_press(self, value=None):
-    #     self.row.on_press()
+    def on_press(self, value=None):
+        self.row.on_press()
 
 
 class HeaderCell(Cell):
@@ -352,13 +353,16 @@ class Row(ButtonBehavior, HoverBehavior, GridLayout):
         fgreen = colorcode('forestgreen')
         red = colorcode('red2')
         for key, val in record.items():
-            # logic for cell text coloring: up-green, down-red
-            if self._last_record[key] < val:
-                color = fgreen
-            elif self._last_record[key] > val:
-                color = red
-            else:
-                color = gray
+            last = self.get_field(key)
+            color = gray
+            try:
+                # logic for cell text coloring: up-green, down-red
+                if last < val:
+                    color = fgreen
+                elif last > val:
+                    color = red
+            except TypeError:
+                log.warn(f"wtf QT {val} is not regular?")
 
             cell = self.get_cell(key)
             # some displayable fields might have specifically
