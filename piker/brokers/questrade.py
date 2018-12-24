@@ -92,7 +92,7 @@ class _API:
 
     async def option_quotes(
         self,
-        contracts: Dict[ContractsKey, Dict[int, dict]],
+        contracts: Dict[ContractsKey, Dict[int, dict]] = {},
         option_ids: List[int] = [],  # if you don't want them all
     ) -> dict:
         """Retrieve option chain quotes for all option ids or by filter(s).
