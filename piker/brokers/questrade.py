@@ -315,17 +315,28 @@ class Client:
                 contracts.items(),
                 key=lambda item: item[0].expiry
             ):
-                by_key[
-                    ContractsKey(
-                        key.symbol,
-                        key.id,
-                        # converting back - maybe just do this initially?
-                        key.expiry.isoformat(timespec='microseconds'),
-                    )
-                ] = {
-                    item['strikePrice']: item for item in
-                    byroot['chainPerRoot'][0]['chainPerStrikePrice']
-                }
+                for chain in byroot['chainPerRoot']:
+                    optroot = chain['optionRoot']
+                    suffix = ''
+
+                    # handle QTs "adjusted contracts" (aka adjusted for
+                    # the underlying in some way; usually has a '(1)' in
+                    # the expiry key in their UI)
+                    adjusted_contracts = optroot != key.symbol
+                    if adjusted_contracts:
+                        suffix = '(' + optroot[len(key.symbol):] + ')'
+
+                    by_key[
+                        ContractsKey(
+                            key.symbol + suffix,
+                            key.id,
+                            # converting back - maybe just do this initially?
+                            key.expiry.isoformat(timespec='microseconds'),
+                        )
+                    ] = {
+                        item['strikePrice']: item for item in
+                        chain['chainPerStrikePrice']
+                    }
 
         # fill out contract id to strike expiry map
         for tup, bystrikes in by_key.items():
