@@ -147,11 +147,8 @@ async def fan_out_to_chans(
         """Get quotes for current symbol subscription set.
         """
         symbols = list(symbols2chans.keys())
-        if symbols:
-            # subscription can be changed at any time
-            return await get_quotes(symbols)
-        else:
-            return ()
+        # subscription can be changed at any time
+        return await get_quotes(symbols) if symbols else ()
 
     async for quotes in stream_quotes(
         feed.mod, request, rate,
