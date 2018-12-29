@@ -14,6 +14,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.lang import Builder
 from kivy.app import async_runTouchApp
 from kivy.core.window import Window
+from kivy.uix.label import Label
 
 from ..log import get_logger
 from ..brokers.core import contracts
@@ -188,8 +189,8 @@ class DataFeed(object):
                 # get first quotes response
                 log.debug(f"Waiting on first quote for {symbols}...")
                 quotes = {}
-                with trio.move_on_after(5):
-                    quotes = await quote_gen.__anext__()
+                # with trio.move_on_after(5):
+                quotes = await quote_gen.__anext__()
 
                 self.quote_gen = quote_gen
                 self.first_quotes = quotes
@@ -359,7 +360,7 @@ async def new_chain_ui(
     symbol: str,
     brokermod: types.ModuleType,
     nursery: trio._core._run.Nursery,
-    rate: int = 2,
+    rate: int = 1,
 ) -> None:
     """Create and return a new option chain UI.
     """
@@ -412,6 +413,17 @@ async def new_chain_ui(
     # top row of expiry buttons
     container.add_widget(expiry_buttons)
 
+    # denote calls vs. puts side of table
+    type_header = BoxLayout(
+        orientation='horizontal',
+        size_hint=(1, 1/28.),
+    )
+    calls = Label(text='calls', font_size='20')
+    puts = Label(text='puts', font_size='20')
+    type_header.add_widget(calls)
+    type_header.add_widget(puts)
+    container.add_widget(type_header)
+
     # figure out header fields for each table based on quote keys
     headers = displayables[0].keys()
     header_row = StrikeRow(strike='strike', size_hint=(1, None))
@@ -435,6 +447,8 @@ async def new_chain_ui(
         size_hint=(1, None),
     )
     container.add_widget(header_row)
+
+    # build out chain tables
     table = TickerTable(
         sort_key='strike',
         cols=1,
