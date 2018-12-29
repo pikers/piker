@@ -107,6 +107,8 @@ class _API:
         ]
         resp = await self._sess.post(
             path=f'/markets/quotes/options',
+            # XXX: b'{"code":1024,"message":"The size of the array requested is not valid: optionIds"}'
+            # ^ what I get when trying to use too many ids manually...
             json={'filters': filters, 'optionIds': option_ids}
         )
         return resproc(resp, log)['optionQuotes']
@@ -125,8 +127,8 @@ class Client:
         self.access_data = {}
         self._reload_config(config)
         self._symbol_cache: Dict[str, int] = {}
-        self._contracts2expiries = {}
         self._optids2contractinfo = {}
+        self._contract2ids = {}
 
     def _reload_config(self, config=None, **kwargs):
         log.warn("Reloading access config data")
@@ -317,14 +319,13 @@ class Client:
             ):
                 for chain in byroot['chainPerRoot']:
                     optroot = chain['optionRoot']
-                    suffix = ''
 
                     # handle QTs "adjusted contracts" (aka adjusted for
                     # the underlying in some way; usually has a '(1)' in
                     # the expiry key in their UI)
-                    adjusted_contracts = optroot != key.symbol
-                    if adjusted_contracts:
-                        suffix = '(' + optroot[len(key.symbol):] + ')'
+                    adjusted_contracts = optroot not in key.symbol
+                    tail = optroot[len(key.symbol):]
+                    suffix = '-' + tail if adjusted_contracts else ''
 
                     by_key[
                         ContractsKey(
@@ -344,12 +345,16 @@ class Client:
                 for key, contract_type in (
                     ('callSymbolId', 'call'), ('putSymbolId', 'put')
                 ):
-                    self._optids2contractinfo[
-                        ids[key]] = {
-                            'strike': strike,
-                            'expiry': tup.expiry,
-                            'contract_type': contract_type,
-                        }
+                    contract_int_id = ids[key]
+                    self._optids2contractinfo[contract_int_id] = {
+                        'strike': strike,
+                        'expiry': tup.expiry,
+                        'contract_type': contract_type,
+                        'contract_key': tup,
+                    }
+                    # store ids per contract
+                    self._contract2ids.setdefault(
+                        tup, set()).add(contract_int_id)
         return by_key
 
     async def option_chains(
@@ -359,22 +364,31 @@ class Client:
     ) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """Return option chain snap quote for each ticker in ``symbols``.
         """
-        batch = []
-        for key, bystrike in contracts.items():
-            quotes = await self.api.option_quotes({key: bystrike})
-            for quote in quotes:
-                # index by .symbol, .expiry since that's what
-                # a subscriber (currently) sends initially
-                quote['key'] = (key[0], key[2])
-                # update with expiry and strike (Obviously the
-                # QT api designers are using some kind of severely
-                # stupid disparate table system where they keep
-                # contract info in a separate table from the quote format
-                # keys. I'm really not surprised though - windows shop..)
-                quote.update(self._optids2contractinfo[quote['symbolId']])
-            batch.extend(quotes)
+        quotes = await self.api.option_quotes(contracts=contracts)
+        # XXX the below doesn't work so well due to the symbol count
+        # limit per quote request
+        # quotes = await self.api.option_quotes(option_ids=list(contract_ids))
+        for quote in quotes:
+            id = quote['symbolId']
+            contract_info = self._optids2contractinfo[id].copy()
+            key = contract_info.pop('contract_key')
 
-        return batch
+            # XXX TODO: this currently doesn't handle adjusted contracts
+            # (i.e. ones that we stick a '(1)' after)
+
+            # index by .symbol, .expiry since that's what
+            # a subscriber (currently) sends initially
+            quote['key'] = (key.symbol, key.expiry)
+
+            # update with expiry and strike (Obviously the
+            # QT api designers are using some kind of severely
+            # stupid disparate table system where they keep
+            # contract info in a separate table from the quote format
+            # keys. I'm really not surprised though - windows shop..)
+            # quote.update(self._optids2contractinfo[quote['symbolId']])
+            quote.update(contract_info)
+
+        return quotes
 
 
 async def token_refresher(client):
