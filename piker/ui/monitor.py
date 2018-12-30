@@ -21,7 +21,6 @@ from kivy import utils
 from kivy.app import async_runTouchApp
 from kivy.core.window import Window
 from kivy.properties import BooleanProperty
-from kivy.uix.behaviors import ButtonBehavior
 
 from ..log import get_logger
 from .pager import PagerView
@@ -263,7 +262,7 @@ class BidAskLayout(StackLayout):
         return [self.last, self.bid, self.ask]
 
 
-class Row(ButtonBehavior, HoverBehavior, GridLayout):
+class Row(HoverBehavior, GridLayout):
     """A grid for displaying a row of ticker quote data.
     """
     def __init__(
@@ -383,7 +382,7 @@ class Row(ButtonBehavior, HoverBehavior, GridLayout):
         log.debug(
             f"Entered row {self} through {self.border_point}")
         # don't highlight header row
-        if getattr(self, 'is_header', None):
+        if self.is_header:
             self.hovered = False
 
     def on_leave(self):
@@ -394,6 +393,9 @@ class Row(ButtonBehavior, HoverBehavior, GridLayout):
 
     def on_press(self, value=None):
         log.info(f"Pressed row for {self._last_record['symbol']}")
+        if self.table and not self.is_header:
+            for q in self.table._click_queues:
+                q.put_nowait(self._last_record['symbol'])
 
 
 class TickerTable(GridLayout):
@@ -408,6 +410,7 @@ class TickerTable(GridLayout):
         self._auto_sort = auto_sort
         self._symbols2index = {}
         self._sorted = []
+        self._click_queues: List[trio.Queue] = []
 
     def append_row(self, key, row):
         """Append a `Row` of `Cell` objects to this table.
@@ -594,6 +597,21 @@ async def update_quotes(
     log.warn("Data feed connection dropped")
     # XXX: if we're cancelled this should never get called
     # nursery.cancel_scope.cancel()
+
+
+async def stream_symbol_selection():
+    """An RPC async gen for streaming the symbol corresponding
+    value corresponding to the last clicked row.
+    """
+    widgets = tractor.current_actor().statespace['widgets']
+    table = widgets['table']
+    q = trio.Queue(1)
+    table._click_queues.append(q)
+    try:
+        async for symbol in q:
+            yield symbol
+    finally:
+        table._click_queues.remove(q)
 
 
 async def _async_main(

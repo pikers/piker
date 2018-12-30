@@ -178,8 +178,9 @@ def monitor(loglevel, broker, rate, name, dhost, test, tl):
 
     tractor.run(
         partial(main, tries=1),
-        name='kivy-monitor',
+        name='monitor',
         loglevel=loglevel if tl else None,
+        rpc_module_paths=['piker.ui.monitor'],
     )
 
 
