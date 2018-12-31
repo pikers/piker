@@ -706,6 +706,7 @@ async def _async_main(
     # set up a pager view for large ticker lists
     table.bind(minimum_height=table.setter('height'))
 
+    ss = tractor.current_actor().statespace
     try:
         async with trio.open_nursery() as nursery:
             pager = PagerView(
@@ -722,6 +723,7 @@ async def _async_main(
                 'header': header,
                 'pager': pager,
             }
+            ss['widgets'] = widgets
             nursery.start_soon(
                 update_quotes,
                 nursery,
