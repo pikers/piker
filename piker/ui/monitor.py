@@ -49,6 +49,7 @@ def colorcode(name):
 
 
 _bs = 0.75  # border size
+_fs = 20  # font size
 
 # medium shade of gray that seems to match the
 # default i3 window borders
@@ -63,7 +64,7 @@ _kv = (f'''
 #:kivy 1.10.0
 
 <Cell>
-    font_size: 21
+    font_size: {_fs}
 
     # make text wrap to botom
     text_size: self.size
@@ -87,7 +88,7 @@ _kv = (f'''
 
 
 <HeaderCell>
-    font_size: 21
+    font_size: {_fs}
     # canvas.before:
     #     Color:
     #         rgba: [0.13]*4
@@ -102,7 +103,7 @@ _kv = (f'''
 <TickerTable>
     spacing: [{_bs}]
     # row_force_default: True
-    row_default_height: 62
+    row_default_height: 56
     cols: 1
     canvas.before:
         Color:
