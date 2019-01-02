@@ -37,6 +37,7 @@ class StrikeCell(HeaderCell):
 _no_display = ['symbol', 'contract_type', 'strike', 'time', 'open']
 _strike_row_cache = {}
 _strike_cell_cache = {}
+_no_contracts_msg = "No contracts available for symbol"
 
 
 class StrikeRow(BoxLayout):
@@ -237,14 +238,22 @@ class OptionChain(object):
         self._nursery = None
         self._update_nursery = None
         self.feed = feed
-        self._update_cs = None
         self._quote_gen = None
         # TODO: this should be moved down to the data feed layer
-        # right now it's only needed for the UI uupdate loop to cancel itself
+        # right now it's only needed for the UI update loop to cancel itself
+        self._update_cs = None
         self._first_quotes = None
         self._last_expiry = None
         # flag to determine if one-time widgets have been generated
         self._static_widgets_initialized = False
+        self._no_opts_label = None
+
+    @property
+    def no_opts_label(self):
+        if self._no_opts_label is None:
+            label = self._no_opts_label = Label(text=_no_contracts_msg)
+            label.font_size = 30
+        return self._no_opts_label
 
     async def _rx_symbols(self):
         async with find_local_monitor() as portal:
@@ -319,95 +328,6 @@ class OptionChain(object):
 
         log.debug("Finished rendering rows!")
 
-    async def _start_displaying(self, symbol, expiry=None):
-        """Main routine to start displaying the real time updated strike
-        table.
-
-        Clear any existing data feed subscription that is no longer needed
-        (eg. when clicking a new expiry button) spin up a new subscription,
-        populate the table and start updating it.
-        """
-        # redraw any symbol specific UI components
-        if self.symbol != symbol or expiry is None:
-            # set window title
-            self.widgets['window'].set_title(
-                self._title.format(symbol=symbol)
-            )
-
-            # retreive all contracts to populate expiry row
-            all_contracts = await contracts(self.feed.brokermod, symbol)
-            # start streaming soonest contract by default if not provided
-            expiry = next(iter(all_contracts)).expiry if not expiry else expiry
-
-            # TODO: figure out how to compact these buttons
-            expiries = {
-                key.expiry: key.expiry[:key.expiry.find('T')]
-                for key in all_contracts
-            }
-            expiry_row = self.widgets['expiry_row']
-            expiry_row.clear_widgets()
-
-            for expiry, justdate in expiries.items():
-                button = ExpiryButton(text=str(justdate), key=expiry)
-                # assign us to each expiry button
-                button.chain = self
-                expiry_row.add_widget(button)
-
-        if self.widgets.get('table'):
-            self.clear_strikes()
-
-        if self._update_cs:
-            log.warn("Cancelling existing update task")
-            self._update_cs.cancel()
-            await trio.sleep(0)
-
-        if self._quote_gen:
-            await self._quote_gen.aclose()
-
-        if self._nursery is None:
-            raise RuntimeError(
-                "You must call open this chain's update scope first!")
-
-        log.debug(f"Waiting on first_quotes for {symbol}:{expiry}")
-        self._quote_gen, first_quotes = await self.feed.open_stream(
-            [(symbol, expiry)]
-        )
-        log.debug(f"Got first_quotes for {symbol}:{expiry}")
-        records, displayables = self.feed.format_quotes(first_quotes)
-
-        # draw static widgets only once
-        if self._static_widgets_initialized is False:
-            self._init_static_widgets(displayables)
-            self._static_widgets_initialized = True
-
-        n = self._nursery
-        self.render_rows(records, displayables)
-
-        with trio.open_cancel_scope() as cs:
-            self._update_cs = cs
-            await n.start(
-                partial(
-                    update_quotes,
-                    n,
-                    self.feed.brokermod.format_option_quote,
-                    self.widgets,
-                    self._quote_gen,
-                    symbol_data={},
-                    first_quotes=first_quotes,
-                )
-            )
-        self.symbol, self.expiry = symbol, expiry
-
-    def start_displaying(self, symbol, expiry):
-        if self.symbol == symbol and self.expiry == expiry:
-            log.info(f"Clicked {symbol}:{expiry} is already selected")
-            return
-
-        log.info(f"Subscribing for {symbol}:{expiry}")
-        self._nursery.start_soon(
-            partial(self._start_displaying, symbol, expiry=expiry)
-        )
-
     def _init_static_widgets(self, displayables):
         assert self._static_widgets_initialized is False
         container = self.widgets['container']
@@ -468,6 +388,104 @@ class OptionChain(object):
             'table': table,
             'pager': pager,
         })
+
+    async def _start_displaying(self, symbol, expiry=None):
+        """Main routine to start displaying the real time updated strike
+        table.
+
+        Clear any existing data feed subscription that is no longer needed
+        (eg. when clicking a new expiry button) spin up a new subscription,
+        populate the table and start updating it.
+        """
+        table = self.widgets.get('table')
+        if table:
+            self.clear_strikes()
+
+        if self._update_cs:
+            log.warn("Cancelling existing update task")
+            self._update_cs.cancel()
+            await trio.sleep(0)
+
+        if self._quote_gen:
+            await self._quote_gen.aclose()
+
+        # redraw any symbol specific UI components
+        if self.symbol != symbol or expiry is None:
+            # set window title
+            self.widgets['window'].set_title(
+                self._title.format(symbol=symbol)
+            )
+
+            # retreive all contracts to populate expiry row
+            all_contracts = await contracts(self.feed.brokermod, symbol)
+
+            if not all_contracts:
+                label = self.no_opts_label
+                label.symbol = symbol
+                if table:
+                    table.add_widget(label)
+                return
+
+            # start streaming soonest contract by default if not provided
+            expiry = next(iter(all_contracts)).expiry if not expiry else expiry
+
+            # TODO: figure out how to compact these buttons
+            expiries = {
+                key.expiry: key.expiry[:key.expiry.find('T')]
+                for key in all_contracts
+            }
+            expiry_row = self.widgets['expiry_row']
+            expiry_row.clear_widgets()
+
+            for expiry, justdate in expiries.items():
+                button = ExpiryButton(text=str(justdate), key=expiry)
+                # assign us to each expiry button
+                button.chain = self
+                expiry_row.add_widget(button)
+
+        if self._nursery is None:
+            raise RuntimeError(
+                "You must call open this chain's update scope first!")
+
+        log.debug(f"Waiting on first_quotes for {symbol}:{expiry}")
+        self._quote_gen, first_quotes = await self.feed.open_stream(
+            [(symbol, expiry)]
+        )
+        log.debug(f"Got first_quotes for {symbol}:{expiry}")
+        records, displayables = self.feed.format_quotes(first_quotes)
+
+        # draw static widgets only once
+        if self._static_widgets_initialized is False:
+            self._init_static_widgets(displayables)
+            self._static_widgets_initialized = True
+
+        self.render_rows(records, displayables)
+
+        with trio.open_cancel_scope() as cs:
+            self._update_cs = cs
+            await self._nursery.start(
+                partial(
+                    update_quotes,
+                    self._nursery,
+                    self.feed.brokermod.format_option_quote,
+                    self.widgets,
+                    self._quote_gen,
+                    symbol_data={},
+                    first_quotes=first_quotes,
+                )
+            )
+        # always keep track of current subscription
+        self.symbol, self.expiry = symbol, expiry
+
+    def start_displaying(self, symbol, expiry):
+        if self.symbol == symbol and self.expiry == expiry:
+            log.info(f"Clicked {symbol}:{expiry} is already selected")
+            return
+
+        log.info(f"Subscribing for {symbol}:{expiry}")
+        self._nursery.start_soon(
+            partial(self._start_displaying, symbol, expiry=expiry)
+        )
 
 
 async def new_chain_ui(
