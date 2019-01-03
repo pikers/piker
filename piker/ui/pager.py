@@ -184,5 +184,5 @@ class PagerView(ScrollView):
         _, yscale = self.convert_distance_to_scroll(0, pxs)
         new = self.scroll_y + (yscale * {'u': 1, 'd': -1}[direction])
         # bound to near [0, 1] to avoid "over-scrolling"
-        limited = max(-0.01, min(new, 1.01))
+        limited = max(-0.001, min(new, 1.001))
         self.scroll_y = limited

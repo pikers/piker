@@ -90,6 +90,7 @@ async def stream_quotes(
                     new_quotes.append(quote)
         else:
             new_quotes = quotes
+            log.info(f"Delivering quotes:\n{quotes}")
 
         yield new_quotes
 
@@ -108,6 +109,9 @@ async def stream_quotes(
             await trio.sleep(delay)
 
 
+# TODO: at this point probably just just make this a class and
+# a lot of these functions should be methods. It will definitely
+# make stateful UI apps easier to implement
 class DataFeed(typing.NamedTuple):
     """A per broker "data feed" container.
 
@@ -116,8 +120,9 @@ class DataFeed(typing.NamedTuple):
     """
     mod: ModuleType
     client: object
+    exit_stack: contextlib.AsyncExitStack
     quoter_keys: List[str] = ['stock', 'option']
-    tasks: Dict[str, trio._core._run.Task] = dict.fromkeys(
+    tasks: Dict[str, trio.Event] = dict.fromkeys(
         quoter_keys, False)
     quoters: Dict[str, typing.Coroutine] = {}
     subscriptions: Dict[str, Dict[str, set]] = {'option': {}, 'stock': {}}
@@ -141,7 +146,9 @@ async def fan_out_to_chans(
     async def request():
         """Get quotes for current symbol subscription set.
         """
-        return await get_quotes(list(symbols2chans.keys()))
+        symbols = list(symbols2chans.keys())
+        # subscription can be changed at any time
+        return await get_quotes(symbols) if symbols else ()
 
     async for quotes in stream_quotes(
         feed.mod, request, rate,
@@ -149,18 +156,16 @@ async def fan_out_to_chans(
     ):
         chan_payloads = {}
         for quote in quotes:
-            # is this too QT specific?
-            symbol = quote['symbol']
-            # set symbol quotes for each subscriber
+            packet = {quote['symbol']: quote}
             for chan, cid in symbols2chans.get(quote['key'], set()):
                 chan_payloads.setdefault(
-                    chan,
+                    (chan, cid),
                     {'yield': {}, 'cid': cid}
-                )['yield'][symbol] = quote
+                    )['yield'].update(packet)
 
         # deliver to each subscriber (fan out)
         if chan_payloads:
-            for chan, payload in chan_payloads.items():
+            for (chan, cid), payload in chan_payloads.items():
                 try:
                     await chan.send(payload)
                 except (
@@ -233,13 +238,19 @@ async def smoke_quote(get_quotes, tickers, broker):
     ###########################################
 
 
-async def modify_quote_stream(broker, feed_type, symbols, chan=None, cid=None):
+def modify_quote_stream(broker, feed_type, symbols, chan, cid):
     """Absolute symbol subscription list for each quote stream.
 
     Effectively a symbol subscription api.
     """
     log.info(f"{chan} changed symbol subscription to {symbols}")
-    feed = await get_cached_feed(broker)
+    ss = tractor.current_actor().statespace
+    feed = ss['feeds'].get(broker)
+    if feed is None:
+        raise RuntimeError(
+            "`get_cached_feed()` must be called before modifying its stream"
+        )
+
     symbols2chans = feed.subscriptions[feed_type]
     # update map from each symbol to requesting client's chan
     for ticker in symbols:
@@ -254,7 +265,7 @@ async def modify_quote_stream(broker, feed_type, symbols, chan=None, cid=None):
         chanset = symbols2chans.get(ticker)
         # XXX: cid will be different on unsub call
         for item in chanset.copy():
-            if chan in item:
+            if (chan, cid) == item:
                 chanset.discard(item)
 
         if not chanset:
@@ -271,8 +282,6 @@ async def get_cached_feed(
     ss = tractor.current_actor().statespace
     feeds = ss.setdefault('feeds', {'_lock': trio.Lock()})
     lock = feeds['_lock']
-    feed_stacks = ss.setdefault('feed_stacks', {})
-    feed_stack = feed_stacks.setdefault(brokername, contextlib.AsyncExitStack())
     async with lock:
         try:
             feed = feeds[brokername]
@@ -281,11 +290,13 @@ async def get_cached_feed(
         except KeyError:
             log.info(f"Creating new client for broker {brokername}")
             brokermod = get_brokermod(brokername)
-            client = await feed_stack.enter_async_context(
+            exit_stack = contextlib.AsyncExitStack()
+            client = await exit_stack.enter_async_context(
                 brokermod.get_client())
             feed = DataFeed(
                 mod=brokermod,
                 client=client,
+                exit_stack=exit_stack,
             )
             feeds[brokername] = feed
             return feed
@@ -298,6 +309,7 @@ async def start_quote_stream(
     diff_cached: bool = True,
     chan: tractor.Channel = None,
     cid: str = None,
+    rate: int = 3,
 ) -> None:
     """Handle per-broker quote stream subscriptions using a "lazy" pub-sub
     pattern.
@@ -306,12 +318,10 @@ async def start_quote_stream(
     Since most brokers seems to support batch quote requests we
     limit to one task per process for now.
     """
-
     actor = tractor.current_actor()
     # set log level after fork
     get_console_log(actor.loglevel)
     # pull global vars from local actor
-    ss = actor.statespace
     symbols = list(symbols)
     log.info(
         f"{chan.uid} subscribed to {broker} for symbols {symbols}")
@@ -337,38 +347,71 @@ async def start_quote_stream(
             'option',
             await feed.mod.option_quoter(feed.client, symbols)
         )
-
-    # update map from each symbol to requesting client's chan
-    await modify_quote_stream(broker, feed_type, symbols, chan, cid)
-
+        payload = {
+            quote['symbol']: quote
+            for quote in await get_quotes(symbols)
+        }
+        # push initial smoke quote response for client initialization
+        await chan.send({'yield': payload, 'cid': cid})
     try:
-        if not feed.tasks.get(feed_type):
-            # no data feeder task yet; so start one
-            respawn = True
+        # update map from each symbol to requesting client's chan
+        modify_quote_stream(broker, feed_type, symbols, chan, cid)
+
+        # event indicating that task was started and then killed
+        task_is_dead = feed.tasks.get(feed_type)
+        if task_is_dead is False:
+            task_is_dead = trio.Event()
+            task_is_dead.set()
+            feed.tasks[feed_type] = task_is_dead
+
+        if not task_is_dead.is_set():
+            # block and let existing feed task deliver
+            # stream data until it is cancelled in which case
+            # we'll take over and spawn it again
+            await task_is_dead.wait()
+            # client channel was likely disconnected
+            # but we still want to keep the broker task
+            # alive if there are other consumers (including
+            # ourselves)
+            if any(symbols2chans.values()):
+                log.warn(
+                    f"Data feed task for {feed.mod.name} was cancelled but"
+                    f" there are still active clients, respawning")
+
+        # no data feeder task yet; so start one
+        respawn = True
+        while respawn:
+            respawn = False
             log.info(f"Spawning data feed task for {feed.mod.name}")
-            while respawn:
-                respawn = False
-                try:
-                    async with trio.open_nursery() as nursery:
-                        nursery.start_soon(
-                            partial(
-                                fan_out_to_chans, feed, get_quotes,
-                                symbols2chans,
-                                diff_cached=diff_cached,
-                                cid=cid
-                            )
+            try:
+                async with trio.open_nursery() as nursery:
+                    nursery.start_soon(
+                        partial(
+                            fan_out_to_chans, feed, get_quotes,
+                            symbols2chans,
+                            diff_cached=diff_cached,
+                            cid=cid,
+                            rate=rate,
                         )
-                        feed.tasks[feed_type] = True
-                except trio.BrokenResourceError:
-                    log.exception("Respawning failed data feed task")
-                    respawn = True
-            # unblocks when no more symbols subscriptions exist and the
-            # quote streamer task terminates (usually because another call
-            # was made to `modify_quoter` to unsubscribe from streaming
-            # symbols)
+                    )
+                    # it's alive!
+                    task_is_dead.clear()
+
+            except trio.BrokenResourceError:
+                log.exception("Respawning failed data feed task")
+                respawn = True
+
+        # unblocks when no more symbols subscriptions exist and the
+        # quote streamer task terminates (usually because another call
+        # was made to `modify_quoter` to unsubscribe from streaming
+        # symbols)
     finally:
         log.info(f"Terminated {feed_type} quoter task for {feed.mod.name}")
-        feed.tasks.pop(feed_type)
+        task_is_dead.set()
+
+        # if we're cancelled externally unsubscribe our quote feed
+        modify_quote_stream(broker, feed_type, [], chan, cid)
+
         # if there are truly no more subscriptions with this broker
         # drop from broker subs dict
         if not any(symbols2chans.values()):
@@ -376,7 +419,7 @@ async def start_quote_stream(
             # broker2symbolsubs.pop(broker, None)
 
             # destroy the API client
-            await feed_stack.aclose()
+            await feed.exit_stack.aclose()
 
 
 async def stream_to_file(

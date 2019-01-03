@@ -5,7 +5,6 @@ import time
 from datetime import datetime
 from functools import partial
 import configparser
-from operator import itemgetter
 from typing import List, Tuple, Dict, Any, Iterator, NamedTuple
 
 import trio
@@ -25,7 +24,10 @@ log = get_logger(__name__)
 
 _refresh_token_ep = 'https://login.questrade.com/oauth2/'
 _version = 'v1'
-_rate_limit = 4  # queries/sec
+
+# stock queries/sec
+# it seems 4 rps is best we can do total
+_rate_limit = 4
 
 
 class QuestradeError(Exception):
@@ -90,7 +92,7 @@ class _API:
 
     async def option_quotes(
         self,
-        contracts: Dict[ContractsKey, Dict[int, dict]],
+        contracts: Dict[ContractsKey, Dict[int, dict]] = {},
         option_ids: List[int] = [],  # if you don't want them all
     ) -> dict:
         """Retrieve option chain quotes for all option ids or by filter(s).
@@ -105,6 +107,8 @@ class _API:
         ]
         resp = await self._sess.post(
             path=f'/markets/quotes/options',
+            # XXX: b'{"code":1024,"message":"The size of the array requested is not valid: optionIds"}'
+            # ^ what I get when trying to use too many ids manually...
             json={'filters': filters, 'optionIds': option_ids}
         )
         return resproc(resp, log)['optionQuotes']
@@ -123,7 +127,8 @@ class Client:
         self.access_data = {}
         self._reload_config(config)
         self._symbol_cache: Dict[str, int] = {}
-        self._contracts2expiries = {}
+        self._optids2contractinfo = {}
+        self._contract2ids = {}
 
     def _reload_config(self, config=None, **kwargs):
         log.warn("Reloading access config data")
@@ -312,17 +317,44 @@ class Client:
                 contracts.items(),
                 key=lambda item: item[0].expiry
             ):
-                by_key[
-                    ContractsKey(
-                        key.symbol,
-                        key.id,
-                        # converting back - maybe just do this initially?
-                        key.expiry.isoformat(timespec='microseconds'),
-                    )
-                ] = {
-                    item['strikePrice']: item for item in
-                    byroot['chainPerRoot'][0]['chainPerStrikePrice']
-                }
+                for chain in byroot['chainPerRoot']:
+                    optroot = chain['optionRoot']
+
+                    # handle QTs "adjusted contracts" (aka adjusted for
+                    # the underlying in some way; usually has a '(1)' in
+                    # the expiry key in their UI)
+                    adjusted_contracts = optroot not in key.symbol
+                    tail = optroot[len(key.symbol):]
+                    suffix = '-' + tail if adjusted_contracts else ''
+
+                    by_key[
+                        ContractsKey(
+                            key.symbol + suffix,
+                            key.id,
+                            # converting back - maybe just do this initially?
+                            key.expiry.isoformat(timespec='microseconds'),
+                        )
+                    ] = {
+                        item['strikePrice']: item for item in
+                        chain['chainPerStrikePrice']
+                    }
+
+        # fill out contract id to strike expiry map
+        for tup, bystrikes in by_key.items():
+            for strike, ids in bystrikes.items():
+                for key, contract_type in (
+                    ('callSymbolId', 'call'), ('putSymbolId', 'put')
+                ):
+                    contract_int_id = ids[key]
+                    self._optids2contractinfo[contract_int_id] = {
+                        'strike': strike,
+                        'expiry': tup.expiry,
+                        'contract_type': contract_type,
+                        'contract_key': tup,
+                    }
+                    # store ids per contract
+                    self._contract2ids.setdefault(
+                        tup, set()).add(contract_int_id)
         return by_key
 
     async def option_chains(
@@ -332,16 +364,31 @@ class Client:
     ) -> Dict[str, Dict[str, Dict[str, Any]]]:
         """Return option chain snap quote for each ticker in ``symbols``.
         """
-        batch = []
-        for key, bystrike in contracts.items():
-            quotes = await self.api.option_quotes({key: bystrike})
-            for quote in quotes:
-                # index by .symbol, .expiry since that's what
-                # a subscriber (currently) sends initially
-                quote['key'] = (key[0], key[2])
-            batch.extend(quotes)
+        quotes = await self.api.option_quotes(contracts=contracts)
+        # XXX the below doesn't work so well due to the symbol count
+        # limit per quote request
+        # quotes = await self.api.option_quotes(option_ids=list(contract_ids))
+        for quote in quotes:
+            id = quote['symbolId']
+            contract_info = self._optids2contractinfo[id].copy()
+            key = contract_info.pop('contract_key')
 
-        return batch
+            # XXX TODO: this currently doesn't handle adjusted contracts
+            # (i.e. ones that we stick a '(1)' after)
+
+            # index by .symbol, .expiry since that's what
+            # a subscriber (currently) sends initially
+            quote['key'] = (key.symbol, key.expiry)
+
+            # update with expiry and strike (Obviously the
+            # QT api designers are using some kind of severely
+            # stupid disparate table system where they keep
+            # contract info in a separate table from the quote format
+            # keys. I'm really not surprised though - windows shop..)
+            # quote.update(self._optids2contractinfo[quote['symbolId']])
+            quote.update(contract_info)
+
+        return quotes
 
 
 async def token_refresher(client):
@@ -394,7 +441,8 @@ async def get_client() -> Client:
     try:
         log.debug("Check time to ensure access token is valid")
         try:
-            await client.api.time()
+            # await client.api.time()
+            await client.quote(['RY.TO'])
         except Exception:
             # access token is likely no good
             log.warn(f"Access token {client.access_data['access_token']} seems"
@@ -471,18 +519,17 @@ async def option_quoter(client: Client, tickers: List[str]):
     if isinstance(tickers[0], tuple):
         datetime.fromisoformat(tickers[0][1])
     else:
-        log.warn(f"Ignoring option quoter call with {tickers}")
-        # TODO make caller always check that a quoter has been set
-        return
+        raise ValueError(f'Option subscription format is (symbol, expiry)')
 
     @async_lifo_cache(maxsize=128)
-    async def get_contract_by_date(sym_date_pairs: Tuple[Tuple[str, str]]):
+    async def get_contract_by_date(
+        sym_date_pairs: Tuple[Tuple[str, str]],
+    ):
         """For each tuple,
         ``(symbol_date_1, symbol_date_2, ... , symbol_date_n)``
         return a contract dict.
         """
-        symbols = map(itemgetter(0), sym_date_pairs)
-        dates = map(itemgetter(1), sym_date_pairs)
+        symbols, dates = zip(*sym_date_pairs)
         contracts = await client.get_all_contracts(symbols)
         selected = {}
         for key, val in contracts.items():
@@ -536,11 +583,11 @@ _qt_stock_keys = {
     'bidSize': 'bsize',
     'askSize': 'asize',
     'VWAP': ('VWAP', partial(round, ndigits=3)),
-    'mktcap': ('mktcap', humanize),
+    'MC': ('MC', humanize),
     '$ vol': ('$ vol', humanize),
     'volume': ('vol', humanize),
-    'close': 'close',
-    'openPrice': 'open',
+    # 'close': 'close',
+    # 'openPrice': 'open',
     'lowPrice': 'low',
     'highPrice': 'high',
     # 'low52w': 'low52w',  # put in info widget
@@ -556,15 +603,15 @@ _qt_stock_keys = {
 
 # BidAskLayout columns which will contain three cells the first stacked on top
 # of the other 2
-_bidasks = {
+_stock_bidasks = {
     'last': ['bid', 'ask'],
     'size': ['bsize', 'asize'],
     'VWAP': ['low', 'high'],
-    'mktcap': ['vol', '$ vol'],
+    'vol': ['MC', '$ vol'],
 }
 
 
-def format_quote(
+def format_stock_quote(
     quote: dict,
     symbol_data: dict,
     keymap: dict = _qt_stock_keys,
@@ -586,7 +633,7 @@ def format_quote(
     computed = {
         'symbol': quote['symbol'],
         '%': round(change, 3),
-        'mktcap': mktcap,
+        'MC': mktcap,
         # why QT do you have to be an asshole shipping null values!!!
         '$ vol': round((quote['VWAP'] or 0) * (quote['volume'] or 0), 3),
         'close': previous,
@@ -594,6 +641,103 @@ def format_quote(
     new = {}
     displayable = {}
 
+    for key, new_key in keymap.items():
+        display_value = value = computed.get(key) or quote.get(key)
+
+        # API servers can return `None` vals when markets are closed (weekend)
+        value = 0 if value is None else value
+
+        # convert values to a displayble format using available formatting func
+        if isinstance(new_key, tuple):
+            new_key, func = new_key
+            display_value = func(value) if value else value
+
+        new[new_key] = value
+        displayable[new_key] = display_value
+
+    return new, displayable
+
+
+_qt_option_keys = {
+    "lastTradePrice": 'last',
+    "askPrice": 'ask',
+    "bidPrice": 'bid',
+    "lastTradeSize": 'size',
+    "bidSize": 'bsize',
+    "askSize": 'asize',
+    'VWAP': ('VWAP', partial(round, ndigits=3)),
+    "lowPrice": 'low',
+    "highPrice": 'high',
+    # "expiry": "expiry",
+    # "delay": 0,
+    "delta": ('delta', partial(round, ndigits=3)),
+    # "gamma": ('gama', partial(round, ndigits=3)),
+    # "rho": ('rho', partial(round, ndigits=3)),
+    # "theta": ('theta', partial(round, ndigits=3)),
+    # "vega": ('vega', partial(round, ndigits=3)),
+    '$ vol': ('$ vol', humanize),
+    'volume': ('vol', humanize),
+    # "2021-01-15T00:00:00.000000-05:00",
+    # "isHalted": false,
+    # "key": [
+    #     "APHA.TO",
+    #     "2021-01-15T00:00:00.000000-05:00"
+    # ],
+    # "lastTradePriceTrHrs": null,
+    # "lastTradeTick": 'tick',
+    "lastTradeTime": 'time',
+    "openInterest": 'oi',
+    "openPrice": 'open',
+    # "strike": 'strike',
+    # "symbol": "APHA15Jan21P8.00.MX",
+    # "symbolId": 23881868,
+    # "underlying": "APHA.TO",
+    # "underlyingId": 8297492,
+    "symbol": 'symbol',
+    "contract_type": 'contract_type',
+    "volatility": (
+        'IV %',
+        lambda v: '{}'.format(round(v, ndigits=2))
+    ),
+    "strike": 'strike',
+}
+
+_option_bidasks = {
+    'last': ['bid', 'ask'],
+    'size': ['bsize', 'asize'],
+    'VWAP': ['low', 'high'],
+    'vol': ['oi', '$ vol'],
+}
+
+
+def format_option_quote(
+    quote: dict,
+    symbol_data: dict,
+    keymap: dict = _qt_option_keys,
+) -> Tuple[dict, dict]:
+    """Remap a list of quote dicts ``quotes`` using the mapping of old keys
+    -> new keys ``keymap`` returning 2 dicts: one with raw data and the other
+    for display.
+
+    Returns 2 dicts: first is the original values mapped by new keys,
+    and the second is the same but with all values converted to a
+    "display-friendly" string format.
+    """
+    # TODO: need historical data..
+    # (cause why would QT keep their quote structure consistent across
+    # assets..)
+    # previous = symbol_data[symbol]['prevDayClosePrice']
+    # change = percent_change(previous, last)
+    computed = {
+        # why QT do you have to be an asshole shipping null values!!!
+        '$ vol': round((quote['VWAP'] or 0) * (quote['volume'] or 0), 3),
+        # '%': round(change, 3),
+        # 'close': previous,
+    }
+    new = {}
+    displayable = {}
+
+    # structuring and normalization
     for key, new_key in keymap.items():
         display_value = value = computed.get(key) or quote.get(key)
 

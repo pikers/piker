@@ -22,6 +22,10 @@ DEFAULT_BROKER = 'robinhood'
 
 _config_dir = click.get_app_dir('piker')
 _watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
+_data_mods = [
+    'piker.brokers.core',
+    'piker.brokers.data',
+]
 
 
 @click.command()
@@ -33,7 +37,7 @@ def pikerd(loglevel, host, tl):
     """
     get_console_log(loglevel)
     tractor.run_daemon(
-        rpc_module_paths=['piker.brokers.data'],
+        rpc_module_paths=_data_mods,
         name='brokerd',
         loglevel=loglevel if tl else None,
     )
@@ -133,7 +137,7 @@ async def maybe_spawn_brokerd_as_subactor(sleep=0.5, tries=10, loglevel=None):
                     "No broker daemon could be found, spawning brokerd..")
                 portal = await nursery.start_actor(
                     'brokerd',
-                    rpc_module_paths=['piker.brokers.data'],
+                    rpc_module_paths=_data_mods,
                     loglevel=loglevel,
                 )
             yield portal
@@ -144,7 +148,7 @@ async def maybe_spawn_brokerd_as_subactor(sleep=0.5, tries=10, loglevel=None):
               help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--tl', is_flag=True, help='Enable tractor logging')
-@click.option('--rate', '-r', default=5, help='Quote rate limit')
+@click.option('--rate', '-r', default=3, help='Quote rate limit')
 @click.option('--test', '-t', help='Test quote stream file')
 @click.option('--dhost', '-dh', default='127.0.0.1',
               help='Daemon host address to connect to')
@@ -174,8 +178,9 @@ def monitor(loglevel, broker, rate, name, dhost, test, tl):
 
     tractor.run(
         partial(main, tries=1),
-        name='kivy-monitor',
+        name='monitor',
         loglevel=loglevel if tl else None,
+        rpc_module_paths=['piker.ui.monitor'],
     )
 
 
@@ -358,3 +363,38 @@ def optsquote(loglevel, broker, symbol, df_output, date):
         click.echo(df)
     else:
         click.echo(colorize_json(quotes))
+
+
+@cli.command()
+@click.option('--broker', '-b', default=DEFAULT_BROKER,
+              help='Broker backend to use')
+@click.option('--loglevel', '-l', default='warning', help='Logging level')
+@click.option('--tl', is_flag=True, help='Enable tractor logging')
+@click.option('--date', '-d', help='Contracts expiry date')
+@click.option('--test', '-t', help='Test quote stream file')
+@click.option('--rate', '-r', default=1, help='Logging level')
+@click.argument('symbol', required=True)
+def optschain(loglevel, broker, symbol, date, tl, rate, test):
+    """Start the real-time option chain UI.
+    """
+    from .ui.option_chain import _async_main
+    log = get_console_log(loglevel)  # activate console logging
+    brokermod = get_brokermod(broker)
+
+    async def main(tries):
+        async with maybe_spawn_brokerd_as_subactor(
+            tries=tries, loglevel=loglevel
+        ) as portal:
+            # run app "main"
+            await _async_main(
+                symbol, portal,
+                brokermod,
+                rate=rate,
+                test=test,
+            )
+
+    tractor.run(
+        partial(main, tries=1),
+        name='kivy-options-chain',
+        loglevel=loglevel if tl else None,
+    )

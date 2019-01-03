@@ -51,8 +51,10 @@ _ex_quotes = {
         'askSize': 0,
         'bidPrice': None,
         'bidSize': 0,
+        'contract_type': 'call',
         'delay': 0,
         'delta': -0.212857,
+        "expiry": "2021-01-15T00:00:00.000000-05:00",
         'gamma': 0.003524,
         'highPrice': 0,
         'isHalted': False,
@@ -66,6 +68,7 @@ _ex_quotes = {
         'openInterest': 1,
         'openPrice': 0,
         'rho': -0.891868,
+        "strike": 8,
         'symbol': 'WEED15Jan21P54.00.MX',
         'symbolId': 22739148,
         'theta': -0.012911,
@@ -183,7 +186,7 @@ async def stream_option_chain(portal, symbols):
 
     ``symbols`` arg is ignored here.
     """
-    symbol = 'APHA.TO'  # your fave greenhouse LP
+    symbol = symbols[0]
     async with qt.get_client() as client:
         contracts = await client.get_all_contracts([symbol])
 
@@ -198,16 +201,21 @@ async def stream_option_chain(portal, symbols):
         broker='questrade',
         symbols=[sub],
         feed_type='option',
+        rate=4,
         diff_cached=False,
     )
+    # latency arithmetic
+    loops = 8
+    rate = 1/3.   # 3 rps
+    timeout = loops / rate
+
     try:
         # wait on the data streamer to actually start
         # delivering
         await agen.__anext__()
 
         # it'd sure be nice to have an asyncitertools here...
-        with trio.fail_after(2.1):
-            loops = 8
+        with trio.fail_after(timeout):
             count = 0
             async for quotes in agen:
                 # print(f'got quotes for {quotes.keys()}')
@@ -221,15 +229,33 @@ async def stream_option_chain(portal, symbols):
                 count += 1
                 if count == loops:
                     break
+
+        # switch the subscription and make sure
+        # stream is still working
+        sub = subs_keys[1]
+        await agen.aclose()
+        agen = await portal.run(
+            'piker.brokers.data',
+            'start_quote_stream',
+            broker='questrade',
+            symbols=[sub],
+            feed_type='option',
+            rate=4,
+            diff_cached=False,
+        )
+
+        await agen.__anext__()
+        with trio.fail_after(timeout):
+            count = 0
+            async for quotes in agen:
+                for symbol, quote in quotes.items():
+                    assert quote['key'] == sub
+                count += 1
+                if count == loops:
+                    break
     finally:
         # unsub
-        await portal.run(
-            'piker.brokers.data',
-            'modify_quote_stream',
-            broker='questrade',
-            feed_type='option',
-            symbols=[],
-        )
+        await agen.aclose()
 
 
 async def stream_stocks(portal, symbols):
@@ -240,6 +266,7 @@ async def stream_stocks(portal, symbols):
         'start_quote_stream',
         broker='questrade',
         symbols=symbols,
+        diff_cached=False,
     )
     try:
         # it'd sure be nice to have an asyncitertools here...
@@ -250,13 +277,7 @@ async def stream_stocks(portal, symbols):
             break
     finally:
         # unsub
-        await portal.run(
-            'piker.brokers.data',
-            'modify_quote_stream',
-            broker='questrade',
-            feed_type='stock',
-            symbols=[],
-        )
+        await agen.aclose()
 
 
 @pytest.mark.parametrize(
@@ -265,8 +286,14 @@ async def stream_stocks(portal, symbols):
         (stream_stocks,),
         (stream_option_chain,),
         (stream_stocks, stream_option_chain),
+        (stream_stocks, stream_stocks),
+        (stream_option_chain, stream_option_chain),
     ],
-    ids=['stocks', 'options', 'stocks_and_options'],
+    ids=[
+        'stocks', 'options',
+        'stocks_and_options', 'stocks_and_stocks',
+        'options_and_options',
+    ],
 )
 @tractor_test
 async def test_quote_streaming(tmx_symbols, loglevel, stream_what):
@@ -284,9 +311,16 @@ async def test_quote_streaming(tmx_symbols, loglevel, stream_what):
                         'piker.brokers.core'
                     ],
                 )
-                async with trio.open_nursery() as n:
-                    for func in stream_what:
-                        n.start_soon(func, portal, tmx_symbols)
+            if len(stream_what) > 1:
+                # stream disparate symbol sets per task
+                first, *tail = tmx_symbols
+                symbols = ([first], tail)
+            else:
+                symbols = [tmx_symbols]
+
+            async with trio.open_nursery() as n:
+                for syms, func in zip(symbols, stream_what):
+                    n.start_soon(func, portal, syms)
 
             # stop all spawned subactors
             await nursery.cancel()
