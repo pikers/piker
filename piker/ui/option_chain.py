@@ -20,7 +20,8 @@ from ..log import get_logger
 from ..brokers.core import contracts
 from .pager import PagerView
 
-from .monitor import Row, HeaderCell, Cell, TickerTable, update_quotes
+from .tabular import Row, HeaderCell, Cell, TickerTable
+from .monitor import update_quotes
 
 
 log = get_logger('option_chain')
