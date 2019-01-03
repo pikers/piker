@@ -583,11 +583,11 @@ _qt_stock_keys = {
     'bidSize': 'bsize',
     'askSize': 'asize',
     'VWAP': ('VWAP', partial(round, ndigits=3)),
-    'mktcap': ('mktcap', humanize),
+    'MC': ('MC', humanize),
     '$ vol': ('$ vol', humanize),
     'volume': ('vol', humanize),
-    'close': 'close',
-    'openPrice': 'open',
+    # 'close': 'close',
+    # 'openPrice': 'open',
     'lowPrice': 'low',
     'highPrice': 'high',
     # 'low52w': 'low52w',  # put in info widget
@@ -607,7 +607,7 @@ _stock_bidasks = {
     'last': ['bid', 'ask'],
     'size': ['bsize', 'asize'],
     'VWAP': ['low', 'high'],
-    'vol': ['mktcap', '$ vol'],
+    'vol': ['MC', '$ vol'],
 }
 
 
@@ -633,7 +633,7 @@ def format_stock_quote(
     computed = {
         'symbol': quote['symbol'],
         '%': round(change, 3),
-        'mktcap': mktcap,
+        'MC': mktcap,
         # why QT do you have to be an asshole shipping null values!!!
         '$ vol': round((quote['VWAP'] or 0) * (quote['volume'] or 0), 3),
         'close': previous,
