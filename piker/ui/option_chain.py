@@ -18,6 +18,7 @@ from kivy.uix.label import Label
 
 from ..log import get_logger
 from ..brokers.core import contracts
+from ..brokers.data import DataFeed
 from .pager import PagerView
 
 from .tabular import Row, HeaderCell, Cell, TickerTable
@@ -146,67 +147,6 @@ class ExpiryButton(Cell):
         self.chain.start_displaying(self.chain.symbol, self.key)
 
 
-class DataFeed(object):
-    """Data feed client for streaming symbol data from a (remote)
-    ``brokerd`` data daemon.
-    """
-    def __init__(self, portal, brokermod):
-        self.portal = portal
-        self.brokermod = brokermod
-        self._symbols = None
-        self.quote_gen = None
-        self._mutex = trio.StrictFIFOLock()
-
-    async def open_stream(self, symbols, rate=1, test=None):
-        async with self._mutex:
-            try:
-                if self.quote_gen is not None and symbols != self._symbols:
-                    log.info(
-                        f"Stopping existing subscription for {self._symbols}")
-                    await self.quote_gen.aclose()
-                    self._symbols = symbols
-
-                if test:
-                    # stream from a local test file
-                    quote_gen = await self.portal.run(
-                        "piker.brokers.data", 'stream_from_file',
-                        filename=test
-                    )
-                else:
-                    log.info(f"Starting new stream for {self._symbols}")
-                    # start live streaming from broker daemon
-                    quote_gen = await self.portal.run(
-                        "piker.brokers.data",
-                        'start_quote_stream',
-                        broker=self.brokermod.name,
-                        symbols=symbols,
-                        feed_type='option',
-                        rate=rate,
-                    )
-
-                # get first quotes response
-                log.debug(f"Waiting on first quote for {symbols}...")
-                quotes = {}
-                # with trio.move_on_after(5):
-                quotes = await quote_gen.__anext__()
-
-                self.quote_gen = quote_gen
-                self.first_quotes = quotes
-                return quote_gen, quotes
-            except Exception:
-                if self.quote_gen:
-                    await self.quote_gen.aclose()
-                    self.quote_gen = None
-                raise
-
-    def format_quotes(self, quotes):
-        records, displayables = zip(*[
-            self.brokermod.format_option_quote(quote, {})
-            for quote in quotes.values()
-        ])
-        return records, displayables
-
-
 @asynccontextmanager
 async def find_local_monitor():
     """Establish a portal to a local monitor for triggering
@@ -276,7 +216,7 @@ class OptionChain(object):
         self._parent_nursery = nursery
         async with trio.open_nursery() as n:
             self._nursery = n
-            # fill out and start updatingn strike table
+            # fill out and start updating strike table
             n.start_soon(
                 partial(self._start_displaying, symbol, expiry=expiry)
             )
@@ -450,7 +390,8 @@ class OptionChain(object):
 
         log.debug(f"Waiting on first_quotes for {symbol}:{expiry}")
         self._quote_gen, first_quotes = await self.feed.open_stream(
-            [(symbol, expiry)]
+            [(symbol, expiry)],
+            'option',
         )
         log.debug(f"Got first_quotes for {symbol}:{expiry}")
         records, displayables = self.feed.format_quotes(first_quotes)
