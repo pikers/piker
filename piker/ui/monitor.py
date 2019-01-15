@@ -140,8 +140,6 @@ async def update_quotes(
         log.debug("Waiting on quotes")
 
     log.warn("Data feed connection dropped")
-    # XXX: if we're cancelled this should never get called
-    # nursery.cancel_scope.cancel()
 
 
 async def stream_symbol_selection():
@@ -227,38 +225,36 @@ async def _async_main(
     table.bind(minimum_height=table.setter('height'))
 
     ss = tractor.current_actor().statespace
-    try:
-        async with trio.open_nursery() as nursery:
-            pager = PagerView(
-                container=box,
-                contained=table,
-                nursery=nursery
-            )
-            box.add_widget(pager)
+    async with trio.open_nursery() as nursery:
+        pager = PagerView(
+            container=box,
+            contained=table,
+            nursery=nursery
+        )
+        box.add_widget(pager)
 
-            widgets = {
-                'root': box,
-                'table': table,
-                'box': box,
-                'header': header,
-                'pager': pager,
-            }
-            ss['widgets'] = widgets
-            nursery.start_soon(
-                update_quotes,
-                nursery,
-                brokermod.format_stock_quote,
-                widgets,
-                quote_gen,
-                feed._symbol_data_cache,
-                quotes
-            )
-
+        widgets = {
+            'root': box,
+            'table': table,
+            'box': box,
+            'header': header,
+            'pager': pager,
+        }
+        ss['widgets'] = widgets
+        nursery.start_soon(
+            update_quotes,
+            nursery,
+            brokermod.format_stock_quote,
+            widgets,
+            quote_gen,
+            feed._symbol_data_cache,
+            quotes
+        )
+        try:
             # Trio-kivy entry point.
             await async_runTouchApp(widgets['root'])  # run kivy
+        finally:
+            # cancel remote data feed task
+            await quote_gen.aclose()
             # cancel GUI update task
             nursery.cancel_scope.cancel()
-    finally:
-        with trio.open_cancel_scope(shield=True):
-            # cancel aysnc gen call
-            await quote_gen.aclose()
