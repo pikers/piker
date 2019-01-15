@@ -365,6 +365,8 @@ class OptionChain(object):
                 label.symbol = symbol
                 if table:
                     table.add_widget(label)
+                # always keep track of current subscription
+                self.symbol, self.expiry = symbol, expiry
                 return
 
             # start streaming soonest contract by default if not provided
@@ -498,5 +500,6 @@ async def _async_main(
                 # trio-kivy entry point.
                 await async_runTouchApp(chain.widgets['root'])  # run kivy
             finally:
+                await chain._quote_gen.aclose()
                 # cancel GUI update task
                 nursery.cancel_scope.cancel()
