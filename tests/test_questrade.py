@@ -2,13 +2,17 @@
 Questrade broker testing
 """
 import time
+import logging
 
 import trio
-import tractor
 from trio.testing import trio_test
+import tractor
 from tractor.testing import tractor_test
 from piker.brokers import questrade as qt
 import pytest
+
+
+log = tractor.get_logger('tests')
 
 
 @pytest.fixture(autouse=True)
@@ -99,6 +103,49 @@ def match_packet(symbols, quotes, feed_type='stock'):
 
     # not more quotes then in target set
     assert not quotes
+
+
+async def intermittently_refresh_tokens():
+    async with qt.get_client() as client:
+        try:
+            while True:
+                try:
+                    log.info("REFRESHING TOKENS!")
+                    await client.ensure_access(force_refresh=True)
+                    await trio.sleep(0.3)
+                except Exception:
+                   log.exception("Token refresh failed")
+        finally:
+            with trio.open_cancel_scope(shield=True):
+                async with qt.get_client() as client:
+                    await client.ensure_access(force_refresh=True)
+
+
+# XXX: demonstrates the shoddy API QT serves
+@pytest.mark.skip
+@tractor_test
+async def test_concurrent_tokens_refresh(us_symbols, loglevel):
+    async with qt.get_client() as client:
+
+        # async with tractor.open_nursery() as n:
+        #     await n.run_in_actor('other', intermittently_refresh_tokens)
+
+        async with trio.open_nursery() as n:
+            n.start_soon(intermittently_refresh_tokens)
+
+            quoter = await qt.stock_quoter(client, us_symbols)
+
+            async def get_quotes():
+                for tries in range(10):
+                    log.info(f"{tries}: GETTING QUOTES!")
+                    quotes = await quoter(us_symbols)
+                    await trio.sleep(0.1)
+
+            await get_quotes()
+
+            # shutdown
+            # await n.cancel()
+            n.cancel_scope.cancel()
 
 
 @trio_test
@@ -201,13 +248,13 @@ async def stream_option_chain(portal, symbols):
         broker='questrade',
         symbols=[sub],
         feed_type='option',
-        rate=4,
+        rate=3,
         diff_cached=False,
     )
     # latency arithmetic
     loops = 8
-    rate = 1/3.   # 3 rps
-    timeout = loops / rate
+    period = 1/3.   # 3 rps
+    timeout = loops / period
 
     try:
         # wait on the data streamer to actually start
