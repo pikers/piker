@@ -1,6 +1,5 @@
 """
 options: a real-time option chain.
-
 Launch with ``piker options <symbol>``.
 """
 import types
@@ -358,7 +357,9 @@ class OptionChain(object):
             )
 
             # retreive all contracts to populate expiry row
-            all_contracts = await contracts(self.feed.brokermod, symbol)
+            all_contracts = await self.feed.call_client(
+                'get_all_contracts', symbols=[symbol])
+            # all_contracts = await contracts(self.feed.brokermod, symbol)
 
             if not all_contracts:
                 label = self.no_opts_label
@@ -369,12 +370,18 @@ class OptionChain(object):
                 self.symbol, self.expiry = symbol, expiry
                 return
 
+            # XXX: Unfortunately we can't serialize named tuples over
+            # msgpack... The expiry index is 2, see the ``ContractsKey`` named
+            # tuple in the questrade broker mod. It would normally look
+            # something like:
+            # expiry = next(iter(all_contracts)).expiry if not expiry else expiry
+            ei = 2
             # start streaming soonest contract by default if not provided
-            expiry = next(iter(all_contracts)).expiry if not expiry else expiry
+            expiry = next(iter(all_contracts))[ei] if not expiry else expiry
 
             # TODO: figure out how to compact these buttons
             expiries = {
-                key.expiry: key.expiry[:key.expiry.find('T')]
+                key[ei]: key[ei][:key[ei].find('T')]
                 for key in all_contracts
             }
             expiry_row = self.widgets['expiry_row']
@@ -500,6 +507,7 @@ async def _async_main(
                 # trio-kivy entry point.
                 await async_runTouchApp(chain.widgets['root'])  # run kivy
             finally:
-                await chain._quote_gen.aclose()
+                if chain._quote_gen:
+                    await chain._quote_gen.aclose()
                 # cancel GUI update task
                 nursery.cancel_scope.cancel()
