@@ -105,42 +105,44 @@ def match_packet(symbols, quotes, feed_type='stock'):
     assert not quotes
 
 
-async def intermittently_refresh_tokens():
-    async with qt.get_client() as client:
-        try:
-            while True:
-                try:
-                    log.info("REFRESHING TOKENS!")
-                    await client.ensure_access(force_refresh=True)
-                    await trio.sleep(0.3)
-                except Exception:
-                   log.exception("Token refresh failed")
-        finally:
-            with trio.open_cancel_scope(shield=True):
-                async with qt.get_client() as client:
-                    await client.ensure_access(force_refresh=True)
-
-
-# XXX: demonstrates the shoddy API QT serves
-@pytest.mark.skip
 @tractor_test
 async def test_concurrent_tokens_refresh(us_symbols, loglevel):
+    """Verify that concurrent requests from mulitple tasks work alongside
+    random token refreshing which simulates an access token expiry + refresh
+    scenario.
+
+    The API does not support concurrent requests when refreshing tokens
+    (i.e. when hitting the auth endpoint). This tests ensures that when
+    multiple tasks use the same client concurrency works and access
+    token expiry will result in a reliable token set update.
+    """
     async with qt.get_client() as client:
 
         # async with tractor.open_nursery() as n:
         #     await n.run_in_actor('other', intermittently_refresh_tokens)
 
         async with trio.open_nursery() as n:
-            n.start_soon(intermittently_refresh_tokens)
 
             quoter = await qt.stock_quoter(client, us_symbols)
 
             async def get_quotes():
-                for tries in range(10):
+                for tries in range(30):
                     log.info(f"{tries}: GETTING QUOTES!")
                     quotes = await quoter(us_symbols)
                     await trio.sleep(0.1)
 
+            async def intermittently_refresh_tokens(client):
+                while True:
+                    try:
+                        await client.ensure_access(force_refresh=True)
+                        log.info(f"last token data is {client.access_data}")
+                        await trio.sleep(1)
+                    except Exception:
+                        log.exception("Token refresh failed")
+
+            n.start_soon(intermittently_refresh_tokens, client)
+            # run 2 quote polling tasks
+            n.start_soon(get_quotes)
             await get_quotes()
 
             # shutdown
