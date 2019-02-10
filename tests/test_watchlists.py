@@ -37,7 +37,7 @@ def test_watchlist_is_sorted_no_dups_and_saved_to_file(piker_dir):
 def test_watchlists_config_dir_created(caplog, temp_dir):
     """Ensure that a config directory is created.
     """
-    with caplog.at_level(logging.DEBUG):
+    with caplog.at_level(logging.DEBUG, logger='piker'):
         wl.make_config_dir(temp_dir)
     assert len(caplog.records) == 1
     record = caplog.records[0]
