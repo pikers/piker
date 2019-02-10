@@ -75,7 +75,7 @@ def test_quotes_ticker_not_found(
 def test_api_method(nyse_tickers, capfd):
     """Ensure a low level api method can be called via CLI.
     """
-    run(f"piker api quotes symbols={','.join(nyse_tickers)}")
+    run(f"piker api search prefix='WEED'")
     out, err = capfd.readouterr()
     quotes_dict = json.loads(out)
     assert isinstance(quotes_dict, dict)
