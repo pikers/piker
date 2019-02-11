@@ -338,9 +338,8 @@ class Client:
         to_lookup = list(set(tickers) - set(symbols2ids))
         if to_lookup:
             data = await self.api.symbols(names=','.join(to_lookup))
-            for ticker, symbol in zip(to_lookup, data['symbols']):
+            for symbol in data['symbols']:
                 name = symbol['symbol']
-                assert name == ticker
                 cache[name] = symbols2ids[name] = str(symbol['symbolId'])
 
         return symbols2ids
