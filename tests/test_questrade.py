@@ -2,13 +2,17 @@
 Questrade broker testing
 """
 import time
+import logging
 
 import trio
-import tractor
 from trio.testing import trio_test
+import tractor
 from tractor.testing import tractor_test
 from piker.brokers import questrade as qt
 import pytest
+
+
+log = tractor.get_logger('tests')
 
 
 @pytest.fixture(autouse=True)
@@ -99,6 +103,51 @@ def match_packet(symbols, quotes, feed_type='stock'):
 
     # not more quotes then in target set
     assert not quotes
+
+
+@tractor_test
+async def test_concurrent_tokens_refresh(us_symbols, loglevel):
+    """Verify that concurrent requests from mulitple tasks work alongside
+    random token refreshing which simulates an access token expiry + refresh
+    scenario.
+
+    The API does not support concurrent requests when refreshing tokens
+    (i.e. when hitting the auth endpoint). This tests ensures that when
+    multiple tasks use the same client concurrency works and access
+    token expiry will result in a reliable token set update.
+    """
+    async with qt.get_client() as client:
+
+        # async with tractor.open_nursery() as n:
+        #     await n.run_in_actor('other', intermittently_refresh_tokens)
+
+        async with trio.open_nursery() as n:
+
+            quoter = await qt.stock_quoter(client, us_symbols)
+
+            async def get_quotes():
+                for tries in range(30):
+                    log.info(f"{tries}: GETTING QUOTES!")
+                    quotes = await quoter(us_symbols)
+                    await trio.sleep(0.1)
+
+            async def intermittently_refresh_tokens(client):
+                while True:
+                    try:
+                        await client.ensure_access(force_refresh=True)
+                        log.info(f"last token data is {client.access_data}")
+                        await trio.sleep(1)
+                    except Exception:
+                        log.exception("Token refresh failed")
+
+            n.start_soon(intermittently_refresh_tokens, client)
+            # run 2 quote polling tasks
+            n.start_soon(get_quotes)
+            await get_quotes()
+
+            # shutdown
+            # await n.cancel()
+            n.cancel_scope.cancel()
 
 
 @trio_test
@@ -201,13 +250,13 @@ async def stream_option_chain(portal, symbols):
         broker='questrade',
         symbols=[sub],
         feed_type='option',
-        rate=4,
+        rate=3,
         diff_cached=False,
     )
     # latency arithmetic
     loops = 8
-    rate = 1/3.   # 3 rps
-    timeout = loops / rate
+    period = 1/3.   # 3 rps
+    timeout = loops / period
 
     try:
         # wait on the data streamer to actually start

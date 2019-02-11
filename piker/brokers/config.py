@@ -12,13 +12,14 @@ _config_dir = click.get_app_dir('piker')
 _broker_conf_path = path.join(_config_dir, 'brokers.ini')
 
 
-def load() -> (configparser.ConfigParser, str):
+def load(path: str = None) -> (configparser.ConfigParser, str):
     """Load broker config.
     """
+    path = path or _broker_conf_path
     config = configparser.ConfigParser()
-    read = config.read(_broker_conf_path)
-    log.debug(f"Read config file {_broker_conf_path}")
-    return config, _broker_conf_path
+    read = config.read(path)
+    log.debug(f"Read config file {path}")
+    return config, path
 
 
 def write(config: configparser.ConfigParser) -> None:

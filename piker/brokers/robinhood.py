@@ -1,5 +1,9 @@
 """
 Robinhood API backend.
+
+WARNING: robinhood now requires authenticated access to use the quote
+endpoints (it didn't originally). We need someone with a valid US
+account to test this code.
 """
 from functools import partial
 from typing import List
