@@ -148,13 +148,14 @@ async def stream_symbol_selection():
     """
     widgets = tractor.current_actor().statespace['widgets']
     table = widgets['table']
-    q = trio.Queue(1)
-    table._click_queues.append(q)
+    send_chan, recv_chan = trio.open_memory_channel(0)
+    table._click_queues.append(send_chan)
     try:
-        async for symbol in q:
-            yield symbol
+        async with recv_chan:
+            async for symbol in recv_chan:
+                yield symbol
     finally:
-        table._click_queues.remove(q)
+        table._click_queues.remove(send_chan)
 
 
 async def _async_main(
