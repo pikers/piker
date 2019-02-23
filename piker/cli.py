@@ -11,21 +11,27 @@ import click
 import pandas as pd
 import trio
 import tractor
-from async_generator import asynccontextmanager
 
 from . import watchlists as wl
 from .brokers import core, get_brokermod, data
 from .log import get_console_log, colorize_json, get_logger
+from .brokers.core import maybe_spawn_brokerd_as_subactor, _data_mods
 
 log = get_logger('cli')
-DEFAULT_BROKER = 'robinhood'
+DEFAULT_BROKER = 'questrade'
 
 _config_dir = click.get_app_dir('piker')
 _watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
-_data_mods = [
-    'piker.brokers.core',
-    'piker.brokers.data',
-]
+_context_defaults = dict(
+    default_map={
+        'monitor': {
+            'rate': 3,
+        },
+        'optschain': {
+            'rate': 1,
+        },
+    }
+)
 
 
 @click.command()
@@ -43,24 +49,33 @@ def pikerd(loglevel, host, tl):
     )
 
 
-@click.group()
-def cli():
-    pass
-
-
-@cli.command()
+@click.group(context_settings=_context_defaults)
 @click.option('--broker', '-b', default=DEFAULT_BROKER,
               help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
+@click.pass_context
+def cli(ctx, broker, loglevel):
+    # ensure that ctx.obj exists even though we aren't using it (yet)
+    ctx.ensure_object(dict)
+    ctx.obj.update({
+        'broker': broker,
+        'brokermod': get_brokermod(broker),
+        'loglevel': loglevel,
+        'log': get_console_log(loglevel),
+    })
+
+
+@cli.command()
 @click.option('--keys', '-k', multiple=True,
               help='Return results only for these keys')
 @click.argument('meth', nargs=1)
 @click.argument('kwargs', nargs=-1)
-def api(meth, kwargs, loglevel, broker, keys):
+@click.pass_obj
+def api(config, meth, kwargs, keys):
     """client for testing broker API methods with pretty printing of output.
     """
-    get_console_log(loglevel)
-    brokermod = get_brokermod(broker)
+    # global opts
+    broker = config['broker']
 
     _kwargs = {}
     for kwarg in kwargs:
@@ -71,7 +86,7 @@ def api(meth, kwargs, loglevel, broker, keys):
             _kwargs[key] = value
 
     data = trio.run(
-        partial(core.api, brokermod, meth, **_kwargs)
+        partial(core.api, broker, meth, **_kwargs)
     )
 
     if keys:
@@ -89,18 +104,17 @@ def api(meth, kwargs, loglevel, broker, keys):
 
 
 @cli.command()
-@click.option('--broker', '-b', default=DEFAULT_BROKER,
-              help='Broker backend to use')
-@click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--df-output', '-df', flag_value=True,
               help='Output in `pandas.DataFrame` format')
 @click.argument('tickers', nargs=-1, required=True)
-def quote(loglevel, broker, tickers, df_output):
+@click.pass_obj
+def quote(config, tickers, df_output):
     """Retreive symbol quotes on the console in either json or dataframe
     format.
     """
-    brokermod = get_brokermod(broker)
-    get_console_log(loglevel)
+    # global opts
+    brokermod = config['brokermod']
+
     quotes = trio.run(partial(core.stocks_quote, brokermod, tickers))
     if not quotes:
         log.error(f"No quotes could be found for {tickers}?")
@@ -125,46 +139,30 @@ def quote(loglevel, broker, tickers, df_output):
         click.echo(colorize_json(quotes))
 
 
-@asynccontextmanager
-async def maybe_spawn_brokerd_as_subactor(sleep=0.5, tries=10, loglevel=None):
-    """If no ``brokerd`` daemon-actor can be found spawn one in a
-    local subactor.
-    """
-    async with tractor.open_nursery() as nursery:
-        async with tractor.find_actor('brokerd') as portal:
-            if not portal:
-                log.info(
-                    "No broker daemon could be found, spawning brokerd..")
-                portal = await nursery.start_actor(
-                    'brokerd',
-                    rpc_module_paths=_data_mods,
-                    loglevel=loglevel,
-                )
-            yield portal
-
-
 @cli.command()
-@click.option('--broker', '-b', default=DEFAULT_BROKER,
-              help='Broker backend to use')
-@click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--tl', is_flag=True, help='Enable tractor logging')
 @click.option('--rate', '-r', default=3, help='Quote rate limit')
 @click.option('--test', '-t', help='Test quote stream file')
 @click.option('--dhost', '-dh', default='127.0.0.1',
               help='Daemon host address to connect to')
 @click.argument('name', nargs=1, required=True)
-def monitor(loglevel, broker, rate, name, dhost, test, tl):
+@click.pass_obj
+def monitor(config, rate, name, dhost, test, tl):
     """Spawn a real-time watchlist.
     """
-    from .ui.monitor import _async_main
-    log = get_console_log(loglevel)  # activate console logging
-    brokermod = get_brokermod(broker)
+    # global opts
+    brokermod = config['brokermod']
+    loglevel = config['loglevel']
+    log = config['log']
+
     watchlist_from_file = wl.ensure_watchlists(_watchlists_data_path)
     watchlists = wl.merge_watchlist(watchlist_from_file, wl._builtins)
     tickers = watchlists[name]
     if not tickers:
         log.error(f"No symbols found for watchlist `{name}`?")
         return
+
+    from .ui.monitor import _async_main
 
     async def main(tries):
         async with maybe_spawn_brokerd_as_subactor(
@@ -185,20 +183,21 @@ def monitor(loglevel, broker, rate, name, dhost, test, tl):
 
 
 @cli.command()
-@click.option('--broker', '-b', default=DEFAULT_BROKER,
-              help='Broker backend to use')
-@click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--rate', '-r', default=5, help='Logging level')
 @click.option('--filename', '-f', default='quotestream.jsonstream',
               help='Logging level')
 @click.option('--dhost', '-dh', default='127.0.0.1',
               help='Daemon host address to connect to')
 @click.argument('name', nargs=1, required=True)
-def record(loglevel, broker, rate, name, dhost, filename):
+@click.pass_obj
+def record(config, rate, name, dhost, filename):
     """Record client side quotes to file
     """
-    log = get_console_log(loglevel)  # activate console logging
-    brokermod = get_brokermod(broker)
+    # global opts
+    brokermod = config['brokermod']
+    loglevel = config['loglevel']
+    log = config['log']
+
     watchlist_from_file = wl.ensure_watchlists(_watchlists_data_path)
     watchlists = wl.merge_watchlist(watchlist_from_file, wl._builtins)
     tickers = watchlists[name]
@@ -222,15 +221,17 @@ def record(loglevel, broker, rate, name, dhost, filename):
 
 
 @cli.group()
-@click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--config_dir', '-d', default=_watchlists_data_path,
               help='Path to piker configuration directory')
 @click.pass_context
-def watchlists(ctx, loglevel, config_dir):
+def watchlists(ctx, config_dir):
     """Watchlists commands and operations
     """
+    loglevel = ctx.parent.params['loglevel']
     get_console_log(loglevel)  # activate console logging
+
     wl.make_config_dir(_config_dir)
+    ctx.ensure_object(dict)
     ctx.obj = {'path': config_dir,
                'watchlist': wl.ensure_watchlists(config_dir)}
 
@@ -317,9 +318,12 @@ def dump(ctx, name):
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--ids', flag_value=True, help='Include numeric ids in output')
 @click.argument('symbol', required=True)
-def contracts(loglevel, broker, symbol, ids):
+@click.pass_context
+def contracts(ctx, loglevel, broker, symbol, ids):
+
     brokermod = get_brokermod(broker)
     get_console_log(loglevel)
+
     contracts = trio.run(partial(core.contracts, brokermod, symbol))
     if not ids:
         # just print out expiry dates which can be used with
@@ -333,19 +337,18 @@ def contracts(loglevel, broker, symbol, ids):
 
 
 @cli.command()
-@click.option('--broker', '-b', default=DEFAULT_BROKER,
-              help='Broker backend to use')
-@click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--df-output', '-df', flag_value=True,
               help='Output in `pandas.DataFrame` format')
 @click.option('--date', '-d', help='Contracts expiry date')
 @click.argument('symbol', required=True)
-def optsquote(loglevel, broker, symbol, df_output, date):
+@click.pass_obj
+def optsquote(config, symbol, df_output, date):
     """Retreive symbol quotes on the console in either
     json or dataframe format.
     """
-    brokermod = get_brokermod(broker)
-    get_console_log(loglevel)
+    # global opts
+    brokermod = config['brokermod']
+
     quotes = trio.run(
         partial(
             core.option_chain, brokermod, symbol, date
@@ -366,20 +369,20 @@ def optsquote(loglevel, broker, symbol, df_output, date):
 
 
 @cli.command()
-@click.option('--broker', '-b', default=DEFAULT_BROKER,
-              help='Broker backend to use')
-@click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--tl', is_flag=True, help='Enable tractor logging')
 @click.option('--date', '-d', help='Contracts expiry date')
 @click.option('--test', '-t', help='Test quote stream file')
 @click.option('--rate', '-r', default=1, help='Logging level')
 @click.argument('symbol', required=True)
-def optschain(loglevel, broker, symbol, date, tl, rate, test):
+@click.pass_obj
+def optschain(config, symbol, date, tl, rate, test):
     """Start the real-time option chain UI.
     """
+    # global opts
+    loglevel = config['loglevel']
+    brokermod = config['brokermod']
+
     from .ui.option_chain import _async_main
-    log = get_console_log(loglevel)  # activate console logging
-    brokermod = get_brokermod(broker)
 
     async def main(tries):
         async with maybe_spawn_brokerd_as_subactor(
