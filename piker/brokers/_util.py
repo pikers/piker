@@ -24,11 +24,11 @@ def resproc(
     if not resp.status_code == 200:
         raise BrokerError(resp.body)
     try:
-        data = resp.json()
+        json = resp.json()
     except json.decoder.JSONDecodeError:
         log.exception(f"Failed to process {resp}:\n{resp.text}")
         raise BrokerError(resp.text)
     else:
-        log.trace(f"Received json contents:\n{colorize_json(data)}")
+        log.trace(f"Received json contents:\n{colorize_json(json)}")
 
-    return data if return_json else resp
+    return json if return_json else resp
