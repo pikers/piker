@@ -13,8 +13,8 @@ import trio
 import tractor
 
 from . import watchlists as wl
-from .brokers import core, get_brokermod, data
 from .log import get_console_log, colorize_json, get_logger
+from .brokers import core, get_brokermod, data, config
 from .brokers.core import maybe_spawn_brokerd_as_subactor, _data_mods
 
 log = get_logger('cli')
@@ -53,8 +53,13 @@ def pikerd(loglevel, host, tl):
 @click.option('--broker', '-b', default=DEFAULT_BROKER,
               help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
+@click.option('--configdir', '-c', help='Configuration directory')
 @click.pass_context
-def cli(ctx, broker, loglevel):
+def cli(ctx, broker, loglevel, configdir):
+    if configdir is not None:
+        assert os.path.isdir(configdir), f"`{configdir}` is not a valid path"
+        config._override_config_dir(configdir)
+
     # ensure that ctx.obj exists even though we aren't using it (yet)
     ctx.ensure_object(dict)
     ctx.obj.update({
