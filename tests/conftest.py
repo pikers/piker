@@ -45,11 +45,11 @@ def travis():
 
         def write_with_token(token):
             conf, path = config.load(cache_dir)
-            conf.setdefault('questrade', {}).update({'refresh_token': token})
+            conf.setdefault('questrade', {}).update(
+                {'refresh_token': token,
+                 'is_practice': 'True'}
+            )
             config.write(conf, path)
-
-        # if not os.path.isdir(cache_dir):
-        #     write_with_token(refresh_token)
 
         async def ensure_config():
             # try to refresh current token using cached brokers config
