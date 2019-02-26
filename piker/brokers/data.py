@@ -77,15 +77,15 @@ class BrokerFeed:
 
 
 @tractor.msg.pub(tasks=['stock', 'option'])
-async def stream_quotes(
+async def stream_requests(
     get_topics: typing.Callable,
     get_quotes: Coroutine,
     feed: BrokerFeed,
     rate: int = 3,  # delay between quote requests
     diff_cached: bool = True,  # only deliver "new" quotes to the queue
 ) -> None:
-    """Stream quotes for a sequence of tickers at the given ``rate``
-    per second.
+    """Stream requests for quotes for a set of symbols at the given
+    ``rate`` (per second).
 
     A stock-broker client ``get_quotes()`` async context manager must be
     provided which returns an async quote retrieval function.
@@ -307,7 +307,7 @@ async def start_quote_stream(
         # push initial smoke quote response for client initialization
         await ctx.send_yield(payload)
 
-        await stream_quotes(
+        await stream_requests(
 
             # pub required kwargs
             task_name=feed_type,

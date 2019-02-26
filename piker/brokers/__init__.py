@@ -4,6 +4,10 @@ Broker clients, daemons and general back end machinery.
 from importlib import import_module
 from types import ModuleType
 
+# TODO: move to urllib3/requests once supported
+import asks
+asks.init('trio')
+
 __brokers__ = [
     'questrade',
     'robinhood',

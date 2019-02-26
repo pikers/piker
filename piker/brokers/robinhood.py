@@ -9,15 +9,14 @@ from functools import partial
 from typing import List
 
 from async_generator import asynccontextmanager
-# TODO: move to urllib3/requests once supported
 import asks
 
 from ..log import get_logger
 from ._util import resproc, BrokerError
 from ..calc import percent_change
 
-asks.init('trio')
 log = get_logger(__name__)
+
 _service_ep = 'https://api.robinhood.com'
 
 
