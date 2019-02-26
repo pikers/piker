@@ -252,8 +252,7 @@ async def _async_main(
             quotes
         )
         try:
-            # Trio-kivy entry point.
-            await async_runTouchApp(widgets['root'])  # run kivy
+            await async_runTouchApp(widgets['root'])
         finally:
             # cancel remote data feed task
             await quote_gen.aclose()

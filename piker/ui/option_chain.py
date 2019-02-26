@@ -498,8 +498,7 @@ async def _async_main(
         )
         async with chain.open_rt_display(nursery, symbol):
             try:
-                # trio-kivy entry point.
-                await async_runTouchApp(chain.widgets['root'])  # run kivy
+                await async_runTouchApp(chain.widgets['root'])
             finally:
                 if chain._quote_gen:
                     await chain._quote_gen.aclose()
