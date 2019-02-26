@@ -17,14 +17,6 @@ from piker.brokers.data import DataFeed
 log = tractor.get_logger('tests')
 
 
-@pytest.fixture(autouse=True)
-def check_qt_conf_section(brokerconf):
-    """Skip this module's tests if we have not quetrade API creds.
-    """
-    if not brokerconf.has_section('questrade'):
-        pytest.skip("No questrade API credentials available")
-
-
 # stock quote
 _ex_quotes = {
     'stock': {
@@ -137,7 +129,8 @@ async def test_concurrent_tokens_refresh(us_symbols, loglevel):
             async def intermittently_refresh_tokens(client):
                 while True:
                     try:
-                        await client.ensure_access(force_refresh=True)
+                        await client.ensure_access(
+                            force_refresh=True, ask_user=False)
                         log.info(f"last token data is {client.access_data}")
                         await trio.sleep(1)
                     except Exception:
