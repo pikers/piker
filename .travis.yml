@@ -16,5 +16,9 @@ install:
     - cd $TRAVIS_BUILD_DIR
     - pipenv install --dev -e . --deploy
 
+cache:
+    directories:
+        - $HOME/.config/piker/
+
 script:
     - pipenv run pytest tests/
