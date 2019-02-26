@@ -16,7 +16,6 @@ from kivy.core.window import Window
 from kivy.uix.label import Label
 
 from ..log import get_logger
-from ..brokers.core import contracts
 from ..brokers.data import DataFeed
 from .pager import PagerView
 
@@ -155,6 +154,8 @@ async def find_local_monitor():
         if not portal:
             log.warn(
                 "No monitor app could be found, no symbol link established..")
+        else:
+            log.info(f"Found {portal.channel.uid}")
         yield portal
 
 
@@ -172,6 +173,7 @@ class OptionChain(object):
     ):
         self.symbol = None
         self.expiry = None
+        self.rate = rate
         self.widgets = widgets
         self.bidasks = bidasks
         self._strikes2rows = {}
@@ -212,17 +214,14 @@ class OptionChain(object):
         """Open an internal update task scope required to allow
         for dynamic real-time operation.
         """
-        self._parent_nursery = nursery
-        async with trio.open_nursery() as n:
-            self._nursery = n
-            # fill out and start updating strike table
-            n.start_soon(
-                partial(self._start_displaying, symbol, expiry=expiry)
-            )
-            # listen for undlerlying symbol changes from a local monitor app
-            n.start_soon(self._rx_symbols)
-            yield self
-            n.cancel_scope.cancel()
+        n = self._nursery = nursery
+        # fill out and start updating strike table
+        n.start_soon(
+            partial(self._start_displaying, symbol, expiry=expiry)
+        )
+        # listen for undlerlying symbol changes from a local monitor app
+        n.start_soon(self._rx_symbols)
+        yield self
 
         self._nursery = None
         # make sure we always tear down our existing data feed
@@ -346,9 +345,6 @@ class OptionChain(object):
             self._update_cs.cancel()
             await trio.sleep(0)
 
-        if self._quote_gen:
-            await self._quote_gen.aclose()
-
         # redraw any symbol specific UI components
         if self.symbol != symbol or expiry is None:
             # set window title
@@ -359,7 +355,6 @@ class OptionChain(object):
             # retreive all contracts to populate expiry row
             all_contracts = await self.feed.call_client(
                 'get_all_contracts', symbols=[symbol])
-            # all_contracts = await contracts(self.feed.brokermod, symbol)
 
             if not all_contracts:
                 label = self.no_opts_label
@@ -374,7 +369,7 @@ class OptionChain(object):
             # msgpack... The expiry index is 2, see the ``ContractsKey`` named
             # tuple in the questrade broker mod. It would normally look
             # something like:
-            # expiry = next(iter(all_contracts)).expiry if not expiry else expiry
+            # exp = next(iter(all_contracts)).expiry if not exp else exp
             ei = 2
             # start streaming soonest contract by default if not provided
             expiry = next(iter(all_contracts))[ei] if not expiry else expiry
@@ -401,6 +396,7 @@ class OptionChain(object):
         self._quote_gen, first_quotes = await self.feed.open_stream(
             [(symbol, expiry)],
             'option',
+            rate=self.rate,
         )
         log.debug(f"Got first_quotes for {symbol}:{expiry}")
         records, displayables = self.feed.format_quotes(first_quotes)
@@ -443,7 +439,6 @@ async def new_chain_ui(
     portal: tractor._portal.Portal,
     symbol: str,
     brokermod: types.ModuleType,
-    nursery: trio._core._run.Nursery,
     rate: int = 1,
 ) -> None:
     """Create and return a new option chain UI.
@@ -499,13 +494,11 @@ async def _async_main(
             portal,
             symbol,
             brokermod,
-            nursery,
             rate=rate,
         )
         async with chain.open_rt_display(nursery, symbol):
             try:
-                # trio-kivy entry point.
-                await async_runTouchApp(chain.widgets['root'])  # run kivy
+                await async_runTouchApp(chain.widgets['root'])
             finally:
                 if chain._quote_gen:
                     await chain._quote_gen.aclose()

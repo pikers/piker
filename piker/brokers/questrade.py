@@ -12,6 +12,7 @@ from typing import List, Tuple, Dict, Any, Iterator, NamedTuple
 import trio
 from async_generator import asynccontextmanager
 import wrapt
+import asks
 
 from ..calc import humanize, percent_change
 from . import config
@@ -19,13 +20,10 @@ from ._util import resproc, BrokerError
 from ..log import get_logger, colorize_json
 from .._async_utils import async_lifo_cache
 
-# TODO: move to urllib3/requests once supported
-import asks
-asks.init('trio')
-
 log = get_logger(__name__)
 
-_refresh_token_ep = 'https://login.questrade.com/oauth2/'
+_use_practice_account = False
+_refresh_token_ep = 'https://{}login.questrade.com/oauth2/'
 _version = 'v1'
 
 # stock queries/sec
@@ -102,7 +100,10 @@ class _API:
         resp = await self._sess.get(path=f'/{path}', params=params)
         return resproc(resp, log)
 
-    async def _new_auth_token(self, refresh_token: str) -> dict:
+    async def _new_auth_token(
+        self,
+        refresh_token: str,
+    ) -> dict:
         """Request a new api authorization ``refresh_token``.
 
         Gain api access using either a user provided or existing token.
@@ -112,17 +113,41 @@ class _API:
         http://www.questrade.com/api/documentation/security
         """
         resp = await self._sess.get(
-            _refresh_token_ep + 'token',
+            self.client._auth_ep + 'token',
             params={'grant_type': 'refresh_token',
                     'refresh_token': refresh_token}
         )
         return resproc(resp, log)
+
+    async def _revoke_auth_token(
+        self,
+        practise: bool = False,
+    ) -> None:
+        """Revoke api access for the current token.
+        """
+        token = self.access_data['refresh_token']
+        log.debug(f"Revoking token {token}")
+        resp = await asks.post(
+            self.client._auth_ep + 'revoke',
+            headers={'token': token}
+        )
+        return resp
+
+    # accounts end points
 
     async def accounts(self) -> dict:
         return await self._get('accounts')
 
     async def time(self) -> dict:
         return await self._get('time')
+
+    async def balances(self, id: str) -> dict:
+        return await self._get(f'accounts/{id}/balances')
+
+    async def postions(self, id: str) -> dict:
+        return await self._get(f'accounts/{id}/positions')
+
+    # market end points
 
     async def markets(self) -> dict:
         return await self._get('markets')
@@ -145,12 +170,6 @@ class _API:
 
     async def candles(self, id: str, start: str, end, interval) -> dict:
         return await self._get(f'markets/candles/{id}', params={})
-
-    async def balances(self, id: str) -> dict:
-        return await self._get(f'accounts/{id}/balances')
-
-    async def postions(self, id: str) -> dict:
-        return await self._get(f'accounts/{id}/positions')
 
     async def option_contracts(self, symbol_id: str) -> dict:
         "Retrieve all option contract API ids with expiry -> strike prices."
@@ -189,12 +208,20 @@ class Client:
 
     Provides a high-level api which wraps the underlying endpoint calls.
     """
-    def __init__(self, config: configparser.ConfigParser):
+    def __init__(
+        self,
+        config: configparser.ConfigParser,
+    ):
         self._sess = asks.Session()
         self.api = _API(self)
         self._conf = config
+        self._is_practice = _use_practice_account or (
+            config['questrade'].get('is_practice', False)
+        )
+        self._auth_ep = _refresh_token_ep.format(
+            'practice' if self._is_practice else '')
         self.access_data = {}
-        self._reload_config(config)
+        self._reload_config(config=config)
         self._symbol_cache: Dict[str, int] = {}
         self._optids2contractinfo = {}
         self._contract2ids = {}
@@ -206,19 +233,11 @@ class Client:
         self._mutex = trio.StrictFIFOLock()
 
     def _reload_config(self, config=None, **kwargs):
-        self._conf = config or get_config(**kwargs)
+        if config:
+            self._conf = config
+        else:
+            self._conf, _ = get_config(**kwargs)
         self.access_data = dict(self._conf['questrade'])
-
-    async def _revoke_auth_token(self) -> None:
-        """Revoke api access for the current token.
-        """
-        token = self.access_data['refresh_token']
-        log.debug(f"Revoking token {token}")
-        resp = await asks.post(
-            _refresh_token_ep + 'revoke',
-            headers={'token': token}
-        )
-        return resp
 
     def write_config(self):
         """Save access creds to config file.
@@ -226,7 +245,11 @@ class Client:
         self._conf['questrade'] = self.access_data
         config.write(self._conf)
 
-    async def ensure_access(self, force_refresh: bool = False) -> dict:
+    async def ensure_access(
+        self,
+        force_refresh: bool = False,
+        ask_user: bool = True,
+    ) -> dict:
         """Acquire a new token set (``access_token`` and ``refresh_token``).
 
         Checks if the locally cached (file system) ``access_token`` has expired
@@ -256,7 +279,7 @@ class Client:
                 if not access_token or (
                     expires < time.time()
                 ) or force_refresh:
-                    log.info("REFRESHING TOKENS!")
+                    log.info("Refreshing API tokens")
                     log.debug(
                         f"Refreshing access token {access_token} which expired"
                         f" at {expires_stamp}")
@@ -278,14 +301,16 @@ class Client:
 
                         elif msg == 'Bad Request':
                             # likely config ``refresh_token`` is expired but
-                            # may be updated in the config file via another
-                            # piker process
+                            # may be updated in the config file via
+                            # another actor
                             self._reload_config()
                             try:
                                 data = await self.api._new_auth_token(
                                     self.access_data['refresh_token'])
                             except BrokerError as qterr:
-                                if get_err_msg(qterr) == 'Bad Request':
+                                if get_err_msg(qterr) == 'Bad Request' and (
+                                    ask_user
+                                ):
                                     # actually expired; get new from user
                                     self._reload_config(force_from_user=True)
                                     data = await self.api._new_auth_token(
@@ -304,7 +329,7 @@ class Client:
                     # write to config to disk
                     self.write_config()
                 else:
-                    log.info(
+                    log.debug(
                         f"\nCurrent access token {access_token} expires at"
                         f" {expires_stamp}\n")
 
@@ -501,8 +526,8 @@ def _token_from_user(conf: 'configparser.ConfigParser') -> None:
 
 
 def get_config(
-    force_from_user: bool = False,
     config_path: str = None,
+    force_from_user: bool = False,
 ) -> "configparser.ConfigParser":
     """Load the broker config from disk.
 
@@ -514,32 +539,39 @@ def get_config(
     """
     log.debug("Reloading access config data")
     conf, path = config.load(config_path)
-    if not conf.has_section('questrade'):
-        log.warn(
-            f"No valid refresh token could be found in {path}")
-    elif force_from_user:
+    if force_from_user:
         log.warn(f"Forcing manual token auth from user")
         _token_from_user(conf)
 
-    return conf
+    return conf, path
 
 
 @asynccontextmanager
-async def get_client() -> Client:
+async def get_client(
+    config_path: str = None,
+    ask_user: bool = True
+) -> Client:
     """Spawn a broker client for making requests to the API service.
     """
-    conf = get_config()
+    conf, path = get_config(config_path)
+    if not conf.has_section('questrade'):
+        raise ValueError(
+            f"No `questrade` section could be found in {path}")
     log.debug(f"Loaded config:\n{colorize_json(dict(conf['questrade']))}")
     client = Client(conf)
-    await client.ensure_access()
+    await client.ensure_access(ask_user=ask_user)
     try:
         log.debug("Check time to ensure access token is valid")
+        # XXX: the `time()` end point requires acc_read Oauth access.
+        # In order to use a client you need at least one key with this
+        # access enabled in order to do symbol searches and id lookups.
         await client.api.time()
     except Exception:
+        raise
         # access token is likely no good
         log.warn(f"Access tokens {client.access_data} seem"
                  f" expired, forcing refresh")
-        await client.ensure_access(force_refresh=True)
+        await client.ensure_access(force_refresh=True, ask_user=ask_user)
         await client.api.time()
     try:
         yield client

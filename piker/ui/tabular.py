@@ -383,8 +383,8 @@ class Row(HoverBehavior, GridLayout):
     def on_press(self, value=None):
         log.info(f"Pressed row for {self._last_record['symbol']}")
         if self.table and not self.is_header:
-            for q in self.table._click_queues:
-                q.put_nowait(self._last_record['symbol'])
+            for sendchan in self.table._click_queues:
+                sendchan.send_nowait(self._last_record['symbol'])
 
 
 class TickerTable(GridLayout):
@@ -399,7 +399,7 @@ class TickerTable(GridLayout):
         self._auto_sort = auto_sort
         self._symbols2index = {}
         self._sorted = []
-        self._click_queues: List[trio.Queue] = []
+        self._click_queues: List[trio.abc.SendChannel[str]] = []
 
     def append_row(self, key, row):
         """Append a `Row` of `Cell` objects to this table.
