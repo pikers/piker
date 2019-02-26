@@ -120,11 +120,11 @@ async def test_concurrent_tokens_refresh(us_symbols, loglevel):
             quoter = await qt.stock_quoter(client, us_symbols)
 
             async def get_quotes():
-                for tries in range(30):
+                for tries in range(15):
                     log.info(f"{tries}: GETTING QUOTES!")
                     quotes = await quoter(us_symbols)
                     assert quotes
-                    await trio.sleep(0.1)
+                    await trio.sleep(0.2)
 
             async def intermittently_refresh_tokens(client):
                 while True:
