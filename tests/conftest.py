@@ -58,8 +58,10 @@ def travis():
             try:
                 async with questrade.get_client(ask_user=False):
                     pass
-
-            except (KeyError, ValueError, questrade.BrokerError):
+            except (
+                KeyError, ValueError,
+                questrade.BrokerError, questrade.QuestradeError
+            ):
                 # 3 cases:
                 # - config doesn't have a ``refresh_token`` k/v
                 # - cache dir does not exist yet
