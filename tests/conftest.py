@@ -60,7 +60,8 @@ def travis():
                     pass
             except (
                 KeyError, ValueError,
-                questrade.BrokerError, questrade.QuestradeError
+                questrade.BrokerError, questrade.QuestradeError,
+                trio.MultiError,
             ):
                 # 3 cases:
                 # - config doesn't have a ``refresh_token`` k/v
