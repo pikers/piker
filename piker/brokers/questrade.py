@@ -56,7 +56,7 @@ def refresh_token_on_err(tries=3):
         client = api.client
 
         if not client._has_access.is_set():
-            log.warning("WAITING ON ACCESS LOCK")
+            log.warning("Waiting on access lock")
             await client._has_access.wait()
 
         for i in range(1, tries):
@@ -210,7 +210,7 @@ class Client:
     """
     def __init__(
         self,
-        config: configparser.ConfigParser,
+        config: dict,
     ):
         self._sess = asks.Session()
         self.api = _API(self)
@@ -539,7 +539,9 @@ def get_config(
     """
     log.debug("Reloading access config data")
     conf, path = config.load(config_path)
-    if force_from_user:
+    if force_from_user or (
+        not conf.get('questrade') or not conf['questrade'].get('refresh_token')
+    ):
         log.warn(f"Forcing manual token auth from user")
         _token_from_user(conf)
 
@@ -554,9 +556,6 @@ async def get_client(
     """Spawn a broker client for making requests to the API service.
     """
     conf, path = get_config(config_path)
-    if not conf.has_section('questrade'):
-        raise ValueError(
-            f"No `questrade` section could be found in {path}")
     log.debug(f"Loaded config:\n{colorize_json(dict(conf['questrade']))}")
     client = Client(conf)
     await client.ensure_access(ask_user=ask_user)
