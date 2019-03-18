@@ -53,12 +53,14 @@ def travis(confdir):
     is_travis = os.environ.get('TRAVIS', False)
     if is_travis:
         # this directory is cached, see .travis.yaml
-        cache_dir = confdir or config.get_broker_conf_path()
+        conf_file = config.get_broker_conf_path()
         refresh_token = os.environ['QT_REFRESH_TOKEN']
 
         def write_with_token(token):
             # XXX don't pass the dir path here since may be
             # written behind the scenes in the `confdir fixture`
+            if not os.path.isfile(conf_file):
+                open(conf_file, 'w').close()
             conf, path = config.load()
             conf.setdefault('questrade', {}).update(
                 {'refresh_token': token,
