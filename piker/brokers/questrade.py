@@ -528,6 +528,7 @@ def _token_from_user(conf: 'configparser.ConfigParser') -> None:
 def get_config(
     config_path: str = None,
     force_from_user: bool = False,
+    ask_user_on_failure: bool = False,
 ) -> "configparser.ConfigParser":
     """Load the broker config from disk.
 
@@ -539,11 +540,19 @@ def get_config(
     """
     log.debug("Reloading access config data")
     conf, path = config.load(config_path)
-    if force_from_user or (
-        not conf.get('questrade') or not conf['questrade'].get('refresh_token')
-    ):
+
+    # check if the current config has a token
+    section = conf.get('questrade')
+    has_token = section.get('refresh_token') if section else False
+
+    if force_from_user or ask_user_on_failure and not (section or has_token):
         log.warn(f"Forcing manual token auth from user")
         _token_from_user(conf)
+    else:
+        if not section:
+            raise ValueError(f"No `questrade` section found in {path}")
+        if not has_token:
+            raise ValueError(f"No refresh token found in {path}")
 
     return conf, path
 
@@ -555,7 +564,7 @@ async def get_client(
 ) -> Client:
     """Spawn a broker client for making requests to the API service.
     """
-    conf, path = get_config(config_path)
+    conf, path = get_config(config_path, ask_user_on_failure=ask_user)
     log.debug(f"Loaded config:\n{colorize_json(dict(conf['questrade']))}")
     client = Client(conf)
     await client.ensure_access(ask_user=ask_user)
