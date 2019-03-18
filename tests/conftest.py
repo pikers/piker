@@ -74,7 +74,7 @@ def travis(confdir):
                 async with questrade.get_client(ask_user=False):
                     pass
             except (
-                KeyError, ValueError,
+                FileNotFoundError, ValueError,
                 questrade.BrokerError, questrade.QuestradeError,
                 trio.MultiError,
             ):
