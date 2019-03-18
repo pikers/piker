@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "f4c46debe4765894ac82a258a8acfaec5c1ac8495009b4d4e153a5bcfa29ec33"
+            "sha256": "aa2a6698ffcba8e296b536d36c4fe61b043ca0dbd4e6980662562ce076e69c5a"
         },
         "pipfile-spec": 6,
         "requires": {},
@@ -201,10 +201,10 @@
         },
         "pdbpp": {
             "hashes": [
-                "sha256:3011fdc8df4a7f53aa05baa64b181000303f51cd5eebcb0a32b5698ab922ddda"
+                "sha256:62dea08830eea5df685c957de4fac6e7f699ed635dd58975a689432450b3258b"
             ],
             "index": "pypi",
-            "version": "==0.9.11"
+            "version": "==0.9.12"
         },
         "pygments": {
             "hashes": [
@@ -257,8 +257,8 @@
             "version": "==0.10.0"
         },
         "tractor": {
-            "git": "git://github.com/tgoodlet/tractor.git",
-            "ref": "29ffbfe6ca7c0bd3c955a8a831b5a7c0df0dc8a4"
+            "git": "git://github.com/goodboy/tractor.git",
+            "ref": "4b825778ddeae9fe19016a736f943c09709d86c1"
         },
         "trio": {
             "hashes": [
@@ -470,10 +470,10 @@
         },
         "pdbpp": {
             "hashes": [
-                "sha256:3011fdc8df4a7f53aa05baa64b181000303f51cd5eebcb0a32b5698ab922ddda"
+                "sha256:62dea08830eea5df685c957de4fac6e7f699ed635dd58975a689432450b3258b"
             ],
             "index": "pypi",
-            "version": "==0.9.11"
+            "version": "==0.9.12"
         },
         "piker": {
             "editable": true,
