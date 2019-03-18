@@ -4,16 +4,17 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-"e1839a8" = {path = ".", editable = true}
+e1839a8 = {path = ".",editable = true}
 Cython = "*"
 # matham's next-gen async port of kivy
-Kivy = {git = "git://github.com/matham/kivy.git", ref = "async-loop"}
-tractor = {git = "git://github.com/tgoodlet/tractor.git"}
+Kivy = {git = "git://github.com/matham/kivy.git",ref = "async-loop"}
+tractor = {git = "git://github.com/goodboy/tractor.git"}
 pdbpp = "*"
 msgpack = "*"
 trio = "*"
+toml = "*"
 
 [dev-packages]
 pytest = "*"
 pdbpp = "*"
-piker = {editable = true, path = "."}
+piker = {editable = true,path = "."}

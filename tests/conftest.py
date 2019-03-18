@@ -35,16 +35,33 @@ def test_config():
     return dirpath
 
 
-@pytest.fixture(scope='session')
-def travis():
+@pytest.fixture(scope='session', autouse=True)
+def confdir(request, test_config):
+    """If the `--confdir` flag is not passed use the
+    broker config file found in that dir.
+    """
+    confdir = request.config.option.confdir
+    if confdir is not None:
+        config._override_config_dir(confdir)
+
+    # return config.load()[0]
+    return confdir
+
+
+@pytest.fixture(scope='session', autouse=True)
+def travis(confdir):
     is_travis = os.environ.get('TRAVIS', False)
     if is_travis:
         # this directory is cached, see .travis.yaml
-        cache_dir = config.get_broker_conf_path()
+        conf_file = config.get_broker_conf_path()
         refresh_token = os.environ['QT_REFRESH_TOKEN']
 
         def write_with_token(token):
-            conf, path = config.load(cache_dir)
+            # XXX don't pass the dir path here since may be
+            # written behind the scenes in the `confdir fixture`
+            if not os.path.isfile(conf_file):
+                open(conf_file, 'w').close()
+            conf, path = config.load()
             conf.setdefault('questrade', {}).update(
                 {'refresh_token': token,
                  'is_practice': 'True'}
@@ -59,8 +76,9 @@ def travis():
                 async with questrade.get_client(ask_user=False):
                     pass
             except (
-                KeyError, ValueError,
-                questrade.BrokerError, questrade.QuestradeError
+                FileNotFoundError, ValueError,
+                questrade.BrokerError, questrade.QuestradeError,
+                trio.MultiError,
             ):
                 # 3 cases:
                 # - config doesn't have a ``refresh_token`` k/v
@@ -73,18 +91,6 @@ def travis():
 
         # XXX ``pytest_trio`` doesn't support scope or autouse
         trio.run(ensure_config)
-
-
-@pytest.fixture(scope='session', autouse=True)
-def brokerconf(request, test_config, travis):
-    """If the `--confdir` flag is not passed use the
-    broker config file found in that dir.
-    """
-    confdir = request.config.option.confdir
-    if confdir is not None:
-        config._override_config_dir(confdir)
-
-    return config.load()[0]
 
 
 @pytest.fixture

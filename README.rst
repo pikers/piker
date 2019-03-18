@@ -33,7 +33,7 @@ For a development install::
     pipenv install --dev -e .
     pipenv shell
 
-To start the real-time index ETF watchlist with the `robinhood` backend::
+To start the real-time index ETF watchlist with the `questrade` backend::
 
     piker -l info monitor indexes
 
