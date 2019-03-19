@@ -383,6 +383,7 @@ class Row(HoverBehavior, GridLayout):
     def on_press(self, value=None):
         log.info(f"Pressed row for {self._last_record['symbol']}")
         if self.table and not self.is_header:
+            self.table.last_clicked_row = self
             for sendchan in self.table._click_queues:
                 sendchan.send_nowait(self._last_record['symbol'])
 
@@ -396,6 +397,7 @@ class TickerTable(GridLayout):
         self.sort_key = sort_key
         # for tracking last clicked column header cell
         self.last_clicked_col_cell = None
+        self.last_clicked_row = None
         self._auto_sort = auto_sort
         self._symbols2index = {}
         self._sorted = []
