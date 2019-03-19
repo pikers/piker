@@ -12,7 +12,7 @@ from ..log import get_logger
 log = get_logger('keyboard')
 
 
-async def handle_input(widget, patts2funcs: dict, patt_len_limit=3):
+async def handle_input(nursery, widget, patts2funcs: dict, patt_len_limit=3):
     """Handle keyboard input.
 
     For each character pattern-tuple in ``patts2funcs`` invoke the
@@ -52,8 +52,8 @@ async def handle_input(widget, patts2funcs: dict, patt_len_limit=3):
                 # stop kb queue to avoid duplicate input processing
                 keyq.stop()
 
-                log.debug(f'invoking kb coro func {func}')
-                await func()
+                log.debug(f'spawning task for kb func {func}')
+                nursery.start_soon(func)
                 last_patt = []
                 break  # trigger loop restart
 
@@ -170,7 +170,7 @@ class PagerView(ScrollView):
         self.search = SearchBar(
             self.kbctls, container, self, searcher=contained)
         # spawn kb handler task
-        nursery.start_soon(handle_input, self, self.kbctls)
+        nursery.start_soon(handle_input, nursery, self, self.kbctls)
 
     def move_y(self, val):
         '''Scroll in the y direction [0, 1].
