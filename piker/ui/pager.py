@@ -4,7 +4,8 @@ Pager widget + kb controls
 import inspect
 from functools import partial
 
-from kivy.core.window import Window, Widget
+from kivy.core.window import Window
+from kivy.uix.widget import Widget
 from kivy.uix.textinput import TextInput
 from kivy.uix.scrollview import ScrollView
 
