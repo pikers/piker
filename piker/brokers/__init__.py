@@ -18,7 +18,7 @@ def get_brokermod(brokername: str) -> ModuleType:
     """Return the imported broker module by name.
     """
     module = import_module('.' + brokername, 'piker.brokers')
-    # we only allows monkeys because it's for internal keying
+    # we only allow monkeying because it's for internal keying
     module.name =  module.__name__.split('.')[-1]
     return module
 
