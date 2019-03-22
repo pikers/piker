@@ -5,6 +5,7 @@ import inspect
 from functools import partial
 
 from kivy.core.window import Window
+from kivy.uix.widget import Widget
 from kivy.uix.textinput import TextInput
 from kivy.uix.scrollview import ScrollView
 
@@ -12,7 +13,12 @@ from ..log import get_logger
 log = get_logger('keyboard')
 
 
-async def handle_input(widget, patts2funcs: dict, patt_len_limit=3):
+async def handle_input(
+    nursery,
+    widget,
+    patts2funcs: dict,
+    patt_len_limit=3
+) -> None:
     """Handle keyboard input.
 
     For each character pattern-tuple in ``patts2funcs`` invoke the
@@ -31,10 +37,13 @@ async def handle_input(widget, patts2funcs: dict, patt_len_limit=3):
 
     while True:
         async for kb, keycode, text, modifiers in keyq:
-            log.debug(
-                f"Keyboard input received:\n"
-                f"key {keycode}\ntext {text}\nmodifiers {modifiers}"
-            )
+            log.debug(f"""
+            kb: {kb}
+            keycode: {keycode}
+            text: {text}
+            modifiers: {modifiers}
+            patts2funcs: {patts2funcs}
+            """)
             code, key = keycode
             if modifiers and key in modifiers:
                 continue
@@ -52,8 +61,8 @@ async def handle_input(widget, patts2funcs: dict, patt_len_limit=3):
                 # stop kb queue to avoid duplicate input processing
                 keyq.stop()
 
-                log.debug(f'invoking kb coro func {func}')
-                await func()
+                log.debug(f'spawning task for kb func {func}')
+                nursery.start_soon(func)
                 last_patt = []
                 break  # trigger loop restart
 
@@ -61,6 +70,7 @@ async def handle_input(widget, patts2funcs: dict, patt_len_limit=3):
                 log.debug(f'invoking kb func {func}')
                 func()
                 last_patt = []
+                break
 
             if len(last_patt) > patt_len_limit:
                 last_patt = []
@@ -75,25 +85,40 @@ async def handle_input(widget, patts2funcs: dict, patt_len_limit=3):
 
 
 class SearchBar(TextInput):
-    def __init__(self, kbctls: dict, container: 'Widget', pager: 'PagerView',
-                 searcher, **kwargs):
+    def __init__(
+        self,
+        container: Widget,
+        pager: 'PagerView',
+        searcher,
+        **kwargs
+    ):
         super(SearchBar, self).__init__(
             multiline=False,
             hint_text='Ticker Search',
-            cursor_blink=False,
             **kwargs
         )
+        self.cursor_blink = False
         self.foreground_color = self.hint_text_color  # actually readable
-        self.kbctls = kbctls
         self._container = container
         self._pager = pager
         self._searcher = searcher
         # indicate to ``handle_input`` that search is activated on '/'
-        self.kbctls.update({
+        self._pager.kbctls.update({
             ('/',): self.handle_input
         })
+
+        self.kbctls = {
+            ('ctrl-c',): self.undisplay,
+        }
+
         self._sugg_template = ' '*4 + '{} matches:  '
         self._matched = []
+
+    def undisplay(self):
+        "Stop displaying this text widget"
+        self.dispatch('on_text_validate')  # same as pressing <enter>
+        if self.text_validate_unfocus:
+            self.focus = False
 
     def suggest(self, matches):
         self.suggestion_text = ''
@@ -138,14 +163,31 @@ class SearchBar(TextInput):
             self._pager.scroll_to(widget)
 
     async def handle_input(self):
+        # TODO: wrap this in a cntx mng
+        old_ctls = self._pager.kbctls.copy()
+        self._pager.kbctls.clear()
+        # makes a copy
+        self._pager.kbctls.update(self.kbctls)
+
         self._container.add_widget(self)  # display it
         self.focus = True  # focus immediately (doesn't work from __init__)
+
+        # select any existing text making the widget ready
+        # to accept new input right away
+        if self.text:
+            self.select_all()
+
         # wait for <enter> to close search bar
         await self.async_bind('on_text_validate').__aiter__().__anext__()
         log.debug(f"Seach text is {self.text}")
 
         log.debug("Closing search bar")
         self._container.remove_widget(self)  # stop displaying
+
+        # restore old keyboard bindings
+        self._pager.kbctls.clear()
+        self._pager.kbctls.update(old_ctls)
+
         return self.text
 
 
@@ -167,10 +209,9 @@ class PagerView(ScrollView):
         # add contained child widget (can only be one)
         self._contained = contained
         self.add_widget(contained)
-        self.search = SearchBar(
-            self.kbctls, container, self, searcher=contained)
+        self.search = SearchBar(container, self, searcher=contained)
         # spawn kb handler task
-        nursery.start_soon(handle_input, self, self.kbctls)
+        nursery.start_soon(handle_input, nursery, self, self.kbctls)
 
     def move_y(self, val):
         '''Scroll in the y direction [0, 1].

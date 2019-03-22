@@ -7,6 +7,7 @@ Launch with ``piker monitor <watchlist name>``.
 """
 from types import ModuleType, AsyncGeneratorType
 from typing import List, Callable
+from functools import partial
 
 import trio
 import tractor
@@ -163,6 +164,7 @@ async def _async_main(
     portal: tractor._portal.Portal,
     tickers: List[str],
     brokermod: ModuleType,
+    loglevel: str = 'info',
     rate: int = 3,
     test: bool = False
 ) -> None:
@@ -212,6 +214,7 @@ async def _async_main(
             Row(ticker_record, headers=('symbol',),
                 bidasks=bidasks, table=table)
         )
+    table.last_clicked_row = next(iter(table.symbols2rows.values()))
 
     # associate the col headers row with the ticker table even though
     # they're technically wrapped separately in containing BoxLayout
@@ -226,11 +229,28 @@ async def _async_main(
     table.bind(minimum_height=table.setter('height'))
 
     ss = tractor.current_actor().statespace
+
+    async def spawn_opts_chain():
+        """Spawn an options chain UI in a new subactor.
+        """
+        from .option_chain import _async_main
+
+        async with tractor.open_nursery() as tn:
+            await tn.run_in_actor(
+                'optschain',
+                _async_main,
+                symbol=table.last_clicked_row._last_record['symbol'],
+                brokername=brokermod.name,
+                # loglevel=tractor.log.get_loglevel(),
+            )
+
     async with trio.open_nursery() as nursery:
         pager = PagerView(
             container=box,
             contained=table,
-            nursery=nursery
+            nursery=nursery,
+            # spawn an option chain on 'o' keybinding
+            kbctls={('o',): spawn_opts_chain},
         )
         box.add_widget(pager)
 

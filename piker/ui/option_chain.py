@@ -15,8 +15,9 @@ from kivy.app import async_runTouchApp
 from kivy.core.window import Window
 from kivy.uix.label import Label
 
-from ..log import get_logger
+from ..log import get_logger, get_console_log
 from ..brokers.data import DataFeed
+from ..brokers import get_brokermod
 from .pager import PagerView
 
 from .tabular import Row, HeaderCell, Cell, TickerTable
@@ -408,7 +409,7 @@ class OptionChain(object):
 
         self.render_rows(records, displayables)
 
-        with trio.open_cancel_scope() as cs:
+        with trio.CancelScope() as cs:
             self._update_cs = cs
             await self._nursery.start(
                 partial(
@@ -479,28 +480,36 @@ async def new_chain_ui(
 
 async def _async_main(
     symbol: str,
-    portal: tractor._portal.Portal,
-    brokermod: types.ModuleType,
+    brokername: str,
     rate: int = 1,
+    loglevel: str = 'info',
     test: bool = False
 ) -> None:
     '''Launch kivy app + all other related tasks.
 
     This is started with cli cmd `piker options`.
     '''
+    if loglevel is not None:
+        get_console_log(loglevel)
+
+    brokermod = get_brokermod(brokername)
+
     async with trio.open_nursery() as nursery:
-        # set up a pager view for large ticker lists
-        chain = await new_chain_ui(
-            portal,
-            symbol,
-            brokermod,
-            rate=rate,
-        )
-        async with chain.open_rt_display(nursery, symbol):
-            try:
-                await async_runTouchApp(chain.widgets['root'])
-            finally:
-                if chain._quote_gen:
-                    await chain._quote_gen.aclose()
-                # cancel GUI update task
-                nursery.cancel_scope.cancel()
+        # get a portal to the data feed daemon
+        async with tractor.wait_for_actor('brokerd') as portal:
+
+            # set up a pager view for large ticker lists
+            chain = await new_chain_ui(
+                portal,
+                symbol,
+                brokermod,
+                rate=rate,
+            )
+            async with chain.open_rt_display(nursery, symbol):
+                try:
+                    await async_runTouchApp(chain.widgets['root'])
+                finally:
+                    if chain._quote_gen:
+                        await chain._quote_gen.aclose()
+                    # cancel GUI update task
+                    nursery.cancel_scope.cancel()

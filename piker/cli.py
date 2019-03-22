@@ -385,7 +385,7 @@ def optschain(config, symbol, date, tl, rate, test):
     """
     # global opts
     loglevel = config['loglevel']
-    brokermod = config['brokermod']
+    brokername = config['broker']
 
     from .ui.option_chain import _async_main
 
@@ -395,9 +395,10 @@ def optschain(config, symbol, date, tl, rate, test):
         ) as portal:
             # run app "main"
             await _async_main(
-                symbol, portal,
-                brokermod,
+                symbol,
+                brokername,
                 rate=rate,
+                loglevel=loglevel,
                 test=test,
             )
 
