@@ -2,7 +2,7 @@ piker
 -----
 Trading gear for hackers.
 
-|pypi| |travis| |versions| |license| |docs|
+|travis|
 
 ``piker`` is an attempt at a pro-grade, broker agnostic, next-gen FOSS toolset for real-time
 trading and financial analysis.
@@ -10,16 +10,25 @@ trading and financial analysis.
 It tries to use as much cutting edge tech as possible including (but not limited to):
 
 - Python 3.7+
-- ``trio``
-- ``tractor``
+- trio_
+- tractor_
+- kivy_
 
 .. |travis| image:: https://img.shields.io/travis/pikers/piker/master.svg
     :target: https://travis-ci.org/pikers/piker
+.. _trio: https://github.com/python-trio/trio
+.. _tractor: https://github.com/goodboy/tractor
+.. _kivy: https://kivy.org
+
+Also, we're always open to new framework suggestions and ideas!
+
+Building the best looking, most reliable, keyboard friendly trading platform is the dream.
+Feel free to pipe in with your ideas and quiffs.
 
 
 Install
 *******
-``piker`` is currently under heavy alpha development and as such should
+``piker`` is currently under heavy pre-alpha development and as such should
 be cloned from this repo and hacked on directly.
 
 A couple bleeding edge components are being used atm pertaining to
@@ -33,7 +42,20 @@ For a development install::
     pipenv install --dev -e .
     pipenv shell
 
-To start the real-time index ETF watchlist with the `questrade` backend::
+
+Broker Support
+**************
+For live data feeds the only fully functional broker at the moment is Questrade_.
+Eventual support is in the works for `IB`, `TD Ameritrade` and `IEX`.
+If you want your broker supported and they have an API let us know.
+
+.. _Questrade: https://www.questrade.com/api/documentation
+
+
+Play with some UIs
+******************
+
+To start the real-time index monitor with the `questrade` backend::
 
     piker -l info monitor indexes
 
