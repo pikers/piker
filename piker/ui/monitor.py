@@ -7,7 +7,6 @@ Launch with ``piker monitor <watchlist name>``.
 """
 from types import ModuleType, AsyncGeneratorType
 from typing import List, Callable
-from functools import partial
 
 import trio
 import tractor
@@ -146,6 +145,8 @@ async def update_quotes(
 async def stream_symbol_selection():
     """An RPC async gen for streaming the symbol corresponding
     value corresponding to the last clicked row.
+
+    Essentially of an event stream of clicked symbol values.
     """
     widgets = tractor.current_actor().statespace['widgets']
     table = widgets['table']
@@ -235,14 +236,19 @@ async def _async_main(
         """
         from .option_chain import _async_main
 
-        async with tractor.open_nursery() as tn:
-            await tn.run_in_actor(
-                'optschain',
-                _async_main,
-                symbol=table.last_clicked_row._last_record['symbol'],
-                brokername=brokermod.name,
-                # loglevel=tractor.log.get_loglevel(),
-            )
+        try:
+            async with tractor.open_nursery() as tn:
+                portal = await tn.run_in_actor(
+                    'optschain',
+                    _async_main,
+                    symbol=table.last_clicked_row._last_record['symbol'],
+                    brokername=brokermod.name,
+                    loglevel=tractor.log.get_loglevel(),
+                )
+        except tractor.RemoteActorError:
+            # don't allow option chain errors to crash this monitor
+            # this is, like, the most basic of resliency policies
+            log.exception(f"{portal.actor.name} crashed:")
 
     async with trio.open_nursery() as nursery:
         pager = PagerView(

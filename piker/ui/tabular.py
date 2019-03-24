@@ -384,8 +384,13 @@ class Row(HoverBehavior, GridLayout):
         log.info(f"Pressed row for {self._last_record['symbol']}")
         if self.table and not self.is_header:
             self.table.last_clicked_row = self
+            symbol = self._last_record['symbol']
             for sendchan in self.table._click_queues:
-                sendchan.send_nowait(self._last_record['symbol'])
+                try:
+                    sendchan.send_nowait(symbol)
+                except trio.BrokenResourceError:
+                    # indicates streaming client actor has terminated
+                    log.warning("Symbol selection stream was already closed")
 
 
 class TickerTable(GridLayout):
