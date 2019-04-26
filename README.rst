@@ -85,5 +85,10 @@ For those running pop-culture distros that don't yet ship ``python3.7``
 you'll need to install it as well as `kivy source build`_ dependencies
 since currently there's reliance on an async development branch.
 
+To install the async branch of `kivy` from github do::
+
+    pipenv install -e 'git+git://github.com/matham/kivy.git@async-loop#egg=kivy'
+
+
 .. _kivy source build:
     https://kivy.org/docs/installation/installation-linux.html#installation-in-a-virtual-environment
