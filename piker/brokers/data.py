@@ -28,7 +28,10 @@ from . import get_brokermod
 log = get_logger('broker.data')
 
 
-async def wait_for_network(net_func: Callable, sleep: int = 1) -> dict:
+async def wait_for_network(
+    net_func: Callable,
+    sleep: int = 1
+) -> dict:
     """Wait until the network (DNS) comes back up.
     """
     down = False
@@ -251,6 +254,7 @@ async def get_cached_feed(
             await feed.exit_stack.aclose()
 
 
+@tractor.stream
 async def start_quote_stream(
     ctx: tractor.Context,  # marks this as a streaming func
     broker: str,
