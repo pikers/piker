@@ -34,12 +34,31 @@ be cloned from this repo and hacked on directly.
 A couple bleeding edge components are being used atm pertaining to
 async ports of libraries for use with `trio`_.
 
-Before installing make sure you have `pipenv`_.
+Before installing make sure you have `pipenv`_ and have installed
+``python3.7`` as well as `kivy source build`_ dependencies
+since currently there's reliance on an async development branch.
+
+`kivy` dependencies
+===================
+On Archlinux you need the following dependencies::
+
+   pacman -S python-docutils gstreamer sdl2_ttf sdl2_mixer sdl2_image
+
+To manually install the async branch of ``kivy`` from github do (though
+this should be done as part of the ``pipenv install`` below)::
+
+    pipenv install -e 'git+git://github.com/matham/kivy.git@async-loop#egg=kivy'
+
+
+.. _kivy source build:
+    https://kivy.org/docs/installation/installation-linux.html#installation-in-a-virtual-environment
+
+
 For a development install::
 
     git clone git@github.com:pikers/piker.git
     cd piker
-    pipenv install --dev -e .
+    pipenv install --pre -e .
     pipenv shell
 
 
@@ -77,18 +96,3 @@ Then start the client app as normal::
 
 .. _trio: https://github.com/python-trio/trio
 .. _pipenv: https://docs.pipenv.org/
-
-
-Finicky dependencies
-====================
-For those running pop-culture distros that don't yet ship ``python3.7``
-you'll need to install it as well as `kivy source build`_ dependencies
-since currently there's reliance on an async development branch.
-
-To install the async branch of `kivy` from github do::
-
-    pipenv install -e 'git+git://github.com/matham/kivy.git@async-loop#egg=kivy'
-
-
-.. _kivy source build:
-    https://kivy.org/docs/installation/installation-linux.html#installation-in-a-virtual-environment
