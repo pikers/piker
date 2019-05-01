@@ -42,7 +42,7 @@ since currently there's reliance on an async development branch.
 ===================
 On Archlinux you need the following dependencies::
 
-   pacman -S python-docutils gstreamer sdl2_ttf sdl2_mixer sdl2_image
+   pacman -S python-docutils gstreamer sdl2_ttf sdl2_mixer sdl2_image xclip
 
 To manually install the async branch of ``kivy`` from github do (though
 this should be done as part of the ``pipenv install`` below)::
