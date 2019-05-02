@@ -15,6 +15,7 @@ tractor = {git = "git://github.com/goodboy/tractor.git"}
 toml = "*"
 pyqtgraph = "*"
 pyside2 = "*"
+qdarkstyle = "*"
 
 [dev-packages]
 pytest = "*"
