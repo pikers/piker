@@ -10,6 +10,8 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.scrollview import ScrollView
 
 from ..log import get_logger
+from .kivy.utils_async import async_bind
+
 log = get_logger('keyboard')
 
 
@@ -33,7 +35,7 @@ async def handle_input(
 
     last_patt = []
     kb = Window.request_keyboard(_kb_closed, widget, 'text')
-    keyq = kb.async_bind('on_key_down')
+    keyq = async_bind(kb, 'on_key_down')
 
     while True:
         async for kb, keycode, text, modifiers in keyq:
@@ -79,7 +81,7 @@ async def handle_input(
 
         log.debug("Restarting keyboard handling loop")
         # rebind to avoid capturing keys processed by ^ coro
-        keyq = kb.async_bind('on_key_down')
+        keyq = async_bind(kb, 'on_key_down')
 
     log.debug("Exitting keyboard handling loop")
 
@@ -178,7 +180,7 @@ class SearchBar(TextInput):
             self.select_all()
 
         # wait for <enter> to close search bar
-        await self.async_bind('on_text_validate').__aiter__().__anext__()
+        await async_bind(self, 'on_text_validate').__aiter__().__anext__()
         log.debug(f"Seach text is {self.text}")
 
         log.debug("Closing search bar")
