@@ -7,8 +7,8 @@ name = "pypi"
 e1839a8 = {path = ".",editable = true}
 trio = "*"
 Cython = "*"
-# matham's next-gen async port of kivy
-Kivy = {editable = true,git = "git://github.com/matham/kivy.git",ref = "async-loop"}
+# use master branch kivy since wheels seem borked (due to cython stuff)
+kivy = {git = "git://github.com/kivy/kivy.git"}
 pdbpp = "*"
 msgpack = "*"
 tractor = {git = "git://github.com/goodboy/tractor.git"}
@@ -19,3 +19,4 @@ pyside2 = "*"
 [dev-packages]
 pytest = "*"
 pdbpp = "*"
+piker = {editable = true,path = "."}
