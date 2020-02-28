@@ -212,7 +212,10 @@ class Client:
         self,
         config: dict,
     ):
-        self._sess = asks.Session()
+        # use 2 connections per streaming endpoint (stocks, opts)
+        # TODO: when we have more then one account key then this should scale
+        # linearly with that.
+        self._sess = asks.Session(connections=4)
         self.api = _API(self)
         self._conf = config
         self._is_practice = _use_practice_account or (
