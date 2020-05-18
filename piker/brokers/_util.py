@@ -12,6 +12,10 @@ class BrokerError(Exception):
     "Generic broker issue"
 
 
+class SymbolNotFound(BrokerError):
+    "Symbol not found by broker search"
+
+
 def resproc(
     resp: asks.response_objects.Response,
     log: logging.Logger,
