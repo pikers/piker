@@ -1,9 +1,9 @@
 """
 Console interface to broker client/daemons.
 """
+import os
 from functools import partial
 import json
-import os
 from operator import attrgetter
 from operator import itemgetter
 
@@ -12,62 +12,17 @@ import pandas as pd
 import trio
 import tractor
 
-from . import watchlists as wl
-from .log import get_console_log, colorize_json, get_logger
-from .brokers import core, get_brokermod, data, config
-from .brokers.core import maybe_spawn_brokerd_as_subactor, _data_mods
+from ..cli import cli
+from .. import watchlists as wl
+from ..log import get_console_log, colorize_json, get_logger
+from ..brokers.core import maybe_spawn_brokerd_as_subactor
+from ..brokers import core, get_brokermod, data
 
 log = get_logger('cli')
 DEFAULT_BROKER = 'questrade'
 
 _config_dir = click.get_app_dir('piker')
 _watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
-_context_defaults = dict(
-    default_map={
-        'monitor': {
-            'rate': 3,
-        },
-        'optschain': {
-            'rate': 1,
-        },
-    }
-)
-
-
-@click.command()
-@click.option('--loglevel', '-l', default='warning', help='Logging level')
-@click.option('--tl', is_flag=True, help='Enable tractor logging')
-@click.option('--host', '-h', default='127.0.0.1', help='Host address to bind')
-def pikerd(loglevel, host, tl):
-    """Spawn the piker broker-daemon.
-    """
-    get_console_log(loglevel)
-    tractor.run_daemon(
-        rpc_module_paths=_data_mods,
-        name='brokerd',
-        loglevel=loglevel if tl else None,
-    )
-
-
-@click.group(context_settings=_context_defaults)
-@click.option('--broker', '-b', default=DEFAULT_BROKER,
-              help='Broker backend to use')
-@click.option('--loglevel', '-l', default='warning', help='Logging level')
-@click.option('--configdir', '-c', help='Configuration directory')
-@click.pass_context
-def cli(ctx, broker, loglevel, configdir):
-    if configdir is not None:
-        assert os.path.isdir(configdir), f"`{configdir}` is not a valid path"
-        config._override_config_dir(configdir)
-
-    # ensure that ctx.obj exists even though we aren't using it (yet)
-    ctx.ensure_object(dict)
-    ctx.obj.update({
-        'broker': broker,
-        'brokermod': get_brokermod(broker),
-        'loglevel': loglevel,
-        'log': get_console_log(loglevel),
-    })
 
 
 @cli.command()
@@ -132,16 +87,50 @@ def quote(config, tickers, df_output):
                 brokermod.log.warn(f"Could not find symbol {ticker}?")
 
     if df_output:
-        cols = next(filter(bool, quotes.values())).copy()
+        cols = next(filter(bool, quotes)).copy()
         cols.pop('symbol')
         df = pd.DataFrame(
-            (quote or {} for quote in quotes.values()),
-            index=quotes.keys(),
+            (quote or {} for quote in quotes),
             columns=cols,
         )
         click.echo(df)
     else:
         click.echo(colorize_json(quotes))
+
+
+@cli.command()
+@click.option('--df-output', '-df', flag_value=True,
+              help='Output in `pandas.DataFrame` format')
+@click.option('--count', '-c', default=10,
+              help='Number of bars to retrieve')
+@click.argument('symbol', required=True)
+@click.pass_obj
+def bars(config, symbol, count, df_output):
+    """Retreive 1m bars for symbol and print on the console in json
+    format.
+    """
+    # global opts
+    brokermod = config['brokermod']
+
+    # broker backend should return at the least a
+    # list of candle dictionaries
+    bars = trio.run(
+        partial(
+            core.bars,
+            brokermod,
+            symbol,
+            count=count,
+        )
+    )
+
+    if not bars:
+        log.error(f"No quotes could be found for {symbol}?")
+        return
+
+    if df_output:
+        click.echo(pd.DataFrame(bars))
+    else:
+        click.echo(colorize_json(bars))
 
 
 @cli.command()
@@ -184,6 +173,7 @@ def monitor(config, rate, name, dhost, test, tl):
         name='monitor',
         loglevel=loglevel if tl else None,
         rpc_module_paths=['piker.ui.monitor'],
+        start_method='forkserver',
     )
 
 
@@ -406,4 +396,5 @@ def optschain(config, symbol, date, tl, rate, test):
         partial(main, tries=1),
         name='kivy-options-chain',
         loglevel=loglevel if tl else None,
+        start_method='forkserver',
     )

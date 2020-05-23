@@ -570,14 +570,24 @@ class Client:
             raise SymbolNotFound(symbol)
 
         sid = sids[symbol]
-        est_now = arrow.utcnow().to('US/Eastern').floor('minute')
-        est_start = est_now.shift(minutes=-count)
+
+        # get last market open end time
+        est_end = now = arrow.utcnow().to('US/Eastern').floor('minute')
+        wd = now.isoweekday()
+        if wd > 5:
+            quotes = await self.quote([symbol])
+            est_end = arrow.get(quotes[0]['lastTradeTime'])
+            if est_end.hour == 0:
+                # XXX don't bother figuring out extended hours for now
+                est_end = est_end.replace(hour=17)
+
+        est_start = est_end.shift(minutes=-count)
 
         start = time.time()
         bars = await self.api.candles(
             sid,
             start=est_start.isoformat(),
-            end=est_now.isoformat(),
+            end=est_end.isoformat(),
             interval=_time_frames[time_frame],
         )
         log.debug(
