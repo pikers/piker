@@ -2,7 +2,7 @@ import os
 import json
 from collections import defaultdict
 
-from .log import get_logger
+from ..log import get_logger
 
 log = get_logger(__name__)
 

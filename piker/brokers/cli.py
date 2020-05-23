@@ -3,7 +3,6 @@ Console interface to broker client/daemons.
 """
 import os
 from functools import partial
-import json
 from operator import attrgetter
 from operator import itemgetter
 
@@ -32,7 +31,7 @@ _watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
 @click.argument('kwargs', nargs=-1)
 @click.pass_obj
 def api(config, meth, kwargs, keys):
-    """client for testing broker API methods with pretty printing of output.
+    """Make a broker-client API method call
     """
     # global opts
     broker = config['broker']
@@ -69,8 +68,7 @@ def api(config, meth, kwargs, keys):
 @click.argument('tickers', nargs=-1, required=True)
 @click.pass_obj
 def quote(config, tickers, df_output):
-    """Retreive symbol quotes on the console in either json or dataframe
-    format.
+    """Print symbol quotes to the console
     """
     # global opts
     brokermod = config['brokermod']
@@ -106,8 +104,7 @@ def quote(config, tickers, df_output):
 @click.argument('symbol', required=True)
 @click.pass_obj
 def bars(config, symbol, count, df_output):
-    """Retreive 1m bars for symbol and print on the console in json
-    format.
+    """Retreive 1m bars for symbol and print on the console
     """
     # global opts
     brokermod = config['brokermod']
@@ -142,7 +139,7 @@ def bars(config, symbol, count, df_output):
 @click.argument('name', nargs=1, required=True)
 @click.pass_obj
 def monitor(config, rate, name, dhost, test, tl):
-    """Spawn a real-time watchlist.
+    """Start a real-time watchlist UI
     """
     # global opts
     brokermod = config['brokermod']
@@ -186,7 +183,7 @@ def monitor(config, rate, name, dhost, test, tl):
 @click.argument('name', nargs=1, required=True)
 @click.pass_obj
 def record(config, rate, name, dhost, filename):
-    """Record client side quotes to file
+    """Record client side quotes to a file on disk
     """
     # global opts
     brokermod = config['brokermod']
@@ -215,96 +212,6 @@ def record(config, rate, name, dhost, filename):
     click.echo(f"Data feed recording saved to {filename}")
 
 
-@cli.group()
-@click.option('--config_dir', '-d', default=_watchlists_data_path,
-              help='Path to piker configuration directory')
-@click.pass_context
-def watchlists(ctx, config_dir):
-    """Watchlists commands and operations
-    """
-    loglevel = ctx.parent.params['loglevel']
-    get_console_log(loglevel)  # activate console logging
-
-    wl.make_config_dir(_config_dir)
-    ctx.ensure_object(dict)
-    ctx.obj = {'path': config_dir,
-               'watchlist': wl.ensure_watchlists(config_dir)}
-
-
-@watchlists.command(help='show watchlist')
-@click.argument('name', nargs=1, required=False)
-@click.pass_context
-def show(ctx, name):
-    watchlist = wl.merge_watchlist(ctx.obj['watchlist'], wl._builtins)
-    click.echo(colorize_json(
-               watchlist if name is None else watchlist[name]))
-
-
-@watchlists.command(help='load passed in watchlist')
-@click.argument('data', nargs=1, required=True)
-@click.pass_context
-def load(ctx, data):
-    try:
-        wl.write_to_file(json.loads(data), ctx.obj['path'])
-    except (json.JSONDecodeError, IndexError):
-        click.echo('You have passed an invalid text respresentation of a '
-                   'JSON object. Try again.')
-
-
-@watchlists.command(help='add ticker to watchlist')
-@click.argument('name', nargs=1, required=True)
-@click.argument('ticker_names', nargs=-1, required=True)
-@click.pass_context
-def add(ctx, name, ticker_names):
-    for ticker in ticker_names:
-        watchlist = wl.add_ticker(
-            name, ticker, ctx.obj['watchlist'])
-    wl.write_to_file(watchlist, ctx.obj['path'])
-
-
-@watchlists.command(help='remove ticker from watchlist')
-@click.argument('name', nargs=1, required=True)
-@click.argument('ticker_name', nargs=1, required=True)
-@click.pass_context
-def remove(ctx, name, ticker_name):
-    try:
-        watchlist = wl.remove_ticker(name, ticker_name, ctx.obj['watchlist'])
-    except KeyError:
-        log.error(f"No watchlist with name `{name}` could be found?")
-    except ValueError:
-        if name in wl._builtins and ticker_name in wl._builtins[name]:
-            log.error(f"Can not remove ticker `{ticker_name}` from built-in "
-                      f"list `{name}`")
-        else:
-            log.error(f"Ticker `{ticker_name}` not found in list `{name}`")
-    else:
-        wl.write_to_file(watchlist, ctx.obj['path'])
-
-
-@watchlists.command(help='delete watchlist group')
-@click.argument('name', nargs=1, required=True)
-@click.pass_context
-def delete(ctx, name):
-    watchlist = wl.delete_group(name, ctx.obj['watchlist'])
-    wl.write_to_file(watchlist, ctx.obj['path'])
-
-
-@watchlists.command(help='merge a watchlist from another user')
-@click.argument('watchlist_to_merge', nargs=1, required=True)
-@click.pass_context
-def merge(ctx, watchlist_to_merge):
-    merged_watchlist = wl.merge_watchlist(json.loads(watchlist_to_merge),
-                                          ctx.obj['watchlist'])
-    wl.write_to_file(merged_watchlist, ctx.obj['path'])
-
-
-@watchlists.command(help='dump text respresentation of a watchlist to console')
-@click.argument('name', nargs=1, required=False)
-@click.pass_context
-def dump(ctx, name):
-    click.echo(json.dumps(ctx.obj['watchlist']))
-
-
 # options utils
 
 @cli.command()
@@ -315,7 +222,8 @@ def dump(ctx, name):
 @click.argument('symbol', required=True)
 @click.pass_context
 def contracts(ctx, loglevel, broker, symbol, ids):
-
+    """Get list of all option contracts for symbol
+    """
     brokermod = get_brokermod(broker)
     get_console_log(loglevel)
 
@@ -338,8 +246,7 @@ def contracts(ctx, loglevel, broker, symbol, ids):
 @click.argument('symbol', required=True)
 @click.pass_obj
 def optsquote(config, symbol, df_output, date):
-    """Retreive symbol quotes on the console in either
-    json or dataframe format.
+    """Retreive symbol option quotes on the console
     """
     # global opts
     brokermod = config['brokermod']
@@ -371,7 +278,7 @@ def optsquote(config, symbol, df_output, date):
 @click.argument('symbol', required=True)
 @click.pass_obj
 def optschain(config, symbol, date, tl, rate, test):
-    """Start the real-time option chain UI.
+    """Start an option chain UI
     """
     # global opts
     loglevel = config['loglevel']
@@ -382,7 +289,7 @@ def optschain(config, symbol, date, tl, rate, test):
     async def main(tries):
         async with maybe_spawn_brokerd_as_subactor(
             tries=tries, loglevel=loglevel
-        ) as portal:
+        ):
             # run app "main"
             await _async_main(
                 symbol,

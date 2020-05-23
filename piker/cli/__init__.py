@@ -65,3 +65,4 @@ def cli(ctx, broker, loglevel, configdir):
 
 # load downstream cli modules
 from ..brokers import cli as _
+from ..watchlists import cli as _
