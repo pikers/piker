@@ -163,20 +163,23 @@ async def stream_symbol_selection():
 async def _async_main(
     name: str,
     portal: tractor._portal.Portal,
-    tickers: List[str],
+    symbols: List[str],
     brokermod: ModuleType,
     loglevel: str = 'info',
     rate: int = 3,
-    test: bool = False
+    test: str = '',
 ) -> None:
     '''Launch kivy app + all other related tasks.
 
     This is started with cli cmd `piker monitor`.
     '''
     feed = DataFeed(portal, brokermod)
-
     quote_gen, quotes = await feed.open_stream(
-        tickers, 'stock', rate=rate)
+        symbols,
+        'stock',
+        rate=rate,
+        test=test,
+    )
 
     first_quotes, _ = feed.format_quotes(quotes)
 
