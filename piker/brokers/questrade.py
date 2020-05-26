@@ -549,11 +549,11 @@ class Client:
     async def bars(
         self,
         symbol: str,
-        # EST in ISO 8601 format is required...
-        # start_date: str = "1970-01-01T00:00:00.000000-05:00",
-        start_date: str = "2020-03-24T16:01:00.000000-04:00",
-        time_frame='1m',
-        count=20e3,
+        # EST in ISO 8601 format is required... below is EPOCH
+        start_date: str = "1970-01-01T00:00:00.000000-05:00",
+        time_frame: str = '1m',
+        count: float = 20e3,
+        is_paid_feed: bool = False,
     ) -> List[Dict[str, Any]]:
         """Retreive OHLCV bars for a symbol over a range to the present.
 
@@ -573,6 +573,7 @@ class Client:
 
         # get last market open end time
         est_end = now = arrow.utcnow().to('US/Eastern').floor('minute')
+        # on non-paid feeds we can't retreive the first 15 mins
         wd = now.isoweekday()
         if wd > 5:
             quotes = await self.quote([symbol])
@@ -580,6 +581,9 @@ class Client:
             if est_end.hour == 0:
                 # XXX don't bother figuring out extended hours for now
                 est_end = est_end.replace(hour=17)
+
+        if not is_paid_feed:
+            est_end = est_end.shift(minutes=-15)
 
         est_start = est_end.shift(minutes=-count)
 
@@ -597,8 +601,8 @@ class Client:
 
 # marketstore TSD compatible numpy dtype for bar
 _qt_bars_dt = [
-    # ('start', 'S40'),
     ('Epoch', 'i8'),
+    # ('start', 'S40'),
     # ('end', 'S40'),
     ('low', 'f4'),
     ('high', 'f4'),
@@ -620,7 +624,7 @@ def get_OHLCV(
     return tuple(bar.values())
 
 
-def to_marketstore_structarray(
+def bars_to_marketstore_structarray(
     bars: List[Dict[str, Any]]
 ) -> np.array:
     """Return marketstore writeable recarray from sequence of bars
@@ -796,7 +800,7 @@ _qt_stock_keys = {
     'VWAP': ('VWAP', partial(round, ndigits=3)),
     'MC': ('MC', humanize),
     '$ vol': ('$ vol', humanize),
-    'volume': ('vol', humanize),
+    'volume': ('volume', humanize),
     # 'close': 'close',
     # 'openPrice': 'open',
     'lowPrice': 'low',
@@ -818,7 +822,7 @@ _stock_bidasks = {
     'last': ['bid', 'ask'],
     'size': ['bsize', 'asize'],
     'VWAP': ['low', 'high'],
-    'vol': ['MC', '$ vol'],
+    'volume': ['MC', '$ vol'],
 }
 
 

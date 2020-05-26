@@ -73,7 +73,7 @@ async def update_quotes(
         tick_color = None
         last = cells.get('last')
         if not last:
-            vol = cells.get('vol')
+            vol = cells.get('volume')
             if not vol:
                 return  # no trade exec took place
 
