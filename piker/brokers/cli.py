@@ -153,7 +153,7 @@ def monitor(config, rate, name, dhost, test, tl):
         log.error(f"No symbols found for watchlist `{name}`?")
         return
 
-    from .ui.monitor import _async_main
+    from ..ui.monitor import _async_main
 
     async def main(tries):
         async with maybe_spawn_brokerd_as_subactor(
@@ -284,7 +284,7 @@ def optschain(config, symbol, date, tl, rate, test):
     loglevel = config['loglevel']
     brokername = config['broker']
 
-    from .ui.option_chain import _async_main
+    from ..ui.option_chain import _async_main
 
     async def main(tries):
         async with maybe_spawn_brokerd_as_subactor(
