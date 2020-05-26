@@ -13,8 +13,8 @@ from ..brokers.core import _data_mods
 log = get_logger('cli')
 DEFAULT_BROKER = 'questrade'
 
-# _config_dir = click.get_app_dir('piker')
-# _watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
+_config_dir = click.get_app_dir('piker')
+_watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
 _context_defaults = dict(
     default_map={
         'monitor': {
@@ -53,16 +53,18 @@ def cli(ctx, broker, loglevel, configdir):
         assert os.path.isdir(configdir), f"`{configdir}` is not a valid path"
         config._override_config_dir(configdir)
 
-    # ensure that ctx.obj exists even though we aren't using it (yet)
     ctx.ensure_object(dict)
     ctx.obj.update({
         'broker': broker,
         'brokermod': get_brokermod(broker),
         'loglevel': loglevel,
         'log': get_console_log(loglevel),
+        'confdir': _config_dir,
+        'wl_path': _watchlists_data_path,
     })
 
 
 # load downstream cli modules
 from ..brokers import cli as _
 from ..watchlists import cli as _
+from ..data import marketstore as _
