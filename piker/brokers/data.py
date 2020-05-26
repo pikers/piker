@@ -90,7 +90,7 @@ async def stream_requests(
     """Stream requests for quotes for a set of symbols at the given
     ``rate`` (per second).
 
-    A stock-broker client ``get_quotes()`` async context manager must be
+    A stock-broker client ``get_quotes()`` async function must be
     provided which returns an async quote retrieval function.
     """
     broker_limit = getattr(feed.mod, '_rate_limit', float('inf'))
@@ -268,7 +268,7 @@ async def start_quote_stream(
 
     Spawns new quoter tasks for each broker backend on-demand.
     Since most brokers seems to support batch quote requests we
-    limit to one task per process for now.
+    limit to one task per process (for now).
     """
     # XXX: why do we need this again?
     get_console_log(tractor.current_actor().loglevel)
@@ -313,7 +313,7 @@ async def start_quote_stream(
 
         await stream_requests(
 
-            # pub required kwargs
+            # ``msg.pub`` required kwargs
             task_name=feed_type,
             ctx=ctx,
             topics=symbols,
@@ -358,7 +358,7 @@ class DataFeed:
         feed_type: str,
         rate: int = 1,
         diff_cached: bool = True,
-        test: bool = None,
+        test: str = '',
     ) -> (AsyncGenerator, dict):
         if feed_type not in self._allowed:
             raise ValueError(f"Only feed types {self._allowed} are supported")
@@ -416,6 +416,8 @@ class DataFeed:
             raise
 
     def format_quotes(self, quotes, symbol_data={}):
+        """Format ``quotes`` using broker defined formatter.
+        """
         self._symbol_data_cache.update(symbol_data)
         formatter = getattr(self.brokermod, f'format_{self._quote_type}_quote')
         records, displayables = zip(*[
@@ -449,7 +451,7 @@ async def stream_to_file(
     # an async generator instance
     agen = await portal.run(
         "piker.brokers.data", 'start_quote_stream',
-        broker=brokermod.name, tickers=tickers)
+        broker=brokermod.name, symbols=tickers)
 
     fname = filename or f'{watchlist_name}.jsonstream'
     with open(fname, 'a') as f:
