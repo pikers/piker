@@ -99,7 +99,7 @@ def quote(config, tickers, df_output):
 @cli.command()
 @click.option('--df-output', '-df', flag_value=True,
               help='Output in `pandas.DataFrame` format')
-@click.option('--count', '-c', default=10,
+@click.option('--count', '-c', default=100,
               help='Number of bars to retrieve')
 @click.argument('symbol', required=True)
 @click.pass_obj
