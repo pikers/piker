@@ -12,7 +12,7 @@ It tries to use as much bleeding edge tech as possible including (but not limite
 - Python 3.7+ for glue and business logic
 - trio_ for async
 - tractor_ as the underlying actor model
-- marketstore_ for data persistence and sharing
+- marketstore_ for historical data persistence and sharing
 - Qt_ for pristine high performance UIs
 
 .. |travis| image:: https://img.shields.io/travis/pikers/piker/master.svg
@@ -28,10 +28,12 @@ Focus and Features:
 - 100% decentralized: running your code on your hardware with your
   broker's data feeds **is the point** (this is not a web-based *I
   don't know how to run my own system* project).
-- Built on a highly reliable next-gen [actor
+- Built on a highly reliable "next-gen" [actor
   model](https://github.com/goodboy/tractor) with built in async
-  streaming and scalability protocols allowing us avoid clunky
-  object-oriented-heavy APIs
+  streaming and scalability protocols allowing us to utilize
+  a distributed architecture from the ground up.
+- Privacy: your orders, indicators, algos are all run client side and
+  are shared only with the (groups of) traders you specify.
 - Production grade, highly attractive native UIs that feel and fit like
   a proper pair of skinny jeans; only meant to be used with a proper
   tiling window manager (no, we are not ignorant enough to roll our own).
@@ -40,12 +42,12 @@ Focus and Features:
 - Built-in support for *hipstery* indicators and studies that you
   probably haven't heard of but that the authors **know** generate alpha
   when paired with the right strategies.
-- Emphasis on collaboration through sharing data, ideas, and processing
+- Emphasis on collaboration through sharing of data, ideas, and processing
   power.
 - Adoption is very low priority, especially if you're not an experienced
-  trader; the system is not built for sale it is built for *people* who
-  work as independent computational traders.
-- No, we will never have a "corporation friendly license".
+  trader; the system is not built for sale it is built for *people*.
+- No, we will never have a "corporation friendly license"; if you intend to use
+  this code base we must know about it.
 
 Fitting with these tenets, we're always open to new framework suggestions and ideas.
 
