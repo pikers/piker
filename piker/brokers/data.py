@@ -130,17 +130,33 @@ async def stream_requests(
             for quote in quotes:
                 symbol = quote['symbol']
                 last = _cache.setdefault(symbol, {})
+
+                # find all keys that have match to a new value compared
+                # to the last quote received
                 new = set(quote.items()) - set(last.items())
                 if new:
                     log.info(
                         f"New quote {quote['symbol']}:\n{new}")
                     _cache[symbol] = quote
+
+                    # only ship diff updates and other required fields
+                    payload['symbol'] = symbol
+                    payload = {k: quote[k] for k, v in new}
+
+                    # if there was volume likely the last size of
+                    # shares traded is useful info and it's possible
+                    # that the set difference from above will disregard
+                    # a "size" value since the same # of shares were traded
+                    size = quote.get('size')
+                    if size and 'volume' in payload:
+                        payload['size'] = size
+
                     # XXX: we append to a list for the options case where the
                     # subscription topic (key) is the same for all
                     # expiries even though this is uncessary for the
                     # stock case (different topic [i.e. symbol] for each
                     # quote).
-                    new_quotes.setdefault(quote['key'], []).append(quote)
+                    new_quotes.setdefault(quote['key'], []).append(payload)
         else:
             # log.debug(f"Delivering quotes:\n{quotes}")
             for quote in quotes:
