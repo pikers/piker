@@ -110,3 +110,14 @@ async def contracts(
     async with brokermod.get_client() as client:
         # return await client.get_all_contracts([symbol])
         return await client.get_all_contracts([symbol])
+
+
+async def bars(
+    brokermod: ModuleType,
+    symbol: str,
+    **kwargs,
+) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    """Return option contracts (all expiries) for ``symbol``.
+    """
+    async with brokermod.get_client() as client:
+        return await client.bars(symbol, **kwargs)

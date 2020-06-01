@@ -1,9 +1,8 @@
 """
 Console interface to broker client/daemons.
 """
-from functools import partial
-import json
 import os
+from functools import partial
 from operator import attrgetter
 from operator import itemgetter
 
@@ -12,62 +11,17 @@ import pandas as pd
 import trio
 import tractor
 
-from . import watchlists as wl
-from .log import get_console_log, colorize_json, get_logger
-from .brokers import core, get_brokermod, data, config
-from .brokers.core import maybe_spawn_brokerd_as_subactor, _data_mods
+from ..cli import cli
+from .. import watchlists as wl
+from ..log import get_console_log, colorize_json, get_logger
+from ..brokers.core import maybe_spawn_brokerd_as_subactor
+from ..brokers import core, get_brokermod, data
 
 log = get_logger('cli')
 DEFAULT_BROKER = 'questrade'
 
 _config_dir = click.get_app_dir('piker')
 _watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
-_context_defaults = dict(
-    default_map={
-        'monitor': {
-            'rate': 3,
-        },
-        'optschain': {
-            'rate': 1,
-        },
-    }
-)
-
-
-@click.command()
-@click.option('--loglevel', '-l', default='warning', help='Logging level')
-@click.option('--tl', is_flag=True, help='Enable tractor logging')
-@click.option('--host', '-h', default='127.0.0.1', help='Host address to bind')
-def pikerd(loglevel, host, tl):
-    """Spawn the piker broker-daemon.
-    """
-    get_console_log(loglevel)
-    tractor.run_daemon(
-        rpc_module_paths=_data_mods,
-        name='brokerd',
-        loglevel=loglevel if tl else None,
-    )
-
-
-@click.group(context_settings=_context_defaults)
-@click.option('--broker', '-b', default=DEFAULT_BROKER,
-              help='Broker backend to use')
-@click.option('--loglevel', '-l', default='warning', help='Logging level')
-@click.option('--configdir', '-c', help='Configuration directory')
-@click.pass_context
-def cli(ctx, broker, loglevel, configdir):
-    if configdir is not None:
-        assert os.path.isdir(configdir), f"`{configdir}` is not a valid path"
-        config._override_config_dir(configdir)
-
-    # ensure that ctx.obj exists even though we aren't using it (yet)
-    ctx.ensure_object(dict)
-    ctx.obj.update({
-        'broker': broker,
-        'brokermod': get_brokermod(broker),
-        'loglevel': loglevel,
-        'log': get_console_log(loglevel),
-    })
 
 
 @cli.command()
@@ -77,7 +31,7 @@ def cli(ctx, broker, loglevel, configdir):
 @click.argument('kwargs', nargs=-1)
 @click.pass_obj
 def api(config, meth, kwargs, keys):
-    """client for testing broker API methods with pretty printing of output.
+    """Make a broker-client API method call
     """
     # global opts
     broker = config['broker']
@@ -114,8 +68,7 @@ def api(config, meth, kwargs, keys):
 @click.argument('tickers', nargs=-1, required=True)
 @click.pass_obj
 def quote(config, tickers, df_output):
-    """Retreive symbol quotes on the console in either json or dataframe
-    format.
+    """Print symbol quotes to the console
     """
     # global opts
     brokermod = config['brokermod']
@@ -132,16 +85,49 @@ def quote(config, tickers, df_output):
                 brokermod.log.warn(f"Could not find symbol {ticker}?")
 
     if df_output:
-        cols = next(filter(bool, quotes.values())).copy()
+        cols = next(filter(bool, quotes)).copy()
         cols.pop('symbol')
         df = pd.DataFrame(
-            (quote or {} for quote in quotes.values()),
-            index=quotes.keys(),
+            (quote or {} for quote in quotes),
             columns=cols,
         )
         click.echo(df)
     else:
         click.echo(colorize_json(quotes))
+
+
+@cli.command()
+@click.option('--df-output', '-df', flag_value=True,
+              help='Output in `pandas.DataFrame` format')
+@click.option('--count', '-c', default=100,
+              help='Number of bars to retrieve')
+@click.argument('symbol', required=True)
+@click.pass_obj
+def bars(config, symbol, count, df_output):
+    """Retreive 1m bars for symbol and print on the console
+    """
+    # global opts
+    brokermod = config['brokermod']
+
+    # broker backend should return at the least a
+    # list of candle dictionaries
+    bars = trio.run(
+        partial(
+            core.bars,
+            brokermod,
+            symbol,
+            count=count,
+        )
+    )
+
+    if not bars:
+        log.error(f"No quotes could be found for {symbol}?")
+        return
+
+    if df_output:
+        click.echo(pd.DataFrame(bars))
+    else:
+        click.echo(colorize_json(bars))
 
 
 @cli.command()
@@ -153,7 +139,7 @@ def quote(config, tickers, df_output):
 @click.argument('name', nargs=1, required=True)
 @click.pass_obj
 def monitor(config, rate, name, dhost, test, tl):
-    """Spawn a real-time watchlist.
+    """Start a real-time watchlist UI
     """
     # global opts
     brokermod = config['brokermod']
@@ -167,7 +153,7 @@ def monitor(config, rate, name, dhost, test, tl):
         log.error(f"No symbols found for watchlist `{name}`?")
         return
 
-    from .ui.monitor import _async_main
+    from ..ui.monitor import _async_main
 
     async def main(tries):
         async with maybe_spawn_brokerd_as_subactor(
@@ -184,6 +170,7 @@ def monitor(config, rate, name, dhost, test, tl):
         name='monitor',
         loglevel=loglevel if tl else None,
         rpc_module_paths=['piker.ui.monitor'],
+        start_method='forkserver',
     )
 
 
@@ -196,7 +183,7 @@ def monitor(config, rate, name, dhost, test, tl):
 @click.argument('name', nargs=1, required=True)
 @click.pass_obj
 def record(config, rate, name, dhost, filename):
-    """Record client side quotes to file
+    """Record client side quotes to a file on disk
     """
     # global opts
     brokermod = config['brokermod']
@@ -225,96 +212,6 @@ def record(config, rate, name, dhost, filename):
     click.echo(f"Data feed recording saved to {filename}")
 
 
-@cli.group()
-@click.option('--config_dir', '-d', default=_watchlists_data_path,
-              help='Path to piker configuration directory')
-@click.pass_context
-def watchlists(ctx, config_dir):
-    """Watchlists commands and operations
-    """
-    loglevel = ctx.parent.params['loglevel']
-    get_console_log(loglevel)  # activate console logging
-
-    wl.make_config_dir(_config_dir)
-    ctx.ensure_object(dict)
-    ctx.obj = {'path': config_dir,
-               'watchlist': wl.ensure_watchlists(config_dir)}
-
-
-@watchlists.command(help='show watchlist')
-@click.argument('name', nargs=1, required=False)
-@click.pass_context
-def show(ctx, name):
-    watchlist = wl.merge_watchlist(ctx.obj['watchlist'], wl._builtins)
-    click.echo(colorize_json(
-               watchlist if name is None else watchlist[name]))
-
-
-@watchlists.command(help='load passed in watchlist')
-@click.argument('data', nargs=1, required=True)
-@click.pass_context
-def load(ctx, data):
-    try:
-        wl.write_to_file(json.loads(data), ctx.obj['path'])
-    except (json.JSONDecodeError, IndexError):
-        click.echo('You have passed an invalid text respresentation of a '
-                   'JSON object. Try again.')
-
-
-@watchlists.command(help='add ticker to watchlist')
-@click.argument('name', nargs=1, required=True)
-@click.argument('ticker_names', nargs=-1, required=True)
-@click.pass_context
-def add(ctx, name, ticker_names):
-    for ticker in ticker_names:
-        watchlist = wl.add_ticker(
-            name, ticker, ctx.obj['watchlist'])
-    wl.write_to_file(watchlist, ctx.obj['path'])
-
-
-@watchlists.command(help='remove ticker from watchlist')
-@click.argument('name', nargs=1, required=True)
-@click.argument('ticker_name', nargs=1, required=True)
-@click.pass_context
-def remove(ctx, name, ticker_name):
-    try:
-        watchlist = wl.remove_ticker(name, ticker_name, ctx.obj['watchlist'])
-    except KeyError:
-        log.error(f"No watchlist with name `{name}` could be found?")
-    except ValueError:
-        if name in wl._builtins and ticker_name in wl._builtins[name]:
-            log.error(f"Can not remove ticker `{ticker_name}` from built-in "
-                      f"list `{name}`")
-        else:
-            log.error(f"Ticker `{ticker_name}` not found in list `{name}`")
-    else:
-        wl.write_to_file(watchlist, ctx.obj['path'])
-
-
-@watchlists.command(help='delete watchlist group')
-@click.argument('name', nargs=1, required=True)
-@click.pass_context
-def delete(ctx, name):
-    watchlist = wl.delete_group(name, ctx.obj['watchlist'])
-    wl.write_to_file(watchlist, ctx.obj['path'])
-
-
-@watchlists.command(help='merge a watchlist from another user')
-@click.argument('watchlist_to_merge', nargs=1, required=True)
-@click.pass_context
-def merge(ctx, watchlist_to_merge):
-    merged_watchlist = wl.merge_watchlist(json.loads(watchlist_to_merge),
-                                          ctx.obj['watchlist'])
-    wl.write_to_file(merged_watchlist, ctx.obj['path'])
-
-
-@watchlists.command(help='dump text respresentation of a watchlist to console')
-@click.argument('name', nargs=1, required=False)
-@click.pass_context
-def dump(ctx, name):
-    click.echo(json.dumps(ctx.obj['watchlist']))
-
-
 # options utils
 
 @cli.command()
@@ -325,7 +222,8 @@ def dump(ctx, name):
 @click.argument('symbol', required=True)
 @click.pass_context
 def contracts(ctx, loglevel, broker, symbol, ids):
-
+    """Get list of all option contracts for symbol
+    """
     brokermod = get_brokermod(broker)
     get_console_log(loglevel)
 
@@ -348,8 +246,7 @@ def contracts(ctx, loglevel, broker, symbol, ids):
 @click.argument('symbol', required=True)
 @click.pass_obj
 def optsquote(config, symbol, df_output, date):
-    """Retreive symbol quotes on the console in either
-    json or dataframe format.
+    """Retreive symbol option quotes on the console
     """
     # global opts
     brokermod = config['brokermod']
@@ -381,18 +278,18 @@ def optsquote(config, symbol, df_output, date):
 @click.argument('symbol', required=True)
 @click.pass_obj
 def optschain(config, symbol, date, tl, rate, test):
-    """Start the real-time option chain UI.
+    """Start an option chain UI
     """
     # global opts
     loglevel = config['loglevel']
     brokername = config['broker']
 
-    from .ui.option_chain import _async_main
+    from ..ui.option_chain import _async_main
 
     async def main(tries):
         async with maybe_spawn_brokerd_as_subactor(
             tries=tries, loglevel=loglevel
-        ) as portal:
+        ):
             # run app "main"
             await _async_main(
                 symbol,
@@ -406,4 +303,5 @@ def optschain(config, symbol, date, tl, rate, test):
         partial(main, tries=1),
         name='kivy-options-chain',
         loglevel=loglevel if tl else None,
+        start_method='forkserver',
     )

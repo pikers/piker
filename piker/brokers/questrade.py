@@ -9,14 +9,17 @@ from functools import partial
 import configparser
 from typing import List, Tuple, Dict, Any, Iterator, NamedTuple
 
+import arrow
 import trio
 from async_generator import asynccontextmanager
+import pandas as pd
+import numpy as np
 import wrapt
 import asks
 
 from ..calc import humanize, percent_change
 from . import config
-from ._util import resproc, BrokerError
+from ._util import resproc, BrokerError, SymbolNotFound
 from ..log import get_logger, colorize_json
 from .._async_utils import async_lifo_cache
 
@@ -29,6 +32,25 @@ _version = 'v1'
 # stock queries/sec
 # it seems 4 rps is best we can do total
 _rate_limit = 4
+
+_time_frames = {
+    '1m': 'OneMinute',
+    '2m': 'TwoMinutes',
+    '3m': 'ThreeMinutes',
+    '4m': 'FourMinutes',
+    '5m': 'FiveMinutes',
+    '10m': 'TenMinutes',
+    '15m': 'FifteenMinutes',
+    '20m': 'TwentyMinutes',
+    '30m': 'HalfHour',
+    '1h': 'OneHour',
+    '2h': 'TwoHours',
+    '4h': 'FourHours',
+    'D': 'OneDay',
+    'W': 'OneWeek',
+    'M': 'OneMonth',
+    'Y': 'OneYear',
+}
 
 
 class QuestradeError(Exception):
@@ -70,9 +92,9 @@ def refresh_token_on_err(tries=3):
                 if "Access token is invalid" not in str(qterr.args[0]):
                     raise
                 # TODO: this will crash when run from a sub-actor since
-                # STDIN can't be acquired. The right way to handle this
-                # is to make a request to the parent actor (i.e.
-                # spawner of this) to call this
+                # STDIN can't be acquired (ONLY WITH MP). The right way
+                # to handle this is to make a request to the parent
+                # actor (i.e.  spawner of this) to call this
                 # `client.ensure_access()` locally thus blocking until
                 # the user provides an API key on the "client side"
                 log.warning(f"Tokens are invalid refreshing try {i}..")
@@ -168,8 +190,18 @@ class _API:
             quote['key'] = quote['symbol']
         return quotes
 
-    async def candles(self, id: str, start: str, end, interval) -> dict:
-        return await self._get(f'markets/candles/{id}', params={})
+    async def candles(
+        self, symbol_id:
+        str, start: str,
+        end: str,
+        interval: str
+    ) -> List[Dict[str, float]]:
+        """Retrieve historical candles for provided date range.
+        """
+        return (await self._get(
+            f'markets/candles/{symbol_id}',
+            params={'startTime': start, 'endTime': end, 'interval': interval},
+        ))['candles']
 
     async def option_contracts(self, symbol_id: str) -> dict:
         "Retrieve all option contract API ids with expiry -> strike prices."
@@ -193,7 +225,7 @@ class _API:
             for (symbol, symbol_id, expiry), bystrike in contracts.items()
         ]
         resp = await self._sess.post(
-            path=f'/markets/quotes/options',
+            path='/markets/quotes/options',
             # XXX: b'{"code":1024,"message":"The size of the array requested
             #         is not valid: optionIds"}'
             # ^ what I get when trying to use too many ids manually...
@@ -349,7 +381,10 @@ class Client:
 
         return data
 
-    async def tickers2ids(self, tickers):
+    async def tickers2ids(
+        self,
+        tickers: Iterator[str]
+    ) -> Dict[str, int]:
         """Helper routine that take a sequence of ticker symbols and returns
         their corresponding QT numeric symbol ids.
 
@@ -362,7 +397,7 @@ class Client:
             if id is not None:
                 symbols2ids[symbol] = id
 
-        # still missing uncached values - hit the server
+        # still missing uncached values - hit the api server
         to_lookup = list(set(tickers) - set(symbols2ids))
         if to_lookup:
             data = await self.api.symbols(names=','.join(to_lookup))
@@ -511,6 +546,92 @@ class Client:
 
         return quotes
 
+    async def bars(
+        self,
+        symbol: str,
+        # EST in ISO 8601 format is required... below is EPOCH
+        start_date: str = "1970-01-01T00:00:00.000000-05:00",
+        time_frame: str = '1m',
+        count: float = 20e3,
+        is_paid_feed: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Retreive OHLCV bars for a symbol over a range to the present.
+
+        .. note::
+            The candles endpoint only allows "2000" points per query
+            however tests here show that it is 20k candles per query.
+        """
+        # fix case
+        if symbol.islower():
+            symbol = symbol.swapcase()
+
+        sids = await self.tickers2ids([symbol])
+        if not sids:
+            raise SymbolNotFound(symbol)
+
+        sid = sids[symbol]
+
+        # get last market open end time
+        est_end = now = arrow.utcnow().to('US/Eastern').floor('minute')
+        # on non-paid feeds we can't retreive the first 15 mins
+        wd = now.isoweekday()
+        if wd > 5:
+            quotes = await self.quote([symbol])
+            est_end = arrow.get(quotes[0]['lastTradeTime'])
+            if est_end.hour == 0:
+                # XXX don't bother figuring out extended hours for now
+                est_end = est_end.replace(hour=17)
+
+        if not is_paid_feed:
+            est_end = est_end.shift(minutes=-15)
+
+        est_start = est_end.shift(minutes=-count)
+
+        start = time.time()
+        bars = await self.api.candles(
+            sid,
+            start=est_start.isoformat(),
+            end=est_end.isoformat(),
+            interval=_time_frames[time_frame],
+        )
+        log.debug(
+            f"Took {time.time() - start} seconds to retreive {len(bars)} bars")
+        return bars
+
+
+# marketstore TSD compatible numpy dtype for bar
+_qt_bars_dt = [
+    ('Epoch', 'i8'),
+    # ('start', 'S40'),
+    # ('end', 'S40'),
+    ('low', 'f4'),
+    ('high', 'f4'),
+    ('open', 'f4'),
+    ('close', 'f4'),
+    ('volume', 'i8'),
+    # ('VWAP', 'f4')
+]
+
+
+def get_OHLCV(
+    bar: Dict[str, Any]
+) -> Tuple[str, Any]:
+    """Return a marketstore key-compatible OHCLV dictionary.
+    """
+    del bar['end']
+    del bar['VWAP']
+    bar['start'] = pd.Timestamp(bar['start']).value/10**9
+    return tuple(bar.values())
+
+
+def bars_to_marketstore_structarray(
+    bars: List[Dict[str, Any]]
+) -> np.array:
+    """Return marketstore writeable recarray from sequence of bars
+    retrieved via the ``candles`` endpoint.
+    """
+    return np.array(list(map(get_OHLCV, bars)), dtype=_qt_bars_dt)
+
 
 async def token_refresher(client):
     """Coninually refresh the ``access_token`` near its expiry time.
@@ -549,7 +670,7 @@ def get_config(
     has_token = section.get('refresh_token') if section else False
 
     if force_from_user or ask_user_on_failure and not (section or has_token):
-        log.warn(f"Forcing manual token auth from user")
+        log.warn("Forcing manual token auth from user")
         _token_from_user(conf)
     else:
         if not section:
@@ -634,7 +755,7 @@ async def option_quoter(client: Client, tickers: List[str]):
     if isinstance(tickers[0], tuple):
         datetime.fromisoformat(tickers[0][1])
     else:
-        raise ValueError(f'Option subscription format is (symbol, expiry)')
+        raise ValueError('Option subscription format is (symbol, expiry)')
 
     @async_lifo_cache(maxsize=128)
     async def get_contract_by_date(
@@ -679,7 +800,7 @@ _qt_stock_keys = {
     'VWAP': ('VWAP', partial(round, ndigits=3)),
     'MC': ('MC', humanize),
     '$ vol': ('$ vol', humanize),
-    'volume': ('vol', humanize),
+    'volume': ('volume', humanize),
     # 'close': 'close',
     # 'openPrice': 'open',
     'lowPrice': 'low',
@@ -687,8 +808,8 @@ _qt_stock_keys = {
     # 'low52w': 'low52w',  # put in info widget
     # 'high52w': 'high52w',
     # "lastTradePriceTrHrs": 7.99,
-    # 'lastTradeTime': ('time', datetime.fromisoformat),
-    # "lastTradeTick": "Equal",
+    'lastTradeTime': ('fill_time', datetime.fromisoformat),
+    "lastTradeTick": 'tick',  # ("Equal", "Up", "Down")
     # "symbolId": 3575753,
     # "tier": "",
     # 'isHalted': 'halted',  # as subscript 'h'
@@ -696,12 +817,12 @@ _qt_stock_keys = {
 }
 
 # BidAskLayout columns which will contain three cells the first stacked on top
-# of the other 2
+# of the other 2 (this is a UI layout instruction)
 _stock_bidasks = {
     'last': ['bid', 'ask'],
     'size': ['bsize', 'asize'],
     'VWAP': ['low', 'high'],
-    'vol': ['MC', '$ vol'],
+    'volume': ['MC', '$ vol'],
 }
 
 
