@@ -51,22 +51,24 @@ async def update_quotes(
         chngcell = row.get_cell('%')
 
         # determine daily change color
-        color = colorcode('gray')
         percent_change = record.get('%')
-        if percent_change:
-            daychange = float(record['%'])
+        if percent_change is not None and percent_change != chngcell:
+            daychange = float(percent_change)
             if daychange < 0.:
                 color = colorcode('red2')
             elif daychange > 0.:
                 color = colorcode('forestgreen')
+            else:
+                color = colorcode('gray')
 
-        # update row header and '%' cell text color
-        if chngcell:
-            chngcell.color = color
-            hdrcell.color = color
             # if the cell has been "highlighted" make sure to change its color
             if hdrcell.background_color != [0]*4:
                 hdrcell.background_color = color
+
+            # update row header and '%' cell text color
+            chngcell.color = color
+            hdrcell.color = color
+
 
         # briefly highlight bg of certain cells on each trade execution
         unflash = set()
@@ -123,10 +125,13 @@ async def update_quotes(
             record, displayable = formatter(
                 quote, symbol_data=symbol_data)
 
+            # don't red/green the header cell in ``row.update()``
+            record.pop('symbol')
+
             # determine if sorting should happen
             sort_key = table.sort_key
-            new = record[sort_key]
             last = row.get_field(sort_key)
+            new = record.get(sort_key, last)
             if new != last:
                 to_sort.add(row.widget)
 
