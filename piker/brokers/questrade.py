@@ -6,6 +6,7 @@ import inspect
 import time
 from datetime import datetime
 from functools import partial
+from itertools import chain
 import configparser
 from typing import List, Tuple, Dict, Any, Iterator, NamedTuple
 
@@ -839,28 +840,42 @@ def format_stock_quote(
     and the second is the same but with all values converted to a
     "display-friendly" string format.
     """
-    last = quote['lastTradePrice']
     symbol = quote['symbol']
     previous = symbol_data[symbol]['prevDayClosePrice']
-    change = percent_change(previous, last)
-    share_count = symbol_data[symbol].get('outstandingShares', None)
-    mktcap = share_count * last if (last and share_count) else 0
-    computed = {
-        'symbol': quote['symbol'],
-        '%': round(change, 3),
-        'MC': mktcap,
-        # why QT do you have to be an asshole shipping null values!!!
-        '$ vol': round((quote['VWAP'] or 0) * (quote['volume'] or 0), 3),
-        'close': previous,
-    }
+
+    computed = {'symbol': symbol}
+    last = quote.get('lastTradePrice')
+    if last:
+        change = percent_change(previous, last)
+        share_count = symbol_data[symbol].get('outstandingShares', None)
+        mktcap = share_count * last if (last and share_count) else 0
+        computed.update({
+            # 'symbol': quote['symbol'],
+            '%': round(change, 3),
+            'MC': mktcap,
+            # why questrade do you have to be an asshole shipping null values!!!
+            # '$ vol': round((quote['VWAP'] or 0) * (quote['volume'] or 0), 3),
+            'close': previous,
+        })
+
+    vwap = quote.get('VWAP')
+    volume = quote.get('volume')
+    if volume is not None:  # could be 0
+        # why questrade do you have to be an asshole shipping null values!!!
+        computed['$ vol'] = round((vwap or 0) * (volume or 0), 3)
+
     new = {}
     displayable = {}
 
-    for key, new_key in keymap.items():
-        display_value = value = computed.get(key) or quote.get(key)
+    for key, value in chain(quote.items(), computed.items()):
+        new_key = keymap.get(key)
+        if not new_key:
+            continue
 
         # API servers can return `None` vals when markets are closed (weekend)
         value = 0 if value is None else value
+
+        display_value = value
 
         # convert values to a displayble format using available formatting func
         if isinstance(new_key, tuple):
@@ -869,6 +884,7 @@ def format_stock_quote(
 
         new[new_key] = value
         displayable[new_key] = display_value
+
 
     return new, displayable
 
@@ -939,7 +955,7 @@ def format_option_quote(
     "display-friendly" string format.
     """
     # TODO: need historical data..
-    # (cause why would QT keep their quote structure consistent across
+    # (cause why would questrade keep their quote structure consistent across
     # assets..)
     # previous = symbol_data[symbol]['prevDayClosePrice']
     # change = percent_change(previous, last)
