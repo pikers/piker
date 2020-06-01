@@ -140,8 +140,8 @@ async def stream_requests(
                     _cache[symbol] = quote
 
                     # only ship diff updates and other required fields
-                    payload['symbol'] = symbol
                     payload = {k: quote[k] for k, v in new}
+                    payload['symbol'] = symbol
 
                     # if there was volume likely the last size of
                     # shares traded is useful info and it's possible
