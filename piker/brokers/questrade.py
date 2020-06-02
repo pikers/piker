@@ -84,7 +84,7 @@ def refresh_token_on_err(tries=3):
         for i in range(1, tries):
             try:
                 try:
-                    client._request_not_in_progress.clear()
+                    client._request_not_in_progress = trio.Event()
                     return await wrapped(*args, **kwargs)
                 finally:
                     client._request_not_in_progress.set()
@@ -303,7 +303,7 @@ class Client:
         # token whereby their service can't handle concurrent requests
         # to differnet end points (particularly the auth ep) which
         # causes hangs and premature token invalidation issues.
-        self._has_access.clear()
+        self._has_access = trio.Event()
         try:
             # don't allow simultaneous token refresh requests
             async with self._mutex:
