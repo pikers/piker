@@ -10,9 +10,10 @@ trading and financial analysis targetted at hardcore Linux users.
 It tries to use as much bleeding edge tech as possible including (but not limited to):
 
 - Python 3.7+ for glue and business logic
-- trio_ for async
+- trio_ and asyncio_ for async
 - tractor_ as the underlying actor model
-- marketstore_ for historical data persistence and sharing
+- marketstore_ for historical and real-time tick data persistence and sharing
+- techtonicdb_ for L2 book storage
 - Qt_ for pristine high performance UIs
 
 .. |travis| image:: https://img.shields.io/travis/pikers/piker/master.svg
@@ -20,18 +21,19 @@ It tries to use as much bleeding edge tech as possible including (but not limite
 .. _trio: https://github.com/python-trio/trio
 .. _tractor: https://github.com/goodboy/tractor
 .. _marketstore: https://github.com/alpacahq/marketstore
+.. _techtonicdb: https://github.com/0b01/tectonicdb
 .. _Qt: https://www.qt.io/
 
 
 Focus and Features:
 *******************
-- 100% decentralized: running your code on your hardware with your
-  broker's data feeds **is the point** (this is not a web-based *I
+- 100% federated: running your code on your hardware with your
+  broker's data feeds, privately, **is the point** (this is not a web-based *I
   don't know how to run my own system* project).
-- Built on a highly reliable "next-gen" [actor
-  model](https://github.com/goodboy/tractor) with built in async
-  streaming and scalability protocols allowing us to utilize
-  a distributed architecture from the ground up.
+- Asset class, broker, exchange agnostic.
+- Built on a highly reliable `structured concurrent actor model
+  <tractor>`_ with built in async streaming and scalability protocols
+  allowing for a distributed architecture from the ground up.
 - Privacy: your orders, indicators, algos are all run client side and
   are shared only with the (groups of) traders you specify.
 - Production grade, highly attractive native UIs that feel and fit like
@@ -43,7 +45,8 @@ Focus and Features:
   probably haven't heard of but that the authors **know** generate alpha
   when paired with the right strategies.
 - Emphasis on collaboration through sharing of data, ideas, and processing
-  power.
+  power. We will not host your code in the cloud nor ask you to
+  participate in any lame "alpha competitions".
 - Adoption is very low priority, especially if you're not an experienced
   trader; the system is not built for sale it is built for *people*.
 - No, we will never have a "corporation friendly license"; if you intend to use
@@ -123,5 +126,4 @@ Then start the client app as normal::
     piker monitor indexes
 
 
-.. _trio: https://github.com/python-trio/trio
 .. _pipenv: https://docs.pipenv.org/
