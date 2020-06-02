@@ -183,6 +183,8 @@ def ingest(config, name, test_file, tl, url):
                             log.error(
                                 f"{symbol}: got same volume as last quote?")
 
+                    quote_cache.update(fmt_quote)
+
                     a = quote_to_marketstore_structarray(
                         fmt_quote,
                         # TODO: check this closer to the broker query api
