@@ -1,9 +1,11 @@
 """
 Console interface to UI components.
 """
+from datetime import datetime
 from functools import partial
 import os
 import click
+import trio
 import tractor
 
 from ..cli import cli
@@ -103,3 +105,33 @@ def optschain(config, symbol, date, tl, rate, test):
         loglevel=loglevel if tl else None,
         start_method='forkserver',
     )
+
+
+@cli.command()
+@click.option('--tl', is_flag=True, help='Enable tractor logging')
+@click.option('--date', '-d', help='Contracts expiry date')
+@click.option('--test', '-t', help='Test quote stream file')
+@click.option('--rate', '-r', default=1, help='Logging level')
+@click.argument('symbol', required=True)
+@click.pass_obj
+def chart(config, symbol, date, tl, rate, test):
+    """Start an option chain UI
+    """
+    from .qt._exec import run_qtrio
+    from .qt._chart import QuotesTabWidget
+    from .qt.quantdom.base import Symbol
+    from .qt.quantdom.loaders import get_quotes
+
+    async def plot_symbol(widgets):
+        qtw = widgets['main']
+        s = Symbol(ticker=symbol, mode=Symbol.SHARES)
+        get_quotes(
+            symbol=s.ticker,
+            date_from=datetime(1900, 1, 1),
+            date_to=datetime(2030, 12, 31),
+        )
+        # spawn chart
+        qtw.update_chart(s)
+        await trio.sleep_forever()
+
+    run_qtrio(plot_symbol, (), QuotesTabWidget)

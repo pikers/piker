@@ -5,7 +5,6 @@ Run ``trio`` in guest mode on top of the Qt event loop.
 All global Qt runtime settings are mostly defined here.
 """
 import traceback
-from datetime import datetime
 
 import PyQt5  # noqa
 from pyqtgraph import QtGui
@@ -14,10 +13,6 @@ from PyQt5.QtCore import pyqtRemoveInputHook
 import qdarkstyle
 import trio
 from outcome import Error
-
-from _chart import QuotesTabWidget
-from quantdom.base import Symbol
-from quantdom.loaders import get_quotes
 
 
 # Taken from Quantdom
@@ -98,20 +93,3 @@ def run_qtrio(
     window.setCentralWidget(instance)
     window.show()
     app.exec_()
-
-
-async def plot_aapl(widgets):
-    qtw = widgets['main']
-    s = Symbol(ticker='AAPL', mode=Symbol.SHARES)
-    get_quotes(
-        symbol=s.ticker,
-        date_from=datetime(1900, 1, 1),
-        date_to=datetime(2030, 12, 31),
-    )
-    # spawn chart
-    qtw.update_chart(s)
-    await trio.sleep_forever()
-
-
-if __name__ == '__main__':
-    run_qtrio(plot_aapl, (), QuotesTabWidget)
