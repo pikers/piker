@@ -103,22 +103,3 @@ def optschain(config, symbol, date, tl, rate, test):
         loglevel=loglevel if tl else None,
         start_method='forkserver',
     )
-
-
-@cli.command()
-@click.option('--tl', is_flag=True, help='Enable tractor logging')
-@click.option('--date', '-d', help='Contracts expiry date')
-@click.option('--test', '-t', help='Test quote stream file')
-@click.option('--rate', '-r', default=1, help='Logging level')
-@click.argument('symbol', required=True)
-@click.pass_obj
-def chart(config, symbol, date, tl, rate, test):
-    """Start an option chain UI
-    """
-    from ._chart import main
-
-    # global opts
-    loglevel = config['loglevel']
-    brokername = config['broker']
-
-    main(sym=symbol, brokername=brokername, loglevel=loglevel)

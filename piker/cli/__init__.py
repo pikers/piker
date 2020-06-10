@@ -16,6 +16,7 @@ _config_dir = click.get_app_dir('piker')
 _watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
 _context_defaults = dict(
     default_map={
+        # Questrade specific quote poll rates
         'monitor': {
             'rate': 3,
         },
