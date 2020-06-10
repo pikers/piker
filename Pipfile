@@ -5,7 +5,8 @@ name = "pypi"
 
 [packages]
 e1839a8 = {path = ".",editable = true}
-trio = "*"
+# use master branch for "guest mode"
+trio = {git = "git://github.com/python-trio/trio.git"}
 Cython = "*"
 # use master branch kivy since wheels seem borked (due to cython stuff)
 kivy = {git = "git://github.com/kivy/kivy.git"}
@@ -14,8 +15,8 @@ msgpack = "*"
 tractor = {git = "git://github.com/goodboy/tractor.git"}
 toml = "*"
 pyqtgraph = "*"
-pyside2 = "*"
 qdarkstyle = "*"
+pyqt5 = "*"
 
 [dev-packages]
 pytest = "*"
