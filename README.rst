@@ -10,7 +10,7 @@ trading and financial analysis targetted at hardcore Linux users.
 It tries to use as much bleeding edge tech as possible including (but not limited to):
 
 - Python 3.7+ for glue_ and business logic
-- trio_ and `asyncio` for async
+- trio_ for async
 - tractor_ as the underlying actor model
 - marketstore_ for historical and real-time tick data persistence and sharing
 - techtonicdb_ for L2 book storage
