@@ -61,10 +61,10 @@ class AsyncCallbackQueue(object):
         return self
 
     async def __anext__(self):
-        self.event.clear()
+        self.event = async_lib.Event()
         while not self.callback_result and not self.quit:
             await self.event.wait()
-            self.event.clear()
+            self.event = async_lib.Event()
 
         if self.callback_result:
             return self.callback_result.popleft()
