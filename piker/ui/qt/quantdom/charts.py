@@ -260,32 +260,54 @@ class YAxisLabel(AxisLabel):
         self.setPos(new_pos)
 
 
+class ScrollFromRightView(pg.ViewBox):
+
+    def wheelEvent(self, ev, axis=None):
+        if axis in (0, 1):
+            mask = [False, False]
+            mask[axis] = self.state['mouseEnabled'][axis]
+        else:
+            mask = self.state['mouseEnabled'][:]
+
+        # actual scaling factor
+        s = 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
+        s = [(None if m is False else s) for m in mask]
+
+        # XXX: scroll "around" the right most element in the view
+        # center = pg.Point(
+        #     fn.invertQTransform(self.childGroup.transform()).map(ev.pos())
+        # )
+        furthest_right_coord = self.boundingRect().topRight()
+        center = pg.Point(
+           fn.invertQTransform(self.childGroup.transform()).map(furthest_right_coord)
+        )
+
+        self._resetTarget()
+        self.scaleBy(s, center)
+        ev.accept()
+        self.sigRangeChangedManually.emit(mask)
+
+
 # TODO: convert this to a ``ViewBox`` type giving us
 # control over mouse scrolling and a context menu
+# This is a sub-class of ``GracphicView`` which can
+# take a ``background`` color setting.
 class CustomPlotWidget(pg.PlotWidget):
+    """``GraphicsView`` subtype containing a single ``PlotItem``.
+
+    (Could be replaced with a ``pg.GraphicsLayoutWidget`` if we
+    eventually want multiple plots managed together).
+    """
+
     sig_mouse_leave = QtCore.Signal(object)
     sig_mouse_enter = QtCore.Signal(object)
 
-    # def wheelEvent(self, ev, axis=None):
-    #     if axis in (0, 1):
-    #         mask = [False, False]
-    #         mask[axis] = self.state['mouseEnabled'][axis]
-    #     else:
-    #         mask = self.state['mouseEnabled'][:]
-
-    #     # actual scaling factor
-    #     s = 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
-    #     s = [(None if m is False else s) for m in mask]
-
-    #     self._resetTarget()
-    #     self.scaleBy(s, center)
-    #     ev.accept()
-    #     self.sigRangeChangedManually.emit(mask)
-
     def enterEvent(self, ev):  # noqa
+        pg.PlotWidget.enterEvent(self, ev)
         self.sig_mouse_enter.emit(self)
 
     def leaveEvent(self, ev):  # noqa
+        pg.PlotWidget.leaveEvent(self, ev)
         self.sig_mouse_leave.emit(self)
         self.scene().leaveEvent(ev)
 
@@ -441,6 +463,8 @@ class CrossHairItem(pg.GraphicsObject):
 
 
 class BarItem(pg.GraphicsObject):
+    # XXX: From the customGraphicsItem.py example:
+    # The only required methods are paint() and boundingRect()
 
     w = 0.5
 
@@ -452,7 +476,19 @@ class BarItem(pg.GraphicsObject):
         super().__init__()
         self.generatePicture()
 
+    # TODO: this is the routine to be retriggered for redraw
+    @timeit
+    def generatePicture(self):
+        # pre-computing a QPicture object allows paint() to run much
+        # more quickly, rather than re-drawing the shapes every time.
+        self.picture = QtGui.QPicture()
+        p = QtGui.QPainter(self.picture)
+        self._generate(p)
+        p.end()
+
     def _generate(self, p):
+        # XXX: overloaded method to allow drawing other candle types
+
         high_to_low = np.array(
             [QtCore.QLineF(q.id, q.low, q.id, q.high) for q in Quotes]
         )
@@ -476,18 +512,14 @@ class BarItem(pg.GraphicsObject):
         p.setPen(self.bear_brush)
         p.drawLines(*lines[short_bars])
 
-    # TODO: this is the routine to be retriggered for redraw
-    @timeit
-    def generatePicture(self):
-        self.picture = QtGui.QPicture()
-        p = QtGui.QPainter(self.picture)
-        self._generate(p)
-        p.end()
-
     def paint(self, p, *args):
         p.drawPicture(0, 0, self.picture)
 
     def boundingRect(self):
+        # boundingRect _must_ indicate the entire area that will be
+        # drawn on or else we will get artifacts and possibly crashing.
+        # (in this case, QPicture does all the work of computing the
+        # bouning rect for us)
         return QtCore.QRectF(self.picture.boundingRect())
 
 
@@ -529,7 +561,13 @@ def _configure_quotes_chart(
 
     chart.hideAxis('left')
     chart.showAxis('right')
+
+    # adds all bar/candle graphics objects for each
+    # data point in the np array buffer to
+    # be drawn on next render cycle
     chart.addItem(_get_chart_points(style))
+
+    # set panning limits
     chart.setLimits(
         xMin=Quotes[0].id,
         xMax=Quotes[-1].id,
@@ -537,8 +575,8 @@ def _configure_quotes_chart(
         yMin=Quotes.low.min() * 0.98,
         yMax=Quotes.high.max() * 1.02,
     )
-    chart.showGrid(x=True, y=True)
-    chart.setCursor(QtCore.Qt.BlankCursor)
+    chart.showGrid(x=True, y=True, alpha=0.4)
+    chart.setCursor(QtCore.Qt.CrossCursor)
 
     # assign callback for rescaling y-axis automatically
     # based on y-range contents
@@ -607,6 +645,7 @@ class QuotesChart(QtGui.QWidget):
             ind.addItem(curve)
             ind.hideAxis('left')
             ind.showAxis('right')
+            # XXX: never do this lol
             # ind.setAspectLocked(1)
             ind.setXLink(self.chart)
             ind.setLimits(
@@ -616,8 +655,8 @@ class QuotesChart(QtGui.QWidget):
                 yMin=Quotes.open.min() * 0.98,
                 yMax=Quotes.open.max() * 1.02,
             )
-            ind.showGrid(x=True, y=True)
-            ind.setCursor(QtCore.Qt.BlankCursor)
+            ind.showGrid(x=True, y=True, alpha=0.4)
+            ind.setCursor(QtCore.Qt.CrossCursor)
 
     def _update_sizes(self):
         min_h_ind = int(self.height() * 0.3 / len(self.indicators))
@@ -655,7 +694,8 @@ class QuotesChart(QtGui.QWidget):
         self.chart = CustomPlotWidget(
             parent=self.splitter,
             axisItems={'bottom': self.xaxis, 'right': PriceAxis()},
-            enableMenu=False,
+            viewBox=ScrollFromRightView,
+            # enableMenu=False,
         )
         self.chart.getPlotItem().setContentsMargins(*CHART_MARGINS)
         self.chart.setFrameStyle(QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain)
@@ -668,7 +708,7 @@ class QuotesChart(QtGui.QWidget):
                 parent=self.splitter,
                 axisItems={'bottom': self.xaxis_ind, 'right': PriceAxis()},
                 # axisItems={'top': self.xaxis_ind, 'right': PriceAxis()},
-                enableMenu=False,
+                # enableMenu=False,
             )
             ind.setFrameStyle(QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain)
             ind.getPlotItem().setContentsMargins(*CHART_MARGINS)
