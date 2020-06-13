@@ -62,7 +62,9 @@ class BasePortfolio:
         for p in self.positions:
             if p.status == Position.OPEN:
                 p.close(
-                    price=Quotes[-1].open, volume=p.volume, time=Quotes[-1].time
+                    price=Quotes[-1].open,
+                    volume=p.volume,
+                    time=Quotes[-1].time
                 )
 
     def _get_market_position(self):

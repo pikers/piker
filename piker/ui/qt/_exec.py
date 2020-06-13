@@ -32,7 +32,6 @@ def run_qtrio(
     args,
     main_widget,
 ) -> None:
-
     # avoids annoying message when entering debugger from qt loop
     pyqtRemoveInputHook()
 
