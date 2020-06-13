@@ -10,6 +10,16 @@ from .const import ChartType, TimeFrame
 __all__ = ('Indicator', 'Symbol', 'Quotes')
 
 
+# I actually can't think of a worse reason to override an array than
+# this:
+# - a method .new() that mutates the data from an input data frame
+# - mutating the time column wholesale based on a setting
+# - enforcing certain fields / columns
+# - zero overriding of any of the array interface for the purposes of
+#   a different underlying implementation.
+
+# Literally all this can be done in a simple function with way less
+# confusion for the reader.
 class BaseQuotes(np.recarray):
     def __new__(cls, shape=None, dtype=None, order='C'):
         dt = np.dtype(
@@ -49,6 +59,8 @@ class BaseQuotes(np.recarray):
         minutes = int(np.diff(self.time[-10:]).min() / 60)
         self.timeframe = tf.get(minutes) or tf[default_tf]
 
+    # bruh this isn't creating anything it's copying data in
+    # from a data frame...
     def new(self, data, source=None, default_tf=None):
         shape = (len(data),)
         self.resize(shape, refcheck=False)
@@ -77,7 +89,7 @@ class BaseQuotes(np.recarray):
         return self
 
     def convert_dates(self, dates):
-        return np.array([d.timestamp() for d in dates])
+        return np.array([d.timestamp().time for d in dates])
 
 
 class SymbolType(Enum):
@@ -129,4 +141,6 @@ class Indicator:
         self.lineStyle.update(kwargs)
 
 
+# This creates a global array that seems to be shared between all
+# charting UI components
 Quotes = BaseQuotes()

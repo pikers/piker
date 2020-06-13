@@ -3,7 +3,9 @@
 import logging
 import os.path
 import pickle
+import datetime
 
+import numpy as np
 import pandas as pd
 import pandas_datareader.data as web
 from pandas_datareader._utils import RemoteDataError
@@ -15,7 +17,7 @@ from pandas_datareader.data import (
 from pandas_datareader.nasdaq_trader import get_nasdaq_symbols
 from pandas_datareader.exceptions import ImmediateDeprecationError
 
-from .base import Quotes
+from .base import Quotes, Symbol
 from .utils import get_data_path, timeit
 
 __all__ = (
@@ -71,7 +73,15 @@ class QuotesLoader:
 
     @classmethod
     @timeit
-    def get_quotes(cls, symbol, date_from, date_to):
+    def get_quotes(
+        cls,
+        symbol: Symbol,
+        date_from: datetime.datetime,
+        date_to: datetime.datetime,
+    ) -> Quotes:
+        """Retrieve quotes data from a provider and return a ``numpy.ndarray`` subtype.
+        """
+
         quotes = None
         fpath = cls._get_file_path(symbol, cls.timeframe, date_from, date_to)
         if os.path.exists(fpath):
