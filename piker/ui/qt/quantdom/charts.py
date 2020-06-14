@@ -1,7 +1,7 @@
 """
 Real-time quotes charting components
 """
-from typing import Callable, List, Tuple
+from typing import List, Tuple
 
 import numpy as np
 import pyqtgraph as pg
@@ -13,10 +13,10 @@ from .const import ChartType
 from .portfolio import Order, Portfolio
 from .utils import fromtimestamp, timeit
 
-__all__ = ('QuotesChart')
+__all__ = ('SplitterChart')
 
 
-# white background for tinas like xb
+# white background (for tinas like our pal xb)
 # pg.setConfigOption('background', 'w')
 
 # margins
@@ -260,9 +260,79 @@ class YAxisLabel(AxisLabel):
         self.setPos(new_pos)
 
 
-class ScrollFromRightView(pg.ViewBox):
+class ChartView(pg.ViewBox):
+    """Price chart view box with interaction behaviors you'd expect from
+    an interactive platform:
+
+    - zoom on mouse scroll that auto fits y-axis
+    - no vertical scrolling
+    - zoom to a "fixed point" on the y-axis
+    """
+    def __init__(
+        self,
+        parent=None,
+        **kwargs,
+        # invertY=False,
+    ):
+        super().__init__(parent=parent, **kwargs)
+        self.chart = parent
+
+        # disable vertical scrolling
+        self.setMouseEnabled(x=True, y=False)
+
+        # assign callback for rescaling y-axis automatically
+        # based on y-range contents
+        self.chart.sigXRangeChanged.connect(self._update_yrange_limits)
+
+    def _update_yrange_limits(self):
+        """Callback for each y-range update.
+
+        This adds auto-scaling like zoom on the scroll wheel such
+        that data always fits nicely inside the current view of the
+        data set.
+        """
+        # TODO: this can likely be ported in part to the built-ins:
+        # self.setYRange(Quotes.low.min() * .98, Quotes.high.max() * 1.02)
+        # self.setMouseEnabled(x=True, y=False)
+        # self.setXRange(Quotes[0].id, Quotes[-1].id)
+        # self.setAutoVisible(x=False, y=True)
+        # self.enableAutoRange(x=False, y=True)
+
+        chart = self.chart
+        chart_parent = chart.parent
+
+        vr = self.chart.viewRect()
+        lbar, rbar = int(vr.left()), int(vr.right())
+
+        if chart_parent.signals_visible:
+            chart_parent._show_text_signals(lbar, rbar)
+
+        bars = Quotes[lbar:rbar]
+        ylow = bars.low.min() * 0.98
+        yhigh = bars.high.max() * 1.02
+
+        std = np.std(bars.close)
+        chart.setLimits(yMin=ylow, yMax=yhigh, minYRange=std)
+        chart.setYRange(ylow, yhigh)
+
+        for i, d in chart_parent.indicators:
+            # ydata = i.plotItem.items[0].getData()[1]
+            ydata = d[lbar:rbar]
+            ylow = ydata.min() * 0.98
+            yhigh = ydata.max() * 1.02
+            std = np.std(ydata)
+            i.setLimits(yMin=ylow, yMax=yhigh, minYRange=std)
+            i.setYRange(ylow, yhigh)
 
     def wheelEvent(self, ev, axis=None):
+        """Override "center-point" location for scrolling.
+
+        This is an override of the ``ViewBox`` method simply changing
+        the center of the zoom to be the y-axis.
+
+        TODO: PR a method into ``pyqtgraph`` to make this configurable
+        """
+
         if axis in (0, 1):
             mask = [False, False]
             mask[axis] = self.state['mouseEnabled'][axis]
@@ -307,11 +377,11 @@ class ChartPlotWidget(pg.PlotWidget):
     sig_mouse_enter = QtCore.Signal(object)
 
     def enterEvent(self, ev):  # noqa
-        pg.PlotWidget.enterEvent(self, ev)
+        # pg.PlotWidget.enterEvent(self, ev)
         self.sig_mouse_enter.emit(self)
 
     def leaveEvent(self, ev):  # noqa
-        pg.PlotWidget.leaveEvent(self, ev)
+        # pg.PlotWidget.leaveEvent(self, ev)
         self.sig_mouse_leave.emit(self)
         self.scene().leaveEvent(ev)
 
@@ -562,16 +632,19 @@ def _configure_chart(
 ) -> None:
     """Configure a chart with common settings.
     """
-
     # show only right side axes
     chart.hideAxis('left')
     chart.showAxis('right')
+
+    # highest = Quotes.high.max() * 1.02
+    # lowest = Quotes.low.min() * 0.98
 
     # set panning limits
     chart.setLimits(
         xMin=Quotes[0].id,
         xMax=Quotes[-1].id,
-        minXRange=60,
+        minXRange=40,
+        # maxYRange=highest-lowest,
         yMin=Quotes.low.min() * 0.98,
         yMax=Quotes.high.max() * 1.02,
     )
@@ -584,8 +657,7 @@ def _configure_chart(
 
 def _configure_quotes_chart(
     chart: ChartPlotWidget,
-    style: ChartType,
-    update_yrange_limits: Callable,
+    style: ChartType = ChartType.BAR,
 ) -> None:
     """Update and format a chart with quotes data.
     """
@@ -596,19 +668,15 @@ def _configure_quotes_chart(
     # be drawn on next render cycle
     chart.addItem(_get_chart_points(style))
 
-    # assign callback for rescaling y-axis automatically
-    # based on y-range contents
-
-    # TODO: this can likely be ported to built-in: .enableAutoRange()
-    # but needs testing
-    chart.sigXRangeChanged.connect(update_yrange_limits)
-
 
 def _configure_ind_charts(
     indicators: List[Tuple[ChartPlotWidget, np.ndarray]],
     xlink_to_chart: ChartPlotWidget,
 ) -> None:
     for ind_chart, d in indicators:
+        # link chart x-axis to main quotes chart
+        ind_chart.setXLink(xlink_to_chart)
+
         # default config
         _configure_chart(ind_chart)
 
@@ -618,11 +686,8 @@ def _configure_ind_charts(
         # XXX: never do this lol
         # ind.setAspectLocked(1)
 
-        # link chart x-axis to main quotes chart
-        ind_chart.setXLink(xlink_to_chart)
 
-
-class QuotesChart(QtGui.QWidget):
+class SplitterChart(QtGui.QWidget):
 
     long_pen = pg.mkPen('#006000')
     long_brush = pg.mkBrush('#00ff00')
@@ -634,7 +699,6 @@ class QuotesChart(QtGui.QWidget):
     def __init__(self):
         super().__init__()
         self.signals_visible = False
-        self.style = ChartType.BAR
         self.indicators = []
 
         self.xaxis = FromTimeFieldDateAxis(orientation='bottom')
@@ -677,44 +741,23 @@ class QuotesChart(QtGui.QWidget):
         self.signals_visible = False
 
     def _update_sizes(self):
-        min_h_ind = int(self.height() * 0.3 / len(self.indicators))
-        sizes = [int(self.height() * 0.7)]
+        min_h_ind = int(self.height() * 0.2 / len(self.indicators))
+        sizes = [int(self.height() * 0.8)]
         sizes.extend([min_h_ind] * len(self.indicators))
         self.splitter.setSizes(sizes)  # , int(self.height()*0.2)
-
-    def _update_yrange_limits(self):
-        """Callback for each y-range update.
-        """
-        vr = self.chart.viewRect()
-        lbar, rbar = int(vr.left()), int(vr.right())
-
-        if self.signals_visible:
-            self._show_text_signals(lbar, rbar)
-
-        bars = Quotes[lbar:rbar]
-        ylow = bars.low.min() * 0.98
-        yhigh = bars.high.max() * 1.02
-
-        std = np.std(bars.close)
-        self.chart.setLimits(yMin=ylow, yMax=yhigh, minYRange=std)
-        self.chart.setYRange(ylow, yhigh)
-        for i, d in self.indicators:
-            # ydata = i.plotItem.items[0].getData()[1]
-            ydata = d[lbar:rbar]
-            ylow = ydata.min() * 0.98
-            yhigh = ydata.max() * 1.02
-            std = np.std(ydata)
-            i.setLimits(yMin=ylow, yMax=yhigh, minYRange=std)
-            i.setYRange(ylow, yhigh)
 
     def plot(self, symbol):
         self.digits = symbol.digits
         self.chart = ChartPlotWidget(
             parent=self.splitter,
             axisItems={'bottom': self.xaxis, 'right': PriceAxis()},
-            viewBox=ScrollFromRightView,
+            viewBox=ChartView,
             # enableMenu=False,
         )
+        # TODO: ``pyqtgraph`` doesn't pass through a parent to the
+        # ``PlotItem`` by default; maybe we should PR this in?
+        self.chart.plotItem.parent = self
+
         self.chart.getPlotItem().setContentsMargins(*CHART_MARGINS)
         self.chart.setFrameStyle(QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain)
 
@@ -726,8 +769,10 @@ class QuotesChart(QtGui.QWidget):
                 parent=self.splitter,
                 axisItems={'bottom': self.xaxis_ind, 'right': PriceAxis()},
                 # axisItems={'top': self.xaxis_ind, 'right': PriceAxis()},
-                # enableMenu=False,
+                viewBox=ChartView,
             )
+            ind.plotItem.parent = self
+
             ind.setFrameStyle(QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain)
             ind.getPlotItem().setContentsMargins(*CHART_MARGINS)
             # self.splitter.addWidget(ind)
@@ -735,8 +780,6 @@ class QuotesChart(QtGui.QWidget):
 
         _configure_quotes_chart(
             self.chart,
-            self.style,
-            self._update_yrange_limits
         )
         _configure_ind_charts(
             self.indicators,
