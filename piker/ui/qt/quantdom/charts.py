@@ -1,7 +1,7 @@
 """
 Real-time quotes charting components
 """
-from typing import Callable
+from typing import Callable, List, Tuple
 
 import numpy as np
 import pyqtgraph as pg
@@ -279,7 +279,9 @@ class ScrollFromRightView(pg.ViewBox):
         # )
         furthest_right_coord = self.boundingRect().topRight()
         center = pg.Point(
-           fn.invertQTransform(self.childGroup.transform()).map(furthest_right_coord)
+           fn.invertQTransform(
+               self.childGroup.transform()
+            ).map(furthest_right_coord)
         )
 
         self._resetTarget()
@@ -288,12 +290,14 @@ class ScrollFromRightView(pg.ViewBox):
         self.sigRangeChangedManually.emit(mask)
 
 
-# TODO: convert this to a ``ViewBox`` type giving us
-# control over mouse scrolling and a context menu
-# This is a sub-class of ``GracphicView`` which can
+# TODO: This is a sub-class of ``GracphicView`` which can
 # take a ``background`` color setting.
-class CustomPlotWidget(pg.PlotWidget):
+class ChartPlotWidget(pg.PlotWidget):
     """``GraphicsView`` subtype containing a single ``PlotItem``.
+
+    Overrides a ``pyqtgraph.PlotWidget`` (a ``GraphicsView`` containing
+    a single ``PlotItem``) to intercept and and re-emit mouse enter/exit
+    events.
 
     (Could be replaced with a ``pg.GraphicsLayoutWidget`` if we
     eventually want multiple plots managed together).
@@ -360,6 +364,7 @@ class CrossHairItem(pg.GraphicsObject):
                 slot=lambda: self.mouseAction('Leave', False),
             )
 
+        # determine where to place x-axis label
         if _xaxis_at == 'bottom':
             # place below is last indicator subplot
             self.xaxis_label = XAxisLabel(
@@ -407,7 +412,8 @@ class CrossHairItem(pg.GraphicsObject):
             else:
                 self.yaxis_label.show()
                 self.hline.show()
-        else:  # Leave
+        # Leave
+        else:
             # hide horiz line and y-label
             if ind:
                 self.indicators[ind]['hl'].hide()
@@ -424,7 +430,7 @@ class CrossHairItem(pg.GraphicsObject):
 
         pos = evt[0]
 
-        # if the mouse is within the parent ``CustomPlotWidget``
+        # if the mouse is within the parent ``ChartPlotWidget``
         if self.parent.sceneBoundingRect().contains(pos):
             # mouse_point = self.vb.mapSceneToView(pos)
             mouse_point = self.parent.mapToView(pos)
@@ -551,21 +557,15 @@ class CandlestickItem(BarItem):
         p.drawRects(*rects[Quotes.close < Quotes.open])
 
 
-def _configure_quotes_chart(
-    chart: CustomPlotWidget,
-    style: ChartType,
-    update_yrange_limits: Callable,
+def _configure_chart(
+    chart: ChartPlotWidget,
 ) -> None:
-    """Update and format a chart with quotes data.
+    """Configure a chart with common settings.
     """
 
+    # show only right side axes
     chart.hideAxis('left')
     chart.showAxis('right')
-
-    # adds all bar/candle graphics objects for each
-    # data point in the np array buffer to
-    # be drawn on next render cycle
-    chart.addItem(_get_chart_points(style))
 
     # set panning limits
     chart.setLimits(
@@ -575,14 +575,51 @@ def _configure_quotes_chart(
         yMin=Quotes.low.min() * 0.98,
         yMax=Quotes.high.max() * 1.02,
     )
+    # show background grid
     chart.showGrid(x=True, y=True, alpha=0.4)
+
+    # use cross-hair for cursor
     chart.setCursor(QtCore.Qt.CrossCursor)
+
+
+def _configure_quotes_chart(
+    chart: ChartPlotWidget,
+    style: ChartType,
+    update_yrange_limits: Callable,
+) -> None:
+    """Update and format a chart with quotes data.
+    """
+    _configure_chart(chart)
+
+    # adds all bar/candle graphics objects for each
+    # data point in the np array buffer to
+    # be drawn on next render cycle
+    chart.addItem(_get_chart_points(style))
 
     # assign callback for rescaling y-axis automatically
     # based on y-range contents
+
     # TODO: this can likely be ported to built-in: .enableAutoRange()
     # but needs testing
     chart.sigXRangeChanged.connect(update_yrange_limits)
+
+
+def _configure_ind_charts(
+    indicators: List[Tuple[ChartPlotWidget, np.ndarray]],
+    xlink_to_chart: ChartPlotWidget,
+) -> None:
+    for ind_chart, d in indicators:
+        # default config
+        _configure_chart(ind_chart)
+
+        curve = pg.PlotDataItem(d, pen='b', antialias=True)
+        ind_chart.addItem(curve)
+
+        # XXX: never do this lol
+        # ind.setAspectLocked(1)
+
+        # link chart x-axis to main quotes chart
+        ind_chart.setXLink(xlink_to_chart)
 
 
 class QuotesChart(QtGui.QWidget):
@@ -639,25 +676,6 @@ class QuotesChart(QtGui.QWidget):
         del self.signals_group_text
         self.signals_visible = False
 
-    def _update_ind_charts(self):
-        for ind, d in self.indicators:
-            curve = pg.PlotDataItem(d, pen='b', antialias=True)
-            ind.addItem(curve)
-            ind.hideAxis('left')
-            ind.showAxis('right')
-            # XXX: never do this lol
-            # ind.setAspectLocked(1)
-            ind.setXLink(self.chart)
-            ind.setLimits(
-                xMin=Quotes[0].id,
-                xMax=Quotes[-1].id,
-                minXRange=60,
-                yMin=Quotes.open.min() * 0.98,
-                yMax=Quotes.open.max() * 1.02,
-            )
-            ind.showGrid(x=True, y=True, alpha=0.4)
-            ind.setCursor(QtCore.Qt.CrossCursor)
-
     def _update_sizes(self):
         min_h_ind = int(self.height() * 0.3 / len(self.indicators))
         sizes = [int(self.height() * 0.7)]
@@ -691,7 +709,7 @@ class QuotesChart(QtGui.QWidget):
 
     def plot(self, symbol):
         self.digits = symbol.digits
-        self.chart = CustomPlotWidget(
+        self.chart = ChartPlotWidget(
             parent=self.splitter,
             axisItems={'bottom': self.xaxis, 'right': PriceAxis()},
             viewBox=ScrollFromRightView,
@@ -704,7 +722,7 @@ class QuotesChart(QtGui.QWidget):
         inds = [Quotes.open]
 
         for d in inds:
-            ind = CustomPlotWidget(
+            ind = ChartPlotWidget(
                 parent=self.splitter,
                 axisItems={'bottom': self.xaxis_ind, 'right': PriceAxis()},
                 # axisItems={'top': self.xaxis_ind, 'right': PriceAxis()},
@@ -720,7 +738,10 @@ class QuotesChart(QtGui.QWidget):
             self.style,
             self._update_yrange_limits
         )
-        self._update_ind_charts()
+        _configure_ind_charts(
+            self.indicators,
+            xlink_to_chart=self.chart
+        )
         self._update_sizes()
 
         ch = CrossHairItem(
@@ -783,7 +804,7 @@ class QuotesChart(QtGui.QWidget):
         self.signals_visible = True
 
 
-# this function is borderline rediculous.
+# this function is borderline ridiculous.
 # The creation of these chart types mutates all the input data
 # inside each type's constructor (mind blown)
 def _get_chart_points(style):
