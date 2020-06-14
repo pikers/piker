@@ -89,5 +89,6 @@ def run_qtrio(
 
     window.main_widget = main_widget
     window.setCentralWidget(instance)
+    # actually render to screen
     window.show()
     app.exec_()
