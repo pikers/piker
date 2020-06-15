@@ -66,14 +66,14 @@ class PriceAxis(pg.AxisItem):
 
     def __init__(self):
         super().__init__(orientation='right')
-        # self.setStyle(**{
-        #     'textFillLimits': [(0, 0.8)],
-        #     # 'tickTextWidth': 5,
-        #     # 'tickTextHeight': 5,
-        #     # 'autoExpandTextSpace': True,
-        #     # 'maxTickLength': -20,
-        # })
-        # self.setLabel(**{'font-size':'10pt'})
+        self.setStyle(**{
+            'textFillLimits': [(0, 0.8)],
+            # 'tickTextWidth': 5,
+            # 'tickTextHeight': 5,
+            # 'autoExpandTextSpace': True,
+            # 'maxTickLength': -20,
+        })
+        self.setLabel(**{'font-size': '10pt'})
         self.setTickFont(_font)
 
     # XXX: drop for now since it just eats up h space
@@ -224,6 +224,8 @@ class XAxisLabel(AxisLabel):
     def tick_to_string(self, tick_pos):
         # TODO: change to actual period
         tpl = self.parent.tick_tpl['D1']
+        if tick_pos > len(Quotes):
+            return 'Unknown Time'
         return fromtimestamp(Quotes[round(tick_pos)].time).strftime(tpl)
 
     def boundingRect(self):  # noqa
@@ -280,50 +282,6 @@ class ChartView(pg.ViewBox):
         # disable vertical scrolling
         self.setMouseEnabled(x=True, y=False)
 
-        # assign callback for rescaling y-axis automatically
-        # based on y-range contents
-        self.chart.sigXRangeChanged.connect(self._update_yrange_limits)
-
-    def _update_yrange_limits(self):
-        """Callback for each y-range update.
-
-        This adds auto-scaling like zoom on the scroll wheel such
-        that data always fits nicely inside the current view of the
-        data set.
-        """
-        # TODO: this can likely be ported in part to the built-ins:
-        # self.setYRange(Quotes.low.min() * .98, Quotes.high.max() * 1.02)
-        # self.setMouseEnabled(x=True, y=False)
-        # self.setXRange(Quotes[0].id, Quotes[-1].id)
-        # self.setAutoVisible(x=False, y=True)
-        # self.enableAutoRange(x=False, y=True)
-
-        chart = self.chart
-        chart_parent = chart.parent
-
-        vr = self.chart.viewRect()
-        lbar, rbar = int(vr.left()), int(vr.right())
-
-        if chart_parent.signals_visible:
-            chart_parent._show_text_signals(lbar, rbar)
-
-        bars = Quotes[lbar:rbar]
-        ylow = bars.low.min() * 0.98
-        yhigh = bars.high.max() * 1.02
-
-        std = np.std(bars.close)
-        chart.setLimits(yMin=ylow, yMax=yhigh, minYRange=std)
-        chart.setYRange(ylow, yhigh)
-
-        for i, d in chart_parent.indicators:
-            # ydata = i.plotItem.items[0].getData()[1]
-            ydata = d[lbar:rbar]
-            ylow = ydata.min() * 0.98
-            yhigh = ydata.max() * 1.02
-            std = np.std(ydata)
-            i.setLimits(yMin=ylow, yMax=yhigh, minYRange=std)
-            i.setYRange(ylow, yhigh)
-
     def wheelEvent(self, ev, axis=None):
         """Override "center-point" location for scrolling.
 
@@ -343,10 +301,11 @@ class ChartView(pg.ViewBox):
         s = 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
         s = [(None if m is False else s) for m in mask]
 
-        # XXX: scroll "around" the right most element in the view
         # center = pg.Point(
         #     fn.invertQTransform(self.childGroup.transform()).map(ev.pos())
         # )
+
+        # XXX: scroll "around" the right most element in the view
         furthest_right_coord = self.boundingRect().topRight()
         center = pg.Point(
            fn.invertQTransform(
@@ -372,9 +331,129 @@ class ChartPlotWidget(pg.PlotWidget):
     (Could be replaced with a ``pg.GraphicsLayoutWidget`` if we
     eventually want multiple plots managed together).
     """
-
     sig_mouse_leave = QtCore.Signal(object)
     sig_mouse_enter = QtCore.Signal(object)
+
+    def __init__(
+        self,
+        split_charts,
+        **kwargs,
+        # parent=None,
+        # background='default',
+        # plotItem=None,
+        # **kargs
+    ):
+        """Configure chart display settings.
+        """
+
+        super().__init__(**kwargs)
+        # label = pg.LabelItem(justify='left')
+        # self.addItem(label)
+        # label.setText("Yo yoyo")
+        # label.setText("<span style='font-size: 12pt'>x=")
+        self.parent = split_charts
+
+        # show only right side axes
+        self.hideAxis('left')
+        self.showAxis('right')
+
+        # show background grid
+        self.showGrid(x=True, y=True, alpha=0.4)
+
+        # use cross-hair for cursor
+        self.setCursor(QtCore.Qt.CrossCursor)
+
+        # set panning limits
+        min_points_to_show = 20
+        min_bars_in_view = 10
+        max_lookahead = min_points_to_show - min_bars_in_view
+        last = Quotes[-1].id
+        self.setLimits(
+            xMin=Quotes[0].id,
+            xMax=last + max_lookahead,
+            minXRange=min_points_to_show,
+            # maxYRange=highest-lowest,
+            yMin=Quotes.low.min() * 0.98,
+            yMax=Quotes.high.max() * 1.02,
+        )
+
+        # show last 50 points on startup
+        self.plotItem.vb.setXRange(last - 50, last + max_lookahead)
+
+        # assign callback for rescaling y-axis automatically
+        # based on y-range contents
+        self.sigXRangeChanged.connect(self._update_yrange_limits)
+        self._update_yrange_limits()
+
+    def bars_range(self):
+        """Return a range tuple for the bars present in view.
+        """
+
+        vr = self.viewRect()
+        lbar, rbar = int(vr.left()), int(min(vr.right(), len(Quotes) - 1))
+        return lbar, rbar
+
+    def draw_ohlc(
+        self,
+        style: ChartType = ChartType.BAR,
+    ) -> None:
+        """Draw OHLC datums to chart.
+        """
+
+        # adds all bar/candle graphics objects for each
+        # data point in the np array buffer to
+        # be drawn on next render cycle
+        self.addItem(_get_chart_points(style))
+
+    def draw_curve(
+        self,
+        data: np.ndarray,
+    ) -> None:
+        # draw the indicator as a plain curve
+        curve = pg.PlotDataItem(data, antialias=True)
+        ind_chart.addItem(curve)
+
+    def _update_yrange_limits(self):
+        """Callback for each y-range update.
+
+        This adds auto-scaling like zoom on the scroll wheel such
+        that data always fits nicely inside the current view of the
+        data set.
+        """
+        # TODO: this can likely be ported in part to the built-ins:
+        # self.setYRange(Quotes.low.min() * .98, Quotes.high.max() * 1.02)
+        # self.setMouseEnabled(x=True, y=False)
+        # self.setXRange(Quotes[0].id, Quotes[-1].id)
+        # self.setAutoVisible(x=False, y=True)
+        # self.enableAutoRange(x=False, y=True)
+
+        chart = self
+        chart_parent = self.parent
+
+        lbar, rbar = self.bars_range()
+        # vr = chart.viewRect()
+        # lbar, rbar = int(vr.left()), int(vr.right())
+
+        if chart_parent.signals_visible:
+            chart_parent._show_text_signals(lbar, rbar)
+
+        bars = Quotes[lbar:rbar]
+        ylow = bars.low.min() * 0.98
+        yhigh = bars.high.max() * 1.02
+
+        std = np.std(bars.close)
+        chart.setLimits(yMin=ylow, yMax=yhigh, minYRange=std)
+        chart.setYRange(ylow, yhigh)
+
+        for i, d in chart_parent.indicators:
+            # ydata = i.plotItem.items[0].getData()[1]
+            ydata = d[lbar:rbar]
+            ylow = ydata.min() * 0.98
+            yhigh = ydata.max() * 1.02
+            std = np.std(ydata)
+            i.setLimits(yMin=ylow, yMax=yhigh, minYRange=std)
+            i.setYRange(ylow, yhigh)
+
 
     def enterEvent(self, ev):  # noqa
         # pg.PlotWidget.enterEvent(self, ev)
@@ -525,7 +604,7 @@ class CrossHairItem(pg.GraphicsObject):
                     evt_post=pos, point_view=mouse_point_ind
                 )
             else:
-                # vertial position of the mouse is inside and main chart
+                # vertial position of the mouse is inside the main chart
                 self.hline.setY(mouse_point.y())
                 self.yaxis_label.update_label(
                     evt_post=pos, point_view=mouse_point
@@ -627,66 +706,6 @@ class CandlestickItem(BarItem):
         p.drawRects(*rects[Quotes.close < Quotes.open])
 
 
-def _configure_chart(
-    chart: ChartPlotWidget,
-) -> None:
-    """Configure a chart with common settings.
-    """
-    # show only right side axes
-    chart.hideAxis('left')
-    chart.showAxis('right')
-
-    # highest = Quotes.high.max() * 1.02
-    # lowest = Quotes.low.min() * 0.98
-
-    # set panning limits
-    chart.setLimits(
-        xMin=Quotes[0].id,
-        xMax=Quotes[-1].id,
-        minXRange=40,
-        # maxYRange=highest-lowest,
-        yMin=Quotes.low.min() * 0.98,
-        yMax=Quotes.high.max() * 1.02,
-    )
-    # show background grid
-    chart.showGrid(x=True, y=True, alpha=0.4)
-
-    # use cross-hair for cursor
-    chart.setCursor(QtCore.Qt.CrossCursor)
-
-
-def _configure_quotes_chart(
-    chart: ChartPlotWidget,
-    style: ChartType = ChartType.BAR,
-) -> None:
-    """Update and format a chart with quotes data.
-    """
-    _configure_chart(chart)
-
-    # adds all bar/candle graphics objects for each
-    # data point in the np array buffer to
-    # be drawn on next render cycle
-    chart.addItem(_get_chart_points(style))
-
-
-def _configure_ind_charts(
-    indicators: List[Tuple[ChartPlotWidget, np.ndarray]],
-    xlink_to_chart: ChartPlotWidget,
-) -> None:
-    for ind_chart, d in indicators:
-        # link chart x-axis to main quotes chart
-        ind_chart.setXLink(xlink_to_chart)
-
-        # default config
-        _configure_chart(ind_chart)
-
-        curve = pg.PlotDataItem(d, pen='b', antialias=True)
-        ind_chart.addItem(curve)
-
-        # XXX: never do this lol
-        # ind.setAspectLocked(1)
-
-
 class SplitterChart(QtGui.QWidget):
 
     long_pen = pg.mkPen('#006000')
@@ -711,11 +730,11 @@ class SplitterChart(QtGui.QWidget):
         else:
             self.xaxis_ind.setStyle(showValues=False)
 
-        self.layout = QtGui.QVBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-
         self.splitter = QtGui.QSplitter(QtCore.Qt.Vertical)
         self.splitter.setHandleWidth(5)
+
+        self.layout = QtGui.QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
 
         self.layout.addWidget(self.splitter)
 
@@ -749,6 +768,7 @@ class SplitterChart(QtGui.QWidget):
     def plot(self, symbol):
         self.digits = symbol.digits
         self.chart = ChartPlotWidget(
+            split_charts=self,
             parent=self.splitter,
             axisItems={'bottom': self.xaxis, 'right': PriceAxis()},
             viewBox=ChartView,
@@ -766,6 +786,7 @@ class SplitterChart(QtGui.QWidget):
 
         for d in inds:
             ind = ChartPlotWidget(
+                split_charts=self,
                 parent=self.splitter,
                 axisItems={'bottom': self.xaxis_ind, 'right': PriceAxis()},
                 # axisItems={'top': self.xaxis_ind, 'right': PriceAxis()},
@@ -778,13 +799,17 @@ class SplitterChart(QtGui.QWidget):
             # self.splitter.addWidget(ind)
             self.indicators.append((ind, d))
 
-        _configure_quotes_chart(
-            self.chart,
-        )
-        _configure_ind_charts(
-            self.indicators,
-            xlink_to_chart=self.chart
-        )
+        self.chart.draw_ohlc()
+
+        for ind_chart, d in self.indicators:
+
+            # link chart x-axis to main quotes chart
+            ind_chart.setXLink(self.chart)
+
+            # XXX: never do this lol
+            # ind.setAspectLocked(1)
+            ind_chart.draw_curve(d)
+
         self._update_sizes()
 
         ch = CrossHairItem(
