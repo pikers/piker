@@ -19,9 +19,6 @@ from .quantdom.const import ChartType
 from .quantdom.portfolio import Order, Portfolio
 
 
-# white background (for tinas like our pal xb)
-# pg.setConfigOption('background', 'w')
-
 # margins
 CHART_MARGINS = (0, 0, 10, 3)
 
@@ -135,7 +132,10 @@ class SplitterChart(QtGui.QWidget):
         self.splitter.setSizes(sizes)  # , int(self.height()*0.2)
 
     def plot(self, symbol):
+        """Start up and show price chart and all registered indicators.
+        """
         self.digits = symbol.digits
+
         self.chart = ChartPlotWidget(
             split_charts=self,
             parent=self.splitter,
@@ -145,7 +145,7 @@ class SplitterChart(QtGui.QWidget):
         )
         # TODO: ``pyqtgraph`` doesn't pass through a parent to the
         # ``PlotItem`` by default; maybe we should PR this in?
-        self.chart.plotItem.parent = self
+        self.chart.plotItem.vb.splitter_widget = self
 
         self.chart.getPlotItem().setContentsMargins(*CHART_MARGINS)
         self.chart.setFrameStyle(QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain)
@@ -161,7 +161,7 @@ class SplitterChart(QtGui.QWidget):
                 # axisItems={'top': self.xaxis_ind, 'right': PriceAxis()},
                 viewBox=ChartView,
             )
-            ind.plotItem.parent = self
+            self.chart.plotItem.vb.splitter_widget = self
 
             ind.setFrameStyle(QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain)
             ind.getPlotItem().setContentsMargins(*CHART_MARGINS)
@@ -241,6 +241,10 @@ class SplitterChart(QtGui.QWidget):
         self.signals_visible = True
 
 
+_min_points_to_show = 20
+_min_bars_in_view = 10
+
+
 # TODO: This is a sub-class of ``GracphicView`` which can
 # take a ``background`` color setting.
 class ChartPlotWidget(pg.PlotWidget):
@@ -286,14 +290,12 @@ class ChartPlotWidget(pg.PlotWidget):
         self.setCursor(QtCore.Qt.CrossCursor)
 
         # set panning limits
-        min_points_to_show = 20
-        min_bars_in_view = 10
-        max_lookahead = min_points_to_show - min_bars_in_view
+        max_lookahead = _min_points_to_show - _min_bars_in_view
         last = Quotes[-1].id
         self.setLimits(
             xMin=Quotes[0].id,
             xMax=last + max_lookahead,
-            minXRange=min_points_to_show,
+            minXRange=_min_points_to_show,
             # maxYRange=highest-lowest,
             yMin=Quotes.low.min() * 0.98,
             yMax=Quotes.high.max() * 1.02,
@@ -402,8 +404,6 @@ class ChartView(pg.ViewBox):
         # invertY=False,
     ):
         super().__init__(parent=parent, **kwargs)
-        self.chart = parent
-
         # disable vertical scrolling
         self.setMouseEnabled(x=True, y=False)
 
@@ -421,6 +421,11 @@ class ChartView(pg.ViewBox):
             mask[axis] = self.state['mouseEnabled'][axis]
         else:
             mask = self.state['mouseEnabled'][:]
+
+        lbar, rbar = self.splitter_widget.chart.bars_range()
+        if ev.delta() >= 0 and rbar - lbar <= _min_points_to_show:
+            # don't zoom more then the min points setting
+            return
 
         # actual scaling factor
         s = 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
