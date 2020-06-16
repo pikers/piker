@@ -225,3 +225,26 @@ def optsquote(config, symbol, df_output, date):
         click.echo(df)
     else:
         click.echo(colorize_json(quotes))
+
+
+@cli.command()
+@click.argument('tickers', nargs=-1, required=True)
+@click.pass_obj
+def symbol_info(config, tickers):
+    """Print symbol quotes to the console
+    """
+    # global opts
+    brokermod = config['brokermod']
+
+    quotes = trio.run(partial(core.symbol_info, brokermod, tickers))
+    if not quotes:
+        log.error(f"No quotes could be found for {tickers}?")
+        return
+
+    if len(quotes) < len(tickers):
+        syms = tuple(map(itemgetter('symbol'), quotes))
+        for ticker in tickers:
+            if ticker not in syms:
+                brokermod.log.warn(f"Could not find symbol {ticker}?")
+
+    click.echo(colorize_json(quotes))
