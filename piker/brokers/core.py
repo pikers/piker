@@ -22,7 +22,7 @@ async def api(brokername: str, methname: str, **kwargs) -> dict:
     async with brokermod.get_client() as client:
         meth = getattr(client, methname, None)
         if meth is None:
-            log.warning(
+            log.debug(
                 f"Couldn't find API method {methname} looking up on client")
             meth = getattr(client.api, methname, None)
 
@@ -108,15 +108,3 @@ async def symbol_info(
     """
     async with brokermod.get_client() as client:
         return await client.symbol_info(symbol, **kwargs)
-
-
-async def symbol_search(
-    brokermod: ModuleType,
-    pattern: str,
-    **kwargs,
-) -> Dict[str, Dict[str, Dict[str, Any]]]:
-    """Return symbol info from broker.
-    """
-    async with brokermod.get_client() as client:
-        # TODO: support multiple asset type concurrent searches.
-        return await client.search_stocks(pattern=pattern, **kwargs)

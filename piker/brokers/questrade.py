@@ -408,7 +408,7 @@ class Client:
 
         return symbols2ids
 
-    async def symbol_data(self, tickers: List[str]):
+    async def symbol_info(self, tickers: List[str]):
         """Return symbol data for ``tickers``.
         """
         t2ids = await self.tickers2ids(tickers)
@@ -418,6 +418,9 @@ class Client:
             symbols[pkt['symbol']] = pkt
 
         return symbols
+
+    # TODO: deprecate
+    symbol_data = symbol_info
 
     async def quote(self, tickers: [str]):
         """Return stock quotes for each ticker in ``tickers``.
