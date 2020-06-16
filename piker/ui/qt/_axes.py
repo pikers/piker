@@ -72,7 +72,14 @@ class AxisLabel(pg.GraphicsObject):
     bg_color = pg.mkColor('#808080')
     fg_color = pg.mkColor('#000000')
 
-    def __init__(self, parent=None, digits=0, color=None, opacity=1, **kwargs):
+    def __init__(
+        self,
+        parent=None,
+        digits=0,
+        color=None,
+        opacity=1,
+        **kwargs
+    ):
         super().__init__(parent)
         self.parent = parent
         self.opacity = opacity

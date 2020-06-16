@@ -1,14 +1,18 @@
 """
 Chart graphics for displaying a slew of different data types.
 """
+from enum import Enum
+from contextlib import contextmanager
+
 import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
+from PyQt5.QtCore import QLineF
 
 from .quantdom.utils import timeit
 from .quantdom.base import Quotes
 
-from ._style import _xaxis_at
+from ._style import _xaxis_at, _tina_mode
 from ._axes import YAxisLabel, XAxisLabel
 
 
@@ -163,11 +167,10 @@ class CrossHairItem(pg.GraphicsObject):
         return self.parent.boundingRect()
 
 
-class BarItem(pg.GraphicsObject):
-    # XXX: From the customGraphicsItem.py example:
-    # The only required methods are paint() and boundingRect()
-
-    w = 0.5
+class BarItems(pg.GraphicsObject):
+    """Price range bars graphics rendered from a OHLC sequence.
+    """
+    w: float = 0.5
 
     bull_brush = bear_brush = pg.mkPen('#808080')
     # bull_brush = pg.mkPen('#00cc00')
@@ -175,44 +178,72 @@ class BarItem(pg.GraphicsObject):
 
     def __init__(self):
         super().__init__()
-        self.generatePicture()
+        self.picture = QtGui.QPicture()
+        self.lines = None
+        # self.generatePicture()
 
     # TODO: this is the routine to be retriggered for redraw
-    @timeit
-    def generatePicture(self):
+    @contextmanager
+    def painter(self):
         # pre-computing a QPicture object allows paint() to run much
         # more quickly, rather than re-drawing the shapes every time.
-        self.picture = QtGui.QPicture()
         p = QtGui.QPainter(self.picture)
-        self._generate(p)
+        yield p
         p.end()
 
-    def _generate(self, p):
+    @timeit
+    def draw_from_data(self, data):
         # XXX: overloaded method to allow drawing other candle types
 
-        high_to_low = np.array(
-            [QtCore.QLineF(q.id, q.low, q.id, q.high) for q in Quotes]
-        )
-        open_stick = np.array(
-            [QtCore.QLineF(q.id - self.w, q.open, q.id, q.open)
-             for q in Quotes]
-        )
-        close_stick = np.array(
-            [
-                QtCore.QLineF(q.id + self.w, q.close, q.id, q.close)
-                for q in Quotes
-            ]
-        )
-        lines = np.concatenate([high_to_low, open_stick, close_stick])
-        long_bars = np.resize(Quotes.close > Quotes.open, len(lines))
-        short_bars = np.resize(Quotes.close < Quotes.open, len(lines))
+        high_to_low = np.empty_like(data, dtype=object)
+        open_sticks = np.empty_like(data, dtype=object)
+        close_sticks = np.empty_like(data, dtype=object)
+        with self.painter() as p:
+            import time
+            start = time.time()
+            for i, q in enumerate(data):
+                high_to_low[i] = QLineF(q['id'], q['low'], q['id'], q['high'])
+                open_sticks[i] = QLineF(
+                        q['id'] - self.w, q['open'], q['id'], q['open'])
+                close_sticks[i] = QtCore.QLineF(
+                        q['id'] + self.w, q['close'], q['id'], q['close'])
 
-        p.setPen(self.bull_brush)
-        p.drawLines(*lines[long_bars])
+            # high_to_low = np.array(
+            #     [QtCore.QLineF(q.id, q.low, q.id, q.high) for q in Quotes]
+            # )
+            # open_sticks = np.array(
+            #     [QtCore.QLineF(q.id - self.w, q.open, q.id, q.open)
+            #      for q in Quotes]
+            # )
+            # close_sticks = np.array(
+            #     [
+            #         QtCore.QLineF(q.id + self.w, q.close, q.id, q.close)
+            #         for q in Quotes
+            #     ]
+            # )
+            print(f"took {time.time() - start}")
+            self.lines = lines = np.concatenate([high_to_low, open_sticks, close_sticks])
 
-        p.setPen(self.bear_brush)
-        p.drawLines(*lines[short_bars])
+            if _tina_mode:
+                long_bars = np.resize(Quotes.close > Quotes.open, len(lines))
+                short_bars = np.resize(Quotes.close < Quotes.open, len(lines))
+                ups = lines[long_bars]
+                downs = lines[short_bars]
 
+                # draw "up" bars
+                p.setPen(self.bull_brush)
+                p.drawLines(*ups)
+
+                # draw "down" bars
+                p.setPen(self.bear_brush)
+                p.drawLines(*downs)
+
+            else:  # piker mode
+                p.setPen(self.bull_brush)
+                p.drawLines(*lines)
+
+    # XXX: From the customGraphicsItem.py example:
+    # The only required methods are paint() and boundingRect()
     def paint(self, p, *args):
         p.drawPicture(0, 0, self.picture)
 
@@ -224,7 +255,7 @@ class BarItem(pg.GraphicsObject):
         return QtCore.QRectF(self.picture.boundingRect())
 
 
-class CandlestickItem(BarItem):
+class CandlestickItems(BarItems):
 
     w2 = 0.7
     line_pen = pg.mkPen('#000000')
@@ -250,3 +281,11 @@ class CandlestickItem(BarItem):
 
         p.setBrush(self.bear_brush)
         p.drawRects(*rects[Quotes.close < Quotes.open])
+
+
+class ChartType(Enum):
+    """Bar type to graphics class map.
+    """
+    BAR = BarItems
+    CANDLESTICK = CandlestickItems
+    LINE = pg.PlotDataItem
