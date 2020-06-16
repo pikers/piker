@@ -118,20 +118,24 @@ def chart(config, symbol, date, tl, rate, test):
     """Start an option chain UI
     """
     from .qt._exec import run_qtrio
-    from .qt._chart import QuotesTabWidget
-    from .qt.quantdom.base import Symbol
+    from .qt._chart import Chart
+
+    # uses pandas_datareader
     from .qt.quantdom.loaders import get_quotes
 
     async def plot_symbol(widgets):
+        """Main Qt-trio routine invoked by the Qt loop with
+        the widgets ``dict``.
+        """
+
         qtw = widgets['main']
-        s = Symbol(ticker=symbol, mode=Symbol.SHARES)
-        get_quotes(
-            symbol=s.ticker,
+        quotes = get_quotes(
+            symbol=symbol,
             date_from=datetime(1900, 1, 1),
             date_to=datetime(2030, 12, 31),
         )
         # spawn chart
-        qtw.update_chart(s)
+        qtw.load_symbol(symbol, quotes)
         await trio.sleep_forever()
 
-    run_qtrio(plot_symbol, (), QuotesTabWidget)
+    run_qtrio(plot_symbol, (), Chart)

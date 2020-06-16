@@ -10,12 +10,13 @@ from ._axes import (
     FromTimeFieldDateAxis,
     PriceAxis,
 )
-from ._graphics import CrossHairItem, CandlestickItem, BarItem
+from ._graphics import CrossHairItem, ChartType
 from ._style import _xaxis_at
+from ._source import Symbol
 
 from .quantdom.charts import CenteredTextItem
 from .quantdom.base import Quotes
-from .quantdom.const import ChartType
+# from .quantdom.const import ChartType
 from .quantdom.portfolio import Order, Portfolio
 
 
@@ -23,20 +24,21 @@ from .quantdom.portfolio import Order, Portfolio
 CHART_MARGINS = (0, 0, 10, 3)
 
 
-class QuotesTabWidget(QtGui.QWidget):
+class Chart(QtGui.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.layout = QtGui.QVBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.v_layout = QtGui.QVBoxLayout(self)
+        self.v_layout.setContentsMargins(0, 0, 0, 0)
         self.toolbar_layout = QtGui.QHBoxLayout()
         self.toolbar_layout.setContentsMargins(10, 10, 15, 0)
-        self.chart_layout = QtGui.QHBoxLayout()
+        self.h_layout = QtGui.QHBoxLayout()
 
         # self.init_timeframes_ui()
         # self.init_strategy_ui()
 
-        self.layout.addLayout(self.toolbar_layout)
-        self.layout.addLayout(self.chart_layout)
+        self.v_layout.addLayout(self.toolbar_layout)
+        self.v_layout.addLayout(self.h_layout)
+        self._plot_cache = {}
 
     def init_timeframes_ui(self):
         self.tf_layout = QtGui.QHBoxLayout()
@@ -58,21 +60,32 @@ class QuotesTabWidget(QtGui.QWidget):
     #     self.strategy_box = StrategyBoxWidget(self)
     #     self.toolbar_layout.addWidget(self.strategy_box)
 
-    # TODO: this needs to be changed to ``load_symbol()``
-    # which will not only load historical data but also a real-time
-    # stream and schedule the redraw events on new quotes
-    def update_chart(self, symbol):
-        if not self.chart_layout.isEmpty():
-            self.chart_layout.removeWidget(self.chart)
-        self.chart = SplitterChart()
-        self.chart.plot(symbol)
-        self.chart_layout.addWidget(self.chart)
+    def load_symbol(
+        self,
+        symbol: str,
+        data: np.ndarray,
+    ) -> None:
+        """Load a new contract into the charting app.
+        """
+        # XXX: let's see if this causes mem problems
+        self.chart = self._plot_cache.setdefault(symbol, SplitterPlots())
+        s = Symbol(key=symbol)
 
-    def add_signals(self):
-        self.chart.add_signals()
+        # remove any existing plots
+        if not self.h_layout.isEmpty():
+            self.h_layout.removeWidget(self.chart)
+
+        self.chart.plot(s, data)
+        self.h_layout.addWidget(self.chart)
+
+    # TODO: add signalling painter system
+    # def add_signals(self):
+    #     self.chart.add_signals()
 
 
-class SplitterChart(QtGui.QWidget):
+class SplitterPlots(QtGui.QWidget):
+    """Widget that holds a price chart plus indicators separated by splitters.
+    """
 
     long_pen = pg.mkPen('#006000')
     long_brush = pg.mkBrush('#00ff00')
@@ -131,16 +144,21 @@ class SplitterChart(QtGui.QWidget):
         sizes.extend([min_h_ind] * len(self.indicators))
         self.splitter.setSizes(sizes)  # , int(self.height()*0.2)
 
-    def plot(self, symbol):
+    def plot(
+        self,
+        symbol: Symbol,
+        data: np.ndarray,
+    ):
         """Start up and show price chart and all registered indicators.
         """
-        self.digits = symbol.digits
+        self.digits = symbol.digits()
 
+        cv = ChartView()
         self.chart = ChartPlotWidget(
             split_charts=self,
             parent=self.splitter,
             axisItems={'bottom': self.xaxis, 'right': PriceAxis()},
-            viewBox=ChartView,
+            viewBox=cv,
             # enableMenu=False,
         )
         # TODO: ``pyqtgraph`` doesn't pass through a parent to the
@@ -150,27 +168,28 @@ class SplitterChart(QtGui.QWidget):
         self.chart.getPlotItem().setContentsMargins(*CHART_MARGINS)
         self.chart.setFrameStyle(QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain)
 
+        self.chart.draw_ohlc(data)
+
         # TODO: this is where we would load an indicator chain
         inds = [Quotes.open]
 
         for d in inds:
-            ind = ChartPlotWidget(
+            cv = ChartView()
+            ind_chart = ChartPlotWidget(
                 split_charts=self,
                 parent=self.splitter,
                 axisItems={'bottom': self.xaxis_ind, 'right': PriceAxis()},
                 # axisItems={'top': self.xaxis_ind, 'right': PriceAxis()},
-                viewBox=ChartView,
+                viewBox=cv,
             )
             self.chart.plotItem.vb.splitter_widget = self
 
-            ind.setFrameStyle(QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain)
-            ind.getPlotItem().setContentsMargins(*CHART_MARGINS)
-            # self.splitter.addWidget(ind)
-            self.indicators.append((ind, d))
-
-        self.chart.draw_ohlc()
-
-        for ind_chart, d in self.indicators:
+            ind_chart.setFrameStyle(
+                QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain
+            )
+            ind_chart.getPlotItem().setContentsMargins(*CHART_MARGINS)
+            # self.splitter.addWidget(ind_chart)
+            self.indicators.append((ind_chart, d))
 
             # link chart x-axis to main quotes chart
             ind_chart.setXLink(self.chart)
@@ -245,8 +264,6 @@ _min_points_to_show = 20
 _min_bars_in_view = 10
 
 
-# TODO: This is a sub-class of ``GracphicView`` which can
-# take a ``background`` color setting.
 class ChartPlotWidget(pg.PlotWidget):
     """``GraphicsView`` subtype containing a single ``PlotItem``.
 
@@ -259,6 +276,9 @@ class ChartPlotWidget(pg.PlotWidget):
     """
     sig_mouse_leave = QtCore.Signal(object)
     sig_mouse_enter = QtCore.Signal(object)
+
+    # TODO: can take a ``background`` color setting - maybe there's
+    # a better one?
 
     def __init__(
         self,
@@ -319,15 +339,18 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def draw_ohlc(
         self,
+        data: np.ndarray,
         style: ChartType = ChartType.BAR,
     ) -> None:
         """Draw OHLC datums to chart.
         """
-
+        # remember it's an enum type..
+        graphics = style.value()
         # adds all bar/candle graphics objects for each
         # data point in the np array buffer to
         # be drawn on next render cycle
-        self.addItem(_get_chart_points(style))
+        graphics.draw_from_data(data)
+        self.addItem(graphics)
 
     def draw_curve(
         self,
@@ -422,9 +445,9 @@ class ChartView(pg.ViewBox):
         else:
             mask = self.state['mouseEnabled'][:]
 
+        # don't zoom more then the min points setting
         lbar, rbar = self.splitter_widget.chart.bars_range()
         if ev.delta() >= 0 and rbar - lbar <= _min_points_to_show:
-            # don't zoom more then the min points setting
             return
 
         # actual scaling factor
@@ -447,14 +470,3 @@ class ChartView(pg.ViewBox):
         self.scaleBy(s, center)
         ev.accept()
         self.sigRangeChangedManually.emit(mask)
-
-
-# this function is borderline ridiculous.
-# The creation of these chart types mutates all the input data
-# inside each type's constructor (mind blown)
-def _get_chart_points(style):
-    if style == ChartType.CANDLESTICK:
-        return CandlestickItem()
-    elif style == ChartType.BAR:
-        return BarItem()
-    return pg.PlotDataItem(Quotes.close, pen='b')
