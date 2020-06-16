@@ -1,20 +1,20 @@
 #!/usr/bin/env python
 
-# piker: destroy all suits
+# piker: trading gear for hackers
 # Copyright 2018 Tyler Goodlet
 
 # This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
+# it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
+# GNU Affero General Public License for more details.
 
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from setuptools import setup
 
@@ -24,10 +24,10 @@ with open('README.rst', encoding='utf-8') as f:
 
 setup(
     name="piker",
-    version='0.1.0.alpha0',
-    description='Trading gear for hackers, scientists, quants and underpants warriors.',
+    version='0.1.0.alpha0.dev0',
+    description='trading gear for hackers.',
     long_description=readme,
-    license='Mozilla',
+    license='AGPLv3',
     author='Tyler Goodlet',
     maintainer='Tyler Goodlet',
     maintainer_email='tgoodlet@gmail.com',
