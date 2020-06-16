@@ -193,50 +193,41 @@ class BarItems(pg.GraphicsObject):
 
     @timeit
     def draw_from_data(self, data):
-        # XXX: overloaded method to allow drawing other candle types
-
-        high_to_low = np.empty_like(data, dtype=object)
-        open_sticks = np.empty_like(data, dtype=object)
-        close_sticks = np.empty_like(data, dtype=object)
+        self.lines = lines = np.empty_like(data, shape=(data.shape[0]*3,), dtype=object)
+        # open_sticks = np.empty_like(data, dtype=object)
+        # close_sticks = np.empty_like(data, dtype=object)
         with self.painter() as p:
-            import time
-            start = time.time()
+            # import time
+            # start = time.time()
             for i, q in enumerate(data):
-                high_to_low[i] = QLineF(q['id'], q['low'], q['id'], q['high'])
-                open_sticks[i] = QLineF(
-                        q['id'] - self.w, q['open'], q['id'], q['open'])
-                close_sticks[i] = QtCore.QLineF(
-                        q['id'] + self.w, q['close'], q['id'], q['close'])
-
-            # high_to_low = np.array(
-            #     [QtCore.QLineF(q.id, q.low, q.id, q.high) for q in Quotes]
-            # )
-            # open_sticks = np.array(
-            #     [QtCore.QLineF(q.id - self.w, q.open, q.id, q.open)
-            #      for q in Quotes]
-            # )
-            # close_sticks = np.array(
-            #     [
-            #         QtCore.QLineF(q.id + self.w, q.close, q.id, q.close)
-            #         for q in Quotes
-            #     ]
-            # )
-            print(f"took {time.time() - start}")
-            self.lines = lines = np.concatenate([high_to_low, open_sticks, close_sticks])
+                # indexing here is as per the below comments
+                lines[3*i:3*i+3] = (
+                    # high_to_low
+                    QLineF(q['id'], q['low'], q['id'], q['high']),
+                    # open_sticks
+                    QLineF(q['id'] - self.w, q['open'], q['id'], q['open']),
+                    # close_sticks
+                    QtCore.QLineF(q['id'] + self.w, q['close'], q['id'], q['close'])
+                )
+            # print(f"took {time.time() - start}")
+            # self.lines = lines = np.concatenate([high_to_low, open_sticks, close_sticks])
 
             if _tina_mode:
-                long_bars = np.resize(Quotes.close > Quotes.open, len(lines))
-                short_bars = np.resize(Quotes.close < Quotes.open, len(lines))
-                ups = lines[long_bars]
-                downs = lines[short_bars]
+                pass
+                # use traditional up/down green/red coloring
+                # long_bars = np.resize(Quotes.close > Quotes.open, len(lines))
+                # short_bars = np.resize(Quotes.close < Quotes.open, len(lines))
 
-                # draw "up" bars
-                p.setPen(self.bull_brush)
-                p.drawLines(*ups)
+                # ups = lines[long_bars]
+                # downs = lines[short_bars]
 
-                # draw "down" bars
-                p.setPen(self.bear_brush)
-                p.drawLines(*downs)
+                # # draw "up" bars
+                # p.setPen(self.bull_brush)
+                # p.drawLines(*ups)
+
+                # # draw "down" bars
+                # p.setPen(self.bear_brush)
+                # p.drawLines(*downs)
 
             else:  # piker mode
                 p.setPen(self.bull_brush)
