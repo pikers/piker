@@ -115,6 +115,6 @@ def optschain(config, symbol, date, tl, rate, test):
 def chart(config, symbol, date, tl, rate, test):
     """Start an option chain UI
     """
-    from .qt._chart import main
+    from ._chart import main
 
     main(symbol)
