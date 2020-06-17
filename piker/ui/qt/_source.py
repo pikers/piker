@@ -31,6 +31,15 @@ OHLC_dtype = np.dtype(
 # }
 
 
+def ohlc_zeros(length: int) -> np.ndarray:
+    """Construct an OHLC field formatted structarray.
+
+    For "why a structarray" see here: https://stackoverflow.com/a/52443038
+    Bottom line, they're faster then ``np.recarray``.
+    """
+    return np.zeros(length, dtype=OHLC_dtype)
+
+
 @dataclass
 class Symbol:
     """I guess this is some kinda container thing for dealing with
