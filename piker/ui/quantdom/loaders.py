@@ -62,14 +62,18 @@ class QuotesLoader:
     @classmethod
     def _save_to_disk(cls, fpath, data):
         logger.debug('Saving quotes to a file: %s', fpath)
+        breakpoint()
         with open(fpath, 'wb') as f:
+            pass
             pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
+            d = pickle.load(f)
 
     @classmethod
     def _load_from_disk(cls, fpath):
         logger.debug('Loading quotes from a file: %s', fpath)
         with open(fpath, 'rb') as f:
-            return pickle.load(f)
+            breakpoint()
+            data = pickle.load(f)
 
     @classmethod
     @timeit
@@ -84,14 +88,15 @@ class QuotesLoader:
 
         quotes = None
         fpath = cls._get_file_path(symbol, cls.timeframe, date_from, date_to)
-        if os.path.exists(fpath):
-            quotes = Quotes.new(cls._load_from_disk(fpath))
-        else:
-            quotes_raw = cls._get(symbol, date_from, date_to)
-            quotes = Quotes.new(
-                quotes_raw, source=cls.source, default_tf=cls.default_tf
-            )
-            cls._save_to_disk(fpath, quotes)
+        # if os.path.exists(fpath):
+        #     quotes = Quotes.new(cls._load_from_disk(fpath))
+        # else:
+        quotes_raw = cls._get(symbol, date_from, date_to)
+        breakpoint()
+        quotes = Quotes.new(
+            quotes_raw, source=cls.source, default_tf=cls.default_tf
+        )
+        cls._save_to_disk(fpath, quotes)
         return quotes
 
 

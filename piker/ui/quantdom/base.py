@@ -89,6 +89,7 @@ class BaseQuotes(np.recarray):
         return self
 
     def convert_dates(self, dates):
+        breakpoint()
         return np.array([d.timestamp().time for d in dates])
 
 
