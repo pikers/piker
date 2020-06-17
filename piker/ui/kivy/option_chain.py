@@ -15,11 +15,10 @@ from kivy.app import async_runTouchApp
 from kivy.core.window import Window
 from kivy.uix.label import Label
 
-from ..log import get_logger, get_console_log
-from ..brokers.data import DataFeed
-from ..brokers import get_brokermod
+from ...log import get_logger, get_console_log
+from ...brokers.data import DataFeed
+from ...brokers import get_brokermod
 from .pager import PagerView
-
 from .tabular import Row, HeaderCell, Cell, TickerTable
 from .monitor import update_quotes
 

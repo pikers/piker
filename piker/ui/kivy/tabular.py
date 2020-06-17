@@ -12,8 +12,8 @@ from kivy.uix.button import Button
 from kivy import utils
 from kivy.properties import BooleanProperty
 
-from ..log import get_logger
-from .kivy.mouse_over import new_mouse_over_group
+from ...log import get_logger
+from .mouse_over import new_mouse_over_group
 
 
 HoverBehavior = new_mouse_over_group()

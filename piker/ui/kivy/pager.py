@@ -9,8 +9,8 @@ from kivy.uix.widget import Widget
 from kivy.uix.textinput import TextInput
 from kivy.uix.scrollview import ScrollView
 
-from ..log import get_logger
-from .kivy.utils_async import async_bind
+from ...log import get_logger
+from .utils_async import async_bind
 
 log = get_logger('keyboard')
 
