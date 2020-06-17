@@ -1,11 +1,9 @@
 """
 Console interface to UI components.
 """
-from datetime import datetime
 from functools import partial
 import os
 import click
-import trio
 import tractor
 
 from ..cli import cli
@@ -117,25 +115,6 @@ def optschain(config, symbol, date, tl, rate, test):
 def chart(config, symbol, date, tl, rate, test):
     """Start an option chain UI
     """
-    from .qt._exec import run_qtrio
-    from .qt._chart import Chart
+    from .qt._chart import main
 
-    # uses pandas_datareader
-    from .qt.quantdom.loaders import get_quotes
-
-    async def plot_symbol(widgets):
-        """Main Qt-trio routine invoked by the Qt loop with
-        the widgets ``dict``.
-        """
-
-        qtw = widgets['main']
-        quotes = get_quotes(
-            symbol=symbol,
-            date_from=datetime(1900, 1, 1),
-            date_to=datetime(2030, 12, 31),
-        )
-        # spawn chart
-        qtw.load_symbol(symbol, quotes)
-        await trio.sleep_forever()
-
-    run_qtrio(plot_symbol, (), Chart)
+    main(symbol)

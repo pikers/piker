@@ -1,6 +1,7 @@
 """
 High level Qt chart widgets.
 """
+import trio
 import numpy as np
 import pyqtgraph as pg
 from pyqtgraph import functions as fn
@@ -12,7 +13,7 @@ from ._axes import (
 )
 from ._graphics import CrossHairItem, ChartType
 from ._style import _xaxis_at
-from ._source import Symbol
+from ._source import Symbol, ohlc_zeros
 
 from .quantdom.charts import CenteredTextItem
 from .quantdom.base import Quotes
@@ -77,6 +78,7 @@ class Chart(QtGui.QWidget):
 
         self.chart.plot(s, data)
         self.h_layout.addWidget(self.chart)
+        return self.chart
 
     # TODO: add signalling painter system
     # def add_signals(self):
@@ -163,6 +165,7 @@ class SplitterPlots(QtGui.QWidget):
         )
         # TODO: ``pyqtgraph`` doesn't pass through a parent to the
         # ``PlotItem`` by default; maybe we should PR this in?
+        cv.splitter_widget = self
         self.chart.plotItem.vb.splitter_widget = self
 
         self.chart.getPlotItem().setContentsMargins(*CHART_MARGINS)
@@ -182,6 +185,7 @@ class SplitterPlots(QtGui.QWidget):
                 # axisItems={'top': self.xaxis_ind, 'right': PriceAxis()},
                 viewBox=cv,
             )
+            cv.splitter_widget = self
             self.chart.plotItem.vb.splitter_widget = self
 
             ind_chart.setFrameStyle(
@@ -260,7 +264,7 @@ class SplitterPlots(QtGui.QWidget):
         self.signals_visible = True
 
 
-_min_points_to_show = 20
+_min_points_to_show = 15
 _min_bars_in_view = 10
 
 
@@ -291,13 +295,18 @@ class ChartPlotWidget(pg.PlotWidget):
     ):
         """Configure chart display settings.
         """
-
         super().__init__(**kwargs)
         # label = pg.LabelItem(justify='left')
         # self.addItem(label)
         # label.setText("Yo yoyo")
         # label.setText("<span style='font-size: 12pt'>x=")
         self.parent = split_charts
+
+        # placeholder for source of data
+        self._array = ohlc_zeros(1)
+
+        # to be filled in when data is loaded
+        self._graphics = {}
 
         # show only right side axes
         self.hideAxis('left')
@@ -306,51 +315,75 @@ class ChartPlotWidget(pg.PlotWidget):
         # show background grid
         self.showGrid(x=True, y=True, alpha=0.4)
 
+        self.plotItem.vb.setXRange(0, 0)
+
         # use cross-hair for cursor
         self.setCursor(QtCore.Qt.CrossCursor)
-
-        # set panning limits
-        max_lookahead = _min_points_to_show - _min_bars_in_view
-        last = Quotes[-1].id
-        self.setLimits(
-            xMin=Quotes[0].id,
-            xMax=last + max_lookahead,
-            minXRange=_min_points_to_show,
-            # maxYRange=highest-lowest,
-            yMin=Quotes.low.min() * 0.98,
-            yMax=Quotes.high.max() * 1.02,
-        )
-
-        # show last 50 points on startup
-        self.plotItem.vb.setXRange(last - 50, last + max_lookahead)
 
         # assign callback for rescaling y-axis automatically
         # based on y-range contents
         self.sigXRangeChanged.connect(self._update_yrange_limits)
+
+    def set_view_limits(self, xfirst, xlast, ymin, ymax):
+        # max_lookahead = _min_points_to_show - _min_bars_in_view
+
+        # set panning limits
+        # last = data[-1]['id']
+        self.setLimits(
+            # xMin=data[0]['id'],
+            xMin=xfirst,
+            # xMax=last + _min_points_to_show - 3,
+            xMax=xlast + _min_points_to_show - 3,
+            minXRange=_min_points_to_show,
+            # maxYRange=highest-lowest,
+            # yMin=data['low'].min() * 0.98,
+            # yMax=data['high'].max() * 1.02,
+            yMin=ymin * 0.98,
+            yMax=ymax * 1.02,
+        )
+
+        # show last 50 points on startup
+        # self.plotItem.vb.setXRange(last - 50, last + 50)
+        self.plotItem.vb.setXRange(xlast - 50, xlast + 50)
+
+        # fit y
         self._update_yrange_limits()
 
     def bars_range(self):
         """Return a range tuple for the bars present in view.
         """
-
         vr = self.viewRect()
-        lbar, rbar = int(vr.left()), int(min(vr.right(), len(Quotes) - 1))
+        lbar = int(vr.left())
+        rbar = int(min(vr.right(), len(self._array) - 1))
         return lbar, rbar
 
     def draw_ohlc(
         self,
         data: np.ndarray,
+        # XXX: pretty sure this is dumb and we don't need an Enum
         style: ChartType = ChartType.BAR,
     ) -> None:
         """Draw OHLC datums to chart.
         """
         # remember it's an enum type..
         graphics = style.value()
-        # adds all bar/candle graphics objects for each
-        # data point in the np array buffer to
-        # be drawn on next render cycle
+
+        # adds all bar/candle graphics objects for each data point in
+        # the np array buffer to be drawn on next render cycle
         graphics.draw_from_data(data)
+        self._graphics['ohlc'] = graphics
         self.addItem(graphics)
+        self._array = data
+
+        # update view limits
+        self.set_view_limits(
+            data[0]['id'],
+            data[-1]['id'],
+            data['low'].min(),
+            data['high'].max()
+        )
+
+        return graphics
 
     def draw_curve(
         self,
@@ -359,6 +392,12 @@ class ChartPlotWidget(pg.PlotWidget):
         # draw the indicator as a plain curve
         curve = pg.PlotDataItem(data, antialias=True)
         self.addItem(curve)
+
+        # update view limits
+        self.set_view_limits(0, len(data)-1, data.min(), data.max())
+        self._array = data
+
+        return curve
 
     def _update_yrange_limits(self):
         """Callback for each y-range update.
@@ -374,33 +413,39 @@ class ChartPlotWidget(pg.PlotWidget):
         # self.setAutoVisible(x=False, y=True)
         # self.enableAutoRange(x=False, y=True)
 
-        chart = self
-        chart_parent = self.parent
-
         lbar, rbar = self.bars_range()
-        # vr = chart.viewRect()
-        # lbar, rbar = int(vr.left()), int(vr.right())
 
-        if chart_parent.signals_visible:
-            chart_parent._show_text_signals(lbar, rbar)
+        # if chart_parent.signals_visible:
+        #     chart_parent._show_text_signals(lbar, rbar)
 
-        bars = Quotes[lbar:rbar]
-        ylow = bars.low.min() * 0.98
-        yhigh = bars.high.max() * 1.02
+        bars = self._array[lbar:rbar]
+        if not len(bars):
+            # likely no data loaded yet
+            return
 
-        std = np.std(bars.close)
-        chart.setLimits(yMin=ylow, yMax=yhigh, minYRange=std)
+        # TODO: should probably just have some kinda attr mark
+        # that determines this behavior based on array type
+        try:
+            ylow = bars['low'].min()
+            yhigh = bars['high'].max()
+            std = np.std(bars['close'])
+        except IndexError:
+            # must be non-ohlc array?
+            ylow = bars.min()
+            yhigh = bars.max()
+            std = np.std(bars)
+
+        # view margins
+        ylow *= 0.98
+        yhigh *= 1.02
+
+        chart = self
+        chart.setLimits(
+            yMin=ylow,
+            yMax=yhigh,
+            minYRange=std
+        )
         chart.setYRange(ylow, yhigh)
-
-        for i, d in chart_parent.indicators:
-            # ydata = i.plotItem.items[0].getData()[1]
-            ydata = d[lbar:rbar]
-            ylow = ydata.min() * 0.98
-            yhigh = ydata.max() * 1.02
-            std = np.std(ydata)
-            i.setLimits(yMin=ylow, yMax=yhigh, minYRange=std)
-            i.setYRange(ylow, yhigh)
-
 
     def enterEvent(self, ev):  # noqa
         # pg.PlotWidget.enterEvent(self, ev)
@@ -429,6 +474,7 @@ class ChartView(pg.ViewBox):
         super().__init__(parent=parent, **kwargs)
         # disable vertical scrolling
         self.setMouseEnabled(x=True, y=False)
+        self.splitter_widget = None
 
     def wheelEvent(self, ev, axis=None):
         """Override "center-point" location for scrolling.
@@ -447,11 +493,12 @@ class ChartView(pg.ViewBox):
 
         # don't zoom more then the min points setting
         lbar, rbar = self.splitter_widget.chart.bars_range()
+        # breakpoint()
         if ev.delta() >= 0 and rbar - lbar <= _min_points_to_show:
             return
 
         # actual scaling factor
-        s = 1.02 ** (ev.delta() * self.state['wheelScaleFactor'])
+        s = 1.02 ** (ev.delta() * -1/10)  # self.state['wheelScaleFactor'])
         s = [(None if m is False else s) for m in mask]
 
         # center = pg.Point(
@@ -470,3 +517,37 @@ class ChartView(pg.ViewBox):
         self.scaleBy(s, center)
         ev.accept()
         self.sigRangeChangedManually.emit(mask)
+
+
+def main(symbol):
+    """Entry point to spawn a chart app.
+    """
+    from datetime import datetime
+
+    from ._exec import run_qtrio
+    # uses pandas_datareader
+    from .quantdom.loaders import get_quotes
+
+    async def _main(widgets):
+        """Main Qt-trio routine invoked by the Qt loop with
+        the widgets ``dict``.
+        """
+
+        chart_app = widgets['main']
+        quotes = get_quotes(
+            symbol=symbol,
+            date_from=datetime(1900, 1, 1),
+            date_to=datetime(2030, 12, 31),
+        )
+        # spawn chart
+        splitter_chart = chart_app.load_symbol(symbol, quotes)
+        import itertools
+        nums = itertools.cycle([315., 320., 325.])
+        while True:
+            await trio.sleep(0.05)
+            splitter_chart.chart._graphics['ohlc'].update_last_bar(
+                {'last': next(nums)})
+            # splitter_chart.chart.plotItem.sigPlotChanged.emit(self)
+            # breakpoint()
+
+    run_qtrio(_main, (), Chart)
