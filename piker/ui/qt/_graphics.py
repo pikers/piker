@@ -1,6 +1,7 @@
 """
 Chart graphics for displaying a slew of different data types.
 """
+from typing import Dict, Any
 from enum import Enum
 from contextlib import contextmanager
 
@@ -12,11 +13,12 @@ from PyQt5.QtCore import QLineF
 from .quantdom.utils import timeit
 from .quantdom.base import Quotes
 
-from ._style import _xaxis_at, _tina_mode
+from ._style import _xaxis_at  # , _tina_mode
 from ._axes import YAxisLabel, XAxisLabel
 
+# TODO: checkout pyqtgraph.PlotCurveItem.setCompositionMode
 
-_mouse_rate_limit = 60
+_mouse_rate_limit = 50
 
 
 class CrossHairItem(pg.GraphicsObject):
@@ -170,9 +172,13 @@ class CrossHairItem(pg.GraphicsObject):
 class BarItems(pg.GraphicsObject):
     """Price range bars graphics rendered from a OHLC sequence.
     """
+    sigPlotChanged = QtCore.Signal(object)
+
     w: float = 0.5
 
     bull_brush = bear_brush = pg.mkPen('#808080')
+
+    # XXX: tina mode, see below
     # bull_brush = pg.mkPen('#00cc00')
     # bear_brush = pg.mkPen('#fa0000')
 
@@ -180,7 +186,7 @@ class BarItems(pg.GraphicsObject):
         super().__init__()
         self.picture = QtGui.QPicture()
         self.lines = None
-        # self.generatePicture()
+        self._last_quote = {}
 
     # TODO: this is the routine to be retriggered for redraw
     @contextmanager
@@ -192,13 +198,18 @@ class BarItems(pg.GraphicsObject):
         p.end()
 
     @timeit
-    def draw_from_data(self, data):
-        self.lines = lines = np.empty_like(data, shape=(data.shape[0]*3,), dtype=object)
-        # open_sticks = np.empty_like(data, dtype=object)
-        # close_sticks = np.empty_like(data, dtype=object)
+    def draw_from_data(
+        self,
+        data: np.recarray,
+    ):
+        """Draw OHLC datum graphics from a ``np.recarray``.
+        """
+        # XXX: not sure this actually needs to be an array other
+        # then for the old tina mode calcs for up/down bars below?
+        self.lines = lines = np.empty_like(
+            data, shape=(data.shape[0]*3,), dtype=object)
+
         with self.painter() as p:
-            # import time
-            # start = time.time()
             for i, q in enumerate(data):
                 # indexing here is as per the below comments
                 lines[3*i:3*i+3] = (
@@ -207,31 +218,64 @@ class BarItems(pg.GraphicsObject):
                     # open_sticks
                     QLineF(q['id'] - self.w, q['open'], q['id'], q['open']),
                     # close_sticks
-                    QtCore.QLineF(q['id'] + self.w, q['close'], q['id'], q['close'])
+                    QtCore.QLineF(
+                        q['id'] + self.w, q['close'], q['id'], q['close'])
                 )
-            # print(f"took {time.time() - start}")
-            # self.lines = lines = np.concatenate([high_to_low, open_sticks, close_sticks])
+            else:
+                self._last_quote = q
+            # if not _tina_mode:  # piker mode
+            p.setPen(self.bull_brush)
+            p.drawLines(*lines)
+            # else _tina_mode:
+            #     self.lines = lines = np.concatenate(
+            #       [high_to_low, open_sticks, close_sticks])
+            #     use traditional up/down green/red coloring
+            #     long_bars = np.resize(Quotes.close > Quotes.open, len(lines))
+            #     short_bars = np.resize(
+            #       Quotes.close < Quotes.open, len(lines))
 
-            if _tina_mode:
-                pass
-                # use traditional up/down green/red coloring
-                # long_bars = np.resize(Quotes.close > Quotes.open, len(lines))
-                # short_bars = np.resize(Quotes.close < Quotes.open, len(lines))
+            #     ups = lines[long_bars]
+            #     downs = lines[short_bars]
 
-                # ups = lines[long_bars]
-                # downs = lines[short_bars]
+            #     # draw "up" bars
+            #     p.setPen(self.bull_brush)
+            #     p.drawLines(*ups)
 
-                # # draw "up" bars
-                # p.setPen(self.bull_brush)
-                # p.drawLines(*ups)
+            #     # draw "down" bars
+            #     p.setPen(self.bear_brush)
+            #     p.drawLines(*downs)
 
-                # # draw "down" bars
-                # p.setPen(self.bear_brush)
-                # p.drawLines(*downs)
+    def update_last_bar(
+        self,
+        quote: Dict[str, Any],
+    ) -> None:
+        """Update the last datum's bar graphic from a quote ``dict``.
+        """
+        last = quote['last']
+        body, larm, rarm = self.lines[-3:]  # close line is absolute last
 
-            else:  # piker mode
-                p.setPen(self.bull_brush)
-                p.drawLines(*lines)
+        # XXX: is there a faster way to modify this?
+
+        # update right arm
+        rarm.setLine(rarm.x1(), last, rarm.x2(), last)
+
+        # update body
+        high = body.y2()
+        low = body.y1()
+        if last < low:
+            low = last
+
+        if last > high:
+            high = last
+
+        body.setLine(body.x1(), low, body.x2(), high)
+
+        with self.painter() as p:
+            p.setPen(self.bull_brush)
+            p.drawLines(*self.lines)
+
+        # trigger re-draw
+        self.update()
 
     # XXX: From the customGraphicsItem.py example:
     # The only required methods are paint() and boundingRect()
