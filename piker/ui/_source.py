@@ -63,30 +63,24 @@ def from_df(
 ):
     """Cast OHLC ``pandas.DataFrame`` to ``numpy.structarray``.
     """
-    # shape = (len(df),)
-    # array.resize(shape, refcheck=False)
-    array = np.array([], dtype=OHLC_dtype)
-
     df.reset_index(inplace=True)
-    df.insert(0, 'id', df.index)
-    array['time'] = np.array([d.timestamp().time for d in df.Date])
+    df['Date'] = [d.timestamp() for d in df.Date]
 
     # try to rename from some camel case
-    df = df.rename(
-        columns={
-            # 'Date': 'time',
-            'Open': 'open',
-            'High': 'high',
-            'Low': 'low',
-            'Close': 'close',
-            'Volume': 'volume',
-        }
-    )
-    for name in array.dtype.names:
-        array[name] = df[name]
-
-    array[:] = df[:]
-
+    columns={
+        'Date': 'time',
+        'Open': 'open',
+        'High': 'high',
+        'Low': 'low',
+        'Close': 'close',
+        'Volume': 'volume',
+    }
+    for name in df.columns:
+        if name not in columns:
+            del df[name]
+    df = df.rename(columns=columns)
+    # df.insert(0, 'id', df.index)
+    array = df.to_records()
     _nan_to_closest_num(array)
     # self._set_time_frame(default_tf)
 
