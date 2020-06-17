@@ -11,7 +11,6 @@ from kivy.properties import BooleanProperty, ObjectProperty
 from kivy.core.window import Window
 from kivy.clock import Clock
 
-
 from ...log import get_logger
 
 
@@ -100,7 +99,8 @@ class MouseOverBehavior(object):
     # throttle at 10ms latency
     @triggered(timeout=0.01, interval=False)
     def _on_mouse_pos(cls, *args):
-        log.debug(f"{cls} time since last call: {time.time() - cls._last_time}")
+        log.debug(
+            f"{cls} time since last call: {time.time() - cls._last_time}")
         cls._last_time = time.time()
         # XXX: how to still do this at the class level?
         # don't proceed if I'm not displayed <=> If have no parent

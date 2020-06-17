@@ -15,11 +15,11 @@ from kivy.lang import Builder
 from kivy.app import async_runTouchApp
 from kivy.core.window import Window
 
-from ..brokers.data import DataFeed
+from ...brokers.data import DataFeed
 from .tabular import (
     Row, TickerTable, _kv, _black_rgba, colorcode,
 )
-from ..log import get_logger
+from ...log import get_logger
 from .pager import PagerView
 
 

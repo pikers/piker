@@ -989,12 +989,18 @@ def format_option_quote(
     # change = percent_change(previous, last)
     computed = {
         # why QT do you have to be an asshole shipping null values!!!
-        '$ vol': round((quote['VWAP'] or 0) * (quote['volume'] or 0), 3),
+        # '$ vol': round((quote['VWAP'] or 0) * (quote['volume'] or 0), 3),
         # '%': round(change, 3),
         # 'close': previous,
     }
     new = {}
     displayable = {}
+
+    vwap = quote.get('VWAP')
+    volume = quote.get('volume')
+    if volume is not None:  # could be 0
+        # why questrade do you have to be an asshole shipping null values!!!
+        computed['$ vol'] = round((vwap or 0) * (volume or 0), 3)
 
     # structuring and normalization
     for key, new_key in keymap.items():
