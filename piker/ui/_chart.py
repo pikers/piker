@@ -16,7 +16,7 @@ from ._style import _xaxis_at
 from ._source import Symbol, ohlc_zeros
 
 from .quantdom.charts import CenteredTextItem
-from .quantdom.base import Quotes
+# from .quantdom.base import Quotes
 # from .quantdom.const import ChartType
 from .quantdom.portfolio import Order, Portfolio
 
@@ -101,10 +101,11 @@ class SplitterPlots(QtGui.QWidget):
         self.signals_visible = False
         self.indicators = []
 
-        self.xaxis = FromTimeFieldDateAxis(orientation='bottom')
+        self.xaxis = FromTimeFieldDateAxis(orientation='bottom', splitter=self)
         # self.xaxis = pg.DateAxisItem()
 
-        self.xaxis_ind = FromTimeFieldDateAxis(orientation='bottom')
+        self.xaxis_ind = FromTimeFieldDateAxis(
+            orientation='bottom', splitter=self)
 
         if _xaxis_at == 'bottom':
             self.xaxis.setStyle(showValues=False)
@@ -174,7 +175,9 @@ class SplitterPlots(QtGui.QWidget):
         self.chart.draw_ohlc(data)
 
         # TODO: this is where we would load an indicator chain
-        inds = [Quotes.open]
+        # XXX: note, if this isn't index aligned with
+        # the source data the chart will go haywire.
+        inds = [data.open]
 
         for d in inds:
             cv = ChartView()
@@ -377,8 +380,8 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # update view limits
         self.set_view_limits(
-            data[0]['id'],
-            data[-1]['id'],
+            data[0]['index'],
+            data[-1]['index'],
             data['low'].min(),
             data['high'].max()
         )
@@ -525,6 +528,7 @@ def main(symbol):
     from datetime import datetime
 
     from ._exec import run_qtrio
+    from ._source import from_df
     # uses pandas_datareader
     from .quantdom.loaders import get_quotes
 
@@ -539,15 +543,28 @@ def main(symbol):
             date_from=datetime(1900, 1, 1),
             date_to=datetime(2030, 12, 31),
         )
+        quotes = from_df(quotes)
+
         # spawn chart
         splitter_chart = chart_app.load_symbol(symbol, quotes)
         import itertools
-        nums = itertools.cycle([315., 320., 325.])
+        nums = itertools.cycle([315., 320., 325., 310., 3])
+
+        def gen_nums():
+            for i in itertools.count():
+                yield quotes[-1].close + i
+                yield quotes[-1].close - i
+
+        chart = splitter_chart.chart
+
+        nums = gen_nums()
         while True:
-            await trio.sleep(0.05)
-            splitter_chart.chart._graphics['ohlc'].update_last_bar(
-                {'last': next(nums)})
-            # splitter_chart.chart.plotItem.sigPlotChanged.emit(self)
-            # breakpoint()
+            await trio.sleep(0.1)
+            new = next(nums)
+            quotes[-1].close = new
+            chart._graphics['ohlc'].update_last_bar({'last': new})
+
+            # LOL this clearly isn't catching edge cases
+            chart._update_yrange_limits()
 
     run_qtrio(_main, (), Chart)

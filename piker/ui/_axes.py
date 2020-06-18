@@ -5,7 +5,7 @@ import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
 
 
-from .quantdom.base import Quotes
+# from .quantdom.base import Quotes
 from .quantdom.utils import fromtimestamp
 from ._style import _font
 
@@ -36,10 +36,11 @@ class PriceAxis(pg.AxisItem):
 class FromTimeFieldDateAxis(pg.AxisItem):
     tick_tpl = {'D1': '%Y-%b-%d'}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, splitter, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.splitter = splitter
         self.setTickFont(_font)
-        self.quotes_count = len(Quotes) - 1
+        # self.quotes_count = len(self.splitter.chart._array) - 1
 
         # default styling
         self.setStyle(
@@ -56,10 +57,13 @@ class FromTimeFieldDateAxis(pg.AxisItem):
         # strings = super().tickStrings(values, scale, spacing)
         s_period = 'D1'
         strings = []
+        quotes_count = len(self.splitter.chart._array) - 1
+
         for ibar in values:
-            if ibar > self.quotes_count:
+            if ibar > quotes_count:
                 return strings
-            dt_tick = fromtimestamp(Quotes[int(ibar)].time)
+            bars = self.splitter.chart._array
+            dt_tick = fromtimestamp(bars[int(ibar)].time)
             strings.append(
                 dt_tick.strftime(self.tick_tpl[s_period])
             )
@@ -140,9 +144,10 @@ class XAxisLabel(AxisLabel):
     def tick_to_string(self, tick_pos):
         # TODO: change to actual period
         tpl = self.parent.tick_tpl['D1']
-        if tick_pos > len(Quotes):
+        bars = self.parent.splitter.chart._array
+        if tick_pos > len(bars):
             return 'Unknown Time'
-        return fromtimestamp(Quotes[round(tick_pos)].time).strftime(tpl)
+        return fromtimestamp(bars[round(tick_pos)].time).strftime(tpl)
 
     def boundingRect(self):  # noqa
         return QtCore.QRectF(0, 0, 145, 50)

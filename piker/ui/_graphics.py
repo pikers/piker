@@ -11,7 +11,7 @@ from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QLineF
 
 from .quantdom.utils import timeit
-from .quantdom.base import Quotes
+# from .quantdom.base import Quotes
 
 from ._style import _xaxis_at  # , _tina_mode
 from ._axes import YAxisLabel, XAxisLabel
@@ -214,12 +214,12 @@ class BarItems(pg.GraphicsObject):
                 # indexing here is as per the below comments
                 lines[3*i:3*i+3] = (
                     # high_to_low
-                    QLineF(q['id'], q['low'], q['id'], q['high']),
+                    QLineF(q['index'], q['low'], q['index'], q['high']),
                     # open_sticks
-                    QLineF(q['id'] - self.w, q['open'], q['id'], q['open']),
+                    QLineF(q['index'] - self.w, q['open'], q['index'], q['open']),
                     # close_sticks
                     QtCore.QLineF(
-                        q['id'] + self.w, q['close'], q['id'], q['close'])
+                        q['index'] + self.w, q['close'], q['index'], q['close'])
                 )
             else:
                 self._last_quote = q
