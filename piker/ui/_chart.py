@@ -15,17 +15,16 @@ from ._graphics import CrossHairItem, ChartType
 from ._style import _xaxis_at
 from ._source import Symbol, ohlc_zeros
 
-from .quantdom.charts import CenteredTextItem
-# from .quantdom.base import Quotes
-# from .quantdom.const import ChartType
-from .quantdom.portfolio import Order, Portfolio
-
 
 # margins
 CHART_MARGINS = (0, 0, 10, 3)
 
 
-class Chart(QtGui.QWidget):
+class ChartSpace(QtGui.QWidget):
+    """High level widget which contains layouts for organizing
+    lower level charts as well as other widgets used to control
+    or modify them.
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.v_layout = QtGui.QVBoxLayout(self)
@@ -69,7 +68,7 @@ class Chart(QtGui.QWidget):
         """Load a new contract into the charting app.
         """
         # XXX: let's see if this causes mem problems
-        self.chart = self._plot_cache.setdefault(symbol, SplitterPlots())
+        self.chart = self._plot_cache.setdefault(symbol, LinkedSplitCharts())
         s = Symbol(key=symbol)
 
         # remove any existing plots
@@ -85,7 +84,7 @@ class Chart(QtGui.QWidget):
     #     self.chart.add_signals()
 
 
-class SplitterPlots(QtGui.QWidget):
+class LinkedSplitCharts(QtGui.QWidget):
     """Widget that holds a price chart plus indicators separated by splitters.
     """
 
@@ -119,27 +118,6 @@ class SplitterPlots(QtGui.QWidget):
         self.layout.setContentsMargins(0, 0, 0, 0)
 
         self.layout.addWidget(self.splitter)
-
-    def _show_text_signals(self, lbar, rbar):
-        signals = [
-            sig
-            for sig in self.signals_text_items[lbar:rbar]
-            if isinstance(sig, CenteredTextItem)
-        ]
-        if len(signals) <= 50:
-            for sig in signals:
-                sig.show()
-        else:
-            for sig in signals:
-                sig.hide()
-
-    def _remove_signals(self):
-        self.chart.removeItem(self.signals_group_arrow)
-        self.chart.removeItem(self.signals_group_text)
-        del self.signals_text_items
-        del self.signals_group_arrow
-        del self.signals_group_text
-        self.signals_visible = False
 
     def _update_sizes(self):
         min_h_ind = int(self.height() * 0.2 / len(self.indicators))
@@ -212,60 +190,6 @@ class SplitterPlots(QtGui.QWidget):
         )
         self.chart.addItem(ch)
 
-    def add_signals(self):
-        self.signals_group_text = QtGui.QGraphicsItemGroup()
-        self.signals_group_arrow = QtGui.QGraphicsItemGroup()
-        self.signals_text_items = np.empty(len(Quotes), dtype=object)
-
-        for p in Portfolio.positions:
-            x, price = p.id_bar_open, p.open_price
-            if p.type == Order.BUY:
-                y = Quotes[x].low * 0.99
-                pg.ArrowItem(
-                    parent=self.signals_group_arrow,
-                    pos=(x, y),
-                    pen=self.long_pen,
-                    brush=self.long_brush,
-                    angle=90,
-                    headLen=12,
-                    tipAngle=50,
-                )
-                text_sig = CenteredTextItem(
-                    parent=self.signals_group_text,
-                    pos=(x, y),
-                    pen=self.long_pen,
-                    brush=self.long_brush,
-                    text=('Buy at {:.%df}' % self.digits).format(price),
-                    valign=QtCore.Qt.AlignBottom,
-                )
-                text_sig.hide()
-            else:
-                y = Quotes[x].high * 1.01
-                pg.ArrowItem(
-                    parent=self.signals_group_arrow,
-                    pos=(x, y),
-                    pen=self.short_pen,
-                    brush=self.short_brush,
-                    angle=-90,
-                    headLen=12,
-                    tipAngle=50,
-                )
-                text_sig = CenteredTextItem(
-                    parent=self.signals_group_text,
-                    pos=(x, y),
-                    pen=self.short_pen,
-                    brush=self.short_brush,
-                    text=('Sell at {:.%df}' % self.digits).format(price),
-                    valign=QtCore.Qt.AlignTop,
-                )
-                text_sig.hide()
-
-            self.signals_text_items[x] = text_sig
-
-        self.chart.addItem(self.signals_group_arrow)
-        self.chart.addItem(self.signals_group_text)
-        self.signals_visible = True
-
 
 _min_points_to_show = 15
 _min_bars_in_view = 10
@@ -299,6 +223,9 @@ class ChartPlotWidget(pg.PlotWidget):
         """Configure chart display settings.
         """
         super().__init__(**kwargs)
+        # XXX: label setting doesn't seem to work?
+        # likely custom graphics need special handling
+
         # label = pg.LabelItem(justify='left')
         # self.addItem(label)
         # label.setText("Yo yoyo")
@@ -567,4 +494,6 @@ def main(symbol):
             # LOL this clearly isn't catching edge cases
             chart._update_yrange_limits()
 
-    run_qtrio(_main, (), Chart)
+        await trio.sleep_forever()
+
+    run_qtrio(_main, (), ChartSpace)
