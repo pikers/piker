@@ -62,9 +62,7 @@ class QuotesLoader:
     @classmethod
     def _save_to_disk(cls, fpath, data):
         logger.debug('Saving quotes to a file: %s', fpath)
-        breakpoint()
         with open(fpath, 'wb') as f:
-            pass
             pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
             d = pickle.load(f)
 
@@ -92,12 +90,11 @@ class QuotesLoader:
         #     quotes = Quotes.new(cls._load_from_disk(fpath))
         # else:
         quotes_raw = cls._get(symbol, date_from, date_to)
-        breakpoint()
-        quotes = Quotes.new(
-            quotes_raw, source=cls.source, default_tf=cls.default_tf
-        )
-        cls._save_to_disk(fpath, quotes)
-        return quotes
+        # quotes = Quotes.new(
+        #     quotes_raw, source=cls.source, default_tf=cls.default_tf
+        # )
+        # cls._save_to_disk(fpath, quotes)
+        return quotes_raw
 
 
 class YahooQuotesLoader(QuotesLoader):
