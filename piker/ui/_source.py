@@ -60,8 +60,8 @@ def from_df(
     df: pd.DataFrame,
     source=None,
     default_tf=None
-):
-    """Cast OHLC ``pandas.DataFrame`` to ``numpy.structarray``.
+) -> np.recarray:
+    """Convert OHLC formatted ``pandas.DataFrame`` to ``numpy.recarray``.
     """
     df.reset_index(inplace=True)
     df['Date'] = [d.timestamp() for d in df.Date]
@@ -79,10 +79,8 @@ def from_df(
         if name not in columns:
             del df[name]
     df = df.rename(columns=columns)
-    # df.insert(0, 'id', df.index)
     array = df.to_records()
     _nan_to_closest_num(array)
-    # self._set_time_frame(default_tf)
 
     return array
 
