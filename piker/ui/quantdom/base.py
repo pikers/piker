@@ -90,7 +90,7 @@ class BaseQuotes(np.recarray):
 
     def convert_dates(self, dates):
         breakpoint()
-        return np.array([d.timestamp().time for d in dates])
+        return np.array([d.timestamp() for d in dates])
 
 
 class SymbolType(Enum):
