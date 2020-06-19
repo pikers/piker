@@ -1,6 +1,8 @@
 """
 High level Qt chart widgets.
 """
+from typing import List, Optional
+
 import trio
 import numpy as np
 import pyqtgraph as pg
@@ -8,12 +10,12 @@ from pyqtgraph import functions as fn
 from PyQt5 import QtCore, QtGui
 
 from ._axes import (
-    FromTimeFieldDateAxis,
+    DynamicDateAxis,
     PriceAxis,
 )
 from ._graphics import CrossHairItem, ChartType
 from ._style import _xaxis_at
-from ._source import Symbol, ohlc_zeros
+from ._source import Symbol
 
 
 # margins
@@ -85,9 +87,13 @@ class ChartSpace(QtGui.QWidget):
 
 
 class LinkedSplitCharts(QtGui.QWidget):
-    """Widget that holds a price chart plus indicators separated by splitters.
-    """
+    """Widget that holds a central chart plus derived
+    subcharts computed from the original data set apart
+    by splitters for resizing.
 
+    A single internal references to the data is maintained
+    for each chart and can be updated externally.
+    """
     long_pen = pg.mkPen('#006000')
     long_brush = pg.mkBrush('#00ff00')
     short_pen = pg.mkPen('#600000')
@@ -98,13 +104,21 @@ class LinkedSplitCharts(QtGui.QWidget):
     def __init__(self):
         super().__init__()
         self.signals_visible = False
+
+        # main data source
+        self._array = None
+
+        self._ch = None  # crosshair graphics
+        self._index = 0
+
+        self.chart = None  # main (ohlc) chart
         self.indicators = []
 
-        self.xaxis = FromTimeFieldDateAxis(orientation='bottom', splitter=self)
-        # self.xaxis = pg.DateAxisItem()
+        self.xaxis = DynamicDateAxis(
+            orientation='bottom', linked_charts=self)
 
-        self.xaxis_ind = FromTimeFieldDateAxis(
-            orientation='bottom', splitter=self)
+        self.xaxis_ind = DynamicDateAxis(
+            orientation='bottom', linked_charts=self)
 
         if _xaxis_at == 'bottom':
             self.xaxis.setStyle(showValues=False)
@@ -119,24 +133,36 @@ class LinkedSplitCharts(QtGui.QWidget):
 
         self.layout.addWidget(self.splitter)
 
-    def _update_sizes(self):
-        min_h_ind = int(self.height() * 0.2 / len(self.indicators))
-        sizes = [int(self.height() * 0.8)]
+    def set_split_sizes(
+        self,
+        prop: float = 0.2
+    ) -> None:
+        """Set the proportion of space allocated for linked subcharts.
+        """
+        major = 1 - prop
+        # 20% allocated to consumer subcharts
+        min_h_ind = int(self.height() * prop / len(self.indicators))
+        sizes = [int(self.height() * major)]
         sizes.extend([min_h_ind] * len(self.indicators))
         self.splitter.setSizes(sizes)  # , int(self.height()*0.2)
 
     def plot(
         self,
         symbol: Symbol,
-        data: np.ndarray,
+        array: np.ndarray,
+        ohlc: bool = True,
     ):
-        """Start up and show price chart and all registered indicators.
+        """Start up and show main (price) chart and all linked subcharts.
         """
         self.digits = symbol.digits()
 
+        # XXX: this may eventually be a view onto shared mem
+        # or some higher level type / API
+        self._array = array
+
         cv = ChartView()
         self.chart = ChartPlotWidget(
-            split_charts=self,
+            linked_charts=self,
             parent=self.splitter,
             axisItems={'bottom': self.xaxis, 'right': PriceAxis()},
             viewBox=cv,
@@ -144,51 +170,95 @@ class LinkedSplitCharts(QtGui.QWidget):
         )
         # TODO: ``pyqtgraph`` doesn't pass through a parent to the
         # ``PlotItem`` by default; maybe we should PR this in?
-        cv.splitter_widget = self
-        self.chart.plotItem.vb.splitter_widget = self
+        cv.linked_charts = self
+        self.chart.plotItem.vb.linked_charts = self
 
         self.chart.getPlotItem().setContentsMargins(*CHART_MARGINS)
         self.chart.setFrameStyle(QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain)
 
-        self.chart.draw_ohlc(data)
+        if ohlc:
+            self.chart.draw_ohlc(array)
+        else:
+            raise NotImplementedError(
+                "Only OHLC linked charts are supported currently"
+            )
 
         # TODO: this is where we would load an indicator chain
         # XXX: note, if this isn't index aligned with
         # the source data the chart will go haywire.
-        inds = [data.open]
+        inds = [('open', lambda a: a.close)]
 
-        for d in inds:
+        for name, func in inds:
             cv = ChartView()
             ind_chart = ChartPlotWidget(
-                split_charts=self,
+                linked_charts=self,
                 parent=self.splitter,
                 axisItems={'bottom': self.xaxis_ind, 'right': PriceAxis()},
                 # axisItems={'top': self.xaxis_ind, 'right': PriceAxis()},
                 viewBox=cv,
             )
-            cv.splitter_widget = self
-            self.chart.plotItem.vb.splitter_widget = self
+            # this name will be used to register the primary
+            # graphics curve managed by the subchart
+            ind_chart.name = name
+            cv.linked_charts = self
+            self.chart.plotItem.vb.linked_charts = self
 
             ind_chart.setFrameStyle(
                 QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain
             )
             ind_chart.getPlotItem().setContentsMargins(*CHART_MARGINS)
             # self.splitter.addWidget(ind_chart)
-            self.indicators.append((ind_chart, d))
+
+            # compute historical subchart values from input array
+            data = func(array)
+            self.indicators.append((ind_chart, func))
 
             # link chart x-axis to main quotes chart
             ind_chart.setXLink(self.chart)
 
-            # XXX: never do this lol
-            # ind.setAspectLocked(1)
-            ind_chart.draw_curve(d)
+            # draw curve graphics
+            ind_chart.draw_curve(data, name)
 
-        self._update_sizes()
+        self.set_split_sizes()
 
-        ch = CrossHairItem(
-            self.chart, [_ind for _ind, d in self.indicators], self.digits
+        ch = self._ch = CrossHairItem(
+            self.chart,
+            [_ind for _ind, d in self.indicators],
+            self.digits
         )
         self.chart.addItem(ch)
+
+    def update_from_quote(
+        self,
+        quote: dict
+    ) -> List[pg.GraphicsObject]:
+        """Update all linked chart graphics with a new quote
+        datum.
+
+        Return the modified graphics objects in a list.
+        """
+        # TODO: eventually we'll want to update bid/ask labels and other
+        # data as subscribed by underlying UI consumers.
+        last = quote['last']
+        current = self._array[-1]
+
+        # update ohlc (I guess we're enforcing this for now?)
+        current['close'] = last
+        current['high'] = max(current['high'], last)
+        current['low'] = min(current['low'], last)
+
+        # update the ohlc sequence graphics chart
+        chart = self.chart
+        # we send a reference to the whole updated array
+        chart.update_from_array(self._array)
+
+        # TODO: the "data" here should really be a function
+        # and it should be managed and computed outside of this UI
+        for chart, func in self.indicators:
+            # process array in entirely every update
+            # TODO: change this for streaming
+            data = func(self._array)
+            chart.update_from_array(data, chart.name)
 
 
 _min_points_to_show = 15
@@ -198,12 +268,14 @@ _min_bars_in_view = 10
 class ChartPlotWidget(pg.PlotWidget):
     """``GraphicsView`` subtype containing a single ``PlotItem``.
 
-    Overrides a ``pyqtgraph.PlotWidget`` (a ``GraphicsView`` containing
-    a single ``PlotItem``) to intercept and and re-emit mouse enter/exit
-    events.
+    - The added methods allow for plotting OHLC sequences from
+      ``np.recarray``s with appropriate field names.
+    - Overrides a ``pyqtgraph.PlotWidget`` (a ``GraphicsView`` containing
+      a single ``PlotItem``) to intercept and and re-emit mouse enter/exit
+      events.
 
     (Could be replaced with a ``pg.GraphicsLayoutWidget`` if we
-    eventually want multiple plots managed together).
+    eventually want multiple plots managed together?)
     """
     sig_mouse_leave = QtCore.Signal(object)
     sig_mouse_enter = QtCore.Signal(object)
@@ -213,29 +285,29 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def __init__(
         self,
-        split_charts,
+        linked_charts,
         **kwargs,
         # parent=None,
         # background='default',
         # plotItem=None,
-        # **kargs
     ):
         """Configure chart display settings.
         """
         super().__init__(**kwargs)
+        self.parent = linked_charts
+        # this is the index of that last input array entry and is
+        # updated and used to figure out how many bars are in view
+        self._xlast = 0
+
         # XXX: label setting doesn't seem to work?
         # likely custom graphics need special handling
-
         # label = pg.LabelItem(justify='left')
         # self.addItem(label)
         # label.setText("Yo yoyo")
         # label.setText("<span style='font-size: 12pt'>x=")
-        self.parent = split_charts
 
-        # placeholder for source of data
-        self._array = ohlc_zeros(1)
-
-        # to be filled in when data is loaded
+        # to be filled in when graphics are rendered
+        # by name
         self._graphics = {}
 
         # show only right side axes
@@ -251,40 +323,32 @@ class ChartPlotWidget(pg.PlotWidget):
         self.setCursor(QtCore.Qt.CrossCursor)
 
         # assign callback for rescaling y-axis automatically
-        # based on y-range contents
-        self.sigXRangeChanged.connect(self._update_yrange_limits)
+        # based on ohlc contents
+        self.sigXRangeChanged.connect(self._set_yrange)
 
-    def set_view_limits(self, xfirst, xlast, ymin, ymax):
+    def _set_xlimits(
+        self,
+        xfirst: int,
+        xlast: int
+    ) -> None:
+        """Set view limits (what's shown in the main chart "pane")
+        based on max / min x / y coords.
+        """
         # max_lookahead = _min_points_to_show - _min_bars_in_view
 
         # set panning limits
-        # last = data[-1]['id']
         self.setLimits(
-            # xMin=data[0]['id'],
             xMin=xfirst,
-            # xMax=last + _min_points_to_show - 3,
             xMax=xlast + _min_points_to_show - 3,
             minXRange=_min_points_to_show,
-            # maxYRange=highest-lowest,
-            # yMin=data['low'].min() * 0.98,
-            # yMax=data['high'].max() * 1.02,
-            yMin=ymin * 0.98,
-            yMax=ymax * 1.02,
         )
-
-        # show last 50 points on startup
-        # self.plotItem.vb.setXRange(last - 50, last + 50)
-        self.plotItem.vb.setXRange(xlast - 50, xlast + 50)
-
-        # fit y
-        self._update_yrange_limits()
 
     def bars_range(self):
         """Return a range tuple for the bars present in view.
         """
         vr = self.viewRect()
         lbar = int(vr.left())
-        rbar = int(min(vr.right(), len(self._array) - 1))
+        rbar = int(vr.right())
         return lbar, rbar
 
     def draw_ohlc(
@@ -301,35 +365,55 @@ class ChartPlotWidget(pg.PlotWidget):
         # adds all bar/candle graphics objects for each data point in
         # the np array buffer to be drawn on next render cycle
         graphics.draw_from_data(data)
-        self._graphics['ohlc'] = graphics
+        self._graphics['main'] = graphics
         self.addItem(graphics)
-        self._array = data
 
-        # update view limits
-        self.set_view_limits(
-            data[0]['index'],
-            data[-1]['index'],
-            data['low'].min(),
-            data['high'].max()
-        )
+        # set xrange limits
+        self._xlast = xlast = data[-1]['index']
+        self._set_xlimits(data[0]['index'], xlast)
+
+        # show last 50 points on startup
+        self.plotItem.vb.setXRange(xlast - 50, xlast + 50)
 
         return graphics
 
     def draw_curve(
         self,
         data: np.ndarray,
+        name: Optional[str] = None,
     ) -> None:
         # draw the indicator as a plain curve
         curve = pg.PlotDataItem(data, antialias=True)
         self.addItem(curve)
 
-        # update view limits
-        self.set_view_limits(0, len(data)-1, data.min(), data.max())
-        self._array = data
+        # register overlay curve with name
+        if not self._graphics and name is None:
+            name = 'main'
+        self._graphics[name] = curve
+
+        # set a "startup view"
+        xlast = len(data)-1
+        self._set_xlimits(0, xlast)
+
+        # show last 50 points on startup
+        self.plotItem.vb.setXRange(xlast - 50, xlast + 50)
 
         return curve
 
-    def _update_yrange_limits(self):
+    def update_from_array(
+        self,
+        array: np.ndarray,
+        name: str = 'main',
+    ) -> None:
+        self._xlast = len(array) - 1
+        graphics = self._graphics[name]
+        graphics.setData(array)
+        # update view
+        self._set_yrange()
+
+    def _set_yrange(
+        self,
+    ) -> None:
         """Callback for each y-range update.
 
         This adds auto-scaling like zoom on the scroll wheel such
@@ -343,12 +427,11 @@ class ChartPlotWidget(pg.PlotWidget):
         # self.setAutoVisible(x=False, y=True)
         # self.enableAutoRange(x=False, y=True)
 
+        # figure out x-range bars on screen
         lbar, rbar = self.bars_range()
 
-        # if chart_parent.signals_visible:
-        #     chart_parent._show_text_signals(lbar, rbar)
-
-        bars = self._array[lbar:rbar]
+        # TODO: this should be some kind of numpy view api
+        bars = self.parent._array[lbar:rbar]
         if not len(bars):
             # likely no data loaded yet
             return
@@ -389,22 +472,21 @@ class ChartPlotWidget(pg.PlotWidget):
 
 class ChartView(pg.ViewBox):
     """Price chart view box with interaction behaviors you'd expect from
-    an interactive platform:
+    any interactive platform:
 
-    - zoom on mouse scroll that auto fits y-axis
-    - no vertical scrolling
-    - zoom to a "fixed point" on the y-axis
+        - zoom on mouse scroll that auto fits y-axis
+        - no vertical scrolling
+        - zoom to a "fixed point" on the y-axis
     """
     def __init__(
         self,
         parent=None,
         **kwargs,
-        # invertY=False,
     ):
         super().__init__(parent=parent, **kwargs)
         # disable vertical scrolling
         self.setMouseEnabled(x=True, y=False)
-        self.splitter_widget = None
+        self.linked_charts = None
 
     def wheelEvent(self, ev, axis=None):
         """Override "center-point" location for scrolling.
@@ -422,13 +504,12 @@ class ChartView(pg.ViewBox):
             mask = self.state['mouseEnabled'][:]
 
         # don't zoom more then the min points setting
-        lbar, rbar = self.splitter_widget.chart.bars_range()
-        # breakpoint()
+        lbar, rbar = self.linked_charts.chart.bars_range()
         if ev.delta() >= 0 and rbar - lbar <= _min_points_to_show:
             return
 
         # actual scaling factor
-        s = 1.02 ** (ev.delta() * -1/10)  # self.state['wheelScaleFactor'])
+        s = 1.015 ** (ev.delta() * -1/20)  # self.state['wheelScaleFactor'])
         s = [(None if m is False else s) for m in mask]
 
         # center = pg.Point(
@@ -473,26 +554,27 @@ def main(symbol):
         quotes = from_df(quotes)
 
         # spawn chart
-        splitter_chart = chart_app.load_symbol(symbol, quotes)
+        linked_charts = chart_app.load_symbol(symbol, quotes)
+
+        # make some fake update data
         import itertools
         nums = itertools.cycle([315., 320., 325., 310., 3])
 
         def gen_nums():
-            for i in itertools.count():
-                yield quotes[-1].close + i
-                yield quotes[-1].close - i
-
-        chart = splitter_chart.chart
+            while True:
+                yield quotes[-1].close + 1
 
         nums = gen_nums()
+
+        await trio.sleep(10)
         while True:
-            await trio.sleep(0.1)
             new = next(nums)
             quotes[-1].close = new
-            chart._graphics['ohlc'].update_last_bar({'last': new})
-
-            # LOL this clearly isn't catching edge cases
-            chart._update_yrange_limits()
+            # this updates the linked_charts internal array
+            # and then passes that array to all subcharts to
+            # render downstream graphics
+            linked_charts.update_from_quote({'last': new})
+            await trio.sleep(.1)
 
         await trio.sleep_forever()
 
