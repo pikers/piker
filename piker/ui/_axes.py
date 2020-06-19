@@ -33,14 +33,13 @@ class PriceAxis(pg.AxisItem):
     #     ]
 
 
-class FromTimeFieldDateAxis(pg.AxisItem):
+class DynamicDateAxis(pg.AxisItem):
     tick_tpl = {'D1': '%Y-%b-%d'}
 
-    def __init__(self, splitter, *args, **kwargs):
+    def __init__(self, linked_charts, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.splitter = splitter
+        self.linked_charts = linked_charts
         self.setTickFont(_font)
-        # self.quotes_count = len(self.splitter.chart._array) - 1
 
         # default styling
         self.setStyle(
@@ -57,12 +56,12 @@ class FromTimeFieldDateAxis(pg.AxisItem):
         # strings = super().tickStrings(values, scale, spacing)
         s_period = 'D1'
         strings = []
-        quotes_count = len(self.splitter.chart._array) - 1
+        bars = self.linked_charts._array
+        quotes_count = len(bars) - 1
 
         for ibar in values:
             if ibar > quotes_count:
                 return strings
-            bars = self.splitter.chart._array
             dt_tick = fromtimestamp(bars[int(ibar)].time)
             strings.append(
                 dt_tick.strftime(self.tick_tpl[s_period])
@@ -144,7 +143,7 @@ class XAxisLabel(AxisLabel):
     def tick_to_string(self, tick_pos):
         # TODO: change to actual period
         tpl = self.parent.tick_tpl['D1']
-        bars = self.parent.splitter.chart._array
+        bars = self.parent.linked_charts._array
         if tick_pos > len(bars):
             return 'Unknown Time'
         return fromtimestamp(bars[round(tick_pos)].time).strftime(tpl)
@@ -173,7 +172,7 @@ class YAxisLabel(AxisLabel):
         return ('{: ,.%df}' % self.digits).format(tick_pos).replace(',', ' ')
 
     def boundingRect(self):  # noqa
-        return QtCore.QRectF(0, 0, 80, 40)
+        return QtCore.QRectF(0, 0, 100, 40)
 
     def update_label(self, evt_post, point_view):
         self.label_str = self.tick_to_string(point_view.y())
