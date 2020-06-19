@@ -185,10 +185,10 @@ class BarItems(pg.GraphicsObject):
     def __init__(self):
         super().__init__()
         self.picture = QtGui.QPicture()
-        self.lines = None
-        self._last_quote = {}
+        # lines container
+        self.lines: np.ndarray = None
 
-    # TODO: this is the routine to be retriggered for redraw
+    # TODO: can we be faster just dropping this?
     @contextmanager
     def painter(self):
         # pre-computing a QPicture object allows paint() to run much
@@ -221,8 +221,6 @@ class BarItems(pg.GraphicsObject):
                     QtCore.QLineF(
                         q['index'] + self.w, q['close'], q['index'], q['close'])
                 )
-            else:
-                self._last_quote = q
             # if not _tina_mode:  # piker mode
             p.setPen(self.bull_brush)
             p.drawLines(*lines)
@@ -245,17 +243,24 @@ class BarItems(pg.GraphicsObject):
             #     p.setPen(self.bear_brush)
             #     p.drawLines(*downs)
 
-    def update_last_bar(
+    def update_from_array(
         self,
-        quote: Dict[str, Any],
+        array: np.ndarray,
     ) -> None:
-        """Update the last datum's bar graphic from a quote ``dict``.
+        """Update the last datum's bar graphic from input data array.
+
+        This routine should be interface compatible with
+        ``pg.PlotCurveItem.setData()``. Normally this method in
+        ``pyqtgraph`` seems to update all the data passed to the
+        graphics object, and then update/rerender, but here we're
+        assuming the prior graphics havent changed (OHLC history rarely
+        does) so this "should" be simpler and faster.
         """
-        last = quote['last']
-        body, larm, rarm = self.lines[-3:]  # close line is absolute last
+        # do we really need to verify the entire past data set?
+        last = array['close'][-1]
+        body, larm, rarm = self.lines[-3:]
 
         # XXX: is there a faster way to modify this?
-
         # update right arm
         rarm.setLine(rarm.x1(), last, rarm.x2(), last)
 
@@ -270,23 +275,27 @@ class BarItems(pg.GraphicsObject):
 
         body.setLine(body.x1(), low, body.x2(), high)
 
+        # draw the pic
         with self.painter() as p:
             p.setPen(self.bull_brush)
             p.drawLines(*self.lines)
 
-        # trigger re-draw
+        # trigger re-render
         self.update()
+
+    # be compat with ``pg.PlotCurveItem``
+    setData = update_from_array
 
     # XXX: From the customGraphicsItem.py example:
     # The only required methods are paint() and boundingRect()
-    def paint(self, p, *args):
+    def paint(self, p, opt, widget):
         p.drawPicture(0, 0, self.picture)
 
     def boundingRect(self):
         # boundingRect _must_ indicate the entire area that will be
         # drawn on or else we will get artifacts and possibly crashing.
         # (in this case, QPicture does all the work of computing the
-        # bouning rect for us)
+        # bounding rect for us)
         return QtCore.QRectF(self.picture.boundingRect())
 
 
