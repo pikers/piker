@@ -249,3 +249,20 @@ def symbol_info(config, tickers):
                 brokermod.log.warn(f"Could not find symbol {ticker}?")
 
     click.echo(colorize_json(quotes))
+
+
+@cli.command()
+@click.argument('pattern', required=True)
+@click.pass_obj
+def search(config, pattern):
+    """Search for symbols from broker backend(s).
+    """
+    # global opts
+    brokermod = config['brokermod']
+
+    quotes = trio.run(partial(core.symbol_search, brokermod, pattern))
+    if not quotes:
+        log.error(f"No matches could be found for {pattern}?")
+        return
+
+    click.echo(colorize_json(quotes))
