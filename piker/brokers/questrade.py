@@ -6,7 +6,7 @@ import inspect
 import time
 from datetime import datetime
 from functools import partial
-from itertools import chain
+import itertools
 import configparser
 from typing import List, Tuple, Dict, Any, Iterator, NamedTuple
 
@@ -602,6 +602,24 @@ class Client:
             f"Took {time.time() - start} seconds to retreive {len(bars)} bars")
         return bars
 
+    async def search_stocks(
+        self,
+        pattern: str,
+        # how many contracts to return
+        upto: int = 10,
+    ) -> Dict[str, str]:
+        details = {}
+        results = await self.api.search(prefix=pattern)
+        for result in results['symbols']:
+            sym = result['symbol']
+            if '.' not in sym:
+                sym = f"{sym}.{result['listingExchange']}"
+
+            details[sym] = result
+
+            if len(details) == upto:
+                return details
+
 
 # marketstore TSD compatible numpy dtype for bar
 _qt_bars_dt = [
@@ -856,7 +874,7 @@ def format_stock_quote(
             # 'symbol': quote['symbol'],
             '%': round(change, 3),
             'MC': mktcap,
-            # why questrade do you have to be an asshole shipping null values!!!
+            # why questrade do you have to be shipping null values!!!
             # '$ vol': round((quote['VWAP'] or 0) * (quote['volume'] or 0), 3),
             'close': previous,
         })
@@ -870,7 +888,7 @@ def format_stock_quote(
     new = {}
     displayable = {}
 
-    for key, value in chain(quote.items(), computed.items()):
+    for key, value in itertools.chain(quote.items(), computed.items()):
         new_key = keymap.get(key)
         if not new_key:
             continue
@@ -887,7 +905,6 @@ def format_stock_quote(
 
         new[new_key] = value
         displayable[new_key] = display_value
-
 
     return new, displayable
 
