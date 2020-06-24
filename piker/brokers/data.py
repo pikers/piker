@@ -190,7 +190,7 @@ async def symbol_data(broker: str, tickers: List[str]):
     """Retrieve baseline symbol info from broker.
     """
     async with get_cached_feed(broker) as feed:
-        return await feed.client.symbol_data(tickers)
+        return await feed.client.symbol_info(tickers)
 
 
 async def smoke_quote(get_quotes, tickers, broker):
