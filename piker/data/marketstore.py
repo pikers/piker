@@ -178,7 +178,7 @@ def ingest(config, name, test_file, tl, url):
                     # since last quote)
                     new_vol = fmt_quote.get('volume', None)
                     if new_vol is None:
-                        log.info(f"NO trades for {symbol}")
+                        log.debug(f"No fills for {symbol}")
                         if new_vol == quote_cache.get('volume'):
                             log.error(
                                 f"{symbol}: got same volume as last quote?")
@@ -222,9 +222,9 @@ def ms_shell(config, name, tl, url):
     """
     client = pymkts.Client(url)
 
-    def query(name):
+    def query(name, tbk=_tick_tbk_ids):
         return client.query(
-            pymkts.Params(name, *_tick_tbk_ids)).first().df()
+            pymkts.Params(name, *tbk)).first().df()
 
     # causes crash
     # client.query(pymkts.Params(symbol, '*', 'OHCLV'
