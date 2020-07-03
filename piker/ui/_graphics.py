@@ -18,7 +18,7 @@ from ._axes import YAxisLabel, XAxisLabel
 
 # TODO: checkout pyqtgraph.PlotCurveItem.setCompositionMode
 
-_mouse_rate_limit = 50
+_mouse_rate_limit = 40
 
 
 class CrossHairItem(pg.GraphicsObject):
@@ -175,8 +175,7 @@ class BarItems(pg.GraphicsObject):
     sigPlotChanged = QtCore.Signal(object)
 
     w: float = 0.5
-
-    bull_brush = bear_brush = pg.mkPen('#808080')
+    bull_pen = pg.mkPen('#808080')
 
     # XXX: tina mode, see below
     # bull_brush = pg.mkPen('#00cc00')
@@ -211,19 +210,26 @@ class BarItems(pg.GraphicsObject):
 
         with self.painter() as p:
             for i, q in enumerate(data):
+                low = q['low']
+                high = q['high']
+                index = q['index']
+
+                # high - low line
+                if low != high:
+                    hl = QLineF(index, low, index, high)
+                else:
+                    # if we don't do it renders a weird rectangle?
+                    hl = QLineF(low, low, low, low)
+                # open line
+                o = QLineF(index - self.w, q['open'], index, q['open'])
+                # close line
+                c = QLineF(index + self.w, q['close'], index, q['close'])
+
                 # indexing here is as per the below comments
-                lines[3*i:3*i+3] = (
-                    # high_to_low
-                    QLineF(q['index'], q['low'], q['index'], q['high']),
-                    # open_sticks
-                    QLineF(q['index'] - self.w, q['open'], q['index'], q['open']),
-                    # close_sticks
-                    QtCore.QLineF(
-                        q['index'] + self.w, q['close'], q['index'], q['close'])
-                )
-            # if not _tina_mode:  # piker mode
-            p.setPen(self.bull_brush)
+                lines[3*i:3*i+3] = (hl, o, c)
+            p.setPen(self.bull_pen)
             p.drawLines(*lines)
+            # if not _tina_mode:  # piker mode
             # else _tina_mode:
             #     self.lines = lines = np.concatenate(
             #       [high_to_low, open_sticks, close_sticks])
