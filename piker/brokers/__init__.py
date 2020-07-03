@@ -11,6 +11,7 @@ asks.init('trio')
 __brokers__ = [
     'questrade',
     'robinhood',
+    'ib',
 ]
 
 
