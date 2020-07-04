@@ -1,7 +1,7 @@
 """
 High level Qt chart widgets.
 """
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import trio
 import numpy as np
@@ -16,7 +16,11 @@ from ._axes import (
 from ._graphics import CrossHairItem, ChartType
 from ._style import _xaxis_at
 from ._source import Symbol
+from .. import brokers
+from .. log import get_logger
 
+
+log = get_logger(__name__)
 
 # margins
 CHART_MARGINS = (0, 0, 10, 3)
@@ -106,7 +110,7 @@ class LinkedSplitCharts(QtGui.QWidget):
         self.signals_visible = False
 
         # main data source
-        self._array = None
+        self._array: np.ndarray = None
 
         self._ch = None  # crosshair graphics
         self._index = 0
@@ -135,7 +139,7 @@ class LinkedSplitCharts(QtGui.QWidget):
 
     def set_split_sizes(
         self,
-        prop: float = 0.2
+        prop: float = 0.25
     ) -> None:
         """Set the proportion of space allocated for linked subcharts.
         """
@@ -186,7 +190,7 @@ class LinkedSplitCharts(QtGui.QWidget):
         # TODO: this is where we would load an indicator chain
         # XXX: note, if this isn't index aligned with
         # the source data the chart will go haywire.
-        inds = [('open', lambda a: a.close)]
+        inds = [('open', lambda a: a['close'])]
 
         for name, func in inds:
             cv = ChartView()
@@ -261,15 +265,14 @@ class LinkedSplitCharts(QtGui.QWidget):
             chart.update_from_array(data, chart.name)
 
 
-_min_points_to_show = 15
-_min_bars_in_view = 10
+_min_points_to_show = 20
 
 
 class ChartPlotWidget(pg.PlotWidget):
     """``GraphicsView`` subtype containing a single ``PlotItem``.
 
     - The added methods allow for plotting OHLC sequences from
-      ``np.recarray``s with appropriate field names.
+      ``np.ndarray``s with appropriate field names.
     - Overrides a ``pyqtgraph.PlotWidget`` (a ``GraphicsView`` containing
       a single ``PlotItem``) to intercept and and re-emit mouse enter/exit
       events.
@@ -334,22 +337,24 @@ class ChartPlotWidget(pg.PlotWidget):
         """Set view limits (what's shown in the main chart "pane")
         based on max / min x / y coords.
         """
-        # max_lookahead = _min_points_to_show - _min_bars_in_view
-
         # set panning limits
         self.setLimits(
             xMin=xfirst,
-            xMax=xlast + _min_points_to_show - 3,
+            xMax=xlast,
             minXRange=_min_points_to_show,
         )
 
-    def bars_range(self):
+    def view_range(self) -> Tuple[int, int]:
+        vr = self.viewRect()
+        return int(vr.left()), int(vr.right())
+
+    def bars_range(self) -> Tuple[int, int, int, int]:
         """Return a range tuple for the bars present in view.
         """
-        vr = self.viewRect()
-        lbar = int(vr.left())
-        rbar = int(vr.right())
-        return lbar, rbar
+        l, r = self.view_range()
+        lbar = max(l, 0)
+        rbar = min(r, len(self.parent._array) - 1)
+        return l, lbar, rbar, r
 
     def draw_ohlc(
         self,
@@ -370,7 +375,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # set xrange limits
         self._xlast = xlast = data[-1]['index']
-        self._set_xlimits(data[0]['index'], xlast)
+        # self._set_xlimits(data[0]['index'] - 100, xlast)
 
         # show last 50 points on startup
         self.plotItem.vb.setXRange(xlast - 50, xlast + 50)
@@ -393,7 +398,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # set a "startup view"
         xlast = len(data)-1
-        self._set_xlimits(0, xlast)
+        # self._set_xlimits(0, xlast)
 
         # show last 50 points on startup
         self.plotItem.vb.setXRange(xlast - 50, xlast + 50)
@@ -427,14 +432,33 @@ class ChartPlotWidget(pg.PlotWidget):
         # self.setAutoVisible(x=False, y=True)
         # self.enableAutoRange(x=False, y=True)
 
-        # figure out x-range bars on screen
-        lbar, rbar = self.bars_range()
+        l, lbar, rbar, r = self.bars_range()
+
+        # figure out x-range in view such that user can scroll "off" the data
+        # set up to the point where ``_min_points_to_show`` are left.
+        # if l < lbar or r > rbar:
+        bars_len = rbar - lbar
+        view_len = r - l
+        # TODO: logic to check if end of bars in view
+        extra = view_len - _min_points_to_show
+        begin = 0 - extra
+        end = len(self.parent._array) - 1 + extra
+
+        log.trace(
+            f"\nl: {l}, lbar: {lbar}, rbar: {rbar}, r: {r}\n"
+            f"view_len: {view_len}, bars_len: {bars_len}\n"
+            f"begin: {begin}, end: {end}, extra: {extra}"
+        )
+        self._set_xlimits(begin, end)
 
         # TODO: this should be some kind of numpy view api
         bars = self.parent._array[lbar:rbar]
         if not len(bars):
             # likely no data loaded yet
+            print(f"WTF bars_range = {lbar}:{rbar}")
             return
+        elif lbar < 0:
+            breakpoint()
 
         # TODO: should probably just have some kinda attr mark
         # that determines this behavior based on array type
@@ -449,8 +473,9 @@ class ChartPlotWidget(pg.PlotWidget):
             std = np.std(bars)
 
         # view margins
-        ylow *= 0.98
-        yhigh *= 1.02
+        diff = yhigh - ylow
+        ylow = ylow - (diff * 0.08)
+        yhigh = yhigh + (diff * 0.08)
 
         chart = self
         chart.setLimits(
@@ -504,8 +529,14 @@ class ChartView(pg.ViewBox):
             mask = self.state['mouseEnabled'][:]
 
         # don't zoom more then the min points setting
-        lbar, rbar = self.linked_charts.chart.bars_range()
-        if ev.delta() >= 0 and rbar - lbar <= _min_points_to_show:
+        l, lbar, rbar, r = self.linked_charts.chart.bars_range()
+        vl = r - l
+
+        if ev.delta() > 0 and vl <= _min_points_to_show:
+            log.trace("Max zoom bruh...")
+            return
+        if ev.delta() < 0 and vl >= len(self.linked_charts._array) - 1:
+            log.trace("Min zoom bruh...")
             return
 
         # actual scaling factor
@@ -533,12 +564,9 @@ class ChartView(pg.ViewBox):
 def main(symbol):
     """Entry point to spawn a chart app.
     """
-    from datetime import datetime
 
     from ._exec import run_qtrio
-    from ._source import from_df
     # uses pandas_datareader
-    from .quantdom.loaders import get_quotes
 
     async def _main(widgets):
         """Main Qt-trio routine invoked by the Qt loop with
@@ -546,35 +574,68 @@ def main(symbol):
         """
 
         chart_app = widgets['main']
-        quotes = get_quotes(
-            symbol=symbol,
-            date_from=datetime(1900, 1, 1),
-            date_to=datetime(2030, 12, 31),
-        )
-        quotes = from_df(quotes)
+
+        # from .quantdom.loaders import get_quotes
+        # from datetime import datetime
+        # from ._source import from_df
+        # quotes = get_quotes(
+        #     symbol=symbol,
+        #     date_from=datetime(1900, 1, 1),
+        #     date_to=datetime(2030, 12, 31),
+        # )
+        # quotes = from_df(quotes)
+
+        # data-feed spawning
+        brokermod = brokers.get_brokermod('ib')
+        async with brokermod.get_client() as client:
+            # figure out the exact symbol
+            bars = await client.bars(symbol='ES')
+
+        # wow, just wow.. non-contiguous eh?
+        bars = np.array(bars)
+
+        # feed = DataFeed(portal, brokermod)
+        # quote_gen, quotes = await feed.open_stream(
+        #     symbols,
+        #     'stock',
+        #     rate=rate,
+        #     test=test,
+        # )
+
+        # first_quotes, _ = feed.format_quotes(quotes)
+
+        # if first_quotes[0].get('last') is None:
+        #     log.error("Broker API is down temporarily")
+        #     return
 
         # spawn chart
-        linked_charts = chart_app.load_symbol(symbol, quotes)
+        linked_charts = chart_app.load_symbol(symbol, bars)
+        await trio.sleep_forever()
 
         # make some fake update data
-        import itertools
-        nums = itertools.cycle([315., 320., 325., 310., 3])
+        # import itertools
+        # nums = itertools.cycle([315., 320., 325., 310., 3])
 
-        def gen_nums():
-            while True:
-                yield quotes[-1].close + 1
+        # def gen_nums():
+        #     while True:
+        #         yield quotes[-1].close + 2
+        #         yield quotes[-1].close - 2
 
-        nums = gen_nums()
+        # nums = gen_nums()
 
-        await trio.sleep(10)
-        while True:
-            new = next(nums)
-            quotes[-1].close = new
-            # this updates the linked_charts internal array
-            # and then passes that array to all subcharts to
-            # render downstream graphics
-            linked_charts.update_from_quote({'last': new})
-            await trio.sleep(.1)
+        # # await trio.sleep(10)
+        # import time
+        # while True:
+        #     new = next(nums)
+        #     quotes[-1].close = new
+        #     # this updates the linked_charts internal array
+        #     # and then passes that array to all subcharts to
+        #     # render downstream graphics
+        #     start = time.time()
+        #     linked_charts.update_from_quote({'last': new})
+        #     print(f"Render latency {time.time() - start}")
+        #     # 20 Hz seems to be good enough
+        #     await trio.sleep(0.05)
 
         await trio.sleep_forever()
 
