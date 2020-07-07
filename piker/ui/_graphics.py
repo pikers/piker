@@ -1,7 +1,7 @@
 """
 Chart graphics for displaying a slew of different data types.
 """
-from typing import Dict, Any
+# from typing import Dict, Any
 from enum import Enum
 from contextlib import contextmanager
 
@@ -18,7 +18,7 @@ from ._axes import YAxisLabel, XAxisLabel
 
 # TODO: checkout pyqtgraph.PlotCurveItem.setCompositionMode
 
-_mouse_rate_limit = 40
+_mouse_rate_limit = 50
 
 
 class CrossHairItem(pg.GraphicsObject):
@@ -174,7 +174,8 @@ class BarItems(pg.GraphicsObject):
     """
     sigPlotChanged = QtCore.Signal(object)
 
-    w: float = 0.5
+    # 0.5 is no overlap between arms, 1.0 is full overlap
+    w: float = 0.4
     bull_pen = pg.mkPen('#808080')
 
     # XXX: tina mode, see below
@@ -218,8 +219,10 @@ class BarItems(pg.GraphicsObject):
                 if low != high:
                     hl = QLineF(index, low, index, high)
                 else:
-                    # if we don't do it renders a weird rectangle?
+                    # XXX: if we don't do it renders a weird rectangle?
+                    # see below too for handling this later...
                     hl = QLineF(low, low, low, low)
+                    hl._flat = True
                 # open line
                 o = QLineF(index - self.w, q['open'], index, q['open'])
                 # close line
@@ -227,6 +230,7 @@ class BarItems(pg.GraphicsObject):
 
                 # indexing here is as per the below comments
                 lines[3*i:3*i+3] = (hl, o, c)
+
             p.setPen(self.bull_pen)
             p.drawLines(*lines)
             # if not _tina_mode:  # piker mode
@@ -263,7 +267,10 @@ class BarItems(pg.GraphicsObject):
         does) so this "should" be simpler and faster.
         """
         # do we really need to verify the entire past data set?
-        last = array['close'][-1]
+        # last = array['close'][-1]
+        # index, time, open, high, low, close, volume
+        index, time, _, _, _, close, _ = array[-1]
+        last = close
         body, larm, rarm = self.lines[-3:]
 
         # XXX: is there a faster way to modify this?
@@ -279,15 +286,22 @@ class BarItems(pg.GraphicsObject):
         if last > high:
             high = last
 
-        body.setLine(body.x1(), low, body.x2(), high)
+        if getattr(body, '_flat', None) and low != high:
+            # if the bar was flat it likely does not have
+            # the index set correctly due to a rendering bug
+            # see above
+            body.setLine(index, low, index, high)
+            body._flat = False
+        else:
+            body.setLine(body.x1(), low, body.x2(), high)
 
         # draw the pic
         with self.painter() as p:
-            p.setPen(self.bull_brush)
+            p.setPen(self.bull_pen)
             p.drawLines(*self.lines)
 
-        # trigger re-render
-        self.update()
+            # trigger re-render
+            self.update()
 
     # be compat with ``pg.PlotCurveItem``
     setData = update_from_array
@@ -305,37 +319,43 @@ class BarItems(pg.GraphicsObject):
         return QtCore.QRectF(self.picture.boundingRect())
 
 
-class CandlestickItems(BarItems):
+# XXX: when we get back to enabling tina mode
+# class CandlestickItems(BarItems):
 
-    w2 = 0.7
-    line_pen = pg.mkPen('#000000')
-    bull_brush = pg.mkBrush('#00ff00')
-    bear_brush = pg.mkBrush('#ff0000')
+#     w2 = 0.7
+#     line_pen = pg.mkPen('#000000')
+#     bull_brush = pg.mkBrush('#00ff00')
+#     bear_brush = pg.mkBrush('#ff0000')
 
-    def _generate(self, p):
-        rects = np.array(
-            [
-                QtCore.QRectF(q.id - self.w, q.open, self.w2, q.close - q.open)
-                for q in Quotes
-            ]
-        )
+#     def _generate(self, p):
+#         rects = np.array(
+#             [
+#                 QtCore.QRectF(
+#                   q.id - self.w,
+#                   q.open,
+#                   self.w2,
+#                   q.close - q.open
+#               )
+#                 for q in Quotes
+#             ]
+#         )
 
-        p.setPen(self.line_pen)
-        p.drawLines(
-            [QtCore.QLineF(q.id, q.low, q.id, q.high)
-             for q in Quotes]
-        )
+#         p.setPen(self.line_pen)
+#         p.drawLines(
+#             [QtCore.QLineF(q.id, q.low, q.id, q.high)
+#              for q in Quotes]
+#         )
 
-        p.setBrush(self.bull_brush)
-        p.drawRects(*rects[Quotes.close > Quotes.open])
+#         p.setBrush(self.bull_brush)
+#         p.drawRects(*rects[Quotes.close > Quotes.open])
 
-        p.setBrush(self.bear_brush)
-        p.drawRects(*rects[Quotes.close < Quotes.open])
+#         p.setBrush(self.bear_brush)
+#         p.drawRects(*rects[Quotes.close < Quotes.open])
 
 
 class ChartType(Enum):
     """Bar type to graphics class map.
     """
     BAR = BarItems
-    CANDLESTICK = CandlestickItems
+    # CANDLESTICK = CandlestickItems
     LINE = pg.PlotDataItem
