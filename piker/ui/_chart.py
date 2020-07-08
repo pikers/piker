@@ -244,28 +244,46 @@ class LinkedSplitCharts(QtGui.QWidget):
         # TODO: eventually we'll want to update bid/ask labels and other
         # data as subscribed by underlying UI consumers.
         last = quote['last']
-        current = self._array[-1]
+        index, time, open, high, low, close, volume = self._array[-1]
 
         # update ohlc (I guess we're enforcing this for now?)
-        current['close'] = last
-        current['high'] = max(current['high'], last)
-        current['low'] = min(current['low'], last)
+        # self._array[-1]['close'] = last
+        # self._array[-1]['high'] = max(h, last)
+        # self._array[-1]['low'] = min(l, last)
 
+        # overwrite from quote
+        self._array[-1] = (
+            index,
+            time,
+            open,
+            max(high, last),
+            min(low, last),
+            last,
+            volume,
+        )
+        self.update_from_array(self._array)
+
+    def update_from_array(
+        self,
+        array: np.ndarray,
+        **kwargs,
+    ) -> None:
         # update the ohlc sequence graphics chart
         chart = self.chart
+
         # we send a reference to the whole updated array
-        chart.update_from_array(self._array)
+        chart.update_from_array(array, **kwargs)
 
         # TODO: the "data" here should really be a function
         # and it should be managed and computed outside of this UI
         for chart, func in self.indicators:
             # process array in entirely every update
             # TODO: change this for streaming
-            data = func(self._array)
-            chart.update_from_array(data, chart.name)
+            data = func(array)
+            chart.update_from_array(data, name=chart.name, **kwargs)
 
 
-_min_points_to_show = 20
+_min_points_to_show = 3
 
 
 class ChartPlotWidget(pg.PlotWidget):
@@ -300,7 +318,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self.parent = linked_charts
         # this is the index of that last input array entry and is
         # updated and used to figure out how many bars are in view
-        self._xlast = 0
+        # self._xlast = 0
 
         # XXX: label setting doesn't seem to work?
         # likely custom graphics need special handling
@@ -353,7 +371,7 @@ class ChartPlotWidget(pg.PlotWidget):
         """
         l, r = self.view_range()
         lbar = max(l, 0)
-        rbar = min(r, len(self.parent._array) - 1)
+        rbar = min(r, len(self.parent._array))
         return l, lbar, rbar, r
 
     def draw_ohlc(
@@ -374,8 +392,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self.addItem(graphics)
 
         # set xrange limits
-        self._xlast = xlast = data[-1]['index']
-        # self._set_xlimits(data[0]['index'] - 100, xlast)
+        xlast = data[-1]['index']
 
         # show last 50 points on startup
         self.plotItem.vb.setXRange(xlast - 50, xlast + 50)
@@ -394,14 +411,19 @@ class ChartPlotWidget(pg.PlotWidget):
         # register overlay curve with name
         if not self._graphics and name is None:
             name = 'main'
+
         self._graphics[name] = curve
 
         # set a "startup view"
-        xlast = len(data)-1
+        xlast = len(data) - 1
         # self._set_xlimits(0, xlast)
 
         # show last 50 points on startup
         self.plotItem.vb.setXRange(xlast - 50, xlast + 50)
+
+        # TODO: we should instead implement a diff based
+        # "only update with new items" on the pg.PlotDataItem
+        curve.update_from_array = curve.setData
 
         return curve
 
@@ -409,29 +431,26 @@ class ChartPlotWidget(pg.PlotWidget):
         self,
         array: np.ndarray,
         name: str = 'main',
-    ) -> None:
-        self._xlast = len(array) - 1
+        **kwargs,
+    ) -> pg.GraphicsObject:
+        # self._xlast = len(array) - 1
         graphics = self._graphics[name]
-        graphics.setData(array)
+        graphics.update_from_array(array, **kwargs)
+
         # update view
         self._set_yrange()
+
+        return graphics
 
     def _set_yrange(
         self,
     ) -> None:
-        """Callback for each y-range update.
+        """Set the viewable y-range based on embedded data.
 
         This adds auto-scaling like zoom on the scroll wheel such
         that data always fits nicely inside the current view of the
         data set.
         """
-        # TODO: this can likely be ported in part to the built-ins:
-        # self.setYRange(Quotes.low.min() * .98, Quotes.high.max() * 1.02)
-        # self.setMouseEnabled(x=True, y=False)
-        # self.setXRange(Quotes[0].id, Quotes[-1].id)
-        # self.setAutoVisible(x=False, y=True)
-        # self.enableAutoRange(x=False, y=True)
-
         l, lbar, rbar, r = self.bars_range()
 
         # figure out x-range in view such that user can scroll "off" the data
@@ -474,8 +493,8 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # view margins
         diff = yhigh - ylow
-        ylow = ylow - (diff * 0.08)
-        yhigh = yhigh + (diff * 0.08)
+        ylow = ylow - (diff * 0.1)
+        yhigh = yhigh + (diff * 0.1)
 
         chart = self
         chart.setLimits(
@@ -535,12 +554,12 @@ class ChartView(pg.ViewBox):
         if ev.delta() > 0 and vl <= _min_points_to_show:
             log.trace("Max zoom bruh...")
             return
-        if ev.delta() < 0 and vl >= len(self.linked_charts._array) - 1:
+        if ev.delta() < 0 and vl >= len(self.linked_charts._array):
             log.trace("Min zoom bruh...")
             return
 
         # actual scaling factor
-        s = 1.015 ** (ev.delta() * -1/20)  # self.state['wheelScaleFactor'])
+        s = 1.015 ** (ev.delta() * -1 / 20)  # self.state['wheelScaleFactor'])
         s = [(None if m is False else s) for m in mask]
 
         # center = pg.Point(
@@ -550,8 +569,8 @@ class ChartView(pg.ViewBox):
         # XXX: scroll "around" the right most element in the view
         furthest_right_coord = self.boundingRect().topRight()
         center = pg.Point(
-           fn.invertQTransform(
-               self.childGroup.transform()
+            fn.invertQTransform(
+                self.childGroup.transform()
             ).map(furthest_right_coord)
         )
 
@@ -572,8 +591,73 @@ def main(symbol):
         """Main Qt-trio routine invoked by the Qt loop with
         the widgets ``dict``.
         """
-
         chart_app = widgets['main']
+
+        # data-feed setup
+        sym = symbol or 'ES.GLOBEX'
+        brokermod = brokers.get_brokermod('ib')
+        async with brokermod.get_client() as client:
+            # figure out the exact symbol
+            bars = await client.bars(symbol=sym)
+
+        # ``from_buffer` return read-only
+        bars = np.array(bars)
+        linked_charts = chart_app.load_symbol('ES', bars)
+
+        async def add_new_bars(delay_s=5.):
+            import time
+
+            ohlc = linked_charts._array
+
+            last_5s = ohlc[-1]['time']
+            delay = max((last_5s + 4.99) - time.time(), 0)
+            await trio.sleep(delay)
+
+            while True:
+                print('new bar')
+
+                # TODO: bunch of stuff:
+                # - I'm starting to think all this logic should be
+                #   done in one place and "graphics update routines"
+                #   should not be doing any length checking and array diffing.
+                # - don't keep appending, but instead increase the
+                #   underlying array's size less frequently:
+                # - handle odd lot orders
+                # - update last open price correctly instead
+                #   of copying it from last bar's close
+                # - 5 sec bar lookback-autocorrection like tws does
+                index, t, open, high, low, close, volume = ohlc[-1]
+                new = np.append(
+                    ohlc,
+                    np.array(
+                        [(index + 1, t + 5, close, close, close, close, 0)],
+                        dtype=ohlc.dtype
+                    ),
+                )
+                ohlc = linked_charts._array = new
+                linked_charts.update_from_array(new)
+
+                # sleep until next 5s from last bar
+                last_5s = ohlc[-1]['time']
+                delay = max((last_5s + 4.99) - time.time(), 0)
+                await trio.sleep(4.9999)
+
+        async with trio.open_nursery() as n:
+            n.start_soon(add_new_bars)
+
+            async with brokermod.maybe_spawn_brokerd() as portal:
+                stream = await portal.run(
+                    'piker.brokers.ib',
+                    'trio_stream_ticker',
+                    sym=sym,
+                )
+                # TODO: timeframe logic
+                async for tick in stream:
+                    # breakpoint()
+                    if tick['tickType'] in (48, 77):
+                        linked_charts.update_from_quote(
+                            {'last': tick['price']}
+                        )
 
         # from .quantdom.loaders import get_quotes
         # from datetime import datetime
@@ -584,15 +668,6 @@ def main(symbol):
         #     date_to=datetime(2030, 12, 31),
         # )
         # quotes = from_df(quotes)
-
-        # data-feed spawning
-        brokermod = brokers.get_brokermod('ib')
-        async with brokermod.get_client() as client:
-            # figure out the exact symbol
-            bars = await client.bars(symbol='ES')
-
-        # wow, just wow.. non-contiguous eh?
-        bars = np.array(bars)
 
         # feed = DataFeed(portal, brokermod)
         # quote_gen, quotes = await feed.open_stream(
@@ -607,10 +682,6 @@ def main(symbol):
         # if first_quotes[0].get('last') is None:
         #     log.error("Broker API is down temporarily")
         #     return
-
-        # spawn chart
-        linked_charts = chart_app.load_symbol(symbol, bars)
-        await trio.sleep_forever()
 
         # make some fake update data
         # import itertools
@@ -636,7 +707,5 @@ def main(symbol):
         #     print(f"Render latency {time.time() - start}")
         #     # 20 Hz seems to be good enough
         #     await trio.sleep(0.05)
-
-        await trio.sleep_forever()
 
     run_qtrio(_main, (), ChartSpace)
