@@ -47,10 +47,13 @@ setup(
     install_requires=[
         'click',
         'colorlog',
-        'trio',
         'attrs',
-        'async_generator',
         'pygments',
+
+        # async
+        'trio',
+        # 'tractor',  # from github currently
+        'async_generator',
 
         # brokers
         'asks',
@@ -61,6 +64,11 @@ setup(
         'cython',
         'numpy',
         'pandas',
+        'msgpack-numpy',
+
+        # UI
+        'PyQt5',
+        'pyqtgraph',
 
         # tsdbs
         'pymarketstore',
@@ -71,13 +79,11 @@ setup(
     keywords=["async", "trading", "finance", "quant", "charting"],
     classifiers=[
         'Development Status :: 3 - Alpha',
-        'License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)',
+        'License :: OSI Approved :: ',
         'Operating System :: POSIX :: Linux',
         "Programming Language :: Python :: Implementation :: CPython",
-        # "Programming Language :: Python :: Implementation :: PyPy",
         "Programming Language :: Python :: 3 :: Only",
-        "Programming Language :: Python :: 3.5",
-        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
         'Intended Audience :: Financial and Insurance Industry',
         'Intended Audience :: Science/Research',
         'Intended Audience :: Developers',
