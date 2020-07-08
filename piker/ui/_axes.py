@@ -62,7 +62,7 @@ class DynamicDateAxis(pg.AxisItem):
         for ibar in values:
             if ibar > quotes_count:
                 return strings
-            dt_tick = fromtimestamp(bars[int(ibar)].time)
+            dt_tick = fromtimestamp(bars[int(ibar)]['time'])
             strings.append(
                 dt_tick.strftime(self.tick_tpl[s_period])
             )
@@ -146,7 +146,7 @@ class XAxisLabel(AxisLabel):
         bars = self.parent.linked_charts._array
         if tick_pos > len(bars):
             return 'Unknown Time'
-        return fromtimestamp(bars[round(tick_pos)].time).strftime(tpl)
+        return fromtimestamp(bars[round(tick_pos)]['time']).strftime(tpl)
 
     def boundingRect(self):  # noqa
         return QtCore.QRectF(0, 0, 145, 50)
