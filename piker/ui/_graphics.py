@@ -169,6 +169,57 @@ class CrossHairItem(pg.GraphicsObject):
         return self.parent.boundingRect()
 
 
+def bars_from_ohlc(
+    data: np.ndarray,
+    start: int = 0,
+    w: float = 0.4,
+) -> np.ndarray:
+    lines = np.empty_like(data, shape=(data.shape[0]*3,), dtype=object)
+
+    for i, q in enumerate(data[start:], start=start):
+        low = q['low']
+        high = q['high']
+        index = q['index']
+
+        # high - low line
+        if low != high:
+            hl = QLineF(index, low, index, high)
+        else:
+            # XXX: if we don't do it renders a weird rectangle?
+            # see below too for handling this later...
+            hl = QLineF(low, low, low, low)
+            hl._flat = True
+        # open line
+        o = QLineF(index - w, q['open'], index, q['open'])
+        # close line
+        c = QLineF(index + w, q['close'], index, q['close'])
+
+        # indexing here is as per the below comments
+        lines[3*i:3*i+3] = (hl, o, c)
+
+        # if not _tina_mode:  # piker mode
+        # else _tina_mode:
+        #     self.lines = lines = np.concatenate(
+        #       [high_to_low, open_sticks, close_sticks])
+        #     use traditional up/down green/red coloring
+        #     long_bars = np.resize(Quotes.close > Quotes.open, len(lines))
+        #     short_bars = np.resize(
+        #       Quotes.close < Quotes.open, len(lines))
+
+        #     ups = lines[long_bars]
+        #     downs = lines[short_bars]
+
+        #     # draw "up" bars
+        #     p.setPen(self.bull_brush)
+        #     p.drawLines(*ups)
+
+        #     # draw "down" bars
+        #     p.setPen(self.bear_brush)
+        #     p.drawLines(*downs)
+
+    return lines
+
+
 class BarItems(pg.GraphicsObject):
     """Price range bars graphics rendered from a OHLC sequence.
     """
@@ -185,8 +236,22 @@ class BarItems(pg.GraphicsObject):
     def __init__(self):
         super().__init__()
         self.picture = QtGui.QPicture()
+
+        # XXX: not sure this actually needs to be an array other
+        # then for the old tina mode calcs for up/down bars below?
         # lines container
-        self.lines: np.ndarray = None
+        self.lines: np.ndarray = np.empty_like(
+            [], shape=(int(50e3),), dtype=object)
+        self._index = 0
+
+    def _set_index(self, val):
+        # breakpoint()
+        self._index = val
+
+    def _get_index(self):
+        return self._index
+
+    index = property(_get_index, _set_index)
 
     # TODO: can we be faster just dropping this?
     @contextmanager
@@ -201,57 +266,21 @@ class BarItems(pg.GraphicsObject):
     def draw_from_data(
         self,
         data: np.recarray,
+        start: int = 0,
     ):
         """Draw OHLC datum graphics from a ``np.recarray``.
         """
-        # XXX: not sure this actually needs to be an array other
-        # then for the old tina mode calcs for up/down bars below?
-        self.lines = lines = np.empty_like(
-            data, shape=(data.shape[0]*3,), dtype=object)
+        lines = bars_from_ohlc(data, start=start, w=self.w)
+
+        # save graphics for later reference and keep track
+        # of current internal "last index"
+        index = len(lines)
+        self.lines[:index] = lines
+        self.index = index
 
         with self.painter() as p:
-            for i, q in enumerate(data):
-                low = q['low']
-                high = q['high']
-                index = q['index']
-
-                # high - low line
-                if low != high:
-                    hl = QLineF(index, low, index, high)
-                else:
-                    # XXX: if we don't do it renders a weird rectangle?
-                    # see below too for handling this later...
-                    hl = QLineF(low, low, low, low)
-                    hl._flat = True
-                # open line
-                o = QLineF(index - self.w, q['open'], index, q['open'])
-                # close line
-                c = QLineF(index + self.w, q['close'], index, q['close'])
-
-                # indexing here is as per the below comments
-                lines[3*i:3*i+3] = (hl, o, c)
-
             p.setPen(self.bull_pen)
-            p.drawLines(*lines)
-            # if not _tina_mode:  # piker mode
-            # else _tina_mode:
-            #     self.lines = lines = np.concatenate(
-            #       [high_to_low, open_sticks, close_sticks])
-            #     use traditional up/down green/red coloring
-            #     long_bars = np.resize(Quotes.close > Quotes.open, len(lines))
-            #     short_bars = np.resize(
-            #       Quotes.close < Quotes.open, len(lines))
-
-            #     ups = lines[long_bars]
-            #     downs = lines[short_bars]
-
-            #     # draw "up" bars
-            #     p.setPen(self.bull_brush)
-            #     p.drawLines(*ups)
-
-            #     # draw "down" bars
-            #     p.setPen(self.bear_brush)
-            #     p.drawLines(*downs)
+            p.drawLines(*self.lines[:index])
 
     def update_from_array(
         self,
@@ -266,39 +295,57 @@ class BarItems(pg.GraphicsObject):
         assuming the prior graphics havent changed (OHLC history rarely
         does) so this "should" be simpler and faster.
         """
-        # do we really need to verify the entire past data set?
-        # last = array['close'][-1]
-        # index, time, open, high, low, close, volume
-        index, time, _, _, _, close, _ = array[-1]
-        last = close
-        body, larm, rarm = self.lines[-3:]
+        index = self.index
+        length = len(array)
+        idata = int(index/3) - 1
+        extra = length - idata
+        if extra > 0:
+            # generate new graphics to match provided array
+            new = array[-extra:]
+            lines = bars_from_ohlc(new, w=self.w)
 
-        # XXX: is there a faster way to modify this?
-        # update right arm
-        rarm.setLine(rarm.x1(), last, rarm.x2(), last)
+            added = len(new) * 3
+            assert len(lines) == added
 
-        # update body
-        high = body.y2()
-        low = body.y1()
-        if last < low:
-            low = last
+            self.lines[index:index + len(lines)] = lines
 
-        if last > high:
-            high = last
+            self.index += len(lines)
 
-        if getattr(body, '_flat', None) and low != high:
-            # if the bar was flat it likely does not have
-            # the index set correctly due to a rendering bug
-            # see above
-            body.setLine(index, low, index, high)
-            body._flat = False
-        else:
-            body.setLine(body.x1(), low, body.x2(), high)
+        else:  # current bar update
+            # do we really need to verify the entire past data set?
+            # index, time, open, high, low, close, volume
+            i, time, _, _, _, close, _ = array[-1]
+            last = close
+            body, larm, rarm = self.lines[index-3:index]
+            if not rarm:
+                breakpoint()
+
+            # XXX: is there a faster way to modify this?
+            # update right arm
+            rarm.setLine(rarm.x1(), last, rarm.x2(), last)
+
+            # update body
+            high = body.y2()
+            low = body.y1()
+            if last < low:
+                low = last
+
+            if last > high:
+                high = last
+
+            if getattr(body, '_flat', None) and low != high:
+                # if the bar was flat it likely does not have
+                # the index set correctly due to a rendering bug
+                # see above
+                body.setLine(i, low, i, high)
+                body._flat = False
+            else:
+                body.setLine(body.x1(), low, body.x2(), high)
 
         # draw the pic
         with self.painter() as p:
             p.setPen(self.bull_pen)
-            p.drawLines(*self.lines)
+            p.drawLines(*self.lines[:index])
 
             # trigger re-render
             self.update()
@@ -319,7 +366,7 @@ class BarItems(pg.GraphicsObject):
         return QtCore.QRectF(self.picture.boundingRect())
 
 
-# XXX: when we get back to enabling tina mode
+# XXX: when we get back to enabling tina mode for xb
 # class CandlestickItems(BarItems):
 
 #     w2 = 0.7
