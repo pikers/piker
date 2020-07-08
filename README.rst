@@ -10,11 +10,13 @@ trading and financial analysis targetted at hardcore Linux users.
 It tries to use as much bleeding edge tech as possible including (but not limited to):
 
 - Python 3.7+ for glue_ and business logic
-- trio_ for async
-- tractor_ as the underlying actor model
+- trio_ for structured concurrency
+- tractor_ for distributed, multi-core, real-time streaming
 - marketstore_ for historical and real-time tick data persistence and sharing
 - techtonicdb_ for L2 book storage
 - Qt_ for pristine high performance UIs
+- pyqtgraph_ for real-time charting
+- ``numpy`` for `fast numerics`_
 
 .. |travis| image:: https://img.shields.io/travis/pikers/piker/master.svg
     :target: https://travis-ci.org/pikers/piker
@@ -24,6 +26,7 @@ It tries to use as much bleeding edge tech as possible including (but not limite
 .. _techtonicdb: https://github.com/0b01/tectonicdb
 .. _Qt: https://www.qt.io/
 .. _glue: https://numpy.org/doc/stable/user/c-info.python-as-glue.html#using-python-as-glue
+.. _fast numerics: https://zerowithdot.com/python-numpy-and-pandas-performance/
 
 
 Focus and Features:
@@ -65,27 +68,7 @@ Install
 be cloned from this repo and hacked on directly.
 
 A couple bleeding edge components are being used atm pertaining to
-async ports of libraries for use with `trio`_.
-
-Before installing make sure you have `pipenv`_ and have installed
-``python3.7`` as well as `kivy source build`_ dependencies
-since currently there's reliance on an async development branch.
-
-`kivy` dependencies
-===================
-On Archlinux you need the following dependencies::
-
-   pacman -S python-docutils gstreamer sdl2_ttf sdl2_mixer sdl2_image xclip
-
-To manually install the async branch of ``kivy`` from github do (though
-this should be done as part of the ``pipenv install`` below)::
-
-    pipenv install -e 'git+git://github.com/matham/kivy.git@async-loop#egg=kivy'
-
-
-.. _kivy source build:
-    https://kivy.org/docs/installation/installation-linux.html#installation-in-a-virtual-environment
-
+new components within `trio`_.
 
 For a development install::
 
@@ -97,34 +80,36 @@ For a development install::
 
 Broker Support
 **************
-For live data feeds the only fully functional broker at the moment is Questrade_.
-Eventual support is in the works for `IB`, `TD Ameritrade` and `IEX`.
+For live data feeds the set of supported brokers is:
+- Questrade_ which comes with effectively free L1
+- IB_ via ib_insync
+- Webull_ via the reverse engineered public API
+- Kraken_ for crypto over their public websocket API
+
 If you want your broker supported and they have an API let us know.
 
 .. _Questrade: https://www.questrade.com/api/documentation
+.. _IB: https://interactivebrokers.github.io/tws-api/index.html
+.. _Webull: https://www.kraken.com/features/api#public-market-data
+.. _Kraken: https://www.kraken.com/features/api#public-market-data
 
 
-Play with some UIs
-******************
+Check out some charts
+*********************
+Bet you weren't expecting this from the foss::
 
-To start the real-time index monitor with the `questrade` backend::
-
-    piker -l info monitor indexes
-
-
-If you want to see super granular price changes, increase the
-broker quote query ``rate`` with ``-r``::
-
-    piker monitor indexes -r 10
+    piker chart spy.arca
 
 
-It is also possible to run the broker data feed micro service as a daemon::
+It is also possible to run a specific broker's data feed as a top
+level micro-service daemon::
 
-    pikerd -l info
+    pikerd -l info -b ib
+
 
 Then start the client app as normal::
 
-    piker monitor indexes
+    piker chart -b ib ES.GLOBEX
 
 
 .. _pipenv: https://docs.pipenv.org/
