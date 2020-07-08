@@ -5,6 +5,7 @@ Run ``trio`` in guest mode on top of the Qt event loop.
 All global Qt runtime settings are mostly defined here.
 """
 import traceback
+from functools import partial
 
 import PyQt5  # noqa
 from pyqtgraph import QtGui
@@ -12,6 +13,7 @@ from PyQt5 import QtCore
 from PyQt5.QtCore import pyqtRemoveInputHook
 import qdarkstyle
 import trio
+import tractor
 from outcome import Error
 
 
@@ -31,6 +33,7 @@ def run_qtrio(
     func,
     args,
     main_widget,
+    loglevel = None,
 ) -> None:
     # avoids annoying message when entering debugger from qt loop
     pyqtRemoveInputHook()
@@ -79,10 +82,29 @@ def run_qtrio(
         'main': instance,
     }
 
+    # force mp since we may spawn an ib asyncio based backend
+    tractor._spawn.try_set_start_method('forkserver')
+    # setup tractor entry point args
+    args = (
+        # async_fn
+        func,
+        # args
+        (widgets,),
+        # kwargs
+        {'loglevel': 'info'},
+        # arbiter_addr
+        (
+            tractor._default_arbiter_host,
+            tractor._default_arbiter_port,
+        ),
+        # name
+        'qtrio',
+    )
+
     # guest mode
     trio.lowlevel.start_guest_run(
-        func,
-        widgets,
+        tractor._main,
+        *args,
         run_sync_soon_threadsafe=run_sync_soon_threadsafe,
         done_callback=done_callback,
     )
