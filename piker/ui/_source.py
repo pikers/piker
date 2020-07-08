@@ -64,21 +64,35 @@ def from_df(
     """Convert OHLC formatted ``pandas.DataFrame`` to ``numpy.recarray``.
     """
     df.reset_index(inplace=True)
-    df['Date'] = [d.timestamp() for d in df.Date]
+
+    # hackery to convert field names
+    date = 'Date'
+    if 'date' in df.columns:
+        date = 'date'
+
+    # convert to POSIX time
+    df[date] = [d.timestamp() for d in df[date]]
 
     # try to rename from some camel case
-    columns={
+    columns = {
         'Date': 'time',
+        'date': 'time',
         'Open': 'open',
         'High': 'high',
         'Low': 'low',
         'Close': 'close',
         'Volume': 'volume',
     }
-    for name in df.columns:
-        if name not in columns:
-            del df[name]
+
     df = df.rename(columns=columns)
+
+    for name in df.columns:
+        if name not in OHLC_dtype.names:
+            del df[name]
+
+    # TODO: it turns out column access on recarrays is actually slower:
+    # https://jakevdp.github.io/PythonDataScienceHandbook/02.09-structured-data-numpy.html#RecordArrays:-Structured-Arrays-with-a-Twist
+    # it might make sense to make these structured arrays?
     array = df.to_records()
     _nan_to_closest_num(array)
 
@@ -88,7 +102,6 @@ def from_df(
 def _nan_to_closest_num(array: np.ndarray):
     """Return interpolated values instead of NaN.
     """
-
     for col in ['open', 'high', 'low', 'close']:
         mask = np.isnan(array[col])
         if not mask.size:
