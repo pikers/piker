@@ -9,6 +9,7 @@ import tractor
 from ..log import get_console_log, get_logger
 from ..brokers import get_brokermod, config
 
+
 log = get_logger('cli')
 DEFAULT_BROKER = 'questrade'
 

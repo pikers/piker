@@ -112,11 +112,11 @@ async def symbol_info(
 
 async def symbol_search(
     brokermod: ModuleType,
-    symbol: str,
+    pattern: str,
     **kwargs,
 ) -> Dict[str, Dict[str, Dict[str, Any]]]:
     """Return symbol info from broker.
     """
     async with brokermod.get_client() as client:
         # TODO: support multiple asset type concurrent searches.
-        return await client.search_stocks(symbol, **kwargs)
+        return await client.search_stocks(pattern=pattern, **kwargs)

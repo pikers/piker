@@ -16,6 +16,7 @@ import msgpack
 import numpy as np
 import pandas as pd
 import pymarketstore as pymkts
+import tractor
 from trio_websocket import open_websocket_url
 
 from ..log import get_logger, get_console_log
@@ -320,7 +321,8 @@ async def stream_quotes(
                     # update cache
                     _cache[symbol].update(quote)
             else:
-                quotes = {symbol: [{key.lower(): val for key, val in quote.items()}]}
+                quotes = {
+                    symbol: [{key.lower(): val for key, val in quote.items()}]}
 
             if quotes:
                 yield quotes
