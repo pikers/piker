@@ -64,7 +64,9 @@ class Client:
         pair: str = 'all',
     ):
         resp = await self._public('AssetPairs', {'pair': pair})
-        assert not resp['error']
+        err = resp['error']
+        if err:
+            raise BrokerError(err)
         true_pair_key, data = next(iter(resp['result'].items()))
         return data
 
@@ -113,7 +115,9 @@ async def get_client() -> Client:
 
 
 async def stream_quotes(
-    symbols: List[str] = ['BTC/USD', 'XRP/USD'],
+    # These are the symbols not expected by the ws api
+    # they are looked up inside this routine.
+    symbols: List[str] = ['XBTUSD', 'XMRUSD'],
     sub_type: str = 'ohlc',
 ) -> None:
     """Subscribe for ohlc stream of quotes for ``pairs``.
@@ -185,6 +189,6 @@ if __name__ == '__main__':
 
     async def stream_ohlc():
         async for msg in stream_quotes():
-            print(asdict(msg))
+            print(msg)
 
     tractor.run(stream_ohlc)
