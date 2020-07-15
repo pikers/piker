@@ -139,6 +139,7 @@ def ingest(config, name, test_file, tl, url):
 
     async def main(tries):
         async with maybe_spawn_brokerd(
+            brokername=brokermod.name,
             tries=tries,
             loglevel=loglevel
         ) as portal:
