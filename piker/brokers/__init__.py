@@ -12,6 +12,7 @@ __brokers__ = [
     'questrade',
     'robinhood',
     'ib',
+    'kraken',
 ]
 
 
