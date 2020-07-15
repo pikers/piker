@@ -10,6 +10,7 @@ from dataclasses import asdict
 from functools import partial
 from typing import List, Dict, Any, Tuple, Optional, AsyncGenerator
 import asyncio
+import logging
 import inspect
 import itertools
 import time
@@ -18,6 +19,8 @@ from async_generator import aclosing
 from ib_insync.contract import Contract, ContractDetails
 from ib_insync.ticker import Ticker
 import ib_insync as ibis
+from ib_insync.wrapper import Wrapper
+from ib_insync.client import Client as ib_Client
 import tractor
 
 from ..log import get_logger, get_console_log
@@ -58,6 +61,38 @@ _time_frames = {
     'M': 'OneMonth',
     'Y': 'OneYear',
 }
+
+
+# overrides to sidestep pretty questionable design decisions in
+# ``ib_insync``:
+
+class NonShittyWrapper(Wrapper):
+    def tcpDataArrived(self):
+        """Override time stamps to be floats for now.
+        """
+        self.lastTime = time.time()
+        for ticker in self.pendingTickers:
+            ticker.rtTime = None
+            ticker.ticks = []
+            ticker.tickByTicks = []
+            ticker.domTicks = []
+        self.pendingTickers = set()
+
+
+class NonShittyIB(ibis.IB):
+    """The beginning of overriding quite a few quetionable decisions
+    in this lib.
+
+    - Don't use datetimes
+    - Don't use named tuples
+    """
+    def __init__(self):
+        self._createEvents()
+        self.wrapper = NonShittyWrapper(self)
+        self.client = ib_Client(self.wrapper)
+        self.errorEvent += self._onError
+        self.client.apiEnd += self.disconnectedEvent
+        self._logger = logging.getLogger('ib_insync.ib')
 
 
 class Client:
@@ -220,7 +255,7 @@ async def _aio_get_client(
             # tractor likely isn't running
             client_id = 1
 
-    ib = ibis.IB()
+    ib = NonShittyIB()
     ports = _try_ports if port is None else [port]
     _err = None
     for port in ports:
