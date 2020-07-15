@@ -117,4 +117,8 @@ def chart(config, symbol, date, tl, rate, test):
     """
     from ._chart import main
 
-    main(symbol)
+    # global opts
+    loglevel = config['loglevel']
+    brokername = config['broker']
+
+    main(sym=symbol, brokername=brokername, loglevel=loglevel)
