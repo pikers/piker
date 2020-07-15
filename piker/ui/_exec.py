@@ -5,7 +5,6 @@ Run ``trio`` in guest mode on top of the Qt event loop.
 All global Qt runtime settings are mostly defined here.
 """
 import traceback
-from functools import partial
 
 import PyQt5  # noqa
 from pyqtgraph import QtGui
@@ -21,7 +20,7 @@ from outcome import Error
 class MainWindow(QtGui.QMainWindow):
 
     size = (800, 500)
-    title = 'piker: chart'
+    title = 'piker chart (bby)'
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -29,11 +28,12 @@ class MainWindow(QtGui.QMainWindow):
         self.setWindowTitle(self.title)
 
 
-def run_qtrio(
+def run_qtractor(
     func,
     args,
-    main_widget,
-    loglevel = None,
+    main_widget: QtGui.QWidget,
+    window_type: QtGui.QMainWindow = MainWindow,
+    loglevel: str = None,
 ) -> None:
     # avoids annoying message when entering debugger from qt loop
     pyqtRemoveInputHook()
@@ -41,6 +41,12 @@ def run_qtrio(
     app = QtGui.QApplication.instance()
     if app is None:
         app = PyQt5.QtWidgets.QApplication([])
+
+    # TODO: we might not need this if it's desired
+    # to cancel the tractor machinery on Qt loop
+    # close, however the details of doing that correctly
+    # currently seem tricky..
+    app.setQuitOnLastWindowClosed(False)
 
     # This code is from Nathaniel, and I quote:
     # "This is substantially faster than using a signal... for some
@@ -74,8 +80,9 @@ def run_qtrio(
     app.setStyleSheet(qdarkstyle.load_stylesheet(qt_api='pyqt5'))
 
     # make window and exec
-    window = MainWindow()
+    window = window_type()
     instance = main_widget()
+    instance.window = window
 
     widgets = {
         'window': window,
@@ -98,7 +105,7 @@ def run_qtrio(
             tractor._default_arbiter_port,
         ),
         # name
-        'qtrio',
+        'qtractor',
     )
 
     # guest mode
