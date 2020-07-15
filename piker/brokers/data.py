@@ -25,7 +25,7 @@ from ..log import get_logger, get_console_log
 from . import get_brokermod
 
 
-log = get_logger('broker.data')
+log = get_logger(__name__)
 
 
 async def wait_for_network(
@@ -80,7 +80,7 @@ class BrokerFeed:
 
 
 @tractor.msg.pub(tasks=['stock', 'option'])
-async def stream_requests(
+async def stream_poll_requests(
     get_topics: typing.Callable,
     get_quotes: Coroutine,
     feed: BrokerFeed,
@@ -89,6 +89,12 @@ async def stream_requests(
 ) -> None:
     """Stream requests for quotes for a set of symbols at the given
     ``rate`` (per second).
+
+    This routine is built for brokers who support quote polling for multiple
+    symbols per request. The ``get_topics()`` func is called to retreive the
+    set of symbols each iteration and ``get_quotes()`` is to retreive
+    the quotes. 
+
 
     A stock-broker client ``get_quotes()`` async function must be
     provided which returns an async quote retrieval function.
@@ -327,7 +333,7 @@ async def start_quote_stream(
         # push initial smoke quote response for client initialization
         await ctx.send_yield(payload)
 
-        await stream_requests(
+        await stream_poll_requests(
 
             # ``msg.pub`` required kwargs
             task_name=feed_type,
@@ -394,15 +400,19 @@ class DataFeed:
                 # subscribe for tickers (this performs a possible filtering
                 # where invalid symbols are discarded)
                 sd = await self.portal.run(
-                    "piker.brokers.data", 'symbol_data',
-                    broker=self.brokermod.name, tickers=symbols)
+                    "piker.brokers.data",
+                    'symbol_data',
+                    broker=self.brokermod.name,
+                    tickers=symbols
+                )
                 self._symbol_data_cache.update(sd)
 
             if test:
                 # stream from a local test file
                 quote_gen = await self.portal.run(
-                    "piker.brokers.data", 'stream_from_file',
-                    filename=test
+                    "piker.brokers.data",
+                    'stream_from_file',
+                    filename=test,
                 )
             else:
                 log.info(f"Starting new stream for {symbols}")

@@ -19,11 +19,11 @@ import trio
 import tractor
 from trio_websocket import open_websocket_url
 
+from . import maybe_spawn_brokerd
 from ..cli import cli
 from .. import watchlists as wl
 from ..brokers.data import DataFeed
 from ..log import get_logger
-from ..brokers.core import maybe_spawn_brokerd_as_subactor
 
 
 log = get_logger(__name__)
@@ -138,7 +138,7 @@ def ingest(config, name, test_file, tl, url):
     symbols = watchlists[name]
 
     async def main(tries):
-        async with maybe_spawn_brokerd_as_subactor(
+        async with maybe_spawn_brokerd(
             tries=tries,
             loglevel=loglevel
         ) as portal:

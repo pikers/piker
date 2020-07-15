@@ -14,7 +14,7 @@ import tractor
 from ..cli import cli
 from .. import watchlists as wl
 from ..log import get_console_log, colorize_json, get_logger
-from ..brokers.core import maybe_spawn_brokerd_as_subactor
+from ..data import maybe_spawn_brokerd
 from ..brokers import core, get_brokermod, data
 
 log = get_logger('cli')
@@ -99,7 +99,7 @@ def quote(config, tickers, df_output):
 @cli.command()
 @click.option('--df-output', '-df', flag_value=True,
               help='Output in `pandas.DataFrame` format')
-@click.option('--count', '-c', default=100,
+@click.option('--count', '-c', default=1000,
               help='Number of bars to retrieve')
 @click.argument('symbol', required=True)
 @click.pass_obj
@@ -117,10 +117,11 @@ def bars(config, symbol, count, df_output):
             brokermod,
             symbol,
             count=count,
+            as_np=df_output
         )
     )
 
-    if not bars:
+    if not len(bars):
         log.error(f"No quotes could be found for {symbol}?")
         return
 
@@ -198,7 +199,7 @@ def record(config, rate, name, dhost, filename):
         return
 
     async def main(tries):
-        async with maybe_spawn_brokerd_as_subactor(
+        async with maybe_spawn_brokerd(
             tries=tries, loglevel=loglevel
         ) as portal:
             # run app "main"
