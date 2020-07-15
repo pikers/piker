@@ -16,7 +16,9 @@ from .quantdom.utils import timeit
 from ._style import _xaxis_at  # , _tina_mode
 from ._axes import YAxisLabel, XAxisLabel
 
-# TODO: checkout pyqtgraph.PlotCurveItem.setCompositionMode
+
+# TODO:
+# - checkout pyqtgraph.PlotCurveItem.setCompositionMode
 
 _mouse_rate_limit = 50
 
@@ -174,7 +176,7 @@ def _mk_lines_array(data: List, size: int) -> np.ndarray:
     """
     # TODO: might want to just make this a 2d array to be faster at
     # flattening using .ravel()?
-    return np.empty_like(
+    return np.zeros_like(
         data,
         shape=(int(size),),
         dtype=[
@@ -196,7 +198,7 @@ def bars_from_ohlc(
     lines = _mk_lines_array(data, data.shape[0])
 
     for i, q in enumerate(data[start:], start=start):
-        low, high, index = q['low'], q['high'], q['index']
+        open, high, low, close, index = q[['open', 'high', 'low', 'close', 'index']]
 
         # high - low line
         if low != high:
@@ -206,10 +208,11 @@ def bars_from_ohlc(
             # see below too for handling this later...
             hl = QLineF(low, low, low, low)
             hl._flat = True
+
         # open line
-        o = QLineF(index - w, q['open'], index, q['open'])
+        o = QLineF(index - w, open, index, open)
         # close line
-        c = QLineF(index + w, q['close'], index, q['close'])
+        c = QLineF(index + w, close, index, close)
 
         # indexing here is as per the below comments
         # lines[3*i:3*i+3] = (hl, o, c)
@@ -290,7 +293,11 @@ class BarItems(pg.GraphicsObject):
         # more quickly, rather than re-drawing the shapes every time.
         p = QtGui.QPainter(self.picture)
         p.setPen(self.bull_pen)
-        # TODO: might be better to use 2d array
+
+        # TODO: might be better to use 2d array?
+        # try our fsp.rec2array() and a np.ravel() for speedup
+        # otherwise we might just have to go 2d ndarray of objects.
+        # see conlusion on speed here: # https://stackoverflow.com/a/60089929
         p.drawLines(*chain.from_iterable(to_draw))
         p.end()
 
@@ -321,7 +328,7 @@ class BarItems(pg.GraphicsObject):
         # else:  # current bar update
         # do we really need to verify the entire past data set?
         # index, time, open, high, low, close, volume
-        i, time, _, _, _, close, _ = array[-1]
+        i, time, open, _, _, close, _ = array[-1]
         last = close
         i, body, larm, rarm = self.lines[index-1]
         if not rarm:
