@@ -8,9 +8,9 @@ import numpy as np
 import pandas as pd
 
 
-OHLC_dtype = np.dtype(
+ohlc_dtype = np.dtype(
     [
-        ('id', int),
+        ('index', int),
         ('time', float),
         ('open', float),
         ('high', float),
@@ -20,15 +20,16 @@ OHLC_dtype = np.dtype(
     ]
 )
 
-# tf = {
-#     1: TimeFrame.M1,
-#     5: TimeFrame.M5,
-#     15: TimeFrame.M15,
-#     30: TimeFrame.M30,
-#     60: TimeFrame.H1,
-#     240: TimeFrame.H4,
-#     1440: TimeFrame.D1,
-# }
+# map time frame "keys" to minutes values
+tf_in_1m = {
+    '1m': 1,
+    '5m':  5,
+    '15m': 15,
+    '30m':  30,
+    '1h': 60,
+    '4h': 240,
+    '1d': 1440,
+}
 
 
 def ohlc_zeros(length: int) -> np.ndarray:
@@ -37,7 +38,7 @@ def ohlc_zeros(length: int) -> np.ndarray:
     For "why a structarray" see here: https://stackoverflow.com/a/52443038
     Bottom line, they're faster then ``np.recarray``.
     """
-    return np.zeros(length, dtype=OHLC_dtype)
+    return np.zeros(length, dtype=ohlc_dtype)
 
 
 @dataclass
@@ -87,7 +88,7 @@ def from_df(
     df = df.rename(columns=columns)
 
     for name in df.columns:
-        if name not in OHLC_dtype.names:
+        if name not in ohlc_dtype.names[1:]:
             del df[name]
 
     # TODO: it turns out column access on recarrays is actually slower:
