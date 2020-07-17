@@ -2,22 +2,25 @@
 High level Qt chart widgets.
 """
 from typing import List, Optional, Tuple
+import time
 
-import trio
+from PyQt5 import QtCore, QtGui
+from pyqtgraph import functions as fn
 import numpy as np
 import pyqtgraph as pg
-from pyqtgraph import functions as fn
-from PyQt5 import QtCore, QtGui
+import tractor
+import trio
 
 from ._axes import (
     DynamicDateAxis,
     PriceAxis,
 )
-from ._graphics import CrossHairItem, ChartType
+from ._graphics import CrossHair, ChartType
 from ._style import _xaxis_at
 from ._source import Symbol
 from .. import brokers
-from .. log import get_logger
+from .. import data
+from ..log import get_logger
 
 
 log = get_logger(__name__)
@@ -74,6 +77,7 @@ class ChartSpace(QtGui.QWidget):
         """Load a new contract into the charting app.
         """
         # XXX: let's see if this causes mem problems
+        self.window.setWindowTitle(f'piker chart {symbol}')
         self.chart = self._plot_cache.setdefault(symbol, LinkedSplitCharts())
         s = Symbol(key=symbol)
 
@@ -107,22 +111,20 @@ class LinkedSplitCharts(QtGui.QWidget):
 
     def __init__(self):
         super().__init__()
-        self.signals_visible = False
-
-        # main data source
-        self._array: np.ndarray = None
-
-        self._ch = None  # crosshair graphics
-        self._index = 0
-
-        self.chart = None  # main (ohlc) chart
-        self.indicators = []
+        self.signals_visible: bool = False
+        self._array: np.ndarray = None  # main data source
+        self._ch: CrossHair = None  # crosshair graphics
+        self.chart: ChartPlotWidget = None  # main (ohlc) chart
+        self.subplots: List[ChartPlotWidget] = []
 
         self.xaxis = DynamicDateAxis(
-            orientation='bottom', linked_charts=self)
-
+            orientation='bottom',
+            linked_charts=self
+        )
         self.xaxis_ind = DynamicDateAxis(
-            orientation='bottom', linked_charts=self)
+            orientation='bottom',
+            linked_charts=self
+        )
 
         if _xaxis_at == 'bottom':
             self.xaxis.setStyle(showValues=False)
@@ -134,20 +136,18 @@ class LinkedSplitCharts(QtGui.QWidget):
 
         self.layout = QtGui.QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
-
         self.layout.addWidget(self.splitter)
 
     def set_split_sizes(
         self,
-        prop: float = 0.25
+        prop: float = 0.25  # proportion allocated to consumer subcharts
     ) -> None:
         """Set the proportion of space allocated for linked subcharts.
         """
         major = 1 - prop
-        # 20% allocated to consumer subcharts
-        min_h_ind = int(self.height() * prop / len(self.indicators))
+        min_h_ind = int(self.height() * prop / len(self.subplots))
         sizes = [int(self.height() * major)]
-        sizes.extend([min_h_ind] * len(self.indicators))
+        sizes.extend([min_h_ind] * len(self.subplots))
         self.splitter.setSizes(sizes)  # , int(self.height()*0.2)
 
     def plot(
@@ -155,37 +155,29 @@ class LinkedSplitCharts(QtGui.QWidget):
         symbol: Symbol,
         array: np.ndarray,
         ohlc: bool = True,
-    ):
+    ) -> None:
         """Start up and show main (price) chart and all linked subcharts.
         """
         self.digits = symbol.digits()
 
-        # XXX: this may eventually be a view onto shared mem
+        # XXX: this will eventually be a view onto shared mem
         # or some higher level type / API
         self._array = array
 
-        cv = ChartView()
-        self.chart = ChartPlotWidget(
-            linked_charts=self,
-            parent=self.splitter,
-            axisItems={'bottom': self.xaxis, 'right': PriceAxis()},
-            viewBox=cv,
-            # enableMenu=False,
+        # add crosshairs
+        self._ch = CrossHair(
+            parent=self,  #.chart,
+            # subplots=[plot for plot, d in self.subplots],
+            digits=self.digits
         )
-        # TODO: ``pyqtgraph`` doesn't pass through a parent to the
-        # ``PlotItem`` by default; maybe we should PR this in?
-        cv.linked_charts = self
-        self.chart.plotItem.vb.linked_charts = self
-
-        self.chart.getPlotItem().setContentsMargins(*CHART_MARGINS)
+        self.chart = self.add_plot(
+            name='main',
+            array=array,  #['close'],
+            xaxis=self.xaxis,
+            ohlc=True,
+        )
+        self.chart.addItem(self._ch)
         self.chart.setFrameStyle(QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain)
-
-        if ohlc:
-            self.chart.draw_ohlc(array)
-        else:
-            raise NotImplementedError(
-                "Only OHLC linked charts are supported currently"
-            )
 
         # TODO: this is where we would load an indicator chain
         # XXX: note, if this isn't index aligned with
@@ -193,44 +185,64 @@ class LinkedSplitCharts(QtGui.QWidget):
         inds = [('open', lambda a: a['close'])]
 
         for name, func in inds:
-            cv = ChartView()
-            ind_chart = ChartPlotWidget(
-                linked_charts=self,
-                parent=self.splitter,
-                axisItems={'bottom': self.xaxis_ind, 'right': PriceAxis()},
-                # axisItems={'top': self.xaxis_ind, 'right': PriceAxis()},
-                viewBox=cv,
-            )
-            # this name will be used to register the primary
-            # graphics curve managed by the subchart
-            ind_chart.name = name
-            cv.linked_charts = self
-            self.chart.plotItem.vb.linked_charts = self
-
-            ind_chart.setFrameStyle(
-                QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain
-            )
-            ind_chart.getPlotItem().setContentsMargins(*CHART_MARGINS)
-            # self.splitter.addWidget(ind_chart)
 
             # compute historical subchart values from input array
             data = func(array)
-            self.indicators.append((ind_chart, func))
 
-            # link chart x-axis to main quotes chart
-            ind_chart.setXLink(self.chart)
+            # create sub-plot
+            ind_chart = self.add_plot(name=name, array=data)
 
-            # draw curve graphics
-            ind_chart.draw_curve(data, name)
+            self.subplots.append((ind_chart, func))
 
+        # scale split regions
         self.set_split_sizes()
 
-        ch = self._ch = CrossHairItem(
-            self.chart,
-            [_ind for _ind, d in self.indicators],
-            self.digits
+    def add_plot(
+        self,
+        name: str,
+        array: np.ndarray,
+        xaxis: DynamicDateAxis = None,
+        ohlc: bool = False,
+    ) -> 'ChartPlotWidget':
+        """Add (sub)plots to chart widget by name.
+
+        If ``name`` == ``"main"`` the chart will be the the primary view.
+        """
+        cv = ChartView()
+        # use "indicator axis" by default
+        xaxis = self.xaxis_ind if xaxis is None else xaxis
+        cpw = ChartPlotWidget(
+            linked_charts=self,
+            parent=self.splitter,
+            axisItems={'bottom': xaxis, 'right': PriceAxis()},
+            # axisItems={'top': self.xaxis_ind, 'right': PriceAxis()},
+            viewBox=cv,
         )
-        self.chart.addItem(ch)
+        # this name will be used to register the primary
+        # graphics curve managed by the subchart
+        cpw.name = name
+        cv.linked_charts = self
+        cpw.plotItem.vb.linked_charts = self
+
+        cpw.setFrameStyle(
+            QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain
+        )
+        cpw.getPlotItem().setContentsMargins(*CHART_MARGINS)
+        # self.splitter.addWidget(cpw)
+
+        # link chart x-axis to main quotes chart
+        cpw.setXLink(self.chart)
+
+        # draw curve graphics
+        if ohlc:
+            cpw.draw_ohlc(array)
+        else:
+            cpw.draw_curve(array, name)
+
+        # add to cross-hair's known plots
+        self._ch.add_plot(cpw)
+
+        return cpw
 
     def update_from_quote(
         self,
@@ -243,14 +255,10 @@ class LinkedSplitCharts(QtGui.QWidget):
         """
         # TODO: eventually we'll want to update bid/ask labels and other
         # data as subscribed by underlying UI consumers.
-        last = quote['last']
+        last = quote.get('last') or quote['close']
         index, time, open, high, low, close, volume = self._array[-1]
 
         # update ohlc (I guess we're enforcing this for now?)
-        # self._array[-1]['close'] = last
-        # self._array[-1]['high'] = max(h, last)
-        # self._array[-1]['low'] = min(l, last)
-
         # overwrite from quote
         self._array[-1] = (
             index,
@@ -268,19 +276,25 @@ class LinkedSplitCharts(QtGui.QWidget):
         array: np.ndarray,
         **kwargs,
     ) -> None:
-        # update the ohlc sequence graphics chart
-        chart = self.chart
+        """Update all linked chart graphics with a new input array.
 
+        Return the modified graphics objects in a list.
+        """
+        # update the ohlc sequence graphics chart
         # we send a reference to the whole updated array
-        chart.update_from_array(array, **kwargs)
+        self.chart.update_from_array(array, **kwargs)
 
         # TODO: the "data" here should really be a function
         # and it should be managed and computed outside of this UI
-        for chart, func in self.indicators:
+        graphics = []
+        for chart, func in self.subplots:
             # process array in entirely every update
             # TODO: change this for streaming
             data = func(array)
-            chart.update_from_array(data, name=chart.name, **kwargs)
+            graphic = chart.update_from_array(data, name=chart.name, **kwargs)
+            graphics.append(graphic)
+
+        return graphics
 
 
 _min_points_to_show = 3
@@ -316,9 +330,6 @@ class ChartPlotWidget(pg.PlotWidget):
         """
         super().__init__(**kwargs)
         self.parent = linked_charts
-        # this is the index of that last input array entry and is
-        # updated and used to figure out how many bars are in view
-        # self._xlast = 0
 
         # XXX: label setting doesn't seem to work?
         # likely custom graphics need special handling
@@ -327,8 +338,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # label.setText("Yo yoyo")
         # label.setText("<span style='font-size: 12pt'>x=")
 
-        # to be filled in when graphics are rendered
-        # by name
+        # to be filled in when graphics are rendered by name
         self._graphics = {}
 
         # show only right side axes
@@ -353,9 +363,8 @@ class ChartPlotWidget(pg.PlotWidget):
         xlast: int
     ) -> None:
         """Set view limits (what's shown in the main chart "pane")
-        based on max / min x / y coords.
+        based on max/min x/y coords.
         """
-        # set panning limits
         self.setLimits(
             xMin=xfirst,
             xMax=xlast,
@@ -393,7 +402,6 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # set xrange limits
         xlast = data[-1]['index']
-
         # show last 50 points on startup
         self.plotItem.vb.setXRange(xlast - 50, xlast + 50)
 
@@ -416,7 +424,6 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # set a "startup view"
         xlast = len(data) - 1
-        # self._set_xlimits(0, xlast)
 
         # show last 50 points on startup
         self.plotItem.vb.setXRange(xlast - 50, xlast + 50)
@@ -433,7 +440,6 @@ class ChartPlotWidget(pg.PlotWidget):
         name: str = 'main',
         **kwargs,
     ) -> pg.GraphicsObject:
-        # self._xlast = len(array) - 1
         graphics = self._graphics[name]
         graphics.update_from_array(array, **kwargs)
 
@@ -491,7 +497,7 @@ class ChartPlotWidget(pg.PlotWidget):
             yhigh = bars.max()
             std = np.std(bars)
 
-        # view margins
+        # view margins: stay within 10% of the "true range"
         diff = yhigh - ylow
         ylow = ylow - (diff * 0.1)
         yhigh = yhigh + (diff * 0.1)
@@ -580,12 +586,15 @@ class ChartView(pg.ViewBox):
         self.sigRangeChangedManually.emit(mask)
 
 
-def main(symbol):
+def _main(
+    sym: str,
+    brokername: str,
+    **qtractor_kwargs,
+) -> None:
     """Entry point to spawn a chart app.
     """
-
-    from ._exec import run_qtrio
-    # uses pandas_datareader
+    from ._exec import run_qtractor
+    from ._source import ohlc_dtype
 
     async def _main(widgets):
         """Main Qt-trio routine invoked by the Qt loop with
@@ -593,119 +602,112 @@ def main(symbol):
         """
         chart_app = widgets['main']
 
-        # data-feed setup
-        sym = symbol or 'ES.GLOBEX'
-        brokermod = brokers.get_brokermod('ib')
+        # historical data fetch
+        brokermod = brokers.get_brokermod(brokername)
         async with brokermod.get_client() as client:
             # figure out the exact symbol
             bars = await client.bars(symbol=sym)
 
-        # ``from_buffer` return read-only
-        bars = np.array(bars)
-        linked_charts = chart_app.load_symbol('ES', bars)
+        # remember, msgpack-numpy's ``from_buffer` returns read-only array
+        bars = np.array(bars[list(ohlc_dtype.names)])
+        linked_charts = chart_app.load_symbol(sym, bars)
 
-        async def add_new_bars(delay_s=5.):
-            import time
+        # determine ohlc delay between bars
+        times = bars['time']
+        delay = times[-1] - times[-2]
+
+        async def add_new_bars(delay_s):
+            """Task which inserts new bars into the ohlc every ``delay_s`` seconds.
+            """
+            # adjust delay to compensate for trio processing time
+            ad = delay_s - 0.002
 
             ohlc = linked_charts._array
 
-            last_5s = ohlc[-1]['time']
-            delay = max((last_5s + 4.99) - time.time(), 0)
-            await trio.sleep(delay)
+            async def sleep():
+                """Sleep until next time frames worth has passed from last bar.
+                """
+                last_ts = ohlc[-1]['time']
+                delay = max((last_ts + ad) - time.time(), 0)
+                await trio.sleep(delay)
+
+            # sleep for duration of current bar
+            await sleep()
 
             while True:
-                print('new bar')
-
                 # TODO: bunch of stuff:
                 # - I'm starting to think all this logic should be
                 #   done in one place and "graphics update routines"
                 #   should not be doing any length checking and array diffing.
                 # - don't keep appending, but instead increase the
-                #   underlying array's size less frequently:
+                #   underlying array's size less frequently
                 # - handle odd lot orders
                 # - update last open price correctly instead
                 #   of copying it from last bar's close
-                # - 5 sec bar lookback-autocorrection like tws does
-                index, t, open, high, low, close, volume = ohlc[-1]
+                # - 5 sec bar lookback-autocorrection like tws does?
+                (index, t, close) = ohlc[-1][['index', 'time', 'close']]
                 new = np.append(
                     ohlc,
                     np.array(
-                        [(index + 1, t + 5, close, close, close, close, 0)],
+                        [(index + 1, t + delay, close, close,
+                          close, close, 0)],
                         dtype=ohlc.dtype
                     ),
                 )
                 ohlc = linked_charts._array = new
-                linked_charts.update_from_array(new)
+                last_quote = ohlc[-1]
 
-                # sleep until next 5s from last bar
-                last_5s = ohlc[-1]['time']
-                delay = max((last_5s + 4.99) - time.time(), 0)
-                await trio.sleep(4.9999)
+                # we **don't** update the bar right now
+                # since the next quote that arrives should
+                await sleep()
+
+                # if the last bar has not changed print a flat line and
+                # move to the next
+                if last_quote == ohlc[-1]:
+                    log.debug("Printing flat line for {sym}")
+                    linked_charts.update_from_array(ohlc)
+
+        async def stream_to_chart(func):
+
+            async with tractor.open_nursery() as n:
+                portal = await n.run_in_actor(
+                    f'fsp_{func.__name__}',
+                    func,
+                    brokername=brokermod.name,
+                    sym=sym,
+                    loglevel='info',
+                )
+                stream = await portal.result()
+
+                # retreive named layout and style instructions
+                layout = await stream.__anext__()
+
+                async for quote in stream:
+                    ticks = quote.get('ticks')
+                    if ticks:
+                        for tick in ticks:
+                            print(tick)
 
         async with trio.open_nursery() as n:
-            n.start_soon(add_new_bars)
+            from piker import fsp
 
-            async with brokermod.maybe_spawn_brokerd() as portal:
-                stream = await portal.run(
-                    'piker.brokers.ib',
-                    'trio_stream_ticker',
-                    sym=sym,
-                )
-                # TODO: timeframe logic
-                async for tick in stream:
-                    # breakpoint()
-                    if tick['tickType'] in (48, 77):
-                        linked_charts.update_from_quote(
-                            {'last': tick['price']}
-                        )
+            async with data.open_feed(brokername, [sym]) as stream:
+                # start graphics tasks
+                n.start_soon(add_new_bars, delay)
+                n.start_soon(stream_to_chart, fsp.broker_latency)
 
-        # from .quantdom.loaders import get_quotes
-        # from datetime import datetime
-        # from ._source import from_df
-        # quotes = get_quotes(
-        #     symbol=symbol,
-        #     date_from=datetime(1900, 1, 1),
-        #     date_to=datetime(2030, 12, 31),
-        # )
-        # quotes = from_df(quotes)
+                async for quote in stream:
+                    # XXX: why are we getting both of these again?
+                    ticks = quote.get('ticks')
+                    if ticks:
+                        for tick in ticks:
+                            if tick['tickType'] in (48, 77):
+                                linked_charts.update_from_quote(
+                                    {'last': tick['price']}
+                                )
+                    # else:
+                    #     linked_charts.update_from_quote(
+                    #         {'last': quote['close']}
+                    #     )
 
-        # feed = DataFeed(portal, brokermod)
-        # quote_gen, quotes = await feed.open_stream(
-        #     symbols,
-        #     'stock',
-        #     rate=rate,
-        #     test=test,
-        # )
-
-        # first_quotes, _ = feed.format_quotes(quotes)
-
-        # if first_quotes[0].get('last') is None:
-        #     log.error("Broker API is down temporarily")
-        #     return
-
-        # make some fake update data
-        # import itertools
-        # nums = itertools.cycle([315., 320., 325., 310., 3])
-
-        # def gen_nums():
-        #     while True:
-        #         yield quotes[-1].close + 2
-        #         yield quotes[-1].close - 2
-
-        # nums = gen_nums()
-
-        # # await trio.sleep(10)
-        # import time
-        # while True:
-        #     new = next(nums)
-        #     quotes[-1].close = new
-        #     # this updates the linked_charts internal array
-        #     # and then passes that array to all subcharts to
-        #     # render downstream graphics
-        #     start = time.time()
-        #     linked_charts.update_from_quote({'last': new})
-        #     print(f"Render latency {time.time() - start}")
-        #     # 20 Hz seems to be good enough
-        #     await trio.sleep(0.05)
-
-    run_qtrio(_main, (), ChartSpace)
+    run_qtractor(_main, (), ChartSpace, **qtractor_kwargs)

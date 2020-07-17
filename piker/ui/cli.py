@@ -115,10 +115,10 @@ def optschain(config, symbol, date, tl, rate, test):
 def chart(config, symbol, date, tl, rate, test):
     """Start an option chain UI
     """
-    from ._chart import main
+    from ._chart import _main
 
     # global opts
     loglevel = config['loglevel']
     brokername = config['broker']
 
-    main(sym=symbol, brokername=brokername, loglevel=loglevel)
+    _main(sym=symbol, brokername=brokername, loglevel=loglevel)
