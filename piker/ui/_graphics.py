@@ -23,152 +23,116 @@ from ._axes import YAxisLabel, XAxisLabel
 _mouse_rate_limit = 50
 
 
-class CrossHairItem(pg.GraphicsObject):
+class CrossHair(pg.GraphicsObject):
 
-    def __init__(self, parent, indicators=None, digits=0):
+    def __init__(self, parent, digits: int = 0):
         super().__init__()
         # self.pen = pg.mkPen('#000000')
         self.pen = pg.mkPen('#a9a9a9')
         self.parent = parent
-        self.indicators = {}
-        self.activeIndicator = None
-        self.xaxis = self.parent.getAxis('bottom')
-        self.yaxis = self.parent.getAxis('right')
+        self.graphics = {}
+        self.plots = []
+        self.active_plot = None
+        self.digits = digits
 
-        self.vline = self.parent.addLine(x=0, pen=self.pen, movable=False)
-        self.hline = self.parent.addLine(y=0, pen=self.pen, movable=False)
+    def add_plot(
+        self,
+        plot: 'ChartPlotWidget',  # noqa
+        digits: int = 0,
+    ) -> None:
+        # add ``pg.graphicsItems.InfiniteLine``s
+        # vertical and horizonal lines and a y-axis label
+        vl = plot.addLine(x=0, pen=self.pen, movable=False)
+        hl = plot.addLine(y=0, pen=self.pen, movable=False)
+        yl = YAxisLabel(
+            parent=plot.getAxis('right'),
+            digits=digits or self.digits,
+            opacity=1
+        )
 
-        self.proxy_moved = pg.SignalProxy(
-            self.parent.scene().sigMouseMoved,
+        # TODO: checkout what ``.sigDelayed`` can be used for
+        # (emitted once a sufficient delay occurs in mouse movement)
+        px_moved = pg.SignalProxy(
+            plot.scene().sigMouseMoved,
             rateLimit=_mouse_rate_limit,
-            slot=self.mouseMoved,
+            slot=self.mouseMoved
         )
-
-        self.yaxis_label = YAxisLabel(
-            parent=self.yaxis, digits=digits, opacity=1
+        px_enter = pg.SignalProxy(
+            plot.sig_mouse_enter,
+            rateLimit=_mouse_rate_limit,
+            slot=lambda: self.mouseAction('Enter', plot),
         )
-
-        indicators = indicators or []
-
-        if indicators:
-            # when there are indicators present in sub-plot rows
-            # take the last one (nearest to the bottom) and place the
-            # crosshair label on it's x-axis.
-            last_ind = indicators[-1]
-
-            self.proxy_enter = pg.SignalProxy(
-                self.parent.sig_mouse_enter,
-                rateLimit=_mouse_rate_limit,
-                slot=lambda: self.mouseAction('Enter', False),
-            )
-            self.proxy_leave = pg.SignalProxy(
-                self.parent.sig_mouse_leave,
-                rateLimit=_mouse_rate_limit,
-                slot=lambda: self.mouseAction('Leave', False),
-            )
+        px_leave = pg.SignalProxy(
+            plot.sig_mouse_leave,
+            rateLimit=_mouse_rate_limit,
+            slot=lambda: self.mouseAction('Leave', plot),
+        )
+        self.graphics[plot] = {
+            'vl': vl,
+            'hl': hl,
+            'yl': yl,
+            'px': (px_moved, px_enter, px_leave),
+        }
+        self.plots.append(plot)
 
         # determine where to place x-axis label
         if _xaxis_at == 'bottom':
-            # place below is last indicator subplot
+            # place below the last plot
             self.xaxis_label = XAxisLabel(
-                parent=last_ind.getAxis('bottom'), opacity=1
+                parent=self.plots[-1].getAxis('bottom'),
+                opacity=1
             )
         else:
             # keep x-axis right below main chart
-            self.xaxis_label = XAxisLabel(parent=self.xaxis, opacity=1)
+            first = self.plots[0]
+            xaxis = first.getAxis('bottom')
+            self.xaxis_label = XAxisLabel(parent=xaxis, opacity=1)
 
-        for i in indicators:
-            # add vertial and horizonal lines and a y-axis label
-            vl = i.addLine(x=0, pen=self.pen, movable=False)
-            hl = i.addLine(y=0, pen=self.pen, movable=False)
-            yl = YAxisLabel(parent=i.getAxis('right'), opacity=1)
-
-            px_moved = pg.SignalProxy(
-                i.scene().sigMouseMoved,
-                rateLimit=_mouse_rate_limit,
-                slot=self.mouseMoved
-            )
-            px_enter = pg.SignalProxy(
-                i.sig_mouse_enter,
-                rateLimit=_mouse_rate_limit,
-                slot=lambda: self.mouseAction('Enter', i),
-            )
-            px_leave = pg.SignalProxy(
-                i.sig_mouse_leave,
-                rateLimit=_mouse_rate_limit,
-                slot=lambda: self.mouseAction('Leave', i),
-            )
-            self.indicators[i] = {
-                'vl': vl,
-                'hl': hl,
-                'yl': yl,
-                'px': (px_moved, px_enter, px_leave),
-            }
-
-    def mouseAction(self, action, ind=False):  # noqa
+    def mouseAction(self, action, plot):  # noqa
+        # TODO: why do we no handle all plots the same?
+        # -> main plot has special path? would simplify code.
         if action == 'Enter':
             # show horiz line and y-label
-            if ind:
-                self.indicators[ind]['hl'].show()
-                self.indicators[ind]['yl'].show()
-                self.activeIndicator = ind
-            else:
-                self.yaxis_label.show()
-                self.hline.show()
-        # Leave
-        else:
+            self.graphics[plot]['hl'].show()
+            self.graphics[plot]['yl'].show()
+            self.active_plot = plot
+        else:  # Leave
             # hide horiz line and y-label
-            if ind:
-                self.indicators[ind]['hl'].hide()
-                self.indicators[ind]['yl'].hide()
-                self.activeIndicator = None
-            else:
-                self.yaxis_label.hide()
-                self.hline.hide()
+            self.graphics[plot]['hl'].hide()
+            self.graphics[plot]['yl'].hide()
+            self.active_plot = None
 
     def mouseMoved(self, evt):  # noqa
         """Update horizonal and vertical lines when mouse moves inside
         either the main chart or any indicator subplot.
         """
-
         pos = evt[0]
 
-        # if the mouse is within the parent ``ChartPlotWidget``
-        if self.parent.sceneBoundingRect().contains(pos):
-            # mouse_point = self.vb.mapSceneToView(pos)
-            mouse_point = self.parent.mapToView(pos)
+        # find position in main chart
+        mouse_point = self.plots[0].mapToView(pos)
 
-            # move the vertial line to the current x coordinate
-            self.vline.setX(mouse_point.x())
+        # move the vertical line to the current x coordinate in all charts
+        for opts in self.graphics.values():
+            opts['vl'].setX(mouse_point.x())
 
-            # update the label on the bottom of the crosshair
-            self.xaxis_label.update_label(evt_post=pos, point_view=mouse_point)
+        # update the label on the bottom of the crosshair
+        self.xaxis_label.update_label(evt_post=pos, point_view=mouse_point)
 
-            # update the vertical line in any indicators subplots
-            for opts in self.indicators.values():
-                opts['vl'].setX(mouse_point.x())
+        # vertical position of the mouse is inside an indicator
+        mouse_point_ind = self.active_plot.mapToView(pos)
 
-            if self.activeIndicator:
-                # vertial position of the mouse is inside an indicator
-                mouse_point_ind = self.activeIndicator.mapToView(pos)
-                self.indicators[self.activeIndicator]['hl'].setY(
-                    mouse_point_ind.y()
-                )
-                self.indicators[self.activeIndicator]['yl'].update_label(
-                    evt_post=pos, point_view=mouse_point_ind
-                )
-            else:
-                # vertial position of the mouse is inside the main chart
-                self.hline.setY(mouse_point.y())
-                self.yaxis_label.update_label(
-                    evt_post=pos, point_view=mouse_point
-                )
+        self.graphics[self.active_plot]['hl'].setY(
+            mouse_point_ind.y()
+        )
+        self.graphics[self.active_plot]['yl'].update_label(
+            evt_post=pos, point_view=mouse_point_ind
+        )
 
-    def paint(self, p, *args):
-        pass
+    # def paint(self, p, *args):
+    #     pass
 
     def boundingRect(self):
-        return self.parent.boundingRect()
+        return self.plots[0].boundingRect()
 
 
 def _mk_lines_array(data: List, size: int) -> np.ndarray:
@@ -198,7 +162,8 @@ def bars_from_ohlc(
     lines = _mk_lines_array(data, data.shape[0])
 
     for i, q in enumerate(data[start:], start=start):
-        open, high, low, close, index = q[['open', 'high', 'low', 'close', 'index']]
+        open, high, low, close, index = q[
+            ['open', 'high', 'low', 'close', 'index']]
 
         # high - low line
         if low != high:
