@@ -11,8 +11,6 @@ from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QLineF
 
 from .quantdom.utils import timeit
-# from .quantdom.base import Quotes
-
 from ._style import _xaxis_at  # , _tina_mode
 from ._axes import YAxisLabel, XAxisLabel
 
@@ -27,8 +25,7 @@ class CrossHair(pg.GraphicsObject):
 
     def __init__(self, parent, digits: int = 0):
         super().__init__()
-        # self.pen = pg.mkPen('#000000')
-        self.pen = pg.mkPen('#a9a9a9')
+        self.pen = pg.mkPen('#a9a9a9')  # gray?
         self.parent = parent
         self.graphics = {}
         self.plots = []
@@ -89,8 +86,6 @@ class CrossHair(pg.GraphicsObject):
             self.xaxis_label = XAxisLabel(parent=xaxis, opacity=1)
 
     def mouseAction(self, action, plot):  # noqa
-        # TODO: why do we no handle all plots the same?
-        # -> main plot has special path? would simplify code.
         if action == 'Enter':
             # show horiz line and y-label
             self.graphics[plot]['hl'].show()
@@ -108,9 +103,15 @@ class CrossHair(pg.GraphicsObject):
         """
         pos = evt[0]
 
-        # find position in main chart
-        mouse_point = self.plots[0].mapToView(pos)
+        # find position inside active plot
+        mouse_point = self.active_plot.mapToView(pos)
 
+        self.graphics[self.active_plot]['hl'].setY(
+            mouse_point.y()
+        )
+        self.graphics[self.active_plot]['yl'].update_label(
+            evt_post=pos, point_view=mouse_point
+        )
         # move the vertical line to the current x coordinate in all charts
         for opts in self.graphics.values():
             opts['vl'].setX(mouse_point.x())
@@ -118,21 +119,11 @@ class CrossHair(pg.GraphicsObject):
         # update the label on the bottom of the crosshair
         self.xaxis_label.update_label(evt_post=pos, point_view=mouse_point)
 
-        # vertical position of the mouse is inside an indicator
-        mouse_point_ind = self.active_plot.mapToView(pos)
-
-        self.graphics[self.active_plot]['hl'].setY(
-            mouse_point_ind.y()
-        )
-        self.graphics[self.active_plot]['yl'].update_label(
-            evt_post=pos, point_view=mouse_point_ind
-        )
+    def boundingRect(self):
+        return self.active_plot.boundingRect()
 
     # def paint(self, p, *args):
     #     pass
-
-    def boundingRect(self):
-        return self.plots[0].boundingRect()
 
 
 def _mk_lines_array(data: List, size: int) -> np.ndarray:
