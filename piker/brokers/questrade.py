@@ -565,7 +565,6 @@ class Client:
         time_frame: str = '1m',
         count: float = 20e3,
         is_paid_feed: bool = False,
-        as_np: bool = False,
     ) -> List[Dict[str, Any]]:
         """Retreive OHLCV bars for a symbol over a range to the present.
 
