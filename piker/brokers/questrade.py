@@ -1164,10 +1164,10 @@ async def stream_quotes(
             packetizer=partial(
                 packetizer,
                 formatter=formatter,
-                symboal_data=sd,
+                symbol_data=sd,
             ),
 
-            # actual func args
+            # actual target "streaming func" args
             get_quotes=get_quotes,
             diff_cached=diff_cached,
             rate=rate,

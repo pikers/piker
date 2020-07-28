@@ -165,7 +165,7 @@ async def stream_quotes(
             volume: float  # Accumulated volume within interval
             count: int  # Number of trades within interval
 
-            # XXX: ugh, super hideous.. why doesn't
+            # XXX: ugh, super hideous.. needs built-in converters.
             def __post_init__(self):
                 for field, val in self.__dataclass_fields__.items():
                     setattr(self, field, val.type(getattr(self, field)))
