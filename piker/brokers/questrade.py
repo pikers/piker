@@ -12,6 +12,7 @@ import configparser
 from typing import (
     List, Tuple, Dict, Any, Iterator, NamedTuple,
     AsyncGenerator,
+    Callable,
 )
 
 import arrow
@@ -26,7 +27,7 @@ import asks
 from ..calc import humanize, percent_change
 from . import config
 from ._util import resproc, BrokerError, SymbolNotFound
-from ..log import get_logger, colorize_json
+from ..log import get_logger, colorize_json, get_console_log
 from .._async_utils import async_lifo_cache
 from . import get_brokermod
 
@@ -933,7 +934,8 @@ _qt_option_keys = {
     # "theta": ('theta', partial(round, ndigits=3)),
     # "vega": ('vega', partial(round, ndigits=3)),
     '$ vol': ('$ vol', humanize),
-    'volume': ('vol', humanize),
+    # XXX: required key to trigger trade execution datum msg
+    'volume': ('volume', humanize),
     # "2021-01-15T00:00:00.000000-05:00",
     # "isHalted": false,
     # "key": [
@@ -1031,18 +1033,20 @@ async def get_cached_client(
         log.info(f"Loading existing `{brokername}` daemon")
         async with lock:
             client = clients[brokername]
+            client._consumers += 1
+        yield client
     except KeyError:
         log.info(f"Creating new client for broker {brokername}")
         async with lock:
             brokermod = get_brokermod(brokername)
             exit_stack = contextlib.AsyncExitStack()
             client = await exit_stack.enter_async_context(
-                brokermod.get_client())
+                brokermod.get_client()
+            )
+            client._consumers = 0
             client._exit_stack = exit_stack
             clients[brokername] = client
-    else:
-        client._consumers += 1
-        yield client
+            yield client
     finally:
         client._consumers -= 1
         if client._consumers <= 0:
@@ -1097,6 +1101,23 @@ async def smoke_quote(get_quotes, tickers):  # , broker):
     ###########################################
 
 
+# function to format packets delivered to subscribers
+def packetizer(
+    topic: str,
+    quotes: Dict[str, Any],
+    formatter: Callable,
+    symbol_data: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Normalize quotes by name into dicts using broker-specific
+    processing.
+    """
+    new = {}
+    for quote in quotes:
+        new[quote['symbol']], _ = formatter(quote, symbol_data)
+
+    return new
+
+
 @tractor.stream
 async def stream_quotes(
     ctx: tractor.Context,  # marks this as a streaming func
@@ -1104,8 +1125,11 @@ async def stream_quotes(
     feed_type: str = 'stock',
     diff_cached: bool = True,
     rate: int = 3,
+    loglevel: str = None,
     # feed_type: str = 'stock',
 ) -> AsyncGenerator[str, Dict[str, Any]]:
+    # XXX: why do we need this again?
+    get_console_log(tractor.current_actor().loglevel)
 
     async with get_cached_client('questrade') as client:
         if feed_type == 'stock':
@@ -1124,20 +1148,7 @@ async def stream_quotes(
                 for quote in await get_quotes(symbols)
             }
 
-        symbol_data = await client.symbol_info(symbols)
-
-        # function to format packets delivered to subscribers
-        def packetizer(
-            topic: str,
-            quotes: Dict[str, Any]
-        ) -> Dict[str, Any]:
-            """Normalize quotes by name into dicts.
-            """
-            new = {}
-            for quote in quotes:
-                new[quote['symbol']], _ = formatter(quote, symbol_data)
-
-            return new
+        sd = await client.symbol_info(symbols)
 
         # push initial smoke quote response for client initialization
         await ctx.send_yield(payload)
@@ -1150,7 +1161,11 @@ async def stream_quotes(
             task_name=feed_type,
             ctx=ctx,
             topics=symbols,
-            packetizer=packetizer,
+            packetizer=partial(
+                packetizer,
+                formatter=formatter,
+                symboal_data=sd,
+            ),
 
             # actual func args
             get_quotes=get_quotes,
