@@ -142,8 +142,7 @@ async def stream_poll_requests(
                 # to the last quote received
                 new = set(quote.items()) - set(last.items())
                 if new:
-                    log.info(
-                        f"New quote {quote['symbol']}:\n{new}")
+                    log.info(f"New quote {symbol}:\n{new}")
                     _cache[symbol] = quote
 
                     # only ship diff updates and other required fields
@@ -170,6 +169,8 @@ async def stream_poll_requests(
                         # field that is normalized before hitting this logic.
                         # XXX: very questrade specific
                         payload['size'] = quote['lastTradeSize']
+
+                    log.info(f"New paylod {symbol}:\n{payload}")
 
                     # XXX: we append to a list for the options case where the
                     # subscription topic (key) is the same for all
