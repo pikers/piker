@@ -16,7 +16,6 @@ import tractor
 from outcome import Error
 
 
-# Taken from Quantdom
 class MainWindow(QtGui.QMainWindow):
 
     size = (800, 500)
@@ -89,8 +88,6 @@ def run_qtractor(
         'main': instance,
     }
 
-    # force mp since we may spawn an ib asyncio based backend
-    tractor._spawn.try_set_start_method('forkserver')
     # setup tractor entry point args
     args = (
         # async_fn
@@ -98,7 +95,7 @@ def run_qtractor(
         # args
         (widgets,),
         # kwargs
-        {'loglevel': 'info'},
+        {'loglevel': loglevel},
         # arbiter_addr
         (
             tractor._default_arbiter_host,
