@@ -63,7 +63,7 @@ def monitor(config, rate, name, dhost, test, tl):
         name='monitor',
         loglevel=loglevel if tl else None,
         rpc_module_paths=['piker.ui.kivy.monitor'],
-        start_method='forkserver',
+        # start_method='trio',
     )
 
 
@@ -101,18 +101,17 @@ def optschain(config, symbol, date, tl, rate, test):
         partial(main, tries=1),
         name='kivy-options-chain',
         loglevel=loglevel if tl else None,
-        start_method='forkserver',
+        # start_method='forkserver',
     )
 
 
 @cli.command()
-@click.option('--tl', is_flag=True, help='Enable tractor logging')
 @click.option('--date', '-d', help='Contracts expiry date')
 @click.option('--test', '-t', help='Test quote stream file')
 @click.option('--rate', '-r', default=1, help='Logging level')
 @click.argument('symbol', required=True)
 @click.pass_obj
-def chart(config, symbol, date, tl, rate, test):
+def chart(config, symbol, date, rate, test):
     """Start an option chain UI
     """
     from ._chart import _main
@@ -120,5 +119,6 @@ def chart(config, symbol, date, tl, rate, test):
     # global opts
     loglevel = config['loglevel']
     brokername = config['broker']
+    tractorloglevel = config['tractorloglevel']
 
-    _main(sym=symbol, brokername=brokername, loglevel=loglevel)
+    _main(sym=symbol, brokername=brokername, loglevel=tractorloglevel)
