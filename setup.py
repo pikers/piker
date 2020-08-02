@@ -52,6 +52,7 @@ setup(
 
         # async
         'trio',
+        'trio-websocket',
         # 'tractor',  # from github currently
         'async_generator',
 
@@ -69,6 +70,7 @@ setup(
         # UI
         'PyQt5',
         'pyqtgraph',
+        'qdarkstyle',
 
         # tsdbs
         'pymarketstore',
