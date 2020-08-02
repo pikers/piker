@@ -1,7 +1,7 @@
 """
 Data feed apis and infra.
 
-We ship some tsdb integrations for retrieving
+We provide tsdb integrations for retrieving
 and storing data from your brokers as well as
 sharing your feeds with other fellow pikers.
 """
@@ -91,6 +91,8 @@ async def open_feed(
     symbols: Sequence[str],
     loglevel: str = 'info',
 ) -> AsyncIterator[Dict[str, Any]]:
+    """Open a "data feed" which provides streamed real-time quotes.
+    """
     try:
         mod = get_brokermod(name)
     except ImportError:
