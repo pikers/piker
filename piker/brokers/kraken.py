@@ -181,11 +181,20 @@ async def stream_quotes(
                 async def recv():
                     return json.loads(await ws.get_message())
 
+                import time
+
                 async def recv_ohlc():
+                    last_hb = 0
                     while True:
                         msg = await recv()
                         if isinstance(msg, dict):
                             if msg.get('event') == 'heartbeat':
+                                log.trace(
+                                    f"Heartbeat after {time.time() - last_hb}")
+                                last_hb = time.time()
+                                # TODO: hmm i guess we should use this
+                                # for determining when to do connection
+                                # resets eh?
                                 continue
                             err = msg.get('errorMessage')
                             if err:
