@@ -18,7 +18,7 @@ from ._axes import YAxisLabel, XAxisLabel
 # TODO:
 # - checkout pyqtgraph.PlotCurveItem.setCompositionMode
 
-_mouse_rate_limit = 50
+_mouse_rate_limit = 30
 
 
 class CrossHair(pg.GraphicsObject):
@@ -104,7 +104,11 @@ class CrossHair(pg.GraphicsObject):
         pos = evt[0]
 
         # find position inside active plot
-        mouse_point = self.active_plot.mapToView(pos)
+        try:
+            mouse_point = self.active_plot.mapToView(pos)
+        except AttributeError:
+            # mouse was not on active plot
+            return
 
         self.graphics[self.active_plot]['hl'].setY(
             mouse_point.y()
@@ -120,10 +124,10 @@ class CrossHair(pg.GraphicsObject):
         self.xaxis_label.update_label(evt_post=pos, point_view=mouse_point)
 
     def boundingRect(self):
-        return self.active_plot.boundingRect()
-
-    # def paint(self, p, *args):
-    #     pass
+        try:
+            return self.active_plot.boundingRect()
+        except AttributeError:
+            return self.plots[0].boundingRect()
 
 
 def _mk_lines_array(data: List, size: int) -> np.ndarray:
