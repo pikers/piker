@@ -48,9 +48,10 @@ def pikerd(loglevel, host, tl):
 @click.option('--broker', '-b', default=DEFAULT_BROKER,
               help='Broker backend to use')
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
+@click.option('--tl', is_flag=True, help='Enable tractor logging')
 @click.option('--configdir', '-c', help='Configuration directory')
 @click.pass_context
-def cli(ctx, broker, loglevel, configdir):
+def cli(ctx, broker, loglevel, tl, configdir):
     if configdir is not None:
         assert os.path.isdir(configdir), f"`{configdir}` is not a valid path"
         config._override_config_dir(configdir)
@@ -60,10 +61,15 @@ def cli(ctx, broker, loglevel, configdir):
         'broker': broker,
         'brokermod': get_brokermod(broker),
         'loglevel': loglevel,
+        'tractorloglevel': None,
         'log': get_console_log(loglevel),
         'confdir': _config_dir,
         'wl_path': _watchlists_data_path,
     })
+
+    # allow enabling same loglevel in ``tractor`` machinery
+    if tl:
+        ctx.obj.update({'tractorloglevel': loglevel})
 
 
 def _load_clis() -> None:
