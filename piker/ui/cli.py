@@ -63,7 +63,6 @@ def monitor(config, rate, name, dhost, test, tl):
         name='monitor',
         loglevel=loglevel if tl else None,
         rpc_module_paths=['piker.ui.kivy.monitor'],
-        # start_method='trio',
     )
 
 
@@ -101,7 +100,6 @@ def optschain(config, symbol, date, tl, rate, test):
         partial(main, tries=1),
         name='kivy-options-chain',
         loglevel=loglevel if tl else None,
-        # start_method='forkserver',
     )
 
 
@@ -117,7 +115,6 @@ def chart(config, symbol, date, rate, test):
     from ._chart import _main
 
     # global opts
-    loglevel = config['loglevel']
     brokername = config['broker']
     tractorloglevel = config['tractorloglevel']
 
