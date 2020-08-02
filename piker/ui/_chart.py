@@ -333,7 +333,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # XXX: label setting doesn't seem to work?
         # likely custom graphics need special handling
-        # label = pg.LabelItem(justify='left')
+        # label = pg.LabelItem(justify='right')
         # self.addItem(label)
         # label.setText("Yo yoyo")
         # label.setText("<span style='font-size: 12pt'>x=")
@@ -480,7 +480,7 @@ class ChartPlotWidget(pg.PlotWidget):
         bars = self.parent._array[lbar:rbar]
         if not len(bars):
             # likely no data loaded yet
-            print(f"WTF bars_range = {lbar}:{rbar}")
+            log.error(f"WTF bars_range = {lbar}:{rbar}")
             return
         elif lbar < 0:
             breakpoint()
@@ -604,6 +604,7 @@ def _main(
 
         # historical data fetch
         brokermod = brokers.get_brokermod(brokername)
+
         async with brokermod.get_client() as client:
             # figure out the exact symbol
             bars = await client.bars(symbol=sym)
@@ -614,11 +615,18 @@ def _main(
 
         # determine ohlc delay between bars
         times = bars['time']
-        delay = times[-1] - times[-2]
+
+        # find expected time step between datums
+        delay = times[-1] - times[times != times[-1]][-1]
 
         async def add_new_bars(delay_s):
             """Task which inserts new bars into the ohlc every ``delay_s`` seconds.
             """
+            # TODO: right now we'll spin printing bars if the last time
+            # stamp is before a large period of no market activity.
+            # Likely the best way to solve this is to make this task
+            # aware of the instrument's tradable hours?
+
             # adjust delay to compensate for trio processing time
             ad = delay_s - 0.002
 
@@ -675,7 +683,7 @@ def _main(
                     func,
                     brokername=brokermod.name,
                     sym=sym,
-                    loglevel='info',
+                    # loglevel='info',
                 )
                 stream = await portal.result()
 
@@ -691,23 +699,27 @@ def _main(
         async with trio.open_nursery() as n:
             from piker import fsp
 
-            async with data.open_feed(brokername, [sym]) as stream:
-                # start graphics tasks
-                n.start_soon(add_new_bars, delay)
+            async with data.open_feed(
+                brokername,
+                [sym],
+                loglevel=qtractor_kwargs['loglevel'],
+            ) as (fquote, stream):
+                # start downstream processor
                 n.start_soon(stream_to_chart, fsp.broker_latency)
 
+                # wait for a first quote before we start any update tasks
+                quote = await stream.__anext__()
+
+                # start graphics tasks after receiving first live quote
+                n.start_soon(add_new_bars, delay)
+
                 async for quote in stream:
-                    # XXX: why are we getting both of these again?
                     ticks = quote.get('ticks')
                     if ticks:
                         for tick in ticks:
-                            if tick['tickType'] in (48, 77):
+                            if tick.get('type') == 'trade':
                                 linked_charts.update_from_quote(
                                     {'last': tick['price']}
                                 )
-                    # else:
-                    #     linked_charts.update_from_quote(
-                    #         {'last': quote['close']}
-                    #     )
 
     run_qtractor(_main, (), ChartSpace, **qtractor_kwargs)
