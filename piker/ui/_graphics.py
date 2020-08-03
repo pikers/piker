@@ -134,7 +134,7 @@ def _mk_lines_array(data: List, size: int) -> np.ndarray:
     """Create an ndarray to hold lines graphics objects.
     """
     # TODO: might want to just make this a 2d array to be faster at
-    # flattening using .ravel()?
+    # flattening using .ravel(): https://stackoverflow.com/a/60089929
     return np.zeros_like(
         data,
         shape=(int(size),),
