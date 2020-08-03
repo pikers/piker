@@ -5,6 +5,7 @@ Run ``trio`` in guest mode on top of the Qt event loop.
 All global Qt runtime settings are mostly defined here.
 """
 import traceback
+from typing import Tuple, Callable, Dict
 
 import PyQt5  # noqa
 from pyqtgraph import QtGui
@@ -28,11 +29,11 @@ class MainWindow(QtGui.QMainWindow):
 
 
 def run_qtractor(
-    func,
-    args,
+    func: Callable,
+    args: Tuple,
+    kwargs: Dict,
     main_widget: QtGui.QWidget,
     window_type: QtGui.QMainWindow = MainWindow,
-    loglevel: str = None,
 ) -> None:
     # avoids annoying message when entering debugger from qt loop
     pyqtRemoveInputHook()
@@ -92,10 +93,10 @@ def run_qtractor(
     args = (
         # async_fn
         func,
-        # args
-        (widgets,),
+        # args (always append widgets list)
+        args + (widgets,),
         # kwargs
-        {'loglevel': loglevel},
+        kwargs,
         # arbiter_addr
         (
             tractor._default_arbiter_host,
