@@ -1134,7 +1134,7 @@ async def stream_quotes(
     loglevel: str = None,
     # feed_type: str = 'stock',
 ) -> AsyncGenerator[str, Dict[str, Any]]:
-    # XXX: why do we need this again?
+    # XXX: required to propagate ``tractor`` loglevel to piker logging
     get_console_log(tractor.current_actor().loglevel)
 
     async with get_cached_client('questrade') as client:
