@@ -284,6 +284,8 @@ async def _aio_get_client(
         try:
             ss = tractor.current_actor().statespace
             client_id = next(ss.setdefault('client_ids', itertools.count()))
+            # TODO: in case the arbiter has no record
+            # of existing brokerd we need to broadcase for one.
         except RuntimeError:
             # tractor likely isn't running
             client_id = 1
