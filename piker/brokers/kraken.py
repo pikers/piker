@@ -9,6 +9,7 @@ import json
 import time
 
 import trio_websocket
+from trio_websocket._impl import ConnectionClosed, DisconnectionTimeout
 import arrow
 import asks
 import numpy as np
@@ -247,7 +248,7 @@ async def stream_quotes(
                         })
                     yield asdict(ohlc)
                     ohlc_last = ohlc
-        except trio_websocket._impl.ConnectionClosed:
+        except (ConnectionClosed, DisconnectionTimeout):
             log.exception("Good job kraken...reconnecting")
 
 
