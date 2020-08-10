@@ -300,10 +300,10 @@ class Row(HoverBehavior, GridLayout):
             # handle bidask cells
             if key in layouts:
                 self.add_widget(layouts[key])
-            elif key in children_flat:
+            elif key in children_flat or key in no_cell:
                 # these cells have already been added to the `BidAskLayout`
                 continue
-            elif key not in no_cell:
+            else:
                 cell = self._append_cell(val, key, header=header)
                 cell.key = key
                 self._cell_widgets[key] = cell
@@ -329,7 +329,7 @@ class Row(HoverBehavior, GridLayout):
         self.add_widget(cell)
         return cell
 
-    def update(self, record, displayable):
+    def update(self, record):
         """Update this row's cells with new values from a quote
         ``record``.
 
@@ -341,7 +341,11 @@ class Row(HoverBehavior, GridLayout):
         fgreen = colorcode('forestgreen')
         red = colorcode('red2')
 
+        displayable = record['displayable']
+
         for key, val in record.items():
+            if key not in displayable:
+                continue
             last = self.get_field(key)
             color = gray
             try:
