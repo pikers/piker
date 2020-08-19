@@ -62,7 +62,6 @@ async def maybe_spawn_brokerd(
     dname = f'brokerd.{brokername}'
     async with tractor.find_actor(dname) as portal:
         # WTF: why doesn't this work?
-        log.info(f"YOYOYO {__name__}")
         if portal is not None:
             yield portal
         else:
@@ -89,7 +88,7 @@ async def maybe_spawn_brokerd(
 async def open_feed(
     name: str,
     symbols: Sequence[str],
-    loglevel: str = 'info',
+    loglevel: Optional[str] = None,
 ) -> AsyncIterator[Dict[str, Any]]:
     """Open a "data feed" which provides streamed real-time quotes.
     """
@@ -97,6 +96,9 @@ async def open_feed(
         mod = get_brokermod(name)
     except ImportError:
         mod = get_ingestormod(name)
+
+    if loglevel is None:
+        loglevel = tractor.current_actor().loglevel
 
     async with maybe_spawn_brokerd(
         mod.name,
@@ -106,6 +108,7 @@ async def open_feed(
             mod.__name__,
             'stream_quotes',
             symbols=symbols,
+            topics=symbols,
         )
         # Feed is required to deliver an initial quote asap.
         # TODO: should we timeout and raise a more explicit error?
