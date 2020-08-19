@@ -63,6 +63,7 @@ def monitor(config, rate, name, dhost, test, tl):
         name='monitor',
         loglevel=loglevel if tl else None,
         rpc_module_paths=['piker.ui.kivy.monitor'],
+        debug_mode=True,
     )
 
 
@@ -118,4 +119,11 @@ def chart(config, symbol, date, rate, test):
     brokername = config['broker']
     tractorloglevel = config['tractorloglevel']
 
-    _main(sym=symbol, brokername=brokername, loglevel=tractorloglevel)
+    _main(
+        sym=symbol,
+        brokername=brokername,
+        tractor_kwargs={
+            'debug_mode': True,
+            'loglevel': tractorloglevel,
+        },
+    )

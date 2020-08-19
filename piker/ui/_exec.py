@@ -4,8 +4,9 @@ Trio - Qt integration
 Run ``trio`` in guest mode on top of the Qt event loop.
 All global Qt runtime settings are mostly defined here.
 """
+from functools import partial
 import traceback
-from typing import Tuple, Callable, Dict
+from typing import Tuple, Callable, Dict, Any
 
 import PyQt5  # noqa
 from pyqtgraph import QtGui
@@ -31,8 +32,8 @@ class MainWindow(QtGui.QMainWindow):
 def run_qtractor(
     func: Callable,
     args: Tuple,
-    kwargs: Dict,
     main_widget: QtGui.QWidget,
+    tractor_kwargs: Dict[str, Any] = {},
     window_type: QtGui.QMainWindow = MainWindow,
 ) -> None:
     # avoids annoying message when entering debugger from qt loop
@@ -90,26 +91,21 @@ def run_qtractor(
     }
 
     # setup tractor entry point args
-    args = (
-        # async_fn
-        func,
-        # args (always append widgets list)
-        args + (widgets,),
-        # kwargs
-        kwargs,
-        # arbiter_addr
-        (
+    main = partial(
+        tractor._main,
+        async_fn=func,
+        args=args + (widgets,),
+        arbiter_addr=(
             tractor._default_arbiter_host,
             tractor._default_arbiter_port,
         ),
-        # name
-        'qtractor',
+        name='qtractor',
+        **tractor_kwargs,
     )
 
     # guest mode
     trio.lowlevel.start_guest_run(
-        tractor._main,
-        *args,
+        main,
         run_sync_soon_threadsafe=run_sync_soon_threadsafe,
         done_callback=done_callback,
     )
