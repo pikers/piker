@@ -370,11 +370,3 @@ class BarItems(pg.GraphicsObject):
 
 #         p.setBrush(self.bear_brush)
 #         p.drawRects(*rects[Quotes.close < Quotes.open])
-
-
-class ChartType(Enum):
-    """Bar type to graphics class map.
-    """
-    BAR = BarItems
-    # CANDLESTICK = CandlestickItems
-    LINE = pg.PlotDataItem
