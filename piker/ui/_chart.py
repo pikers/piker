@@ -1,7 +1,7 @@
 """
 High level Qt chart widgets.
 """
-from typing import Optional, Tuple, Dict, Any
+from typing import Tuple, Dict, Any
 import time
 
 from PyQt5 import QtCore, QtGui
@@ -172,14 +172,15 @@ class LinkedSplitCharts(QtGui.QWidget):
 
         # add crosshairs
         self._ch = CrossHair(
-            parent=self,
+            linkedsplitcharts=self,
             digits=self.digits
         )
         self.chart = self.add_plot(
-            name='main',
+            name=symbol.key,
             array=array,
             xaxis=self.xaxis,
             ohlc=True,
+            _is_main=True,
         )
         # add crosshair graphic
         self.chart.addItem(self._ch)
@@ -195,12 +196,13 @@ class LinkedSplitCharts(QtGui.QWidget):
         array: np.ndarray,
         xaxis: DynamicDateAxis = None,
         ohlc: bool = False,
+        _is_main: bool = False,
     ) -> 'ChartPlotWidget':
         """Add (sub)plots to chart widget by name.
 
         If ``name`` == ``"main"`` the chart will be the the primary view.
         """
-        if self.chart is None and name != 'main':
+        if self.chart is None and not _is_main:
             raise RuntimeError(
                 "A main plot must be created first with `.plot_main()`")
 
@@ -230,14 +232,14 @@ class LinkedSplitCharts(QtGui.QWidget):
 
         # draw curve graphics
         if ohlc:
-            cpw.draw_ohlc(array)
+            cpw.draw_ohlc(name, array)
         else:
-            cpw.draw_curve(array)
+            cpw.draw_curve(name, array)
 
         # add to cross-hair's known plots
         self._ch.add_plot(cpw)
 
-        if name != "main":
+        if not _is_main:
             # track by name
             self.subplots[name] = cpw
 
@@ -279,13 +281,7 @@ class ChartPlotWidget(pg.PlotWidget):
         super().__init__(**kwargs)
         self._array = array  # readonly view of data
         self._graphics = {}  # registry of underlying graphics
-
-        # XXX: label setting doesn't seem to work?
-        # likely custom graphics need special handling
-        # label = pg.LabelItem(justify='right')
-        # self.addItem(label)
-        # label.setText("Yo yoyo")
-        # label.setText("<span style='font-size: 12pt'>x=")
+        self._labels = {}  # registry of underlying graphics
 
         # show only right side axes
         self.hideAxis('left')
@@ -302,6 +298,11 @@ class ChartPlotWidget(pg.PlotWidget):
         # assign callback for rescaling y-axis automatically
         # based on ohlc contents
         self.sigXRangeChanged.connect(self._set_yrange)
+
+    def _update_contents_label(self, index: int) -> None:
+        if index > 0 and index < len(self._array):
+            for name, (label, update) in self._labels.items():
+                update(index)
 
     def _set_xlimits(
         self,
@@ -331,6 +332,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def draw_ohlc(
         self,
+        name: str,
         data: np.ndarray,
         # XXX: pretty sure this is dumb and we don't need an Enum
         style: pg.GraphicsObject = BarItems,
@@ -345,7 +347,25 @@ class ChartPlotWidget(pg.PlotWidget):
         graphics.draw_from_data(data)
         self.addItem(graphics)
 
-        self._graphics['ohlc_main'] = graphics
+        self._graphics[name] = graphics
+
+        # XXX: How to stack labels vertically?
+        label = pg.LabelItem(
+            justify='left',
+            size='5pt',
+        )
+        self.scene().addItem(label)
+
+        def update(index: int) -> None:
+            label.setText(
+                "{name} O:{} H:{} L:{} C:{} V:{}".format(
+                    *self._array[index].item()[2:],
+                    name=name,
+                )
+            )
+
+        self._labels[name] = (label, update)
+        self._update_contents_label(index=-1)
 
         # set xrange limits
         xlast = data[-1]['index']
@@ -357,8 +377,8 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def draw_curve(
         self,
+        name: str,
         data: np.ndarray,
-        name: Optional[str] = 'line_main',
     ) -> pg.PlotDataItem:
         # draw the indicator as a plain curve
         curve = pg.PlotDataItem(
@@ -371,9 +391,23 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # register overlay curve with name
         if not self._graphics and name is None:
-            name = 'line_main'
+            name = 'a_line_bby'
 
         self._graphics[name] = curve
+
+        # XXX: How to stack labels vertically?
+        label = pg.LabelItem(
+            justify='left',
+            size='5pt',
+        )
+        self.scene().addItem(label)
+
+        def update(index: int) -> None:
+            data = self._array[index]
+            label.setText(f"{name}: {index} {data}")
+
+        self._labels[name] = (label, update)
+        self._update_contents_label(index=-1)
 
         # set a "startup view"
         xlast = len(data) - 1
@@ -531,29 +565,28 @@ async def add_new_bars(delay_s, linked_charts):
             )
 
         # read value at "open" of bar
-        last_quote = ohlc[-1]
+        # last_quote = ohlc[-1]
+        # XXX: If the last bar has not changed print a flat line and
+        # move to the next. This is a "animation" choice that we may not
+        # keep.
+        # if last_quote == ohlc[-1]:
+            # log.debug("Printing flat line for {sym}")
+
+        # update chart graphics and resize view
+        price_chart.update_from_array(price_chart.name, ohlc)
+        price_chart._set_yrange()
+
+        for name, chart in linked_charts.subplots.items():
+            chart.update_from_array(chart.name, chart._array)
+            chart._set_yrange()
 
         # We **don't** update the bar right now
         # since the next quote that arrives should in the
         # tick streaming task
         await sleep()
 
-        # XXX: If the last bar has not changed print a flat line and
-        # move to the next. This is a "animation" choice that we may not
-        # keep.
-        if last_quote == ohlc[-1]:
-            log.debug("Printing flat line for {sym}")
-            price_chart.update_from_array('ohlc_main', ohlc)
-
-            # resize view
-            price_chart._set_yrange()
-
-
-            for name, chart in linked_charts.subplots.items():
-                chart.update_from_array('line_main', chart._array)
-
-                # resize view
-                chart._set_yrange()
+        # TODO: should we update a graphics again time here?
+        # Think about race conditions with data update task.
 
 
 async def _async_main(
@@ -639,9 +672,10 @@ async def _async_main(
                                 last,
                             )
                             chart.update_from_array(
-                                'ohlc_main',
+                                chart.name,
                                 chart._array,
                             )
+                            chart._set_yrange()
 
 
 async def chart_from_fsp(
@@ -676,7 +710,7 @@ async def chart_from_fsp(
         stream = await portal.result()
 
         # receive processed historical data-array as first message
-        history = (await stream.__anext__())
+        history: np.ndarray = (await stream.__anext__())
 
         # TODO: enforce type checking here
         newbars = np.array(history)
@@ -686,10 +720,19 @@ async def chart_from_fsp(
             array=newbars,
         )
 
-        # update sub-plot graphics
+        # check for data length mis-allignment and fill missing values
+        diff = len(chart._array) - len(linked_charts.chart._array)
+        if diff < 0:
+            data = chart._array
+            chart._array = np.append(
+                data,
+                np.full(abs(diff), data[-1], dtype=data.dtype)
+            )
+
+        # update chart graphics
         async for value in stream:
             chart._array[-1] = value
-            chart.update_from_array('line_main', chart._array)
+            chart.update_from_array(chart.name, chart._array)
             chart._set_yrange()
 
 
@@ -703,7 +746,7 @@ def _main(
     # Qt entry point
     run_qtractor(
        func=_async_main,
-        args=(sym, brokername),
-        main_widget=ChartSpace,
-        tractor_kwargs=tractor_kwargs,
+       args=(sym, brokername),
+       main_widget=ChartSpace,
+       tractor_kwargs=tractor_kwargs,
     )
