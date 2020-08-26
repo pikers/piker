@@ -2,7 +2,6 @@
 Chart graphics for displaying a slew of different data types.
 """
 from typing import List
-from enum import Enum
 from itertools import chain
 
 import numpy as np
@@ -23,10 +22,14 @@ _mouse_rate_limit = 30
 
 class CrossHair(pg.GraphicsObject):
 
-    def __init__(self, parent, digits: int = 0):
+    def __init__(
+        self,
+        linkedsplitcharts: 'LinkedSplitCharts',
+        digits: int = 0
+    ) -> None:
         super().__init__()
         self.pen = pg.mkPen('#a9a9a9')  # gray?
-        self.parent = parent
+        self.lsc = linkedsplitcharts
         self.graphics = {}
         self.plots = []
         self.active_plot = None
@@ -110,18 +113,27 @@ class CrossHair(pg.GraphicsObject):
             # mouse was not on active plot
             return
 
-        self.graphics[self.active_plot]['hl'].setY(
-            mouse_point.y()
-        )
+        x, y = mouse_point.x(), mouse_point.y()
+
+        plot = self.active_plot
+
+        self.graphics[plot]['hl'].setY(y)
+
         self.graphics[self.active_plot]['yl'].update_label(
             evt_post=pos, point_view=mouse_point
         )
-        # move the vertical line to the current x coordinate in all charts
-        for opts in self.graphics.values():
-            opts['vl'].setX(mouse_point.x())
+        for plot, opts in self.graphics.items():
+            # move the vertical line to the current x
+            opts['vl'].setX(x)
+
+            # update the chart's "contents" label
+            plot._update_contents_label(int(x))
 
         # update the label on the bottom of the crosshair
-        self.xaxis_label.update_label(evt_post=pos, point_view=mouse_point)
+        self.xaxis_label.update_label(
+            evt_post=pos,
+            point_view=mouse_point
+        )
 
     def boundingRect(self):
         try:
@@ -149,8 +161,8 @@ def _mk_lines_array(data: List, size: int) -> np.ndarray:
 
 def bars_from_ohlc(
     data: np.ndarray,
+    w: float,
     start: int = 0,
-    w: float = 0.43,
 ) -> np.ndarray:
     """Generate an array of lines objects from input ohlc data.
     """
@@ -160,9 +172,15 @@ def bars_from_ohlc(
         open, high, low, close, index = q[
             ['open', 'high', 'low', 'close', 'index']]
 
+        # place the x-coord start as "middle" of the drawing range such
+        # that the open arm line-graphic is at the left-most-side of
+        # the indexe's range according to the view mapping.
+        index_start = index + w
+
         # high - low line
         if low != high:
-            hl = QLineF(index, low, index, high)
+            # hl = QLineF(index, low, index, high)
+            hl = QLineF(index_start, low, index_start, high)
         else:
             # XXX: if we don't do it renders a weird rectangle?
             # see below too for handling this later...
@@ -170,9 +188,9 @@ def bars_from_ohlc(
             hl._flat = True
 
         # open line
-        o = QLineF(index - w, open, index, open)
+        o = QLineF(index_start - w, open, index_start, open)
         # close line
-        c = QLineF(index + w, close, index, close)
+        c = QLineF(index_start + w, close, index_start, close)
 
         # indexing here is as per the below comments
         # lines[3*i:3*i+3] = (hl, o, c)
@@ -207,7 +225,7 @@ class BarItems(pg.GraphicsObject):
     sigPlotChanged = QtCore.Signal(object)
 
     # 0.5 is no overlap between arms, 1.0 is full overlap
-    w: float = 0.4
+    w: float = 0.43
     bull_pen = pg.mkPen('#808080')
 
     # XXX: tina mode, see below
@@ -234,7 +252,7 @@ class BarItems(pg.GraphicsObject):
     ):
         """Draw OHLC datum graphics from a ``np.recarray``.
         """
-        lines = bars_from_ohlc(data, start=start)
+        lines = bars_from_ohlc(data, self.w, start=start)
 
         # save graphics for later reference and keep track
         # of current internal "last index"
@@ -280,7 +298,7 @@ class BarItems(pg.GraphicsObject):
         if extra > 0:
             # generate new graphics to match provided array
             new = array[index:index + extra]
-            lines = bars_from_ohlc(new)
+            lines = bars_from_ohlc(new, self.w)
             bars_added = len(lines)
             self.lines[index:index + bars_added] = lines
             self.index += bars_added
@@ -311,7 +329,7 @@ class BarItems(pg.GraphicsObject):
             # if the bar was flat it likely does not have
             # the index set correctly due to a rendering bug
             # see above
-            body.setLine(i, low, i, high)
+            body.setLine(i + self.w, low, i + self.w, high)
             body._flat = False
         else:
             body.setLine(body.x1(), low, body.x2(), high)
