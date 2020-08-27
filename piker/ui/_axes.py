@@ -12,17 +12,25 @@ from ._style import _font
 
 class PriceAxis(pg.AxisItem):
 
-    def __init__(self):
+    def __init__(
+        self,
+        # chart: 'ChartPlotWidget',
+    ) -> None:
         super().__init__(orientation='right')
         self.setStyle(**{
-            'textFillLimits': [(0, 0.8)],
-            # 'tickTextWidth': 5,
-            # 'tickTextHeight': 5,
+            'textFillLimits': [(0, 1)],
+            # 'tickTextWidth': 10,
+            # 'tickTextHeight': 25,
             # 'autoExpandTextSpace': True,
             # 'maxTickLength': -20,
+            # 'stopAxisAtTick': (True, True),
         })
         self.setLabel(**{'font-size': '10pt'})
         self.setTickFont(_font)
+        self.setWidth(150)
+        # self.chart = chart
+        # accesed normally via
+        # .getAxis('right')
 
     # XXX: drop for now since it just eats up h space
 
@@ -56,7 +64,7 @@ class DynamicDateAxis(pg.AxisItem):
         # strings = super().tickStrings(values, scale, spacing)
         s_period = 'D1'
         strings = []
-        bars = self.linked_charts._array
+        bars = self.linked_charts.chart._array
         quotes_count = len(bars) - 1
 
         for ibar in values:
@@ -143,7 +151,7 @@ class XAxisLabel(AxisLabel):
     def tick_to_string(self, tick_pos):
         # TODO: change to actual period
         tpl = self.parent.tick_tpl['D1']
-        bars = self.parent.linked_charts._array
+        bars = self.parent.linked_charts.chart._array
         if tick_pos > len(bars):
             return 'Unknown Time'
         return fromtimestamp(bars[round(tick_pos)]['time']).strftime(tpl)
