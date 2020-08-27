@@ -102,18 +102,15 @@ async def latency(
     # deliver zeros for all prior history
     yield np.zeros(len(ohlcv))
 
-    _last = None
     async for quote in source:
-        fill_time = quote.get('rtTime_s')
-        if fill_time and fill_time != _last:
-            value = quote['brokerd_ts'] - fill_time
-            print(f"latency: {value}")
+        ts = quote.get('broker_ts')
+        if ts:
+            print(
+                f"broker time: {quote['broker_ts']}"
+                f"brokerd time: {quote['brokerd_ts']}"
+            )
+            value = quote['brokerd_ts'] - quote['broker_ts']
             yield value
-
-        _last = fill_time
-        # ticks = quote.get('ticks', ())
-        # for tick in ticks:
-        #     if tick.get('type') == 'trade':
 
 
 async def last(
@@ -122,8 +119,6 @@ async def last(
 ) -> AsyncIterator[np.ndarray]:
     """Compute High-Low midpoint value.
     """
-    # first_frame = (await source.__anext__())
-
     # deliver historical processed data first
     yield ohlcv['close']
 
