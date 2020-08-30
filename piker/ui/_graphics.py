@@ -10,7 +10,7 @@ from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QLineF
 
 from .quantdom.utils import timeit
-from ._style import _xaxis_at  # , _tina_mode
+from ._style import _xaxis_at, hcolor
 from ._axes import YAxisLabel, XAxisLabel
 
 
@@ -18,17 +18,21 @@ from ._axes import YAxisLabel, XAxisLabel
 # - checkout pyqtgraph.PlotCurveItem.setCompositionMode
 
 _mouse_rate_limit = 30
+_debounce_delay = 10
 
 
 class CrossHair(pg.GraphicsObject):
 
     def __init__(
         self,
-        linkedsplitcharts: 'LinkedSplitCharts',
+        linkedsplitcharts: 'LinkedSplitCharts',  # noqa
         digits: int = 0
     ) -> None:
         super().__init__()
-        self.pen = pg.mkPen('#a9a9a9')  # gray?
+        self.pen = pg.mkPen(
+            color='#a9a9a9',  # gray?
+            style=QtCore.Qt.DashLine,
+        )
         self.lsc = linkedsplitcharts
         self.graphics = {}
         self.plots = []
@@ -47,7 +51,7 @@ class CrossHair(pg.GraphicsObject):
         yl = YAxisLabel(
             parent=plot.getAxis('right'),
             digits=digits or self.digits,
-            opacity=1
+            opacity=0.7,
         )
 
         # TODO: checkout what ``.sigDelayed`` can be used for
@@ -55,17 +59,20 @@ class CrossHair(pg.GraphicsObject):
         px_moved = pg.SignalProxy(
             plot.scene().sigMouseMoved,
             rateLimit=_mouse_rate_limit,
-            slot=self.mouseMoved
+            slot=self.mouseMoved,
+            delay=_debounce_delay,
         )
         px_enter = pg.SignalProxy(
             plot.sig_mouse_enter,
             rateLimit=_mouse_rate_limit,
             slot=lambda: self.mouseAction('Enter', plot),
+            delay=_debounce_delay,
         )
         px_leave = pg.SignalProxy(
             plot.sig_mouse_leave,
             rateLimit=_mouse_rate_limit,
             slot=lambda: self.mouseAction('Leave', plot),
+            delay=_debounce_delay,
         )
         self.graphics[plot] = {
             'vl': vl,
@@ -80,13 +87,16 @@ class CrossHair(pg.GraphicsObject):
             # place below the last plot
             self.xaxis_label = XAxisLabel(
                 parent=self.plots[-1].getAxis('bottom'),
-                opacity=1
+                opacity=0.7
             )
         else:
             # keep x-axis right below main chart
             first = self.plots[0]
             xaxis = first.getAxis('bottom')
-            self.xaxis_label = XAxisLabel(parent=xaxis, opacity=1)
+            self.xaxis_label = XAxisLabel(
+                parent=xaxis,
+                opacity=0.7,
+            )
 
     def mouseAction(self, action, plot):  # noqa
         if action == 'Enter':
@@ -100,7 +110,10 @@ class CrossHair(pg.GraphicsObject):
             self.graphics[plot]['yl'].hide()
             self.active_plot = None
 
-    def mouseMoved(self, evt):  # noqa
+    def mouseMoved(
+        self,
+        evt: 'Tuple[QMouseEvent]',  # noqa
+    ) -> None:  # noqa
         """Update horizonal and vertical lines when mouse moves inside
         either the main chart or any indicator subplot.
         """
@@ -108,6 +121,7 @@ class CrossHair(pg.GraphicsObject):
 
         # find position inside active plot
         try:
+            # map to view coordinate system
             mouse_point = self.active_plot.mapToView(pos)
         except AttributeError:
             # mouse was not on active plot
@@ -120,7 +134,7 @@ class CrossHair(pg.GraphicsObject):
         self.graphics[plot]['hl'].setY(y)
 
         self.graphics[self.active_plot]['yl'].update_label(
-            evt_post=pos, point_view=mouse_point
+            abs_pos=pos, data=y
         )
         for plot, opts in self.graphics.items():
             # move the vertical line to the current x
@@ -131,8 +145,8 @@ class CrossHair(pg.GraphicsObject):
 
         # update the label on the bottom of the crosshair
         self.xaxis_label.update_label(
-            evt_post=pos,
-            point_view=mouse_point
+            abs_pos=pos,
+            data=x
         )
 
     def boundingRect(self):
@@ -226,7 +240,7 @@ class BarItems(pg.GraphicsObject):
 
     # 0.5 is no overlap between arms, 1.0 is full overlap
     w: float = 0.43
-    bull_pen = pg.mkPen('#808080')
+    bull_pen = pg.mkPen(hcolor('gray'))
 
     # XXX: tina mode, see below
     # bull_brush = pg.mkPen('#00cc00')
@@ -243,6 +257,9 @@ class BarItems(pg.GraphicsObject):
 
         # track the current length of drawable lines within the larger array
         self.index: int = 0
+
+    def last_value(self) -> QLineF:
+        return self.lines[self.index - 1]['rarm']
 
     @timeit
     def draw_from_data(
