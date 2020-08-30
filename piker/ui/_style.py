@@ -27,3 +27,19 @@ def enable_tina_mode() -> None:
     """
     # white background (for tinas like our pal xb)
     pg.setConfigOption('background', 'w')
+
+
+def hcolor(name: str):
+    """Hex color codes by hipster speak.
+    """
+    return '#' + {
+        'black': '000000',  # lives matter
+        'white': 'ffffff',  # for tinas and sunbathers
+        'gray': '808080',  # like the kick
+        'dad_blue': '326693',  # like his shirt
+        'vwap_blue': '0582fb',
+
+        # traditional
+        'tina_green': '00cc00',
+        'tina_red': 'fa0000',
+    }[name]
