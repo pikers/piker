@@ -225,18 +225,22 @@ class Client:
         # use heuristics to figure out contract "type"
         sym, exch = symbol.upper().split('.')
 
-        # TODO: metadata system for all these exchange rules..
-        if exch in ('PURE',):
-            currency = 'CAD'
-
+        # futes
         if exch in ('GLOBEX', 'NYMEX', 'CME', 'CMECRYPTO'):
             con = await self.get_cont_fute(symbol=sym, exchange=exch)
 
+        # commodities
         elif exch == 'CMDTY':  # eg. XAUUSD.CMDTY
             con_kwargs, bars_kwargs = _adhoc_cmdty_data_map[sym]
             con = ibis.Commodity(**con_kwargs)
             con.bars_kwargs = bars_kwargs
+
+        # stonks
         else:
+            # TODO: metadata system for all these exchange rules..
+            if exch in ('PURE', 'TSE'):  # non-yankee
+                currency = 'CAD'
+
             con = ibis.Stock(symbol=sym, exchange=exch, currency=currency)
 
         try:
