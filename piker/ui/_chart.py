@@ -15,7 +15,8 @@ from ._axes import (
     PriceAxis,
 )
 from ._graphics import CrossHair, BarItems
-from ._style import _xaxis_at, _min_points_to_show
+from ._axes import YSticky
+from ._style import _xaxis_at, _min_points_to_show, hcolor
 from ._source import Symbol
 from .. import brokers
 from .. import data
@@ -225,7 +226,6 @@ class LinkedSplitCharts(QtGui.QWidget):
 
         cpw.setFrameStyle(QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain)
         cpw.getPlotItem().setContentsMargins(*CHART_MARGINS)
-        # self.splitter.addWidget(cpw)
 
         # link chart x-axis to main quotes chart
         cpw.setXLink(self.chart)
@@ -245,6 +245,9 @@ class LinkedSplitCharts(QtGui.QWidget):
 
             # scale split regions
             self.set_split_sizes()
+
+            # XXX: we need this right?
+            # self.splitter.addWidget(cpw)
 
         return cpw
 
@@ -282,6 +285,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self._array = array  # readonly view of data
         self._graphics = {}  # registry of underlying graphics
         self._labels = {}  # registry of underlying graphics
+        self._ysticks = {}  # registry of underlying graphics
 
         # show only right side axes
         self.hideAxis('left')
@@ -350,6 +354,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self._graphics[name] = graphics
 
         # XXX: How to stack labels vertically?
+        # Ogi says: "
         label = pg.LabelItem(
             justify='left',
             size='5pt',
@@ -372,6 +377,8 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # show last 50 points on startup
         self.plotItem.vb.setXRange(xlast - 50, xlast + 50)
+
+        self._add_sticky(name)
 
         return graphics
 
@@ -420,6 +427,21 @@ class ChartPlotWidget(pg.PlotWidget):
         curve.update_from_array = curve.setData
 
         return curve
+
+    def _add_sticky(
+        self,
+        name: str,
+        # retreive: Callable[None, np.ndarray],
+    ) -> YSticky:
+        # add y-axis "last" value label
+        last = self._ysticks['last'] = YSticky(
+            chart=self,
+            parent=self.getAxis('right'),
+            # digits=0,
+            opacity=1,
+            color=pg.mkPen(hcolor('gray'))
+        )
+        return last
 
     def update_from_array(
         self,
@@ -636,6 +658,10 @@ async def _async_main(
             loglevel,
         )
 
+        # update last price sticky
+        last = chart._ysticks['last']
+        last.update_from_data(*chart._array[-1][['index', 'close']])
+
         # graphics update loop
 
         async with data.open_feed(
@@ -646,7 +672,7 @@ async def _async_main(
 
             # wait for a first quote before we start any update tasks
             quote = await stream.__anext__()
-            print(f'RECEIVED FIRST QUOTE {quote}')
+            log.info(f'RECEIVED FIRST QUOTE {quote}')
 
             # start graphics tasks after receiving first live quote
             n.start_soon(add_new_bars, delay, linked_charts)
@@ -675,6 +701,10 @@ async def _async_main(
                                 chart.name,
                                 chart._array,
                             )
+                            # update sticky(s)
+                            last = chart._ysticks['last']
+                            last.update_from_data(
+                                *chart._array[-1][['index', 'close']])
                             chart._set_yrange()
 
 
