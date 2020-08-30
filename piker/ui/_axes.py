@@ -3,11 +3,12 @@ Chart axes graphics and behavior.
 """
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
+from PyQt5.QtCore import QPointF
 
 
 # from .quantdom.base import Quotes
 from .quantdom.utils import fromtimestamp
-from ._style import _font
+from ._style import _font, hcolor
 
 
 class PriceAxis(pg.AxisItem):
@@ -18,7 +19,7 @@ class PriceAxis(pg.AxisItem):
     ) -> None:
         super().__init__(orientation='right')
         self.setStyle(**{
-            'textFillLimits': [(0, 1)],
+            'textFillLimits': [(0, 0.5)],
             # 'tickTextWidth': 10,
             # 'tickTextHeight': 25,
             # 'autoExpandTextSpace': True,
@@ -52,10 +53,11 @@ class DynamicDateAxis(pg.AxisItem):
         # default styling
         self.setStyle(
             tickTextOffset=7,
-            textFillLimits=[(0, 0.90)],
+            textFillLimits=[(0, 0.70)],
             # TODO: doesn't seem to work -> bug in pyqtgraph?
             # tickTextHeight=2,
         )
+        # self.setHeight(35)
 
     def tickStrings(self, values, scale, spacing):
         # if len(values) > 1 or not values:
@@ -80,13 +82,13 @@ class DynamicDateAxis(pg.AxisItem):
 class AxisLabel(pg.GraphicsObject):
 
     # bg_color = pg.mkColor('#a9a9a9')
-    bg_color = pg.mkColor('#808080')
-    fg_color = pg.mkColor('#000000')
+    bg_color = pg.mkColor(hcolor('gray'))
+    fg_color = pg.mkColor(hcolor('black'))
 
     def __init__(
         self,
         parent=None,
-        digits=0,
+        digits=1,
         color=None,
         opacity=1,
         **kwargs
@@ -96,32 +98,16 @@ class AxisLabel(pg.GraphicsObject):
         self.opacity = opacity
         self.label_str = ''
         self.digits = digits
-        # self.quotes_count = len(Quotes) - 1
 
+        # some weird color convertion logic?
         if isinstance(color, QtGui.QPen):
             self.bg_color = color.color()
-            self.fg_color = pg.mkColor('#ffffff')
+            self.fg_color = pg.mkColor(hcolor('black'))
         elif isinstance(color, list):
             self.bg_color = {'>0': color[0].color(), '<0': color[1].color()}
-            self.fg_color = pg.mkColor('#ffffff')
+            self.fg_color = pg.mkColor(hcolor('white'))
 
         self.setFlag(self.ItemIgnoresTransformations)
-
-    def tick_to_string(self, tick_pos):
-        raise NotImplementedError()
-
-    def boundingRect(self):  # noqa
-        raise NotImplementedError()
-
-    def update_label(self, evt_post, point_view):
-        raise NotImplementedError()
-
-    def update_label_test(self, ypos=0, ydata=0):
-        self.label_str = self.tick_to_string(ydata)
-        height = self.boundingRect().height()
-        offset = 0  # if have margins
-        new_pos = QtCore.QPointF(0, ypos - height / 2 - offset)
-        self.setPos(new_pos)
 
     def paint(self, p, option, widget):
         p.setRenderHint(p.TextAntialiasing, True)
@@ -141,12 +127,38 @@ class AxisLabel(pg.GraphicsObject):
 
         p.drawText(option.rect, self.text_flags, self.label_str)
 
+    # uggggghhhh
+    def tick_to_string(self, tick_pos):
+        raise NotImplementedError()
+
+    def boundingRect(self):  # noqa
+        raise NotImplementedError()
+
+    def update_label(self, evt_post, point_view):
+        raise NotImplementedError()
+
+    # end uggggghhhh
+
+
+# _common_text_flags = (
+#     QtCore.Qt.TextDontClip |
+#     QtCore.Qt.AlignCenter |
+#     QtCore.Qt.AlignTop |
+#     QtCore.Qt.AlignHCenter |
+#     QtCore.Qt.AlignVCenter
+# )
+
 
 class XAxisLabel(AxisLabel):
 
     text_flags = (
-        QtCore.Qt.TextDontClip | QtCore.Qt.AlignCenter | QtCore.Qt.AlignTop
+        QtCore.Qt.TextDontClip
+        | QtCore.Qt.AlignCenter
+        # | QtCore.Qt.AlignTop
+        | QtCore.Qt.AlignVCenter
+        # | QtCore.Qt.AlignHCenter
     )
+    # text_flags = _common_text_flags
 
     def tick_to_string(self, tick_pos):
         # TODO: change to actual period
@@ -157,34 +169,77 @@ class XAxisLabel(AxisLabel):
         return fromtimestamp(bars[round(tick_pos)]['time']).strftime(tpl)
 
     def boundingRect(self):  # noqa
-        return QtCore.QRectF(0, 0, 145, 50)
+        return QtCore.QRectF(0, 0, 145, 40)
 
-    def update_label(self, evt_post, point_view):
-        ibar = point_view.x()
+    def update_label(self, abs_pos, data):
+        # ibar = view_pos.x()
         # if ibar > self.quotes_count:
         #     return
-        self.label_str = self.tick_to_string(ibar)
+        self.label_str = self.tick_to_string(data)
         width = self.boundingRect().width()
         offset = 0  # if have margins
-        new_pos = QtCore.QPointF(evt_post.x() - width / 2 - offset, 0)
+        new_pos = QPointF(abs_pos.x() - width / 2 - offset, 0)
         self.setPos(new_pos)
 
 
 class YAxisLabel(AxisLabel):
 
+    # text_flags = _common_text_flags
     text_flags = (
-        QtCore.Qt.TextDontClip | QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
+        QtCore.Qt.AlignLeft
+        | QtCore.Qt.TextDontClip
+        | QtCore.Qt.AlignVCenter
     )
 
     def tick_to_string(self, tick_pos):
+        # WTF IS THIS FORMAT?
         return ('{: ,.%df}' % self.digits).format(tick_pos).replace(',', ' ')
 
     def boundingRect(self):  # noqa
-        return QtCore.QRectF(0, 0, 100, 40)
+        return QtCore.QRectF(0, 0, 120, 30)
 
-    def update_label(self, evt_post, point_view):
-        self.label_str = self.tick_to_string(point_view.y())
+    def update_label(
+        self,
+        abs_pos: QPointF,  # scene coords
+        data: float,  # data for text
+    ) -> None:
+        self.label_str = self.tick_to_string(data)
         height = self.boundingRect().height()
         offset = 0  # if have margins
-        new_pos = QtCore.QPointF(0, evt_post.y() - height / 2 - offset)
+        new_pos = QPointF(0, abs_pos.y() - height / 2 - offset)
         self.setPos(new_pos)
+
+
+class YSticky(YAxisLabel):
+    """Y-axis label that sticks to where it's placed despite chart resizing.
+    """
+    def __init__(
+        self,
+        chart,
+        *args,
+        **kwargs
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._chart = chart
+
+        # XXX: not sure why this wouldn't work with a proxy?
+        # pg.SignalProxy(
+        #     delay=0,
+        #     rateLimit=60,
+        #     slot=last.update_on_resize,
+        # )
+        chart.sigRangeChanged.connect(self.update_on_resize)
+
+    def update_on_resize(self, vr, r):
+        # TODO: figure out how to generalize across data schema
+        self.update_from_data(*self._chart._array[-1][['index', 'close']])
+
+    def update_from_data(
+        self,
+        index: int,
+        last: float,
+    ) -> None:
+        self.update_label(
+            self._chart.mapFromView(QPointF(index, last)),
+            last
+        )
