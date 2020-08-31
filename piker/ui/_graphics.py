@@ -19,6 +19,7 @@ from ._axes import YAxisLabel, XAxisLabel
 
 _mouse_rate_limit = 30
 _debounce_delay = 10
+_ch_label_opac = 1
 
 
 class CrossHair(pg.GraphicsObject):
@@ -29,7 +30,13 @@ class CrossHair(pg.GraphicsObject):
         digits: int = 0
     ) -> None:
         super().__init__()
+        # XXX: not sure why these are instance variables?
+        # It's not like we can change them on the fly..?
         self.pen = pg.mkPen(
+            color=hcolor('default'),
+            style=QtCore.Qt.DashLine,
+        )
+        self.lines_pen = pg.mkPen(
             color='#a9a9a9',  # gray?
             style=QtCore.Qt.DashLine,
         )
@@ -46,12 +53,13 @@ class CrossHair(pg.GraphicsObject):
     ) -> None:
         # add ``pg.graphicsItems.InfiniteLine``s
         # vertical and horizonal lines and a y-axis label
-        vl = plot.addLine(x=0, pen=self.pen, movable=False)
-        hl = plot.addLine(y=0, pen=self.pen, movable=False)
+        vl = plot.addLine(x=0, pen=self.lines_pen, movable=False)
+        hl = plot.addLine(y=0, pen=self.lines_pen, movable=False)
         yl = YAxisLabel(
             parent=plot.getAxis('right'),
             digits=digits or self.digits,
-            opacity=0.7,
+            opacity=_ch_label_opac,
+            color=self.pen,
         )
 
         # TODO: checkout what ``.sigDelayed`` can be used for
@@ -82,21 +90,16 @@ class CrossHair(pg.GraphicsObject):
         }
         self.plots.append(plot)
 
-        # determine where to place x-axis label
-        if _xaxis_at == 'bottom':
-            # place below the last plot
-            self.xaxis_label = XAxisLabel(
-                parent=self.plots[-1].getAxis('bottom'),
-                opacity=0.7
-            )
-        else:
-            # keep x-axis right below main chart
-            first = self.plots[0]
-            xaxis = first.getAxis('bottom')
-            self.xaxis_label = XAxisLabel(
-                parent=xaxis,
-                opacity=0.7,
-            )
+        # Determine where to place x-axis label.
+        # Place below the last plot by default, ow
+        # keep x-axis right below main chart
+        plot_index = -1 if _xaxis_at == 'bottom' else 0
+
+        self.xaxis_label = XAxisLabel(
+            parent=self.plots[plot_index].getAxis('bottom'),
+            opacity=_ch_label_opac,
+            color=self.pen,
+        )
 
     def mouseAction(self, action, plot):  # noqa
         if action == 'Enter':
