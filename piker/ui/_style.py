@@ -3,6 +3,7 @@ Qt UI styling.
 """
 import pyqtgraph as pg
 from PyQt5 import QtGui
+from qdarkstyle.palette import DarkPalette
 
 
 # chart-wide font
@@ -29,17 +30,34 @@ def enable_tina_mode() -> None:
     pg.setConfigOption('background', 'w')
 
 
-def hcolor(name: str):
+def hcolor(name: str) -> str:
     """Hex color codes by hipster speak.
     """
-    return '#' + {
-        'black': '000000',  # lives matter
-        'white': 'ffffff',  # for tinas and sunbathers
-        'gray': '808080',  # like the kick
-        'dad_blue': '326693',  # like his shirt
-        'vwap_blue': '0582fb',
+    return {
+        # lives matter
+        'black': '#000000',
+        'erie_black': '#1B1B1B',
+        'licorice': '#1A1110',
+        'papas_special': '#06070c',
+
+        # fifty shades
+        'gray': '#808080',  # like the kick
+        'jet': '#343434',
+        'charcoal': '#36454F',
+
+        # palette
+        'default': DarkPalette.COLOR_BACKGROUND_NORMAL,
+
+        'white': '#ffffff',  # for tinas and sunbathers
+
+        # blue zone
+        'dad_blue': '#326693',  # like his shirt
+        'vwap_blue': '#0582fb',
+        'dodger_blue': '#1e90ff',  # like the team?
+        'panasonic_blue': '#0040be',  # from japan
 
         # traditional
-        'tina_green': '00cc00',
-        'tina_red': 'fa0000',
+        'tina_green': '#00cc00',
+        'tina_red': '#fa0000',
+
     }[name]
