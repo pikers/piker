@@ -30,7 +30,7 @@ from .. import fsp
 log = get_logger(__name__)
 
 # margins
-CHART_MARGINS = (0, 0, 10, 3)
+CHART_MARGINS = (0, 0, 5, 3)
 
 
 class ChartSpace(QtGui.QWidget):
@@ -43,7 +43,7 @@ class ChartSpace(QtGui.QWidget):
         self.v_layout = QtGui.QVBoxLayout(self)
         self.v_layout.setContentsMargins(0, 0, 0, 0)
         self.toolbar_layout = QtGui.QHBoxLayout()
-        self.toolbar_layout.setContentsMargins(10, 10, 15, 0)
+        self.toolbar_layout.setContentsMargins(5, 5, 10, 0)
         self.h_layout = QtGui.QHBoxLayout()
 
         # self.init_timeframes_ui()
@@ -275,13 +275,15 @@ class ChartPlotWidget(pg.PlotWidget):
         # the data view we generate graphics from
         array: np.ndarray,
         **kwargs,
-        # parent=None,
-        # background='default',
-        # plotItem=None,
     ):
         """Configure chart display settings.
         """
-        super().__init__(**kwargs)
+        super().__init__(
+            background=hcolor('papas_special'),
+            # parent=None,
+            # plotItem=None,
+            **kwargs
+        )
         self._array = array  # readonly view of data
         self._graphics = {}  # registry of underlying graphics
         self._labels = {}  # registry of underlying graphics
