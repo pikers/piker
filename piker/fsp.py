@@ -82,7 +82,7 @@ async def pull_and_process(
             filter_by_sym(symbol, stream),
             bars,
         ):
-            print(f"{fsp_func_name}: {processed}")
+            log.info(f"{fsp_func_name}: {processed}")
             yield processed
 
 
@@ -105,25 +105,11 @@ async def latency(
     async for quote in source:
         ts = quote.get('broker_ts')
         if ts:
-            print(
-                f"broker time: {quote['broker_ts']}"
-                f"brokerd time: {quote['brokerd_ts']}"
-            )
+            # This is codified in the per-broker normalization layer
+            # TODO: Add more measure points and diffs for full system
+            # stack tracing.
             value = quote['brokerd_ts'] - quote['broker_ts']
             yield value
-
-
-async def last(
-    source: 'TickStream[Dict[str, float]]',
-    ohlcv: np.ndarray
-) -> AsyncIterator[np.ndarray]:
-    """Compute High-Low midpoint value.
-    """
-    # deliver historical processed data first
-    yield ohlcv['close']
-
-    async for quote in source:
-        yield quote['close']
 
 
 async def wma(
