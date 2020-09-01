@@ -142,7 +142,7 @@ class Client:
             # durationStr='1 D',
 
             # time length calcs
-            durationStr='{count} S'.format(count=2000 * 5),
+            durationStr='{count} S'.format(count=1000 * 5),
             barSizeSetting='5 secs',
 
             # always use extended hours
@@ -458,6 +458,8 @@ def normalize(
     return data
 
 
+# TODO: figure out how to share quote feeds sanely despite
+# the wacky ``ib_insync`` api.
 # @tractor.msg.pub
 async def stream_quotes(
     symbols: List[str],
