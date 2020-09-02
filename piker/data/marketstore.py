@@ -41,7 +41,7 @@ _quote_dt = [
     ('Ask', 'f4'),
     ('Size', 'i8'),
     ('Volume', 'i8'),
-    # ('Broker_time_ns', 'i64'),
+    # ('brokerd_ts', 'i64'),
     # ('VWAP', 'f4')
 ]
 _quote_tmp = {}.fromkeys(dict(_quote_dt).keys(), np.nan)
@@ -87,9 +87,8 @@ def quote_to_marketstore_structarray(
     # pack into List[Tuple[str, Any]]
     array_input = []
 
-    # insert 'Epoch' entry first
+    # insert 'Epoch' entry first and then 'Nanoseconds'.
     array_input.append(int(secs))
-    # insert 'Nanoseconds' field
     array_input.append(int(ns))
 
     # append remaining fields
@@ -97,7 +96,10 @@ def quote_to_marketstore_structarray(
         if 'f' in dt:
             none = np.nan
         else:
+            # for ``np.int`` we use 0 as a null value
             none = 0
+
+        # casefold? see https://github.com/alpacahq/marketstore/issues/324
         val = quote.get(name.casefold(), none)
         array_input.append(val)
 
