@@ -22,11 +22,12 @@ it tries to use as much bleeding edge tech as possible including (but not limite
 .. |travis| image:: https://img.shields.io/travis/pikers/piker/master.svg
     :target: https://travis-ci.org/pikers/piker
 .. _trio: https://github.com/python-trio/trio
-.. _structured concurrency: https://trio.discourse.group/
 .. _tractor: https://github.com/goodboy/tractor
+.. _structured concurrency: https://trio.discourse.group/
 .. _marketstore: https://github.com/alpacahq/marketstore
 .. _techtonicdb: https://github.com/0b01/tectonicdb
 .. _Qt: https://www.qt.io/
+.. _pyqtgraph: https://github.com/pyqtgraph/pyqtgraph
 .. _glue: https://numpy.org/doc/stable/user/c-info.python-as-glue.html#using-python-as-glue
 .. _fast numerics: https://zerowithdot.com/python-numpy-and-pandas-performance/
 
@@ -40,7 +41,7 @@ Focus and Features:
 - 100% federated: your code, your hardware, your broker's data feeds
 - privacy
 - broker/exchange agnostic
-- built on a `structured concurrent actor model <tractor>`_
+- built on a structured concurrent actor model
 - production grade, highly attractive native UIs
 - expected to be used from tiling wms
 - sophisticated rt charting
@@ -49,10 +50,11 @@ Focus and Features:
 - not built for *sale*; built for *people*
 - no corporate friendly license, ever.
 
-fitting with these tenets, we're always open to new framework suggestions and ideas.
+fitting with these tenets, we're always open to new framework
+suggestions and ideas.
 
-building the best looking, most reliable, keyboard friendly trading platform is the dream.
-feel free to pipe in with your ideas and quiffs.
+building the best looking, most reliable, keyboard friendly trading
+platform is the dream.  feel free to pipe in with your ideas and quiffs.
 
 
 Install
@@ -67,8 +69,7 @@ For a development install::
 
     git clone git@github.com:pikers/piker.git
     cd piker
-    pipenv install --pre -e .
-    pipenv shell
+    pip install -e .
 
 
 Broker Support
