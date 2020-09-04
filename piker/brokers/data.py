@@ -12,7 +12,7 @@ import typing
 from typing import (
     Coroutine, Callable, Dict,
     List, Any, Tuple, AsyncGenerator,
-    Sequence,
+    Sequence
 )
 import contextlib
 from operator import itemgetter
@@ -25,7 +25,7 @@ from ..log import get_logger, get_console_log
 from . import get_brokermod
 
 
-log = get_logger('broker.data')
+log = get_logger(__name__)
 
 
 async def wait_for_network(
@@ -47,7 +47,7 @@ async def wait_for_network(
                 continue
         except socket.gaierror:
             if not down:  # only report/log network down once
-                log.warn(f"Network is down waiting for re-establishment...")
+                log.warn("Network is down waiting for re-establishment...")
                 down = True
             await trio.sleep(sleep)
 
@@ -80,24 +80,30 @@ class BrokerFeed:
 
 
 @tractor.msg.pub(tasks=['stock', 'option'])
-async def stream_requests(
+async def stream_poll_requests(
     get_topics: typing.Callable,
     get_quotes: Coroutine,
-    feed: BrokerFeed,
     rate: int = 3,  # delay between quote requests
     diff_cached: bool = True,  # only deliver "new" quotes to the queue
 ) -> None:
     """Stream requests for quotes for a set of symbols at the given
     ``rate`` (per second).
 
+    This routine is built for brokers who support quote polling for multiple
+    symbols per request. The ``get_topics()`` func is called to retreive the
+    set of symbols each iteration and ``get_quotes()`` is to retreive
+    the quotes.
+
     A stock-broker client ``get_quotes()`` async function must be
     provided which returns an async quote retrieval function.
-    """
-    broker_limit = getattr(feed.mod, '_rate_limit', float('inf'))
-    if broker_limit < rate:
-        rate = broker_limit
-        log.warn(f"Limiting {feed.mod.__name__} query rate to {rate}/sec")
 
+    .. note::
+        This code is mostly tailored (for now) to the questrade backend.
+        It is currently the only broker that doesn't support streaming without
+        paying for data. See the note in the diffing section regarding volume
+        differentials which needs to be addressed in order to get cross-broker
+        support.
+    """
     sleeptime = round(1. / rate, 3)
     _cache = {}  # ticker to quote caching
 
@@ -130,17 +136,47 @@ async def stream_requests(
             for quote in quotes:
                 symbol = quote['symbol']
                 last = _cache.setdefault(symbol, {})
+                last_volume = last.get('volume', 0)
+
+                # find all keys that have match to a new value compared
+                # to the last quote received
                 new = set(quote.items()) - set(last.items())
                 if new:
                     log.info(
                         f"New quote {quote['symbol']}:\n{new}")
                     _cache[symbol] = quote
+
+                    # only ship diff updates and other required fields
+                    payload = {k: quote[k] for k, v in new}
+                    payload['symbol'] = symbol
+
+                    # if there was volume likely the last size of
+                    # shares traded is useful info and it's possible
+                    # that the set difference from above will disregard
+                    # a "size" value since the same # of shares were traded
+                    volume = payload.get('volume')
+                    if volume:
+                        volume_since_last_quote = volume - last_volume
+                        assert volume_since_last_quote > 0
+                        payload['volume_delta'] = volume_since_last_quote
+
+                        # TODO: We can emit 2 ticks here:
+                        # - one for the volume differential
+                        # - one for the last known trade size
+                        # The first in theory can be unwound and
+                        # interpolated assuming the broker passes an
+                        # accurate daily VWAP value.
+                        # To make this work we need a universal ``size``
+                        # field that is normalized before hitting this logic.
+                        # XXX: very questrade specific
+                        payload['size'] = quote['lastTradeSize']
+
                     # XXX: we append to a list for the options case where the
                     # subscription topic (key) is the same for all
                     # expiries even though this is uncessary for the
                     # stock case (different topic [i.e. symbol] for each
                     # quote).
-                    new_quotes.setdefault(quote['key'], []).append(quote)
+                    new_quotes.setdefault(quote['key'], []).append(payload)
         else:
             # log.debug(f"Delivering quotes:\n{quotes}")
             for quote in quotes:
@@ -168,7 +204,7 @@ async def symbol_data(broker: str, tickers: List[str]):
     """Retrieve baseline symbol info from broker.
     """
     async with get_cached_feed(broker) as feed:
-        return await feed.client.symbol_data(tickers)
+        return await feed.client.symbol_info(tickers)
 
 
 async def smoke_quote(get_quotes, tickers, broker):
@@ -290,6 +326,7 @@ async def start_quote_stream(
             # do a smoke quote (note this mutates the input list and filters
             # out bad symbols for now)
             payload = await smoke_quote(get_quotes, symbols, broker)
+            formatter = feed.mod.format_stock_quote
 
         elif feed_type == 'option':
             # FIXME: yeah we need maybe a more general way to specify
@@ -304,14 +341,21 @@ async def start_quote_stream(
                 quote['symbol']: quote
                 for quote in await get_quotes(symbols)
             }
+            formatter = feed.mod.format_option_quote
 
-        def packetizer(topic, quotes):
-            return {quote['symbol']: quote for quote in quotes}
+        sd = await feed.client.symbol_info(symbols)
+        # formatter = partial(formatter, symbol_data=sd)
+
+        packetizer = partial(
+            feed.mod.packetizer,
+            formatter=formatter,
+            symbol_data=sd,
+        )
 
         # push initial smoke quote response for client initialization
         await ctx.send_yield(payload)
 
-        await stream_requests(
+        await stream_poll_requests(
 
             # ``msg.pub`` required kwargs
             task_name=feed_type,
@@ -320,7 +364,6 @@ async def start_quote_stream(
             packetizer=packetizer,
 
             # actual func args
-            feed=feed,
             get_quotes=get_quotes,
             diff_cached=diff_cached,
             rate=rate,
@@ -378,15 +421,19 @@ class DataFeed:
                 # subscribe for tickers (this performs a possible filtering
                 # where invalid symbols are discarded)
                 sd = await self.portal.run(
-                    "piker.brokers.data", 'symbol_data',
-                    broker=self.brokermod.name, tickers=symbols)
+                    "piker.brokers.data",
+                    'symbol_data',
+                    broker=self.brokermod.name,
+                    tickers=symbols
+                )
                 self._symbol_data_cache.update(sd)
 
             if test:
                 # stream from a local test file
                 quote_gen = await self.portal.run(
-                    "piker.brokers.data", 'stream_from_file',
-                    filename=test
+                    "piker.brokers.data",
+                    'stream_from_file',
+                    filename=test,
                 )
             else:
                 log.info(f"Starting new stream for {symbols}")

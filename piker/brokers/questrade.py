@@ -3,14 +3,21 @@ Questrade API backend.
 """
 from __future__ import annotations
 import inspect
+import contextlib
 import time
 from datetime import datetime
 from functools import partial
+import itertools
 import configparser
-from typing import List, Tuple, Dict, Any, Iterator, NamedTuple
+from typing import (
+    List, Tuple, Dict, Any, Iterator, NamedTuple,
+    AsyncGenerator,
+    Callable,
+)
 
 import arrow
 import trio
+import tractor
 from async_generator import asynccontextmanager
 import pandas as pd
 import numpy as np
@@ -20,8 +27,9 @@ import asks
 from ..calc import humanize, percent_change
 from . import config
 from ._util import resproc, BrokerError, SymbolNotFound
-from ..log import get_logger, colorize_json
+from ..log import get_logger, colorize_json, get_console_log
 from .._async_utils import async_lifo_cache
+from . import get_brokermod
 
 log = get_logger(__name__)
 
@@ -407,16 +415,19 @@ class Client:
 
         return symbols2ids
 
-    async def symbol_data(self, tickers: List[str]):
-        """Return symbol data for ``tickers``.
+    async def symbol_info(self, symbols: List[str]):
+        """Return symbol data for ``symbols``.
         """
-        t2ids = await self.tickers2ids(tickers)
+        t2ids = await self.tickers2ids(symbols)
         ids = ','.join(t2ids.values())
         symbols = {}
         for pkt in (await self.api.symbols(ids=ids))['symbols']:
             symbols[pkt['symbol']] = pkt
 
         return symbols
+
+    # TODO: deprecate
+    symbol_data = symbol_info
 
     async def quote(self, tickers: [str]):
         """Return stock quotes for each ticker in ``tickers``.
@@ -597,6 +608,24 @@ class Client:
         log.debug(
             f"Took {time.time() - start} seconds to retreive {len(bars)} bars")
         return bars
+
+    async def search_stocks(
+        self,
+        pattern: str,
+        # how many contracts to return
+        upto: int = 10,
+    ) -> Dict[str, str]:
+        details = {}
+        results = await self.api.search(prefix=pattern)
+        for result in results['symbols']:
+            sym = result['symbol']
+            if '.' not in sym:
+                sym = f"{sym}.{result['listingExchange']}"
+
+            details[sym] = result
+
+            if len(details) == upto:
+                return details
 
 
 # marketstore TSD compatible numpy dtype for bar
@@ -839,28 +868,42 @@ def format_stock_quote(
     and the second is the same but with all values converted to a
     "display-friendly" string format.
     """
-    last = quote['lastTradePrice']
     symbol = quote['symbol']
     previous = symbol_data[symbol]['prevDayClosePrice']
-    change = percent_change(previous, last)
-    share_count = symbol_data[symbol].get('outstandingShares', None)
-    mktcap = share_count * last if (last and share_count) else 0
-    computed = {
-        'symbol': quote['symbol'],
-        '%': round(change, 3),
-        'MC': mktcap,
-        # why QT do you have to be an asshole shipping null values!!!
-        '$ vol': round((quote['VWAP'] or 0) * (quote['volume'] or 0), 3),
-        'close': previous,
-    }
+
+    computed = {'symbol': symbol}
+    last = quote.get('lastTradePrice')
+    if last:
+        change = percent_change(previous, last)
+        share_count = symbol_data[symbol].get('outstandingShares', None)
+        mktcap = share_count * last if (last and share_count) else 0
+        computed.update({
+            # 'symbol': quote['symbol'],
+            '%': round(change, 3),
+            'MC': mktcap,
+            # why questrade do you have to be shipping null values!!!
+            # '$ vol': round((quote['VWAP'] or 0) * (quote['volume'] or 0), 3),
+            'close': previous,
+        })
+
+    vwap = quote.get('VWAP')
+    volume = quote.get('volume')
+    if volume is not None:  # could be 0
+        # why questrade do you have to be an asshole shipping null values!!!
+        computed['$ vol'] = round((vwap or 0) * (volume or 0), 3)
+
     new = {}
     displayable = {}
 
-    for key, new_key in keymap.items():
-        display_value = value = computed.get(key) or quote.get(key)
+    for key, value in itertools.chain(quote.items(), computed.items()):
+        new_key = keymap.get(key)
+        if not new_key:
+            continue
 
         # API servers can return `None` vals when markets are closed (weekend)
         value = 0 if value is None else value
+
+        display_value = value
 
         # convert values to a displayble format using available formatting func
         if isinstance(new_key, tuple):
@@ -891,7 +934,8 @@ _qt_option_keys = {
     # "theta": ('theta', partial(round, ndigits=3)),
     # "vega": ('vega', partial(round, ndigits=3)),
     '$ vol': ('$ vol', humanize),
-    'volume': ('vol', humanize),
+    # XXX: required key to trigger trade execution datum msg
+    'volume': ('volume', humanize),
     # "2021-01-15T00:00:00.000000-05:00",
     # "isHalted": false,
     # "key": [
@@ -939,7 +983,7 @@ def format_option_quote(
     "display-friendly" string format.
     """
     # TODO: need historical data..
-    # (cause why would QT keep their quote structure consistent across
+    # (cause why would questrade keep their quote structure consistent across
     # assets..)
     # previous = symbol_data[symbol]['prevDayClosePrice']
     # change = percent_change(previous, last)
@@ -968,3 +1012,164 @@ def format_option_quote(
         displayable[new_key] = display_value
 
     return new, displayable
+
+
+@asynccontextmanager
+async def get_cached_client(
+    brokername: str,
+    *args,
+    **kwargs,
+) -> 'Client':
+    """Get a cached broker client from the current actor's local vars.
+
+    If one has not been setup do it and cache it.
+    """
+    # check if a cached client is in the local actor's statespace
+    ss = tractor.current_actor().statespace
+    clients = ss.setdefault('clients', {'_lock': trio.Lock()})
+    lock = clients['_lock']
+    client = None
+    try:
+        log.info(f"Loading existing `{brokername}` daemon")
+        async with lock:
+            client = clients[brokername]
+            client._consumers += 1
+        yield client
+    except KeyError:
+        log.info(f"Creating new client for broker {brokername}")
+        async with lock:
+            brokermod = get_brokermod(brokername)
+            exit_stack = contextlib.AsyncExitStack()
+            client = await exit_stack.enter_async_context(
+                brokermod.get_client()
+            )
+            client._consumers = 0
+            client._exit_stack = exit_stack
+            clients[brokername] = client
+            yield client
+    finally:
+        client._consumers -= 1
+        if client._consumers <= 0:
+            # teardown the client
+            await client._exit_stack.aclose()
+
+
+async def smoke_quote(get_quotes, tickers):  # , broker):
+    """Do an initial "smoke" request for symbols in ``tickers`` filtering
+    out any symbols not supported by the broker queried in the call to
+    ``get_quotes()``.
+    """
+    from operator import itemgetter
+    # TODO: trim out with #37
+    #################################################
+    # get a single quote filtering out any bad tickers
+    # NOTE: this code is always run for every new client
+    # subscription even when a broker quoter task is already running
+    # since the new client needs to know what symbols are accepted
+    log.warn(f"Retrieving smoke quote for symbols {tickers}")
+    quotes = await get_quotes(tickers)
+
+    # report any tickers that aren't returned in the first quote
+    invalid_tickers = set(tickers) - set(map(itemgetter('key'), quotes))
+    for symbol in invalid_tickers:
+        tickers.remove(symbol)
+        log.warn(
+            f"Symbol `{symbol}` not found")  # by broker `{broker}`"
+        # )
+
+    # pop any tickers that return "empty" quotes
+    payload = {}
+    for quote in quotes:
+        symbol = quote['symbol']
+        if quote is None:
+            log.warn(
+                f"Symbol `{symbol}` not found")
+            # XXX: not this mutates the input list (for now)
+            tickers.remove(symbol)
+            continue
+
+        # report any unknown/invalid symbols (QT specific)
+        if quote.get('low52w', False) is None:
+            log.error(
+                f"{symbol} seems to be defunct")
+
+        payload[symbol] = quote
+
+    return payload
+
+    # end of section to be trimmed out with #37
+    ###########################################
+
+
+# function to format packets delivered to subscribers
+def packetizer(
+    topic: str,
+    quotes: Dict[str, Any],
+    formatter: Callable,
+    symbol_data: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Normalize quotes by name into dicts using broker-specific
+    processing.
+    """
+    new = {}
+    for quote in quotes:
+        new[quote['symbol']], _ = formatter(quote, symbol_data)
+
+    return new
+
+
+@tractor.stream
+async def stream_quotes(
+    ctx: tractor.Context,  # marks this as a streaming func
+    symbols: List[str],
+    feed_type: str = 'stock',
+    diff_cached: bool = True,
+    rate: int = 3,
+    loglevel: str = None,
+    # feed_type: str = 'stock',
+) -> AsyncGenerator[str, Dict[str, Any]]:
+    # XXX: why do we need this again?
+    get_console_log(tractor.current_actor().loglevel)
+
+    async with get_cached_client('questrade') as client:
+        if feed_type == 'stock':
+            formatter = format_stock_quote
+            get_quotes = await stock_quoter(client, symbols)
+
+            # do a smoke quote (note this mutates the input list and filters
+            # out bad symbols for now)
+            payload = await smoke_quote(get_quotes, list(symbols))
+        else:
+            formatter = format_option_quote
+            get_quotes = await option_quoter(client, symbols)
+            # packetize
+            payload = {
+                quote['symbol']: quote
+                for quote in await get_quotes(symbols)
+            }
+
+        sd = await client.symbol_info(symbols)
+
+        # push initial smoke quote response for client initialization
+        await ctx.send_yield(payload)
+
+        from .data import stream_poll_requests
+
+        await stream_poll_requests(
+
+            # ``msg.pub`` required kwargs
+            task_name=feed_type,
+            ctx=ctx,
+            topics=symbols,
+            packetizer=partial(
+                packetizer,
+                formatter=formatter,
+                symboal_data=sd,
+            ),
+
+            # actual func args
+            get_quotes=get_quotes,
+            diff_cached=diff_cached,
+            rate=rate,
+        )
+        log.info("Terminating stream quoter task")

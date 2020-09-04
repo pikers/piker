@@ -340,6 +340,7 @@ class Row(HoverBehavior, GridLayout):
         gray = colorcode('gray')
         fgreen = colorcode('forestgreen')
         red = colorcode('red2')
+
         for key, val in record.items():
             last = self.get_field(key)
             color = gray
@@ -361,7 +362,7 @@ class Row(HoverBehavior, GridLayout):
                 if color != gray:
                     cells[key] = cell
 
-        self._last_record = record
+        self._last_record.update(record)
         return cells
 
     # mouse over handlers

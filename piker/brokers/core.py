@@ -1,23 +1,18 @@
 """
-Broker high level API layer.
+Broker high level cross-process API layer.
+
+This API should be kept "remote service compatible" meaning inputs to
+routines should be primitive data types where possible.
 """
 import inspect
 from types import ModuleType
 from typing import List, Dict, Any, Optional
 
-from async_generator import asynccontextmanager
-import tractor
-
 from ..log import get_logger
-from .data import DataFeed
 from . import get_brokermod
 
 
-log = get_logger('broker.core')
-_data_mods = [
-    'piker.brokers.core',
-    'piker.brokers.data',
-]
+log = get_logger(__name__)
 
 
 async def api(brokername: str, methname: str, **kwargs) -> dict:
@@ -25,12 +20,11 @@ async def api(brokername: str, methname: str, **kwargs) -> dict:
     """
     brokermod = get_brokermod(brokername)
     async with brokermod.get_client() as client:
-
-        meth = getattr(client.api, methname, None)
+        meth = getattr(client, methname, None)
         if meth is None:
-            log.warning(
+            log.debug(
                 f"Couldn't find API method {methname} looking up on client")
-            meth = getattr(client, methname, None)
+            meth = getattr(client.api, methname, None)
 
         if meth is None:
             log.error(f"No api method `{methname}` could be found?")
@@ -46,24 +40,6 @@ async def api(brokername: str, methname: str, **kwargs) -> dict:
                 return
 
         return await meth(**kwargs)
-
-
-@asynccontextmanager
-async def maybe_spawn_brokerd_as_subactor(sleep=0.5, tries=10, loglevel=None):
-    """If no ``brokerd`` daemon-actor can be found spawn one in a
-    local subactor.
-    """
-    async with tractor.open_nursery() as nursery:
-        async with tractor.find_actor('brokerd') as portal:
-            if not portal:
-                log.info(
-                    "No broker daemon could be found, spawning brokerd..")
-                portal = await nursery.start_actor(
-                    'brokerd',
-                    rpc_module_paths=_data_mods,
-                    loglevel=loglevel,
-                )
-            yield portal
 
 
 async def stocks_quote(
@@ -121,3 +97,26 @@ async def bars(
     """
     async with brokermod.get_client() as client:
         return await client.bars(symbol, **kwargs)
+
+
+async def symbol_info(
+    brokermod: ModuleType,
+    symbol: str,
+    **kwargs,
+) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    """Return symbol info from broker.
+    """
+    async with brokermod.get_client() as client:
+        return await client.symbol_info(symbol, **kwargs)
+
+
+async def symbol_search(
+    brokermod: ModuleType,
+    symbol: str,
+    **kwargs,
+) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    """Return symbol info from broker.
+    """
+    async with brokermod.get_client() as client:
+        # TODO: support multiple asset type concurrent searches.
+        return await client.search_stocks(symbol, **kwargs)

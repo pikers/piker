@@ -14,7 +14,7 @@ import tractor
 from ..cli import cli
 from .. import watchlists as wl
 from ..log import get_console_log, colorize_json, get_logger
-from ..brokers.core import maybe_spawn_brokerd_as_subactor
+from ..data import maybe_spawn_brokerd
 from ..brokers import core, get_brokermod, data
 
 log = get_logger('cli')
@@ -99,7 +99,7 @@ def quote(config, tickers, df_output):
 @cli.command()
 @click.option('--df-output', '-df', flag_value=True,
               help='Output in `pandas.DataFrame` format')
-@click.option('--count', '-c', default=100,
+@click.option('--count', '-c', default=1000,
               help='Number of bars to retrieve')
 @click.argument('symbol', required=True)
 @click.pass_obj
@@ -117,10 +117,11 @@ def bars(config, symbol, count, df_output):
             brokermod,
             symbol,
             count=count,
+            as_np=df_output
         )
     )
 
-    if not bars:
+    if not len(bars):
         log.error(f"No quotes could be found for {symbol}?")
         return
 
@@ -129,49 +130,6 @@ def bars(config, symbol, count, df_output):
     else:
         click.echo(colorize_json(bars))
 
-
-@cli.command()
-@click.option('--tl', is_flag=True, help='Enable tractor logging')
-@click.option('--rate', '-r', default=3, help='Quote rate limit')
-@click.option('--test', '-t', help='Test quote stream file')
-@click.option('--dhost', '-dh', default='127.0.0.1',
-              help='Daemon host address to connect to')
-@click.argument('name', nargs=1, required=True)
-@click.pass_obj
-def monitor(config, rate, name, dhost, test, tl):
-    """Start a real-time watchlist UI
-    """
-    # global opts
-    brokermod = config['brokermod']
-    loglevel = config['loglevel']
-    log = config['log']
-
-    watchlist_from_file = wl.ensure_watchlists(_watchlists_data_path)
-    watchlists = wl.merge_watchlist(watchlist_from_file, wl._builtins)
-    tickers = watchlists[name]
-    if not tickers:
-        log.error(f"No symbols found for watchlist `{name}`?")
-        return
-
-    from ..ui.monitor import _async_main
-
-    async def main(tries):
-        async with maybe_spawn_brokerd_as_subactor(
-            tries=tries, loglevel=loglevel
-        ) as portal:
-            # run app "main"
-            await _async_main(
-                name, portal, tickers,
-                brokermod, rate, test=test,
-            )
-
-    tractor.run(
-        partial(main, tries=1),
-        name='monitor',
-        loglevel=loglevel if tl else None,
-        rpc_module_paths=['piker.ui.monitor'],
-        start_method='forkserver',
-    )
 
 
 @cli.command()
@@ -198,7 +156,7 @@ def record(config, rate, name, dhost, filename):
         return
 
     async def main(tries):
-        async with maybe_spawn_brokerd_as_subactor(
+        async with maybe_spawn_brokerd(
             tries=tries, loglevel=loglevel
         ) as portal:
             # run app "main"
@@ -271,37 +229,40 @@ def optsquote(config, symbol, df_output, date):
 
 
 @cli.command()
-@click.option('--tl', is_flag=True, help='Enable tractor logging')
-@click.option('--date', '-d', help='Contracts expiry date')
-@click.option('--test', '-t', help='Test quote stream file')
-@click.option('--rate', '-r', default=1, help='Logging level')
-@click.argument('symbol', required=True)
+@click.argument('tickers', nargs=-1, required=True)
 @click.pass_obj
-def optschain(config, symbol, date, tl, rate, test):
-    """Start an option chain UI
+def symbol_info(config, tickers):
+    """Print symbol quotes to the console
     """
     # global opts
-    loglevel = config['loglevel']
-    brokername = config['broker']
+    brokermod = config['brokermod']
 
-    from ..ui.option_chain import _async_main
+    quotes = trio.run(partial(core.symbol_info, brokermod, tickers))
+    if not quotes:
+        log.error(f"No quotes could be found for {tickers}?")
+        return
 
-    async def main(tries):
-        async with maybe_spawn_brokerd_as_subactor(
-            tries=tries, loglevel=loglevel
-        ):
-            # run app "main"
-            await _async_main(
-                symbol,
-                brokername,
-                rate=rate,
-                loglevel=loglevel,
-                test=test,
-            )
+    if len(quotes) < len(tickers):
+        syms = tuple(map(itemgetter('symbol'), quotes))
+        for ticker in tickers:
+            if ticker not in syms:
+                brokermod.log.warn(f"Could not find symbol {ticker}?")
 
-    tractor.run(
-        partial(main, tries=1),
-        name='kivy-options-chain',
-        loglevel=loglevel if tl else None,
-        start_method='forkserver',
-    )
+    click.echo(colorize_json(quotes))
+
+
+@cli.command()
+@click.argument('pattern', required=True)
+@click.pass_obj
+def search(config, pattern):
+    """Search for symbols from broker backend(s).
+    """
+    # global opts
+    brokermod = config['brokermod']
+
+    quotes = trio.run(partial(core.symbol_search, brokermod, pattern))
+    if not quotes:
+        log.error(f"No matches could be found for {pattern}?")
+        return
+
+    click.echo(colorize_json(quotes))

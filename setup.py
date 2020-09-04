@@ -30,7 +30,6 @@ setup(
     license='AGPLv3',
     author='Tyler Goodlet',
     maintainer='Tyler Goodlet',
-    maintainer_email='tgoodlet@gmail.com',
     url='https://github.com/pikers/piker',
     platforms=['linux'],
     packages=[
@@ -46,13 +45,27 @@ setup(
         ]
     },
     install_requires=[
-        'click', 'colorlog', 'trio', 'attrs', 'async_generator',
-        'pygments', 'cython', 'asks', 'pandas', 'msgpack',
+        'click',
+        'colorlog',
+        'trio',
+        'attrs',
+        'async_generator',
+        'pygments',
+
+        # brokers
+        'asks',
+        'ib_insync',
+
+        # numerics
+        'arrow',  # better datetimes
+        'cython',
+        'numpy',
+        'pandas',
+
+        # tsdbs
+        'pymarketstore',
         #'kivy',  see requirement.txt; using a custom branch atm
     ],
-    extras_require={
-        'questrade': ['asks'],
-    },
     tests_require=['pytest'],
     python_requires=">=3.7",  # literally for ``datetime.datetime.fromisoformat``...
     keywords=["async", "trading", "finance", "quant", "charting"],
@@ -61,7 +74,7 @@ setup(
         'License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)',
         'Operating System :: POSIX :: Linux',
         "Programming Language :: Python :: Implementation :: CPython",
-        "Programming Language :: Python :: Implementation :: PyPy",
+        # "Programming Language :: Python :: Implementation :: PyPy",
         "Programming Language :: Python :: 3 :: Only",
         "Programming Language :: Python :: 3.5",
         "Programming Language :: Python :: 3.6",
