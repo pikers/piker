@@ -104,6 +104,7 @@ _adhoc_cmdty_data_map = {
     # NOTE: cmdtys don't have trade data:
     # https://groups.io/g/twsapi/message/44174
     'XAUUSD': ({'conId': 69067924}, {'whatToShow': 'MIDPOINT'}),
+    'XAUUSD': ({'conId': 69067924}, {'whatToShow': 'MIDPOINT'}),
 }
 
 
@@ -142,7 +143,7 @@ class Client:
             # durationStr='1 D',
 
             # time length calcs
-            durationStr='{count} S'.format(count=1000 * 5),
+            durationStr='{count} S'.format(count=3000 * 5),
             barSizeSetting='5 secs',
 
             # always use extended hours
@@ -223,11 +224,24 @@ class Client:
         **kwargs,
     ) -> Contract:
         # use heuristics to figure out contract "type"
-        sym, exch = symbol.upper().split('.')
+        try:
+            sym, exch = symbol.upper().rsplit('.', maxsplit=1)
+        except ValueError:
+            # likely there's an embedded `.` for a forex pair
+            await tractor.breakpoint()
 
         # futes
         if exch in ('GLOBEX', 'NYMEX', 'CME', 'CMECRYPTO'):
             con = await self.get_cont_fute(symbol=sym, exchange=exch)
+
+        elif exch in ('FOREX'):
+            currency = ''
+            symbol, currency = sym.split('/')
+            con = ibis.Forex(
+                symbol=symbol,
+                currency=currency,
+            )
+            con.bars_kwargs = {'whatToShow': 'MIDPOINT'}
 
         # commodities
         elif exch == 'CMDTY':  # eg. XAUUSD.CMDTY
@@ -488,7 +502,7 @@ async def stream_quotes(
         # first quote can be ignored as a 2nd with newer data is sent?
         first_ticker = await stream.__anext__()
 
-        if type(first_ticker.contract) not in (ibis.Commodity,):
+        if type(first_ticker.contract) not in (ibis.Commodity, ibis.Forex):
             suffix = 'exchange'
 
             calc_price = False  # should be real volume for contract
