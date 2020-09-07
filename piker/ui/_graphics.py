@@ -1,9 +1,8 @@
 """
 Chart graphics for displaying a slew of different data types.
 """
-import time
+# import time
 from typing import List
-from itertools import chain
 
 import numpy as np
 import pyqtgraph as pg
@@ -197,17 +196,10 @@ class CrossHair(pg.GraphicsObject):
 def _mk_lines_array(data: List, size: int) -> np.ndarray:
     """Create an ndarray to hold lines graphics objects.
     """
-    # TODO: might want to just make this a 2d array to be faster at
-    # flattening using .ravel(): https://stackoverflow.com/a/60089929
     return np.zeros_like(
         data,
-        shape=(int(size),),
-        dtype=[
-            ('index', int),
-            ('body', object),
-            ('rarm', object),
-            ('larm', object)
-        ],
+        shape=(int(size), 3),
+        dtype=object,
     )
 
 
@@ -245,10 +237,13 @@ def bars_from_ohlc(
         c = QLineF(index_start + w, close, index_start, close)
 
         # indexing here is as per the below comments
-        # lines[3*i:3*i+3] = (hl, o, c)
-        lines[i] = (index, hl, o, c)
+        lines[i] = (hl, o, c)
 
-        # if not _tina_mode:  # piker mode
+        # XXX: in theory we could get a further speedup by using a flat
+        # array and avoiding the call to `np.ravel()` below?
+        # lines[3*i:3*i+3] = (hl, o, c)
+
+        # if not _tina_mode:
         # else _tina_mode:
         #     self.lines = lines = np.concatenate(
         #       [high_to_low, open_sticks, close_sticks])
@@ -284,29 +279,29 @@ class BarItems(pg.GraphicsObject):
     # bull_brush = pg.mkPen('#00cc00')
     # bear_brush = pg.mkPen('#fa0000')
 
-    def __init__(self):
+    def __init__(
+        self,
+        # scene: 'QGraphicsScene',  # noqa
+        plotitem: 'pg.PlotItem',  # noqa
+    ) -> None:
         super().__init__()
-        self.picture = QtGui.QPicture()
+        self.last = QtGui.QPicture()
+        self.history = QtGui.QPicture()
         # TODO: implement updateable pixmap solution
-        # self.picture = QtGui.QPixmap()
-
-        # cache bounds dimensions
-        self._boundingRect = None
+        self._pi = plotitem
+        # self._scene = plotitem.vb.scene()
+        # self.picture = QtGui.QPixmap(1000, 300)
+        # plotitem.addItem(self.picture)
+        # self._pmi = None
+        # self._pmi = self._scene.addPixmap(self.picture)
 
         # XXX: not sure this actually needs to be an array other
         # then for the old tina mode calcs for up/down bars below?
         # lines container
         self.lines = _mk_lines_array([], 50e3)
 
-        # can't use this until we aren't copying the array passed
-        # to ``QPainter.drawLines()``.
-        self._cached_lines = None
-
         # track the current length of drawable lines within the larger array
         self.index: int = 0
-
-    def last_value(self) -> QLineF:
-        return self.lines[self.index - 1]['rarm']
 
     @timeit
     def draw_from_data(
@@ -317,62 +312,69 @@ class BarItems(pg.GraphicsObject):
         """Draw OHLC datum graphics from a ``np.recarray``.
         """
         lines = bars_from_ohlc(data, self.w, start=start)
-        # xmx, xmn, ymx, ymn =
 
         # save graphics for later reference and keep track
         # of current internal "last index"
         index = len(lines)
         self.lines[:index] = lines
         self.index = index
-        self.draw_lines()
+        self.draw_lines(just_history=True, iend=self.index)
 
     def draw_lines(
         self,
         istart=0,
-        use_cached=False,
+        iend=None,
+        just_history=False,
+        # TODO: could get even fancier and only update the single close line?
+        lines=None,
     ) -> None:
         """Draw the current line set using the painter.
         """
-        start = time.time()
-        # istart = self.index - 100
-        # if self._cached_lines is not None and (
-        #     not (self.index > len(self._cached_lines))
-        #     or use_cached
-        # ):
-        #     to_draw = self._cached_lines
-        # else:
+        # start = time.time()
 
-        # TODO: might be better to use 2d array?
-        # try our fsp.rec2array() and a np.ravel() for speedup
-        # otherwise we might just have to go 2d ndarray of objects.
-        # see conlusion on speed: # https://stackoverflow.com/a/60089929
-        self._cached_lines = to_draw = np.ravel(rec2array(
-            self.lines[['body', 'larm', 'rarm']][istart:self.index]
-        ))
+        if just_history:
+            istart = 0
+            iend = iend or self.index - 1
+            pic = self.history
+        else:
+            istart = self.index - 1
+            iend = self.index
+            pic = self.last
+
+        if iend is not None:
+            iend = iend
+
+        # use 2d array of lines objects, see conlusion on speed:
+        # https://stackoverflow.com/a/60089929
+        to_draw = np.ravel(self.lines[istart:iend])
 
         # pre-computing a QPicture object allows paint() to run much
         # more quickly, rather than re-drawing the shapes every time.
-        p = QtGui.QPainter(self.picture)
+        p = QtGui.QPainter(pic)
         p.setPen(self.bars_pen)
 
         # TODO: is there any way to not have to pass all the lines every
         # iteration? It seems they won't draw unless it's done this way..
         p.drawLines(*to_draw)
-        # p.end()
+        p.end()
+
+        # XXX: if we ever try using `QPixmap` again...
+        # if self._pmi is None:
+        #     self._pmi = self.scene().addPixmap(self.picture)
+        # else:
+        #     self._pmi.setPixmap(self.picture)
 
         # trigger re-render
         # https://doc.qt.io/qt-5/qgraphicsitem.html#update
         self.update()
 
-        diff = time.time() - start
-
-        # print(f'cached: {use_cached} update took {diff}')
-        # print(f"start: {istart} -> drawing {len(to_draw)} lines")
-        # print(self.picture.data())
+        # diff = time.time() - start
+        # print(f'{len(to_draw)} lines update took {diff}')
 
     def update_from_array(
         self,
         array: np.ndarray,
+        just_history=False,
     ) -> None:
         """Update the last datum's bar graphic from input data array.
 
@@ -387,7 +389,7 @@ class BarItems(pg.GraphicsObject):
         length = len(array)
         extra = length - index
 
-        # start_bar_to_update = index - 1
+        # start_bar_to_update = index - 100
 
         if extra > 0:
             # generate new graphics to match provided array
@@ -398,13 +400,15 @@ class BarItems(pg.GraphicsObject):
             self.index += bars_added
 
             # start_bar_to_update = index - bars_added
-
-            # self.draw_lines(istart=self.index - 1)
+            if just_history:
+                self.draw_lines(just_history=True)  # istart=self.index - 1)
+                return
 
         # current bar update
-        i, time, open, close, = array[-1][['index', 'time', 'open', 'close']]
+        i, open, close, = array[-1][['index', 'open', 'close']]
         last = close
-        i, body, larm, rarm = self.lines[index-1]
+        # i, body, larm, rarm = self.lines[index-1]
+        body, larm, rarm = self.lines[index-1]
 
         # XXX: is there a faster way to modify this?
         # update right arm
@@ -428,8 +432,7 @@ class BarItems(pg.GraphicsObject):
         else:
             body.setLine(body.x1(), low, body.x2(), high)
 
-        # self.draw_lines(use_cached=extra == 0)
-        self.draw_lines()  #istart=self.index - 1)
+        self.draw_lines(just_history=False)
 
     # be compat with ``pg.PlotCurveItem``
     setData = update_from_array
@@ -437,18 +440,42 @@ class BarItems(pg.GraphicsObject):
     # XXX: From the customGraphicsItem.py example:
     # The only required methods are paint() and boundingRect()
     def paint(self, p, opt, widget):
-        # import pdb; pdb.set_trace()
+        # start = time.time()
+
+        # TODO: use to avoid drawing artefacts?
+        # self.prepareGeometryChange()
+
         # p.setCompositionMode(0)
-        p.drawPicture(0, 0, self.picture)
+
+        p.drawPicture(0, 0, self.history)
+        p.drawPicture(0, 0, self.last)
+
+        # TODO: if we can ever make pixmaps work...
+        # p.drawPixmap(0, 0, self.picture)
+        # self._pmi.setPixmap(self.picture)
+        # print(self.scene())
+
+        # diff = time.time() - start
+        # print(f'draw time {diff}')
 
     def boundingRect(self):
+        # TODO: can we do rect caching to make this faster?
+
         # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
         # boundingRect _must_ indicate the entire area that will be
         # drawn on or else we will get artifacts and possibly crashing.
         # (in this case, QPicture does all the work of computing the
-        # bounding rect for us)
-        br = self._boundingRect = QtCore.QRectF(self.picture.boundingRect())
-        return br
+        # bounding rect for us).
+
+        # compute aggregate bounding rectangle
+        lb = self.last.boundingRect()
+        hb = self.history.boundingRect()
+        return QtCore.QRectF(
+            # top left
+            QtCore.QPointF(hb.topLeft()),
+            # total size
+            QtCore.QSizeF(lb.size() + hb.size())
+        )
 
 
 # XXX: when we get back to enabling tina mode for xb

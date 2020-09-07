@@ -345,18 +345,17 @@ class ChartPlotWidget(pg.PlotWidget):
     ) -> pg.GraphicsObject:
         """Draw OHLC datums to chart.
         """
-        # remember it's an enum type..
-        graphics = style()
-
+        graphics = style(self.plotItem)
         # adds all bar/candle graphics objects for each data point in
         # the np array buffer to be drawn on next render cycle
-        graphics.draw_from_data(data)
         self.addItem(graphics)
+        # draw after to allow self.scene() to work...
+        graphics.draw_from_data(data)
 
         self._graphics[name] = graphics
 
         # XXX: How to stack labels vertically?
-        # Ogi says: "
+        # Ogi says: "use ..."
         label = pg.LabelItem(
             justify='left',
             size='5pt',
@@ -596,8 +595,13 @@ async def add_new_bars(delay_s, linked_charts):
         # if last_quote == ohlc[-1]:
             # log.debug("Printing flat line for {sym}")
 
-        # update chart graphics and resize view
-        price_chart.update_from_array(price_chart.name, ohlc)
+        # update chart historical bars graphics
+        price_chart.update_from_array(
+            price_chart.name,
+            ohlc,
+            just_history=True
+        )
+        # resize view
         price_chart._set_yrange()
 
         for name, chart in linked_charts.subplots.items():
@@ -611,6 +615,9 @@ async def add_new_bars(delay_s, linked_charts):
 
         # TODO: should we update a graphics again time here?
         # Think about race conditions with data update task.
+        # UPDATE: don't think this should matter know since the last bar
+        # and the prior historical bars are being updated in 2 separate
+        # steps now.
 
 
 async def _async_main(
