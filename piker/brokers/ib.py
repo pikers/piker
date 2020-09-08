@@ -268,7 +268,7 @@ class Client:
         self,
         symbol: str,
         to_trio,
-        opts: Tuple[int] = ('233', '375'),
+        opts: Tuple[int] = ('375',),  # '233', ),
         # opts: Tuple[int] = ('459',),
     ) -> None:
         """Stream a ticker using the std L1 api.
