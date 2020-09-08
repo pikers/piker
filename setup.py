@@ -49,6 +49,7 @@ setup(
         'colorlog',
         'attrs',
         'pygments',
+        'colorama',  # numba traceback coloring
 
         # async
         'trio',
