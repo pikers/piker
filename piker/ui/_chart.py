@@ -736,7 +736,7 @@ async def chart_from_fsp(
             f'fsp.{func_name}',  # name as title of sub-chart
 
             # subactor entrypoint
-            fsp.pull_and_process,
+            fsp.stream_and_process,
             bars=bars,
             brokername=brokermod.name,
             symbol=sym,
