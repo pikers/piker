@@ -1,7 +1,7 @@
 """
 High level Qt chart widgets.
 """
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Optional
 import time
 
 from PyQt5 import QtCore, QtGui
@@ -274,6 +274,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self,
         # the data view we generate graphics from
         array: np.ndarray,
+        yrange: Optional[Tuple[float, float]] = None,
         **kwargs,
     ):
         """Configure chart display settings.
@@ -282,12 +283,15 @@ class ChartPlotWidget(pg.PlotWidget):
             background=hcolor('papas_special'),
             # parent=None,
             # plotItem=None,
+            # useOpenGL=True,
             **kwargs
         )
         self._array = array  # readonly view of data
         self._graphics = {}  # registry of underlying graphics
         self._labels = {}  # registry of underlying graphics
         self._ysticks = {}  # registry of underlying graphics
+        self._yrange = yrange
+        self._vb = self.plotItem.vb
 
         # show only right side axes
         self.hideAxis('left')
@@ -301,9 +305,15 @@ class ChartPlotWidget(pg.PlotWidget):
         # use cross-hair for cursor
         self.setCursor(QtCore.Qt.CrossCursor)
 
-        # assign callback for rescaling y-axis automatically
-        # based on ohlc contents
+        # Assign callback for rescaling y-axis automatically
+        # based on data contents and ``ViewBox`` state.
         self.sigXRangeChanged.connect(self._set_yrange)
+
+        vb = self._vb
+        # for mouse wheel which doesn't seem to emit XRangeChanged
+        vb.sigRangeChangedManually.connect(self._set_yrange)
+        # for when the splitter(s) are resized
+        vb.sigResized.connect(self._set_yrange)
 
     def _update_contents_label(self, index: int) -> None:
         if index > 0 and index < len(self._array):
@@ -364,9 +374,10 @@ class ChartPlotWidget(pg.PlotWidget):
 
         def update(index: int) -> None:
             label.setText(
-                "{name} O:{} H:{} L:{} C:{} V:{}".format(
+                "{name}[{index}] -> O:{} H:{} L:{} C:{} V:{}".format(
                     *self._array[index].item()[2:],
                     name=name,
+                    index=index,
                 )
             )
 
@@ -412,7 +423,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         def update(index: int) -> None:
             data = self._array[index]
-            label.setText(f"{name}: {index} {data}")
+            label.setText(f"{name} -> {data}")
 
         self._labels[name] = (label, update)
         self._update_contents_label(index=-1)
@@ -427,6 +438,8 @@ class ChartPlotWidget(pg.PlotWidget):
         # "only update with new items" on the pg.PlotDataItem
         curve.update_from_array = curve.setData
 
+        self._add_sticky(name)
+
         return curve
 
     def _add_sticky(
@@ -435,7 +448,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # retreive: Callable[None, np.ndarray],
     ) -> YSticky:
         # add y-axis "last" value label
-        last = self._ysticks['last'] = YSticky(
+        last = self._ysticks[name] = YSticky(
             chart=self,
             parent=self.getAxis('right'),
             # digits=0,
@@ -490,33 +503,43 @@ class ChartPlotWidget(pg.PlotWidget):
             # likely no data loaded yet
             log.error(f"WTF bars_range = {lbar}:{rbar}")
             return
-        elif lbar < 0:
-            breakpoint()
 
         # TODO: should probably just have some kinda attr mark
         # that determines this behavior based on array type
         try:
             ylow = bars['low'].min()
             yhigh = bars['high'].max()
-            std = np.std(bars['close'])
+            # std = np.std(bars['close'])
         except IndexError:
             # must be non-ohlc array?
             ylow = bars.min()
             yhigh = bars.max()
-            std = np.std(bars)
+            # std = np.std(bars)
 
         # view margins: stay within 10% of the "true range"
         diff = yhigh - ylow
-        ylow = ylow - (diff * 0.1)
-        yhigh = yhigh + (diff * 0.1)
+        ylow = ylow - (diff * 0.04)
+        yhigh = yhigh + (diff * 0.01)
+
+        # compute contents label "height" in view terms
+        if self._labels:
+            label = self._labels[self.name][0]
+            rect = label.itemRect()
+            tl, br = rect.topLeft(), rect.bottomRight()
+            vb = self.plotItem.vb
+            top, bottom = (vb.mapToView(tl).y(), vb.mapToView(br).y())
+            label_h = top - bottom
+            # print(f'label height {self.name}: {label_h}')
+        else:
+            label_h = 0
 
         chart = self
         chart.setLimits(
             yMin=ylow,
-            yMax=yhigh,
-            minYRange=std
+            yMax=yhigh + label_h,
+            # minYRange=std
         )
-        chart.setYRange(ylow, yhigh)
+        chart.setYRange(ylow, yhigh + label_h)
 
     def enterEvent(self, ev):  # noqa
         # pg.PlotWidget.enterEvent(self, ev)
@@ -577,7 +600,10 @@ async def add_new_bars(delay_s, linked_charts):
             return new_array
 
         # add new increment/bar
+        start = time.time()
         ohlc = price_chart._array = incr_ohlc_array(ohlc)
+        diff = time.time() - start
+        print(f'array append took {diff}')
 
         # TODO: generalize this increment logic
         for name, chart in linked_charts.subplots.items():
@@ -660,7 +686,7 @@ async def _async_main(
         n.start_soon(
             chart_from_fsp,
             linked_charts,
-            fsp.latency,
+            'rsi',
             sym,
             bars,
             brokermod,
@@ -668,8 +694,10 @@ async def _async_main(
         )
 
         # update last price sticky
-        last = chart._ysticks['last']
-        last.update_from_data(*chart._array[-1][['index', 'close']])
+        last_price_sticky = chart._ysticks[chart.name]
+        last_price_sticky.update_from_data(
+            *chart._array[-1][['index', 'close']]
+        )
 
         # graphics update loop
 
@@ -711,15 +739,14 @@ async def _async_main(
                                 chart._array,
                             )
                             # update sticky(s)
-                            last = chart._ysticks['last']
-                            last.update_from_data(
+                            last_price_sticky.update_from_data(
                                 *chart._array[-1][['index', 'close']])
                             chart._set_yrange()
 
 
 async def chart_from_fsp(
     linked_charts,
-    fsp_func,
+    func_name,
     sym,
     bars,
     brokermod,
@@ -729,8 +756,6 @@ async def chart_from_fsp(
 
     Pass target entrypoint and historical data.
     """
-    func_name = fsp_func.__name__
-
     async with tractor.open_nursery() as n:
         portal = await n.run_in_actor(
             f'fsp.{func_name}',  # name as title of sub-chart
@@ -749,7 +774,7 @@ async def chart_from_fsp(
         stream = await portal.result()
 
         # receive processed historical data-array as first message
-        history: np.ndarray = (await stream.__anext__())
+        history = (await stream.__anext__())
 
         # TODO: enforce type checking here
         newbars = np.array(history)
@@ -768,9 +793,15 @@ async def chart_from_fsp(
                 np.full(abs(diff), data[-1], dtype=data.dtype)
             )
 
+        value = chart._array[-1]
+        last_val_sticky = chart._ysticks[chart.name]
+        last_val_sticky.update_from_data(-1, value)
+
         # update chart graphics
         async for value in stream:
             chart._array[-1] = value
+            last_val_sticky.update_from_data(-1, value)
+            chart._set_yrange()
             chart.update_from_array(chart.name, chart._array)
             chart._set_yrange()
 
