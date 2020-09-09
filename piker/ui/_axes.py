@@ -186,7 +186,10 @@ class XAxisLabel(AxisLabel):
         data: float,  # data for text
         offset: int = 0  # if have margins, k?
     ) -> None:
-        self.label_str = self.parent._indexes_to_timestrs([int(data)])[0]
+        timestrs = self.parent._indexes_to_timestrs([int(data)])
+        if not timestrs.any():
+            return
+        self.label_str = timestrs[0]
         width = self.boundingRect().width()
         new_pos = QPointF(abs_pos.x() - width / 2 - offset, 0)
         self.setPos(new_pos)
@@ -241,8 +244,20 @@ class YSticky(YAxisLabel):
         chart.sigRangeChanged.connect(self.update_on_resize)
 
     def update_on_resize(self, vr, r):
-        # TODO: figure out how to generalize across data schema
-        self.update_from_data(*self._chart._array[-1][['index', 'close']])
+        # TODO: add an `.index` to the array data-buffer layer
+        # and make this way less shitty...
+        a = self._chart._array
+        fields = a.dtype.fields
+        if fields and 'index' in fields:
+            index, last = a[-1][['index', 'close']]
+        else:
+            # non-ohlc case
+            index = len(a) - 1
+            last = a[-1]
+        self.update_from_data(
+            index,
+            last,
+        )
 
     def update_from_data(
         self,
