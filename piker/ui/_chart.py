@@ -22,7 +22,7 @@ from .. import brokers
 from .. import data
 from ..log import get_logger
 from ._exec import run_qtractor
-from ._source import ohlc_dtype
+from ._source import base_ohlc_dtype
 from ._interaction import ChartView
 from .. import fsp
 
@@ -507,13 +507,13 @@ class ChartPlotWidget(pg.PlotWidget):
         # TODO: should probably just have some kinda attr mark
         # that determines this behavior based on array type
         try:
-            ylow = bars['low'].min()
-            yhigh = bars['high'].max()
+            ylow = np.nanmin(bars['low'])
+            yhigh = np.nanmax(bars['high'])
             # std = np.std(bars['close'])
         except IndexError:
             # must be non-ohlc array?
-            ylow = bars.min()
-            yhigh = bars.max()
+            ylow = np.nanmin(bars)
+            yhigh = np.nanmax(bars)
             # std = np.std(bars)
 
         # view margins: stay within 10% of the "true range"
@@ -589,14 +589,13 @@ async def add_new_bars(delay_s, linked_charts):
 
         def incr_ohlc_array(array: np.ndarray):
             (index, t, close) = array[-1][['index', 'time', 'close']]
-            new_array = np.append(
-                array,
-                np.array(
-                    [(index + 1, t + delay_s, close, close,
-                      close, close, 0)],
-                    dtype=array.dtype
-                ),
-            )
+
+            # this copies non-std fields (eg. vwap) from the last datum
+            _next = np.array(array[-1], dtype=array.dtype)
+            _next[
+                ['index', 'time', 'volume', 'open', 'high', 'low', 'close']
+            ] = (index + 1, t + delay_s, 0, close, close, close, close)
+            new_array = np.append(array, _next,)
             return new_array
 
         # add new increment/bar
@@ -667,6 +666,9 @@ async def _async_main(
     async with brokermod.get_client() as client:
         # figure out the exact symbol
         bars = await client.bars(symbol=sym)
+
+    # allow broker to declare historical data fields
+    ohlc_dtype = getattr(brokermod, 'ohlc_dtype', base_ohlc_dtype)
 
     # remember, msgpack-numpy's ``from_buffer` returns read-only array
     bars = np.array(bars[list(ohlc_dtype.names)])
