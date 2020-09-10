@@ -43,10 +43,16 @@ def hcolor(name: str) -> str:
         # fifty shades
         'gray': '#808080',  # like the kick
         'jet': '#343434',
+        'cadet': '#91A3B0',
+        'marengo': '#91A3B0',
         'charcoal': '#36454F',
+        'gunmetal': '#91A3B0',
+        'battleship': '#848482',
+        'davies': '#555555',
 
         # palette
         'default': DarkPalette.COLOR_BACKGROUND_NORMAL,
+        'default_light': DarkPalette.COLOR_BACKGROUND_LIGHT,
 
         'white': '#ffffff',  # for tinas and sunbathers
 
