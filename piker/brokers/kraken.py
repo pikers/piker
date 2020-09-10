@@ -27,7 +27,7 @@ _url = 'https://api.kraken.com/0'
 
 
 # conversion to numpy worthy types
-ohlc_dtype = [
+_ohlc_dtype = [
     ('index', int),
     ('time', int),
     ('open', float),
@@ -38,6 +38,10 @@ ohlc_dtype = [
     ('volume', float),
     ('count', int)
 ]
+
+# UI components allow this to be declared such that additional
+# (historical) fields can be exposed.
+ohlc_dtype = np.dtype(_ohlc_dtype)
 
 
 class Client:
@@ -103,11 +107,11 @@ class Client:
                 lambda i, bar:
                     (i,) + tuple(
                         ftype(bar[i]) for i, (name, ftype)
-                        in enumerate(ohlc_dtype[1:])
+                        in enumerate(_ohlc_dtype[1:])
                     ),
                 enumerate(bars))
             )
-            return np.array(bars, dtype=ohlc_dtype) if as_np else bars
+            return np.array(bars, dtype=_ohlc_dtype) if as_np else bars
         except KeyError:
             raise SymbolNotFound(json['error'][0] + f': {symbol}')
 
@@ -193,7 +197,7 @@ def normalize(
     # in subscription systems...
     topic = quote['pair'].replace('/', '')
 
-    print(quote)
+    # print(quote)
     return topic, quote
 
 
