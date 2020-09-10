@@ -1,8 +1,6 @@
 """
 Chart axes graphics and behavior.
 """
-import time
-from functools import partial
 from typing import List
 
 
@@ -12,7 +10,6 @@ import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QPointF
 
-from .quantdom.utils import fromtimestamp
 from ._style import _font, hcolor
 
 
@@ -78,7 +75,8 @@ class DynamicDateAxis(pg.AxisItem):
         bars = self.linked_charts.chart._array
         times = bars['time']
         bars_len = len(bars)
-        delay = times[-1] - times[times != times[-1]][-1]
+        # delay = times[-1] - times[times != times[-1]][-1]
+        delay = times[-1] - times[-2]
 
         epochs = times[list(
             map(int, filter(lambda i: i < bars_len, indexes))
@@ -86,7 +84,6 @@ class DynamicDateAxis(pg.AxisItem):
         # TODO: **don't** have this hard coded shift to EST
         dts = pd.to_datetime(epochs, unit='s') - 4*pd.offsets.Hour()
         return dts.strftime(self.tick_tpl[delay])
-
 
     def tickStrings(self, values: List[float], scale, spacing):
         return self._indexes_to_timestrs(values)
