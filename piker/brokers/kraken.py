@@ -103,15 +103,22 @@ class Client:
             bars = next(iter(res.values()))
 
             # convert all fields to native types
-            bars = list(starmap(
-                lambda i, bar:
+            new_bars = []
+            last_nz_vwap = None
+            for i, bar in enumerate(bars):
+                # normalize weird zero-ed vwap values..cmon kraken..
+                vwap = float(bar[-3])
+                if vwap != 0:
+                    last_nz_vwap = vwap
+                if vwap == 0:
+                    bar[-3] = last_nz_vwap
+
+                new_bars.append(
                     (i,) + tuple(
-                        ftype(bar[i]) for i, (name, ftype)
-                        in enumerate(_ohlc_dtype[1:])
-                    ),
-                enumerate(bars))
-            )
-            return np.array(bars, dtype=_ohlc_dtype) if as_np else bars
+                        ftype(bar[j]) for j, (name, ftype) in enumerate(_ohlc_dtype[1:])
+                    )
+                )
+            return np.array(new_bars, dtype=_ohlc_dtype) if as_np else bars
         except KeyError:
             raise SymbolNotFound(json['error'][0] + f': {symbol}')
 
