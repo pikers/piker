@@ -94,7 +94,12 @@ def rsi(
     up, down = np.where(df > 0, df, 0), np.where(df < 0, -df, 0)
     up_ema = ema(up, alpha, up_ema_last)
     down_ema = ema(down, alpha, down_ema_last)
-    rs = up_ema / down_ema
+    rs = np.divide(
+        up_ema,
+        down_ema,
+        out=np.zeros_like(up_ema),
+        where=down_ema!=0
+    )
     # print(f'up_ema: {up_ema}\ndown_ema: {down_ema}')
     # print(f'rs: {rs}')
     # map rs through sigmoid (with range [0, 100])
@@ -117,6 +122,9 @@ async def _rsi(
     https://en.wikipedia.org/wiki/Relative_strength_index
     """
     sig = ohlcv['close']
+
+    # TODO: the emas here should be seeded with a period SMA as per
+    # wilder's original formula..
     rsi_h, up_ema_last, down_ema_last = rsi(sig, period, None, None)
 
     # deliver history
