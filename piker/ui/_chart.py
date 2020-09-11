@@ -288,6 +288,7 @@ class ChartPlotWidget(pg.PlotWidget):
         )
         self._array = array  # readonly view of data
         self._graphics = {}  # registry of underlying graphics
+        self._overlays = {}  # registry of overlay curves
         self._labels = {}  # registry of underlying graphics
         self._ysticks = {}  # registry of underlying graphics
         self._yrange = yrange
@@ -317,7 +318,7 @@ class ChartPlotWidget(pg.PlotWidget):
         vb.sigResized.connect(self._set_yrange)
 
     def _update_contents_label(self, index: int) -> None:
-        if index > 0 and index < len(self._array):
+        if index >= 0 and index < len(self._array):
             for name, (label, update) in self._labels.items():
                 update(index)
 
@@ -421,7 +422,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # register overlay curve with name
         if not self._graphics and name is None:
-            name = 'a_line_bby'
+            name = 'a_stupid_line_bby'
 
         self._graphics[name] = curve
 
@@ -431,12 +432,13 @@ class ChartPlotWidget(pg.PlotWidget):
             size='4pt',
         )
         label.setParentItem(self._vb)
+
         if overlay:
             # position bottom left if an overlay
             label.anchor(itemPos=(0, 1), parentPos=(0, 1), offset=(0, 25))
+            self._overlays[name] = curve
 
         label.show()
-
         self.scene().addItem(label)
 
         def update(index: int) -> None:
@@ -637,6 +639,7 @@ async def add_new_bars(delay_s, linked_charts):
         diff = time.time() - start
         print(f'array append took {diff}')
 
+
         # TODO: generalize this increment logic
         for name, chart in linked_charts.subplots.items():
             data = chart._array
@@ -665,6 +668,15 @@ async def add_new_bars(delay_s, linked_charts):
         )
         # resize view
         price_chart._set_yrange()
+
+        for name, curve in price_chart._overlays.items():
+            # TODO: standard api for signal lookups per plot
+            if name in price_chart._array.dtype.fields:
+                # should have already been incremented above
+                price_chart.update_from_array(
+                    name,
+                    price_chart._array[name],
+                )
 
         for name, chart in linked_charts.subplots.items():
             chart.update_from_array(chart.name, chart._array)
@@ -835,20 +847,8 @@ async def chart_from_fsp(
         # receive processed historical data-array as first message
         history = (await stream.__anext__())
 
-        # TODO: enforce type checking here
+        # TODO: enforce type checking here?
         newbars = np.array(history)
-
-        # XXX: hack to get curves aligned with bars graphics: prepend a copy of
-        # the first datum..
-        # TODO: talk to ``pyqtgraph`` core about proper way to solve
-        newbars = np.append(
-            np.array(newbars[0], dtype=newbars.dtype),
-            newbars
-        )
-        newbars = np.append(
-            np.array(newbars[0], dtype=newbars.dtype),
-            newbars
-        )
 
         chart = linked_charts.add_plot(
             name=func_name,
@@ -857,16 +857,26 @@ async def chart_from_fsp(
 
         # check for data length mis-allignment and fill missing values
         diff = len(chart._array) - len(linked_charts.chart._array)
-        if diff < 0:
+        if diff <= 0:
             data = chart._array
             chart._array = np.append(
                 data,
                 np.full(abs(diff), data[-1], dtype=data.dtype)
             )
 
+        # XXX: hack to get curves aligned with bars graphics: prepend
+        # a copy of the first datum..
+        # TODO: talk to ``pyqtgraph`` core about proper way to solve this
+        data = chart._array
+        chart._array = np.append(
+            np.array(data[0], dtype=data.dtype),
+            data,
+        )
+
         value = chart._array[-1]
         last_val_sticky = chart._ysticks[chart.name]
         last_val_sticky.update_from_data(-1, value)
+        chart.update_from_array(chart.name, chart._array)
 
         chart._set_yrange(yrange=(0, 100))
 
