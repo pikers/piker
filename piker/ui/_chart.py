@@ -292,6 +292,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self._ysticks = {}  # registry of underlying graphics
         self._yrange = yrange
         self._vb = self.plotItem.vb
+        self._static_yrange = None
 
         # show only right side axes
         self.hideAxis('left')
@@ -368,7 +369,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # Ogi says: "use ..."
         label = pg.LabelItem(
             justify='left',
-            size='5pt',
+            size='4pt',
         )
         self.scene().addItem(label)
 
@@ -383,6 +384,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         self._labels[name] = (label, update)
         self._update_contents_label(index=-1)
+        label.show()
 
         # set xrange limits
         xlast = data[-1]['index']
@@ -398,13 +400,22 @@ class ChartPlotWidget(pg.PlotWidget):
         self,
         name: str,
         data: np.ndarray,
+        overlay: bool = False,
+        **pdi_kwargs,
     ) -> pg.PlotDataItem:
         # draw the indicator as a plain curve
+        _pdi_defaults = {
+            'pen': pg.mkPen(hcolor('default_light')),
+        }
+        pdi_kwargs.update(_pdi_defaults)
+
         curve = pg.PlotDataItem(
             data,
             antialias=True,
+            name=name,
             # TODO: see how this handles with custom ohlcv bars graphics
             clipToView=True,
+            **pdi_kwargs,
         )
         self.addItem(curve)
 
@@ -417,8 +428,15 @@ class ChartPlotWidget(pg.PlotWidget):
         # XXX: How to stack labels vertically?
         label = pg.LabelItem(
             justify='left',
-            size='5pt',
+            size='4pt',
         )
+        label.setParentItem(self._vb)
+        if overlay:
+            # position bottom left if an overlay
+            label.anchor(itemPos=(0, 1), parentPos=(0, 1), offset=(0, 25))
+
+        label.show()
+
         self.scene().addItem(label)
 
         def update(index: int) -> None:
@@ -471,6 +489,8 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def _set_yrange(
         self,
+        *,
+        yrange: Optional[Tuple[float, float]] = None,
     ) -> None:
         """Set the viewable y-range based on embedded data.
 
@@ -483,38 +503,47 @@ class ChartPlotWidget(pg.PlotWidget):
         # figure out x-range in view such that user can scroll "off" the data
         # set up to the point where ``_min_points_to_show`` are left.
         # if l < lbar or r > rbar:
-        bars_len = rbar - lbar
         view_len = r - l
         # TODO: logic to check if end of bars in view
         extra = view_len - _min_points_to_show
         begin = 0 - extra
         end = len(self._array) - 1 + extra
 
-        log.trace(
-            f"\nl: {l}, lbar: {lbar}, rbar: {rbar}, r: {r}\n"
-            f"view_len: {view_len}, bars_len: {bars_len}\n"
-            f"begin: {begin}, end: {end}, extra: {extra}"
-        )
+        # bars_len = rbar - lbar
+        # log.trace(
+        #     f"\nl: {l}, lbar: {lbar}, rbar: {rbar}, r: {r}\n"
+        #     f"view_len: {view_len}, bars_len: {bars_len}\n"
+        #     f"begin: {begin}, end: {end}, extra: {extra}"
+        # )
         self._set_xlimits(begin, end)
 
-        # TODO: this should be some kind of numpy view api
-        bars = self._array[lbar:rbar]
-        if not len(bars):
-            # likely no data loaded yet
-            log.error(f"WTF bars_range = {lbar}:{rbar}")
-            return
+        # yrange
+        if self._static_yrange is not None:
+            yrange = self._static_yrange
 
-        # TODO: should probably just have some kinda attr mark
-        # that determines this behavior based on array type
-        try:
-            ylow = np.nanmin(bars['low'])
-            yhigh = np.nanmax(bars['high'])
-            # std = np.std(bars['close'])
-        except IndexError:
-            # must be non-ohlc array?
-            ylow = np.nanmin(bars)
-            yhigh = np.nanmax(bars)
-            # std = np.std(bars)
+        if yrange is not None:
+            ylow, yhigh = yrange
+            self._static_yrange = yrange
+        else:
+
+            # TODO: this should be some kind of numpy view api
+            bars = self._array[lbar:rbar]
+            if not len(bars):
+                # likely no data loaded yet
+                log.error(f"WTF bars_range = {lbar}:{rbar}")
+                return
+
+            # TODO: should probably just have some kinda attr mark
+            # that determines this behavior based on array type
+            try:
+                ylow = np.nanmin(bars['low'])
+                yhigh = np.nanmax(bars['high'])
+                # std = np.std(bars['close'])
+            except IndexError:
+                # must be non-ohlc array?
+                ylow = np.nanmin(bars)
+                yhigh = np.nanmax(bars)
+                # std = np.std(bars)
 
         # view margins: stay within 10% of the "true range"
         diff = yhigh - ylow
@@ -527,8 +556,12 @@ class ChartPlotWidget(pg.PlotWidget):
             rect = label.itemRect()
             tl, br = rect.topLeft(), rect.bottomRight()
             vb = self.plotItem.vb
-            top, bottom = (vb.mapToView(tl).y(), vb.mapToView(br).y())
-            label_h = top - bottom
+            try:
+                # on startup labels might not yet be rendered
+                top, bottom = (vb.mapToView(tl).y(), vb.mapToView(br).y())
+                label_h = top - bottom
+            except np.linalg.LinAlgError:
+                label_h = 0
             # print(f'label height {self.name}: {label_h}')
         else:
             label_h = 0
@@ -575,6 +608,17 @@ async def add_new_bars(delay_s, linked_charts):
     # sleep for duration of current bar
     await sleep()
 
+    def incr_ohlc_array(array: np.ndarray):
+        (index, t, close) = array[-1][['index', 'time', 'close']]
+
+        # this copies non-std fields (eg. vwap) from the last datum
+        _next = np.array(array[-1], dtype=array.dtype)
+        _next[
+            ['index', 'time', 'volume', 'open', 'high', 'low', 'close']
+        ] = (index + 1, t + delay_s, 0, close, close, close, close)
+        new_array = np.append(array, _next,)
+        return new_array
+
     while True:
         # TODO: bunch of stuff:
         # - I'm starting to think all this logic should be
@@ -586,17 +630,6 @@ async def add_new_bars(delay_s, linked_charts):
         # - update last open price correctly instead
         #   of copying it from last bar's close
         # - 5 sec bar lookback-autocorrection like tws does?
-
-        def incr_ohlc_array(array: np.ndarray):
-            (index, t, close) = array[-1][['index', 'time', 'close']]
-
-            # this copies non-std fields (eg. vwap) from the last datum
-            _next = np.array(array[-1], dtype=array.dtype)
-            _next[
-                ['index', 'time', 'volume', 'open', 'high', 'low', 'close']
-            ] = (index + 1, t + delay_s, 0, close, close, close, close)
-            new_array = np.append(array, _next,)
-            return new_array
 
         # add new increment/bar
         start = time.time()
@@ -624,7 +657,11 @@ async def add_new_bars(delay_s, linked_charts):
         price_chart.update_from_array(
             price_chart.name,
             ohlc,
-            just_history=True
+            # When appending a new bar, in the time between the insert
+            # here and the Qt render call the underlying price data may
+            # have already been updated, thus make sure to also update
+            # the last bar if necessary on this render cycle.
+            # just_history=True
         )
         # resize view
         price_chart._set_yrange()
@@ -675,6 +712,16 @@ async def _async_main(
 
     # load in symbol's ohlc data
     linked_charts, chart = chart_app.load_symbol(sym, bars)
+
+    # plot historical vwap if available
+    vwap_in_history = False
+    if 'vwap' in bars.dtype.fields:
+        vwap_in_history = True
+        chart.draw_curve(
+            name='vwap',
+            data=bars['vwap'],
+            overlay=True,
+        )
 
     # determine ohlc delay between bars
     times = bars['time']
@@ -745,6 +792,16 @@ async def _async_main(
                                 *chart._array[-1][['index', 'close']])
                             chart._set_yrange()
 
+                            vwap = quote.get('vwap')
+                            if vwap and vwap_in_history:
+                                chart._array['vwap'][-1] = vwap
+                                print(f"vwap: {quote['vwap']}")
+                                # update vwap overlay line
+                                chart.update_from_array(
+                                    'vwap',
+                                    chart._array['vwap'],
+                                )
+
 
 async def chart_from_fsp(
     linked_charts,
@@ -781,6 +838,18 @@ async def chart_from_fsp(
         # TODO: enforce type checking here
         newbars = np.array(history)
 
+        # XXX: hack to get curves aligned with bars graphics: prepend a copy of
+        # the first datum..
+        # TODO: talk to ``pyqtgraph`` core about proper way to solve
+        newbars = np.append(
+            np.array(newbars[0], dtype=newbars.dtype),
+            newbars
+        )
+        newbars = np.append(
+            np.array(newbars[0], dtype=newbars.dtype),
+            newbars
+        )
+
         chart = linked_charts.add_plot(
             name=func_name,
             array=newbars,
@@ -799,13 +868,14 @@ async def chart_from_fsp(
         last_val_sticky = chart._ysticks[chart.name]
         last_val_sticky.update_from_data(-1, value)
 
+        chart._set_yrange(yrange=(0, 100))
+
         # update chart graphics
         async for value in stream:
             chart._array[-1] = value
             last_val_sticky.update_from_data(-1, value)
-            chart._set_yrange()
             chart.update_from_array(chart.name, chart._array)
-            chart._set_yrange()
+            # chart._set_yrange()
 
 
 def _main(
