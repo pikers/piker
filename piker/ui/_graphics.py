@@ -286,6 +286,7 @@ class BarItems(pg.GraphicsObject):
     ) -> None:
         super().__init__()
         self.last = QtGui.QPicture()
+        # self.buffer = QtGui.QPicture()
         self.history = QtGui.QPicture()
         # TODO: implement updateable pixmap solution
         self._pi = plotitem
@@ -400,8 +401,8 @@ class BarItems(pg.GraphicsObject):
             self.index += bars_added
 
             # start_bar_to_update = index - bars_added
+            self.draw_lines(just_history=True)
             if just_history:
-                self.draw_lines(just_history=True)  # istart=self.index - 1)
                 return
 
         # current bar update
