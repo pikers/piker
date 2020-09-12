@@ -16,7 +16,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 with open('README.rst', encoding='utf-8') as f:
     readme = f.read()
@@ -32,12 +32,7 @@ setup(
     maintainer='Tyler Goodlet',
     url='https://github.com/pikers/piker',
     platforms=['linux'],
-    packages=[
-        'piker',
-        'piker.brokers',
-        'piker.ui',
-        'piker.testing',
-    ],
+    packages=find_packages(),
     entry_points={
         'console_scripts': [
             'piker = piker.cli:cli',
@@ -58,13 +53,14 @@ setup(
         'async_generator',
 
         # brokers
-        'asks',
+        'asks==2.4.8',
         'ib_insync',
 
         # numerics
         'arrow',  # better datetimes
         'cython',
         'numpy',
+        'numba',
         'pandas',
         'msgpack-numpy',
 
