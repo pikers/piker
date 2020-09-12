@@ -1,0 +1,2 @@
+# no pypi package for tractor (yet)
+-e git+git://github.com/goodboy/tractor.git@multiproc_debug#egg=tractor
