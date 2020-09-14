@@ -1,0 +1,21 @@
+name: CI
+
+on: push
+
+jobs:
+  mypy:
+    name: 'pip install'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          ref: chart_hacking
+      - name: Setup python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.8'
+      - name: Install dependencies
+        run: pip install -e -U . git+git://github.com/goodboy/tractor.git --upgrade-strategy eager
+      - name: Run piker
+        run: piker
