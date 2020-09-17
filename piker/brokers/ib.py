@@ -252,11 +252,21 @@ class Client:
         # stonks
         else:
             # TODO: metadata system for all these exchange rules..
+            primaryExchange = ''
+
             if exch in ('PURE', 'TSE'):  # non-yankee
                 currency = 'CAD'
+                if exch in ('PURE',):
+                    # stupid ib...
+                    exch = 'SMART'
+                    primaryExchange = 'PURE'
 
-            con = ibis.Stock(symbol=sym, exchange=exch, currency=currency)
-
+            con = ibis.Stock(
+                symbol=sym,
+                exchange=exch,
+                primaryExchange=primaryExchange,
+                currency=currency,
+            )
         try:
             exch = 'SMART' if not exch else exch
             contract = (await self.ib.qualifyContractsAsync(con))[0]
