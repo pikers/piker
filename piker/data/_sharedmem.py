@@ -58,7 +58,6 @@ class SharedInt:
             create=create,
             size=4,  # std int
         )
-        self._token = self._shm.name
 
     @property
     def value(self) -> int:
@@ -67,6 +66,12 @@ class SharedInt:
     @value.setter
     def value(self, value) -> None:
         self._shm.buf[:] = value.to_bytes(4, byteorder)
+
+    def destroy(self) -> None:
+        if shared_memory._USE_POSIX:
+            # We manually unlink to bypass all the "resource tracker"
+            # nonsense meant for non-SC systems.
+            shm_unlink(self._shm.name)
 
 
 class SharedArray:
@@ -87,7 +92,7 @@ class SharedArray:
 
     @property
     def token(self) -> Tuple[str, str]:
-        return (self._shm.name, self._i._token)
+        return (self._shm.name, self._i._shm.name)
 
     @property
     def name(self) -> str:
@@ -130,8 +135,8 @@ class SharedArray:
         if shared_memory._USE_POSIX:
             # We manually unlink to bypass all the "resource tracker"
             # nonsense meant for non-SC systems.
-            shm_unlink(self._i._shm.name)
             shm_unlink(self._shm.name)
+        self._i.destroy()
 
     def flush(self) -> None:
         # TODO: flush to storage backend like markestore?
@@ -141,9 +146,8 @@ class SharedArray:
 @contextmanager
 def open_shared_array(
     name: Optional[str] = None,
-    create: bool = True,
-    # approx number of 5s bars in a "day"
-    size: int = int(60*60*10/5),
+    # approx number of 5s bars in a "day" x2
+    size: int = int(2*60*60*10/5),
     dtype: np.dtype = base_ohlc_dtype,
     readonly: bool = False,
 ) -> SharedArray:
@@ -155,7 +159,11 @@ def open_shared_array(
     # create new shared mem segment for which we
     # have write permission
     a = np.zeros(size, dtype=dtype)
-    shm = shared_memory.SharedMemory(name=name, create=True, size=a.nbytes)
+    shm = shared_memory.SharedMemory(
+        name=name,
+        create=True,
+        size=a.nbytes
+    )
     shmarr = np.ndarray(a.shape, dtype=a.dtype, buffer=shm.buf)
     shmarr[:] = a[:]
     shmarr.setflags(write=int(not readonly))

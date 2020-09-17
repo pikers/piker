@@ -4,10 +4,9 @@ Data buffers for fast shared humpy.
 import time
 
 import tractor
-import numpy as np
 import trio
 
-from ._sharedmem import SharedArray, attach_shared_array
+from ._sharedmem import attach_shared_array
 
 
 @tractor.stream
@@ -40,25 +39,24 @@ async def incr_buffer(
         async def sleep():
             """Sleep until next time frames worth has passed from last bar.
             """
-            # last_ts = shm.array[-1]['time']
-            # delay = max((last_ts + ad) - time.time(), 0)
-            # await trio.sleep(delay)
-            await trio.sleep(ad)
+            last_ts = shm.array[-1]['time']
+            delay = max((last_ts + ad) - time.time(), 0)
+            await trio.sleep(delay)
+            # await trio.sleep(ad)
 
         while True:
             # sleep for duration of current bar
             await sleep()
 
+            # TODO: in theory we could make this faster by copying the
+            # "last" readable value into the underlying larger buffer's
+            # next value and then incrementing the counter instead of
+            # using ``.push()``?
+
             # append new entry to buffer thus "incrementing" the bar
             array = shm.array
             last = array[-1:].copy()
-            # last = np.array(last, dtype=array.dtype)
-            # shm.push(last)
-            # array = shm.array
-            # last = array[-1].copy()
             (index, t, close) = last[0][['index', 'time', 'close']]
-
-            # new = np.array(last, dtype=array.dtype)
 
             # this copies non-std fields (eg. vwap) from the last datum
             last[
@@ -66,9 +64,8 @@ async def incr_buffer(
             ][0] = (index + 1, t + delay_s, 0, close, close, close, close)
 
             # write to the buffer
-            print('incrementing array')
-            # await tractor.breakpoint()
             shm.push(last)
+            # print('incrementing array')
 
             # yield the new buffer index value
             await ctx.send_yield(shm._i.value)
