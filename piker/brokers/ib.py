@@ -25,7 +25,10 @@ import trio
 import tractor
 
 from ..log import get_logger, get_console_log
-from ..data import maybe_spawn_brokerd
+from ..data import (
+    maybe_spawn_brokerd, iterticks, attach_shared_array,
+    incr_buffer,
+)
 from ..ui._source import from_df
 
 
@@ -104,7 +107,6 @@ _adhoc_cmdty_data_map = {
     # NOTE: cmdtys don't have trade data:
     # https://groups.io/g/twsapi/message/44174
     'XAUUSD': ({'conId': 69067924}, {'whatToShow': 'MIDPOINT'}),
-    'XAUUSD': ({'conId': 69067924}, {'whatToShow': 'MIDPOINT'}),
 }
 
 
@@ -143,7 +145,7 @@ class Client:
             # durationStr='1 D',
 
             # time length calcs
-            durationStr='{count} S'.format(count=3000 * 5),
+            durationStr='{count} S'.format(count=5000 * 5),
             barSizeSetting='5 secs',
 
             # always use extended hours
@@ -487,6 +489,7 @@ def normalize(
 # @tractor.msg.pub
 async def stream_quotes(
     symbols: List[str],
+    shared_array_token: Tuple[str, str],
     loglevel: str = None,
     # compat for @tractor.msg.pub
     topics: Any = None,
@@ -508,25 +511,24 @@ async def stream_quotes(
         method='stream_ticker',
         symbol=sym,
     )
+
+    async with get_client() as client:
+        bars = await client.bars(symbol=sym)
+
     async with aclosing(stream):
         # first quote can be ignored as a 2nd with newer data is sent?
         first_ticker = await stream.__anext__()
+        quote = normalize(first_ticker)
+        # ugh, clear ticks since we've consumed them
+        # (ahem, ib_insync is stateful trash)
+        first_ticker.ticks = []
+
+        log.debug(f"First ticker received {quote}")
 
         if type(first_ticker.contract) not in (ibis.Commodity, ibis.Forex):
             suffix = 'exchange'
 
             calc_price = False  # should be real volume for contract
-
-            quote = normalize(first_ticker)
-            log.debug(f"First ticker received {quote}")
-
-            con = quote['contract']
-            topic = '.'.join((con['symbol'], con[suffix])).lower()
-            yield {topic: quote}
-
-            # ugh, clear ticks since we've consumed them
-            # (ahem, ib_insync is stateful trash)
-            first_ticker.ticks = []
 
             async for ticker in stream:
                 # spin consuming tickers until we get a real market datum
@@ -535,10 +537,6 @@ async def stream_quotes(
                     continue
                 else:
                     log.debug("Received first real volume tick")
-                    quote = normalize(ticker)
-                    topic = '.'.join((con['symbol'], con[suffix])).lower()
-                    yield {topic: quote}
-
                     # ugh, clear ticks since we've consumed them
                     # (ahem, ib_insync is stateful trash)
                     ticker.ticks = []
@@ -550,28 +548,65 @@ async def stream_quotes(
             # commodities don't have an exchange name for some reason?
             suffix = 'secType'
             calc_price = True
+            ticker = first_ticker
 
-        async for ticker in stream:
-            quote = normalize(
-                ticker,
-                calc_price=calc_price
-            )
-            con = quote['contract']
-            topic = '.'.join((con['symbol'], con[suffix])).lower()
-            yield {topic: quote}
+        con = quote['contract']
+        quote = normalize(ticker, calc_price=calc_price)
+        topic = '.'.join((con['symbol'], con[suffix])).lower()
+        first_quote = {topic: quote}
+        ticker.ticks = []
 
-            # ugh, clear ticks since we've consumed them
-            ticker.ticks = []
+        # load historical ohlcv in to shared mem
+        ss = tractor.current_actor().statespace
+        existing_shm = ss.get(f'ib_shm.{sym}')
+        if not existing_shm:
+            readonly = False
+        else:
+            readonly = True
+            shm = existing_shm
 
+        with attach_shared_array(
+            token=shared_array_token,
+            readonly=readonly
+        ) as shm:
+            if not existing_shm:
+                shm.push(bars)
+                ss[f'ib_shm.{sym}'] = shm
 
-if __name__ == '__main__':
-    import sys
-    sym = sys.argv[1]
+                yield (first_quote, shm.token)
+            else:
+                yield (first_quote, None)
 
-    contract = asyncio.run(
-        _aio_run_client_method(
-            'find_contract',
-            symbol=sym,
-        )
-    )
-    print(contract)
+            async for ticker in stream:
+                quote = normalize(
+                    ticker,
+                    calc_price=calc_price
+                )
+                # TODO: in theory you can send the IPC msg *before*
+                # writing to the sharedmem array to decrease latency,
+                # however, that will require `tractor.msg.pub` support
+                # here or at least some way to prevent task switching
+                # at the yield such that the array write isn't delayed
+                # while another consumer is serviced..
+
+                # if we are the lone tick writer
+                if not existing_shm:
+                    for tick in iterticks(quote, type='trade'):
+                        last = tick['price']
+                        # print(f'broker last: {tick}')
+
+                        # update last entry
+                        # benchmarked in the 4-5 us range
+                        high, low = shm.array[-1][['high', 'low']]
+                        shm.array[['high', 'low', 'close']][-1] = (
+                            max(high, last),
+                            min(low, last),
+                            last,
+                        )
+
+                con = quote['contract']
+                topic = '.'.join((con['symbol'], con[suffix])).lower()
+                yield {topic: quote}
+
+                # ugh, clear ticks since we've consumed them
+                ticker.ticks = []

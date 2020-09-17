@@ -18,6 +18,20 @@ import tractor
 
 from ..brokers import get_brokermod
 from ..log import get_logger, get_console_log
+from ._normalize import iterticks
+from ._sharedmem import (
+    maybe_open_shared_array, attach_shared_array, open_shared_array,
+)
+from ._buffer import incr_buffer
+
+
+__all__ = [
+ 'maybe_open_shared_array',
+ 'attach_shared_array',
+ 'open_shared_array',
+ 'iterticks',
+ 'incr_buffer',
+]
 
 
 log = get_logger(__name__)
@@ -27,7 +41,7 @@ __ingestors__ = [
 ]
 
 
-def get_ingestor(name: str) -> ModuleType:
+def get_ingestormod(name: str) -> ModuleType:
     """Return the imported ingestor module by name.
     """
     module = import_module('.' + name, 'piker.data')
@@ -39,6 +53,7 @@ def get_ingestor(name: str) -> ModuleType:
 _data_mods = [
     'piker.brokers.core',
     'piker.brokers.data',
+    'piker.data',
 ]
 
 
@@ -100,22 +115,40 @@ async def open_feed(
     if loglevel is None:
         loglevel = tractor.current_actor().loglevel
 
-    async with maybe_spawn_brokerd(
-        mod.name,
-        loglevel=loglevel,
-    ) as portal:
-        stream = await portal.run(
-            mod.__name__,
-            'stream_quotes',
-            symbols=symbols,
-            topics=symbols,
-        )
-        # Feed is required to deliver an initial quote asap.
-        # TODO: should we timeout and raise a more explicit error?
-        # with trio.fail_after(5):
-        with trio.fail_after(float('inf')):
-            # Retreive initial quote for each symbol
-            # such that consumer code can know the data layout
-            first_quote = await stream.__anext__()
-            log.info(f"Received first quote {first_quote}")
-        yield (first_quote, stream)
+    with maybe_open_shared_array(
+        name=f'{name}.{symbols[0]}.buf',
+        readonly=True,  # we expect the sub-actor to write
+    ) as shmarr:
+        async with maybe_spawn_brokerd(
+            mod.name,
+            loglevel=loglevel,
+        ) as portal:
+            stream = await portal.run(
+                mod.__name__,
+                'stream_quotes',
+                symbols=symbols,
+                shared_array_token=shmarr.token,
+                topics=symbols,
+            )
+            # Feed is required to deliver an initial quote asap.
+            # TODO: should we timeout and raise a more explicit error?
+            # with trio.fail_after(5):
+            with trio.fail_after(float('inf')):
+                # Retreive initial quote for each symbol
+                # such that consumer code can know the data layout
+                first_quote, child_shmarr_token = await stream.__anext__()
+                log.info(f"Received first quote {first_quote}")
+
+            if child_shmarr_token is not None:
+                # we are the buffer writer task
+                increment_stream = await portal.run(
+                    'piker.data',
+                    'incr_buffer',
+                    shm_token=child_shmarr_token,
+                )
+
+                assert child_shmarr_token == shmarr.token
+            else:
+                increment_stream = None
+
+            yield (first_quote, stream, increment_stream, shmarr)
