@@ -304,7 +304,7 @@ class BarItems(pg.GraphicsObject):
         # track the current length of drawable lines within the larger array
         self.index: int = 0
 
-    @timeit
+    # @timeit
     def draw_from_data(
         self,
         data: np.recarray,
@@ -321,6 +321,7 @@ class BarItems(pg.GraphicsObject):
         self.index = index
         self.draw_lines(just_history=True, iend=self.index)
 
+    # @timeit
     def draw_lines(
         self,
         istart=0,
@@ -440,6 +441,7 @@ class BarItems(pg.GraphicsObject):
 
     # XXX: From the customGraphicsItem.py example:
     # The only required methods are paint() and boundingRect()
+    # @timeit
     def paint(self, p, opt, widget):
         # start = time.time()
 
