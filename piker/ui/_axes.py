@@ -82,7 +82,7 @@ class DynamicDateAxis(pg.AxisItem):
             map(int, filter(lambda i: i < bars_len, indexes))
         )]
         # TODO: **don't** have this hard coded shift to EST
-        dts = pd.to_datetime(epochs, unit='s') - 4*pd.offsets.Hour()
+        dts = pd.to_datetime(epochs, unit='s') # - 4*pd.offsets.Hour()
         return dts.strftime(self.tick_tpl[delay])
 
     def tickStrings(self, values: List[float], scale, spacing):
