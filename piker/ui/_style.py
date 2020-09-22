@@ -39,6 +39,7 @@ def hcolor(name: str) -> str:
         'erie_black': '#1B1B1B',
         'licorice': '#1A1110',
         'papas_special': '#06070c',
+        'svags': '#0a0e14',
 
         # fifty shades
         'gray': '#808080',  # like the kick
