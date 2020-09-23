@@ -92,7 +92,7 @@ class DynamicDateAxis(pg.AxisItem):
 class AxisLabel(pg.GraphicsObject):
 
     # bg_color = pg.mkColor('#a9a9a9')
-    bg_color = pg.mkColor(hcolor('gray'))
+    bg_color = pg.mkColor(hcolor('pikers'))
     fg_color = pg.mkColor(hcolor('black'))
 
     def __init__(

@@ -475,7 +475,7 @@ class ChartPlotWidget(pg.PlotWidget):
             parent=self.getAxis('right'),
             # digits=0,
             opacity=1,
-            color=pg.mkPen(hcolor('gray'))
+            color=pg.mkPen(hcolor('pikers'))
         )
         return last
 

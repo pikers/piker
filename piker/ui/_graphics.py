@@ -273,7 +273,7 @@ class BarItems(pg.GraphicsObject):
 
     # 0.5 is no overlap between arms, 1.0 is full overlap
     w: float = 0.43
-    bars_pen = pg.mkPen(hcolor('gray'))
+    bars_pen = pg.mkPen(hcolor('pikers'))
 
     # XXX: tina mode, see below
     # bull_brush = pg.mkPen('#00cc00')

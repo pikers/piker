@@ -50,6 +50,7 @@ def hcolor(name: str) -> str:
         'gunmetal': '#91A3B0',
         'battleship': '#848482',
         'davies': '#555555',
+        'pikers': '#666666',  # like the cult
 
         # palette
         'default': DarkPalette.COLOR_BACKGROUND_NORMAL,
