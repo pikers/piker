@@ -7,7 +7,9 @@ import json
 import tractor
 from pygments import highlight, lexers, formatters
 
-_proj_name = 'piker'
+# Makes it so we only see the full module name when using ``__name__``
+# without the extra "piker." prefix.
+_proj_name = ''
 
 
 def get_logger(name: str = None) -> logging.Logger:
