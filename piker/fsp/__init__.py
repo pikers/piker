@@ -112,7 +112,7 @@ async def cascade(
             n.start_soon(increment_signals, feed, dst)
 
             async for processed in out_stream:
-                log.info(f"{fsp_func_name}: {processed}")
+                log.debug(f"{fsp_func_name}: {processed}")
                 index = src.index
                 dst.array[-1][fsp_func_name] = processed
                 await ctx.send_yield(index)
