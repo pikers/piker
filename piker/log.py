@@ -9,7 +9,7 @@ from pygments import highlight, lexers, formatters
 
 # Makes it so we only see the full module name when using ``__name__``
 # without the extra "piker." prefix.
-_proj_name = ''
+_proj_name = 'piker'
 
 
 def get_logger(name: str = None) -> logging.Logger:
