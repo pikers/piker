@@ -102,11 +102,18 @@ class Client:
             res.pop('last')
             bars = next(iter(res.values()))
 
-            # convert all fields to native types
             new_bars = []
-            last_nz_vwap = None
+
+            first = bars[0]
+            last_nz_vwap = first[-3]
+            if last_nz_vwap == 0:
+                # use close if vwap is zero
+                last_nz_vwap = first[-4]
+
+            # convert all fields to native types
             for i, bar in enumerate(bars):
                 # normalize weird zero-ed vwap values..cmon kraken..
+                # indicates vwap didn't change since last bar
                 vwap = float(bar[-3])
                 if vwap != 0:
                     last_nz_vwap = vwap
@@ -211,6 +218,7 @@ def normalize(
 @tractor.msg.pub
 async def stream_quotes(
     get_topics: Callable,
+    shared_array_token: Tuple[str, str, str],
     # These are the symbols not expected by the ws api
     # they are looked up inside this routine.
     symbols: List[str] = ['XBTUSD', 'XMRUSD'],
