@@ -23,10 +23,13 @@ from ._sharedmem import (
     maybe_open_shm_array,
     attach_shm_array,
     open_shm_array,
-    SharedArray,
+    ShmArray,
     get_shm_token,
 )
-from ._buffer import incr_buffer
+from ._buffer import (
+    increment_ohlc_buffer,
+    subscribe_ohlc_for_increment
+)
 
 
 __all__ = [
@@ -35,7 +38,7 @@ __all__ = [
     'attach_shm_array',
     'open_shm_array',
     'get_shm_token',
-    'incr_buffer',
+    'subscribe_ohlc_for_increment',
 ]
 
 
@@ -115,7 +118,7 @@ class Feed:
     """
     name: str
     stream: AsyncIterator[Dict[str, Any]]
-    shm: SharedArray
+    shm: ShmArray
     _broker_portal: tractor._portal.Portal
     _index_stream: Optional[AsyncIterator[Dict[str, Any]]] = None
 
@@ -129,7 +132,7 @@ class Feed:
             # created for all practical purposes
             self._index_stream = await self._broker_portal.run(
                 'piker.data',
-                'incr_buffer',
+                'increment_ohlc_buffer',
                 shm_token=self.shm.token,
                 topics=['index'],
             )

@@ -134,7 +134,7 @@ def _make_token(
     )
 
 
-class SharedArray:
+class ShmArray:
     def __init__(
         self,
         shmarr: np.ndarray,
@@ -216,7 +216,7 @@ def open_shm_array(
     size: int = int(2*60*60*10/5),
     dtype: np.dtype = base_ohlc_dtype,
     readonly: bool = False,
-) -> SharedArray:
+) -> ShmArray:
     """Open a memory shared ``numpy`` using the standard library.
 
     This call unlinks (aka permanently destroys) the buffer on teardown
@@ -245,7 +245,7 @@ def open_shm_array(
     )
     counter.value = 0
 
-    shmarr = SharedArray(
+    shmarr = ShmArray(
         array,
         counter,
         shm,
@@ -268,7 +268,7 @@ def attach_shm_array(
     size: int = int(60*60*10/5),
     # dtype: np.dtype = base_ohlc_dtype,
     readonly: bool = True,
-) -> SharedArray:
+) -> ShmArray:
     """Load and attach to an existing shared memory array previously
     created by another process using ``open_shared_array``.
     """
@@ -289,7 +289,7 @@ def attach_shm_array(
     # make sure we can read
     counter.value
 
-    sha = SharedArray(
+    sha = ShmArray(
         shmarr,
         counter,
         shm,
@@ -314,7 +314,7 @@ def maybe_open_shm_array(
     key: str,
     dtype: np.dtype = base_ohlc_dtype,
     **kwargs,
-) -> Tuple[SharedArray, bool]:
+) -> Tuple[ShmArray, bool]:
     """Attempt to attach to a shared memory block by a
     "key" determined by the users overall "system"
     (presumes you don't have the block's explicit token).
