@@ -26,6 +26,7 @@ from ._sharedmem import (
     ShmArray,
     get_shm_token,
 )
+from ._source import base_ohlc_dtype
 from ._buffer import (
     increment_ohlc_buffer,
     subscribe_ohlc_for_increment
@@ -163,10 +164,11 @@ async def open_feed(
     if loglevel is None:
         loglevel = tractor.current_actor().loglevel
 
-    # attempt to allocate (or attach to) shm array for this
-    # broker/symbol
+    # Attempt to allocate (or attach to) shm array for this broker/symbol
     shm, opened = maybe_open_shm_array(
         key=sym_to_shm_key(name, symbols[0]),
+        # use any broker defined ohlc dtype:
+        dtype=getattr(mod, '_ohlc_dtype', base_ohlc_dtype),
 
         # we expect the sub-actor to write
         readonly=True,
@@ -185,7 +187,12 @@ async def open_feed(
             # compat with eventual ``tractor.msg.pub``
             topics=symbols,
         )
+
+        # TODO: we can't do this **and** be compate with
+        # ``tractor.msg.pub``, should we maybe just drop this after
+        # tests are in?
         shm_token, is_writer = await stream.receive()
+
         shm_token['dtype_descr'] = list(shm_token['dtype_descr'])
         assert shm_token == shm.token  # sanity
 

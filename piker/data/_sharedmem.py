@@ -12,8 +12,8 @@ from _posixshmem import shm_unlink
 import tractor
 import numpy as np
 
-
 from ..log import get_logger
+from ._source import base_ohlc_dtype
 
 
 log = get_logger(__name__)
@@ -39,19 +39,6 @@ mantracker.ensure_running = mantracker._resource_tracker.ensure_running
 ensure_running = mantracker._resource_tracker.ensure_running
 mantracker.unregister = mantracker._resource_tracker.unregister
 mantracker.getfd = mantracker._resource_tracker.getfd
-
-
-base_ohlc_dtype = np.dtype(
-    [
-        ('index', int),
-        ('time', float),
-        ('open', float),
-        ('high', float),
-        ('low', float),
-        ('close', float),
-        ('volume', int),
-    ]
-)
 
 
 class SharedInt:
@@ -122,15 +109,16 @@ def get_shm_token(key: str) -> _Token:
 
 def _make_token(
     key: str,
-    dtype: np.dtype = base_ohlc_dtype,
+    dtype: Optional[np.dtype] = None,
 ) -> _Token:
     """Create a serializable token that can be used
     to access a shared array.
     """
+    dtype = base_ohlc_dtype if dtype is None else dtype
     return _Token(
         key,
         key + "_counter",
-        dtype.descr
+        np.dtype(dtype).descr
     )
 
 
@@ -214,7 +202,7 @@ def open_shm_array(
     key: Optional[str] = None,
     # approx number of 5s bars in a "day" x2
     size: int = int(2*60*60*10/5),
-    dtype: np.dtype = base_ohlc_dtype,
+    dtype: Optional[np.dtype] = None,
     readonly: bool = False,
 ) -> ShmArray:
     """Open a memory shared ``numpy`` using the standard library.
@@ -266,7 +254,6 @@ def open_shm_array(
 def attach_shm_array(
     token: Tuple[str, str, Tuple[str, str]],
     size: int = int(60*60*10/5),
-    # dtype: np.dtype = base_ohlc_dtype,
     readonly: bool = True,
 ) -> ShmArray:
     """Load and attach to an existing shared memory array previously
@@ -312,7 +299,7 @@ def attach_shm_array(
 
 def maybe_open_shm_array(
     key: str,
-    dtype: np.dtype = base_ohlc_dtype,
+    dtype: Optional[np.dtype] = None,
     **kwargs,
 ) -> Tuple[ShmArray, bool]:
     """Attempt to attach to a shared memory block by a
