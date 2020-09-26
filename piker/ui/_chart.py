@@ -379,7 +379,7 @@ class ChartPlotWidget(pg.PlotWidget):
         def update(index: int) -> None:
             label.setText(
                 "{name}[{index}] -> O:{} H:{} L:{} C:{} V:{}".format(
-                    *self._array[index].item()[2:],
+                    *self._array[index].item()[2:8],
                     name=name,
                     index=index,
                 )
@@ -423,9 +423,6 @@ class ChartPlotWidget(pg.PlotWidget):
         self.addItem(curve)
 
         # register overlay curve with name
-        if not self._graphics and name is None:
-            name = 'a_stupid_line_bby'
-
         self._graphics[name] = curve
 
         # XXX: How to stack labels vertically?
@@ -485,7 +482,8 @@ class ChartPlotWidget(pg.PlotWidget):
         array: np.ndarray,
         **kwargs,
     ) -> pg.GraphicsObject:
-        self._array = array
+        if name not in self._overlays:
+            self._array = array
 
         graphics = self._graphics[name]
         graphics.update_from_array(array, **kwargs)
@@ -712,10 +710,7 @@ async def chart_from_quotes(
                 last_price_sticky.update_from_data(*last[['index', 'close']])
                 chart._set_yrange()
 
-                vwap = quote.get('vwap')
-                if vwap and vwap_in_history:
-                    last['vwap'] = vwap
-                    print(f"vwap: {quote['vwap']}")
+                if vwap_in_history:
                     # update vwap overlay line
                     chart.update_from_array('vwap', ohlcv.array['vwap'])
 
