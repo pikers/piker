@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 
+# our minimum structured array layout for ohlc data
 base_ohlc_dtype = np.dtype(
     [
         ('index', int),

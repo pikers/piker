@@ -32,7 +32,7 @@ from ..data import (
     get_shm_token,
     subscribe_ohlc_for_increment,
 )
-from ..ui._source import from_df
+from ..data._source import from_df
 
 
 log = get_logger(__name__)

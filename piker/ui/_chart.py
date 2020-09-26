@@ -16,7 +16,7 @@ from ._axes import (
 from ._graphics import CrossHair, BarItems
 from ._axes import YSticky
 from ._style import _xaxis_at, _min_points_to_show, hcolor
-from ._source import Symbol
+from ..data._source import Symbol
 from .. import brokers
 from .. import data
 from ..data import (
