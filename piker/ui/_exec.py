@@ -27,8 +27,8 @@ from outcome import Error
 if hasattr(Qt, 'AA_EnableHighDpiScaling'):
     QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
 
-# if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
-#     QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
+    QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
 
 class MainWindow(QtGui.QMainWindow):
