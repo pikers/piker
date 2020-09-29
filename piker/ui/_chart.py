@@ -137,10 +137,10 @@ class LinkedSplitCharts(QtGui.QWidget):
 
         # if _xaxis_at == 'bottom':
         #     self.xaxis.setStyle(showValues=False)
-        #     # self.xaxis.hide()
+        #     self.xaxis.hide()
         # else:
         #     self.xaxis_ind.setStyle(showValues=False)
-            # self.xaxis.hide()
+        #     self.xaxis.hide()
 
         self.splitter = QtGui.QSplitter(QtCore.Qt.Vertical)
         self.splitter.setMidLineWidth(3)
@@ -231,7 +231,7 @@ class LinkedSplitCharts(QtGui.QWidget):
         cpw.name = name
         cpw.plotItem.vb.linked_charts = self
 
-        cpw.setFrameStyle(QtGui.QFrame.StyledPanel) # | QtGui.QFrame.Plain)
+        cpw.setFrameStyle(QtGui.QFrame.StyledPanel)  # | QtGui.QFrame.Plain)
         cpw.getPlotItem().setContentsMargins(*CHART_MARGINS)
         cpw.hideButtons()
 
@@ -705,15 +705,19 @@ async def chart_from_quotes(
     # - 5 sec bar lookback-autocorrection like tws does?
     last_price_sticky = chart._ysticks[chart.name]
 
+    def maxmin():
+        array = chart._array
+        last_bars_range = chart.bars_range()
+        l, lbar, rbar, r = last_bars_range
+        in_view = array[lbar:rbar]
+        mx, mn = np.nanmax(in_view['high']), np.nanmin(in_view['low'])
+        return last_bars_range, mx, mn
+
+    last_bars_range, last_mx, last_mn = maxmin()
+
     async for quotes in stream:
         for sym, quote in quotes.items():
             for tick in iterticks(quote, type='trade'):
-                # TODO:
-                # - eventually we'll want to update bid/ask labels and
-                # other data as subscribed by underlying UI consumers.
-                # - in theory we should be able to read buffer data
-                # faster then msgs arrive.. needs some tinkering and
-                # testing
                 array = ohlcv.array
                 chart.update_from_array(
                     chart.name,
@@ -722,11 +726,26 @@ async def chart_from_quotes(
                 # update sticky(s)
                 last = array[-1]
                 last_price_sticky.update_from_data(*last[['index', 'close']])
-                chart._set_yrange()
+
+                # TODO: we need a streaming minmax algorithm here to
+                brange, mx, mn = maxmin()
+                if brange != last_bars_range:
+                    if mx > last_mx or mn < last_mn:
+                        # avoid running this every cycle.
+                        chart._set_yrange()
+
+                    # save for next cycle
+                    last_mx, last_mn = mx, mn
 
                 if vwap_in_history:
                     # update vwap overlay line
                     chart.update_from_array('vwap', ohlcv.array['vwap'])
+
+                # TODO:
+                # - eventually we'll want to update bid/ask labels and
+                # other data as subscribed by underlying UI consumers.
+                # - in theory we should be able to read buffer data
+                # faster then msgs arrive.. needs some tinkering and testing
 
 
 async def chart_from_fsp(
@@ -830,7 +849,7 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
             # just_history=True
         )
         # resize view
-        price_chart._set_yrange()
+        # price_chart._set_yrange()
 
         for name, curve in price_chart._overlays.items():
             # TODO: standard api for signal lookups per plot
@@ -843,7 +862,7 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
 
         for name, chart in linked_charts.subplots.items():
             chart.update_from_array(chart.name, chart._shm.array[chart.name])
-            chart._set_yrange()
+            # chart._set_yrange()
 
 
 def _main(
