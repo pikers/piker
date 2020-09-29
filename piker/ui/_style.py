@@ -13,7 +13,6 @@ _i3_rgba = QtGui.QColor.fromRgbF(*[0.14]*3 + [1])
 # splitter widget config
 _xaxis_at = 'bottom'
 
-
 # charting config
 _min_points_to_show = 3
 CHART_MARGINS = (0, 0, 2, 2)

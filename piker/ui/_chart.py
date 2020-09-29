@@ -15,7 +15,10 @@ from ._axes import (
 )
 from ._graphics import CrossHair, BarItems
 from ._axes import YSticky
-from ._style import _xaxis_at, _min_points_to_show, hcolor
+from ._style import (
+    _xaxis_at, _min_points_to_show, hcolor,
+    CHART_MARGINS,
+)
 from ..data._source import Symbol
 from .. import brokers
 from .. import data
@@ -30,9 +33,6 @@ from .. import fsp
 
 
 log = get_logger(__name__)
-
-# margins
-CHART_MARGINS = (0, 0, 5, 3)
 
 
 class ChartSpace(QtGui.QWidget):
@@ -135,13 +135,16 @@ class LinkedSplitCharts(QtGui.QWidget):
             linked_charts=self
         )
 
-        if _xaxis_at == 'bottom':
-            self.xaxis.setStyle(showValues=False)
-        else:
-            self.xaxis_ind.setStyle(showValues=False)
+        # if _xaxis_at == 'bottom':
+        #     self.xaxis.setStyle(showValues=False)
+        #     # self.xaxis.hide()
+        # else:
+        #     self.xaxis_ind.setStyle(showValues=False)
+            # self.xaxis.hide()
 
         self.splitter = QtGui.QSplitter(QtCore.Qt.Vertical)
-        self.splitter.setHandleWidth(5)
+        self.splitter.setMidLineWidth(3)
+        self.splitter.setHandleWidth(0)
 
         self.layout = QtGui.QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -187,6 +190,8 @@ class LinkedSplitCharts(QtGui.QWidget):
         )
         # add crosshair graphic
         self.chart.addItem(self._ch)
+        if _xaxis_at == 'bottom':
+            self.chart.hideAxis('bottom')
 
         # style?
         self.chart.setFrameStyle(QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain)
@@ -226,8 +231,9 @@ class LinkedSplitCharts(QtGui.QWidget):
         cpw.name = name
         cpw.plotItem.vb.linked_charts = self
 
-        cpw.setFrameStyle(QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain)
+        cpw.setFrameStyle(QtGui.QFrame.StyledPanel) # | QtGui.QFrame.Plain)
         cpw.getPlotItem().setContentsMargins(*CHART_MARGINS)
+        cpw.hideButtons()
 
         # link chart x-axis to main quotes chart
         cpw.setXLink(self.chart)
@@ -285,7 +291,6 @@ class ChartPlotWidget(pg.PlotWidget):
             background=hcolor('papas_special'),
             # parent=None,
             # plotItem=None,
-            # useOpenGL=True,
             **kwargs
         )
         self._array = array  # readonly view of data
@@ -431,10 +436,11 @@ class ChartPlotWidget(pg.PlotWidget):
             size='4pt',
         )
         label.setParentItem(self._vb)
+        # label.setParentItem(self.getPlotItem())
 
         if overlay:
             # position bottom left if an overlay
-            label.anchor(itemPos=(0, 1), parentPos=(0, 1), offset=(0, 25))
+            label.anchor(itemPos=(0, 1), parentPos=(0, 1), offset=(0, 14))
             self._overlays[name] = curve
 
         label.show()
@@ -511,6 +517,14 @@ class ChartPlotWidget(pg.PlotWidget):
         extra = view_len - _min_points_to_show
         begin = 0 - extra
         end = len(self._array) - 1 + extra
+
+        # XXX: test code for only rendering lines for the bars in view.
+        # This turns out to be very very poor perf when scaling out to
+        # many bars (think > 1k) on screen.
+        # name = self.name
+        # bars = self._graphics[self.name]
+        # bars.draw_lines(
+        #   istart=max(lbar, l), iend=min(rbar, r), just_history=True)
 
         # bars_len = rbar - lbar
         # log.trace(
@@ -701,12 +715,12 @@ async def chart_from_quotes(
                 # faster then msgs arrive.. needs some tinkering and
                 # testing
                 array = ohlcv.array
-                last = array[-1]
                 chart.update_from_array(
                     chart.name,
                     array,
                 )
                 # update sticky(s)
+                last = array[-1]
                 last_price_sticky.update_from_data(*last[['index', 'close']])
                 chart._set_yrange()
 

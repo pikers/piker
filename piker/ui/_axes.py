@@ -29,7 +29,7 @@ class PriceAxis(pg.AxisItem):
         })
         self.setLabel(**{'font-size': '10pt'})
         self.setTickFont(_font)
-        self.setWidth(50)
+        self.setWidth(40)
 
     # XXX: drop for now since it just eats up h space
 

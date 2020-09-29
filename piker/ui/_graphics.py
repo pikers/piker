@@ -13,41 +13,6 @@ from PyQt5.QtCore import QLineF
 from ._style import _xaxis_at, hcolor
 from ._axes import YAxisLabel, XAxisLabel
 
-
-def rec2array(
-    rec: np.ndarray,
-    fields: List[str] = None
-) -> np.ndarray:
-    """Convert record array to std array.
-
-    Taken from:
-    https://github.com/scikit-hep/root_numpy/blob/master/root_numpy/_utils.py#L20
-    """
-    simplify = False
-
-    if fields is None:
-        fields = rec.dtype.names
-    elif isinstance(fields, str):
-        fields = [fields]
-        simplify = True
-
-    # Creates a copy and casts all data to the same type
-    arr = np.dstack([rec[field] for field in fields])
-
-    # Check for array-type fields. If none, then remove outer dimension.
-    # Only need to check first field since np.dstack will anyway raise an
-    # exception if the shapes don't match
-    # np.dstack will also fail if fields is an empty list
-    if not rec.dtype[fields[0]].shape:
-        arr = arr[0]
-
-    if simplify:
-        # remove last dimension (will be of size 1)
-        arr = arr.reshape(arr.shape[:-1])
-
-    return arr
-
-
 # TODO:
 # - checkout pyqtgraph.PlotCurveItem.setCompositionMode
 
