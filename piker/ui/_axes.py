@@ -29,7 +29,7 @@ class PriceAxis(pg.AxisItem):
         })
         self.setLabel(**{'font-size': '10pt'})
         self.setTickFont(_font)
-        self.setWidth(125)
+        self.setWidth(50)
 
     # XXX: drop for now since it just eats up h space
 
@@ -61,12 +61,12 @@ class DynamicDateAxis(pg.AxisItem):
 
         # default styling
         self.setStyle(
-            tickTextOffset=7,
+            tickTextOffset=4,
             textFillLimits=[(0, 0.70)],
             # TODO: doesn't seem to work -> bug in pyqtgraph?
-            # tickTextHeight=2,
+            # tickTextHeight=11,
         )
-        # self.setHeight(35)
+        self.setHeight(10)
 
     def _indexes_to_timestrs(
         self,
@@ -175,7 +175,7 @@ class XAxisLabel(AxisLabel):
         # TODO: we need to get the parent axe's dimensions transformed
         # to abs coords to be 100% correct here:
         # self.parent.boundingRect()
-        return QtCore.QRectF(0, 0, 100, 31)
+        return QtCore.QRectF(0, 2, 40, 10)
 
     def update_label(
         self,
@@ -206,7 +206,7 @@ class YAxisLabel(AxisLabel):
         return ('{: ,.%df}' % self.digits).format(tick_pos).replace(',', ' ')
 
     def boundingRect(self):  # noqa
-        return QtCore.QRectF(0, 0, 120, 30)
+        return QtCore.QRectF(0, 0, 50, 11)
 
     def update_label(
         self,

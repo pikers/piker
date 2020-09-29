@@ -9,7 +9,7 @@ import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QLineF
 
-from .quantdom.utils import timeit
+# from .quantdom.utils import timeit
 from ._style import _xaxis_at, hcolor
 from ._axes import YAxisLabel, XAxisLabel
 
@@ -286,7 +286,6 @@ class BarItems(pg.GraphicsObject):
     ) -> None:
         super().__init__()
         self.last = QtGui.QPicture()
-        # self.buffer = QtGui.QPicture()
         self.history = QtGui.QPicture()
         # TODO: implement updateable pixmap solution
         self._pi = plotitem
@@ -307,10 +306,12 @@ class BarItems(pg.GraphicsObject):
     # @timeit
     def draw_from_data(
         self,
-        data: np.recarray,
+        data: np.ndarray,
         start: int = 0,
     ):
-        """Draw OHLC datum graphics from a ``np.recarray``.
+        """Draw OHLC datum graphics from a ``np.ndarray``.
+
+        This routine is usually only called to draw the initial history.
         """
         lines = bars_from_ohlc(data, self.w, start=start)
 
@@ -332,19 +333,15 @@ class BarItems(pg.GraphicsObject):
     ) -> None:
         """Draw the current line set using the painter.
         """
-        # start = time.time()
-
         if just_history:
-            istart = 0
+            # draw bars for the "history" picture
             iend = iend or self.index - 1
             pic = self.history
         else:
+            # draw the last bar
             istart = self.index - 1
-            iend = self.index
+            iend = iend or self.index
             pic = self.last
-
-        if iend is not None:
-            iend = iend
 
         # use 2d array of lines objects, see conlusion on speed:
         # https://stackoverflow.com/a/60089929
@@ -369,9 +366,6 @@ class BarItems(pg.GraphicsObject):
         # trigger re-render
         # https://doc.qt.io/qt-5/qgraphicsitem.html#update
         self.update()
-
-        # diff = time.time() - start
-        # print(f'{len(to_draw)} lines update took {diff}')
 
     def update_from_array(
         self,
@@ -407,9 +401,7 @@ class BarItems(pg.GraphicsObject):
                 return
 
         # current bar update
-        i, open, close, = array[-1][['index', 'open', 'close']]
-        last = close
-        # i, body, larm, rarm = self.lines[index-1]
+        i, open, last, = array[-1][['index', 'open', 'close']]
         body, larm, rarm = self.lines[index-1]
 
         # XXX: is there a faster way to modify this?
@@ -443,13 +435,18 @@ class BarItems(pg.GraphicsObject):
     # The only required methods are paint() and boundingRect()
     # @timeit
     def paint(self, p, opt, widget):
-        # start = time.time()
 
         # TODO: use to avoid drawing artefacts?
         # self.prepareGeometryChange()
 
         # p.setCompositionMode(0)
 
+        # TODO: one thing we could try here is pictures being drawn of
+        # a fixed count of bars such that based on the viewbox indices we
+        # only draw the "rounded up" number of "pictures worth" of bars
+        # as is necesarry for what's in "view". Not sure if this will
+        # lead to any perf gains other then when zoomed in to less bars
+        # in view.
         p.drawPicture(0, 0, self.history)
         p.drawPicture(0, 0, self.last)
 
@@ -457,9 +454,6 @@ class BarItems(pg.GraphicsObject):
         # p.drawPixmap(0, 0, self.picture)
         # self._pmi.setPixmap(self.picture)
         # print(self.scene())
-
-        # diff = time.time() - start
-        # print(f'draw time {diff}')
 
     def boundingRect(self):
         # TODO: can we do rect caching to make this faster?

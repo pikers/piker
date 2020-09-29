@@ -8,14 +8,27 @@ from functools import partial
 import traceback
 from typing import Tuple, Callable, Dict, Any
 
+# Qt specific
 import PyQt5  # noqa
 from pyqtgraph import QtGui
 from PyQt5 import QtCore
-from PyQt5.QtCore import pyqtRemoveInputHook
+from PyQt5.QtCore import (
+    pyqtRemoveInputHook, Qt, QCoreApplication
+)
 import qdarkstyle
+
 import trio
 import tractor
 from outcome import Error
+
+
+# Proper high DPI scaling is available in Qt >= 5.6.0. This attibute
+# must be set before creating the application
+if hasattr(Qt, 'AA_EnableHighDpiScaling'):
+    QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+
+# if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
+#     QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
 
 class MainWindow(QtGui.QMainWindow):
