@@ -4,7 +4,6 @@ Momentum bby.
 from typing import AsyncIterator, Optional
 
 import numpy as np
-from ringbuf import RingBuffer
 from numba import jit, float64, optional, int64
 
 from ..data._normalize import iterticks
