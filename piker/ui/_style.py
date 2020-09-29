@@ -7,7 +7,10 @@ from qdarkstyle.palette import DarkPalette
 
 
 # chart-wide font
-_font = QtGui.QFont("Hack", 4)
+_font = QtGui.QFont("Hack")
+# use pixel size to be cross-resolution compatible
+_font.setPixelSize(6)
+
 _i3_rgba = QtGui.QColor.fromRgbF(*[0.14]*3 + [1])
 
 # splitter widget config
