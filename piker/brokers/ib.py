@@ -148,7 +148,7 @@ class Client:
             # durationStr='1 D',
 
             # time length calcs
-            durationStr='{count} S'.format(count=100 * 5),
+            durationStr='{count} S'.format(count=3000 * 5),
             barSizeSetting='5 secs',
 
             # always use extended hours
@@ -486,8 +486,13 @@ def normalize(
 
     # add time stamps for downstream latency measurements
     data['brokerd_ts'] = time.time()
-    if ticker.rtTime:
-        data['broker_ts'] = data['rtTime_s'] = float(ticker.rtTime) / 1000.
+
+    # stupid stupid shit...don't even care any more
+    # leave it until we do a proper latency study
+    # if ticker.rtTime is not None:
+    #     data['broker_ts'] = data['rtTime_s'] = float(
+    #         ticker.rtTime.timestamp) / 1000.
+    data.pop('rtTime')
 
     return data
 
