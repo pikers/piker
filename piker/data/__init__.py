@@ -167,6 +167,7 @@ async def open_feed(
     # Attempt to allocate (or attach to) shm array for this broker/symbol
     shm, opened = maybe_open_shm_array(
         key=sym_to_shm_key(name, symbols[0]),
+
         # use any broker defined ohlc dtype:
         dtype=getattr(mod, '_ohlc_dtype', base_ohlc_dtype),
 
@@ -193,11 +194,12 @@ async def open_feed(
         # tests are in?
         shm_token, is_writer = await stream.receive()
 
+        if opened:
+            assert is_writer
+            log.info("Started shared mem bar writer")
+
         shm_token['dtype_descr'] = list(shm_token['dtype_descr'])
         assert shm_token == shm.token  # sanity
-
-        if is_writer:
-            log.info("Started shared mem bar writer")
 
         yield Feed(
             name=name,
