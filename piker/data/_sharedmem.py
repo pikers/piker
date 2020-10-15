@@ -323,13 +323,13 @@ def maybe_open_shm_array(
         token = _known_tokens[key]
         return attach_shm_array(token=token, **kwargs), False
     except KeyError:
-        log.debug(f"Could not find {key} in shms cache")
+        log.warning(f"Could not find {key} in shms cache")
         if dtype:
             token = _make_token(key, dtype)
             try:
                 return attach_shm_array(token=token, **kwargs), False
             except FileNotFoundError:
-                log.debug(f"Could not attach to shm with token {token}")
+                log.warning(f"Could not attach to shm with token {token}")
 
         # This actor does not know about memory
         # associated with the provided "key".
