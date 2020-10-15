@@ -18,6 +18,7 @@ from ._axes import YSticky
 from ._style import (
     _xaxis_at, _min_points_to_show, hcolor,
     CHART_MARGINS,
+    _bars_from_right_in_follow_mode,
 )
 from ..data._source import Symbol
 from .. import brokers
@@ -398,7 +399,10 @@ class ChartPlotWidget(pg.PlotWidget):
         xlast = data[-1]['index']
 
         # show last 50 points on startup
-        self.plotItem.vb.setXRange(xlast - 50, xlast + 50)
+        self.plotItem.vb.setXRange(
+            xlast - 50,
+            xlast + _bars_from_right_in_follow_mode
+        )
 
         self._add_sticky(name)
 
@@ -457,7 +461,10 @@ class ChartPlotWidget(pg.PlotWidget):
         xlast = len(data) - 1
 
         # show last 50 points on startup
-        self.plotItem.vb.setXRange(xlast - 50, xlast + 50)
+        self.plotItem.vb.setXRange(
+            xlast - 50,
+            xlast + _bars_from_right_in_follow_mode
+        )
 
         # TODO: we should instead implement a diff based
         # "only update with new items" on the pg.PlotDataItem
@@ -774,7 +781,9 @@ async def chart_from_fsp(
             dtype=fsp_dtype,
             readonly=True,
         )
-        assert opened
+        # XXX: fsp may have been opened by a duplicate chart. Error for
+        # now until we figure out how to wrap fsps as "feeds".
+        assert opened, f"A chart for {key} likely already exists?"
 
         # start fsp sub-actor
         portal = await n.run_in_actor(
