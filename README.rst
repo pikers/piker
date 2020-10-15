@@ -93,7 +93,7 @@ Check out our charts
 ********************
 bet you weren't expecting this from the foss bby::
 
-    piker chart -b kraken XBTUSD
+    piker -b kraken chart XBTUSD
 
 
 If anyone asks you what this project is about
