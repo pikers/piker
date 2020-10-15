@@ -17,7 +17,7 @@ from ._axes import YAxisLabel, XAxisLabel
 # - checkout pyqtgraph.PlotCurveItem.setCompositionMode
 
 _mouse_rate_limit = 60
-_debounce_delay = 20
+_debounce_delay = 1/2e3
 _ch_label_opac = 1
 
 
