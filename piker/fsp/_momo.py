@@ -72,7 +72,6 @@ def ema(
         else:
             s[0] = ylast
 
-        print(s)
         for i in range(1, n):
             s[i] = y[i] * alpha + s[i-1] * (1 - alpha)
 
@@ -133,7 +132,6 @@ def wma(
 
     assert length == len(weights)
 
-    # return np.convolve(ohlcv.array['close'], weights, 'valid')
     return np.convolve(signal, weights, 'valid')
 
 
