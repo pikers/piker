@@ -19,16 +19,18 @@ class PriceAxis(pg.AxisItem):
         self,
     ) -> None:
         super().__init__(orientation='right')
+        self.setTickFont(_font)
         self.setStyle(**{
             'textFillLimits': [(0, 0.5)],
-            # 'tickTextWidth': 10,
-            # 'tickTextHeight': 25,
+            # 'tickTextWidth': 100,
+            # 'tickTextHeight': 20,
+            'tickFont': _font,
+            # 'tickTextWidth': 40,
             # 'autoExpandTextSpace': True,
             # 'maxTickLength': -20,
             # 'stopAxisAtTick': (True, True),
         })
-        self.setLabel(**{'font-size': '10pt'})
-        self.setTickFont(_font)
+        # self.setLabel(**{'font-size': '10pt'})
         self.setWidth(40)
 
     # XXX: drop for now since it just eats up h space
@@ -60,13 +62,12 @@ class DynamicDateAxis(pg.AxisItem):
         self.setTickFont(_font)
 
         # default styling
-        self.setStyle(
-            tickTextOffset=4,
-            textFillLimits=[(0, 0.70)],
-            # TODO: doesn't seem to work -> bug in pyqtgraph?
-            # tickTextHeight=11,
-        )
-        self.setHeight(10)
+        self.setStyle(**{
+            # tickTextOffset=4,
+            'textFillLimits': [(0, 0.70)],
+            'tickFont': _font,
+        })
+        self.setHeight(11)
 
     def _indexes_to_timestrs(
         self,
