@@ -285,7 +285,10 @@ class BarItems(pg.GraphicsObject):
         index = len(lines)
         self.lines[:index] = lines
         self.index = index
-        self.draw_lines(just_history=True, iend=self.index)
+
+        # up to last to avoid double draw of last bar
+        self.draw_lines(just_history=True, iend=self.index - 1)
+        self.draw_lines(iend=self.index)
 
     # @timeit
     def draw_lines(

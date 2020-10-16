@@ -19,6 +19,7 @@ from ._style import (
     _xaxis_at, _min_points_to_show, hcolor,
     CHART_MARGINS,
     _bars_from_right_in_follow_mode,
+    _bars_to_left_in_follow_mode,
 )
 from ..data._source import Symbol
 from .. import brokers
@@ -206,6 +207,7 @@ class LinkedSplitCharts(QtGui.QWidget):
         xaxis: DynamicDateAxis = None,
         ohlc: bool = False,
         _is_main: bool = False,
+        **cpw_kwargs,
     ) -> 'ChartPlotWidget':
         """Add (sub)plots to chart widget by name.
 
@@ -226,6 +228,7 @@ class LinkedSplitCharts(QtGui.QWidget):
             parent=self.splitter,
             axisItems={'bottom': xaxis, 'right': PriceAxis()},
             viewBox=cv,
+            **cpw_kwargs,
         )
         # this name will be used to register the primary
         # graphics curve managed by the subchart
@@ -283,7 +286,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self,
         # the data view we generate graphics from
         array: np.ndarray,
-        yrange: Optional[Tuple[float, float]] = None,
+        static_yrange: Optional[Tuple[float, float]] = None,
         **kwargs,
     ):
         """Configure chart display settings.
@@ -299,9 +302,8 @@ class ChartPlotWidget(pg.PlotWidget):
         self._overlays = {}  # registry of overlay curves
         self._labels = {}  # registry of underlying graphics
         self._ysticks = {}  # registry of underlying graphics
-        self._yrange = yrange
         self._vb = self.plotItem.vb
-        self._static_yrange = None
+        self._static_yrange = static_yrange  # for "known y-range style"
 
         # show only right side axes
         self.hideAxis('left')
@@ -310,20 +312,21 @@ class ChartPlotWidget(pg.PlotWidget):
         # show background grid
         self.showGrid(x=True, y=True, alpha=0.4)
 
-        self.plotItem.vb.setXRange(0, 0)
+        # don't need right?
+        # self._vb.setXRange(0, 0)
 
-        # use cross-hair for cursor
-        self.setCursor(QtCore.Qt.CrossCursor)
+        # use cross-hair for cursor?
+        # self.setCursor(QtCore.Qt.CrossCursor)
 
         # Assign callback for rescaling y-axis automatically
         # based on data contents and ``ViewBox`` state.
         self.sigXRangeChanged.connect(self._set_yrange)
 
-        vb = self._vb
         # for mouse wheel which doesn't seem to emit XRangeChanged
-        vb.sigRangeChangedManually.connect(self._set_yrange)
+        self._vb.sigRangeChangedManually.connect(self._set_yrange)
+
         # for when the splitter(s) are resized
-        vb.sigResized.connect(self._set_yrange)
+        self._vb.sigResized.connect(self._set_yrange)
 
     def _update_contents_label(self, index: int) -> None:
         if index >= 0 and index < len(self._array):
@@ -369,6 +372,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # adds all bar/candle graphics objects for each data point in
         # the np array buffer to be drawn on next render cycle
         self.addItem(graphics)
+
         # draw after to allow self.scene() to work...
         graphics.draw_from_data(data)
 
@@ -392,7 +396,7 @@ class ChartPlotWidget(pg.PlotWidget):
             )
 
         self._labels[name] = (label, update)
-        self._update_contents_label(index=-1)
+        self._update_contents_label(len(data) - 1)
         label.show()
 
         # set xrange limits
@@ -400,7 +404,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # show last 50 points on startup
         self.plotItem.vb.setXRange(
-            xlast - 50,
+            xlast - _bars_to_left_in_follow_mode,
             xlast + _bars_from_right_in_follow_mode
         )
 
@@ -437,7 +441,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # XXX: How to stack labels vertically?
         label = pg.LabelItem(
             justify='left',
-            size='4pt',
+            size='6px',
         )
         label.setParentItem(self._vb)
         # label.setParentItem(self.getPlotItem())
@@ -455,14 +459,14 @@ class ChartPlotWidget(pg.PlotWidget):
             label.setText(f"{name} -> {data}")
 
         self._labels[name] = (label, update)
-        self._update_contents_label(index=-1)
+        self._update_contents_label(len(data) - 1)
 
         # set a "startup view"
         xlast = len(data) - 1
 
-        # show last 50 points on startup
+        # configure "follow mode" view on startup
         self.plotItem.vb.setXRange(
-            xlast - 50,
+            xlast - _bars_to_left_in_follow_mode,
             xlast + _bars_from_right_in_follow_mode
         )
 
@@ -514,46 +518,47 @@ class ChartPlotWidget(pg.PlotWidget):
         that data always fits nicely inside the current view of the
         data set.
         """
-        l, lbar, rbar, r = self.bars_range()
-
-        # figure out x-range in view such that user can scroll "off" the data
-        # set up to the point where ``_min_points_to_show`` are left.
-        # if l < lbar or r > rbar:
-        view_len = r - l
-        # TODO: logic to check if end of bars in view
-        extra = view_len - _min_points_to_show
-        begin = 0 - extra
-        end = len(self._array) - 1 + extra
-
-        # XXX: test code for only rendering lines for the bars in view.
-        # This turns out to be very very poor perf when scaling out to
-        # many bars (think > 1k) on screen.
-        # name = self.name
-        # bars = self._graphics[self.name]
-        # bars.draw_lines(
-        #   istart=max(lbar, l), iend=min(rbar, r), just_history=True)
-
-        # bars_len = rbar - lbar
-        # log.trace(
-        #     f"\nl: {l}, lbar: {lbar}, rbar: {rbar}, r: {r}\n"
-        #     f"view_len: {view_len}, bars_len: {bars_len}\n"
-        #     f"begin: {begin}, end: {end}, extra: {extra}"
-        # )
-        self._set_xlimits(begin, end)
 
         # yrange
-        if self._static_yrange is not None:
-            yrange = self._static_yrange
+        # if self._static_yrange is not None:
+        #     yrange = self._static_yrange
 
-        if yrange is not None:
-            ylow, yhigh = yrange
-            self._static_yrange = yrange
-        else:
+        if self._static_yrange is not None:
+            ylow, yhigh = self._static_yrange
+
+        else:  # determine max, min y values in viewable x-range
+
+            l, lbar, rbar, r = self.bars_range()
+
+            # figure out x-range in view such that user can scroll "off"
+            # the data set up to the point where ``_min_points_to_show``
+            # are left.
+            view_len = r - l
+            # TODO: logic to check if end of bars in view
+            extra = view_len - _min_points_to_show
+            begin = 0 - extra
+            end = len(self._array) - 1 + extra
+
+            # XXX: test code for only rendering lines for the bars in view.
+            # This turns out to be very very poor perf when scaling out to
+            # many bars (think > 1k) on screen.
+            # name = self.name
+            # bars = self._graphics[self.name]
+            # bars.draw_lines(
+            #   istart=max(lbar, l), iend=min(rbar, r), just_history=True)
+
+            # bars_len = rbar - lbar
+            # log.trace(
+            #     f"\nl: {l}, lbar: {lbar}, rbar: {rbar}, r: {r}\n"
+            #     f"view_len: {view_len}, bars_len: {bars_len}\n"
+            #     f"begin: {begin}, end: {end}, extra: {extra}"
+            # )
+            self._set_xlimits(begin, end)
 
             # TODO: this should be some kind of numpy view api
             bars = self._array[lbar:rbar]
             if not len(bars):
-                # likely no data loaded yet
+                # likely no data loaded yet or extreme scrolling?
                 log.error(f"WTF bars_range = {lbar}:{rbar}")
                 return
 
@@ -562,19 +567,18 @@ class ChartPlotWidget(pg.PlotWidget):
             try:
                 ylow = np.nanmin(bars['low'])
                 yhigh = np.nanmax(bars['high'])
-                # std = np.std(bars['close'])
             except (IndexError, ValueError):
                 # must be non-ohlc array?
                 ylow = np.nanmin(bars)
                 yhigh = np.nanmax(bars)
-                # std = np.std(bars)
 
-        # view margins: stay within 10% of the "true range"
-        diff = yhigh - ylow
-        ylow = ylow - (diff * 0.04)
-        yhigh = yhigh + (diff * 0.01)
+            # view margins: stay within a % of the "true range"
+            diff = yhigh - ylow
+            ylow = ylow - (diff * 0.08)
+            yhigh = yhigh + (diff * 0.01)
 
         # compute contents label "height" in view terms
+        # to avoid having data "contents" overlap with them
         if self._labels:
             label = self._labels[self.name][0]
             rect = label.itemRect()
@@ -590,13 +594,14 @@ class ChartPlotWidget(pg.PlotWidget):
         else:
             label_h = 0
 
-        chart = self
-        chart.setLimits(
+        if label_h > yhigh - ylow:
+            label_h = 0
+
+        self.setLimits(
             yMin=ylow,
             yMax=yhigh + label_h,
-            # minYRange=std
         )
-        chart.setYRange(ylow, yhigh + label_h)
+        self.setYRange(ylow, yhigh + label_h)
 
     def enterEvent(self, ev):  # noqa
         # pg.PlotWidget.enterEvent(self, ev)
@@ -809,10 +814,14 @@ async def chart_from_fsp(
 
         chart = linked_charts.add_plot(
             name=func_name,
-
-            # TODO: enforce type checking here?
             array=shm.array,
+
+            # settings passed down to ``ChartPlotWidget``
+            static_yrange=(0, 100),
         )
+
+        # display contents labels asap
+        chart._update_contents_label(len(shm.array) - 1)
 
         array = shm.array[func_name]
         value = array[-1]
@@ -820,9 +829,8 @@ async def chart_from_fsp(
         last_val_sticky.update_from_data(-1, value)
         chart.update_from_array(chart.name, array)
 
-        chart._set_yrange(yrange=(0, 100))
-
         chart._shm = shm
+        chart._set_yrange()
 
         # update chart graphics
         async for value in stream:
@@ -830,7 +838,6 @@ async def chart_from_fsp(
             value = array[-1]
             last_val_sticky.update_from_data(-1, value)
             chart.update_from_array(chart.name, array)
-            # chart._set_yrange()
 
 
 async def check_for_new_bars(feed, ohlcv, linked_charts):
