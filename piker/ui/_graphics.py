@@ -404,6 +404,8 @@ class BarItems(pg.GraphicsObject):
     # @timeit
     def paint(self, p, opt, widget):
 
+        profiler = pg.debug.Profiler(disabled=False, delayed=False)
+
         # TODO: use to avoid drawing artefacts?
         # self.prepareGeometryChange()
 
@@ -422,6 +424,8 @@ class BarItems(pg.GraphicsObject):
         # p.drawPixmap(0, 0, self.picture)
         # self._pmi.setPixmap(self.picture)
         # print(self.scene())
+
+        profiler('bars redraw:')
 
     def boundingRect(self):
         # TODO: can we do rect caching to make this faster?
@@ -475,3 +479,25 @@ class BarItems(pg.GraphicsObject):
 
 #         p.setBrush(self.bear_brush)
 #         p.drawRects(*rects[Quotes.close < Quotes.open])
+
+
+def h_line(level: float) -> pg.InfiniteLine:
+
+    line = pg.InfiniteLine(
+        movable=True,
+        angle=0,
+        pos=level,
+        # label='{value:0.2f}',
+        # labelOpts={
+        #     'position': 0.01,
+        #     'movable': True
+        #     'color': (200,200,100),
+        #     'fill': (200,200,200,50),
+        # }
+    )
+    default_pen = pg.mkPen(hcolor('default'))
+    line.setPen(default_pen)
+
+    # os_line.label.setColor(hcolor('default_light'))
+    # os_line.label.setFont(_font)
+    return line
