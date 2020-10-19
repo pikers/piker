@@ -13,13 +13,14 @@ from ._axes import (
     DynamicDateAxis,
     PriceAxis,
 )
-from ._graphics import CrossHair, BarItems
+from ._graphics import CrossHair, BarItems, h_line
 from ._axes import YSticky
 from ._style import (
     _xaxis_at, _min_points_to_show, hcolor,
     CHART_MARGINS,
     _bars_from_right_in_follow_mode,
     _bars_to_left_in_follow_mode,
+    # _font,
 )
 from ..data._source import Symbol
 from .. import brokers
@@ -295,6 +296,7 @@ class ChartPlotWidget(pg.PlotWidget):
             background=hcolor('papas_special'),
             # parent=None,
             # plotItem=None,
+            # antialias=True,
             **kwargs
         )
         self._array = array  # readonly view of data
@@ -382,9 +384,13 @@ class ChartPlotWidget(pg.PlotWidget):
         # Ogi says: "use ..."
         label = pg.LabelItem(
             justify='left',
-            size='4pt',
+            size='6px',
         )
+        label.setParentItem(self._vb)
         self.scene().addItem(label)
+
+        # keep close to top
+        label.anchor(itemPos=(0, 0), parentPos=(0, 0), offset=(0, -4))
 
         def update(index: int) -> None:
             label.setText(
@@ -427,7 +433,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         curve = pg.PlotDataItem(
             data,
-            antialias=True,
+            # antialias=True,
             name=name,
             # TODO: see how this handles with custom ohlcv bars graphics
             clipToView=True,
@@ -443,20 +449,32 @@ class ChartPlotWidget(pg.PlotWidget):
             justify='left',
             size='6px',
         )
+
+        # anchor to the viewbox
         label.setParentItem(self._vb)
         # label.setParentItem(self.getPlotItem())
 
         if overlay:
             # position bottom left if an overlay
-            label.anchor(itemPos=(0, 1), parentPos=(0, 1), offset=(0, 14))
+            label.anchor(itemPos=(1, 1), parentPos=(1, 1), offset=(0, 3))
             self._overlays[name] = curve
+
+            def update(index: int) -> None:
+                data = self._array[index][name]
+                label.setText(f"{name}: {data:.2f}")
+        else:
+            label.anchor(itemPos=(0, 0), parentPos=(0, 0), offset=(0, -4))
+
+            def update(index: int) -> None:
+                data = self._array[index]
+                label.setText(f"{name}: {data:.2f}")
+
+        # def update(index: int) -> None:
+        #     data = self._array[index]
+        #     label.setText(f"{name} -> {data:.2f}")
 
         label.show()
         self.scene().addItem(label)
-
-        def update(index: int) -> None:
-            data = self._array[index]
-            label.setText(f"{name} -> {data}")
 
         self._labels[name] = (label, update)
         self._update_contents_label(len(data) - 1)
@@ -572,27 +590,33 @@ class ChartPlotWidget(pg.PlotWidget):
                 ylow = np.nanmin(bars)
                 yhigh = np.nanmax(bars)
 
-            # view margins: stay within a % of the "true range"
-            diff = yhigh - ylow
-            ylow = ylow - (diff * 0.08)
-            yhigh = yhigh + (diff * 0.01)
+        # view margins: stay within a % of the "true range"
+        diff = yhigh - ylow
+        ylow = ylow - (diff * 0.04)
+        # yhigh = yhigh + (diff * 0.01)
 
         # compute contents label "height" in view terms
         # to avoid having data "contents" overlap with them
         if self._labels:
             label = self._labels[self.name][0]
+
             rect = label.itemRect()
             tl, br = rect.topLeft(), rect.bottomRight()
             vb = self.plotItem.vb
+
             try:
                 # on startup labels might not yet be rendered
                 top, bottom = (vb.mapToView(tl).y(), vb.mapToView(br).y())
-                label_h = top - bottom
+
+                # XXX: hack, how do we compute exactly?
+                label_h = (top - bottom) * 0.42
+
             except np.linalg.LinAlgError:
                 label_h = 0
-            # print(f'label height {self.name}: {label_h}')
         else:
             label_h = 0
+
+        # print(f'label height {self.name}: {label_h}')
 
         if label_h > yhigh - ylow:
             label_h = 0
@@ -731,13 +755,16 @@ async def chart_from_quotes(
         for sym, quote in quotes.items():
             for tick in iterticks(quote, type='trade'):
                 array = ohlcv.array
+
+                # update price sticky(s)
+                last = array[-1]
+                last_price_sticky.update_from_data(*last[['index', 'close']])
+
+                # update price bar
                 chart.update_from_array(
                     chart.name,
                     array,
                 )
-                # update sticky(s)
-                last = array[-1]
-                last_price_sticky.update_from_data(*last[['index', 'close']])
 
                 # TODO: we need a streaming minmax algorithm here to
                 brange, mx, mn = maxmin()
@@ -762,7 +789,7 @@ async def chart_from_quotes(
 
 async def chart_from_fsp(
     linked_charts,
-    func_name,
+    fsp_func_name,
     sym,
     src_shm,
     brokermod,
@@ -772,10 +799,13 @@ async def chart_from_fsp(
 
     Pass target entrypoint and historical data.
     """
-    name = f'fsp.{func_name}'
+    name = f'fsp.{fsp_func_name}'
+
     # TODO: load function here and introspect
     # return stream type(s)
-    fsp_dtype = np.dtype([('index', int), (func_name, float)])
+
+    # TODO: should `index` be a required internal field?
+    fsp_dtype = np.dtype([('index', int), (fsp_func_name, float)])
 
     async with tractor.open_nursery() as n:
         key = f'{sym}.' + name
@@ -786,13 +816,16 @@ async def chart_from_fsp(
             dtype=fsp_dtype,
             readonly=True,
         )
+
         # XXX: fsp may have been opened by a duplicate chart. Error for
         # now until we figure out how to wrap fsps as "feeds".
         assert opened, f"A chart for {key} likely already exists?"
 
         # start fsp sub-actor
         portal = await n.run_in_actor(
-            name,  # name as title of sub-chart
+
+            # name as title of sub-chart
+            name,
 
             # subactor entrypoint
             fsp.cascade,
@@ -800,7 +833,7 @@ async def chart_from_fsp(
             src_shm_token=src_shm.token,
             dst_shm_token=shm.token,
             symbol=sym,
-            fsp_func_name=func_name,
+            fsp_func_name=fsp_func_name,
 
             # tractor config
             loglevel=loglevel,
@@ -813,8 +846,8 @@ async def chart_from_fsp(
         _ = await stream.receive()
 
         chart = linked_charts.add_plot(
-            name=func_name,
-            array=shm.array,
+            name=fsp_func_name,
+            array=shm.array[fsp_func_name],
 
             # settings passed down to ``ChartPlotWidget``
             static_yrange=(0, 100),
@@ -823,21 +856,39 @@ async def chart_from_fsp(
         # display contents labels asap
         chart._update_contents_label(len(shm.array) - 1)
 
-        array = shm.array[func_name]
-        value = array[-1]
+        array = shm.array
+        value = array[fsp_func_name][-1]
+
         last_val_sticky = chart._ysticks[chart.name]
         last_val_sticky.update_from_data(-1, value)
-        chart.update_from_array(chart.name, array)
+
+        chart.update_from_array(chart.name, array[fsp_func_name])
+
+        # TODO: figure out if we can roll our own `FillToThreshold` to
+        # get brush filled polygons for OS/OB conditions.
+        # ``pg.FillBetweenItems`` seems to be one technique using
+        # generic fills between curve types while ``PlotCurveItem`` has
+        # logic inside ``.paint()`` for ``self.opts['fillLevel']`` which
+        # might be the best solution?
+        # graphics = chart.update_from_array(chart.name, array[fsp_func_name])
+        # graphics.curve.setBrush(50, 50, 200, 100)
+        # graphics.curve.setFillLevel(50)
+
+        # add moveable over-[sold/bought] lines
+        chart.plotItem.addItem(h_line(30))
+        chart.plotItem.addItem(h_line(70))
 
         chart._shm = shm
         chart._set_yrange()
 
         # update chart graphics
         async for value in stream:
-            array = shm.array[func_name]
-            value = array[-1]
+            # p = pg.debug.Profiler(disabled=False, delayed=False)
+            array = shm.array
+            value = array[-1][fsp_func_name]
             last_val_sticky.update_from_data(-1, value)
-            chart.update_from_array(chart.name, array)
+            chart.update_from_array(chart.name, array[fsp_func_name])
+            # p('rendered rsi datum')
 
 
 async def check_for_new_bars(feed, ohlcv, linked_charts):
