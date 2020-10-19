@@ -28,7 +28,7 @@ class PriceAxis(pg.AxisItem):
             # 'tickTextWidth': 40,
             # 'autoExpandTextSpace': True,
             # 'maxTickLength': -20,
-            # 'stopAxisAtTick': (True, True),
+            # 'stopAxisAtTick': (True, True),  # doesn't work well on price
         })
         # self.setLabel(**{'font-size': '10pt'})
         self.setWidth(40)
@@ -83,7 +83,7 @@ class DynamicDateAxis(pg.AxisItem):
             map(int, filter(lambda i: i < bars_len, indexes))
         )]
         # TODO: **don't** have this hard coded shift to EST
-        dts = pd.to_datetime(epochs, unit='s') # - 4*pd.offsets.Hour()
+        dts = pd.to_datetime(epochs, unit='s') #- 4*pd.offsets.Hour()
         return dts.strftime(self.tick_tpl[delay])
 
     def tickStrings(self, values: List[float], scale, spacing):
@@ -244,9 +244,11 @@ class YSticky(YAxisLabel):
     def update_on_resize(self, vr, r):
         # TODO: add an `.index` to the array data-buffer layer
         # and make this way less shitty...
-        a = self._chart._array
+        chart = self._chart
+        name = chart.name
+        a = chart._array
         fields = a.dtype.fields
-        if fields and 'index' in fields:
+        if fields and 'close' in fields:
             index, last = a[-1][['index', 'close']]
         else:
             # non-ohlc case
@@ -260,9 +262,9 @@ class YSticky(YAxisLabel):
     def update_from_data(
         self,
         index: int,
-        last: float,
+        value: float,
     ) -> None:
         self.update_label(
-            self._chart.mapFromView(QPointF(index, last)),
-            last
+            self._chart.mapFromView(QPointF(index, value)),
+            value
         )
