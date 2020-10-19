@@ -8,8 +8,14 @@ from qdarkstyle.palette import DarkPalette
 
 # chart-wide font
 _font = QtGui.QFont("Hack")
-# use pixel size to be cross-resolution compatible
+# use pixel size to be cross-resolution compatible?
 _font.setPixelSize(6)
+
+# TODO: use QScreen to determine the same physical font size
+# on screen despite different displays?
+# PyQt docs: https://doc.qt.io/qtforpython/PySide2/QtGui/QScreen.html
+#   - supposedly it's ``from QtGui import QScreen``
+# Qt forums: https://forum.qt.io/topic/43625/point-sizes-are-they-reliable/4
 
 _i3_rgba = QtGui.QColor.fromRgbF(*[0.14]*3 + [1])
 
@@ -20,7 +26,7 @@ _xaxis_at = 'bottom'
 CHART_MARGINS = (0, 0, 2, 2)
 _min_points_to_show = 3
 _bars_from_right_in_follow_mode = 5
-_bars_to_left_in_follow_mode = 100
+_bars_to_left_in_follow_mode = 300
 
 
 _tina_mode = False
