@@ -49,10 +49,10 @@ class ChartView(pg.ViewBox):
         vl = r - l
 
         if ev.delta() > 0 and vl <= _min_points_to_show:
-            log.trace("Max zoom bruh...")
+            log.debug("Max zoom bruh...")
             return
         if ev.delta() < 0 and vl >= len(self.linked_charts._array):
-            log.trace("Min zoom bruh...")
+            log.debug("Min zoom bruh...")
             return
 
         # actual scaling factor
@@ -64,14 +64,21 @@ class ChartView(pg.ViewBox):
         # )
 
         # XXX: scroll "around" the right most element in the view
-        furthest_right_coord = self.boundingRect().topRight()
-        center = pg.Point(
-            fn.invertQTransform(
-                self.childGroup.transform()
-            ).map(furthest_right_coord)
-        )
+        # which stays "pinned" in place.
+
+        # furthest_right_coord = self.boundingRect().topRight()
+
+        # yaxis = pg.Point(
+        #     fn.invertQTransform(
+        #         self.childGroup.transform()
+        #     ).map(furthest_right_coord)
+        # )
+
+        # This seems like the most "intuitive option, a hybrdid of
+        # tws and tv styles
+        last_bar = pg.Point(rbar)
 
         self._resetTarget()
-        self.scaleBy(s, center)
+        self.scaleBy(s, last_bar)
         ev.accept()
         self.sigRangeChangedManually.emit(mask)
