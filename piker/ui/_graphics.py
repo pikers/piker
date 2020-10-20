@@ -404,7 +404,7 @@ class BarItems(pg.GraphicsObject):
     # @timeit
     def paint(self, p, opt, widget):
 
-        profiler = pg.debug.Profiler(disabled=False, delayed=False)
+        # profiler = pg.debug.Profiler(disabled=False, delayed=False)
 
         # TODO: use to avoid drawing artefacts?
         # self.prepareGeometryChange()
@@ -425,7 +425,7 @@ class BarItems(pg.GraphicsObject):
         # self._pmi.setPixmap(self.picture)
         # print(self.scene())
 
-        profiler('bars redraw:')
+        # profiler('bars redraw:')
 
     def boundingRect(self):
         # TODO: can we do rect caching to make this faster?
@@ -482,7 +482,9 @@ class BarItems(pg.GraphicsObject):
 
 
 def h_line(level: float) -> pg.InfiniteLine:
+    """Convenience routine to add a styled horizontal line to a plot.
 
+    """
     line = pg.InfiniteLine(
         movable=True,
         angle=0,

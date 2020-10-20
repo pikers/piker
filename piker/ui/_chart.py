@@ -16,8 +16,10 @@ from ._axes import (
 from ._graphics import CrossHair, BarItems, h_line
 from ._axes import YSticky
 from ._style import (
-    _xaxis_at, _min_points_to_show, hcolor,
+    hcolor,
     CHART_MARGINS,
+    _xaxis_at,
+    _min_points_to_show,
     _bars_from_right_in_follow_mode,
     _bars_to_left_in_follow_mode,
     # _font,
@@ -155,7 +157,7 @@ class LinkedSplitCharts(QtGui.QWidget):
 
     def set_split_sizes(
         self,
-        prop: float = 0.25  # proportion allocated to consumer subcharts
+        prop: float = 0.28  # proportion allocated to consumer subcharts
     ) -> None:
         """Set the proportion of space allocated for linked subcharts.
         """
@@ -306,6 +308,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self._ysticks = {}  # registry of underlying graphics
         self._vb = self.plotItem.vb
         self._static_yrange = static_yrange  # for "known y-range style"
+        self._view_mode: str = 'follow'
 
         # show only right side axes
         self.hideAxis('left')
@@ -313,9 +316,6 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # show background grid
         self.showGrid(x=True, y=True, alpha=0.4)
-
-        # don't need right?
-        # self._vb.setXRange(0, 0)
 
         # use cross-hair for cursor?
         # self.setCursor(QtCore.Qt.CrossCursor)
@@ -329,6 +329,9 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # for when the splitter(s) are resized
         self._vb.sigResized.connect(self._set_yrange)
+
+    def last_bar_in_view(self) -> bool:
+        self._array[-1]['index']
 
     def _update_contents_label(self, index: int) -> None:
         if index >= 0 and index < len(self._array):
@@ -356,6 +359,8 @@ class ChartPlotWidget(pg.PlotWidget):
     def bars_range(self) -> Tuple[int, int, int, int]:
         """Return a range tuple for the bars present in view.
         """
+        # vr = self.viewRect()
+        # l, r = int(vr.left()), int(vr.right())
         l, r = self.view_range()
         lbar = max(l, 0)
         rbar = min(r, len(self._array))
@@ -405,18 +410,42 @@ class ChartPlotWidget(pg.PlotWidget):
         self._update_contents_label(len(data) - 1)
         label.show()
 
-        # set xrange limits
-        xlast = data[-1]['index']
-
-        # show last 50 points on startup
-        self.plotItem.vb.setXRange(
-            xlast - _bars_to_left_in_follow_mode,
-            xlast + _bars_from_right_in_follow_mode
-        )
-
         self._add_sticky(name)
 
         return graphics
+
+    def default_view(
+        self,
+        index: int = -1,
+    ) -> None:
+        """Set the view box to the "default" startup view of the scene.
+
+        """
+        xlast = self._array[index]['index']
+        begin = xlast - _bars_to_left_in_follow_mode
+        end = xlast + _bars_from_right_in_follow_mode
+
+        self.plotItem.vb.setXRange(
+            min=begin,
+            max=end,
+            padding=0,
+        )
+
+    def increment_view(
+        self,
+    ) -> None:
+        """Increment the data view one step to the right thus "following"
+        the current time slot/step/bar.
+
+        """
+        l, r = self.view_range()
+        self._vb.setXRange(
+            min=l + 1,
+            max=r + 1,
+            # holy shit, wtf dude... why tf would this not be 0 by
+            # default... speechless.
+            padding=0,
+        )
 
     def draw_curve(
         self,
@@ -432,7 +461,7 @@ class ChartPlotWidget(pg.PlotWidget):
         pdi_kwargs.update(_pdi_defaults)
 
         curve = pg.PlotDataItem(
-            data,
+            data[name],
             # antialias=True,
             name=name,
             # TODO: see how this handles with custom ohlcv bars graphics
@@ -459,38 +488,18 @@ class ChartPlotWidget(pg.PlotWidget):
             label.anchor(itemPos=(1, 1), parentPos=(1, 1), offset=(0, 3))
             self._overlays[name] = curve
 
-            def update(index: int) -> None:
-                data = self._array[index][name]
-                label.setText(f"{name}: {data:.2f}")
         else:
             label.anchor(itemPos=(0, 0), parentPos=(0, 0), offset=(0, -4))
 
-            def update(index: int) -> None:
-                data = self._array[index]
-                label.setText(f"{name}: {data:.2f}")
-
-        # def update(index: int) -> None:
-        #     data = self._array[index]
-        #     label.setText(f"{name} -> {data:.2f}")
+        def update(index: int) -> None:
+            data = self._array[index][name]
+            label.setText(f"{name}: {data:.2f}")
 
         label.show()
         self.scene().addItem(label)
 
         self._labels[name] = (label, update)
         self._update_contents_label(len(data) - 1)
-
-        # set a "startup view"
-        xlast = len(data) - 1
-
-        # configure "follow mode" view on startup
-        self.plotItem.vb.setXRange(
-            xlast - _bars_to_left_in_follow_mode,
-            xlast + _bars_from_right_in_follow_mode
-        )
-
-        # TODO: we should instead implement a diff based
-        # "only update with new items" on the pg.PlotDataItem
-        curve.update_from_array = curve.setData
 
         self._add_sticky(name)
 
@@ -511,19 +520,39 @@ class ChartPlotWidget(pg.PlotWidget):
         )
         return last
 
-    def update_from_array(
+    def update_ohlc_from_array(
         self,
         name: str,
         array: np.ndarray,
         **kwargs,
     ) -> pg.GraphicsObject:
+        """Update the named internal graphics from ``array``.
+
+        """
         if name not in self._overlays:
             self._array = array
 
         graphics = self._graphics[name]
         graphics.update_from_array(array, **kwargs)
-
         return graphics
+
+    def update_curve_from_array(
+        self,
+        name: str,
+        array: np.ndarray,
+        **kwargs,
+    ) -> pg.GraphicsObject:
+        """Update the named internal graphics from ``array``.
+
+        """
+        if name not in self._overlays:
+            self._array = array
+
+        curve = self._graphics[name]
+        # TODO: we should instead implement a diff based
+        # "only update with new items" on the pg.PlotDataItem
+        curve.setData(array[name], **kwargs)
+        return curve
 
     def _set_yrange(
         self,
@@ -535,12 +564,8 @@ class ChartPlotWidget(pg.PlotWidget):
         This adds auto-scaling like zoom on the scroll wheel such
         that data always fits nicely inside the current view of the
         data set.
+
         """
-
-        # yrange
-        # if self._static_yrange is not None:
-        #     yrange = self._static_yrange
-
         if self._static_yrange is not None:
             ylow, yhigh = self._static_yrange
 
@@ -552,6 +577,7 @@ class ChartPlotWidget(pg.PlotWidget):
             # the data set up to the point where ``_min_points_to_show``
             # are left.
             view_len = r - l
+
             # TODO: logic to check if end of bars in view
             extra = view_len - _min_points_to_show
             begin = 0 - extra
@@ -673,7 +699,7 @@ async def _async_main(
             vwap_in_history = True
             chart.draw_curve(
                 name='vwap',
-                data=bars['vwap'],
+                data=bars,
                 overlay=True,
             )
 
@@ -751,6 +777,8 @@ async def chart_from_quotes(
 
     last_bars_range, last_mx, last_mn = maxmin()
 
+    chart.default_view()
+
     async for quotes in stream:
         for sym, quote in quotes.items():
             for tick in iterticks(quote, type='trade'):
@@ -761,7 +789,7 @@ async def chart_from_quotes(
                 last_price_sticky.update_from_data(*last[['index', 'close']])
 
                 # update price bar
-                chart.update_from_array(
+                chart.update_ohlc_from_array(
                     chart.name,
                     array,
                 )
@@ -778,7 +806,7 @@ async def chart_from_quotes(
 
                 if vwap_in_history:
                     # update vwap overlay line
-                    chart.update_from_array('vwap', ohlcv.array['vwap'])
+                    chart.update_curve_from_array('vwap', ohlcv.array)
 
                 # TODO:
                 # - eventually we'll want to update bid/ask labels and
@@ -847,7 +875,10 @@ async def chart_from_fsp(
 
         chart = linked_charts.add_plot(
             name=fsp_func_name,
-            array=shm.array[fsp_func_name],
+            array=shm.array,
+
+            # curve by default
+            ohlc=False,
 
             # settings passed down to ``ChartPlotWidget``
             static_yrange=(0, 100),
@@ -862,7 +893,8 @@ async def chart_from_fsp(
         last_val_sticky = chart._ysticks[chart.name]
         last_val_sticky.update_from_data(-1, value)
 
-        chart.update_from_array(chart.name, array[fsp_func_name])
+        chart.update_curve_from_array(fsp_func_name, array)
+        chart.default_view()
 
         # TODO: figure out if we can roll our own `FillToThreshold` to
         # get brush filled polygons for OS/OB conditions.
@@ -887,7 +919,7 @@ async def chart_from_fsp(
             array = shm.array
             value = array[-1][fsp_func_name]
             last_val_sticky.update_from_data(-1, value)
-            chart.update_from_array(chart.name, array[fsp_func_name])
+            chart.update_curve_from_array(fsp_func_name, array)
             # p('rendered rsi datum')
 
 
@@ -901,11 +933,12 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
     # aware of the instrument's tradable hours?
 
     price_chart = linked_charts.chart
+    price_chart.default_view()
 
     async for index in await feed.index_stream():
 
         # update chart historical bars graphics
-        price_chart.update_from_array(
+        price_chart.update_ohlc_from_array(
             price_chart.name,
             ohlcv.array,
             # When appending a new bar, in the time between the insert
@@ -922,14 +955,16 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
             # TODO: standard api for signal lookups per plot
             if name in price_chart._array.dtype.fields:
                 # should have already been incremented above
-                price_chart.update_from_array(
+                price_chart.update_curve_from_array(
                     name,
-                    price_chart._array[name],
+                    price_chart._array,
                 )
 
         for name, chart in linked_charts.subplots.items():
-            chart.update_from_array(chart.name, chart._shm.array[chart.name])
+            chart.update_curve_from_array(chart.name, chart._shm.array)
             # chart._set_yrange()
+
+        price_chart.increment_view()
 
 
 def _main(

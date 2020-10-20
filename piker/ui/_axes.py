@@ -253,7 +253,7 @@ class YSticky(YAxisLabel):
         else:
             # non-ohlc case
             index = len(a) - 1
-            last = a[-1]
+            last = a[chart.name][-1]
         self.update_from_data(
             index,
             last,
