@@ -10,7 +10,7 @@ from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QLineF
 
 # from .quantdom.utils import timeit
-from ._style import _xaxis_at, hcolor
+from ._style import _xaxis_at, hcolor, _font
 from ._axes import YAxisLabel, XAxisLabel
 
 # TODO:
@@ -197,15 +197,15 @@ class CrossHair(pg.GraphicsObject):
         # Update x if cursor changed after discretization calc
         # (this saves draw cycles on small mouse moves)
         lastx = self._lastx
-        newx = int(x)
+        ix = round(x)  # since bars are centered around index
 
-        if newx != lastx:
+        if ix != lastx:
             for plot, opts in self.graphics.items():
                 # move the vertical line to the current "center of bar"
-                opts['vl'].setX(newx + BarItems.w)
+                opts['vl'].setX(ix)
 
                 # update the chart's "contents" label
-                plot._update_contents_label(newx + 1)
+                plot._update_contents_label(ix)
 
             # update the label on the bottom of the crosshair
             self.xaxis_label.update_label(
@@ -215,7 +215,7 @@ class CrossHair(pg.GraphicsObject):
 
             # update all subscribed curve dots
             for cursor in opts.get('cursors', ()):
-                cursor.setIndex(newx + 1)
+                cursor.setIndex(ix)
 
     def boundingRect(self):
         try:
@@ -250,7 +250,7 @@ def bars_from_ohlc(
         # place the x-coord start as "middle" of the drawing range such
         # that the open arm line-graphic is at the left-most-side of
         # the indexe's range according to the view mapping.
-        index_start = index + w
+        index_start = index
 
         # high - low line
         if low != high:
@@ -265,7 +265,7 @@ def bars_from_ohlc(
         # open line
         o = QLineF(index_start - w, open, index_start, open)
         # close line
-        c = QLineF(index_start + w, close, index_start, close)
+        c = QLineF(index_start, close, index_start + w, close)
 
         # indexing here is as per the below comments
         lines[i] = (hl, o, c)
@@ -439,7 +439,7 @@ class BarItems(pg.GraphicsObject):
         body, larm, rarm = self.lines[index-1]
 
         # XXX: is there a faster way to modify this?
-        # update right arm
+        # update close line / right arm
         rarm.setLine(rarm.x1(), last, rarm.x2(), last)
 
         # update body
@@ -455,15 +455,12 @@ class BarItems(pg.GraphicsObject):
             # if the bar was flat it likely does not have
             # the index set correctly due to a rendering bug
             # see above
-            body.setLine(i + self.w, low, i + self.w, high)
+            body.setLine(i, low, i, high)
             body._flat = False
         else:
             body.setLine(body.x1(), low, body.x2(), high)
 
         self.draw_lines(just_history=False)
-
-    # be compat with ``pg.PlotCurveItem``
-    setData = update_from_array
 
     # XXX: From the customGraphicsItem.py example:
     # The only required methods are paint() and boundingRect()
@@ -566,6 +563,7 @@ def h_line(level: float) -> pg.InfiniteLine:
     default_pen = pg.mkPen(hcolor('default'))
     line.setPen(default_pen)
 
-    # os_line.label.setColor(hcolor('default_light'))
-    # os_line.label.setFont(_font)
+    if getattr(line, 'label', None):
+        line.label.setFont(_font)
+
     return line

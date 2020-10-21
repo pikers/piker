@@ -120,7 +120,7 @@ async def cascade(
         # TODO: talk to ``pyqtgraph`` core about proper way to solve this:
         # XXX: hack to get curves aligned with bars graphics: prepend
         # a copy of the first datum..
-        dst.push(history[:1])
+        # dst.push(history[:1])
 
         # check for data length mis-allignment and fill missing values
         diff = len(src.array) - len(history)
