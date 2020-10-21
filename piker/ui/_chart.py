@@ -13,7 +13,11 @@ from ._axes import (
     DynamicDateAxis,
     PriceAxis,
 )
-from ._graphics import CrossHair, BarItems, h_line
+from ._graphics import (
+    CrossHair,
+    BarItems,
+    h_line,
+)
 from ._axes import YSticky
 from ._style import (
     hcolor,
@@ -231,6 +235,7 @@ class LinkedSplitCharts(QtGui.QWidget):
             parent=self.splitter,
             axisItems={'bottom': xaxis, 'right': PriceAxis()},
             viewBox=cv,
+            cursor=self._ch,
             **cpw_kwargs,
         )
         # this name will be used to register the primary
@@ -245,14 +250,14 @@ class LinkedSplitCharts(QtGui.QWidget):
         # link chart x-axis to main quotes chart
         cpw.setXLink(self.chart)
 
+        # add to cross-hair's known plots
+        self._ch.add_plot(cpw)
+
         # draw curve graphics
         if ohlc:
             cpw.draw_ohlc(name, array)
         else:
             cpw.draw_curve(name, array)
-
-        # add to cross-hair's known plots
-        self._ch.add_plot(cpw)
 
         if not _is_main:
             # track by name
@@ -290,6 +295,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # the data view we generate graphics from
         array: np.ndarray,
         static_yrange: Optional[Tuple[float, float]] = None,
+        cursor: Optional[CrossHair] = None,
         **kwargs,
     ):
         """Configure chart display settings.
@@ -309,6 +315,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self._vb = self.plotItem.vb
         self._static_yrange = static_yrange  # for "known y-range style"
         self._view_mode: str = 'follow'
+        self._cursor = cursor  # placehold for mouse
 
         # show only right side axes
         self.hideAxis('left')
@@ -359,8 +366,6 @@ class ChartPlotWidget(pg.PlotWidget):
     def bars_range(self) -> Tuple[int, int, int, int]:
         """Return a range tuple for the bars present in view.
         """
-        # vr = self.viewRect()
-        # l, r = int(vr.left()), int(vr.right())
         l, r = self.view_range()
         lbar = max(l, 0)
         rbar = min(r, len(self._array))
@@ -502,6 +507,9 @@ class ChartPlotWidget(pg.PlotWidget):
         self._update_contents_label(len(data) - 1)
 
         self._add_sticky(name)
+
+        if self._cursor:
+            self._cursor.add_curve_cursor(self, curve)
 
         return curve
 
