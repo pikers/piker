@@ -25,8 +25,8 @@ _xaxis_at = 'bottom'
 # charting config
 CHART_MARGINS = (0, 0, 2, 2)
 _min_points_to_show = 3
-_bars_from_right_in_follow_mode = 5
-_bars_to_left_in_follow_mode = 300
+_bars_from_right_in_follow_mode = 24
+_bars_to_left_in_follow_mode = 250
 
 
 _tina_mode = False
