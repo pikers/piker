@@ -16,9 +16,48 @@ from ._axes import YAxisLabel, XAxisLabel
 # TODO:
 # - checkout pyqtgraph.PlotCurveItem.setCompositionMode
 
-_mouse_rate_limit = 60
+_mouse_rate_limit = 60  # calc current screen refresh rate?
 _debounce_delay = 1/2e3
 _ch_label_opac = 1
+
+
+class LineDot(pg.CurvePoint):
+
+    def __init__(
+        self,
+        curve: pg.PlotCurveItem,
+        index: int,
+        pos=None,
+        size: int = 2,  # in pxs
+        color: str = 'default_light',
+    ) -> None:
+        pg.CurvePoint.__init__(
+            self,
+            curve,
+            index=index,
+            pos=pos,
+            rotate=False,
+        )
+
+        # TODO: get pen from curve if not defined?
+        cdefault = hcolor(color)
+        pen = pg.mkPen(cdefault)
+        brush = pg.mkBrush(cdefault)
+
+        # presuming this is fast since it's built in?
+        dot = self.dot = QtGui.QGraphicsEllipseItem(
+            QtCore.QRectF(-size/2, -size/2, size, size)
+        )
+        # dot.translate(-size*0.5, -size*0.5)
+        dot.setPen(pen)
+        dot.setBrush(brush)
+        dot.setParentItem(self)
+
+        # keep a static size
+        self.setFlag(self.ItemIgnoresTransformations)
+
+    def paint(self, p, opt, widget):
+        p.drawPicture(0, 0, self._pic)
 
 
 class CrossHair(pg.GraphicsObject):
@@ -44,6 +83,7 @@ class CrossHair(pg.GraphicsObject):
         self.plots = []
         self.active_plot = None
         self.digits = digits
+        self._lastx = None
 
     def add_plot(
         self,
@@ -100,17 +140,32 @@ class CrossHair(pg.GraphicsObject):
             color=self.pen,
         )
 
+    def add_curve_cursor(
+        self,
+        plot: 'ChartPlotWidget',  # noqa
+        curve: 'PlotCurveItem',  # noqa
+    ) -> LineDot:
+        # if this plot contains curves add line dot "cursors" to denote
+        # the current sample under the mouse
+        cursor = LineDot(curve, index=len(plot._array))
+        plot.addItem(cursor)
+        self.graphics[plot].setdefault('cursors', []).append(cursor)
+        return cursor
+
     def mouseAction(self, action, plot):  # noqa
         if action == 'Enter':
+            self.active_plot = plot
+
             # show horiz line and y-label
             self.graphics[plot]['hl'].show()
             self.graphics[plot]['yl'].show()
-            self.active_plot = plot
+
         else:  # Leave
+            self.active_plot = None
+
             # hide horiz line and y-label
             self.graphics[plot]['hl'].hide()
             self.graphics[plot]['yl'].hide()
-            self.active_plot = None
 
     def mouseMoved(
         self,
@@ -130,26 +185,37 @@ class CrossHair(pg.GraphicsObject):
             return
 
         x, y = mouse_point.x(), mouse_point.y()
-
         plot = self.active_plot
 
+        # update y-range items
         self.graphics[plot]['hl'].setY(y)
 
         self.graphics[self.active_plot]['yl'].update_label(
             abs_pos=pos, data=y
         )
-        for plot, opts in self.graphics.items():
-            # move the vertical line to the current x
-            opts['vl'].setX(x)
 
-            # update the chart's "contents" label
-            plot._update_contents_label(int(x))
+        # Update x if cursor changed after discretization calc
+        # (this saves draw cycles on small mouse moves)
+        lastx = self._lastx
+        newx = int(x)
 
-        # update the label on the bottom of the crosshair
-        self.xaxis_label.update_label(
-            abs_pos=pos,
-            data=x
-        )
+        if newx != lastx:
+            for plot, opts in self.graphics.items():
+                # move the vertical line to the current "center of bar"
+                opts['vl'].setX(newx + BarItems.w)
+
+                # update the chart's "contents" label
+                plot._update_contents_label(newx + 1)
+
+            # update the label on the bottom of the crosshair
+            self.xaxis_label.update_label(
+                abs_pos=pos,
+                data=x
+            )
+
+            # update all subscribed curve dots
+            for cursor in opts.get('cursors', ()):
+                cursor.setIndex(newx + 1)
 
     def boundingRect(self):
         try:
