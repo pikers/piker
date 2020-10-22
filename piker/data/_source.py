@@ -1,7 +1,7 @@
 """
 Numpy data source machinery.
 """
-import math
+import decimal
 from dataclasses import dataclass
 
 import numpy as np
@@ -33,11 +33,18 @@ tf_in_1m = {
 }
 
 
+def float_digits(
+    value: float,
+) -> int:
+    return int(-decimal.Decimal(str(value)).as_tuple().exponent)
+
+
 def ohlc_zeros(length: int) -> np.ndarray:
     """Construct an OHLC field formatted structarray.
 
     For "why a structarray" see here: https://stackoverflow.com/a/52443038
     Bottom line, they're faster then ``np.recarray``.
+
     """
     return np.zeros(length, dtype=base_ohlc_dtype)
 
@@ -46,6 +53,7 @@ def ohlc_zeros(length: int) -> np.ndarray:
 class Symbol:
     """I guess this is some kinda container thing for dealing with
     all the different meta-data formats from brokers?
+
     """
     key: str = ''
     min_tick: float = 0.01
@@ -54,8 +62,9 @@ class Symbol:
     def digits(self) -> int:
         """Return the trailing number of digits specified by the
         min tick size for the instrument.
+
         """
-        return int(math.log(self.min_tick, 0.1))
+        return float_digits(self.min_tick)
 
 
 def from_df(
@@ -64,6 +73,7 @@ def from_df(
     default_tf=None
 ) -> np.recarray:
     """Convert OHLC formatted ``pandas.DataFrame`` to ``numpy.recarray``.
+
     """
     df.reset_index(inplace=True)
 
@@ -103,6 +113,7 @@ def from_df(
 
 def _nan_to_closest_num(array: np.ndarray):
     """Return interpolated values instead of NaN.
+
     """
     for col in ['open', 'high', 'low', 'close']:
         mask = np.isnan(array[col])
