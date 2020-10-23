@@ -13,10 +13,8 @@ from PyQt5.QtCore import QLineF
 from ._style import _xaxis_at, hcolor, _font
 from ._axes import YAxisLabel, XAxisLabel
 
-# TODO:
-# - checkout pyqtgraph.PlotCurveItem.setCompositionMode
 
-_mouse_rate_limit = 60  # calc current screen refresh rate?
+_mouse_rate_limit = 40  # calc current screen refresh rate?
 _debounce_delay = 1/2e3
 _ch_label_opac = 1
 
@@ -48,6 +46,7 @@ class LineDot(pg.CurvePoint):
         dot = self.dot = QtGui.QGraphicsEllipseItem(
             QtCore.QRectF(-size/2, -size/2, size, size)
         )
+        # if we needed transformable dot?
         # dot.translate(-size*0.5, -size*0.5)
         dot.setPen(pen)
         dot.setBrush(brush)
@@ -55,9 +54,6 @@ class LineDot(pg.CurvePoint):
 
         # keep a static size
         self.setFlag(self.ItemIgnoresTransformations)
-
-    def paint(self, p, opt, widget):
-        p.drawPicture(0, 0, self._pic)
 
 
 class CrossHair(pg.GraphicsObject):
@@ -234,12 +230,14 @@ def _mk_lines_array(data: List, size: int) -> np.ndarray:
     )
 
 
+# TODO: `numba` this?
 def bars_from_ohlc(
     data: np.ndarray,
     w: float,
     start: int = 0,
 ) -> np.ndarray:
     """Generate an array of lines objects from input ohlc data.
+
     """
     lines = _mk_lines_array(data, data.shape[0])
 
@@ -247,25 +245,22 @@ def bars_from_ohlc(
         open, high, low, close, index = q[
             ['open', 'high', 'low', 'close', 'index']]
 
-        # place the x-coord start as "middle" of the drawing range such
-        # that the open arm line-graphic is at the left-most-side of
-        # the indexe's range according to the view mapping.
-        index_start = index
-
         # high - low line
         if low != high:
-            # hl = QLineF(index, low, index, high)
-            hl = QLineF(index_start, low, index_start, high)
+            hl = QLineF(index, low, index, high)
         else:
             # XXX: if we don't do it renders a weird rectangle?
             # see below too for handling this later...
-            hl = QLineF(low, low, low, low)
-            hl._flat = True
+            hl = None
+
+        # NOTE: place the x-coord start as "middle" of the drawing range such
+        # that the open arm line-graphic is at the left-most-side of
+        # the indexe's range according to the view mapping.
 
         # open line
-        o = QLineF(index_start - w, open, index_start, open)
+        o = QLineF(index - w, open, index, open)
         # close line
-        c = QLineF(index_start, close, index_start + w, close)
+        c = QLineF(index, close, index + w, close)
 
         # indexing here is as per the below comments
         lines[i] = (hl, o, c)
@@ -274,6 +269,7 @@ def bars_from_ohlc(
         # array and avoiding the call to `np.ravel()` below?
         # lines[3*i:3*i+3] = (hl, o, c)
 
+        # XXX: legacy code from candles custom graphics:
         # if not _tina_mode:
         # else _tina_mode:
         #     self.lines = lines = np.concatenate(
@@ -379,7 +375,11 @@ class BarItems(pg.GraphicsObject):
 
         # use 2d array of lines objects, see conlusion on speed:
         # https://stackoverflow.com/a/60089929
-        to_draw = np.ravel(self.lines[istart:iend])
+        flat = np.ravel(self.lines[istart:iend])
+
+        # TODO: do this with numba for speed gain:
+        # https://stackoverflow.com/questions/58422690/filtering-a-numpy-array-what-is-the-best-approach
+        to_draw = flat[np.where(flat != None)]  # noqa
 
         # pre-computing a QPicture object allows paint() to run much
         # more quickly, rather than re-drawing the shapes every time.
@@ -435,35 +435,27 @@ class BarItems(pg.GraphicsObject):
                 return
 
         # current bar update
-        i, open, last, = array[-1][['index', 'open', 'close']]
-        body, larm, rarm = self.lines[index-1]
+        i, high, low, last, = array[-1][['index', 'high', 'low', 'close']]
+        assert i == self.index-1
+        body, larm, rarm = self.lines[i]
 
         # XXX: is there a faster way to modify this?
         # update close line / right arm
         rarm.setLine(rarm.x1(), last, rarm.x2(), last)
 
-        # update body
-        high = body.y2()
-        low = body.y1()
-        if last < low:
-            low = last
-
-        if last > high:
-            high = last
-
-        if getattr(body, '_flat', None) and low != high:
-            # if the bar was flat it likely does not have
-            # the index set correctly due to a rendering bug
-            # see above
-            body.setLine(i, low, i, high)
-            body._flat = False
+        if low != high:
+            if body is None:
+                body = self.lines[index-1][0] = QLineF(i, low, i, high)
+            else:
+                # update body
+                body.setLine(i, low, i, high)
         else:
-            body.setLine(body.x1(), low, body.x2(), high)
+            # XXX: high == low -> remove any HL line to avoid render bug
+            if body is not None:
+                body = self.lines[index-1][0] = None
 
         self.draw_lines(just_history=False)
 
-    # XXX: From the customGraphicsItem.py example:
-    # The only required methods are paint() and boundingRect()
     # @timeit
     def paint(self, p, opt, widget):
 
