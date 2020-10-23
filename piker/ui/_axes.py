@@ -3,14 +3,13 @@ Chart axes graphics and behavior.
 """
 from typing import List
 
-
-# import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QPointF
 
 from ._style import _font, hcolor
+from ..data._source import float_digits
 
 
 class PriceAxis(pg.AxisItem):
@@ -21,7 +20,7 @@ class PriceAxis(pg.AxisItem):
         super().__init__(orientation='right')
         self.setTickFont(_font)
         self.setStyle(**{
-            'textFillLimits': [(0, 0.5)],
+            'textFillLimits': [(0, 0.666)],
             # 'tickTextWidth': 100,
             # 'tickTextHeight': 20,
             'tickFont': _font,
@@ -35,11 +34,15 @@ class PriceAxis(pg.AxisItem):
 
     # XXX: drop for now since it just eats up h space
 
-    # def tickStrings(self, vals, scale, spacing):
-    #     digts = max(0, np.ceil(-np.log10(spacing * scale)))
-    #     return [
-    #         ('{:<8,.%df}' % digts).format(v).replace(',', ' ') for v in vals
-    #     ]
+    def tickStrings(self, vals, scale, spacing):
+        digits = float_digits(spacing * scale)
+
+        # print(f'vals: {vals}\nscale: {scale}\nspacing: {spacing}')
+        # print(f'digits: {digits}')
+
+        return [
+            ('{:,.%df}' % digits).format(v).replace(',', ' ') for v in vals
+        ]
 
 
 class DynamicDateAxis(pg.AxisItem):
@@ -83,7 +86,7 @@ class DynamicDateAxis(pg.AxisItem):
             map(int, filter(lambda i: i < bars_len, indexes))
         )]
         # TODO: **don't** have this hard coded shift to EST
-        dts = pd.to_datetime(epochs, unit='s') #- 4*pd.offsets.Hour()
+        dts = pd.to_datetime(epochs, unit='s')  # - 4*pd.offsets.Hour()
         return dts.strftime(self.tick_tpl[delay])
 
     def tickStrings(self, values: List[float], scale, spacing):
@@ -245,7 +248,6 @@ class YSticky(YAxisLabel):
         # TODO: add an `.index` to the array data-buffer layer
         # and make this way less shitty...
         chart = self._chart
-        name = chart.name
         a = chart._array
         fields = a.dtype.fields
         if fields and 'close' in fields:
