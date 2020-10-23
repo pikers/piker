@@ -496,6 +496,10 @@ class ChartPlotWidget(pg.PlotWidget):
         else:
             label.anchor(itemPos=(0, 0), parentPos=(0, 0), offset=(0, -4))
 
+            # TODO: something instead of stickies for overlays
+            # (we need something that avoids clutter on x-axis).
+            self._add_sticky(name)
+
         def update(index: int) -> None:
             data = self._array[index][name]
             label.setText(f"{name}: {data:.2f}")
@@ -506,7 +510,6 @@ class ChartPlotWidget(pg.PlotWidget):
         self._labels[name] = (label, update)
         self._update_contents_label(len(data) - 1)
 
-        self._add_sticky(name)
 
         if self._cursor:
             self._cursor.add_curve_cursor(self, curve)
@@ -642,7 +645,7 @@ class ChartPlotWidget(pg.PlotWidget):
                 # on startup labels might not yet be rendered
                 top, bottom = (vb.mapToView(tl).y(), vb.mapToView(br).y())
 
-                # XXX: hack, how do we compute exactly?
+                # XXX: magic hack, how do we compute exactly?
                 label_h = (top - bottom) * 0.42
 
             except np.linalg.LinAlgError:
@@ -946,27 +949,25 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
     async for index in await feed.index_stream():
 
         # update chart historical bars graphics
+
+        # When appending a new bar, in the time between the insert
+        # here and the Qt render call the underlying price data may
+        # have already been updated, thus make sure to also update
+        # the last bar if necessary on this render cycle which is
+        # why we **don't** set: just_history=True
         price_chart.update_ohlc_from_array(
-            price_chart.name,
-            ohlcv.array,
-            # When appending a new bar, in the time between the insert
-            # here and the Qt render call the underlying price data may
-            # have already been updated, thus make sure to also update
-            # the last bar if necessary on this render cycle which is
-            # why we **don't** set:
-            # just_history=True
-        )
+            price_chart.name, ohlcv.array, just_history=True)
+
         # resize view
         # price_chart._set_yrange()
 
         for name, curve in price_chart._overlays.items():
+
             # TODO: standard api for signal lookups per plot
             if name in price_chart._array.dtype.fields:
+
                 # should have already been incremented above
-                price_chart.update_curve_from_array(
-                    name,
-                    price_chart._array,
-                )
+                price_chart.update_curve_from_array(name, price_chart._array)
 
         for name, chart in linked_charts.subplots.items():
             chart.update_curve_from_array(chart.name, chart._shm.array)
