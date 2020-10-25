@@ -95,17 +95,13 @@ class DynamicDateAxis(pg.AxisItem):
 
 class AxisLabel(pg.GraphicsObject):
 
-    # bg_color = pg.mkColor('#a9a9a9')
-    bg_color = pg.mkColor(hcolor('pikers'))
-    fg_color = pg.mkColor(hcolor('black'))
-
     def __init__(
         self,
-        parent=None,
-        digits=2,
-        color=None,
-        opacity=1,
-        **kwargs
+        parent: pg.GraphicsObject,
+        digits: int = 2,
+        bg_color: str = 'bracket',
+        fg_color: str = 'black',
+        opacity: int = 1,
     ):
         super().__init__(parent)
         self.parent = parent
@@ -113,33 +109,31 @@ class AxisLabel(pg.GraphicsObject):
         self.label_str = ''
         self.digits = digits
 
-        # some weird color convertion logic?
-        if isinstance(color, QtGui.QPen):
-            self.bg_color = color.color()
-            self.fg_color = pg.mkColor(hcolor('black'))
-        elif isinstance(color, list):
-            self.bg_color = {'>0': color[0].color(), '<0': color[1].color()}
-            self.fg_color = pg.mkColor(hcolor('white'))
+        self.bg_color = pg.mkColor(hcolor(bg_color))
+        self.fg_color = pg.mkColor(hcolor(fg_color))
+
+        self.pic = QtGui.QPicture()
+        p = QtGui.QPainter(self.pic)
+
+        self.rect = QtCore.QRectF(0, 0, 40, 11)
+
+        p.setPen(self.fg_color)
+        p.setOpacity(self.opacity)
+        p.fillRect(self.rect, self.bg_color)
+
+        # this adds a nice black outline around the label for some odd
+        # reason; ok by us
+        p.drawRect(self.rect)
 
         self.setFlag(self.ItemIgnoresTransformations)
 
     def paint(self, p, option, widget):
-        p.setRenderHint(p.TextAntialiasing, True)
-        p.setPen(self.fg_color)
-        if self.label_str:
-            if not isinstance(self.bg_color, dict):
-                bg_color = self.bg_color
-            else:
-                if int(self.label_str.replace(' ', '')) > 0:
-                    bg_color = self.bg_color['>0']
-                else:
-                    bg_color = self.bg_color['<0']
-            p.setOpacity(self.opacity)
-            p.fillRect(option.rect, bg_color)
-            p.setOpacity(1)
-            p.setFont(_font)
+        p.drawPicture(0, 0, self.pic)
 
-        p.drawText(option.rect, self.text_flags, self.label_str)
+        if self.label_str:
+            p.setFont(_font)
+            p.setPen(self.fg_color)
+            p.drawText(self.rect, self.text_flags, self.label_str)
 
     # uggggghhhh
 
@@ -170,22 +164,21 @@ class XAxisLabel(AxisLabel):
         QtCore.Qt.TextDontClip
         | QtCore.Qt.AlignCenter
         # | QtCore.Qt.AlignTop
-        | QtCore.Qt.AlignVCenter
+        # | QtCore.Qt.AlignVCenter
         # | QtCore.Qt.AlignHCenter
     )
-    # text_flags = _common_text_flags
 
     def boundingRect(self):  # noqa
         # TODO: we need to get the parent axe's dimensions transformed
         # to abs coords to be 100% correct here:
         # self.parent.boundingRect()
-        return QtCore.QRectF(0, 2, 40, 10)
+        return QtCore.QRectF(0, 0, 40, 11)
 
     def update_label(
         self,
         abs_pos: QPointF,  # scene coords
         data: float,  # data for text
-        offset: int = 0  # if have margins, k?
+        offset: int = 1  # if have margins, k?
     ) -> None:
         timestrs = self.parent._indexes_to_timestrs([int(data)])
         if not timestrs.any():
@@ -198,7 +191,6 @@ class XAxisLabel(AxisLabel):
 
 class YAxisLabel(AxisLabel):
 
-    # text_flags = _common_text_flags
     text_flags = (
         QtCore.Qt.AlignLeft
         | QtCore.Qt.TextDontClip
@@ -210,13 +202,13 @@ class YAxisLabel(AxisLabel):
         return ('{: ,.%df}' % self.digits).format(tick_pos).replace(',', ' ')
 
     def boundingRect(self):  # noqa
-        return QtCore.QRectF(0, 0, 50, 11)
+        return QtCore.QRectF(0, 0, 50, 10)
 
     def update_label(
         self,
         abs_pos: QPointF,  # scene coords
         data: float,  # data for text
-        offset: int = 0  # if have margins, k?
+        offset: int = 1  # if have margins, k?
     ) -> None:
         self.label_str = self.tick_to_string(data)
         height = self.boundingRect().height()
