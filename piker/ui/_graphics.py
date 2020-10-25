@@ -7,14 +7,14 @@ from typing import List
 import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
-from PyQt5.QtCore import QLineF
+from PyQt5.QtCore import QLineF, QPointF
 
 # from .quantdom.utils import timeit
 from ._style import _xaxis_at, hcolor, _font
 from ._axes import YAxisLabel, XAxisLabel
 
 
-_mouse_rate_limit = 40  # calc current screen refresh rate?
+_mouse_rate_limit = 60  # calc current screen refresh rate?
 _debounce_delay = 1/2e3
 _ch_label_opac = 1
 
@@ -89,13 +89,17 @@ class CrossHair(pg.GraphicsObject):
         # add ``pg.graphicsItems.InfiniteLine``s
         # vertical and horizonal lines and a y-axis label
         vl = plot.addLine(x=0, pen=self.lines_pen, movable=False)
+
         hl = plot.addLine(y=0, pen=self.lines_pen, movable=False)
+        hl.hide()
+
         yl = YAxisLabel(
             parent=plot.getAxis('right'),
             digits=digits or self.digits,
             opacity=_ch_label_opac,
-            color=self.pen,
+            bg_color='default',
         )
+        yl.hide()  # on startup if mouse is off screen
 
         # TODO: checkout what ``.sigDelayed`` can be used for
         # (emitted once a sufficient delay occurs in mouse movement)
@@ -133,8 +137,10 @@ class CrossHair(pg.GraphicsObject):
         self.xaxis_label = XAxisLabel(
             parent=self.plots[plot_index].getAxis('bottom'),
             opacity=_ch_label_opac,
-            color=self.pen,
+            bg_color='default',
         )
+        # place label off-screen during startup
+        self.xaxis_label.setPos(self.plots[0].mapFromView(QPointF(0, 0)))
 
     def add_curve_cursor(
         self,
@@ -197,21 +203,30 @@ class CrossHair(pg.GraphicsObject):
 
         if ix != lastx:
             for plot, opts in self.graphics.items():
+
                 # move the vertical line to the current "center of bar"
                 opts['vl'].setX(ix)
 
                 # update the chart's "contents" label
                 plot._update_contents_label(ix)
 
+                # update all subscribed curve dots
+                for cursor in opts.get('cursors', ()):
+                    cursor.setIndex(ix)
+
             # update the label on the bottom of the crosshair
             self.xaxis_label.update_label(
-                abs_pos=pos,
-                data=x
+
+                # XXX: requires:
+                # https://github.com/pyqtgraph/pyqtgraph/pull/1418
+                # otherwise gobbles tons of CPU..
+
+                # map back to abs (label-local) coordinates
+                abs_pos=plot.mapFromView(QPointF(ix, y)),
+                data=x,
             )
 
-            # update all subscribed curve dots
-            for cursor in opts.get('cursors', ()):
-                cursor.setIndex(ix)
+        self._lastx = ix
 
     def boundingRect(self):
         try:
@@ -300,7 +315,7 @@ class BarItems(pg.GraphicsObject):
 
     # 0.5 is no overlap between arms, 1.0 is full overlap
     w: float = 0.43
-    bars_pen = pg.mkPen(hcolor('pikers'))
+    bars_pen = pg.mkPen(hcolor('bracket'))
 
     # XXX: tina mode, see below
     # bull_brush = pg.mkPen('#00cc00')
