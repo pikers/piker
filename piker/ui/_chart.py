@@ -510,7 +510,6 @@ class ChartPlotWidget(pg.PlotWidget):
         self._labels[name] = (label, update)
         self._update_contents_label(len(data) - 1)
 
-
         if self._cursor:
             self._cursor.add_curve_cursor(self, curve)
 
@@ -525,9 +524,9 @@ class ChartPlotWidget(pg.PlotWidget):
         last = self._ysticks[name] = YSticky(
             chart=self,
             parent=self.getAxis('right'),
+            # TODO: pass this from symbol data
             # digits=0,
             opacity=1,
-            color=pg.mkPen(hcolor('pikers'))
         )
         return last
 
