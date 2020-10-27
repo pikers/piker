@@ -1,7 +1,7 @@
 """
 Chart axes graphics and behavior.
 """
-from typing import List
+from typing import List, Tuple
 
 import pandas as pd
 import pyqtgraph as pg
@@ -14,12 +14,19 @@ from ..data._source import float_digits
 _axis_pen = pg.mkPen(hcolor('bracket'))
 
 
-class PriceAxis(pg.AxisItem):
+class Axis(pg.AxisItem):
 
     def __init__(
         self,
+        linked_charts,
+        typical_max_str: str = '100 000.00',
+        **kwargs
     ) -> None:
-        super().__init__(orientation='right')
+
+        self.linked_charts = linked_charts
+
+        super().__init__(**kwargs)
+
         self.setTickFont(_font)
         self.setStyle(**{
             'textFillLimits': [(0, 0.666)],
@@ -29,13 +36,31 @@ class PriceAxis(pg.AxisItem):
             # 'tickTextWidth': 40,
             # 'autoExpandTextSpace': True,
             # 'maxTickLength': -20,
-            # 'stopAxisAtTick': (True, True),  # doesn't work well on price
+
+            # doesn't work well on price?
+            # 'stopAxisAtTick': (True, True),
         })
         # self.setLabel(**{'font-size': '10pt'})
+
         self.setTickFont(_font)
         self.setPen(_axis_pen)
+        self.typical_br = _font._fm.boundingRect(typical_max_str)
 
-        self.setWidth(40)
+        # size the pertinent axis dimension to a "typical value"
+        self.resize()
+
+
+class PriceAxis(Axis):
+
+    def __init__(
+        self,
+        *args,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, orientation='right', **kwargs)
+
+    def resize(self) -> None:
+        self.setWidth(self.typical_br.width())
 
     # XXX: drop for now since it just eats up h space
 
@@ -50,7 +75,8 @@ class PriceAxis(pg.AxisItem):
         ]
 
 
-class DynamicDateAxis(pg.AxisItem):
+class DynamicDateAxis(Axis):
+
     # time formats mapped by seconds between bars
     tick_tpl = {
         60*60*24: '%Y-%b-%d',
@@ -59,24 +85,8 @@ class DynamicDateAxis(pg.AxisItem):
         5: '%H:%M:%S',
     }
 
-    def __init__(
-        self,
-        linked_charts,
-        *args,
-        **kwargs
-    ) -> None:
-        super().__init__(*args, **kwargs)
-        self.linked_charts = linked_charts
-        self.setTickFont(_font)
-        self.setPen(_axis_pen)
-
-        # default styling
-        self.setStyle(**{
-            # tickTextOffset=4,
-            'textFillLimits': [(0, 0.666)],
-            'tickFont': _font,
-        })
-        self.setHeight(11)
+    def resize(self) -> None:
+        self.setHeight(self.typical_br.height() + 3)
 
     def _indexes_to_timestrs(
         self,
@@ -107,7 +117,7 @@ class AxisLabel(pg.GraphicsObject):
 
     def __init__(
         self,
-        parent: pg.GraphicsObject,
+        parent: Axis,
         digits: int = 2,
         bg_color: str = 'bracket',
         fg_color: str = 'black',
@@ -133,19 +143,6 @@ class AxisLabel(pg.GraphicsObject):
 
         self.setFlag(self.ItemIgnoresTransformations)
 
-    def _size_br_from_str(self, value: str) -> None:
-        """Do our best to render the bounding rect to a set margin
-        around provided string contents.
-
-        """
-        txt_br = self._font._fm.boundingRect(value)
-        h, w = txt_br.height(), txt_br.width()
-        self.rect = QtCore.QRectF(
-            0, 0,
-            w + self._w_margin,
-            h + self._h_margin
-        )
-
     def paint(self, p, option, widget):
         p.drawPicture(0, 0, self.pic)
 
@@ -167,15 +164,19 @@ class AxisLabel(pg.GraphicsObject):
     def boundingRect(self):  # noqa
         return self.rect or QtCore.QRectF()
 
-    # uggggghhhh
+    def _size_br_from_str(self, value: str) -> None:
+        """Do our best to render the bounding rect to a set margin
+        around provided string contents.
 
-    def tick_to_string(self, tick_pos):
-        raise NotImplementedError()
-
-    def update_label(self, evt_post, point_view):
-        raise NotImplementedError()
-
-    # end uggggghhhh
+        """
+        txt_br = self._font._fm.boundingRect(value)
+        txt_h, txt_w = txt_br.height(), txt_br.width()
+        h, w = self.size_hint()
+        self.rect = QtCore.QRectF(
+            0, 0,
+            (w or txt_w) + self._w_margin,
+            (h or txt_h) + self._h_margin,
+        )
 
 
 # _common_text_flags = (
@@ -190,6 +191,7 @@ class AxisLabel(pg.GraphicsObject):
 class XAxisLabel(AxisLabel):
 
     _w_margin = 8
+    _h_margin = 0
 
     text_flags = (
         QtCore.Qt.TextDontClip
@@ -199,6 +201,10 @@ class XAxisLabel(AxisLabel):
         # | QtCore.Qt.AlignHCenter
     )
 
+    def size_hint(self) -> Tuple[float, float]:
+        # size to parent axis height
+        return self.parent.height(), None
+
     def update_label(
         self,
         abs_pos: QPointF,  # scene coords
@@ -206,8 +212,10 @@ class XAxisLabel(AxisLabel):
         offset: int = 1  # if have margins, k?
     ) -> None:
         timestrs = self.parent._indexes_to_timestrs([int(data)])
+
         if not timestrs.any():
             return
+
         self.label_str = timestrs[0]
         width = self.boundingRect().width()
         new_pos = QPointF(abs_pos.x() - width / 2 - offset, 0)
@@ -221,6 +229,10 @@ class YAxisLabel(AxisLabel):
         | QtCore.Qt.TextDontClip
         | QtCore.Qt.AlignVCenter
     )
+
+    def size_hint(self) -> Tuple[float, float]:
+        # size to parent axis width
+        return None, self.parent.width()
 
     def tick_to_string(self, tick_pos):
         # WTF IS THIS FORMAT?
