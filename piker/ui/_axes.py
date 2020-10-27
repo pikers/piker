@@ -11,6 +11,8 @@ from PyQt5.QtCore import QPointF
 from ._style import _font, hcolor
 from ..data._source import float_digits
 
+_axis_pen = pg.mkPen(hcolor('bracket'))
+
 
 class PriceAxis(pg.AxisItem):
 
@@ -21,15 +23,18 @@ class PriceAxis(pg.AxisItem):
         self.setTickFont(_font)
         self.setStyle(**{
             'textFillLimits': [(0, 0.666)],
+            'tickFont': _font,
             # 'tickTextWidth': 100,
             # 'tickTextHeight': 20,
-            'tickFont': _font,
             # 'tickTextWidth': 40,
             # 'autoExpandTextSpace': True,
             # 'maxTickLength': -20,
             # 'stopAxisAtTick': (True, True),  # doesn't work well on price
         })
         # self.setLabel(**{'font-size': '10pt'})
+        self.setTickFont(_font)
+        self.setPen(_axis_pen)
+
         self.setWidth(40)
 
     # XXX: drop for now since it just eats up h space
@@ -63,11 +68,12 @@ class DynamicDateAxis(pg.AxisItem):
         super().__init__(*args, **kwargs)
         self.linked_charts = linked_charts
         self.setTickFont(_font)
+        self.setPen(_axis_pen)
 
         # default styling
         self.setStyle(**{
             # tickTextOffset=4,
-            'textFillLimits': [(0, 0.70)],
+            'textFillLimits': [(0, 0.666)],
             'tickFont': _font,
         })
         self.setHeight(11)
@@ -95,6 +101,10 @@ class DynamicDateAxis(pg.AxisItem):
 
 class AxisLabel(pg.GraphicsObject):
 
+    _font = _font
+    _w_margin = 0
+    _h_margin = 3
+
     def __init__(
         self,
         parent: pg.GraphicsObject,
@@ -108,6 +118,7 @@ class AxisLabel(pg.GraphicsObject):
         self.opacity = opacity
         self.label_str = ''
         self.digits = digits
+        self._txt_br: QtCore.QRect = None
 
         self.bg_color = pg.mkColor(hcolor(bg_color))
         self.fg_color = pg.mkColor(hcolor(fg_color))
@@ -115,32 +126,50 @@ class AxisLabel(pg.GraphicsObject):
         self.pic = QtGui.QPicture()
         p = QtGui.QPainter(self.pic)
 
-        self.rect = QtCore.QRectF(0, 0, 40, 11)
+        self.rect = None
 
         p.setPen(self.fg_color)
         p.setOpacity(self.opacity)
-        p.fillRect(self.rect, self.bg_color)
-
-        # this adds a nice black outline around the label for some odd
-        # reason; ok by us
-        p.drawRect(self.rect)
 
         self.setFlag(self.ItemIgnoresTransformations)
+
+    def _size_br_from_str(self, value: str) -> None:
+        """Do our best to render the bounding rect to a set margin
+        around provided string contents.
+
+        """
+        txt_br = self._font._fm.boundingRect(value)
+        h, w = txt_br.height(), txt_br.width()
+        self.rect = QtCore.QRectF(
+            0, 0,
+            w + self._w_margin,
+            h + self._h_margin
+        )
 
     def paint(self, p, option, widget):
         p.drawPicture(0, 0, self.pic)
 
         if self.label_str:
+
+            if not self.rect:
+                self._size_br_from_str(self.label_str)
+
             p.setFont(_font)
             p.setPen(self.fg_color)
-            p.drawText(self.rect, self.text_flags, self.label_str)
+            p.fillRect(self.rect, self.bg_color)
+
+            # this adds a nice black outline around the label for some odd
+            # reason; ok by us
+            p.drawRect(self.rect)
+
+            p.drawText(option.rect, self.text_flags, self.label_str)
+
+    def boundingRect(self):  # noqa
+        return self.rect or QtCore.QRectF()
 
     # uggggghhhh
 
     def tick_to_string(self, tick_pos):
-        raise NotImplementedError()
-
-    def boundingRect(self):  # noqa
         raise NotImplementedError()
 
     def update_label(self, evt_post, point_view):
@@ -160,6 +189,8 @@ class AxisLabel(pg.GraphicsObject):
 
 class XAxisLabel(AxisLabel):
 
+    _w_margin = 8
+
     text_flags = (
         QtCore.Qt.TextDontClip
         | QtCore.Qt.AlignCenter
@@ -167,12 +198,6 @@ class XAxisLabel(AxisLabel):
         # | QtCore.Qt.AlignVCenter
         # | QtCore.Qt.AlignHCenter
     )
-
-    def boundingRect(self):  # noqa
-        # TODO: we need to get the parent axe's dimensions transformed
-        # to abs coords to be 100% correct here:
-        # self.parent.boundingRect()
-        return QtCore.QRectF(0, 0, 40, 11)
 
     def update_label(
         self,
@@ -201,9 +226,6 @@ class YAxisLabel(AxisLabel):
         # WTF IS THIS FORMAT?
         return ('{: ,.%df}' % self.digits).format(tick_pos).replace(',', ' ')
 
-    def boundingRect(self):  # noqa
-        return QtCore.QRectF(0, 0, 50, 10)
-
     def update_label(
         self,
         abs_pos: QPointF,  # scene coords
@@ -225,15 +247,10 @@ class YSticky(YAxisLabel):
         *args,
         **kwargs
     ) -> None:
-        super().__init__(*args, **kwargs)
-        self._chart = chart
 
-        # XXX: not sure why this wouldn't work with a proxy?
-        # pg.SignalProxy(
-        #     delay=0,
-        #     rateLimit=60,
-        #     slot=last.update_on_resize,
-        # )
+        super().__init__(*args, **kwargs)
+
+        self._chart = chart
         chart.sigRangeChanged.connect(self.update_on_resize)
 
     def update_on_resize(self, vr, r):
