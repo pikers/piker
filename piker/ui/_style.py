@@ -5,19 +5,54 @@ import pyqtgraph as pg
 from PyQt5 import QtGui
 from qdarkstyle.palette import DarkPalette
 
+from ..log import get_logger
+
+log = get_logger(__name__)
 
 # chart-wide font
-_font = QtGui.QFont("Hack")
+# font size 6px / 53 dpi (3x scaled down on 4k hidpi)
+_font_inches_we_like = 6 / 53
+
 # use pixel size to be cross-resolution compatible?
-_font.setPixelSize(6)
+_font = QtGui.QFont("Hack")
+_font.setPixelSize(6)  # default
 
-# TODO: use QScreen to determine the same physical font size
-# on screen despite different displays?
-# PyQt docs: https://doc.qt.io/qtforpython/PySide2/QtGui/QScreen.html
-#   - supposedly it's ``from QtGui import QScreen``
-# Qt forums: https://forum.qt.io/topic/43625/point-sizes-are-they-reliable/4
+# _physical_font_height_in = 1/6  # inches
+_font._fm = QtGui.QFontMetrics(_font)
 
-_i3_rgba = QtGui.QColor.fromRgbF(*[0.14]*3 + [1])
+# TODO: re-compute font size when main widget switches screens?
+# https://forum.qt.io/topic/54136/how-do-i-get-the-qscreen-my-widget-is-on-qapplication-desktop-screen-returns-a-qwidget-and-qobject_cast-qscreen-returns-null/3
+
+
+def configure_font_to_dpi(screen: QtGui.QScreen):
+    """Set an appropriately sized font size depending on the screen DPI.
+
+    If we end up needing to generalize this more here are some resources:
+
+    - https://stackoverflow.com/questions/42141354/convert-pixel-size-to-point-size-for-fonts-on-multiple-platforms
+    - https://stackoverflow.com/questions/25761556/qt5-font-rendering-different-on-various-platforms/25929628#25929628
+    - https://doc.qt.io/qt-5/highdpi.html
+    - https://stackoverflow.com/questions/20464814/changing-dpi-scaling-size-of-display-make-qt-applications-font-size-get-rendere
+    - https://stackoverflow.com/a/20465247
+    - https://doc.qt.io/archives/qt-4.8/qfontmetrics.html#width
+    - https://forum.qt.io/topic/54136/how-do-i-get-the-qscreen-my-widget-is-on-qapplication-desktop-screen-returns-a-qwidget-and-qobject_cast-qscreen-returns-null/3
+    - https://forum.qt.io/topic/43625/point-sizes-are-they-reliable/4
+
+    Also, see the script in ``snippets/qt_screen_info.py``.
+
+    """
+    dpi = screen.physicalDotsPerInch()
+    font_size = round(_font_inches_we_like * dpi)
+    log.info(
+        f"\nscreen:{screen.name()} with DPI: {dpi}"
+        f"\nbest font size is {font_size}\n"
+    )
+    global _font
+    _font.setPixelSize(font_size)
+    return _font
+
+
+# _i3_rgba = QtGui.QColor.fromRgbF(*[0.14]*3 + [1])
 
 # splitter widget config
 _xaxis_at = 'bottom'

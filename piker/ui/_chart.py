@@ -36,7 +36,7 @@ from ..data import (
     maybe_open_shm_array,
 )
 from ..log import get_logger
-from ._exec import run_qtractor
+from ._exec import run_qtractor, current_screen
 from ._interaction import ChartView
 from .. import fsp
 
@@ -233,7 +233,10 @@ class LinkedSplitCharts(QtGui.QWidget):
         cpw = ChartPlotWidget(
             array=array,
             parent=self.splitter,
-            axisItems={'bottom': xaxis, 'right': PriceAxis()},
+            axisItems={
+                'bottom': xaxis,
+                'right': PriceAxis(linked_charts=self)
+            },
             viewBox=cv,
             cursor=self._ch,
             **cpw_kwargs,
@@ -687,6 +690,21 @@ async def _async_main(
     the widgets ``dict``.
     """
     chart_app = widgets['main']
+
+    screen = current_screen()
+
+    from ._style import configure_font_to_dpi
+    print(
+        f'screen: {screen.name()} {screen.size()}')
+
+    configure_font_to_dpi(screen)
+
+    # from ._exec import get_screen
+    # screen = get_screen(chart_app.geometry().bottomRight())
+
+    # XXX: bug zone if you try to ctl-c after this we get hangs again?
+    # wtf...
+    # await tractor.breakpoint()
 
     # historical data fetch
     brokermod = brokers.get_brokermod(brokername)

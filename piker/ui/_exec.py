@@ -16,10 +16,20 @@ from PyQt5.QtCore import (
     pyqtRemoveInputHook, Qt, QCoreApplication
 )
 import qdarkstyle
-
 import trio
 import tractor
 from outcome import Error
+
+
+# singleton app per actor
+_qt_app: QtGui.QApplication = None
+_qt_win: QtGui.QMainWindow = None
+
+
+def current_screen() -> QtGui.QScreen:
+
+    global _qt_win, _qt_app
+    return _qt_app.screenAt(_qt_win.centralWidget().geometry().center())
 
 
 # Proper high DPI scaling is available in Qt >= 5.6.0. This attibute
@@ -62,6 +72,10 @@ def run_qtractor(
     # currently seem tricky..
     app.setQuitOnLastWindowClosed(False)
 
+    # set global app singleton
+    global _qt_app
+    _qt_app = app
+
     # This code is from Nathaniel, and I quote:
     # "This is substantially faster than using a signal... for some
     # reason Qt signal dispatch is really slow (and relies on events
@@ -84,10 +98,13 @@ def run_qtractor(
         app.postEvent(reenter, event)
 
     def done_callback(outcome):
+
         print(f"Outcome: {outcome}")
+
         if isinstance(outcome, Error):
             exc = outcome.error
             traceback.print_exception(type(exc), exc, exc.__traceback__)
+
         app.quit()
 
     # load dark theme
@@ -125,6 +142,12 @@ def run_qtractor(
 
     window.main_widget = main_widget
     window.setCentralWidget(instance)
+
+    # store global ref
+    # set global app singleton
+    global _qt_win
+    _qt_win = window
+
     # actually render to screen
     window.show()
     app.exec_()
