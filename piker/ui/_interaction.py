@@ -52,7 +52,7 @@ class ChartView(pg.ViewBox):
             log.debug("Max zoom bruh...")
             return
 
-        if ev.delta() < 0 and vl >= len(self.linked_charts._array):
+        if ev.delta() < 0 and vl >= len(self.linked_charts._array) + 666:
             log.debug("Min zoom bruh...")
             return
 
