@@ -20,13 +20,14 @@ from ._graphics import (
 )
 from ._axes import YSticky
 from ._style import (
+    configure_font_to_dpi,
     hcolor,
     CHART_MARGINS,
     _xaxis_at,
     _min_points_to_show,
     _bars_from_right_in_follow_mode,
     _bars_to_left_in_follow_mode,
-    # _font,
+    _font,
 )
 from ..data._source import Symbol
 from .. import brokers
@@ -397,7 +398,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # Ogi says: "use ..."
         label = pg.LabelItem(
             justify='left',
-            size='6px',
+            size=f'{_font.pixelSize()}px',
         )
         label.setParentItem(self._vb)
         self.scene().addItem(label)
@@ -484,7 +485,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # XXX: How to stack labels vertically?
         label = pg.LabelItem(
             justify='left',
-            size='6px',
+            size=f'{_font.pixelSize()}px',
         )
 
         # anchor to the viewbox
@@ -691,13 +692,8 @@ async def _async_main(
     """
     chart_app = widgets['main']
 
-    screen = current_screen()
-
-    from ._style import configure_font_to_dpi
-    print(
-        f'screen: {screen.name()} {screen.size()}')
-
-    configure_font_to_dpi(screen)
+    # attempt to configure DPI aware font size
+    configure_font_to_dpi(current_screen())
 
     # from ._exec import get_screen
     # screen = get_screen(chart_app.geometry().bottomRight())
