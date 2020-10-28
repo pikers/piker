@@ -17,9 +17,6 @@ _font_inches_we_like = 6 / 53
 _font = QtGui.QFont("Hack")
 _font.setPixelSize(6)  # default
 
-# _physical_font_height_in = 1/6  # inches
-_font._fm = QtGui.QFontMetrics(_font)
-
 # TODO: re-compute font size when main widget switches screens?
 # https://forum.qt.io/topic/54136/how-do-i-get-the-qscreen-my-widget-is-on-qapplication-desktop-screen-returns-a-qwidget-and-qobject_cast-qscreen-returns-null/3
 
@@ -27,18 +24,8 @@ _font._fm = QtGui.QFontMetrics(_font)
 def configure_font_to_dpi(screen: QtGui.QScreen):
     """Set an appropriately sized font size depending on the screen DPI.
 
-    If we end up needing to generalize this more here are some resources:
-
-    - https://stackoverflow.com/questions/42141354/convert-pixel-size-to-point-size-for-fonts-on-multiple-platforms
-    - https://stackoverflow.com/questions/25761556/qt5-font-rendering-different-on-various-platforms/25929628#25929628
-    - https://doc.qt.io/qt-5/highdpi.html
-    - https://stackoverflow.com/questions/20464814/changing-dpi-scaling-size-of-display-make-qt-applications-font-size-get-rendere
-    - https://stackoverflow.com/a/20465247
-    - https://doc.qt.io/archives/qt-4.8/qfontmetrics.html#width
-    - https://forum.qt.io/topic/54136/how-do-i-get-the-qscreen-my-widget-is-on-qapplication-desktop-screen-returns-a-qwidget-and-qobject_cast-qscreen-returns-null/3
-    - https://forum.qt.io/topic/43625/point-sizes-are-they-reliable/4
-
-    Also, see the script in ``snippets/qt_screen_info.py``.
+    If we end up needing to generalize this more here there are resources
+    listed in the script in ``snippets/qt_screen_info.py``.
 
     """
     dpi = screen.physicalDotsPerInch()
@@ -47,8 +34,11 @@ def configure_font_to_dpi(screen: QtGui.QScreen):
         f"\nscreen:{screen.name()} with DPI: {dpi}"
         f"\nbest font size is {font_size}\n"
     )
+
     global _font
     _font.setPixelSize(font_size)
+    _font._fm = QtGui.QFontMetrics(_font)
+
     return _font
 
 
