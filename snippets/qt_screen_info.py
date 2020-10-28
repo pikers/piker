@@ -1,5 +1,20 @@
+"""
+Resource list for mucking with DPIs on multiple screens:
+
+- https://stackoverflow.com/questions/42141354/convert-pixel-size-to-point-size-for-fonts-on-multiple-platforms
+- https://stackoverflow.com/questions/25761556/qt5-font-rendering-different-on-various-platforms/25929628#25929628
+- https://doc.qt.io/qt-5/highdpi.html
+- https://stackoverflow.com/questions/20464814/changing-dpi-scaling-size-of-display-make-qt-applications-font-size-get-rendere
+- https://stackoverflow.com/a/20465247
+- https://doc.qt.io/archives/qt-4.8/qfontmetrics.html#width
+- https://forum.qt.io/topic/54136/how-do-i-get-the-qscreen-my-widget-is-on-qapplication-desktop-screen-returns-a-qwidget-and-qobject_cast-qscreen-returns-null/3
+- https://forum.qt.io/topic/43625/point-sizes-are-they-reliable/4
+- https://stackoverflow.com/questions/16561879/what-is-the-difference-between-logicaldpix-and-physicaldpix-in-qt
+- https://doc.qt.io/qt-5/qguiapplication.html#screenAt
+
+"""
+
 from pyqtgraph import QtGui
-from PyQt5 import QtCore
 from PyQt5.QtCore import (
      Qt, QCoreApplication
 )
