@@ -2,6 +2,7 @@
 High level Qt chart widgets.
 """
 from typing import Tuple, Dict, Any, Optional
+from functools import partial
 
 from PyQt5 import QtCore, QtGui
 import numpy as np
@@ -15,6 +16,7 @@ from ._axes import (
 )
 from ._graphics import (
     CrossHair,
+    ContentsLabel,
     BarItems,
     h_line,
 )
@@ -27,7 +29,6 @@ from ._style import (
     _min_points_to_show,
     _bars_from_right_in_follow_mode,
     _bars_to_left_in_follow_mode,
-    _font,
 )
 from ..data._source import Symbol
 from .. import brokers
@@ -326,7 +327,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self.showAxis('right')
 
         # show background grid
-        self.showGrid(x=True, y=True, alpha=0.4)
+        self.showGrid(x=True, y=True, alpha=0.5)
 
         # use cross-hair for cursor?
         # self.setCursor(QtCore.Qt.CrossCursor)
@@ -344,10 +345,12 @@ class ChartPlotWidget(pg.PlotWidget):
     def last_bar_in_view(self) -> bool:
         self._array[-1]['index']
 
-    def _update_contents_label(self, index: int) -> None:
+    def update_contents_labels(self, index: int) -> None:
         if index >= 0 and index < len(self._array):
+            array = self._array
+
             for name, (label, update) in self._labels.items():
-                update(index)
+                update(index, array)
 
     def _set_xlimits(
         self,
@@ -374,54 +377,6 @@ class ChartPlotWidget(pg.PlotWidget):
         lbar = max(l, 0)
         rbar = min(r, len(self._array))
         return l, lbar, rbar, r
-
-    def draw_ohlc(
-        self,
-        name: str,
-        data: np.ndarray,
-        # XXX: pretty sure this is dumb and we don't need an Enum
-        style: pg.GraphicsObject = BarItems,
-    ) -> pg.GraphicsObject:
-        """Draw OHLC datums to chart.
-        """
-        graphics = style(self.plotItem)
-        # adds all bar/candle graphics objects for each data point in
-        # the np array buffer to be drawn on next render cycle
-        self.addItem(graphics)
-
-        # draw after to allow self.scene() to work...
-        graphics.draw_from_data(data)
-
-        self._graphics[name] = graphics
-
-        # XXX: How to stack labels vertically?
-        # Ogi says: "use ..."
-        label = pg.LabelItem(
-            justify='left',
-            size=f'{_font.pixelSize()}px',
-        )
-        label.setParentItem(self._vb)
-        self.scene().addItem(label)
-
-        # keep close to top
-        label.anchor(itemPos=(0, 0), parentPos=(0, 0), offset=(0, -4))
-
-        def update(index: int) -> None:
-            label.setText(
-                "{name}[{index}] -> O:{} H:{} L:{} C:{} V:{}".format(
-                    *self._array[index].item()[2:8],
-                    name=name,
-                    index=index,
-                )
-            )
-
-        self._labels[name] = (label, update)
-        self._update_contents_label(len(data) - 1)
-        label.show()
-
-        self._add_sticky(name)
-
-        return graphics
 
     def default_view(
         self,
@@ -456,6 +411,34 @@ class ChartPlotWidget(pg.PlotWidget):
             padding=0,
         )
 
+    def draw_ohlc(
+        self,
+        name: str,
+        data: np.ndarray,
+        # XXX: pretty sure this is dumb and we don't need an Enum
+        style: pg.GraphicsObject = BarItems,
+    ) -> pg.GraphicsObject:
+        """Draw OHLC datums to chart.
+        """
+        graphics = style(self.plotItem)
+        # adds all bar/candle graphics objects for each data point in
+        # the np array buffer to be drawn on next render cycle
+        self.addItem(graphics)
+
+        # draw after to allow self.scene() to work...
+        graphics.draw_from_data(data)
+
+        self._graphics[name] = graphics
+
+        label = ContentsLabel(chart=self, anchor_at=('top', 'left'))
+        self._labels[name] = (label, partial(label.update_from_ohlc, name))
+        label.show()
+        self.update_contents_labels(len(data) - 1)
+
+        self._add_sticky(name)
+
+        return graphics
+
     def draw_curve(
         self,
         name: str,
@@ -482,37 +465,21 @@ class ChartPlotWidget(pg.PlotWidget):
         # register overlay curve with name
         self._graphics[name] = curve
 
-        # XXX: How to stack labels vertically?
-        label = pg.LabelItem(
-            justify='left',
-            size=f'{_font.pixelSize()}px',
-        )
-
-        # anchor to the viewbox
-        label.setParentItem(self._vb)
-        # label.setParentItem(self.getPlotItem())
-
         if overlay:
-            # position bottom left if an overlay
-            label.anchor(itemPos=(1, 1), parentPos=(1, 1), offset=(0, 3))
+            anchor_at = ('bottom', 'right')
             self._overlays[name] = curve
 
         else:
-            label.anchor(itemPos=(0, 0), parentPos=(0, 0), offset=(0, -4))
+            anchor_at = ('top', 'right')
 
             # TODO: something instead of stickies for overlays
             # (we need something that avoids clutter on x-axis).
             self._add_sticky(name)
 
-        def update(index: int) -> None:
-            data = self._array[index][name]
-            label.setText(f"{name}: {data:.2f}")
-
+        label = ContentsLabel(chart=self, anchor_at=anchor_at)
+        self._labels[name] = (label, partial(label.update_from_value, name))
         label.show()
-        self.scene().addItem(label)
-
-        self._labels[name] = (label, update)
-        self._update_contents_label(len(data) - 1)
+        self.update_contents_labels(len(data) - 1)
 
         if self._cursor:
             self._cursor.add_curve_cursor(self, curve)
@@ -909,7 +876,7 @@ async def chart_from_fsp(
         )
 
         # display contents labels asap
-        chart._update_contents_label(len(shm.array) - 1)
+        chart.update_contents_labels(len(shm.array) - 1)
 
         array = shm.array
         value = array[fsp_func_name][-1]

@@ -6,10 +6,11 @@ from typing import List
 
 import numpy as np
 import pyqtgraph as pg
+# from numba import jit, float64, optional, int64
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QLineF, QPointF
 
-# from .quantdom.utils import timeit
+# from .._profile import timeit
 from ._style import _xaxis_at, hcolor, _font
 from ._axes import YAxisLabel, XAxisLabel
 
@@ -54,6 +55,78 @@ class LineDot(pg.CurvePoint):
 
         # keep a static size
         self.setFlag(self.ItemIgnoresTransformations)
+
+
+_corner_anchors = {
+    'top': 0,
+    'left': 0,
+    'bottom': 1,
+    'right': 1,
+}
+# XXX: fyi naming here is confusing / opposite to coords
+_corner_margins = {
+    ('top', 'left'): (-4, -5),
+    ('top', 'right'): (4, -5),
+    ('bottom', 'left'): (-4, 5),
+    ('bottom', 'right'): (4, 5),
+}
+
+
+class ContentsLabel(pg.LabelItem):
+    """Label anchored to a ``ViewBox`` typically for displaying
+    datum-wise points from the "viewed" contents.
+
+    """
+    def __init__(
+        self,
+        chart: 'ChartPlotWidget',  # noqa
+        anchor_at: str = ('top', 'right'),
+        justify_text: str = 'left',
+        size: str = f'{_font.pixelSize()}px',
+    ) -> None:
+
+        super().__init__(justify=justify_text, size=size)
+
+        # anchor to viewbox
+        self.setParentItem(chart._vb)
+        chart.scene().addItem(self)
+        self.chart = chart
+
+        v, h = anchor_at
+        index = (_corner_anchors[h], _corner_anchors[v])
+        margins = _corner_margins[(v, h)]
+
+        self.anchor(itemPos=index, parentPos=index, offset=margins)
+
+    def update_from_ohlc(
+        self,
+        name: str,
+        index: int,
+        array: np.ndarray,
+    ) -> None:
+        # this being "html" is the dumbest shit :eyeroll:
+        self.setText(
+            "<b>i</b>:{index}<br/>"
+            "<b>O</b>:{}<br/>"
+            "<b>H</b>:{}<br/>"
+            "<b>L</b>:{}<br/>"
+            "<b>C</b>:{}<br/>"
+            "<b>V</b>:{}".format(
+                # *self._array[index].item()[2:8],
+                *array[index].item()[2:8],
+                name=name,
+                index=index,
+            )
+        )
+
+    def update_from_value(
+        self,
+        name: str,
+        index: int,
+        array: np.ndarray,
+    ) -> None:
+        data = array[index][name]
+        self.setText(f"{name}: {data:.2f}")
 
 
 class CrossHair(pg.GraphicsObject):
@@ -208,7 +281,7 @@ class CrossHair(pg.GraphicsObject):
                 opts['vl'].setX(ix)
 
                 # update the chart's "contents" label
-                plot._update_contents_label(ix)
+                plot.update_contents_labels(ix)
 
                 # update all subscribed curve dots
                 for cursor in opts.get('cursors', ()):
@@ -235,6 +308,15 @@ class CrossHair(pg.GraphicsObject):
             return self.plots[0].boundingRect()
 
 
+# @jit(
+#     # float64[:](
+#     #     float64[:],
+#     #     optional(float64),
+#     #     optional(int16)
+#     # ),
+#     nopython=True,
+#     nogil=True
+# )
 def _mk_lines_array(data: List, size: int) -> np.ndarray:
     """Create an ndarray to hold lines graphics objects.
     """
@@ -246,6 +328,16 @@ def _mk_lines_array(data: List, size: int) -> np.ndarray:
 
 
 # TODO: `numba` this?
+
+# @jit(
+#     # float64[:](
+#     #     float64[:],
+#     #     optional(float64),
+#     #     optional(int16)
+#     # ),
+#     nopython=True,
+#     nogil=True
+# )
 def bars_from_ohlc(
     data: np.ndarray,
     w: float,
