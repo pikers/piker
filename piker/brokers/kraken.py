@@ -216,7 +216,7 @@ def normalize(
     quote = asdict(ohlc)
     quote['broker_ts'] = quote['time']
     quote['brokerd_ts'] = time.time()
-    quote['pair'] = quote['pair'].replace('/', '')
+    quote['symbol'] = quote['pair'] = quote['pair'].replace('/', '')
 
     # seriously eh? what's with this non-symmetry everywhere
     # in subscription systems...
