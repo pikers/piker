@@ -18,11 +18,11 @@ from ._graphics import (
     CrossHair,
     ContentsLabel,
     BarItems,
-    h_line,
+    level_line,
 )
 from ._axes import YSticky
 from ._style import (
-    configure_font_to_dpi,
+    _font,
     hcolor,
     CHART_MARGINS,
     _xaxis_at,
@@ -660,7 +660,7 @@ async def _async_main(
     chart_app = widgets['main']
 
     # attempt to configure DPI aware font size
-    configure_font_to_dpi(current_screen())
+    _font.configure_to_dpi(current_screen())
 
     # from ._exec import get_screen
     # screen = get_screen(chart_app.geometry().bottomRight())
@@ -898,8 +898,8 @@ async def chart_from_fsp(
         # graphics.curve.setFillLevel(50)
 
         # add moveable over-[sold/bought] lines
-        chart.plotItem.addItem(h_line(30))
-        chart.plotItem.addItem(h_line(70))
+        level_line(chart, 30)
+        level_line(chart, 70)
 
         chart._shm = shm
         chart._set_yrange()

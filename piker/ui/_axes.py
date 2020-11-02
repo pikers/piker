@@ -136,7 +136,9 @@ class AxisLabel(pg.GraphicsObject):
 
         self._dpifont = DpiAwareFont()
         self._dpifont.configure_to_dpi(_font._screen)
+
         if font_size is not None:
+            # print(f"SETTING FONT TO: {font_size}")
             self._dpifont._set_qfont_px_size(font_size)
 
         # self._font._fm = QtGui.QFontMetrics(self._font)
@@ -155,7 +157,7 @@ class AxisLabel(pg.GraphicsObject):
 
     def paint(self, p, option, widget):
         # p.drawPicture(0, 0, self.pic)
-        p.setCompositionMode(QtGui.QPainter.CompositionMode_SourceOver)
+        # p.setCompositionMode(QtGui.QPainter.CompositionMode_SourceOver)
 
         if self.label_str:
 
@@ -174,13 +176,13 @@ class AxisLabel(pg.GraphicsObject):
             p.drawText(self.rect, self.text_flags, self.label_str)
 
     def boundingRect(self):  # noqa
-        # if self.label_str:
-        #     self._size_br_from_str(self.label_str)
-        #     return self.rect
+        if self.label_str:
+            self._size_br_from_str(self.label_str)
+            return self.rect
 
-        # return QtCore.QRectF()
+        return QtCore.QRectF()
 
-        return self.rect or QtCore.QRectF()
+        # return self.rect or QtCore.QRectF()
 
     def _size_br_from_str(self, value: str) -> None:
         """Do our best to render the bounding rect to a set margin
@@ -193,7 +195,7 @@ class AxisLabel(pg.GraphicsObject):
         # px_per_char = self._font._fm.averageCharWidth()
         # br = br * 1.88
         txt_h, txt_w = br.height(), br.width()
-        print(f'orig: {txt_h}')
+        # print(f'orig: {txt_h}')
         # txt_h = (br.topLeft() - br.bottomRight()).y()
         # txt_w = len(value) * px_per_char
         # txt_w *= 1.88
@@ -220,9 +222,6 @@ class AxisLabel(pg.GraphicsObject):
 
 class XAxisLabel(AxisLabel):
 
-    _w_margin = 0
-    _h_margin = 0
-
     text_flags = (
         QtCore.Qt.TextDontClip
         | QtCore.Qt.AlignCenter
@@ -246,14 +245,15 @@ class XAxisLabel(AxisLabel):
 
         self.label_str = timestrs[0]
 
-        width = self.boundingRect().width()
+        w = self.boundingRect().width()
         self.setPos(QPointF(
-            abs_pos.x() - width / 2, # - offset,
-            0
+            abs_pos.x() - w / 2 - offset,
+            0,
         ))
 
 
 class YAxisLabel(AxisLabel):
+    _h_margin = 3
 
     text_flags = (
         # QtCore.Qt.AlignLeft
@@ -280,7 +280,7 @@ class YAxisLabel(AxisLabel):
         h = br.height()
         self.setPos(QPointF(
             0,
-            abs_pos.y() - h / 2 #- offset
+            abs_pos.y() - h / 2 - offset
         ))
 
 
@@ -309,22 +309,6 @@ class YSticky(YAxisLabel):
                 index,
                 last,
             )
-
-        # chart = self._chart
-        # a = chart._array
-        # fields = a.dtype.fields
-
-        # if fields and 'close' in fields:
-        #     index, last = a[-1][['index', 'close']]
-
-        # else:  # non-ohlc case
-        #     index = len(a) - 1
-        #     last = a[chart.name][-1]
-
-        # self.update_from_data(
-        #     index,
-        #     last,
-        # )
 
     def update_from_data(
         self,

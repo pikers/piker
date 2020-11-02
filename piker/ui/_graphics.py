@@ -644,6 +644,9 @@ class BarItems(pg.GraphicsObject):
 
 class LevelLabel(YSticky):
 
+    _w_margin = 3
+    _h_margin = 3
+
     def update_label(
         self,
         abs_pos: QPointF,  # scene coords
@@ -653,17 +656,18 @@ class LevelLabel(YSticky):
 
         # this is read inside ``.paint()``
         self.label_str = '{data: ,.{digits}f}'.format(
-            digits=self.digits, data=data).replace(',', ' ')
+            digits=self.digits,
+            data=data
+        ).replace(',', ' ')
 
         self._size_br_from_str(self.label_str)
 
         br = self.boundingRect()
-        w, h = br.height(), br.width()
+        h, w = br.height(), br.width()
 
         self.setPos(QPointF(
-            # *2 why? wat..?
-            0 - w*2,
-            abs_pos.y(), # - h / 2 - offset
+            -w,
+            abs_pos.y() - offset
         ))
 
     def size_hint(self) -> Tuple[None, None]:
@@ -683,16 +687,12 @@ class LevelLine(pg.InfiniteLine):
     def set_value(self, value: float) -> None:
         self.label.update_from_data(0, self.value())
 
-    # def valueChanged(self) -> None:
-    #     print('yooo')
-    #     self.label.update_from_data(0, self.value())
-
 
 def level_line(
     chart: 'ChartPlogWidget',  # noqa
     level: float,
-    digits: int = 3,
-    # label_precision: int = 0,
+    digits: int = 1,
+    font_size: int = 4,
 ) -> LevelLine:
     """Convenience routine to add a styled horizontal line to a plot.
 
@@ -703,11 +703,10 @@ def level_line(
         # TODO: pass this from symbol data
         digits=digits,
         opacity=1,
-        font_size=4,
+        font_size=font_size,
         bg_color='default',
     )
     label.update_from_data(0, level)
-    # label._size_br_from_str(
 
     line = LevelLine(
         label,
@@ -719,7 +718,6 @@ def level_line(
     # activate/draw label
     line.setValue(level)
 
-    # line.show()
     chart.plotItem.addItem(line)
 
     return line

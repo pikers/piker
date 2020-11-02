@@ -9,28 +9,6 @@ from ..log import get_logger
 
 log = get_logger(__name__)
 
-
-# def configure_font_to_dpi(screen: QtGui.QScreen):
-#     """Set an appropriately sized font size depending on the screen DPI.
-
-#     If we end up needing to generalize this more here there are resources
-#     listed in the script in ``snippets/qt_screen_info.py``.
-
-#     """
-#     dpi = screen.physicalDotsPerInch()
-#     font_size = round(_font_inches_we_like * dpi)
-#     log.info(
-#         f"\nscreen:{screen.name()} with DPI: {dpi}"
-#         f"\nbest font size is {font_size}\n"
-#     )
-
-#     global _font
-#     _font.setPixelSize(font_size)
-#     _font._fm = QtGui.QFontMetrics(_font)
-
-#     return _font
-
-
 # chart-wide font
 # font size 6px / 53 dpi (3x scaled down on 4k hidpi)
 _font_inches_we_like = 6 / 53  # px / (px / inch) = inch
@@ -45,9 +23,9 @@ class DpiAwareFont:
         self._qfont = QtGui.QFont(name)
         self._iwl = _font_inches_we_like
         self._qfm = QtGui.QFontMetrics(self._qfont)
-        self._font_size = None
         self._physical_dpi = None
         self._screen = None
+        self._dpi_scalar = 1.
 
     def _set_qfont_px_size(self, px_size: int) -> None:
         # self._qfont = QtGui.Qfont(self.name)
@@ -61,9 +39,6 @@ class DpiAwareFont:
     @property
     def px_size(self):
         return self._qfont.pixelSize()
-
-    # def set_px_size(self, size: int) -> None:
-    #     pass
 
     def configure_to_dpi(self, screen: QtGui.QScreen):
         """Set an appropriately sized font size depending on the screen DPI.
@@ -79,11 +54,12 @@ class DpiAwareFont:
             f"\nbest font size is {font_size}\n"
         )
         self._set_qfont_px_size(font_size)
-        self._font_size = font_size
         self._physical_dpi = dpi
         self._screen = screen
 
     def boundingRect(self, value: str) -> QtCore.QRectF:
+        # print(f'boundingRect STRING: {value}')
+
         screen = self._screen
         if screen is None:
             raise RuntimeError("You must call .configure_to_dpi() first!")
@@ -93,31 +69,34 @@ class DpiAwareFont:
         # XXX: for wtv absolutely fucked reason, the scaling only applies
         # to everything when the current font size **is not** the size
         # needed to get the original desired text height... :mindblow:
-        if self._font_size != 6:
-            # scalar = self._qfm.fontDpi() / self._physical_dpi
-            scalar = screen.logicalDotsPerInch() / screen.physicalDotsPerInch()
-            # scalar = 100 / screen.physicalDotsPerInch()
-            # assert 0
-            print(f'SCALAR {scalar}')
+
+        # if self.px_size != 6:
+        #     # scalar = self._qfm.fontDpi() / self._physical_dpi
+        #     # self._dpi_scalar = scalar = screen.logicalDotsPerInch() / screen.physicalDotsPerInch()
+        #     # self._dpi_scalar = scalar = 96 / screen.physicalDotsPerInch()
+        #     # # assert 0
+        #     # print(f'SCALAR {scalar}')
+        #     # w = min(self._qfm.averageCharWidth() * len(value), unscaled_br.width())
 
 
-            return QtCore.QRectF(
-                # unscaled_br.x(),
-                # unscaled_br.y(),
-                0,
-                0,
-                unscaled_br.width() * scalar,
-                unscaled_br.height() * scalar,
-            )
-        else:
-            return QtCore.QRectF(
-                # unscaled_br.x(),
-                # unscaled_br.y(),
-                0,
-                0,
-                unscaled_br.width(),
-                unscaled_br.height(),
-            )
+        #     return QtCore.QRectF(
+        #         # unscaled_br.x(),
+        #         # unscaled_br.y(),
+        #         0,
+        #         0,
+        #         # w * scalar,
+        #         unscaled_br.width(), # * scalar,
+        #         unscaled_br.height(),# * scalar,
+        #     )
+        # else:
+        return QtCore.QRectF(
+            # unscaled_br.x(),
+            # unscaled_br.y(),
+            0,
+            0,
+            unscaled_br.width(),
+            unscaled_br.height(),
+        )
 
 # use pixel size to be cross-resolution compatible?
 _font = DpiAwareFont()
