@@ -2,7 +2,7 @@
 Chart graphics for displaying a slew of different data types.
 """
 # import time
-from typing import List
+from typing import List, Optional, Tuple
 
 import numpy as np
 import pyqtgraph as pg
@@ -12,7 +12,7 @@ from PyQt5.QtCore import QLineF, QPointF
 
 # from .._profile import timeit
 from ._style import _xaxis_at, hcolor, _font
-from ._axes import YAxisLabel, XAxisLabel
+from ._axes import YAxisLabel, XAxisLabel, YSticky
 
 
 _mouse_rate_limit = 60  # calc current screen refresh rate?
@@ -82,10 +82,10 @@ class ContentsLabel(pg.LabelItem):
         chart: 'ChartPlotWidget',  # noqa
         anchor_at: str = ('top', 'right'),
         justify_text: str = 'left',
-        size: str = f'{_font.pixelSize()}px',
+        font_size: Optional[int] = None,
     ) -> None:
-
-        super().__init__(justify=justify_text, size=size)
+        font_size = font_size or _font.font.pixelSize()
+        super().__init__(justify=justify_text, size=f'{str(font_size)}px')
 
         # anchor to viewbox
         self.setParentItem(chart._vb)
@@ -642,27 +642,84 @@ class BarItems(pg.GraphicsObject):
 #         p.setBrush(self.bear_brush)
 #         p.drawRects(*rects[Quotes.close < Quotes.open])
 
+class LevelLabel(YSticky):
 
-def h_line(level: float) -> pg.InfiniteLine:
+    def update_label(
+        self,
+        abs_pos: QPointF,  # scene coords
+        data: float,  # data for text
+        offset: int = 1  # if have margins, k?
+    ) -> None:
+
+        # this is read inside ``.paint()``
+        self.label_str = '{data: ,.{digits}f}'.format(
+            digits=self.digits, data=data).replace(',', ' ')
+
+        self._size_br_from_str(self.label_str)
+
+        br = self.boundingRect()
+        w, h = br.height(), br.width()
+
+        self.setPos(QPointF(
+            # *2 why? wat..?
+            0 - w*2,
+            abs_pos.y(), # - h / 2 - offset
+        ))
+
+    def size_hint(self) -> Tuple[None, None]:
+        return None, None
+
+
+class LevelLine(pg.InfiniteLine):
+    def __init__(
+        self,
+        label: LevelLabel,
+        **kwargs,
+    ) -> None:
+        self.label = label
+        super().__init__(**kwargs)
+        self.sigPositionChanged.connect(self.set_value)
+
+    def set_value(self, value: float) -> None:
+        self.label.update_from_data(0, self.value())
+
+    # def valueChanged(self) -> None:
+    #     print('yooo')
+    #     self.label.update_from_data(0, self.value())
+
+
+def level_line(
+    chart: 'ChartPlogWidget',  # noqa
+    level: float,
+    digits: int = 3,
+    # label_precision: int = 0,
+) -> LevelLine:
     """Convenience routine to add a styled horizontal line to a plot.
 
     """
-    line = pg.InfiniteLine(
+    label = LevelLabel(
+        chart=chart,
+        parent=chart.getAxis('right'),
+        # TODO: pass this from symbol data
+        digits=digits,
+        opacity=1,
+        font_size=4,
+        bg_color='default',
+    )
+    label.update_from_data(0, level)
+    # label._size_br_from_str(
+
+    line = LevelLine(
+        label,
         movable=True,
         angle=0,
-        pos=level,
-        # label='{value:0.2f}',
-        # labelOpts={
-        #     'position': 0.01,
-        #     'movable': True
-        #     'color': (200,200,100),
-        #     'fill': (200,200,200,50),
-        # }
     )
-    default_pen = pg.mkPen(hcolor('default'))
-    line.setPen(default_pen)
+    line.setValue(level)
+    line.setPen(pg.mkPen(hcolor('default')))
+    # activate/draw label
+    line.setValue(level)
 
-    if getattr(line, 'label', None):
-        line.label.setFont(_font)
+    # line.show()
+    chart.plotItem.addItem(line)
 
     return line
