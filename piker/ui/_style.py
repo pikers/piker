@@ -28,7 +28,6 @@ class DpiAwareFont:
         self._dpi_scalar = 1.
 
     def _set_qfont_px_size(self, px_size: int) -> None:
-        # self._qfont = QtGui.Qfont(self.name)
         self._qfont.setPixelSize(px_size)
         self._qfm = QtGui.QFontMetrics(self._qfont)
 
@@ -58,7 +57,6 @@ class DpiAwareFont:
         self._screen = screen
 
     def boundingRect(self, value: str) -> QtCore.QRectF:
-        # print(f'boundingRect STRING: {value}')
 
         screen = self._screen
         if screen is None:
@@ -66,32 +64,7 @@ class DpiAwareFont:
 
         unscaled_br = self._qfm.boundingRect(value)
 
-        # XXX: for wtv absolutely fucked reason, the scaling only applies
-        # to everything when the current font size **is not** the size
-        # needed to get the original desired text height... :mindblow:
-
-        # if self.px_size != 6:
-        #     # scalar = self._qfm.fontDpi() / self._physical_dpi
-        #     # self._dpi_scalar = scalar = screen.logicalDotsPerInch() / screen.physicalDotsPerInch()
-        #     # self._dpi_scalar = scalar = 96 / screen.physicalDotsPerInch()
-        #     # # assert 0
-        #     # print(f'SCALAR {scalar}')
-        #     # w = min(self._qfm.averageCharWidth() * len(value), unscaled_br.width())
-
-
-        #     return QtCore.QRectF(
-        #         # unscaled_br.x(),
-        #         # unscaled_br.y(),
-        #         0,
-        #         0,
-        #         # w * scalar,
-        #         unscaled_br.width(), # * scalar,
-        #         unscaled_br.height(),# * scalar,
-        #     )
-        # else:
         return QtCore.QRectF(
-            # unscaled_br.x(),
-            # unscaled_br.y(),
             0,
             0,
             unscaled_br.width(),

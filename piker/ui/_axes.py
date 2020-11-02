@@ -25,24 +25,14 @@ class Axis(pg.AxisItem):
         **kwargs
     ) -> None:
 
-        self.linked_charts = linked_charts
-
         super().__init__(**kwargs)
+        self.linked_charts = linked_charts
 
         self.setTickFont(_font.font)
         self.setStyle(**{
             'textFillLimits': [(0, 0.666)],
             'tickFont': _font.font,
-            # 'tickTextWidth': 100,
-            # 'tickTextHeight': 20,
-            # 'tickTextWidth': 40,
-            # 'autoExpandTextSpace': True,
-            # 'maxTickLength': -20,
-
-            # doesn't work well on price?
-            # 'stopAxisAtTick': (True, True),
         })
-        # self.setLabel(**{'font-size': '10pt'})
 
         self.setTickFont(_font.font)
         self.setPen(_axis_pen)
@@ -127,6 +117,8 @@ class AxisLabel(pg.GraphicsObject):
         font_size: Optional[int] = None,
     ):
         super().__init__(parent)
+        self.setFlag(self.ItemIgnoresTransformations)
+
         self.parent = parent
         self.opacity = opacity
         self.label_str = ''
@@ -138,25 +130,14 @@ class AxisLabel(pg.GraphicsObject):
         self._dpifont.configure_to_dpi(_font._screen)
 
         if font_size is not None:
-            # print(f"SETTING FONT TO: {font_size}")
             self._dpifont._set_qfont_px_size(font_size)
-
-        # self._font._fm = QtGui.QFontMetrics(self._font)
 
         self.bg_color = pg.mkColor(hcolor(bg_color))
         self.fg_color = pg.mkColor(hcolor(fg_color))
 
-        # self.pic = QtGui.QPicture()
-        # p = QtGui.QPainter(self.pic)
-
         self.rect = None
 
-        # p.setPen(self.fg_color)
-
-        self.setFlag(self.ItemIgnoresTransformations)
-
     def paint(self, p, option, widget):
-        # p.drawPicture(0, 0, self.pic)
         # p.setCompositionMode(QtGui.QPainter.CompositionMode_SourceOver)
 
         if self.label_str:
@@ -176,13 +157,13 @@ class AxisLabel(pg.GraphicsObject):
             p.drawText(self.rect, self.text_flags, self.label_str)
 
     def boundingRect(self):  # noqa
-        if self.label_str:
-            self._size_br_from_str(self.label_str)
-            return self.rect
+        # if self.label_str:
+        #     self._size_br_from_str(self.label_str)
+        #     return self.rect
 
-        return QtCore.QRectF()
+        # return QtCore.QRectF()
 
-        # return self.rect or QtCore.QRectF()
+        return self.rect or QtCore.QRectF()
 
     def _size_br_from_str(self, value: str) -> None:
         """Do our best to render the bounding rect to a set margin
@@ -192,16 +173,7 @@ class AxisLabel(pg.GraphicsObject):
         # size the filled rect to text and/or parent axis
         br = self._txt_br = self._dpifont.boundingRect(value)
 
-        # px_per_char = self._font._fm.averageCharWidth()
-        # br = br * 1.88
         txt_h, txt_w = br.height(), br.width()
-        # print(f'orig: {txt_h}')
-        # txt_h = (br.topLeft() - br.bottomRight()).y()
-        # txt_w = len(value) * px_per_char
-        # txt_w *= 1.88
-        # txt_h *= 1.88
-        # print(f'calced: {txt_h}')
-
         h, w = self.size_hint()
 
         self.rect = QtCore.QRectF(
@@ -269,7 +241,7 @@ class YAxisLabel(AxisLabel):
         self,
         abs_pos: QPointF,  # scene coords
         data: float,  # data for text
-        offset: int = 1  # if have margins, k?
+        offset: int = 1  # on odd dimension and/or adds nice black line
     ) -> None:
 
         # this is read inside ``.paint()``
