@@ -542,22 +542,25 @@ class BarItems(pg.GraphicsObject):
                 return
 
         # current bar update
-        i, high, low, last, = array[-1][['index', 'high', 'low', 'close']]
-        assert i == self.index-1
+        i, o, h, l, last, v = array[-1][
+            ['index', 'open', 'high', 'low', 'close', 'volume']
+        ]
+        assert i == self.index - 1
         body, larm, rarm = self.lines[i]
 
         # XXX: is there a faster way to modify this?
-        # update close line / right arm
         rarm.setLine(rarm.x1(), last, rarm.x2(), last)
+        # writer is responsible for changing open on "first" volume of bar
+        larm.setLine(larm.x1(), o, larm.x2(), o)
 
-        if low != high:
+        if l != h:
             if body is None:
-                body = self.lines[index-1][0] = QLineF(i, low, i, high)
+                body = self.lines[index-1][0] = QLineF(i, l, i, h)
             else:
                 # update body
-                body.setLine(i, low, i, high)
+                body.setLine(i, l, i, h)
         else:
-            # XXX: high == low -> remove any HL line to avoid render bug
+            # XXX: h == l -> remove any HL line to avoid render bug
             if body is not None:
                 body = self.lines[index-1][0] = None
 
