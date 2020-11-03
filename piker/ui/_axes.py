@@ -150,11 +150,19 @@ class AxisLabel(pg.GraphicsObject):
             p.setOpacity(self.opacity)
             p.fillRect(self.rect, self.bg_color)
 
-            # this adds a nice black outline around the label for some odd
-            # reason; ok by us
-            p.drawRect(self.rect)
+            # can be overrided in subtype
+            self.draw(p, self.rect)
 
             p.drawText(self.rect, self.text_flags, self.label_str)
+
+    def draw(
+        self,
+        p: QtGui.QPainter,
+        rect: QtCore.QRectF
+    ) -> None:
+        # this adds a nice black outline around the label for some odd
+        # reason; ok by us
+        p.drawRect(self.rect)
 
     def boundingRect(self):  # noqa
         # if self.label_str:
@@ -263,14 +271,21 @@ class YSticky(YAxisLabel):
         self,
         chart,
         *args,
+        orient_v: str = 'bottom',
+        orient_h: str = 'left',
         **kwargs
     ) -> None:
 
         super().__init__(*args, **kwargs)
 
+        self._orient_v = orient_v
+        self._orient_h = orient_h
+
         self._chart = chart
         chart.sigRangeChanged.connect(self.update_on_resize)
         self._last_datum = (None, None)
+        self._v_shift = {'top': 1., 'bottom': 0, 'middle': 1/2.}[orient_v]
+        self._h_shift = {'left': -1., 'right': 0}[orient_h]
 
     def update_on_resize(self, vr, r):
         # TODO: add an `.index` to the array data-buffer layer
