@@ -645,15 +645,26 @@ async def stream_quotes(
                 if not writer_already_exists:
                     for tick in iterticks(quote, type='trade'):
                         last = tick['price']
-                        # print(f'broker last: {tick}')
 
                         # update last entry
                         # benchmarked in the 4-5 us range
-                        high, low = shm.array[-1][['high', 'low']]
-                        shm.array[['high', 'low', 'close']][-1] = (
+                        o, high, low, v = shm.array[-1][
+                            ['open', 'high', 'low', 'volume']
+                        ]
+
+                        new_v = tick['size']
+
+                        if v == 0 and new_v:
+                            # no trades for this bar yet so the open
+                            # is also the close/last trade price
+                            o = last
+
+                        shm.array[['open', 'high', 'low', 'close', 'volume']][-1] = (
+                            o,
                             max(high, last),
                             min(low, last),
                             last,
+                            v + new_v,
                         )
 
                 con = quote['contract']

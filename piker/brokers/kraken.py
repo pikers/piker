@@ -342,12 +342,31 @@ async def stream_quotes(
                         if not writer_exists:
                             # update last entry
                             # benchmarked in the 4-5 us range
-                            high, low = shm.array[-1][['high', 'low']]
-                            shm.array[['high', 'low', 'close', 'vwap']][-1] = (
+                            o, high, low, v = shm.array[-1][
+                                ['open', 'high', 'low', 'volume']
+                            ]
+                            new_v = tick_volume
+
+                            if v == 0 and new_v:
+                                # no trades for this bar yet so the open
+                                # is also the close/last trade price
+                                o = last
+
+                            # write shm
+                            shm.array[
+                                ['open',
+                                 'high',
+                                 'low',
+                                 'close',
+                                 'vwap',
+                                 'volume']
+                            ][-1] = (
+                                o,
                                 max(high, last),
                                 min(low, last),
                                 last,
                                 ohlc.vwap,
+                                volume,
                             )
 
                         # XXX: format required by ``tractor.msg.pub``
