@@ -285,7 +285,7 @@ class Client:
         self,
         symbol: str,
         to_trio,
-        opts: Tuple[int] = ('375',),  # '233', ),
+        opts: Tuple[int] = ('375', '233',),
         # opts: Tuple[int] = ('459',),
     ) -> None:
         """Stream a ticker using the std L1 api.
@@ -469,8 +469,26 @@ def normalize(
     for tick in ticker.ticks:
         td = tick._asdict()
 
-        if td['tickType'] in (48, 77):
+        if td['tickType'] in (77,):
             td['type'] = 'trade'
+
+        if td['tickType'] in (48,):
+            td['type'] = 'utrade'
+
+        elif td['tickType'] in (0,):
+            td['type'] = 'bsize'
+
+        elif td['tickType'] in (1,):
+            td['type'] = 'bid'
+
+        elif td['tickType'] in (2,):
+            td['type'] = 'ask'
+
+        elif td['tickType'] in (3,):
+            td['type'] = 'asize'
+
+        elif td['tickType'] in (5,):
+            td['type'] = 'size'
 
         new_ticks.append(td)
 
@@ -643,7 +661,7 @@ async def stream_quotes(
                 # if we are the lone tick writer start writing
                 # the buffer with appropriate trade data
                 if not writer_already_exists:
-                    for tick in iterticks(quote, type='trade'):
+                    for tick in iterticks(quote, types=('trade', 'utrade',)):
                         last = tick['price']
 
                         # update last entry

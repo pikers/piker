@@ -1,14 +1,14 @@
 """
 Stream format enforcement.
 """
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Optional, Tuple
 
 import numpy as np
 
 
 def iterticks(
     quote: dict,
-    type: str = 'trade',
+    types: Tuple[str] = ('trade', 'utrade'),
 ) -> AsyncIterator:
     """Iterate through ticks delivered per quote cycle.
     """
@@ -16,6 +16,6 @@ def iterticks(
     ticks = quote.get('ticks', ())
     if ticks:
         for tick in ticks:
-            # print(tick)
-            if tick.get('type') == type:
+            print(f"{quote['symbol']}: {tick}")
+            if tick.get('type') in types:
                 yield tick
