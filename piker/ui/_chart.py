@@ -53,18 +53,37 @@ class ChartSpace(QtGui.QWidget):
     """
     def __init__(self, parent=None):
         super().__init__(parent)
+
         self.v_layout = QtGui.QVBoxLayout(self)
         self.v_layout.setContentsMargins(0, 0, 0, 0)
+        self.v_layout.setSpacing(0)
+
         self.toolbar_layout = QtGui.QHBoxLayout()
-        self.toolbar_layout.setContentsMargins(5, 5, 10, 0)
+        self.toolbar_layout.setContentsMargins(0, 0, 0, 0)
+
         self.h_layout = QtGui.QHBoxLayout()
+        self.h_layout.setContentsMargins(0, 0, 0, 0)
 
         # self.init_timeframes_ui()
         # self.init_strategy_ui()
-
         self.v_layout.addLayout(self.toolbar_layout)
         self.v_layout.addLayout(self.h_layout)
         self._chart_cache = {}
+        self.symbol_label: Optional[QtGui.QLabel] = None
+
+    def init_search(self):
+        self.symbol_label = label = QtGui.QLabel()
+        label.setTextFormat(3)  # markdown
+        label.setFont(_font.font)
+        label.setMargin(0)
+        # title = f'sym:   {self.symbol}'
+        # label.setText(title)
+
+        label.setAlignment(
+            QtCore.Qt.AlignVCenter
+            | QtCore.Qt.AlignLeft
+        )
+        self.v_layout.addWidget(label)
 
     def init_timeframes_ui(self):
         self.tf_layout = QtGui.QHBoxLayout()
@@ -95,6 +114,15 @@ class ChartSpace(QtGui.QWidget):
         """
         # XXX: let's see if this causes mem problems
         self.window.setWindowTitle(f'piker chart {symbol}')
+
+        # TODO: symbol search
+        # # of course this doesn't work :eyeroll:
+        # h = _font.boundingRect('Ag').height()
+        # print(f'HEIGHT {h}')
+        # self.symbol_label.setFixedHeight(h + 4)
+        # self.v_layout.update()
+        # self.symbol_label.setText(f'/`{symbol}`')
+
         linkedcharts = self._chart_cache.setdefault(
             symbol,
             LinkedSplitCharts()
@@ -102,11 +130,12 @@ class ChartSpace(QtGui.QWidget):
         s = Symbol(key=symbol)
 
         # remove any existing plots
-        if not self.h_layout.isEmpty():
-            self.h_layout.removeWidget(linkedcharts)
+        if not self.v_layout.isEmpty():
+            self.v_layout.removeWidget(linkedcharts)
 
         main_chart = linkedcharts.plot_main(s, data)
-        self.h_layout.addWidget(linkedcharts)
+        self.v_layout.addWidget(linkedcharts)
+
         return linkedcharts, main_chart
 
     # TODO: add signalling painter system
@@ -154,7 +183,7 @@ class LinkedSplitCharts(QtGui.QWidget):
         #     self.xaxis.hide()
 
         self.splitter = QtGui.QSplitter(QtCore.Qt.Vertical)
-        self.splitter.setMidLineWidth(3)
+        self.splitter.setMidLineWidth(2)
         self.splitter.setHandleWidth(0)
 
         self.layout = QtGui.QVBoxLayout(self)
@@ -247,10 +276,10 @@ class LinkedSplitCharts(QtGui.QWidget):
         # graphics curve managed by the subchart
         cpw.name = name
         cpw.plotItem.vb.linked_charts = self
-
         cpw.setFrameStyle(QtGui.QFrame.StyledPanel)  # | QtGui.QFrame.Plain)
-        cpw.getPlotItem().setContentsMargins(*CHART_MARGINS)
         cpw.hideButtons()
+        # XXX: gives us outline on backside of y-axis
+        cpw.getPlotItem().setContentsMargins(*CHART_MARGINS)
 
         # link chart x-axis to main quotes chart
         cpw.setXLink(self.chart)
@@ -312,6 +341,7 @@ class ChartPlotWidget(pg.PlotWidget):
             # antialias=True,
             **kwargs
         )
+        # self.setViewportMargins(0, 0, 0, 0)
         self._array = array  # readonly view of data
         self._graphics = {}  # registry of underlying graphics
         self._overlays = {}  # registry of overlay curves
@@ -662,6 +692,8 @@ async def _async_main(
     # attempt to configure DPI aware font size
     _font.configure_to_dpi(current_screen())
 
+    # chart_app.init_search()
+
     # from ._exec import get_screen
     # screen = get_screen(chart_app.geometry().bottomRight())
 
@@ -928,15 +960,36 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
 
     async for index in await feed.index_stream():
 
-        # update chart historical bars graphics
+        # update chart historical bars graphics by incrementing
+        # a time step and drawing the history and new bar
 
         # When appending a new bar, in the time between the insert
-        # here and the Qt render call the underlying price data may
-        # have already been updated, thus make sure to also update
-        # the last bar if necessary on this render cycle which is
-        # why we **don't** set: just_history=True
+        # from the writing process and the Qt render call, here,
+        # the index of the shm buffer may be incremented and the
+        # (render) call here might read the new flat bar appended
+        # to the buffer (since -1 index read). In that case H==L and the
+        # body will be set as None (not drawn) on what this render call
+        # *thinks* is the curent bar (even though it's reading data from
+        # the newly inserted flat bar.
+        #
+        # HACK: We need to therefore write only the history (not the
+        # current bar) and then either write the current bar manually
+        # or place a cursor for visual cue of the current time step.
+
         price_chart.update_ohlc_from_array(
-            price_chart.name, ohlcv.array, just_history=True)
+            price_chart.name,
+            ohlcv.array,
+            just_history=True,
+        )
+
+        # XXX: this puts a flat bar on the current time step
+        # TODO: if we eventually have an x-axis time-step "cursor"
+        # we can get rid of this since it is extra overhead.
+        price_chart.update_ohlc_from_array(
+            price_chart.name,
+            ohlcv.array,
+            just_history=False,
+        )
 
         # resize view
         # price_chart._set_yrange()
