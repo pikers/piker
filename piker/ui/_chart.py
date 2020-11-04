@@ -19,6 +19,7 @@ from ._graphics import (
     ContentsLabel,
     BarItems,
     level_line,
+    L1Labels,
 )
 from ._axes import YSticky
 from ._style import (
@@ -504,7 +505,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
             # TODO: something instead of stickies for overlays
             # (we need something that avoids clutter on x-axis).
-            self._add_sticky(name)
+            self._add_sticky(name, bg_color='default_light')
 
         label = ContentsLabel(chart=self, anchor_at=anchor_at)
         self._labels[name] = (label, partial(label.update_from_value, name))
@@ -519,6 +520,7 @@ class ChartPlotWidget(pg.PlotWidget):
     def _add_sticky(
         self,
         name: str,
+        bg_color='bracket',
         # retreive: Callable[None, np.ndarray],
     ) -> YSticky:
         # add y-axis "last" value label
@@ -528,6 +530,7 @@ class ChartPlotWidget(pg.PlotWidget):
             # TODO: pass this from symbol data
             # digits=0,
             opacity=1,
+            bg_color=bg_color,
         )
         return last
 
@@ -801,41 +804,69 @@ async def chart_from_quotes(
     last_bars_range, last_mx, last_mn = maxmin()
 
     chart.default_view()
+    l1 = L1Labels(chart)
+
+    last_bid = last_ask = ohlcv.array[-1]['close']
 
     async for quotes in stream:
         for sym, quote in quotes.items():
-            for tick in iterticks(quote, type='trade'):
-                array = ohlcv.array
+            for tick in quote.get('ticks', ()):
+            # for tick in iterticks(quote, type='trade'):
 
-                # update price sticky(s)
-                last = array[-1]
-                last_price_sticky.update_from_data(*last[['index', 'close']])
+                ticktype = tick.get('type')
+                price = tick.get('price')
 
-                # update price bar
-                chart.update_ohlc_from_array(
-                    chart.name,
-                    array,
-                )
+                if ticktype in ('trade', 'utrade'):
+                    array = ohlcv.array
 
-                # TODO: we need a streaming minmax algorithm here to
-                brange, mx, mn = maxmin()
-                if brange != last_bars_range:
-                    if mx > last_mx or mn < last_mn:
-                        # avoid running this every cycle.
-                        chart._set_yrange()
+                    # update price sticky(s)
+                    last = array[-1]
+                    last_price_sticky.update_from_data(*last[['index', 'close']])
 
-                    # save for next cycle
-                    last_mx, last_mn = mx, mn
+                    # update price bar
+                    chart.update_ohlc_from_array(
+                        chart.name,
+                        array,
+                    )
 
-                if vwap_in_history:
-                    # update vwap overlay line
-                    chart.update_curve_from_array('vwap', ohlcv.array)
+                    # TODO: we need a streaming minmax algorithm here to
+                    brange, mx, mn = maxmin()
+                    if brange != last_bars_range:
+                        if mx > last_mx or mn < last_mn:
+                            # avoid running this every cycle.
+                            chart._set_yrange()
 
-                # TODO:
-                # - eventually we'll want to update bid/ask labels and
-                # other data as subscribed by underlying UI consumers.
-                # - in theory we should be able to read buffer data
-                # faster then msgs arrive.. needs some tinkering and testing
+                        # save for next cycle
+                        last_mx, last_mn = mx, mn
+
+                    if vwap_in_history:
+                        # update vwap overlay line
+                        chart.update_curve_from_array('vwap', ohlcv.array)
+
+                    # TODO:
+                    # - eventually we'll want to update bid/ask labels and
+                    # other data as subscribed by underlying UI consumers.
+                    # - in theory we should be able to read buffer data
+                    # faster then msgs arrive.. needs some tinkering and testing
+
+                    # if trade volume jumps above / below prior L1 price
+                    # levels adjust bid / ask lines to match
+                    if price > last_ask:
+                        l1.ask_label.update_from_data(0, price)
+                        last_ask = price
+
+                    elif price < last_bid:
+                        l1.bid_label.update_from_data(0, price)
+                        last_bid = price
+
+
+                elif ticktype == 'ask':
+                    l1.ask_label.update_from_data(0, price)
+                    last_ask = price
+
+                elif ticktype == 'bid':
+                    l1.bid_label.update_from_data(0, price)
+                    last_bid = price
 
 
 async def chart_from_fsp(
@@ -931,7 +962,7 @@ async def chart_from_fsp(
 
         # add moveable over-[sold/bought] lines
         level_line(chart, 30)
-        level_line(chart, 70)
+        level_line(chart, 70, orient_v='top')
 
         chart._shm = shm
         chart._set_yrange()
