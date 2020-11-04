@@ -352,17 +352,17 @@ def bars_from_ohlc(
         open, high, low, close, index = q[
             ['open', 'high', 'low', 'close', 'index']]
 
-        # high - low line
+        # high -> low vertical (body) line
         if low != high:
             hl = QLineF(index, low, index, high)
         else:
             # XXX: if we don't do it renders a weird rectangle?
-            # see below too for handling this later...
+            # see below for filtering this later...
             hl = None
 
         # NOTE: place the x-coord start as "middle" of the drawing range such
         # that the open arm line-graphic is at the left-most-side of
-        # the indexe's range according to the view mapping.
+        # the index's range according to the view mapping.
 
         # open line
         o = QLineF(index - w, open, index, open)
@@ -647,7 +647,7 @@ class BarItems(pg.GraphicsObject):
 
 class LevelLabel(YSticky):
 
-    _w_margin = 3
+    _w_margin = 4
     _h_margin = 3
 
     def update_label(
@@ -669,12 +669,59 @@ class LevelLabel(YSticky):
         h, w = br.height(), br.width()
 
         self.setPos(QPointF(
-            -w,
-            abs_pos.y() - offset
+            self._h_shift * w - offset,
+            abs_pos.y() - (self._v_shift * h) - offset
         ))
 
     def size_hint(self) -> Tuple[None, None]:
         return None, None
+
+    def draw(
+        self,
+        p: QtGui.QPainter,
+        rect: QtCore.QRectF
+    ) -> None:
+        if self._orient_v == 'bottom':
+            p.drawLine(rect.topLeft(), rect.topRight())
+        elif self._orient_v == 'top':
+            p.drawLine(rect.bottomLeft(), rect.bottomRight())
+
+
+class L1Labels:
+    """Level 1 bid ask labels for dynamic update on price-axis.
+
+    """
+    def __init__(
+        self,
+        chart: 'ChartPlotWidget',  # noqa
+        digits: int = 2,
+        font_size: int = 4,
+    ) -> None:
+        self.chart = chart
+
+        self.bid_label = LevelLabel(
+            chart=chart,
+            parent=chart.getAxis('right'),
+            # TODO: pass this from symbol data
+            digits=digits,
+            opacity=1,
+            font_size=font_size,
+            bg_color='papas_special',
+            fg_color='bracket',
+            orient_v='bottom',
+        )
+
+        self.ask_label = LevelLabel(
+            chart=chart,
+            parent=chart.getAxis('right'),
+            # TODO: pass this from symbol data
+            digits=digits,
+            opacity=1,
+            font_size=font_size,
+            bg_color='papas_special',
+            fg_color='bracket',
+            orient_v='top',
+        )
 
 
 class LevelLine(pg.InfiniteLine):
@@ -696,6 +743,7 @@ def level_line(
     level: float,
     digits: int = 1,
     font_size: int = 4,
+    **linelabelkwargs
 ) -> LevelLine:
     """Convenience routine to add a styled horizontal line to a plot.
 
@@ -707,7 +755,9 @@ def level_line(
         digits=digits,
         opacity=1,
         font_size=font_size,
-        bg_color='default',
+        bg_color='papas_special',
+        fg_color='default',
+        **linelabelkwargs
     )
     label.update_from_data(0, level)
 
