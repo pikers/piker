@@ -15,8 +15,11 @@ from ._style import _xaxis_at, hcolor, _font
 from ._axes import YAxisLabel, XAxisLabel, YSticky
 
 
+# XXX: these settings seem to result in really decent mouse scroll
+# latency (in terms of perceived lag in cross hair) so really be sure
+# there's an improvement if you want to change it.
 _mouse_rate_limit = 60  # calc current screen refresh rate?
-_debounce_delay = 1/2e3
+_debounce_delay = 1 / 2e3
 _ch_label_opac = 1
 
 
@@ -45,7 +48,7 @@ class LineDot(pg.CurvePoint):
 
         # presuming this is fast since it's built in?
         dot = self.dot = QtGui.QGraphicsEllipseItem(
-            QtCore.QRectF(-size/2, -size/2, size, size)
+            QtCore.QRectF(-size / 2, -size / 2, size, size)
         )
         # if we needed transformable dot?
         # dot.translate(-size*0.5, -size*0.5)
@@ -266,7 +269,7 @@ class CrossHair(pg.GraphicsObject):
         self.graphics[plot]['hl'].setY(y)
 
         self.graphics[self.active_plot]['yl'].update_label(
-            abs_pos=pos, data=y
+            abs_pos=pos, value=y
         )
 
         # Update x if cursor changed after discretization calc
@@ -296,7 +299,7 @@ class CrossHair(pg.GraphicsObject):
 
                 # map back to abs (label-local) coordinates
                 abs_pos=plot.mapFromView(QPointF(ix, y)),
-                data=x,
+                value=x,
             )
 
         self._lastx = ix
@@ -553,16 +556,16 @@ class BarItems(pg.GraphicsObject):
         # writer is responsible for changing open on "first" volume of bar
         larm.setLine(larm.x1(), o, larm.x2(), o)
 
-        if l != h:
+        if l != h:  # noqa
             if body is None:
-                body = self.lines[index-1][0] = QLineF(i, l, i, h)
+                body = self.lines[index - 1][0] = QLineF(i, l, i, h)
             else:
                 # update body
                 body.setLine(i, l, i, h)
         else:
             # XXX: h == l -> remove any HL line to avoid render bug
             if body is not None:
-                body = self.lines[index-1][0] = None
+                body = self.lines[index - 1][0] = None
 
         self.draw_lines(just_history=False)
 
@@ -649,29 +652,61 @@ class LevelLabel(YSticky):
 
     _w_margin = 4
     _h_margin = 3
+    level: float = 0
+
+    def __init__(
+        self,
+        chart,
+        *args,
+        orient_v: str = 'bottom',
+        orient_h: str = 'left',
+        **kwargs
+    ) -> None:
+        super().__init__(chart, *args, **kwargs)
+
+        # orientation around axis options
+        self._orient_v = orient_v
+        self._orient_h = orient_h
+        self._v_shift = {
+            'top': 1.,
+            'bottom': 0,
+            'middle': 1 / 2.
+        }[orient_v]
+
+        self._h_shift = {
+            'left': -1., 'right': 0
+        }[orient_h]
 
     def update_label(
         self,
         abs_pos: QPointF,  # scene coords
-        data: float,  # data for text
+        level: float,  # data for text
         offset: int = 1  # if have margins, k?
     ) -> None:
 
-        # this is read inside ``.paint()``
-        self.label_str = '{data: ,.{digits}f}'.format(
-            digits=self.digits,
-            data=data
-        ).replace(',', ' ')
-
-        self._size_br_from_str(self.label_str)
+        # write contents, type specific
+        self.set_label_str(level)
 
         br = self.boundingRect()
         h, w = br.height(), br.width()
 
+        # this triggers ``.pain()`` implicitly?
         self.setPos(QPointF(
             self._h_shift * w - offset,
             abs_pos.y() - (self._v_shift * h) - offset
         ))
+        self.update()
+
+        self.level = level
+
+    def set_label_str(self, level: float):
+        # this is read inside ``.paint()``
+        # self.label_str = '{size} x {level:.{digits}f}'.format(
+        self.label_str = '{level:.{digits}f}'.format(
+            # size=self._size,
+            digits=self.digits,
+            level=level
+        ).replace(',', ' ')
 
     def size_hint(self) -> Tuple[None, None]:
         return None, None
@@ -687,19 +722,43 @@ class LevelLabel(YSticky):
             p.drawLine(rect.bottomLeft(), rect.bottomRight())
 
 
+class L1Label(LevelLabel):
+
+    size: float = 0
+
+    text_flags = (
+        QtCore.Qt.TextDontClip
+        | QtCore.Qt.AlignLeft
+    )
+
+    def set_label_str(self, level: float) -> None:
+        """Reimplement the label string write to include the level's order-queue's
+        size in the text, eg. 100 x 323.3.
+
+        """
+        self.label_str = '{size} x {level:,.{digits}f}'.format(
+            size=self.size or '?',
+            digits=self.digits,
+            level=level
+        ).replace(',', ' ')
+
+
 class L1Labels:
     """Level 1 bid ask labels for dynamic update on price-axis.
 
     """
+    max_value: float = '100 x 100 000'
+
     def __init__(
         self,
         chart: 'ChartPlotWidget',  # noqa
+        # level: float,
         digits: int = 2,
         font_size: int = 4,
     ) -> None:
         self.chart = chart
 
-        self.bid_label = LevelLabel(
+        self.bid_label = L1Label(
             chart=chart,
             parent=chart.getAxis('right'),
             # TODO: pass this from symbol data
@@ -710,8 +769,9 @@ class L1Labels:
             fg_color='bracket',
             orient_v='bottom',
         )
+        self.bid_label._size_br_from_str(self.max_value)
 
-        self.ask_label = LevelLabel(
+        self.ask_label = L1Label(
             chart=chart,
             parent=chart.getAxis('right'),
             # TODO: pass this from symbol data
@@ -722,6 +782,7 @@ class L1Labels:
             fg_color='bracket',
             orient_v='top',
         )
+        self.ask_label._size_br_from_str(self.max_value)
 
 
 class LevelLine(pg.InfiniteLine):
@@ -732,9 +793,9 @@ class LevelLine(pg.InfiniteLine):
     ) -> None:
         self.label = label
         super().__init__(**kwargs)
-        self.sigPositionChanged.connect(self.set_value)
+        self.sigPositionChanged.connect(self.set_level)
 
-    def set_value(self, value: float) -> None:
+    def set_level(self, value: float) -> None:
         self.label.update_from_data(0, self.value())
 
 
@@ -755,11 +816,14 @@ def level_line(
         digits=digits,
         opacity=1,
         font_size=font_size,
+        # TODO: make this take the view's bg pen
         bg_color='papas_special',
         fg_color='default',
         **linelabelkwargs
     )
     label.update_from_data(0, level)
+    # TODO: can we somehow figure out a max value from the parent axis?
+    label._size_br_from_str(label.label_str)
 
     line = LevelLine(
         label,

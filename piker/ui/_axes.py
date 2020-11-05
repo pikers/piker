@@ -71,7 +71,7 @@ class DynamicDateAxis(Axis):
 
     # time formats mapped by seconds between bars
     tick_tpl = {
-        60*60*24: '%Y-%b-%d',
+        60 * 60 * 24: '%Y-%b-%d',
         60: '%H:%M',
         30: '%H:%M:%S',
         5: '%H:%M:%S',
@@ -113,7 +113,7 @@ class AxisLabel(pg.GraphicsObject):
         digits: int = 2,
         bg_color: str = 'bracket',
         fg_color: str = 'black',
-        opacity: int = 1,
+        opacity: int = 0,
         font_size: Optional[int] = None,
     ):
         super().__init__(parent)
@@ -162,6 +162,7 @@ class AxisLabel(pg.GraphicsObject):
     ) -> None:
         # this adds a nice black outline around the label for some odd
         # reason; ok by us
+        p.setOpacity(self.opacity)
         p.drawRect(self.rect)
 
     def boundingRect(self):  # noqa
@@ -214,11 +215,11 @@ class XAxisLabel(AxisLabel):
     def update_label(
         self,
         abs_pos: QPointF,  # scene coords
-        data: float,  # data for text
+        value: float,  # data for text
         offset: int = 1  # if have margins, k?
     ) -> None:
 
-        timestrs = self.parent._indexes_to_timestrs([int(data)])
+        timestrs = self.parent._indexes_to_timestrs([int(value)])
 
         if not timestrs.any():
             return
@@ -230,6 +231,7 @@ class XAxisLabel(AxisLabel):
             abs_pos.x() - w / 2 - offset,
             0,
         ))
+        self.update()
 
 
 class YAxisLabel(AxisLabel):
@@ -248,13 +250,13 @@ class YAxisLabel(AxisLabel):
     def update_label(
         self,
         abs_pos: QPointF,  # scene coords
-        data: float,  # data for text
+        value: float,  # data for text
         offset: int = 1  # on odd dimension and/or adds nice black line
     ) -> None:
 
         # this is read inside ``.paint()``
-        self.label_str = '{data: ,.{digits}f}'.format(
-            digits=self.digits, data=data).replace(',', ' ')
+        self.label_str = '{value: ,.{digits}f}'.format(
+            digits=self.digits, value=value).replace(',', ' ')
 
         br = self.boundingRect()
         h = br.height()
@@ -262,6 +264,7 @@ class YAxisLabel(AxisLabel):
             0,
             abs_pos.y() - h / 2 - offset
         ))
+        self.update()
 
 
 class YSticky(YAxisLabel):
@@ -271,31 +274,23 @@ class YSticky(YAxisLabel):
         self,
         chart,
         *args,
-        orient_v: str = 'bottom',
-        orient_h: str = 'left',
         **kwargs
     ) -> None:
 
         super().__init__(*args, **kwargs)
 
-        self._orient_v = orient_v
-        self._orient_h = orient_h
-
         self._chart = chart
         chart.sigRangeChanged.connect(self.update_on_resize)
         self._last_datum = (None, None)
-        self._v_shift = {'top': 1., 'bottom': 0, 'middle': 1/2.}[orient_v]
-        self._h_shift = {'left': -1., 'right': 0}[orient_h]
 
     def update_on_resize(self, vr, r):
         # TODO: add an `.index` to the array data-buffer layer
         # and make this way less shitty...
+
+        # pretty sure we did that ^ ?
         index, last = self._last_datum
         if index is not None:
-            self.update_from_data(
-                index,
-                last,
-            )
+            self.update_from_data(index, last)
 
     def update_from_data(
         self,
