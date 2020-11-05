@@ -650,6 +650,8 @@ class BarItems(pg.GraphicsObject):
 
 class LevelLabel(YSticky):
 
+    line_pen = pg.mkPen(hcolor('bracket'))
+
     _w_margin = 4
     _h_margin = 3
     level: float = 0
@@ -716,10 +718,15 @@ class LevelLabel(YSticky):
         p: QtGui.QPainter,
         rect: QtCore.QRectF
     ) -> None:
+        p.setPen(self.line_pen)
+
         if self._orient_v == 'bottom':
-            p.drawLine(rect.topLeft(), rect.topRight())
+            lp, rp = rect.topLeft(), rect.topRight()
+            # p.drawLine(rect.topLeft(), rect.topRight())
         elif self._orient_v == 'top':
-            p.drawLine(rect.bottomLeft(), rect.bottomRight())
+            lp, rp = rect.bottomLeft(), rect.bottomRight()
+
+        p.drawLine(lp.x(), lp.y(), rp.x(), rp.y())
 
 
 class L1Label(LevelLabel):
