@@ -460,6 +460,20 @@ async def get_client(
         yield get_method_proxy(portal, Client)
 
 
+# https://interactivebrokers.github.io/tws-api/tick_types.html
+tick_types = {
+    77: 'trade',
+    48: 'utrade',
+    0: 'bsize',
+    1: 'bid',
+    2: 'ask',
+    3: 'asize',
+    4: 'last',
+    5: 'size',
+    8: 'volume',
+}
+
+
 def normalize(
     ticker: Ticker,
     calc_price: bool = False
@@ -468,27 +482,7 @@ def normalize(
     new_ticks = []
     for tick in ticker.ticks:
         td = tick._asdict()
-
-        if td['tickType'] in (77,):
-            td['type'] = 'trade'
-
-        if td['tickType'] in (48,):
-            td['type'] = 'utrade'
-
-        elif td['tickType'] in (0,):
-            td['type'] = 'bsize'
-
-        elif td['tickType'] in (1,):
-            td['type'] = 'bid'
-
-        elif td['tickType'] in (2,):
-            td['type'] = 'ask'
-
-        elif td['tickType'] in (3,):
-            td['type'] = 'asize'
-
-        elif td['tickType'] in (5,):
-            td['type'] = 'size'
+        td['type'] = tick_types.get(td['tickType'], 'n/a')
 
         new_ticks.append(td)
 
@@ -507,7 +501,7 @@ def normalize(
     # add time stamps for downstream latency measurements
     data['brokerd_ts'] = time.time()
 
-    # stupid stupid shit...don't even care any more
+    # stupid stupid shit...don't even care any more..
     # leave it until we do a proper latency study
     # if ticker.rtTime is not None:
     #     data['broker_ts'] = data['rtTime_s'] = float(
