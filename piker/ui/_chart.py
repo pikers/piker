@@ -34,10 +34,7 @@ from ._style import (
 from ..data._source import Symbol
 from .. import brokers
 from .. import data
-from ..data import (
-    iterticks,
-    maybe_open_shm_array,
-)
+from ..data import maybe_open_shm_array
 from ..log import get_logger
 from ._exec import run_qtractor, current_screen
 from ._interaction import ChartView
@@ -583,7 +580,12 @@ class ChartPlotWidget(pg.PlotWidget):
         if self._static_yrange is not None:
             ylow, yhigh = self._static_yrange
 
-        else:  # determine max, min y values in viewable x-range
+        elif yrange is not None:
+            ylow, yhigh = yrange
+
+        else:
+            # Determine max, min y values in viewable x-range from data.
+            # Make sure min bars/datums on screen is adhered.
 
             l, lbar, rbar, r = self.bars_range()
 
@@ -794,6 +796,10 @@ async def chart_from_quotes(
     last_price_sticky = chart._ysticks[chart.name]
 
     def maxmin():
+        # TODO: implement this
+        # https://arxiv.org/abs/cs/0610046
+        # https://github.com/lemire/pythonmaxmin
+
         array = chart._array
         last_bars_range = chart.bars_range()
         l, lbar, rbar, r = last_bars_range
@@ -804,24 +810,27 @@ async def chart_from_quotes(
     last_bars_range, last_mx, last_mn = maxmin()
 
     chart.default_view()
-    l1 = L1Labels(chart)
 
-    last_bid = last_ask = ohlcv.array[-1]['close']
+    # last_bid = last_ask = ohlcv.array[-1]['close']
+    l1 = L1Labels(chart)
 
     async for quotes in stream:
         for sym, quote in quotes.items():
             for tick in quote.get('ticks', ()):
-            # for tick in iterticks(quote, type='trade'):
 
+                # print(f"CHART: {quote['symbol']}: {tick}")
                 ticktype = tick.get('type')
                 price = tick.get('price')
+                size = tick.get('size')
 
                 if ticktype in ('trade', 'utrade'):
                     array = ohlcv.array
 
                     # update price sticky(s)
                     last = array[-1]
-                    last_price_sticky.update_from_data(*last[['index', 'close']])
+                    last_price_sticky.update_from_data(
+                        *last[['index', 'close']]
+                    )
 
                     # update price bar
                     chart.update_ohlc_from_array(
@@ -829,44 +838,65 @@ async def chart_from_quotes(
                         array,
                     )
 
-                    # TODO: we need a streaming minmax algorithm here to
-                    brange, mx, mn = maxmin()
-                    if brange != last_bars_range:
-                        if mx > last_mx or mn < last_mn:
-                            # avoid running this every cycle.
-                            chart._set_yrange()
-
-                        # save for next cycle
-                        last_mx, last_mn = mx, mn
-
                     if vwap_in_history:
                         # update vwap overlay line
                         chart.update_curve_from_array('vwap', ohlcv.array)
 
                     # TODO:
-                    # - eventually we'll want to update bid/ask labels and
-                    # other data as subscribed by underlying UI consumers.
-                    # - in theory we should be able to read buffer data
-                    # faster then msgs arrive.. needs some tinkering and testing
+                    # - eventually we'll want to update bid/ask labels
+                    # and other data as subscribed by underlying UI
+                    # consumers.
+                    # - in theory we should be able to read buffer data faster
+                    # then msgs arrive.. needs some tinkering and testing
 
                     # if trade volume jumps above / below prior L1 price
                     # levels adjust bid / ask lines to match
-                    if price > last_ask:
-                        l1.ask_label.update_from_data(0, price)
-                        last_ask = price
 
-                    elif price < last_bid:
-                        l1.bid_label.update_from_data(0, price)
-                        last_bid = price
+                # compute max and min trade values to display in view
+                # TODO: we need a streaming minmax algorithm here, see
+                # def above.
+                brange, mx_in_view, mn_in_view = maxmin()
 
+                # XXX: prettty sure this is correct?
+                # if ticktype in ('trade', 'last'):
+                if ticktype in ('last',):  # 'size'):
 
-                elif ticktype == 'ask':
+                    label = {
+                        l1.ask_label.level: l1.ask_label,
+                        l1.bid_label.level: l1.bid_label,
+                    }.get(price)
+
+                    if label is not None:
+                        label.size = size
+                        label.update_from_data(0, price)
+
+                        # on trades should we be knocking down
+                        # the relevant L1 queue?
+                        # label.size -= size
+
+                elif ticktype in ('ask', 'asize'):
+                    l1.ask_label.size = size
                     l1.ask_label.update_from_data(0, price)
-                    last_ask = price
 
-                elif ticktype == 'bid':
+                    # update max price in view to keep ask on screen
+                    mx_in_view = max(price, mx_in_view)
+
+                elif ticktype in ('bid', 'bsize'):
+                    l1.bid_label.size = size
                     l1.bid_label.update_from_data(0, price)
-                    last_bid = price
+
+                    # update min price in view to keep bid on screen
+                    mn_in_view = max(price, mn_in_view)
+
+                if mx_in_view > last_mx or mn_in_view < last_mn:
+                    chart._set_yrange(yrange=(mn_in_view, mx_in_view))
+                    last_mx, last_mn = mx_in_view, mn_in_view
+
+                if brange != last_bars_range:
+                    # we **must always** update the last values due to
+                    # the x-range change
+                    last_mx, last_mn = mx_in_view, mn_in_view
+                    last_bars_range = brange
 
 
 async def chart_from_fsp(
@@ -1049,8 +1079,8 @@ def _main(
     """
     # Qt entry point
     run_qtractor(
-       func=_async_main,
-       args=(sym, brokername),
-       main_widget=ChartSpace,
-       tractor_kwargs=tractor_kwargs,
+        func=_async_main,
+        args=(sym, brokername),
+        main_widget=ChartSpace,
+        tractor_kwargs=tractor_kwargs,
     )
