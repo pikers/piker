@@ -8,7 +8,7 @@ trading gear for hackers.
     :target: https://actions-badge.atrox.dev/piker/pikers/goto
 
 ``piker`` is a broker agnostic, next-gen FOSS toolset for real-time
-trading targeted at hardcore Linux users.
+trading targeted at retail traders (pikers) who are not satisfied with the market tools that are currently available.
 
 we use as much bleeding edge tech as possible including (but not limited to):
 
@@ -47,12 +47,13 @@ focus and features:
 - geared for collaboration within trader communities
 - zero interest in adoption by suits; no corporate friendly license, ever.
 - not built for *sale*; built for *people*
+- tools designed, from the ground up, to allow traders to define their edge and execute it
 
 fitting with these tenets, we're always open to new framework
 suggestions and ideas.
 
-building the best looking, most reliable, keyboard friendly trading
-platform is the dream.  feel free to pipe in with your ideas and quiffs.
+the aim is to build the most reliable, aesthetic, and keyboard friendly trading
+platform in the world.  feel free to pipe in with your ideas and quiffs.
 
 
 install
@@ -95,14 +96,15 @@ if you want your broker supported and they have an API let us know.
 
 check out our charts
 ********************
-bet you weren't expecting this from the foss bby::
+bet you weren't expecting this from foss bby::
 
     piker -b kraken chart XBTUSD
 
 
-if anyone asks you what this project is about
+participation is not manditory. however, there are a few simple rules that must be followed to ensure the success of this project.
 *********************************************
-you don't talk about it.
+the first rule of piker is: do not talk about piker
+the second rule of piker is: do not talk about piker
 
 how do i get involved?
 **********************
