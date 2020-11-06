@@ -39,11 +39,13 @@ class Axis(pg.AxisItem):
         self,
         linked_charts,
         typical_max_str: str = '100 000.00',
+        min_tick: int = 2,
         **kwargs
     ) -> None:
 
         super().__init__(**kwargs)
         self.linked_charts = linked_charts
+        self._min_tick = min_tick
 
         self.setTickFont(_font.font)
         self.setStyle(**{
@@ -57,6 +59,9 @@ class Axis(pg.AxisItem):
 
         # size the pertinent axis dimension to a "typical value"
         self.resize()
+
+    def set_min_tick(self, size: int) -> None:
+        self._min_tick = size
 
 
 class PriceAxis(Axis):
@@ -74,13 +79,20 @@ class PriceAxis(Axis):
     # XXX: drop for now since it just eats up h space
 
     def tickStrings(self, vals, scale, spacing):
-        digits = float_digits(spacing * scale)
+
+        # TODO: figure out how to enforce min tick spacing by passing
+        # it into the parent type
+        digits = max(float_digits(spacing * scale), self._min_tick)
 
         # print(f'vals: {vals}\nscale: {scale}\nspacing: {spacing}')
         # print(f'digits: {digits}')
 
         return [
-            ('{:,.%df}' % digits).format(v).replace(',', ' ') for v in vals
+            ('{value:,.{digits}f}')
+                .format(
+                    digits=digits,
+                    value=v,
+                ).replace(',', ' ') for v in vals
         ]
 
 
@@ -250,10 +262,12 @@ class XAxisLabel(AxisLabel):
 
 class YAxisLabel(AxisLabel):
     _h_margin = 3
+    # _w_margin = 1
 
     text_flags = (
         # QtCore.Qt.AlignLeft
-        QtCore.Qt.AlignVCenter
+        QtCore.Qt.AlignHCenter
+        | QtCore.Qt.AlignVCenter
         | QtCore.Qt.TextDontClip
     )
 
@@ -269,7 +283,7 @@ class YAxisLabel(AxisLabel):
     ) -> None:
 
         # this is read inside ``.paint()``
-        self.label_str = '{value: ,.{digits}f}'.format(
+        self.label_str = '{value:,.{digits}f}'.format(
             digits=self.digits, value=value).replace(',', ' ')
 
         br = self.boundingRect()
