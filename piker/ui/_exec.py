@@ -60,7 +60,7 @@ if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
 class MainWindow(QtGui.QMainWindow):
 
     size = (800, 500)
-    title = 'piker chart (bby)'
+    title = 'piker chart (ur symbol is loading bby)'
 
     def __init__(self, parent=None):
         super().__init__(parent)
