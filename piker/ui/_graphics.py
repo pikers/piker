@@ -652,6 +652,7 @@ class BarItems(pg.GraphicsObject):
 #         p.setBrush(self.bear_brush)
 #         p.drawRects(*rects[Quotes.close < Quotes.open])
 
+
 class LevelLabel(YSticky):
 
     line_pen = pg.mkPen(hcolor('bracket'))
@@ -736,6 +737,7 @@ class LevelLabel(YSticky):
 class L1Label(LevelLabel):
 
     size: float = 0
+    size_digits: float = 3
 
     text_flags = (
         QtCore.Qt.TextDontClip
@@ -747,7 +749,8 @@ class L1Label(LevelLabel):
         size in the text, eg. 100 x 323.3.
 
         """
-        self.label_str = '{size} x {level:,.{digits}f}'.format(
+        self.label_str = '{size:.{size_digits}f} x {level:,.{digits}f}'.format(
+            size_digits=self.size_digits,
             size=self.size or '?',
             digits=self.digits,
             level=level
@@ -758,12 +761,13 @@ class L1Labels:
     """Level 1 bid ask labels for dynamic update on price-axis.
 
     """
-    max_value: float = '100 x 100 000'
+    max_value: float = '100.0 x 100 000.00'
 
     def __init__(
         self,
         chart: 'ChartPlotWidget',  # noqa
         digits: int = 2,
+        size_digits: int = 0,
         font_size_inches: float = 4 / 53.,
     ) -> None:
 
@@ -780,6 +784,7 @@ class L1Labels:
             fg_color='bracket',
             orient_v='bottom',
         )
+        self.bid_label.size_digits = size_digits
         self.bid_label._size_br_from_str(self.max_value)
 
         self.ask_label = L1Label(
@@ -793,6 +798,7 @@ class L1Labels:
             fg_color='bracket',
             orient_v='top',
         )
+        self.ask_label.size_digits = size_digits
         self.ask_label._size_br_from_str(self.max_value)
 
 
