@@ -31,7 +31,7 @@ from ._style import (
     _bars_from_right_in_follow_mode,
     _bars_to_left_in_follow_mode,
 )
-from ..data._source import Symbol
+from ..data._source import Symbol, float_digits
 from .. import brokers
 from .. import data
 from ..data import maybe_open_shm_array
@@ -811,11 +811,19 @@ async def chart_from_quotes(
 
     chart.default_view()
 
-    # last_bid = last_ask = ohlcv.array[-1]['close']
-    l1 = L1Labels(chart)
+    last, volume = ohlcv.array[-1][['close', 'volume']]
+
+    l1 = L1Labels(
+        chart,
+        # determine precision/decimal lengths
+        digits=max(float_digits(last), 2),
+        size_digits=min(float_digits(volume), 3)
+    )
 
     async for quotes in stream:
         for sym, quote in quotes.items():
+            # print(f'CHART: {quote}')
+
             for tick in quote.get('ticks', ()):
 
                 # print(f"CHART: {quote['symbol']}: {tick}")
