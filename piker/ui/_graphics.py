@@ -11,7 +11,11 @@ from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QLineF, QPointF
 
 # from .._profile import timeit
-from ._style import _xaxis_at, hcolor, _font
+from ._style import (
+    _xaxis_at,
+    hcolor,
+    _font,
+)
 from ._axes import YAxisLabel, XAxisLabel, YSticky
 
 
@@ -759,10 +763,10 @@ class L1Labels:
     def __init__(
         self,
         chart: 'ChartPlotWidget',  # noqa
-        # level: float,
         digits: int = 2,
-        font_size: int = 4,
+        font_size_inches: float = 4 / 53.,
     ) -> None:
+
         self.chart = chart
 
         self.bid_label = L1Label(
@@ -771,7 +775,7 @@ class L1Labels:
             # TODO: pass this from symbol data
             digits=digits,
             opacity=1,
-            font_size=font_size,
+            font_size_inches=font_size_inches,
             bg_color='papas_special',
             fg_color='bracket',
             orient_v='bottom',
@@ -784,7 +788,7 @@ class L1Labels:
             # TODO: pass this from symbol data
             digits=digits,
             opacity=1,
-            font_size=font_size,
+            font_size_inches=font_size_inches,
             bg_color='papas_special',
             fg_color='bracket',
             orient_v='top',
@@ -810,7 +814,10 @@ def level_line(
     chart: 'ChartPlogWidget',  # noqa
     level: float,
     digits: int = 1,
-    font_size: int = 4,
+
+    # size 4 font on 4k screen scaled down, so small-ish.
+    font_size_inches: float = 4 / 53.,
+
     **linelabelkwargs
 ) -> LevelLine:
     """Convenience routine to add a styled horizontal line to a plot.
@@ -822,7 +829,7 @@ def level_line(
         # TODO: pass this from symbol data
         digits=digits,
         opacity=1,
-        font_size=font_size,
+        font_size_inches=font_size_inches,
         # TODO: make this take the view's bg pen
         bg_color='papas_special',
         fg_color='default',

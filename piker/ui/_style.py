@@ -1,6 +1,8 @@
 """
 Qt UI styling.
 """
+from typing import Optional
+
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
 from qdarkstyle.palette import DarkPalette
@@ -11,17 +13,19 @@ log = get_logger(__name__)
 
 # chart-wide font
 # font size 6px / 53 dpi (3x scaled down on 4k hidpi)
-_font_inches_we_like = 6 / 53  # px / (px / inch) = inch
+_default_font_inches_we_like = 6 / 53  # px / (px / inch) = inch
+_down_2_font_inches_we_like = 4 / 53
 
 
 class DpiAwareFont:
     def __init__(
         self,
         name: str = 'Hack',
+        size_in_inches: Optional[float] = None,
     ) -> None:
         self.name = name
         self._qfont = QtGui.QFont(name)
-        self._iwl = _font_inches_we_like
+        self._iwl = size_in_inches or _default_font_inches_we_like
         self._qfm = QtGui.QFontMetrics(self._qfont)
         self._physical_dpi = None
         self._screen = None
@@ -71,7 +75,8 @@ class DpiAwareFont:
             unscaled_br.height(),
         )
 
-# use pixel size to be cross-resolution compatible?
+
+# use inches size to be cross-resolution compatible?
 _font = DpiAwareFont()
 
 # TODO: re-compute font size when main widget switches screens?

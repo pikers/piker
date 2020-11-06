@@ -114,7 +114,7 @@ class AxisLabel(pg.GraphicsObject):
         bg_color: str = 'bracket',
         fg_color: str = 'black',
         opacity: int = 0,
-        font_size: Optional[int] = None,
+        font_size_inches: Optional[float] = None,
     ):
         super().__init__(parent)
         self.setFlag(self.ItemIgnoresTransformations)
@@ -126,11 +126,8 @@ class AxisLabel(pg.GraphicsObject):
 
         self._txt_br: QtCore.QRect = None
 
-        self._dpifont = DpiAwareFont()
+        self._dpifont = DpiAwareFont(size_in_inches=font_size_inches)
         self._dpifont.configure_to_dpi(_font._screen)
-
-        if font_size is not None:
-            self._dpifont._set_qfont_px_size(font_size)
 
         self.bg_color = pg.mkColor(hcolor(bg_color))
         self.fg_color = pg.mkColor(hcolor(fg_color))
