@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # piker: trading gear for hackers
-# Copyright 2018 Tyler Goodlet
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
