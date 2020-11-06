@@ -1,3 +1,19 @@
+# piker: trading gear for hackers
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 """
 Console interface to UI components.
 """
@@ -63,7 +79,7 @@ def monitor(config, rate, name, dhost, test, tl):
         name='monitor',
         loglevel=loglevel if tl else None,
         rpc_module_paths=['piker.ui.kivy.monitor'],
-        start_method='forkserver',
+        debug_mode=True,
     )
 
 
@@ -101,5 +117,29 @@ def optschain(config, symbol, date, tl, rate, test):
         partial(main, tries=1),
         name='kivy-options-chain',
         loglevel=loglevel if tl else None,
-        start_method='forkserver',
+    )
+
+
+@cli.command()
+@click.option('--date', '-d', help='Contracts expiry date')
+@click.option('--test', '-t', help='Test quote stream file')
+@click.option('--rate', '-r', default=1, help='Logging level')
+@click.argument('symbol', required=True)
+@click.pass_obj
+def chart(config, symbol, date, rate, test):
+    """Start an option chain UI
+    """
+    from ._chart import _main
+
+    # global opts
+    brokername = config['broker']
+    tractorloglevel = config['tractorloglevel']
+
+    _main(
+        sym=symbol,
+        brokername=brokername,
+        tractor_kwargs={
+            'debug_mode': True,
+            'loglevel': tractorloglevel,
+        },
     )

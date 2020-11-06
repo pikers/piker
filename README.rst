@@ -1,130 +1,112 @@
 piker
 -----
-Trading gear for hackers.
+trading gear for hackers.
 
-|travis|
+|gh_actions|
 
-``piker`` is an attempt at a pro-grade, broker agnostic, next-gen FOSS toolset for real-time
-trading and financial analysis targetted at hardcore Linux users.
+.. |gh_actions| image:: https://img.shields.io/endpoint.svg?url=https%3A%2F%2Factions-badge.atrox.dev%2Fpikers%2Fpiker%2Fbadge&style=popout-square
+    :target: https://actions-badge.atrox.dev/piker/pikers/goto
 
-It tries to use as much bleeding edge tech as possible including (but not limited to):
+``piker`` is a broker agnostic, next-gen FOSS toolset for real-time
+trading targeted at hardcore Linux users.
 
-- Python 3.7+ for glue_ and business logic
-- trio_ for async
-- tractor_ as the underlying actor model
+we use as much bleeding edge tech as possible including (but not limited to):
+
+- latest python for glue_
+- trio_ for `structured concurrency`_
+- tractor_ for distributed, multi-core, real-time streaming
 - marketstore_ for historical and real-time tick data persistence and sharing
 - techtonicdb_ for L2 book storage
 - Qt_ for pristine high performance UIs
+- pyqtgraph_ for real-time charting
+- ``numpy`` and ``numba`` for `fast numerics`_
 
 .. |travis| image:: https://img.shields.io/travis/pikers/piker/master.svg
     :target: https://travis-ci.org/pikers/piker
 .. _trio: https://github.com/python-trio/trio
 .. _tractor: https://github.com/goodboy/tractor
+.. _structured concurrency: https://trio.discourse.group/
 .. _marketstore: https://github.com/alpacahq/marketstore
 .. _techtonicdb: https://github.com/0b01/tectonicdb
 .. _Qt: https://www.qt.io/
+.. _pyqtgraph: https://github.com/pyqtgraph/pyqtgraph
 .. _glue: https://numpy.org/doc/stable/user/c-info.python-as-glue.html#using-python-as-glue
+.. _fast numerics: https://zerowithdot.com/python-numpy-and-pandas-performance/
 
 
-Focus and Features:
+focus and features:
 *******************
-- 100% federated: running your code on your hardware with your
-  broker's data feeds, privately, **is the point** (this is not a web-based *I
-  don't know how to run my own system* project).
-- Asset class, broker, exchange agnostic.
-- Built on a highly reliable `structured concurrent actor model
-  <tractor>`_ with built in async streaming and scalability protocols
-  allowing for a distributed architecture from the ground up.
-- Privacy: your orders, indicators, algos are all run client side and
-  are shared only with the (groups of) traders you specify.
-- Production grade, highly attractive native UIs that feel and fit like
-  a proper pair of skinny jeans; only meant to be used with a proper
-  tiling window manager (no, we are not ignorant enough to roll our own).
-- Sophisticated charting capable of processing large data sets in real-time
-  while sanely displaying complex models and strategy systems.
-- Built-in support for *hipstery* indicators and studies that you
-  probably haven't heard of but that the authors **know** generate alpha
-  when paired with the right strategies.
-- Emphasis on collaboration through sharing of data, ideas, and processing
-  power. We will not host your code in the cloud nor ask you to
-  participate in any lame "alpha competitions".
-- Adoption is very low priority, especially if you're not an experienced
-  trader; the system is not built for sale it is built for *people*.
-- No, we will never have a "corporation friendly license"; if you intend to use
-  this code base we must know about it.
+- zero web, cloud or "backtesting frameworks" (aka yabf)
+- zero self promotion (aka pump); expected throughout the community
+- 100% federated: your code, your hardware, your data feeds, your broker fills
+- broker/exchange/asset-class agnostic
+- privacy
+- real-time financial signal processing from the ground up
+- high quality, attractive, native UX with expected use in tiling wms
+- sophisticated rt charting and data sharing facilities
+- geared for collaboration within trader communities
+- zero interest in adoption by suits; no corporate friendly license, ever.
+- not built for *sale*; built for *people*
 
-Fitting with these tenets, we're always open to new framework suggestions and ideas.
+fitting with these tenets, we're always open to new framework
+suggestions and ideas.
 
-Building the best looking, most reliable, keyboard friendly trading platform is the dream.
-Feel free to pipe in with your ideas and quiffs.
+building the best looking, most reliable, keyboard friendly trading
+platform is the dream.  feel free to pipe in with your ideas and quiffs.
 
 
-Install
+install
 *******
-``piker`` is currently under heavy pre-alpha development and as such should
-be cloned from this repo and hacked on directly.
+``piker`` is currently under heavy pre-alpha development and as such
+should be cloned from this repo and hacked on directly.
 
-A couple bleeding edge components are being used atm pertaining to
-async ports of libraries for use with `trio`_.
+a couple bleeding edge components are being used atm pertaining to
+new components within `trio`_.
 
-Before installing make sure you have `pipenv`_ and have installed
-``python3.7`` as well as `kivy source build`_ dependencies
-since currently there's reliance on an async development branch.
-
-`kivy` dependencies
-===================
-On Archlinux you need the following dependencies::
-
-   pacman -S python-docutils gstreamer sdl2_ttf sdl2_mixer sdl2_image xclip
-
-To manually install the async branch of ``kivy`` from github do (though
-this should be done as part of the ``pipenv install`` below)::
-
-    pipenv install -e 'git+git://github.com/matham/kivy.git@async-loop#egg=kivy'
-
-
-.. _kivy source build:
-    https://kivy.org/docs/installation/installation-linux.html#installation-in-a-virtual-environment
-
-
-For a development install::
+for a development install::
 
     git clone git@github.com:pikers/piker.git
     cd piker
-    pipenv install --pre -e .
-    pipenv shell
+    pip install -e .
 
 
-Broker Support
+broker Support
 **************
-For live data feeds the only fully functional broker at the moment is Questrade_.
-Eventual support is in the works for `IB`, `TD Ameritrade` and `IEX`.
-If you want your broker supported and they have an API let us know.
+for live data feeds the in-progress set of supported brokers is:
 
-.. _Questrade: https://www.questrade.com/api/documentation
+- IB_ via ``ib_insync``
+- questrade_ which comes with effectively free L1
+- kraken_ for crypto over their public websocket API
 
+coming soon...
 
-Play with some UIs
-******************
+- webull_ via the reverse engineered public API
+- yahoo via yliveticker_
+- coinbase_ through websocket feed
 
-To start the real-time index monitor with the `questrade` backend::
+if you want your broker supported and they have an API let us know.
 
-    piker -l info monitor indexes
+.. _IB: https://interactivebrokers.github.io/tws-api/index.html
+.. _questrade: https://www.questrade.com/api/documentation
+.. _kraken: https://www.kraken.com/features/api#public-market-data
+.. _webull: https://github.com/tedchou12/webull
+.. _yliveticker: https://github.com/yahoofinancelive/yliveticker
+.. _coinbase: https://docs.pro.coinbase.com/#websocket-feed
 
+check out our charts
+********************
+bet you weren't expecting this from the foss bby::
 
-If you want to see super granular price changes, increase the
-broker quote query ``rate`` with ``-r``::
-
-    piker monitor indexes -r 10
-
-
-It is also possible to run the broker data feed micro service as a daemon::
-
-    pikerd -l info
-
-Then start the client app as normal::
-
-    piker monitor indexes
+    piker -b kraken chart XBTUSD
 
 
-.. _pipenv: https://docs.pipenv.org/
+if anyone asks you what this project is about
+*********************************************
+you don't talk about it.
+
+how do i get involved?
+**********************
+enter the matrix.
+
+learning the code is to your benefit and acts as a filter for desired
+users; many alpha nuggets within.

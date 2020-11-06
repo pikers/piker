@@ -1,3 +1,19 @@
+# piker: trading gear for hackers
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 """
 Console interface to broker client/daemons.
 """
@@ -131,7 +147,6 @@ def bars(config, symbol, count, df_output):
         click.echo(colorize_json(bars))
 
 
-
 @cli.command()
 @click.option('--rate', '-r', default=5, help='Logging level')
 @click.option('--filename', '-f', default='quotestream.jsonstream',
@@ -260,7 +275,11 @@ def search(config, pattern):
     # global opts
     brokermod = config['brokermod']
 
-    quotes = trio.run(partial(core.symbol_search, brokermod, pattern))
+    quotes = tractor.run(
+        partial(core.symbol_search, brokermod, pattern),
+        start_method='forkserver',
+        loglevel='info',
+    )
     if not quotes:
         log.error(f"No matches could be found for {pattern}?")
         return

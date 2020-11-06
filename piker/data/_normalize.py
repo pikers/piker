@@ -1,5 +1,5 @@
-# piker: trading gear for hackers.
-# Copyright 2018 Tyler Goodlet
+# piker: trading gear for hackers
+# Copyright (C) 2018-present  Tyler Goodlet
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -15,10 +15,24 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-piker: trading gear for hackers.
+Stream format enforcement.
 """
-import msgpack  # noqa
-import msgpack_numpy
 
-# patch msgpack for numpy arrays
-msgpack_numpy.patch()
+from typing import AsyncIterator, Optional, Tuple
+
+import numpy as np
+
+
+def iterticks(
+    quote: dict,
+    types: Tuple[str] = ('trade', 'utrade'),
+) -> AsyncIterator:
+    """Iterate through ticks delivered per quote cycle.
+    """
+    # print(f"{quote}\n\n")
+    ticks = quote.get('ticks', ())
+    if ticks:
+        for tick in ticks:
+            print(f"{quote['symbol']}: {tick}")
+            if tick.get('type') in types:
+                yield tick

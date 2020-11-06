@@ -15,11 +15,11 @@ from kivy.lang import Builder
 from kivy.app import async_runTouchApp
 from kivy.core.window import Window
 
-from ..brokers.data import DataFeed
+from ...brokers.data import DataFeed
 from .tabular import (
     Row, TickerTable, _kv, _black_rgba, colorcode,
 )
-from ..log import get_logger
+from ...log import get_logger
 from .pager import PagerView
 
 
@@ -69,7 +69,6 @@ async def update_quotes(
             chngcell.color = color
             hdrcell.color = color
 
-
         # briefly highlight bg of certain cells on each trade execution
         unflash = set()
         tick_color = None
@@ -105,39 +104,37 @@ async def update_quotes(
 
     # initial coloring
     to_sort = set()
-    for sym, quote in first_quotes.items():
-        row = table.get_row(sym)
-        record, displayable = formatter(
-            quote, symbol_data=symbol_data)
-        row.update(record, displayable)
-        color_row(row, record, {})
+    for quote in first_quotes:
+        row = table.get_row(quote['symbol'])
+        row.update(quote)
+        color_row(row, quote, {})
         to_sort.add(row.widget)
 
     table.render_rows(to_sort)
 
     log.debug("Finished initializing update loop")
     task_status.started()
+
     # real-time cell update loop
     async for quotes in agen:  # new quotes data only
         to_sort = set()
         for symbol, quote in quotes.items():
             row = table.get_row(symbol)
-            record, displayable = formatter(
-                quote, symbol_data=symbol_data)
 
             # don't red/green the header cell in ``row.update()``
-            record.pop('symbol')
+            quote.pop('symbol')
+            quote.pop('key')
 
             # determine if sorting should happen
             sort_key = table.sort_key
             last = row.get_field(sort_key)
-            new = record.get(sort_key, last)
+            new = quote.get(sort_key, last)
             if new != last:
                 to_sort.add(row.widget)
 
             # update and color
-            cells = row.update(record, displayable)
-            color_row(row, record, cells)
+            cells = row.update(quote)
+            color_row(row, quote, cells)
 
         if to_sort:
             table.render_rows(to_sort)
@@ -179,18 +176,14 @@ async def _async_main(
     This is started with cli cmd `piker monitor`.
     '''
     feed = DataFeed(portal, brokermod)
-    quote_gen, quotes = await feed.open_stream(
+    quote_gen, first_quotes = await feed.open_stream(
         symbols,
         'stock',
         rate=rate,
         test=test,
     )
-
-    first_quotes, _ = feed.format_quotes(quotes)
-
-    if first_quotes[0].get('last') is None:
-        log.error("Broker API is down temporarily")
-        return
+    first_quotes_list = list(first_quotes.copy().values())
+    quotes = list(first_quotes.copy().values())
 
     # build out UI
     Window.set_title(f"monitor: {name}\t(press ? for help)")
@@ -202,7 +195,9 @@ async def _async_main(
     bidasks = brokermod._stock_bidasks
 
     # add header row
-    headers = first_quotes[0].keys()
+    headers = list(first_quotes_list[0].keys())
+    headers.remove('displayable')
+
     header = Row(
         {key: key for key in headers},
         headers=headers,
@@ -217,11 +212,17 @@ async def _async_main(
         cols=1,
         size_hint=(1, None),
     )
-    for ticker_record in first_quotes:
+    for ticker_record in first_quotes_list:
+        symbol = ticker_record['symbol']
         table.append_row(
-            ticker_record['symbol'],
-            Row(ticker_record, headers=('symbol',),
-                bidasks=bidasks, table=table)
+            symbol,
+            Row(
+                ticker_record,
+                headers=('symbol',),
+                bidasks=bidasks,
+                no_cell=('displayable',),
+                table=table
+            )
         )
     table.last_clicked_row = next(iter(table.symbols2rows.values()))
 

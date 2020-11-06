@@ -1,3 +1,19 @@
+# piker: trading gear for hackers
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 """
 Broker high level cross-process API layer.
 
@@ -112,11 +128,11 @@ async def symbol_info(
 
 async def symbol_search(
     brokermod: ModuleType,
-    symbol: str,
+    pattern: str,
     **kwargs,
 ) -> Dict[str, Dict[str, Dict[str, Any]]]:
     """Return symbol info from broker.
     """
     async with brokermod.get_client() as client:
         # TODO: support multiple asset type concurrent searches.
-        return await client.search_stocks(symbol, **kwargs)
+        return await client.search_stocks(pattern=pattern, **kwargs)

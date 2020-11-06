@@ -1,3 +1,19 @@
+# piker: trading gear for hackers
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 """
 Interactive Brokers API backend.
 
@@ -5,10 +21,10 @@ Note the client runs under an ``asyncio`` loop (since ``ib_insync`` is
 built on it) and thus actor aware API calls must be spawned with
 ``infected_aio==True``.
 """
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import asdict
 from functools import partial
-from typing import List, Dict, Any, Tuple, Optional, AsyncGenerator, Callable
+from typing import List, Dict, Any, Tuple, Optional, AsyncIterator, Callable
 import asyncio
 import logging
 import inspect
@@ -25,8 +41,15 @@ import trio
 import tractor
 
 from ..log import get_logger, get_console_log
-from ..data import maybe_spawn_brokerd
-from ..ui._source import from_df
+from ..data import (
+    maybe_spawn_brokerd,
+    iterticks,
+    attach_shm_array,
+    get_shm_token,
+    subscribe_ohlc_for_increment,
+)
+from ..data._source import from_df
+from ._util import SymbolNotFound
 
 
 log = get_logger(__name__)
@@ -82,8 +105,7 @@ class NonShittyWrapper(Wrapper):
 
 
 class NonShittyIB(ibis.IB):
-    """The beginning of overriding quite a few quetionable decisions
-    in this lib.
+    """The beginning of overriding quite a few decisions in this lib.
 
     - Don't use datetimes
     - Don't use named tuples
@@ -104,7 +126,6 @@ _adhoc_cmdty_data_map = {
     # NOTE: cmdtys don't have trade data:
     # https://groups.io/g/twsapi/message/44174
     'XAUUSD': ({'conId': 69067924}, {'whatToShow': 'MIDPOINT'}),
-    'XAUUSD': ({'conId': 69067924}, {'whatToShow': 'MIDPOINT'}),
 }
 
 
@@ -112,12 +133,14 @@ class Client:
     """IB wrapped for our broker backend API.
 
     Note: this client requires running inside an ``asyncio`` loop.
+
     """
     def __init__(
         self,
         ib: ibis.IB,
     ) -> None:
         self.ib = ib
+        self.ib.RaiseRequestErrors = True
 
     async def bars(
         self,
@@ -143,7 +166,7 @@ class Client:
             # durationStr='1 D',
 
             # time length calcs
-            durationStr='{count} S'.format(count=3000 * 5),
+            durationStr='{count} S'.format(count=5000 * 5),
             barSizeSetting='5 secs',
 
             # always use extended hours
@@ -278,7 +301,7 @@ class Client:
         self,
         symbol: str,
         to_trio,
-        opts: Tuple[int] = ('375',),  # '233', ),
+        opts: Tuple[int] = ('375', '233',),
         # opts: Tuple[int] = ('459',),
     ) -> None:
         """Stream a ticker using the std L1 api.
@@ -287,7 +310,7 @@ class Client:
         ticker: Ticker = self.ib.reqMktData(contract, ','.join(opts))
 
         def push(t):
-            log.debug(t)
+            # log.debug(t)
             try:
                 to_trio.send_nowait(t)
             except trio.BrokenResourceError:
@@ -309,6 +332,8 @@ class Client:
 _tws_port: int = 7497
 _gw_port: int = 4002
 _try_ports = [_tws_port, _gw_port]
+_client_ids = itertools.count()
+_client_cache = {}
 
 
 @asynccontextmanager
@@ -319,36 +344,39 @@ async def _aio_get_client(
 ) -> Client:
     """Return an ``ib_insync.IB`` instance wrapped in our client API.
     """
-    if client_id is None:
-        # if this is a persistent brokerd, try to allocate a new id for
-        # each client
-        try:
-            ss = tractor.current_actor().statespace
-            client_id = next(ss.setdefault('client_ids', itertools.count()))
-            # TODO: in case the arbiter has no record
-            # of existing brokerd we need to broadcase for one.
-        except RuntimeError:
-            # tractor likely isn't running
-            client_id = 1
-
-    ib = NonShittyIB()
-    ports = _try_ports if port is None else [port]
-    _err = None
-    for port in ports:
-        try:
-            await ib.connectAsync(host, port, clientId=client_id)
-            break
-        except ConnectionRefusedError as ce:
-            _err = ce
-            log.warning(f'Failed to connect on {port}')
-    else:
-        raise ConnectionRefusedError(_err)
+    # first check cache for existing client
 
     try:
-        yield Client(ib)
-    except BaseException:
-        ib.disconnect()
-        raise
+        yield _client_cache[(host, port)]
+    except KeyError:
+        # TODO: in case the arbiter has no record
+        # of existing brokerd we need to broadcast for one.
+
+        if client_id is None:
+            # if this is a persistent brokerd, try to allocate a new id for
+            # each client
+            client_id = next(_client_ids)
+
+        ib = NonShittyIB()
+        ports = _try_ports if port is None else [port]
+        _err = None
+        for port in ports:
+            try:
+                await ib.connectAsync(host, port, clientId=client_id)
+                break
+            except ConnectionRefusedError as ce:
+                _err = ce
+                log.warning(f'Failed to connect on {port}')
+        else:
+            raise ConnectionRefusedError(_err)
+
+        try:
+            client = Client(ib)
+            _client_cache[(host, port)] = client
+            yield client
+        except BaseException:
+            ib.disconnect()
+            raise
 
 
 async def _aio_run_client_method(
@@ -448,6 +476,20 @@ async def get_client(
         yield get_method_proxy(portal, Client)
 
 
+# https://interactivebrokers.github.io/tws-api/tick_types.html
+tick_types = {
+    77: 'trade',
+    48: 'utrade',
+    0: 'bsize',
+    1: 'bid',
+    2: 'ask',
+    3: 'asize',
+    4: 'last',
+    5: 'size',
+    8: 'volume',
+}
+
+
 def normalize(
     ticker: Ticker,
     calc_price: bool = False
@@ -456,9 +498,7 @@ def normalize(
     new_ticks = []
     for tick in ticker.ticks:
         td = tick._asdict()
-
-        if td['tickType'] in (48, 77):
-            td['type'] = 'trade'
+        td['type'] = tick_types.get(td['tickType'], 'n/a')
 
         new_ticks.append(td)
 
@@ -476,22 +516,45 @@ def normalize(
 
     # add time stamps for downstream latency measurements
     data['brokerd_ts'] = time.time()
-    if ticker.rtTime:
-        data['broker_ts'] = data['rtTime_s'] = float(ticker.rtTime) / 1000.
+
+    # stupid stupid shit...don't even care any more..
+    # leave it until we do a proper latency study
+    # if ticker.rtTime is not None:
+    #     data['broker_ts'] = data['rtTime_s'] = float(
+    #         ticker.rtTime.timestamp) / 1000.
+    data.pop('rtTime')
 
     return data
+
+
+_local_buffer_writers = {}
+
+
+@contextmanager
+def activate_writer(key: str):
+    try:
+        writer_already_exists = _local_buffer_writers.get(key, False)
+        if not writer_already_exists:
+            _local_buffer_writers[key] = True
+
+        yield writer_already_exists
+    finally:
+        _local_buffer_writers.pop(key, None)
 
 
 # TODO: figure out how to share quote feeds sanely despite
 # the wacky ``ib_insync`` api.
 # @tractor.msg.pub
+@tractor.stream
 async def stream_quotes(
+    ctx: tractor.Context,
     symbols: List[str],
+    shm_token: Tuple[str, str, List[tuple]],
     loglevel: str = None,
     # compat for @tractor.msg.pub
     topics: Any = None,
     get_topics: Callable = None,
-) -> AsyncGenerator[str, Dict[str, Any]]:
+) -> AsyncIterator[Dict[str, Any]]:
     """Stream symbol quotes.
 
     This is a ``trio`` callable routine meant to be invoked
@@ -503,75 +566,140 @@ async def stream_quotes(
     # TODO: support multiple subscriptions
     sym = symbols[0]
 
-    stream = await tractor.to_asyncio.run_task(
-        _trio_run_client_method,
+    stream = await _trio_run_client_method(
         method='stream_ticker',
         symbol=sym,
     )
+
     async with aclosing(stream):
-        # first quote can be ignored as a 2nd with newer data is sent?
-        first_ticker = await stream.__anext__()
 
-        if type(first_ticker.contract) not in (ibis.Commodity, ibis.Forex):
-            suffix = 'exchange'
+        # check if a writer already is alive in a streaming task,
+        # otherwise start one and mark it as now existing
+        with activate_writer(shm_token['shm_name']) as writer_already_exists:
 
-            calc_price = False  # should be real volume for contract
+            # maybe load historical ohlcv in to shared mem
+            # check if shm has already been created by previous
+            # feed initialization
+            if not writer_already_exists:
+
+                shm = attach_shm_array(
+                    token=shm_token,
+
+                    # we are the buffer writer
+                    readonly=False,
+                )
+                bars = await _trio_run_client_method(
+                    method='bars',
+                    symbol=sym,
+                )
+
+                if bars is None:
+                    raise SymbolNotFound(sym)
+
+                # write historical data to buffer
+                shm.push(bars)
+                shm_token = shm.token
+
+                times = shm.array['time']
+                delay_s = times[-1] - times[times != times[-1]][-1]
+                subscribe_ohlc_for_increment(shm, delay_s)
+
+            # pass back token, and bool, signalling if we're the writer
+            await ctx.send_yield((shm_token, not writer_already_exists))
+
+            # first quote can be ignored as a 2nd with newer data is sent?
+            first_ticker = await stream.__anext__()
 
             quote = normalize(first_ticker)
-            log.debug(f"First ticker received {quote}")
-
-            con = quote['contract']
-            topic = '.'.join((con['symbol'], con[suffix])).lower()
-            yield {topic: quote}
 
             # ugh, clear ticks since we've consumed them
             # (ahem, ib_insync is stateful trash)
             first_ticker.ticks = []
 
-            async for ticker in stream:
-                # spin consuming tickers until we get a real market datum
-                if not ticker.rtTime:
-                    log.debug(f"New unsent ticker: {ticker}")
-                    continue
-                else:
-                    log.debug("Received first real volume tick")
-                    quote = normalize(ticker)
-                    topic = '.'.join((con['symbol'], con[suffix])).lower()
-                    yield {topic: quote}
+            log.debug(f"First ticker received {quote}")
 
-                    # ugh, clear ticks since we've consumed them
-                    # (ahem, ib_insync is stateful trash)
-                    ticker.ticks = []
+            if type(first_ticker.contract) not in (ibis.Commodity, ibis.Forex):
+                suffix = 'exchange'
 
-                    # XXX: this works because we don't use
-                    # ``aclosing()`` above?
-                    break
-        else:
-            # commodities don't have an exchange name for some reason?
-            suffix = 'secType'
-            calc_price = True
+                calc_price = False  # should be real volume for contract
 
-        async for ticker in stream:
-            quote = normalize(
-                ticker,
-                calc_price=calc_price
-            )
+                async for ticker in stream:
+                    # spin consuming tickers until we get a real market datum
+                    if not ticker.rtTime:
+                        log.debug(f"New unsent ticker: {ticker}")
+                        continue
+                    else:
+                        log.debug("Received first real volume tick")
+                        # ugh, clear ticks since we've consumed them
+                        # (ahem, ib_insync is truly stateful trash)
+                        ticker.ticks = []
+
+                        # XXX: this works because we don't use
+                        # ``aclosing()`` above?
+                        break
+            else:
+                # commodities don't have an exchange name for some reason?
+                suffix = 'secType'
+                calc_price = True
+                ticker = first_ticker
+
+            quote = normalize(ticker, calc_price=calc_price)
             con = quote['contract']
             topic = '.'.join((con['symbol'], con[suffix])).lower()
-            yield {topic: quote}
+            quote['symbol'] = topic
 
-            # ugh, clear ticks since we've consumed them
+            first_quote = {topic: quote}
             ticker.ticks = []
 
+            # yield first quote asap
+            await ctx.send_yield(first_quote)
 
-if __name__ == '__main__':
-    import sys
-    sym = sys.argv[1]
+            # real-time stream
+            async for ticker in stream:
+                quote = normalize(
+                    ticker,
+                    calc_price=calc_price
+                )
+                quote['symbol'] = topic
+                # TODO: in theory you can send the IPC msg *before*
+                # writing to the sharedmem array to decrease latency,
+                # however, that will require `tractor.msg.pub` support
+                # here or at least some way to prevent task switching
+                # at the yield such that the array write isn't delayed
+                # while another consumer is serviced..
 
-    contract = asyncio.run(
-        _aio_run_client_method(
-            'find_contract',
-            symbol=sym,
-        )
-    )
-    print(contract)
+                # if we are the lone tick writer start writing
+                # the buffer with appropriate trade data
+                if not writer_already_exists:
+                    for tick in iterticks(quote, types=('trade', 'utrade',)):
+                        last = tick['price']
+
+                        # update last entry
+                        # benchmarked in the 4-5 us range
+                        o, high, low, v = shm.array[-1][
+                            ['open', 'high', 'low', 'volume']
+                        ]
+
+                        new_v = tick['size']
+
+                        if v == 0 and new_v:
+                            # no trades for this bar yet so the open
+                            # is also the close/last trade price
+                            o = last
+
+                        shm.array[['open', 'high', 'low', 'close', 'volume']][-1] = (
+                            o,
+                            max(high, last),
+                            min(low, last),
+                            last,
+                            v + new_v,
+                        )
+
+                con = quote['contract']
+                topic = '.'.join((con['symbol'], con[suffix])).lower()
+                quote['symbol'] = topic
+
+                await ctx.send_yield({topic: quote})
+
+                # ugh, clear ticks since we've consumed them
+                ticker.ticks = []

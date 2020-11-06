@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # piker: trading gear for hackers
-# Copyright 2018 Tyler Goodlet
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -16,7 +16,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 with open('README.rst', encoding='utf-8') as f:
     readme = f.read()
@@ -32,12 +32,7 @@ setup(
     maintainer='Tyler Goodlet',
     url='https://github.com/pikers/piker',
     platforms=['linux'],
-    packages=[
-        'piker',
-        'piker.brokers',
-        'piker.ui',
-        'piker.testing',
-    ],
+    packages=find_packages(),
     entry_points={
         'console_scripts': [
             'piker = piker.cli:cli',
@@ -47,20 +42,32 @@ setup(
     install_requires=[
         'click',
         'colorlog',
-        'trio',
         'attrs',
-        'async_generator',
         'pygments',
+        'colorama',  # numba traceback coloring
+
+        # async
+        'trio',
+        'trio-websocket',
+        # 'tractor',  # from github currently
+        'async_generator',
 
         # brokers
-        'asks',
+        'asks==2.4.8',
         'ib_insync',
 
         # numerics
         'arrow',  # better datetimes
         'cython',
         'numpy',
+        'numba',
         'pandas',
+        'msgpack-numpy',
+
+        # UI
+        'PyQt5',
+        'pyqtgraph',
+        'qdarkstyle',
 
         # tsdbs
         'pymarketstore',
@@ -71,13 +78,11 @@ setup(
     keywords=["async", "trading", "finance", "quant", "charting"],
     classifiers=[
         'Development Status :: 3 - Alpha',
-        'License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)',
+        'License :: OSI Approved :: ',
         'Operating System :: POSIX :: Linux',
         "Programming Language :: Python :: Implementation :: CPython",
-        # "Programming Language :: Python :: Implementation :: PyPy",
         "Programming Language :: Python :: 3 :: Only",
-        "Programming Language :: Python :: 3.5",
-        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
         'Intended Audience :: Financial and Insurance Industry',
         'Intended Audience :: Science/Research',
         'Intended Audience :: Developers',
