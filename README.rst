@@ -67,6 +67,8 @@ for a development install::
 
     git clone git@github.com:pikers/piker.git
     cd piker
+    virtualenv env
+    source ./env/bin/activate
     pip install -e .
 
 
