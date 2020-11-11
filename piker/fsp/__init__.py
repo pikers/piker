@@ -25,13 +25,18 @@ import numpy as np
 
 from ..log import get_logger
 from .. import data
-from ._momo import _rsi
+from ._momo import _rsi, _wma
+from ._volume import _tina_vwap
 from ..data import attach_shm_array, Feed
 
 log = get_logger(__name__)
 
 
-_fsps = {'rsi': _rsi}
+_fsps = {
+    'rsi': _rsi,
+    'wma': _wma,
+    'vwap': _tina_vwap,
+}
 
 
 async def latency(
@@ -70,7 +75,6 @@ async def increment_signals(
 
         # write new slot to the buffer
         dst_shm.push(last)
-
 
 
 @tractor.stream
@@ -112,7 +116,6 @@ async def cascade(
         # THERE'S A BIG BUG HERE WITH THE `index` field since we're
         # prepending a copy of the first value a few times to make
         # sub-curves align with the parent bar chart.
-        # 
         # This likely needs to be fixed either by,
         # - manually assigning the index and historical data
         #   seperately to the shm array (i.e. not using .push())
@@ -125,7 +128,7 @@ async def cascade(
         # and get historical output
         history_output = await out_stream.__anext__()
 
-        # build a struct array which includes an 'index' field to push 
+        # build a struct array which includes an 'index' field to push
         # as history
         history = np.array(
             np.arange(len(history_output)),
@@ -133,15 +136,10 @@ async def cascade(
         )
         history[fsp_func_name] = history_output
 
-        # TODO: talk to ``pyqtgraph`` core about proper way to solve this:
-        # XXX: hack to get curves aligned with bars graphics: prepend
-        # a copy of the first datum..
-        # dst.push(history[:1])
-
         # check for data length mis-allignment and fill missing values
         diff = len(src.array) - len(history)
         if diff >= 0:
-            print(f"WTF DIFFZZZ {diff}")
+            print(f"WTF DIFF SIGNAL to HISTORY {diff}")
             for _ in range(diff):
                 dst.push(history[:1])
 
