@@ -123,6 +123,7 @@ class ChartSpace(QtGui.QWidget):
         self,
         symbol: str,
         data: np.ndarray,
+        ohlc: bool = True,
     ) -> None:
         """Load a new contract into the charting app.
         """
@@ -147,7 +148,7 @@ class ChartSpace(QtGui.QWidget):
         if not self.v_layout.isEmpty():
             self.v_layout.removeWidget(linkedcharts)
 
-        main_chart = linkedcharts.plot_main(s, data)
+        main_chart = linkedcharts.plot_main(s, data, ohlc=ohlc)
         self.v_layout.addWidget(linkedcharts)
 
         return linkedcharts, main_chart
@@ -234,7 +235,7 @@ class LinkedSplitCharts(QtGui.QWidget):
             name=symbol.key,
             array=array,
             xaxis=self.xaxis,
-            ohlc=True,
+            ohlc=ohlc,
             _is_main=True,
         )
         # add crosshair graphic
@@ -746,6 +747,15 @@ async def _async_main(
         ohlcv = feed.shm
         bars = ohlcv.array
 
+        # TODO: when we start messing with line charts
+        # c = np.zeros(len(bars), dtype=[
+        #     (sym, bars.dtype.fields['close'][0]),
+        #     ('index', 'i4'),
+        # ])
+        # c[sym] = bars['close']
+        # c['index'] = bars['index']
+        # linked_charts, chart = chart_app.load_symbol(sym, c, ohlc=False)
+
         # load in symbol's ohlc data
         linked_charts, chart = chart_app.load_symbol(sym, bars)
 
@@ -849,6 +859,11 @@ async def chart_from_quotes(
         l, lbar, rbar, r = last_bars_range
         in_view = array[lbar:rbar]
         mx, mn = np.nanmax(in_view['high']), np.nanmin(in_view['low'])
+
+        # TODO: when we start using line charts
+        # sym = chart.name
+        # mx, mn = np.nanmax(in_view[sym]), np.nanmin(in_view[sym])
+
         return last_bars_range, mx, mn
 
     last_bars_range, last_mx, last_mn = maxmin()
@@ -897,6 +912,11 @@ async def chart_from_quotes(
                         chart.name,
                         array,
                     )
+
+                    # chart.update_curve_from_array(
+                        # chart.name,
+                        # TODO: when we start using line charts
+                        # np.array(array['close'], dtype=[(chart.name, 'f8')])
 
                     # if vwap_in_history:
                     #     # update vwap overlay line
