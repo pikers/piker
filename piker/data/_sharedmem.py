@@ -214,10 +214,12 @@ class ShmArray:
         ...
 
 
+_lotsa_5s = int(5*60*60*10/5)
+
 def open_shm_array(
     key: Optional[str] = None,
     # approx number of 5s bars in a "day" x2
-    size: int = int(2*60*60*10/5),
+    size: int = _lotsa_5s,
     dtype: Optional[np.dtype] = None,
     readonly: bool = False,
 ) -> ShmArray:
@@ -269,7 +271,7 @@ def open_shm_array(
 
 def attach_shm_array(
     token: Tuple[str, str, Tuple[str, str]],
-    size: int = int(60*60*10/5),
+    size: int = _lotsa_5s,
     readonly: bool = True,
 ) -> ShmArray:
     """Load and attach to an existing shared memory array previously
