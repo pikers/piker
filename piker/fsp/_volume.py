@@ -14,47 +14,68 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from typing import AsyncIterator
+from typing import AsyncIterator, Optional
 
 import numpy as np
 
 from ..data._normalize import iterticks
 
 
+def wap(
+    signal: np.ndarray,
+    weights: np.ndarray,
+) -> np.ndarray:
+    """Weighted average price from signal and weights.
+
+    """
+    cum_weights = np.cumsum(weights)
+    cum_weighted_input = np.cumsum(signal * weights)
+    return cum_weighted_input / cum_weights, cum_weighted_input, cum_weights
+
+
 async def _tina_vwap(
     source,  #: AsyncStream[np.ndarray],
     ohlcv: np.ndarray,  # price time-frame "aware"
+    anchors: Optional[np.ndarray] = None,
 ) -> AsyncIterator[np.ndarray]:  # maybe something like like FspStream?
     """Streaming volume weighted moving average.
 
 
-    Calling this "tina" for now since we're using OHL3 instead of tick.
+    Calling this "tina" for now since we're using HLC3 instead of tick.
 
     """
-    # TODO: anchor to session start
+    if anchors is None:
+        # TODO:
+        # anchor to session start of data if possible
+        pass
 
     a = ohlcv.array
-    ohl3 = (a['open'] + a['high'] + a['low']) / 3
-
+    chl3 = (a['close'] + a['high'] + a['low']) / 3
     v = a['volume']
-    cum_v = np.cumsum(v)
-    cum_weights = np.cumsum(ohl3 * v)
 
-    vwap = cum_weights / cum_v
+    h_vwap, cum_wp, cum_v = wap(chl3, v)
 
     # deliver historical output as "first yield"
-    yield vwap
+    yield h_vwap
 
-    weights_tot = cum_weights[-1]
+    w_tot = cum_wp[-1]
     v_tot = cum_v[-1]
+    # vwap_tot = h_vwap[-1]
 
     async for quote in source:
 
         for tick in iterticks(quote, types=['trade']):
 
-            o, h, l, v = ohlcv.array[-1][
-                ['open', 'high', 'low', 'volume']
-            ]
-            v_tot += v
+            # c, h, l, v = ohlcv.array[-1][
+            #     ['closes', 'high', 'low', 'volume']
+            # ]
 
-            yield ((((o + h + l) / 3) * v) + weights_tot) / v_tot
+            # this computes tick-by-tick weightings from here forward
+            size = tick['size']
+            price = tick['price']
+
+            v_tot += size
+            w_tot += price * size
+
+            # yield ((((o + h + l) / 3) * v) weights_tot) / v_tot
+            yield w_tot / v_tot
