@@ -51,6 +51,8 @@ class Axis(pg.AxisItem):
         self.setStyle(**{
             'textFillLimits': [(0, 0.666)],
             'tickFont': _font.font,
+            # offset of text *away from* axis line in px
+            'tickTextOffset': 2,
         })
 
         self.setTickFont(_font.font)
@@ -88,11 +90,10 @@ class PriceAxis(Axis):
         # print(f'digits: {digits}')
 
         return [
-            ('{value:,.{digits}f}')
-                .format(
-                    digits=digits,
-                    value=v,
-                ).replace(',', ' ') for v in vals
+            ('{value:,.{digits}f}').format(
+                digits=digits,
+                value=v,
+            ).replace(',', ' ') for v in vals
         ]
 
 
@@ -104,10 +105,11 @@ class DynamicDateAxis(Axis):
         60: '%H:%M',
         30: '%H:%M:%S',
         5: '%H:%M:%S',
+        1: '%H:%M:%S',
     }
 
     def resize(self) -> None:
-        self.setHeight(self.typical_br.height() + 3)
+        self.setHeight(self.typical_br.height() + 1)
 
     def _indexes_to_timestrs(
         self,
@@ -228,6 +230,7 @@ class AxisLabel(pg.GraphicsObject):
 
 
 class XAxisLabel(AxisLabel):
+    _w_margin = 4
 
     text_flags = (
         QtCore.Qt.TextDontClip
@@ -255,14 +258,13 @@ class XAxisLabel(AxisLabel):
         w = self.boundingRect().width()
         self.setPos(QPointF(
             abs_pos.x() - w / 2 - offset,
-            0,
+            1,
         ))
         self.update()
 
 
 class YAxisLabel(AxisLabel):
-    _h_margin = 3
-    # _w_margin = 1
+    _h_margin = 2
 
     text_flags = (
         # QtCore.Qt.AlignLeft
@@ -289,7 +291,7 @@ class YAxisLabel(AxisLabel):
         br = self.boundingRect()
         h = br.height()
         self.setPos(QPointF(
-            0,
+            1,
             abs_pos.y() - h / 2 - offset
         ))
         self.update()
