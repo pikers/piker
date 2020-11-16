@@ -26,6 +26,7 @@ from typing import Tuple, Callable, Dict, Any
 
 # Qt specific
 import PyQt5  # noqa
+import pyqtgraph as pg
 from pyqtgraph import QtGui
 from PyQt5 import QtCore
 from PyQt5.QtCore import (
@@ -35,6 +36,12 @@ import qdarkstyle
 import trio
 import tractor
 from outcome import Error
+
+
+# pyqtgraph global config
+# might as well enable this for now?
+pg.useOpenGL = True
+pg.enableExperimental = True
 
 
 # singleton app per actor
@@ -66,6 +73,12 @@ class MainWindow(QtGui.QMainWindow):
         super().__init__(parent)
         self.setMinimumSize(*self.size)
         self.setWindowTitle(self.title)
+
+    def closeEvent(self, event: 'QCloseEvent') -> None:
+        """Cancel the root actor asap.
+
+        """
+        tractor.current_actor().cancel_soon()
 
 
 def run_qtractor(
@@ -130,6 +143,9 @@ def run_qtractor(
     window = window_type()
     instance = main_widget()
     instance.window = window
+
+    # kill the app when root actor terminates
+    tractor._actor._lifetime_stack.callback(app.quit)
 
     widgets = {
         'window': window,
