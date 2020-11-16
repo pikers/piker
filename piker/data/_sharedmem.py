@@ -216,6 +216,7 @@ class ShmArray:
 
 _lotsa_5s = int(5*60*60*10/5)
 
+
 def open_shm_array(
     key: Optional[str] = None,
     # approx number of 5s bars in a "day" x2
@@ -263,9 +264,9 @@ def open_shm_array(
 
     # "unlink" created shm on process teardown by
     # pushing teardown calls onto actor context stack
-    actor = tractor.current_actor()
-    actor._lifetime_stack.callback(shmarr.close)
-    actor._lifetime_stack.callback(shmarr.destroy)
+    tractor._actor._lifetime_stack.callback(shmarr.close)
+    tractor._actor._lifetime_stack.callback(shmarr.destroy)
+
     return shmarr
 
 
@@ -310,8 +311,8 @@ def attach_shm_array(
         _known_tokens[key] = token
 
     # "close" attached shm on process teardown
-    actor = tractor.current_actor()
-    actor._lifetime_stack.callback(sha.close)
+    tractor._actor._lifetime_stack.callback(sha.close)
+
     return sha
 
 
