@@ -194,9 +194,30 @@ class ShmArray:
         # TODO: use .index for actual ring logic?
         index = self._i.value
         end = index + length
-        self._array[index:end] = data[:]
-        self._i.value = end
-        return end
+        try:
+            self._array[index:end] = data[:]
+            self._i.value = end
+            return end
+        except ValueError as err:
+            # reraise with any field discrepancy
+            our_fields, their_fields = (
+                set(self._array.dtype.fields),
+                set(data.dtype.fields),
+            )
+
+            only_in_ours = our_fields - their_fields
+            only_in_theirs = their_fields - our_fields
+
+            if only_in_ours:
+                raise TypeError(
+                    f"Input array is missing field(s): {only_in_ours}"
+                )
+            elif only_in_theirs:
+                raise TypeError(
+                    f"Input array has unknown field(s): {only_in_theirs}"
+                )
+            else:
+                raise err
 
     def close(self) -> None:
         self._i._shm.close()
@@ -214,7 +235,7 @@ class ShmArray:
         ...
 
 
-_lotsa_5s = int(5*60*60*10/5)
+_lotsa_5s = int(5 * 60 * 60 * 10 / 5)
 
 
 def open_shm_array(
