@@ -18,16 +18,16 @@
 Chart graphics for displaying a slew of different data types.
 """
 
-# import time
+import time
 from typing import List, Optional, Tuple
 
 import numpy as np
 import pyqtgraph as pg
-# from numba import jit, float64, optional, int64
+from numba import jit, float64, optional, int64
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QLineF, QPointF
 
-# from .._profile import timeit
+from .._profile import timeit
 from ._style import (
     _xaxis_at,
     hcolor,
@@ -44,6 +44,8 @@ _debounce_delay = 1 / 2e3
 _ch_label_opac = 1
 
 
+# TODO: we need to handle the case where index is outside
+# the underlying datums range
 class LineDot(pg.CurvePoint):
 
     def __init__(
@@ -149,8 +151,9 @@ class ContentsLabel(pg.LabelItem):
         index: int,
         array: np.ndarray,
     ) -> None:
-        data = array[index][name]
-        self.setText(f"{name}: {data:.2f}")
+        if index < len(array):
+            data = array[index][name]
+            self.setText(f"{name}: {data:.2f}")
 
 
 class CrossHair(pg.GraphicsObject):
@@ -246,7 +249,7 @@ class CrossHair(pg.GraphicsObject):
     ) -> LineDot:
         # if this plot contains curves add line dot "cursors" to denote
         # the current sample under the mouse
-        cursor = LineDot(curve, index=len(plot._array))
+        cursor = LineDot(curve, index=len(plot._ohlc))
         plot.addItem(cursor)
         self.graphics[plot].setdefault('cursors', []).append(cursor)
         return cursor
@@ -341,18 +344,45 @@ class CrossHair(pg.GraphicsObject):
 #     nopython=True,
 #     nogil=True
 # )
-def _mk_lines_array(data: List, size: int) -> np.ndarray:
-    """Create an ndarray to hold lines graphics objects.
+def _mk_lines_array(
+    data: List,
+    size: int,
+    elements_step: int = 6,
+) -> np.ndarray:
+    """Create an ndarray to hold lines graphics info.
+
     """
     return np.zeros_like(
         data,
-        shape=(int(size), 3),
+        shape=(int(size), elements_step),
         dtype=object,
     )
 
 
-# TODO: `numba` this?
+def lines_from_ohlc(row: np.ndarray, w: float) -> Tuple[QLineF]:
+    open, high, low, close, index = row[
+        ['open', 'high', 'low', 'close', 'index']]
 
+    # high -> low vertical (body) line
+    if low != high:
+        hl = QLineF(index, low, index, high)
+    else:
+        # XXX: if we don't do it renders a weird rectangle?
+        # see below for filtering this later...
+        hl = None
+
+    # NOTE: place the x-coord start as "middle" of the drawing range such
+    # that the open arm line-graphic is at the left-most-side of
+    # the index's range according to the view mapping.
+
+    # open line
+    o = QLineF(index - w, open, index, open)
+    # close line
+    c = QLineF(index, close, index + w, close)
+
+    return [hl, o, c]
+
+# TODO: `numba` this?
 # @jit(
 #     # float64[:](
 #     #     float64[:],
@@ -370,7 +400,7 @@ def bars_from_ohlc(
     """Generate an array of lines objects from input ohlc data.
 
     """
-    lines = _mk_lines_array(data, data.shape[0])
+    lines = _mk_lines_array(data, data.shape[0], 3)
 
     for i, q in enumerate(data[start:], start=start):
         open, high, low, close, index = q[
@@ -424,6 +454,94 @@ def bars_from_ohlc(
     return lines
 
 
+# @timeit
+@jit(
+    # float64[:](
+    #     float64[:],
+    #     optional(float64),
+    #     optional(int64)
+    # ),
+    nopython=True,
+    nogil=True
+)
+def path_arrays_from_ohlc(
+    data: np.ndarray,
+    w: float64,
+    start: int64 = int64(0),
+) -> np.ndarray:
+    """Generate an array of lines objects from input ohlc data.
+
+    """
+    size = int(data.shape[0] * 6)
+
+    x = np.zeros(
+        # data,
+        shape=size,
+        dtype=float64,
+    )
+    y = np.zeros(
+        # data,
+        shape=size,
+        dtype=float64,
+    )
+    c = np.zeros(
+        # data,
+        shape=size,
+        dtype=float64,
+    )
+
+    # TODO: report bug for assert
+    # @ /home/goodboy/repos/piker/env/lib/python3.8/site-packages/numba/core/typing/builtins.py:991
+    # for i, q in enumerate(data[start:], start):
+    for i, q in enumerate(data[start:], start):
+
+        # TODO: ask numba why this doesn't work..
+        # open, high, low, close, index = q[
+        #     ['open', 'high', 'low', 'close', 'index']]
+
+        open = q['open']
+        high = q['high']
+        low = q['low']
+        close = q['close']
+        index = float64(q['index'])
+
+        istart = i * 6
+        istop = istart + 6
+
+        # write points for x, y, and connections
+        x[istart:istop] = (
+            index - w,
+            index,
+            index,
+            index,
+            index,
+            index + w,
+        )
+        y[istart:istop] = (
+            open,
+            open,
+            low,
+            high,
+            close,
+            close,
+        )
+        c[istart:istop] = (0, 1, 1, 1, 1, 1)
+
+    return x, y, c
+
+
+@timeit
+def gen_qpath(
+    data,
+    w,
+    start,
+) -> QtGui.QPainterPath:
+
+    x, y, c = path_arrays_from_ohlc(data, w, start=start)
+    return pg.functions.arrayToQPath(x, y, connect=c)
+
+
+
 class BarItems(pg.GraphicsObject):
     """Price range bars graphics rendered from a OHLC sequence.
     """
@@ -431,6 +549,9 @@ class BarItems(pg.GraphicsObject):
 
     # 0.5 is no overlap between arms, 1.0 is full overlap
     w: float = 0.43
+
+    # XXX: for the mega-lulz increasing width here increases draw latency...
+    # so probably don't do it until we figure that out.
     bars_pen = pg.mkPen(hcolor('bracket'))
 
     # XXX: tina mode, see below
@@ -443,7 +564,8 @@ class BarItems(pg.GraphicsObject):
         plotitem: 'pg.PlotItem',  # noqa
     ) -> None:
         super().__init__()
-        self.last = QtGui.QPicture()
+
+        self.last_bar = QtGui.QPicture()
         self.history = QtGui.QPicture()
         # TODO: implement updateable pixmap solution
         self._pi = plotitem
@@ -456,7 +578,11 @@ class BarItems(pg.GraphicsObject):
         # XXX: not sure this actually needs to be an array other
         # then for the old tina mode calcs for up/down bars below?
         # lines container
-        self.lines = _mk_lines_array([], 50e3)
+        day_in_s = 60 * 60 * 12
+        self.lines = _mk_lines_array([], 50e3, 6)
+        # TODO: don't render the full backing array each time
+        # self._path_data = None
+        self._last_bar_lines = None
 
         # track the current length of drawable lines within the larger array
         self.index: int = 0
@@ -471,66 +597,135 @@ class BarItems(pg.GraphicsObject):
 
         This routine is usually only called to draw the initial history.
         """
-        lines = bars_from_ohlc(data, self.w, start=start)
+        # start_lines = time.time()
+
+        # lines = bars_from_ohlc(data, self.w, start=start)
+
+        # start_path = time.time()
+        # assert len(data) == 2000
+
+        self.path = gen_qpath(data, self.w, start=start)
+
+        # end = time.time()
+        # print(f"paths took {end - start_path}\n lines took {start_path - start_lines}")
 
         # save graphics for later reference and keep track
         # of current internal "last index"
-        index = len(lines)
-        self.lines[:index] = lines
-        self.index = index
+        # index = len(lines)
+        # index = len(data)
+        # self.lines[:index] = lines
+        # lines = bars_from_ohlc(data[-1:], self.w, start=start)
+
+        self.index = len(data)
 
         # up to last to avoid double draw of last bar
-        self.draw_lines(just_history=True, iend=self.index - 1)
-        self.draw_lines(iend=self.index)
+        # self.draw_lines(just_history=True, iend=self.index - 1, path=self.path)
 
-    # @timeit
+        # self.draw_lines(iend=self.index)
+
+        self._last_bar_lines = lines_from_ohlc(data[-1], self.w)
+
+        # create pics
+        self.draw_history()
+        self.draw_last_bar()
+
+        # trigger render
+        # https://doc.qt.io/qt-5/qgraphicsitem.html#update
+        self.update()
+
+    def draw_last_bar(self) -> None:
+
+        # pic = self.last_bar
+
+        # pre-computing a QPicture object allows paint() to run much
+        # more quickly, rather than re-drawing the shapes every time.
+        p = QtGui.QPainter(self.last_bar)
+        p.setPen(self.bars_pen)
+
+        # print(self._last_bar_lines)
+        p.drawLines(*tuple(filter(bool, self._last_bar_lines)))
+        p.end()
+
+        # trigger re-render
+        # https://doc.qt.io/qt-5/qgraphicsitem.html#update
+        # self.update()
+
+    def draw_history(self) -> None:
+        p = QtGui.QPainter(self.history)
+        p.setPen(self.bars_pen)
+        p.drawPath(self.path)
+        p.end()
+
+        # self.update()
+
+    @timeit
     def draw_lines(
         self,
-        istart=0,
         iend=None,
         just_history=False,
+        istart=0,
+        path: QtGui.QPainterPath = None,
+
         # TODO: could get even fancier and only update the single close line?
         lines=None,
     ) -> None:
         """Draw the current line set using the painter.
+
+        Currently this draws lines to a cached ``QPicture`` which
+        is supposed to speed things up on ``.paint()`` calls (which
+        is a call to ``QPainter.drawPicture()`` but I'm not so sure.
         """
-        if just_history:
-            # draw bars for the "history" picture
-            iend = iend or self.index - 1
-            pic = self.history
-        else:
-            # draw the last bar
-            istart = self.index - 1
-            iend = iend or self.index
-            pic = self.last
+        # if path is None:
+        #     if just_history:
+        #         raise RuntimeError
+        #         # draw bars for the "history" picture
+        #         iend = iend or self.index - 1
+        #         pic = self.history
+        #     else:
+        #         # draw the last bar
+        #         istart = self.index - 1
+        #         iend = iend or self.index
 
-        # use 2d array of lines objects, see conlusion on speed:
-        # https://stackoverflow.com/a/60089929
-        flat = np.ravel(self.lines[istart:iend])
+        #         pic = self.last_bar
 
-        # TODO: do this with numba for speed gain:
-        # https://stackoverflow.com/questions/58422690/filtering-a-numpy-array-what-is-the-best-approach
-        to_draw = flat[np.where(flat != None)]  # noqa
+        #     # use 2d array of lines objects, see conlusion on speed:
+        #     # https://stackoverflow.com/a/60089929
+        #     flat = np.ravel(self.lines[istart:iend])
+
+        #     # TODO: do this with numba for speed gain:
+        #     # https://stackoverflow.com/questions/58422690/filtering-a-numpy-array-what-is-the-best-approach
+        #     to_draw = flat[np.where(flat != None)]  # noqa
+
+        # else:
+        #     pic = self.history
+
+        pic = self.last_bar
 
         # pre-computing a QPicture object allows paint() to run much
         # more quickly, rather than re-drawing the shapes every time.
         p = QtGui.QPainter(pic)
         p.setPen(self.bars_pen)
 
-        # TODO: is there any way to not have to pass all the lines every
-        # iteration? It seems they won't draw unless it's done this way..
-        p.drawLines(*to_draw)
+        p.drawLines(*self._last_bar_lines)
         p.end()
-
-        # XXX: if we ever try using `QPixmap` again...
-        # if self._pmi is None:
-        #     self._pmi = self.scene().addPixmap(self.picture)
-        # else:
-        #     self._pmi.setPixmap(self.picture)
 
         # trigger re-render
         # https://doc.qt.io/qt-5/qgraphicsitem.html#update
         self.update()
+
+        # TODO: is there any way to not have to pass all the lines every
+        # iteration? It seems they won't draw unless it's done this way..
+        # if path is None:
+        #     # p.drawLines(*to_draw)
+        #     p.drawLines(*self._last_bars_lines)
+        # else:
+        #     p.drawPath(path)
+
+        # p.end()
+
+        # trigger re-render
+        # https://doc.qt.io/qt-5/qgraphicsitem.html#update
+        # self.update()
 
     def update_from_array(
         self,
@@ -552,25 +747,51 @@ class BarItems(pg.GraphicsObject):
 
         # start_bar_to_update = index - 100
 
+        # TODO: allow mapping only a range of lines thus
+        # only drawing as many bars as exactly specified.
         if extra > 0:
             # generate new graphics to match provided array
+
+            # lines = bars_from_ohlc(new, self.w)
+            # lines = bars_from_ohlc(array[-1:], self.w)
+            self._last_bar_lines = lines_from_ohlc(array[-1], self.w)
+
+            # TODO: only draw these new bars to the backing binary
+            # path array and then call arrayToQpath() on the whole
+            # -> will avoid multiple passes for path data we've already
+            # already generated
             new = array[index:index + extra]
-            lines = bars_from_ohlc(new, self.w)
-            bars_added = len(lines)
-            self.lines[index:index + bars_added] = lines
-            self.index += bars_added
+
+            self.path = gen_qpath(array[:-1], self.w, start=0)
+
+            # self.path.connectPath(path)
+
+            # bars_added = len(new)
+            # bars_added = extra
+            # self.lines[index:index + bars_added] = lines
+
+            self.index += extra
 
             # start_bar_to_update = index - bars_added
-            self.draw_lines(just_history=True)
+            # self.draw_lines(just_history=True, path=self.path)
+            # self.update()
+
+            self.draw_history()
+
             if just_history:
+                self.update()
+
                 return
 
-        # current bar update
+        # last bar update
         i, o, h, l, last, v = array[-1][
             ['index', 'open', 'high', 'low', 'close', 'volume']
         ]
-        assert i == self.index - 1
-        body, larm, rarm = self.lines[i]
+        # assert i == self.index - 1
+
+        # body, larm, rarm = self.lines[i]
+        # body, larm, rarm = self._bars
+        body, larm, rarm = self._last_bar_lines
 
         # XXX: is there a faster way to modify this?
         rarm.setLine(rarm.x1(), last, rarm.x2(), last)
@@ -579,18 +800,30 @@ class BarItems(pg.GraphicsObject):
 
         if l != h:  # noqa
             if body is None:
-                body = self.lines[index - 1][0] = QLineF(i, l, i, h)
+                # body = self.lines[index - 1][0] = QLineF(i, l, i, h)
+                body = self._last_bar_lines[0] = QLineF(i, l, i, h)
             else:
                 # update body
                 body.setLine(i, l, i, h)
-        else:
-            # XXX: h == l -> remove any HL line to avoid render bug
-            if body is not None:
-                body = self.lines[index - 1][0] = None
 
-        self.draw_lines(just_history=False)
+        # XXX: pretty sure this is causing an issue where the bar has
+        # a large upward move right before the next sample and the body
+        # is getting set to None since the next bar is flat but the shm
+        # array index update wasn't read by the time this code runs. Iow
+        # we're doing this removal of the body for a bar index that is
+        # now out of date / from some previous sample. It's weird
+        # though because i've seen it do this to bars i - 3 back?
 
-    # @timeit
+        # else:
+        #     # XXX: h == l -> remove any HL line to avoid render bug
+        #     if body is not None:
+        #         body = self.lines[index - 1][0] = None
+
+        # self.draw_lines(just_history=False)
+        self.draw_last_bar()
+        self.update()
+
+    @timeit
     def paint(self, p, opt, widget):
 
         # profiler = pg.debug.Profiler(disabled=False, delayed=False)
@@ -606,8 +839,17 @@ class BarItems(pg.GraphicsObject):
         # as is necesarry for what's in "view". Not sure if this will
         # lead to any perf gains other then when zoomed in to less bars
         # in view.
-        p.drawPicture(0, 0, self.history)
-        p.drawPicture(0, 0, self.last)
+        # p.drawPicture(0, 0, self.history)
+        p.drawPicture(0, 0, self.last_bar)
+
+        # p = QtGui.QPainter(pic)
+        p.setPen(self.bars_pen)
+        # p.drawLines(*self._last_bar_lines)
+
+        # TODO: is there any way to not have to pass all the lines every
+        # iteration? It seems they won't draw unless it's done this way..
+        p.drawPath(self.path)
+
 
         # TODO: if we can ever make pixmaps work...
         # p.drawPixmap(0, 0, self.picture)
@@ -616,6 +858,7 @@ class BarItems(pg.GraphicsObject):
 
         # profiler('bars redraw:')
 
+    # @timeit
     def boundingRect(self):
         # TODO: can we do rect caching to make this faster?
 
@@ -626,7 +869,7 @@ class BarItems(pg.GraphicsObject):
         # bounding rect for us).
 
         # compute aggregate bounding rectangle
-        lb = self.last.boundingRect()
+        lb = self.last_bar.boundingRect()
         hb = self.history.boundingRect()
         return QtCore.QRectF(
             # top left
