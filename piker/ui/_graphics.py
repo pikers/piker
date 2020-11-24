@@ -481,7 +481,6 @@ class BarItems(pg.GraphicsObject):
         self.last_bar = QtGui.QPicture()
         self.history = QtGui.QPicture()
 
-        # TODO: implement updateable pixmap solution
         self._pi = plotitem
 
         # XXX: not sure this actually needs to be an array other
@@ -648,13 +647,6 @@ class BarItems(pg.GraphicsObject):
 
         p.setPen(self.bars_pen)
         p.drawPath(self.path)
-
-        # TODO: if we can ever make pixmaps work...
-        # p.drawPixmap(0, 0, self.picture)
-        # self._pmi.setPixmap(self.picture)
-        # print(self.scene())
-
-        # profiler('bars redraw:')
 
     # @timeit
     def boundingRect(self):
