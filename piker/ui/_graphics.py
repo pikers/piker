@@ -22,11 +22,13 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 import pyqtgraph as pg
-from numba import jit, float64, int64
+from numba import jit, float64, int64  # , optional
+# from numba import types as ntypes
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QLineF, QPointF
 
 from .._profile import timeit
+# from ..data._source import numba_ohlc_dtype
 from ._style import (
     _xaxis_at,
     hcolor,
@@ -375,18 +377,20 @@ def lines_from_ohlc(row: np.ndarray, w: float) -> Tuple[QLineF]:
 
 # @timeit
 @jit(
-    # float64[:](
-    #     float64[:],
+    # TODO: for now need to construct this manually for readonly arrays, see
+    # https://github.com/numba/numba/issues/4511
+    # ntypes.Tuple((float64[:], float64[:], float64[:]))(
+    #     numba_ohlc_dtype[::1],  # contiguous
+    #     int64,
     #     optional(float64),
-    #     optional(int64)
     # ),
     nopython=True,
     nogil=True
 )
 def path_arrays_from_ohlc(
     data: np.ndarray,
-    w: float64,
-    start: int64 = int64(0),
+    start: int64,
+    bar_gap: float64 = 0.43,
 ) -> np.ndarray:
     """Generate an array of lines objects from input ohlc data.
 
@@ -398,16 +402,7 @@ def path_arrays_from_ohlc(
         shape=size,
         dtype=float64,
     )
-    y = np.zeros(
-        # data,
-        shape=size,
-        dtype=float64,
-    )
-    c = np.zeros(
-        # data,
-        shape=size,
-        dtype=float64,
-    )
+    y, c = x.copy(), x.copy()
 
     # TODO: report bug for assert @
     # /home/goodboy/repos/piker/env/lib/python3.8/site-packages/numba/core/typing/builtins.py:991
@@ -426,14 +421,14 @@ def path_arrays_from_ohlc(
         istart = i * 6
         istop = istart + 6
 
-        # write points for x, y, and connections
+        # x,y detail the 6 points which connect all vertexes of a ohlc bar
         x[istart:istop] = (
-            index - w,
+            index - bar_gap,
             index,
             index,
             index,
             index,
-            index + w,
+            index + bar_gap,
         )
         y[istart:istop] = (
             open,
@@ -443,6 +438,10 @@ def path_arrays_from_ohlc(
             close,
             close,
         )
+
+        # specifies that the first edge is never connected to the
+        # prior bars last edge thus providing a small "gap"/"space"
+        # between bars determined by ``bar_gap``.
         c[istart:istop] = (0, 1, 1, 1, 1, 1)
 
     return x, y, c
@@ -451,11 +450,11 @@ def path_arrays_from_ohlc(
 @timeit
 def gen_qpath(
     data,
-    w,
     start,
+    w,
 ) -> QtGui.QPainterPath:
 
-    x, y, c = path_arrays_from_ohlc(data, w, start=start)
+    x, y, c = path_arrays_from_ohlc(data, start, bar_gap=w)
     return pg.functions.arrayToQPath(x, y, connect=c)
 
 
@@ -481,12 +480,15 @@ class BarItems(pg.GraphicsObject):
         self.last_bar = QtGui.QPicture()
         self.history = QtGui.QPicture()
 
+        self.path = QtGui.QPainterPath()
+        self._h_path = QtGui.QGraphicsPathItem(self.path)
+
         self._pi = plotitem
 
         # XXX: not sure this actually needs to be an array other
         # then for the old tina mode calcs for up/down bars below?
         # lines container
-        self.lines = _mk_lines_array([], 50e3, 6)
+        # self.lines = _mk_lines_array([], 50e3, 6)
 
         # TODO: don't render the full backing array each time
         # self._path_data = None
@@ -505,7 +507,7 @@ class BarItems(pg.GraphicsObject):
 
         This routine is usually only called to draw the initial history.
         """
-        self.path = gen_qpath(data, self.w, start=start)
+        self.path = gen_qpath(data, start, self.w)
 
         # save graphics for later reference and keep track
         # of current internal "last index"
@@ -533,7 +535,13 @@ class BarItems(pg.GraphicsObject):
         p.drawLines(*tuple(filter(bool, self._last_bar_lines)))
         p.end()
 
+    @timeit
     def draw_history(self) -> None:
+        # TODO: avoid having to use a ```QPicture` to calc the
+        # ``.boundingRect()``, use ``QGraphicsPathItem`` instead?
+        # https://doc.qt.io/qt-5/qgraphicspathitem.html
+        # self._h_path.setPath(self.path)
+
         p = QtGui.QPainter(self.history)
         p.setPen(self.bars_pen)
         p.drawPath(self.path)
@@ -571,11 +579,10 @@ class BarItems(pg.GraphicsObject):
             # generate new graphics to match provided array
             # path appending logic:
             # we need to get the previous "current bar(s)" for the time step
-            # and convert it to a path to append to the historical set
+            # and convert it to a sub-path to append to the historical set
             new_history_istart = length - 2
             to_history = array[new_history_istart:new_history_istart + extra]
-            # generate a new sub-path for this now-ready-for-history bar set
-            new_history_qpath = gen_qpath(to_history, self.w, 0)
+            new_history_qpath = gen_qpath(to_history, 0, self.w)
 
             # move to position of placement for the next bar in history
             # and append new sub-path
@@ -646,6 +653,9 @@ class BarItems(pg.GraphicsObject):
         p.drawPicture(0, 0, self.last_bar)
 
         p.setPen(self.bars_pen)
+
+        # TODO: does it matter which we use?
+        # p.drawPath(self._h_path.path())
         p.drawPath(self.path)
 
     # @timeit
@@ -664,10 +674,13 @@ class BarItems(pg.GraphicsObject):
         # compute aggregate bounding rectangle
         lb = self.last_bar.boundingRect()
         hb = self.history.boundingRect()
+        # hb = self._h_path.boundingRect()
+
         return QtCore.QRectF(
             # top left
             QtCore.QPointF(hb.topLeft()),
             # total size
+            # QtCore.QSizeF(QtCore.QSizeF(lb.size()) + hb.size())
             QtCore.QSizeF(lb.size() + hb.size())
         )
 
