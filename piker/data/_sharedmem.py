@@ -342,21 +342,20 @@ def maybe_open_shm_array(
     dtype: Optional[np.dtype] = None,
     **kwargs,
 ) -> Tuple[ShmArray, bool]:
-    """Attempt to attach to a shared memory block by a
-    "key" determined by the users overall "system"
+    """Attempt to attach to a shared memory block using a "key" lookup
+    to registered blocks in the users overall "system" registryt
     (presumes you don't have the block's explicit token).
 
-    This function is meant to solve the problem of
-    discovering whether a shared array token has been
-    allocated or discovered by the actor running in
-    **this** process. Systems where multiple actors
-    may seek to access a common block can use this
-    function to attempt to acquire a token as discovered
-    by the actors who have previously stored a
-    "key" -> ``_Token`` map in an actor local variable.
+    This function is meant to solve the problem of discovering whether
+    a shared array token has been allocated or discovered by the actor
+    running in **this** process. Systems where multiple actors may seek
+    to access a common block can use this function to attempt to acquire
+    a token as discovered by the actors who have previously stored
+    a "key" -> ``_Token`` map in an actor local (aka python global)
+    variable.
 
-    If you know the explicit ``_Token`` for your memory
-    instead use ``attach_shm_array``.
+    If you know the explicit ``_Token`` for your memory segment instead
+    use ``attach_shm_array``.
     """
     try:
         # see if we already know this key
