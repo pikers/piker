@@ -30,7 +30,20 @@ def wap(
     """
     cum_weights = np.cumsum(weights)
     cum_weighted_input = np.cumsum(signal * weights)
-    return cum_weighted_input / cum_weights, cum_weighted_input, cum_weights
+
+    # cum_weighted_input / cum_weights
+    # but, avoid divide by zero errors
+    avg = np.divide(
+        cum_weighted_input,
+        cum_weights,
+        where=cum_weights != 0
+    )
+
+    return (
+        avg,
+        cum_weighted_input,
+        cum_weights,
+    )
 
 
 async def _tina_vwap(
@@ -39,7 +52,6 @@ async def _tina_vwap(
     anchors: Optional[np.ndarray] = None,
 ) -> AsyncIterator[np.ndarray]:  # maybe something like like FspStream?
     """Streaming volume weighted moving average.
-
 
     Calling this "tina" for now since we're using HLC3 instead of tick.
 
