@@ -18,6 +18,7 @@
 Qt UI styling.
 """
 from typing import Optional
+import math
 
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
@@ -27,10 +28,9 @@ from ..log import get_logger
 
 log = get_logger(__name__)
 
-# chart-wide font
-# font size 6px / 53 dpi (3x scaled down on 4k hidpi)
-_default_font_inches_we_like = 6 / 53  # px / (px / inch) = inch
-_down_2_font_inches_we_like = 4 / 53
+# chart-wide fonts specified in inches
+_default_font_inches_we_like = 0.0666
+_down_2_font_inches_we_like = 6 / 96
 
 
 class DpiAwareFont:
@@ -66,8 +66,12 @@ class DpiAwareFont:
         listed in the script in ``snippets/qt_screen_info.py``.
 
         """
-        dpi = screen.physicalDotsPerInch()
-        font_size = round(self._iwl * dpi)
+        # take the max since scaling can make things ugly in some cases
+        pdpi = screen.physicalDotsPerInch()
+        ldpi = screen.logicalDotsPerInch()
+        dpi = max(pdpi, ldpi)
+
+        font_size = math.floor(self._iwl * dpi)
         log.info(
             f"\nscreen:{screen.name()} with DPI: {dpi}"
             f"\nbest font size is {font_size}\n"
