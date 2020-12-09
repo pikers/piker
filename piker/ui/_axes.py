@@ -38,7 +38,7 @@ class Axis(pg.AxisItem):
     def __init__(
         self,
         linked_charts,
-        typical_max_str: str = '100 000.00',
+        typical_max_str: str = '100 000.000',
         min_tick: int = 2,
         **kwargs
     ) -> None:
@@ -116,7 +116,7 @@ class DynamicDateAxis(Axis):
         indexes: List[int],
     ) -> List[str]:
 
-        bars = self.linked_charts.chart._array
+        bars = self.linked_charts.chart._ohlc
         bars_len = len(bars)
         times = bars['time']
 
@@ -267,8 +267,8 @@ class YAxisLabel(AxisLabel):
     _h_margin = 2
 
     text_flags = (
-        # QtCore.Qt.AlignLeft
-        QtCore.Qt.AlignHCenter
+        QtCore.Qt.AlignLeft
+        # QtCore.Qt.AlignHCenter
         | QtCore.Qt.AlignVCenter
         | QtCore.Qt.TextDontClip
     )
@@ -285,7 +285,7 @@ class YAxisLabel(AxisLabel):
     ) -> None:
 
         # this is read inside ``.paint()``
-        self.label_str = '{value:,.{digits}f}'.format(
+        self.label_str = ' {value:,.{digits}f}'.format(
             digits=self.digits, value=value).replace(',', ' ')
 
         br = self.boundingRect()
