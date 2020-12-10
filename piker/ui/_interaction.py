@@ -245,7 +245,7 @@ class ChartView(ViewBox):
             log.debug("Max zoom bruh...")
             return
 
-        if ev.delta() < 0 and vl >= len(self.linked_charts._array) + 666:
+        if ev.delta() < 0 and vl >= len(self.linked_charts.chart._ohlc) + 666:
             log.debug("Min zoom bruh...")
             return
 
@@ -268,9 +268,9 @@ class ChartView(ViewBox):
         #     ).map(furthest_right_coord)
         # )
 
-        # This seems like the most "intuitive option, a hybrdid of
+        # This seems like the most "intuitive option, a hybrid of
         # tws and tv styles
-        last_bar = pg.Point(rbar)
+        last_bar = pg.Point(int(rbar))
 
         self._resetTarget()
         self.scaleBy(s, last_bar)
