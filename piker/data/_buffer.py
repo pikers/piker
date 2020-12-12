@@ -91,19 +91,20 @@ async def increment_ohlc_buffer(
 
                 # append new entry to buffer thus "incrementing" the bar
                 array = shm.array
-                last = array[-1:].copy()
-                (index, t, close) = last[0][['index', 'time', 'close']]
+                last = array[-1:][shm._write_fields].copy()
+                # (index, t, close) = last[0][['index', 'time', 'close']]
+                (t, close) = last[0][['time', 'close']]
 
                 # this copies non-std fields (eg. vwap) from the last datum
                 last[
-                    ['index', 'time', 'volume', 'open', 'high', 'low', 'close']
-                ][0] = (index + 1, t + delay_s, 0, close, close, close, close)
+                    ['time', 'volume', 'open', 'high', 'low', 'close']
+                ][0] = (t + delay_s, 0, close, close, close, close)
 
                 # write to the buffer
                 shm.push(last)
 
         # broadcast the buffer index step
-        yield {'index': shm._i.value}
+        yield {'index': shm._last.value}
 
 
 def subscribe_ohlc_for_increment(

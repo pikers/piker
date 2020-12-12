@@ -15,27 +15,36 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-Numpy data source machinery.
+numpy data source coversion helpers.
 """
 import decimal
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+# from numba import from_dtype
 
+
+ohlc_fields = [
+    ('time', float),
+    ('open', float),
+    ('high', float),
+    ('low', float),
+    ('close', float),
+    ('volume', int),
+    ('bar_wap', float),
+]
+
+ohlc_with_index = ohlc_fields.copy()
+ohlc_with_index.insert(0, ('index', int))
 
 # our minimum structured array layout for ohlc data
-base_ohlc_dtype = np.dtype(
-    [
-        ('index', int),
-        ('time', float),
-        ('open', float),
-        ('high', float),
-        ('low', float),
-        ('close', float),
-        ('volume', int),
-    ]
-)
+base_iohlc_dtype = np.dtype(ohlc_with_index)
+base_ohlc_dtype = np.dtype(ohlc_fields)
+
+# TODO: for now need to construct this manually for readonly arrays, see
+# https://github.com/numba/numba/issues/4511
+# numba_ohlc_dtype = from_dtype(base_ohlc_dtype)
 
 # map time frame "keys" to minutes values
 tf_in_1m = {
@@ -110,18 +119,27 @@ def from_df(
         'Low': 'low',
         'Close': 'close',
         'Volume': 'volume',
+
+        # most feeds are providing this over sesssion anchored
+        'vwap': 'bar_wap',
+
+        # XXX: ib_insync calls this the "wap of the bar"
+        # but no clue what is actually is...
+        # https://github.com/pikers/piker/issues/119#issuecomment-729120988
+        'average': 'bar_wap',
     }
 
     df = df.rename(columns=columns)
 
     for name in df.columns:
-        if name not in base_ohlc_dtype.names[1:]:
+        # if name not in base_ohlc_dtype.names[1:]:
+        if name not in base_ohlc_dtype.names:
             del df[name]
 
     # TODO: it turns out column access on recarrays is actually slower:
     # https://jakevdp.github.io/PythonDataScienceHandbook/02.09-structured-data-numpy.html#RecordArrays:-Structured-Arrays-with-a-Twist
     # it might make sense to make these structured arrays?
-    array = df.to_records()
+    array = df.to_records(index=False)
     _nan_to_closest_num(array)
 
     return array
