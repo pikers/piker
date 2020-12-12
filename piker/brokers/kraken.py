@@ -57,12 +57,14 @@ _ohlc_dtype = [
     ('close', float),
     ('volume', float),
     ('count', int),
-    ('vwap', float),
+    ('bar_wap', float),
 ]
 
 # UI components allow this to be declared such that additional
 # (historical) fields can be exposed.
 ohlc_dtype = np.dtype(_ohlc_dtype)
+
+_show_wap_in_history = True
 
 
 class Client:
@@ -341,7 +343,7 @@ async def stream_quotes(
         while True:
             try:
                 async with trio_websocket.open_websocket_url(
-                    'wss://ws.kraken.com',
+                    'wss://ws.kraken.com/',
                 ) as ws:
 
                     # XXX: setup subs
@@ -433,7 +435,7 @@ async def stream_quotes(
                                      'high',
                                      'low',
                                      'close',
-                                     'vwap',
+                                     'bar_wap',  # in this case vwap of bar
                                      'volume']
                                 ][-1] = (
                                     o,
