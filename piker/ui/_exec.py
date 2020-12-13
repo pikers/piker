@@ -20,6 +20,8 @@ Trio - Qt integration
 Run ``trio`` in guest mode on top of the Qt event loop.
 All global Qt runtime settings are mostly defined here.
 """
+import os
+import signal
 from functools import partial
 import traceback
 from typing import Tuple, Callable, Dict, Any
@@ -74,11 +76,16 @@ class MainWindow(QtGui.QMainWindow):
         self.setMinimumSize(*self.size)
         self.setWindowTitle(self.title)
 
-    def closeEvent(self, event: 'QCloseEvent') -> None:
+    def closeEvent(
+        self,
+        event: 'QCloseEvent'
+    ) -> None:
         """Cancel the root actor asap.
 
         """
-        tractor.current_actor().cancel_soon()
+        # raising KBI seems to get intercepted by by Qt so just use the
+        # system.
+        os.kill(os.getpid(), signal.SIGINT)
 
 
 def run_qtractor(
@@ -128,11 +135,15 @@ def run_qtractor(
 
     def done_callback(outcome):
 
-        print(f"Outcome: {outcome}")
-
         if isinstance(outcome, Error):
             exc = outcome.error
-            traceback.print_exception(type(exc), exc, exc.__traceback__)
+
+            if isinstance(outcome.error, KeyboardInterrupt):
+                # make it look like ``trio``
+                print("Aborted!")
+
+            else:
+                traceback.print_exception(type(exc), exc, exc.__traceback__)
 
         app.quit()
 
@@ -143,9 +154,6 @@ def run_qtractor(
     window = window_type()
     instance = main_widget()
     instance.window = window
-
-    # kill the app when root actor terminates
-    tractor._actor._lifetime_stack.callback(app.quit)
 
     widgets = {
         'window': window,
@@ -170,6 +178,7 @@ def run_qtractor(
         main,
         run_sync_soon_threadsafe=run_sync_soon_threadsafe,
         done_callback=done_callback,
+        # restrict_keyboard_interrupt_to_checkpoints=True,
     )
 
     window.main_widget = main_widget
