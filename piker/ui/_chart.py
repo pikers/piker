@@ -17,7 +17,7 @@
 """
 High level Qt chart widgets.
 """
-from typing import Tuple, Dict, Any, Optional
+from typing import Tuple, Dict, Any, Optional, Callable
 from functools import partial
 
 from PyQt5 import QtCore, QtGui
@@ -105,6 +105,7 @@ class ChartSpace(QtGui.QWidget):
         self.tf_layout.setContentsMargins(0, 12, 0, 0)
         time_frames = ('1M', '5M', '15M', '30M', '1H', '1D', '1W', 'MN')
         btn_prefix = 'TF'
+
         for tf in time_frames:
             btn_name = ''.join([btn_prefix, tf])
             btn = QtGui.QPushButton(tf)
@@ -112,6 +113,7 @@ class ChartSpace(QtGui.QWidget):
             btn.setEnabled(False)
             setattr(self, btn_name, btn)
             self.tf_layout.addWidget(btn)
+
         self.toolbar_layout.addLayout(self.tf_layout)
 
     # XXX: strat loader/saver that we don't need yet.
@@ -126,6 +128,8 @@ class ChartSpace(QtGui.QWidget):
         ohlc: bool = True,
     ) -> None:
         """Load a new contract into the charting app.
+
+        Expects a ``numpy`` structured array containing all the ohlcv fields.
         """
         # XXX: let's see if this causes mem problems
         self.window.setWindowTitle(f'piker chart {symbol}')
@@ -148,7 +152,8 @@ class ChartSpace(QtGui.QWidget):
         if not self.v_layout.isEmpty():
             self.v_layout.removeWidget(linkedcharts)
 
-        main_chart = linkedcharts.plot_main(s, data, ohlc=ohlc)
+        main_chart = linkedcharts.plot_ohlc_main(s, data)
+
         self.v_layout.addWidget(linkedcharts)
 
         return linkedcharts, main_chart
@@ -176,7 +181,6 @@ class LinkedSplitCharts(QtGui.QWidget):
     def __init__(self):
         super().__init__()
         self.signals_visible: bool = False
-        self._array: np.ndarray = None  # main data source
         self._ch: CrossHair = None  # crosshair graphics
         self.chart: ChartPlotWidget = None  # main (ohlc) chart
         self.subplots: Dict[Tuple[str, ...], ChartPlotWidget] = {}
@@ -212,19 +216,17 @@ class LinkedSplitCharts(QtGui.QWidget):
         sizes.extend([min_h_ind] * len(self.subplots))
         self.splitter.setSizes(sizes)  # , int(self.height()*0.2)
 
-    def plot_main(
+    def plot_ohlc_main(
         self,
         symbol: Symbol,
         array: np.ndarray,
-        ohlc: bool = True,
+        style: str = 'bar',
     ) -> 'ChartPlotWidget':
         """Start up and show main (price) chart and all linked subcharts.
+
+        The data input struct array must include OHLC fields.
         """
         self.digits = symbol.digits()
-
-        # TODO: this should eventually be a view onto shared mem or some
-        # higher level type / API
-        self._array = array
 
         # add crosshairs
         self._ch = CrossHair(
@@ -235,11 +237,13 @@ class LinkedSplitCharts(QtGui.QWidget):
             name=symbol.key,
             array=array,
             xaxis=self.xaxis,
-            ohlc=ohlc,
+            style=style,
             _is_main=True,
         )
         # add crosshair graphic
         self.chart.addItem(self._ch)
+
+        # axis placement
         if _xaxis_at == 'bottom':
             self.chart.hideAxis('bottom')
 
@@ -253,7 +257,7 @@ class LinkedSplitCharts(QtGui.QWidget):
         name: str,
         array: np.ndarray,
         xaxis: DynamicDateAxis = None,
-        ohlc: bool = False,
+        style: str = 'line',
         _is_main: bool = False,
         **cpw_kwargs,
     ) -> 'ChartPlotWidget':
@@ -263,7 +267,7 @@ class LinkedSplitCharts(QtGui.QWidget):
         """
         if self.chart is None and not _is_main:
             raise RuntimeError(
-                "A main plot must be created first with `.plot_main()`")
+                "A main plot must be created first with `.plot_ohlc_main()`")
 
         # source of our custom interactions
         cv = ChartView()
@@ -277,6 +281,11 @@ class LinkedSplitCharts(QtGui.QWidget):
             )
 
         cpw = ChartPlotWidget(
+
+            # this name will be used to register the primary
+            # graphics curve managed by the subchart
+            name=name,
+
             array=array,
             parent=self.splitter,
             axisItems={
@@ -287,11 +296,12 @@ class LinkedSplitCharts(QtGui.QWidget):
             cursor=self._ch,
             **cpw_kwargs,
         )
+
+        # give viewbox a reference to primary chart
+        # allowing for kb controls and interactions
+        # (see our custom view in `._interactions.py`)
         cv.chart = cpw
 
-        # this name will be used to register the primary
-        # graphics curve managed by the subchart
-        cpw.name = name
         cpw.plotItem.vb.linked_charts = self
         cpw.setFrameStyle(QtGui.QFrame.StyledPanel)  # | QtGui.QFrame.Plain)
         cpw.hideButtons()
@@ -305,10 +315,14 @@ class LinkedSplitCharts(QtGui.QWidget):
         self._ch.add_plot(cpw)
 
         # draw curve graphics
-        if ohlc:
+        if style == 'bar':
             cpw.draw_ohlc(name, array)
-        else:
+
+        elif style == 'line':
             cpw.draw_curve(name, array)
+
+        else:
+            raise ValueError(f"Chart style {style} is currently unsupported")
 
         if not _is_main:
             # track by name
@@ -319,6 +333,8 @@ class LinkedSplitCharts(QtGui.QWidget):
 
             # XXX: we need this right?
             # self.splitter.addWidget(cpw)
+        else:
+            assert style == 'bar', 'main chart must be OHLC'
 
         return cpw
 
@@ -344,6 +360,7 @@ class ChartPlotWidget(pg.PlotWidget):
     def __init__(
         self,
         # the data view we generate graphics from
+        name: str,
         array: np.ndarray,
         static_yrange: Optional[Tuple[float, float]] = None,
         cursor: Optional[CrossHair] = None,
@@ -356,17 +373,26 @@ class ChartPlotWidget(pg.PlotWidget):
             # parent=None,
             # plotItem=None,
             # antialias=True,
+            useOpenGL=True,
             **kwargs
         )
+
+        self.name = name
+
         # self.setViewportMargins(0, 0, 0, 0)
-        self._array = array  # readonly view of data
+        self._ohlc = array  # readonly view of ohlc data
+        self.default_view()
+
         self._arrays = {}  # readonly view of overlays
         self._graphics = {}  # registry of underlying graphics
-        self._overlays = {}  # registry of overlay curves
+        self._overlays = set()  # registry of overlay curve names
+
         self._labels = {}  # registry of underlying graphics
         self._ysticks = {}  # registry of underlying graphics
+
         self._vb = self.plotItem.vb
         self._static_yrange = static_yrange  # for "known y-range style"
+
         self._view_mode: str = 'follow'
         self._cursor = cursor  # placehold for mouse
 
@@ -377,6 +403,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # show background grid
         self.showGrid(x=True, y=True, alpha=0.5)
 
+        # TODO: stick in config
         # use cross-hair for cursor?
         # self.setCursor(QtCore.Qt.CrossCursor)
 
@@ -391,22 +418,25 @@ class ChartPlotWidget(pg.PlotWidget):
         self._vb.sigResized.connect(self._set_yrange)
 
     def last_bar_in_view(self) -> bool:
-        self._array[-1]['index']
+        self._ohlc[-1]['index']
 
     def update_contents_labels(
         self,
         index: int,
         # array_name: str,
     ) -> None:
-        if index >= 0 and index < len(self._array):
+        if index >= 0 and index < self._ohlc[-1]['index']:
             for name, (label, update) in self._labels.items():
 
-                if name is self.name :
-                    array = self._array
+                if name is self.name:
+                    array = self._ohlc
                 else:
                     array = self._arrays[name]
 
-                update(index, array)
+                try:
+                    update(index, array)
+                except IndexError:
+                    log.exception(f"Failed to update label: {name}")
 
     def _set_xlimits(
         self,
@@ -430,8 +460,11 @@ class ChartPlotWidget(pg.PlotWidget):
         """Return a range tuple for the bars present in view.
         """
         l, r = self.view_range()
-        lbar = max(l, 0)
-        rbar = min(r, len(self._array))
+        a = self._ohlc
+        lbar = max(l, a[0]['index'])
+        rbar = min(r, a[-1]['index'])
+        # lbar = max(l, 0)
+        # rbar = min(r, len(self._ohlc))
         return l, lbar, rbar, r
 
     def default_view(
@@ -441,7 +474,8 @@ class ChartPlotWidget(pg.PlotWidget):
         """Set the view box to the "default" startup view of the scene.
 
         """
-        xlast = self._array[index]['index']
+        xlast = self._ohlc[index]['index']
+        print(xlast)
         begin = xlast - _bars_to_left_in_follow_mode
         end = xlast + _bars_from_right_in_follow_mode
 
@@ -462,7 +496,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self._vb.setXRange(
             min=l + 1,
             max=r + 1,
-            # holy shit, wtf dude... why tf would this not be 0 by
+            # TODO: holy shit, wtf dude... why tf would this not be 0 by
             # default... speechless.
             padding=0,
         )
@@ -477,6 +511,7 @@ class ChartPlotWidget(pg.PlotWidget):
         """Draw OHLC datums to chart.
         """
         graphics = style(self.plotItem)
+
         # adds all bar/candle graphics objects for each data point in
         # the np array buffer to be drawn on next render cycle
         self.addItem(graphics)
@@ -486,10 +521,12 @@ class ChartPlotWidget(pg.PlotWidget):
 
         self._graphics[name] = graphics
 
-        label = ContentsLabel(chart=self, anchor_at=('top', 'left'))
-        self._labels[name] = (label, partial(label.update_from_ohlc, name))
-        label.show()
-        self.update_contents_labels(len(data) - 1) #, name)
+        self.add_contents_label(
+            name,
+            anchor_at=('top', 'left'),
+            update_func=ContentsLabel.update_from_ohlc,
+        )
+        self.update_contents_labels(len(data) - 1)
 
         self._add_sticky(name)
 
@@ -500,48 +537,73 @@ class ChartPlotWidget(pg.PlotWidget):
         name: str,
         data: np.ndarray,
         overlay: bool = False,
+        color: str = 'default_light',
+        add_label: bool = True,
         **pdi_kwargs,
     ) -> pg.PlotDataItem:
-        # draw the indicator as a plain curve
+        """Draw a "curve" (line plot graphics) for the provided data in
+        the input array ``data``.
+
+        """
         _pdi_defaults = {
-            'pen': pg.mkPen(hcolor('default_light')),
+            'pen': pg.mkPen(hcolor(color)),
         }
         pdi_kwargs.update(_pdi_defaults)
 
         curve = pg.PlotDataItem(
-            data[name],
+            y=data[name],
+            x=data['index'],
             # antialias=True,
             name=name,
+
             # TODO: see how this handles with custom ohlcv bars graphics
+            # and/or if we can implement something similar for OHLC graphics
             clipToView=True,
+
             **pdi_kwargs,
         )
         self.addItem(curve)
 
-        # register overlay curve with name
+        # register curve graphics and backing array for name
         self._graphics[name] = curve
+        self._arrays[name] = data
 
         if overlay:
-            anchor_at = ('bottom', 'right')
-            self._overlays[name] = curve
-            self._arrays[name] = data
+            anchor_at = ('bottom', 'left')
+            self._overlays.add(name)
 
         else:
-            anchor_at = ('top', 'right')
+            anchor_at = ('top', 'left')
 
             # TODO: something instead of stickies for overlays
             # (we need something that avoids clutter on x-axis).
             self._add_sticky(name, bg_color='default_light')
 
-        label = ContentsLabel(chart=self, anchor_at=anchor_at)
-        self._labels[name] = (label, partial(label.update_from_value, name))
-        label.show()
-        self.update_contents_labels(len(data) - 1) #, name)
+        if add_label:
+            self.add_contents_label(name, anchor_at=anchor_at)
+            self.update_contents_labels(len(data) - 1)
 
         if self._cursor:
             self._cursor.add_curve_cursor(self, curve)
 
         return curve
+
+    def add_contents_label(
+        self,
+        name: str,
+        anchor_at: Tuple[str, str] = ('top', 'left'),
+        update_func: Callable = ContentsLabel.update_from_value,
+    ) -> ContentsLabel:
+
+        label = ContentsLabel(chart=self, anchor_at=anchor_at)
+        self._labels[name] = (
+            # calls class method on instance
+            label,
+            partial(update_func, label, name)
+        )
+        label.show()
+
+        return label
 
     def _add_sticky(
         self,
@@ -569,7 +631,7 @@ class ChartPlotWidget(pg.PlotWidget):
         """Update the named internal graphics from ``array``.
 
         """
-        self._array = array
+        self._ohlc = array
         graphics = self._graphics[name]
         graphics.update_from_array(array, **kwargs)
         return graphics
@@ -584,14 +646,18 @@ class ChartPlotWidget(pg.PlotWidget):
 
         """
         if name not in self._overlays:
-            self._array = array
+            self._ohlc = array
         else:
             self._arrays[name] = array
 
         curve = self._graphics[name]
+
         # TODO: we should instead implement a diff based
-        # "only update with new items" on the pg.PlotDataItem
-        curve.setData(array[name], **kwargs)
+        # "only update with new items" on the pg.PlotCurveItem
+        # one place to dig around this might be the `QBackingStore`
+        # https://doc.qt.io/qt-5/qbackingstore.html
+        curve.setData(y=array[name], x=array['index'], **kwargs)
+
         return curve
 
     def _set_yrange(
@@ -625,8 +691,9 @@ class ChartPlotWidget(pg.PlotWidget):
 
             # TODO: logic to check if end of bars in view
             extra = view_len - _min_points_to_show
-            begin = 0 - extra
-            end = len(self._array) - 1 + extra
+            begin = self._ohlc[0]['index'] - extra
+            # end = len(self._ohlc) - 1 + extra
+            end = self._ohlc[-1]['index'] - 1 + extra
 
             # XXX: test code for only rendering lines for the bars in view.
             # This turns out to be very very poor perf when scaling out to
@@ -642,10 +709,15 @@ class ChartPlotWidget(pg.PlotWidget):
             #     f"view_len: {view_len}, bars_len: {bars_len}\n"
             #     f"begin: {begin}, end: {end}, extra: {extra}"
             # )
-            self._set_xlimits(begin, end)
+            # self._set_xlimits(begin, end)
 
             # TODO: this should be some kind of numpy view api
-            bars = self._array[lbar:rbar]
+            # bars = self._ohlc[lbar:rbar]
+
+            a = self._ohlc
+            ifirst = a[0]['index']
+            bars = a[lbar - ifirst:rbar - ifirst]
+
             if not len(bars):
                 # likely no data loaded yet or extreme scrolling?
                 log.error(f"WTF bars_range = {lbar}:{rbar}")
@@ -731,10 +803,6 @@ async def _async_main(
 
     # chart_app.init_search()
 
-    # XXX: bug zone if you try to ctl-c after this we get hangs again?
-    # wtf...
-    # await tractor.breakpoint()
-
     # historical data fetch
     brokermod = brokers.get_brokermod(brokername)
 
@@ -747,29 +815,27 @@ async def _async_main(
         ohlcv = feed.shm
         bars = ohlcv.array
 
-        # TODO: when we start messing with line charts
-        # c = np.zeros(len(bars), dtype=[
-        #     (sym, bars.dtype.fields['close'][0]),
-        #     ('index', 'i4'),
-        # ])
-        # c[sym] = bars['close']
-        # c['index'] = bars['index']
-        # linked_charts, chart = chart_app.load_symbol(sym, c, ohlc=False)
-
         # load in symbol's ohlc data
+        # await tractor.breakpoint()
         linked_charts, chart = chart_app.load_symbol(sym, bars)
 
         # plot historical vwap if available
-        vwap_in_history = False
-        if 'vwap' in bars.dtype.fields:
-            vwap_in_history = True
-            chart.draw_curve(
-                name='vwap',
-                data=bars,
-                overlay=True,
-            )
+        wap_in_history = False
+
+        if brokermod._show_wap_in_history:
+
+            if 'bar_wap' in bars.dtype.fields:
+                wap_in_history = True
+                chart.draw_curve(
+                    name='bar_wap',
+                    data=bars,
+                    add_label=False,
+                )
 
         chart._set_yrange()
+
+        # TODO: a data view api that makes this less shit
+        chart._shm = ohlcv
 
         # eventually we'll support some kind of n-compose syntax
         fsp_conf = {
@@ -799,19 +865,13 @@ async def _async_main(
                 loglevel,
             )
 
-            # update last price sticky
-            last_price_sticky = chart._ysticks[chart.name]
-            last_price_sticky.update_from_data(
-                *ohlcv.array[-1][['index', 'close']]
-            )
-
             # start graphics update loop(s)after receiving first live quote
             n.start_soon(
                 chart_from_quotes,
                 chart,
                 feed.stream,
                 ohlcv,
-                vwap_in_history,
+                wap_in_history,
             )
 
             # wait for a first quote before we start any update tasks
@@ -834,7 +894,7 @@ async def chart_from_quotes(
     chart: ChartPlotWidget,
     stream,
     ohlcv: np.ndarray,
-    vwap_in_history: bool = False,
+    wap_in_history: bool = False,
 ) -> None:
     """The 'main' (price) chart real-time update loop.
 
@@ -847,28 +907,39 @@ async def chart_from_quotes(
     # - update last open price correctly instead
     #   of copying it from last bar's close
     # - 5 sec bar lookback-autocorrection like tws does?
+
+    # update last price sticky
     last_price_sticky = chart._ysticks[chart.name]
+    last_price_sticky.update_from_data(
+        *ohlcv.array[-1][['index', 'close']]
+    )
 
     def maxmin():
         # TODO: implement this
         # https://arxiv.org/abs/cs/0610046
         # https://github.com/lemire/pythonmaxmin
 
-        array = chart._array
+        array = chart._ohlc
+        ifirst = array[0]['index']
+
         last_bars_range = chart.bars_range()
         l, lbar, rbar, r = last_bars_range
-        in_view = array[lbar:rbar]
+        in_view = array[lbar - ifirst:rbar - ifirst]
+
+        assert in_view.size
+
         mx, mn = np.nanmax(in_view['high']), np.nanmin(in_view['low'])
 
-        # TODO: when we start using line charts
+        # TODO: when we start using line charts, probably want to make
+        # this an overloaded call on our `DataView
         # sym = chart.name
         # mx, mn = np.nanmax(in_view[sym]), np.nanmin(in_view[sym])
 
         return last_bars_range, mx, mn
 
-    last_bars_range, last_mx, last_mn = maxmin()
-
     chart.default_view()
+
+    last_bars_range, last_mx, last_mn = maxmin()
 
     last, volume = ohlcv.array[-1][['close', 'volume']]
 
@@ -889,7 +960,6 @@ async def chart_from_quotes(
 
     async for quotes in stream:
         for sym, quote in quotes.items():
-            # print(f'CHART: {quote}')
 
             for tick in quote.get('ticks', ()):
 
@@ -898,7 +968,14 @@ async def chart_from_quotes(
                 price = tick.get('price')
                 size = tick.get('size')
 
-                if ticktype in ('trade', 'utrade'):
+                # compute max and min trade values to display in view
+                # TODO: we need a streaming minmax algorithm here, see
+                # def above.
+                brange, mx_in_view, mn_in_view = maxmin()
+                l, lbar, rbar, r = brange
+
+                if ticktype in ('trade', 'utrade', 'last'):
+
                     array = ohlcv.array
 
                     # update price sticky(s)
@@ -907,25 +984,16 @@ async def chart_from_quotes(
                         *last[['index', 'close']]
                     )
 
+                    # plot bars
                     # update price bar
                     chart.update_ohlc_from_array(
                         chart.name,
                         array,
                     )
 
-                    # chart.update_curve_from_array(
-                        # chart.name,
-                        # TODO: when we start using line charts
-                        # np.array(array['close'], dtype=[(chart.name, 'f8')])
-
-                    # if vwap_in_history:
-                    #     # update vwap overlay line
-                    #     chart.update_curve_from_array('vwap', ohlcv.array)
-
-                # compute max and min trade values to display in view
-                # TODO: we need a streaming minmax algorithm here, see
-                # def above.
-                brange, mx_in_view, mn_in_view = maxmin()
+                    if wap_in_history:
+                        # update vwap overlay line
+                        chart.update_curve_from_array('bar_wap', ohlcv.array)
 
                 # XXX: prettty sure this is correct?
                 # if ticktype in ('trade', 'last'):
@@ -1021,12 +1089,14 @@ async def spawn_fsps(
 
                 # spawn closure, can probably define elsewhere
                 async def spawn_fsp_daemon(
-                    fsp_name,
-                    conf,
+                    fsp_name: str,
+                    display_name: str,
+                    conf: dict,
                 ):
                     """Start an fsp subactor async.
 
                     """
+                    print(f'FSP NAME: {fsp_name}')
                     portal = await n.run_in_actor(
 
                         # name as title of sub-chart
@@ -1057,6 +1127,7 @@ async def spawn_fsps(
                 ln.start_soon(
                     spawn_fsp_daemon,
                     fsp_func_name,
+                    display_name,
                     conf,
                 )
 
@@ -1081,6 +1152,8 @@ async def update_signals(
 ) -> None:
     """FSP stream chart update loop.
 
+    This is called once for each entry in the fsp
+    config map.
     """
     shm = conf['shm']
 
@@ -1094,6 +1167,7 @@ async def update_signals(
         last_val_sticky = None
 
     else:
+
         chart = linked_charts.add_plot(
             name=fsp_func_name,
             array=shm.array,
@@ -1112,6 +1186,7 @@ async def update_signals(
             # fsp_func_name
         )
 
+        # read last value
         array = shm.array
         value = array[fsp_func_name][-1]
 
@@ -1119,7 +1194,8 @@ async def update_signals(
         last_val_sticky.update_from_data(-1, value)
 
         chart.update_curve_from_array(fsp_func_name, array)
-        chart.default_view()
+
+        chart._shm = shm
 
     # TODO: figure out if we can roll our own `FillToThreshold` to
     # get brush filled polygons for OS/OB conditions.
@@ -1132,23 +1208,28 @@ async def update_signals(
     # graphics.curve.setFillLevel(50)
 
     # add moveable over-[sold/bought] lines
-    level_line(chart, 30)
-    level_line(chart, 70, orient_v='top')
+    # and labels only for the 70/30 lines
+    level_line(chart, 20, show_label=False)
+    level_line(chart, 30, orient_v='top')
+    level_line(chart, 70, orient_v='bottom')
+    level_line(chart, 80, orient_v='top', show_label=False)
 
-    chart._shm = shm
     chart._set_yrange()
 
     stream = conf['stream']
 
     # update chart graphics
     async for value in stream:
-        # p = pg.debug.Profiler(disabled=False, delayed=False)
+
+        # read last
         array = shm.array
         value = array[-1][fsp_func_name]
+
         if last_val_sticky:
             last_val_sticky.update_from_data(-1, value)
+
+        # update graphics
         chart.update_curve_from_array(fsp_func_name, array)
-        # p('rendered rsi datum')
 
 
 async def check_for_new_bars(feed, ohlcv, linked_charts):
@@ -1199,7 +1280,7 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
         # resize view
         # price_chart._set_yrange()
 
-        for name, curve in price_chart._overlays.items():
+        for name in price_chart._overlays:
 
             price_chart.update_curve_from_array(
                 name,
@@ -1207,15 +1288,16 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
             )
 
             # # TODO: standard api for signal lookups per plot
-            # if name in price_chart._array.dtype.fields:
+            # if name in price_chart._ohlc.dtype.fields:
 
             #     # should have already been incremented above
-            #     price_chart.update_curve_from_array(name, price_chart._array)
+            #     price_chart.update_curve_from_array(name, price_chart._ohlc)
 
         for name, chart in linked_charts.subplots.items():
             chart.update_curve_from_array(chart.name, chart._shm.array)
             # chart._set_yrange()
 
+        # shift the view if in follow mode
         price_chart.increment_view()
 
 
