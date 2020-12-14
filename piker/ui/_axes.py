@@ -116,13 +116,25 @@ class DynamicDateAxis(Axis):
         indexes: List[int],
     ) -> List[str]:
 
-        bars = self.linked_charts.chart._ohlc
+        # try:
+        chart = self.linked_charts.chart
+        bars = chart._ohlc
+        shm = self.linked_charts.chart._shm
+        first = shm._first.value
+
         bars_len = len(bars)
         times = bars['time']
 
         epochs = times[list(
-            map(int, filter(lambda i: i < bars_len, indexes))
+            map(
+                int,
+                filter(
+                    lambda i: i > 0 and i < bars_len,
+                    (i-first for i in indexes)
+                )
+            )
         )]
+
         # TODO: **don't** have this hard coded shift to EST
         dts = pd.to_datetime(epochs, unit='s')  # - 4*pd.offsets.Hour()
 
