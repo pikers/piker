@@ -29,8 +29,8 @@ from ..log import get_logger
 log = get_logger(__name__)
 
 # chart-wide fonts specified in inches
-_default_font_inches_we_like = 0.0666
-_down_2_font_inches_we_like = 6 / 96
+_default_font_inches_we_like = 6 / 96
+_down_2_font_inches_we_like = 5 / 96
 
 
 class DpiAwareFont:
