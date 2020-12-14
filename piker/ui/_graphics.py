@@ -17,7 +17,7 @@
 """
 Chart graphics for displaying a slew of different data types.
 """
-
+import inspect
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -104,7 +104,7 @@ class LineDot(pg.CurvePoint):
         # first = x[0]
         # i = index - first
         i = index - x[0]
-        if i > 0:
+        if i > 0 and i < len(y):
             newPos = (index, y[i])
             QtGui.QGraphicsItem.setPos(self, *newPos)
             return True
@@ -123,9 +123,8 @@ _corner_margins = {
     ('top', 'left'): (-4, -5),
     ('top', 'right'): (4, -5),
 
-    # TODO: pretty sure y here needs to be 2x font height
-    ('bottom', 'left'): (-4, 14), 
-    ('bottom', 'right'): (4, 14),
+    ('bottom', 'left'): (-4, lambda font_size: font_size * 2),
+    ('bottom', 'right'): (4, lambda font_size: font_size * 2),
 }
 
 
@@ -142,7 +141,10 @@ class ContentsLabel(pg.LabelItem):
         font_size: Optional[int] = None,
     ) -> None:
         font_size = font_size or _font.font.pixelSize()
-        super().__init__(justify=justify_text, size=f'{str(font_size)}px')
+        super().__init__(
+            justify=justify_text,
+            size=f'{str(font_size)}px'
+        )
 
         # anchor to viewbox
         self.setParentItem(chart._vb)
@@ -152,6 +154,10 @@ class ContentsLabel(pg.LabelItem):
         v, h = anchor_at
         index = (_corner_anchors[h], _corner_anchors[v])
         margins = _corner_margins[(v, h)]
+
+        ydim = margins[1]
+        if inspect.isfunction(margins[1]):
+            margins = margins[0], ydim(font_size)
 
         self.anchor(itemPos=index, parentPos=index, offset=margins)
 
@@ -514,7 +520,6 @@ class BarItems(pg.GraphicsObject):
         super().__init__()
 
         self.last_bar = QtGui.QPicture()
-        # self.history = QtGui.QPicture()
 
         self.path = QtGui.QPainterPath()
         # self._h_path = QtGui.QGraphicsPathItem(self.path)
@@ -594,18 +599,6 @@ class BarItems(pg.GraphicsObject):
         p.end()
 
     # @timeit
-    # def draw_history(self) -> None:
-    #     # TODO: avoid having to use a ```QPicture` to calc the
-    #     # ``.boundingRect()``, use ``QGraphicsPathItem`` instead?
-    #     # https://doc.qt.io/qt-5/qgraphicspathitem.html
-    #     # self._h_path.setPath(self.path)
-
-    #     p = QtGui.QPainter(self.history)
-    #     p.setPen(self.bars_pen)
-    #     p.drawPath(self.path)
-    #     p.end()
-
-    @timeit
     def update_from_array(
         self,
         array: np.ndarray,
@@ -636,26 +629,19 @@ class BarItems(pg.GraphicsObject):
         # only drawing as many bars as exactly specified.
 
         if prepend_length:
-            # breakpoint()
+
             # new history was added and we need to render a new path
             new_bars = array[:prepend_length]
             prepend_path = gen_qpath(new_bars, 0, self.w)
 
-            # XXX: SOMETHING IS FISHY HERE what with the old_path
+            # XXX: SOMETHING IS MAYBE FISHY HERE what with the old_path
             # y value not matching the first value from
             # array[prepend_length + 1] ???
 
             # update path
             old_path = self.path
             self.path = prepend_path
-            # self.path.moveTo(float(index - self.w), float(new_bars[0]['open']))
-            # self.path.moveTo(
-            #     float(istart - self.w),
-            #     # float(array[prepend_length + 1]['open'])
-            #     float(array[prepend_length]['open'])
-            # )
             self.path.addPath(old_path)
-            # self.draw_history()
 
         if append_length:
             # generate new lines objects for updatable "current bar"
@@ -672,44 +658,7 @@ class BarItems(pg.GraphicsObject):
             self.path.moveTo(float(istop - self.w), float(new_bars[0]['open']))
             self.path.addPath(append_path)
 
-            # self.draw_history()
-
         self._xrange = first_index, last_index
-
-        # if extra > 0:
-        #     index = array['index']
-        #     first, last = index[0], indext[-1]
-
-        #     # if first < self.start_index:
-        #     #     length = self.start_index - first
-        #     #     prepend_path = gen_qpath(array[:sef:
-
-        #     # generate new lines objects for updatable "current bar"
-        #     self._last_bar_lines = lines_from_ohlc(array[-1], self.w)
-        #     self.draw_last_bar()
-
-        #     # generate new graphics to match provided array
-        #     # path appending logic:
-        #     # we need to get the previous "current bar(s)" for the time step
-        #     # and convert it to a sub-path to append to the historical set
-        #     new_history_istart = length - 2
-
-        #     to_history = array[new_history_istart:new_history_istart + extra]
-
-        #     new_history_qpath = gen_qpath(to_history, 0, self.w)
-
-        #     # move to position of placement for the next bar in history
-        #     # and append new sub-path
-        #     new_bars = array[index:index + extra]
-
-        #     # x, y coordinates for start of next open/left arm
-        #     self.path.moveTo(float(index - self.w), float(new_bars[0]['open']))
-
-        #     self.path.addPath(new_history_qpath)
-
-        #     self.start_index += extra
-
-        # self.draw_history()
 
         if just_history:
             self.update()
@@ -751,7 +700,7 @@ class BarItems(pg.GraphicsObject):
         self.draw_last_bar()
         self.update()
 
-    @timeit
+    # @timeit
     def paint(self, p, opt, widget):
 
         # profiler = pg.debug.Profiler(disabled=False, delayed=False)
@@ -767,13 +716,8 @@ class BarItems(pg.GraphicsObject):
         # as is necesarry for what's in "view". Not sure if this will
         # lead to any perf gains other then when zoomed in to less bars
         # in view.
-        # p.drawPicture(0, 0, self.history)
         p.drawPicture(0, 0, self.last_bar)
-
         p.setPen(self.bars_pen)
-
-        # TODO: does it matter which we use?
-        # p.drawPath(self._h_path.path())
         p.drawPath(self.path)
 
     # @timeit
@@ -794,7 +738,6 @@ class BarItems(pg.GraphicsObject):
         # compute aggregate bounding rectangle
         lb = self.last_bar.boundingRect()
         hb = self.path.boundingRect()
-        # hb = self._h_path.boundingRect()
 
         return QtCore.QRectF(
             # top left
