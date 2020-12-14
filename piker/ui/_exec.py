@@ -139,8 +139,8 @@ def run_qtractor(
             exc = outcome.error
 
             if isinstance(outcome.error, KeyboardInterrupt):
-                # make it look like ``trio``
-                print("Aborted!")
+                # make it kinda look like ``trio``
+                print("Terminated!")
 
             else:
                 traceback.print_exception(type(exc), exc, exc.__traceback__)
