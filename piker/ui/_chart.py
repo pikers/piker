@@ -558,7 +558,9 @@ class ChartPlotWidget(pg.PlotWidget):
 
             # TODO: see how this handles with custom ohlcv bars graphics
             # and/or if we can implement something similar for OHLC graphics
-            clipToView=True,
+            # clipToView=True,
+            autoDownsample=True,
+            downsampleMethod='subsample',
 
             **pdi_kwargs,
         )
@@ -1221,9 +1223,23 @@ async def update_signals(
     # update chart graphics
     async for value in stream:
 
-        # read last
-        array = shm.array
-        value = array[-1][fsp_func_name]
+        # TODO: provide a read sync mechanism to avoid this polling.
+        # the underlying issue is that a backfill and subsequent shm
+        # array first/last index update could result in an empty array
+        # read here since the stream is never torn down on the
+        # re-compute steps.
+        read_tries = 2
+        while read_tries > 0:
+
+            try:
+                # read last
+                array = shm.array
+                value = array[-1][fsp_func_name]
+                break
+
+            except IndexError:
+                read_tries -= 1
+                continue
 
         if last_val_sticky:
             last_val_sticky.update_from_data(-1, value)
