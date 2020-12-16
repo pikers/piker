@@ -417,7 +417,6 @@ def lines_from_ohlc(row: np.ndarray, w: float) -> Tuple[QLineF]:
     return [hl, o, c]
 
 
-@timeit
 @jit(
     # TODO: for now need to construct this manually for readonly arrays, see
     # https://github.com/numba/numba/issues/4511
@@ -489,7 +488,7 @@ def path_arrays_from_ohlc(
     return x, y, c
 
 
-@timeit
+# @timeit
 def gen_qpath(
     data,
     start,  # XXX: do we need this?
@@ -497,6 +496,8 @@ def gen_qpath(
 ) -> QtGui.QPainterPath:
 
     x, y, c = path_arrays_from_ohlc(data, start, bar_gap=w)
+
+    # TODO: numba the internals of this!
     return pg.functions.arrayToQPath(x, y, connect=c)
 
 
@@ -542,7 +543,7 @@ class BarItems(pg.GraphicsObject):
         self.start_index: int = 0
         self.stop_index: int = 0
 
-    @timeit
+    # @timeit
     def draw_from_data(
         self,
         data: np.ndarray,
@@ -717,6 +718,7 @@ class BarItems(pg.GraphicsObject):
         # lead to any perf gains other then when zoomed in to less bars
         # in view.
         p.drawPicture(0, 0, self.last_bar)
+
         p.setPen(self.bars_pen)
         p.drawPath(self.path)
 
