@@ -142,6 +142,7 @@ class SelectRect(QtGui.QGraphicsRectItem):
 
         y1, y2 = start_pos.y(), end_pos.y()
         x1, x2 = start_pos.x(), end_pos.x()
+
         # TODO: heh, could probably use a max-min streamin algo here too
         ymn, xmn = min(y1, y2), min(x1, x2)
         ymx, xmx = max(y1, y2), max(x1, x2)
@@ -151,10 +152,15 @@ class SelectRect(QtGui.QGraphicsRectItem):
 
         ixmn, ixmx = round(xmn), round(xmx)
         nbars = ixmx - ixmn + 1
-        data = self._chart._array[ixmn:ixmx]
-        std = data['close'].std()
-        dmx = data['high'].max()
-        dmn = data['low'].min()
+
+        data = self._chart._ohlc[ixmn:ixmx]
+
+        if len(data):
+            std = data['close'].std()
+            dmx = data['high'].max()
+            dmn = data['low'].min()
+        else:
+            dmn = dmx = std = np.nan
 
         # update label info
         self._label.setText('\n'.join(self._contents).format(
