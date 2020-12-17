@@ -113,7 +113,7 @@ async def cascade(
                 stream,
             ):
                 # task cancellation won't kill the channel
-                async with stream.shield():
+                with stream.shield():
                     async for quotes in stream:
                         for symbol, quotes in quotes.items():
                             if symbol == sym:
