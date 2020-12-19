@@ -841,10 +841,10 @@ async def _async_main(
 
         # eventually we'll support some kind of n-compose syntax
         fsp_conf = {
-            # 'vwap': {
-            #     'overlay': True,
-            #     'anchor': 'session',
-            # },
+            'vwap': {
+                'overlay': True,
+                'anchor': 'session',
+            },
             'rsi': {
                 'period': 14,
                 'chart_kwargs': {
