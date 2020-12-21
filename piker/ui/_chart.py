@@ -1101,11 +1101,11 @@ async def spawn_fsps(
                     print(f'FSP NAME: {fsp_name}')
                     portal = await n.run_in_actor(
 
-                        # name as title of sub-chart
-                        display_name,
-
                         # subactor entrypoint
                         fsp.cascade,
+
+                        # name as title of sub-chart
+                        name=display_name,
                         brokername=brokermod.name,
                         src_shm_token=src_shm.token,
                         dst_shm_token=conf['shm'].token,
