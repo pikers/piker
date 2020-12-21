@@ -42,7 +42,7 @@ from ._sharedmem import (
     ShmArray,
     get_shm_token,
 )
-from ._source import base_ohlc_dtype
+from ._source import base_iohlc_dtype
 from ._buffer import (
     increment_ohlc_buffer,
     subscribe_ohlc_for_increment
@@ -139,6 +139,7 @@ class Feed:
     name: str
     stream: AsyncIterator[Dict[str, Any]]
     shm: ShmArray
+    # ticks: ShmArray
     _broker_portal: tractor._portal.Portal
     _index_stream: Optional[AsyncIterator[Dict[str, Any]]] = None
 
@@ -188,7 +189,7 @@ async def open_feed(
         key=sym_to_shm_key(name, symbols[0]),
 
         # use any broker defined ohlc dtype:
-        dtype=getattr(mod, '_ohlc_dtype', base_ohlc_dtype),
+        dtype=getattr(mod, '_ohlc_dtype', base_iohlc_dtype),
 
         # we expect the sub-actor to write
         readonly=True,

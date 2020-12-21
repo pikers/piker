@@ -38,7 +38,7 @@ class Axis(pg.AxisItem):
     def __init__(
         self,
         linked_charts,
-        typical_max_str: str = '100 000.00',
+        typical_max_str: str = '100 000.000',
         min_tick: int = 2,
         **kwargs
     ) -> None:
@@ -51,6 +51,8 @@ class Axis(pg.AxisItem):
         self.setStyle(**{
             'textFillLimits': [(0, 0.666)],
             'tickFont': _font.font,
+            # offset of text *away from* axis line in px
+            'tickTextOffset': 2,
         })
 
         self.setTickFont(_font.font)
@@ -88,11 +90,10 @@ class PriceAxis(Axis):
         # print(f'digits: {digits}')
 
         return [
-            ('{value:,.{digits}f}')
-                .format(
-                    digits=digits,
-                    value=v,
-                ).replace(',', ' ') for v in vals
+            ('{value:,.{digits}f}').format(
+                digits=digits,
+                value=v,
+            ).replace(',', ' ') for v in vals
         ]
 
 
@@ -104,23 +105,36 @@ class DynamicDateAxis(Axis):
         60: '%H:%M',
         30: '%H:%M:%S',
         5: '%H:%M:%S',
+        1: '%H:%M:%S',
     }
 
     def resize(self) -> None:
-        self.setHeight(self.typical_br.height() + 3)
+        self.setHeight(self.typical_br.height() + 1)
 
     def _indexes_to_timestrs(
         self,
         indexes: List[int],
     ) -> List[str]:
 
-        bars = self.linked_charts.chart._array
+        # try:
+        chart = self.linked_charts.chart
+        bars = chart._ohlc
+        shm = self.linked_charts.chart._shm
+        first = shm._first.value
+
         bars_len = len(bars)
         times = bars['time']
 
         epochs = times[list(
-            map(int, filter(lambda i: i < bars_len, indexes))
+            map(
+                int,
+                filter(
+                    lambda i: i > 0 and i < bars_len,
+                    (i-first for i in indexes)
+                )
+            )
         )]
+
         # TODO: **don't** have this hard coded shift to EST
         dts = pd.to_datetime(epochs, unit='s')  # - 4*pd.offsets.Hour()
 
@@ -228,6 +242,7 @@ class AxisLabel(pg.GraphicsObject):
 
 
 class XAxisLabel(AxisLabel):
+    _w_margin = 4
 
     text_flags = (
         QtCore.Qt.TextDontClip
@@ -255,18 +270,17 @@ class XAxisLabel(AxisLabel):
         w = self.boundingRect().width()
         self.setPos(QPointF(
             abs_pos.x() - w / 2 - offset,
-            0,
+            1,
         ))
         self.update()
 
 
 class YAxisLabel(AxisLabel):
-    _h_margin = 3
-    # _w_margin = 1
+    _h_margin = 2
 
     text_flags = (
-        # QtCore.Qt.AlignLeft
-        QtCore.Qt.AlignHCenter
+        QtCore.Qt.AlignLeft
+        # QtCore.Qt.AlignHCenter
         | QtCore.Qt.AlignVCenter
         | QtCore.Qt.TextDontClip
     )
@@ -283,13 +297,13 @@ class YAxisLabel(AxisLabel):
     ) -> None:
 
         # this is read inside ``.paint()``
-        self.label_str = '{value:,.{digits}f}'.format(
+        self.label_str = ' {value:,.{digits}f}'.format(
             digits=self.digits, value=value).replace(',', ' ')
 
         br = self.boundingRect()
         h = br.height()
         self.setPos(QPointF(
-            0,
+            1,
             abs_pos.y() - h / 2 - offset
         ))
         self.update()

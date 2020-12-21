@@ -33,6 +33,6 @@ def iterticks(
     ticks = quote.get('ticks', ())
     if ticks:
         for tick in ticks:
-            print(f"{quote['symbol']}: {tick}")
+            # print(f"{quote['symbol']}: {tick}")
             if tick.get('type') in types:
                 yield tick

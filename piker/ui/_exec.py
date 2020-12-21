@@ -20,12 +20,15 @@ Trio - Qt integration
 Run ``trio`` in guest mode on top of the Qt event loop.
 All global Qt runtime settings are mostly defined here.
 """
+import os
+import signal
 from functools import partial
 import traceback
 from typing import Tuple, Callable, Dict, Any
 
 # Qt specific
 import PyQt5  # noqa
+import pyqtgraph as pg
 from pyqtgraph import QtGui
 from PyQt5 import QtCore
 from PyQt5.QtCore import (
@@ -35,6 +38,12 @@ import qdarkstyle
 import trio
 import tractor
 from outcome import Error
+
+
+# pyqtgraph global config
+# might as well enable this for now?
+pg.useOpenGL = True
+pg.enableExperimental = True
 
 
 # singleton app per actor
@@ -66,6 +75,17 @@ class MainWindow(QtGui.QMainWindow):
         super().__init__(parent)
         self.setMinimumSize(*self.size)
         self.setWindowTitle(self.title)
+
+    def closeEvent(
+        self,
+        event: 'QCloseEvent'
+    ) -> None:
+        """Cancel the root actor asap.
+
+        """
+        # raising KBI seems to get intercepted by by Qt so just use the
+        # system.
+        os.kill(os.getpid(), signal.SIGINT)
 
 
 def run_qtractor(
@@ -115,11 +135,15 @@ def run_qtractor(
 
     def done_callback(outcome):
 
-        print(f"Outcome: {outcome}")
-
         if isinstance(outcome, Error):
             exc = outcome.error
-            traceback.print_exception(type(exc), exc, exc.__traceback__)
+
+            if isinstance(outcome.error, KeyboardInterrupt):
+                # make it kinda look like ``trio``
+                print("Terminated!")
+
+            else:
+                traceback.print_exception(type(exc), exc, exc.__traceback__)
 
         app.quit()
 
@@ -154,6 +178,7 @@ def run_qtractor(
         main,
         run_sync_soon_threadsafe=run_sync_soon_threadsafe,
         done_callback=done_callback,
+        # restrict_keyboard_interrupt_to_checkpoints=True,
     )
 
     window.main_widget = main_widget

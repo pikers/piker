@@ -17,39 +17,44 @@
 """
 Chart graphics for displaying a slew of different data types.
 """
-
-# import time
+import inspect
 from typing import List, Optional, Tuple
 
 import numpy as np
 import pyqtgraph as pg
-# from numba import jit, float64, optional, int64
+from numba import jit, float64, int64  # , optional
+# from numba import types as ntypes
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QLineF, QPointF
 
-# from .._profile import timeit
+from .._profile import timeit
+# from ..data._source import numba_ohlc_dtype
 from ._style import (
     _xaxis_at,
     hcolor,
     _font,
+    _down_2_font_inches_we_like,
 )
 from ._axes import YAxisLabel, XAxisLabel, YSticky
 
 
 # XXX: these settings seem to result in really decent mouse scroll
 # latency (in terms of perceived lag in cross hair) so really be sure
-# there's an improvement if you want to change it.
-_mouse_rate_limit = 60  # calc current screen refresh rate?
+# there's an improvement if you want to change it!
+_mouse_rate_limit = 60  # TODO; should we calc current screen refresh rate?
 _debounce_delay = 1 / 2e3
 _ch_label_opac = 1
 
 
+# TODO: we need to handle the case where index is outside
+# the underlying datums range
 class LineDot(pg.CurvePoint):
 
     def __init__(
         self,
         curve: pg.PlotCurveItem,
         index: int,
+        plot: 'ChartPlotWidget',
         pos=None,
         size: int = 2,  # in pxs
         color: str = 'default_light',
@@ -61,6 +66,7 @@ class LineDot(pg.CurvePoint):
             pos=pos,
             rotate=False,
         )
+        self._plot = plot
 
         # TODO: get pen from curve if not defined?
         cdefault = hcolor(color)
@@ -80,6 +86,31 @@ class LineDot(pg.CurvePoint):
         # keep a static size
         self.setFlag(self.ItemIgnoresTransformations)
 
+    def event(
+        self,
+        ev: QtCore.QEvent,
+    ) -> None:
+        # print((ev, type(ev)))
+        if not isinstance(ev, QtCore.QDynamicPropertyChangeEvent) or self.curve() is None:
+            return False
+
+        # if ev.propertyName() == 'index':
+        #     print(ev)
+        #     # self.setProperty
+
+        (x, y) = self.curve().getData()
+        index = self.property('index')
+        # first = self._plot._ohlc[0]['index']
+        # first = x[0]
+        # i = index - first
+        i = index - x[0]
+        if i > 0 and i < len(y):
+            newPos = (index, y[i])
+            QtGui.QGraphicsItem.setPos(self, *newPos)
+            return True
+
+        return False
+
 
 _corner_anchors = {
     'top': 0,
@@ -91,8 +122,9 @@ _corner_anchors = {
 _corner_margins = {
     ('top', 'left'): (-4, -5),
     ('top', 'right'): (4, -5),
-    ('bottom', 'left'): (-4, 5),
-    ('bottom', 'right'): (4, 5),
+
+    ('bottom', 'left'): (-4, lambda font_size: font_size * 2),
+    ('bottom', 'right'): (4, lambda font_size: font_size * 2),
 }
 
 
@@ -109,7 +141,10 @@ class ContentsLabel(pg.LabelItem):
         font_size: Optional[int] = None,
     ) -> None:
         font_size = font_size or _font.font.pixelSize()
-        super().__init__(justify=justify_text, size=f'{str(font_size)}px')
+        super().__init__(
+            justify=justify_text,
+            size=f'{str(font_size)}px'
+        )
 
         # anchor to viewbox
         self.setParentItem(chart._vb)
@@ -120,6 +155,10 @@ class ContentsLabel(pg.LabelItem):
         index = (_corner_anchors[h], _corner_anchors[v])
         margins = _corner_margins[(v, h)]
 
+        ydim = margins[1]
+        if inspect.isfunction(margins[1]):
+            margins = margins[0], ydim(font_size)
+
         self.anchor(itemPos=index, parentPos=index, offset=margins)
 
     def update_from_ohlc(
@@ -129,15 +168,19 @@ class ContentsLabel(pg.LabelItem):
         array: np.ndarray,
     ) -> None:
         # this being "html" is the dumbest shit :eyeroll:
+        first = array[0]['index']
+
         self.setText(
             "<b>i</b>:{index}<br/>"
             "<b>O</b>:{}<br/>"
             "<b>H</b>:{}<br/>"
             "<b>L</b>:{}<br/>"
             "<b>C</b>:{}<br/>"
-            "<b>V</b>:{}".format(
-                # *self._array[index].item()[2:8],
-                *array[index].item()[2:8],
+            "<b>V</b>:{}<br/>"
+            "<b>wap</b>:{}".format(
+                *array[index - first][
+                    ['open', 'high', 'low', 'close', 'volume', 'bar_wap']
+                ],
                 name=name,
                 index=index,
             )
@@ -149,8 +192,10 @@ class ContentsLabel(pg.LabelItem):
         index: int,
         array: np.ndarray,
     ) -> None:
-        data = array[index][name]
-        self.setText(f"{name}: {data:.2f}")
+        first = array[0]['index']
+        if index < array[-1]['index'] and index > first:
+            data = array[index - first][name]
+            self.setText(f"{name}: {data:.2f}")
 
 
 class CrossHair(pg.GraphicsObject):
@@ -246,7 +291,7 @@ class CrossHair(pg.GraphicsObject):
     ) -> LineDot:
         # if this plot contains curves add line dot "cursors" to denote
         # the current sample under the mouse
-        cursor = LineDot(curve, index=len(plot._array))
+        cursor = LineDot(curve, index=plot._ohlc[-1]['index'], plot=plot)
         plot.addItem(cursor)
         self.graphics[plot].setdefault('cursors', []).append(cursor)
         return cursor
@@ -308,8 +353,9 @@ class CrossHair(pg.GraphicsObject):
                 plot.update_contents_labels(ix)
 
                 # update all subscribed curve dots
+                # first = plot._ohlc[0]['index']
                 for cursor in opts.get('cursors', ()):
-                    cursor.setIndex(ix)
+                    cursor.setIndex(ix) # - first)
 
             # update the label on the bottom of the crosshair
             self.xaxis_label.update_label(
@@ -332,96 +378,127 @@ class CrossHair(pg.GraphicsObject):
             return self.plots[0].boundingRect()
 
 
-# @jit(
-#     # float64[:](
-#     #     float64[:],
-#     #     optional(float64),
-#     #     optional(int16)
-#     # ),
-#     nopython=True,
-#     nogil=True
-# )
-def _mk_lines_array(data: List, size: int) -> np.ndarray:
-    """Create an ndarray to hold lines graphics objects.
+def _mk_lines_array(
+    data: List,
+    size: int,
+    elements_step: int = 6,
+) -> np.ndarray:
+    """Create an ndarray to hold lines graphics info.
+
     """
     return np.zeros_like(
         data,
-        shape=(int(size), 3),
+        shape=(int(size), elements_step),
         dtype=object,
     )
 
 
-# TODO: `numba` this?
+def lines_from_ohlc(row: np.ndarray, w: float) -> Tuple[QLineF]:
+    open, high, low, close, index = row[
+        ['open', 'high', 'low', 'close', 'index']]
 
-# @jit(
-#     # float64[:](
-#     #     float64[:],
-#     #     optional(float64),
-#     #     optional(int16)
-#     # ),
-#     nopython=True,
-#     nogil=True
-# )
-def bars_from_ohlc(
+    # high -> low vertical (body) line
+    if low != high:
+        hl = QLineF(index, low, index, high)
+    else:
+        # XXX: if we don't do it renders a weird rectangle?
+        # see below for filtering this later...
+        hl = None
+
+    # NOTE: place the x-coord start as "middle" of the drawing range such
+    # that the open arm line-graphic is at the left-most-side of
+    # the index's range according to the view mapping.
+
+    # open line
+    o = QLineF(index - w, open, index, open)
+    # close line
+    c = QLineF(index, close, index + w, close)
+
+    return [hl, o, c]
+
+
+@jit(
+    # TODO: for now need to construct this manually for readonly arrays, see
+    # https://github.com/numba/numba/issues/4511
+    # ntypes.Tuple((float64[:], float64[:], float64[:]))(
+    #     numba_ohlc_dtype[::1],  # contiguous
+    #     int64,
+    #     optional(float64),
+    # ),
+    nopython=True,
+    nogil=True
+)
+def path_arrays_from_ohlc(
     data: np.ndarray,
-    w: float,
-    start: int = 0,
+    start: int64,
+    bar_gap: float64 = 0.43,
 ) -> np.ndarray:
     """Generate an array of lines objects from input ohlc data.
 
     """
-    lines = _mk_lines_array(data, data.shape[0])
+    size = int(data.shape[0] * 6)
 
-    for i, q in enumerate(data[start:], start=start):
-        open, high, low, close, index = q[
-            ['open', 'high', 'low', 'close', 'index']]
+    x = np.zeros(
+        # data,
+        shape=size,
+        dtype=float64,
+    )
+    y, c = x.copy(), x.copy()
 
-        # high -> low vertical (body) line
-        if low != high:
-            hl = QLineF(index, low, index, high)
-        else:
-            # XXX: if we don't do it renders a weird rectangle?
-            # see below for filtering this later...
-            hl = None
+    # TODO: report bug for assert @
+    # /home/goodboy/repos/piker/env/lib/python3.8/site-packages/numba/core/typing/builtins.py:991
+    for i, q in enumerate(data[start:], start):
 
-        # NOTE: place the x-coord start as "middle" of the drawing range such
-        # that the open arm line-graphic is at the left-most-side of
-        # the index's range according to the view mapping.
+        # TODO: ask numba why this doesn't work..
+        # open, high, low, close, index = q[
+        #     ['open', 'high', 'low', 'close', 'index']]
 
-        # open line
-        o = QLineF(index - w, open, index, open)
-        # close line
-        c = QLineF(index, close, index + w, close)
+        open = q['open']
+        high = q['high']
+        low = q['low']
+        close = q['close']
+        index = float64(q['index'])
 
-        # indexing here is as per the below comments
-        lines[i] = (hl, o, c)
+        istart = i * 6
+        istop = istart + 6
 
-        # XXX: in theory we could get a further speedup by using a flat
-        # array and avoiding the call to `np.ravel()` below?
-        # lines[3*i:3*i+3] = (hl, o, c)
+        # x,y detail the 6 points which connect all vertexes of a ohlc bar
+        x[istart:istop] = (
+            index - bar_gap,
+            index,
+            index,
+            index,
+            index,
+            index + bar_gap,
+        )
+        y[istart:istop] = (
+            open,
+            open,
+            low,
+            high,
+            close,
+            close,
+        )
 
-        # XXX: legacy code from candles custom graphics:
-        # if not _tina_mode:
-        # else _tina_mode:
-        #     self.lines = lines = np.concatenate(
-        #       [high_to_low, open_sticks, close_sticks])
-        #     use traditional up/down green/red coloring
-        #     long_bars = np.resize(Quotes.close > Quotes.open, len(lines))
-        #     short_bars = np.resize(
-        #       Quotes.close < Quotes.open, len(lines))
+        # specifies that the first edge is never connected to the
+        # prior bars last edge thus providing a small "gap"/"space"
+        # between bars determined by ``bar_gap``.
+        c[istart:istop] = (0, 1, 1, 1, 1, 1)
 
-        #     ups = lines[long_bars]
-        #     downs = lines[short_bars]
+    return x, y, c
 
-        #     # draw "up" bars
-        #     p.setPen(self.bull_brush)
-        #     p.drawLines(*ups)
 
-        #     # draw "down" bars
-        #     p.setPen(self.bear_brush)
-        #     p.drawLines(*downs)
+# @timeit
+def gen_qpath(
+    data,
+    start,  # XXX: do we need this?
+    w,
+) -> QtGui.QPainterPath:
 
-    return lines
+    x, y, c = path_arrays_from_ohlc(data, start, bar_gap=w)
+
+    # TODO: numba the internals of this!
+    return pg.functions.arrayToQPath(x, y, connect=c)
 
 
 class BarItems(pg.GraphicsObject):
@@ -431,11 +508,10 @@ class BarItems(pg.GraphicsObject):
 
     # 0.5 is no overlap between arms, 1.0 is full overlap
     w: float = 0.43
-    bars_pen = pg.mkPen(hcolor('bracket'))
 
-    # XXX: tina mode, see below
-    # bull_brush = pg.mkPen('#00cc00')
-    # bear_brush = pg.mkPen('#fa0000')
+    # XXX: for the mega-lulz increasing width here increases draw latency...
+    # so probably don't do it until we figure that out.
+    bars_pen = pg.mkPen(hcolor('bracket'))
 
     def __init__(
         self,
@@ -443,95 +519,87 @@ class BarItems(pg.GraphicsObject):
         plotitem: 'pg.PlotItem',  # noqa
     ) -> None:
         super().__init__()
-        self.last = QtGui.QPicture()
-        self.history = QtGui.QPicture()
-        # TODO: implement updateable pixmap solution
+
+        self.last_bar = QtGui.QPicture()
+
+        self.path = QtGui.QPainterPath()
+        # self._h_path = QtGui.QGraphicsPathItem(self.path)
+
         self._pi = plotitem
-        # self._scene = plotitem.vb.scene()
-        # self.picture = QtGui.QPixmap(1000, 300)
-        # plotitem.addItem(self.picture)
-        # self._pmi = None
-        # self._pmi = self._scene.addPixmap(self.picture)
+
+        self._xrange: Tuple[int, int]
+        self._yrange: Tuple[float, float]
 
         # XXX: not sure this actually needs to be an array other
         # then for the old tina mode calcs for up/down bars below?
         # lines container
-        self.lines = _mk_lines_array([], 50e3)
+        # self.lines = _mk_lines_array([], 50e3, 6)
+
+        # TODO: don't render the full backing array each time
+        # self._path_data = None
+        self._last_bar_lines: Optional[Tuple[QLineF, ...]] = None
 
         # track the current length of drawable lines within the larger array
-        self.index: int = 0
+        self.start_index: int = 0
+        self.stop_index: int = 0
 
     # @timeit
     def draw_from_data(
         self,
         data: np.ndarray,
         start: int = 0,
-    ):
+    ) -> QtGui.QPainterPath:
         """Draw OHLC datum graphics from a ``np.ndarray``.
 
         This routine is usually only called to draw the initial history.
         """
-        lines = bars_from_ohlc(data, self.w, start=start)
+        self.path = gen_qpath(data, start, self.w)
 
         # save graphics for later reference and keep track
         # of current internal "last index"
-        index = len(lines)
-        self.lines[:index] = lines
-        self.index = index
+        # self.start_index = len(data)
+        index = data['index']
+        self._xrange = (index[0], index[-1])
+        self._yrange = (
+            np.nanmax(data['high']),
+            np.nanmin(data['low']),
+        )
 
         # up to last to avoid double draw of last bar
-        self.draw_lines(just_history=True, iend=self.index - 1)
-        self.draw_lines(iend=self.index)
+        self._last_bar_lines = lines_from_ohlc(data[-1], self.w)
 
-    # @timeit
-    def draw_lines(
-        self,
-        istart=0,
-        iend=None,
-        just_history=False,
-        # TODO: could get even fancier and only update the single close line?
-        lines=None,
-    ) -> None:
-        """Draw the current line set using the painter.
-        """
-        if just_history:
-            # draw bars for the "history" picture
-            iend = iend or self.index - 1
-            pic = self.history
-        else:
-            # draw the last bar
-            istart = self.index - 1
-            iend = iend or self.index
-            pic = self.last
+        # create pics
+        # self.draw_history()
+        self.draw_last_bar()
 
-        # use 2d array of lines objects, see conlusion on speed:
-        # https://stackoverflow.com/a/60089929
-        flat = np.ravel(self.lines[istart:iend])
-
-        # TODO: do this with numba for speed gain:
-        # https://stackoverflow.com/questions/58422690/filtering-a-numpy-array-what-is-the-best-approach
-        to_draw = flat[np.where(flat != None)]  # noqa
-
-        # pre-computing a QPicture object allows paint() to run much
-        # more quickly, rather than re-drawing the shapes every time.
-        p = QtGui.QPainter(pic)
-        p.setPen(self.bars_pen)
-
-        # TODO: is there any way to not have to pass all the lines every
-        # iteration? It seems they won't draw unless it's done this way..
-        p.drawLines(*to_draw)
-        p.end()
-
-        # XXX: if we ever try using `QPixmap` again...
-        # if self._pmi is None:
-        #     self._pmi = self.scene().addPixmap(self.picture)
-        # else:
-        #     self._pmi.setPixmap(self.picture)
-
-        # trigger re-render
+        # trigger render
         # https://doc.qt.io/qt-5/qgraphicsitem.html#update
         self.update()
 
+        return self.path
+
+    # def update_ranges(
+    #     self,
+    #     xmn: int,
+    #     xmx: int,
+    #     ymn: float,
+    #     ymx: float,
+    # ) -> None:
+    #     ...
+
+
+    def draw_last_bar(self) -> None:
+        """Currently this draws lines to a cached ``QPicture`` which
+        is supposed to speed things up on ``.paint()`` calls (which
+        is a call to ``QPainter.drawPicture()`` but I'm not so sure.
+
+        """
+        p = QtGui.QPainter(self.last_bar)
+        p.setPen(self.bars_pen)
+        p.drawLines(*tuple(filter(bool, self._last_bar_lines)))
+        p.end()
+
+    # @timeit
     def update_from_array(
         self,
         array: np.ndarray,
@@ -545,32 +613,65 @@ class BarItems(pg.GraphicsObject):
         graphics object, and then update/rerender, but here we're
         assuming the prior graphics havent changed (OHLC history rarely
         does) so this "should" be simpler and faster.
+
+        This routine should be made (transitively) as fast as possible.
         """
-        index = self.index
-        length = len(array)
-        extra = length - index
+        # index = self.start_index
+        istart, istop = self._xrange
 
-        # start_bar_to_update = index - 100
+        index = array['index']
+        first_index, last_index = index[0], index[-1]
 
-        if extra > 0:
+        # length = len(array)
+        prepend_length = istart - first_index
+        append_length = last_index - istop
+
+        # TODO: allow mapping only a range of lines thus
+        # only drawing as many bars as exactly specified.
+
+        if prepend_length:
+
+            # new history was added and we need to render a new path
+            new_bars = array[:prepend_length]
+            prepend_path = gen_qpath(new_bars, 0, self.w)
+
+            # XXX: SOMETHING IS MAYBE FISHY HERE what with the old_path
+            # y value not matching the first value from
+            # array[prepend_length + 1] ???
+
+            # update path
+            old_path = self.path
+            self.path = prepend_path
+            self.path.addPath(old_path)
+
+        if append_length:
+            # generate new lines objects for updatable "current bar"
+            self._last_bar_lines = lines_from_ohlc(array[-1], self.w)
+            self.draw_last_bar()
+
             # generate new graphics to match provided array
-            new = array[index:index + extra]
-            lines = bars_from_ohlc(new, self.w)
-            bars_added = len(lines)
-            self.lines[index:index + bars_added] = lines
-            self.index += bars_added
+            # path appending logic:
+            # we need to get the previous "current bar(s)" for the time step
+            # and convert it to a sub-path to append to the historical set
+            # new_bars = array[istop - 1:istop + append_length - 1]
+            new_bars = array[-append_length - 1:-1]
+            append_path = gen_qpath(new_bars, 0, self.w)
+            self.path.moveTo(float(istop - self.w), float(new_bars[0]['open']))
+            self.path.addPath(append_path)
 
-            # start_bar_to_update = index - bars_added
-            self.draw_lines(just_history=True)
-            if just_history:
-                return
+        self._xrange = first_index, last_index
 
-        # current bar update
+        if just_history:
+            self.update()
+            return
+
+        # last bar update
         i, o, h, l, last, v = array[-1][
             ['index', 'open', 'high', 'low', 'close', 'volume']
         ]
-        assert i == self.index - 1
-        body, larm, rarm = self.lines[i]
+        # assert i == self.start_index - 1
+        assert i == last_index
+        body, larm, rarm = self._last_bar_lines
 
         # XXX: is there a faster way to modify this?
         rarm.setLine(rarm.x1(), last, rarm.x2(), last)
@@ -579,16 +680,26 @@ class BarItems(pg.GraphicsObject):
 
         if l != h:  # noqa
             if body is None:
-                body = self.lines[index - 1][0] = QLineF(i, l, i, h)
+                body = self._last_bar_lines[0] = QLineF(i, l, i, h)
             else:
                 # update body
                 body.setLine(i, l, i, h)
-        else:
-            # XXX: h == l -> remove any HL line to avoid render bug
-            if body is not None:
-                body = self.lines[index - 1][0] = None
 
-        self.draw_lines(just_history=False)
+        # XXX: pretty sure this is causing an issue where the bar has
+        # a large upward move right before the next sample and the body
+        # is getting set to None since the next bar is flat but the shm
+        # array index update wasn't read by the time this code runs. Iow
+        # we're doing this removal of the body for a bar index that is
+        # now out of date / from some previous sample. It's weird
+        # though because i've seen it do this to bars i - 3 back?
+
+        # else:
+        #     # XXX: h == l -> remove any HL line to avoid render bug
+        #     if body is not None:
+        #         body = self.lines[index - 1][0] = None
+
+        self.draw_last_bar()
+        self.update()
 
     # @timeit
     def paint(self, p, opt, widget):
@@ -606,33 +717,36 @@ class BarItems(pg.GraphicsObject):
         # as is necesarry for what's in "view". Not sure if this will
         # lead to any perf gains other then when zoomed in to less bars
         # in view.
-        p.drawPicture(0, 0, self.history)
-        p.drawPicture(0, 0, self.last)
+        p.drawPicture(0, 0, self.last_bar)
 
-        # TODO: if we can ever make pixmaps work...
-        # p.drawPixmap(0, 0, self.picture)
-        # self._pmi.setPixmap(self.picture)
-        # print(self.scene())
+        p.setPen(self.bars_pen)
+        p.drawPath(self.path)
 
-        # profiler('bars redraw:')
-
+    # @timeit
     def boundingRect(self):
-        # TODO: can we do rect caching to make this faster?
-
         # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
+
+        # TODO: Can we do rect caching to make this faster
+        # like `pg.PlotCurveItem` does? In theory it's just
+        # computing max/min stuff again like we do in the udpate loop
+        # anyway. Not really sure it's necessary since profiling already
+        # shows this method is faf.
+
         # boundingRect _must_ indicate the entire area that will be
         # drawn on or else we will get artifacts and possibly crashing.
         # (in this case, QPicture does all the work of computing the
         # bounding rect for us).
 
         # compute aggregate bounding rectangle
-        lb = self.last.boundingRect()
-        hb = self.history.boundingRect()
+        lb = self.last_bar.boundingRect()
+        hb = self.path.boundingRect()
+
         return QtCore.QRectF(
             # top left
             QtCore.QPointF(hb.topLeft()),
             # total size
-            QtCore.QSizeF(lb.size() + hb.size())
+            QtCore.QSizeF(QtCore.QSizeF(lb.size()) + hb.size())
+            # QtCore.QSizeF(lb.size() + hb.size())
         )
 
 
@@ -785,7 +899,7 @@ class L1Labels:
         chart: 'ChartPlotWidget',  # noqa
         digits: int = 2,
         size_digits: int = 0,
-        font_size_inches: float = 4 / 53.,
+        font_size_inches: float = _down_2_font_inches_we_like,
     ) -> None:
 
         self.chart = chart
@@ -839,7 +953,9 @@ def level_line(
     digits: int = 1,
 
     # size 4 font on 4k screen scaled down, so small-ish.
-    font_size_inches: float = 4 / 53.,
+    font_size_inches: float = _down_2_font_inches_we_like,
+
+    show_label: bool = True,
 
     **linelabelkwargs
 ) -> LevelLine:
@@ -859,6 +975,7 @@ def level_line(
         **linelabelkwargs
     )
     label.update_from_data(0, level)
+
     # TODO: can we somehow figure out a max value from the parent axis?
     label._size_br_from_str(label.label_str)
 
@@ -873,5 +990,8 @@ def level_line(
     line.setValue(level)
 
     chart.plotItem.addItem(line)
+
+    if not show_label:
+        label.hide()
 
     return line
