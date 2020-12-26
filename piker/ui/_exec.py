@@ -83,8 +83,7 @@ class MainWindow(QtGui.QMainWindow):
         """Cancel the root actor asap.
 
         """
-        # raising KBI seems to get intercepted by by Qt so just use the
-        # system.
+        # raising KBI seems to get intercepted by by Qt so just use the system.
         os.kill(os.getpid(), signal.SIGINT)
 
 
