@@ -27,7 +27,7 @@ from numba import jit, float64, int64  # , optional
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QLineF, QPointF
 
-from .._profile import timeit
+# from .._profile import timeit
 # from ..data._source import numba_ohlc_dtype
 from ._style import (
     _xaxis_at,
@@ -355,7 +355,7 @@ class CrossHair(pg.GraphicsObject):
                 # update all subscribed curve dots
                 # first = plot._ohlc[0]['index']
                 for cursor in opts.get('cursors', ()):
-                    cursor.setIndex(ix) # - first)
+                    cursor.setIndex(ix)
 
             # update the label on the bottom of the crosshair
             self.xaxis_label.update_label(
@@ -495,10 +495,16 @@ def gen_qpath(
     w,
 ) -> QtGui.QPainterPath:
 
+    profiler = pg.debug.Profiler(disabled=False)
+
     x, y, c = path_arrays_from_ohlc(data, start, bar_gap=w)
+    profiler("generate stream with numba")
 
     # TODO: numba the internals of this!
-    return pg.functions.arrayToQPath(x, y, connect=c)
+    path = pg.functions.arrayToQPath(x, y, connect=c)
+    profiler("generate path with arrayToQPath")
+
+    return path
 
 
 class BarItems(pg.GraphicsObject):
@@ -520,10 +526,21 @@ class BarItems(pg.GraphicsObject):
     ) -> None:
         super().__init__()
 
-        self.last_bar = QtGui.QPicture()
+        # NOTE: this prevents redraws on mouse interaction which is
+        # a huge boon for avg interaction latency.
 
+        # TODO: one question still remaining is if this makes trasform
+        # interactions slower (such as zooming) and if so maybe if/when
+        # we implement a "history" mode for the view we disable this in
+        # that mode?
+        self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
+
+        # not sure if this is actually impoving anything but figured it
+        # was worth a shot:
+        # self.path.reserve(int(100e3 * 6))
+
+        # self.last_bar = QtGui.QPicture()
         self.path = QtGui.QPainterPath()
-        # self._h_path = QtGui.QGraphicsPathItem(self.path)
 
         self._pi = plotitem
 
@@ -570,7 +587,7 @@ class BarItems(pg.GraphicsObject):
 
         # create pics
         # self.draw_history()
-        self.draw_last_bar()
+        # self.draw_last_bar()
 
         # trigger render
         # https://doc.qt.io/qt-5/qgraphicsitem.html#update
@@ -587,17 +604,16 @@ class BarItems(pg.GraphicsObject):
     # ) -> None:
     #     ...
 
+    # def draw_last_bar(self) -> None:
+    #     """Currently this draws lines to a cached ``QPicture`` which
+    #     is supposed to speed things up on ``.paint()`` calls (which
+    #     is a call to ``QPainter.drawPicture()`` but I'm not so sure.
 
-    def draw_last_bar(self) -> None:
-        """Currently this draws lines to a cached ``QPicture`` which
-        is supposed to speed things up on ``.paint()`` calls (which
-        is a call to ``QPainter.drawPicture()`` but I'm not so sure.
-
-        """
-        p = QtGui.QPainter(self.last_bar)
-        p.setPen(self.bars_pen)
-        p.drawLines(*tuple(filter(bool, self._last_bar_lines)))
-        p.end()
+    #     """
+    #     p = QtGui.QPainter(self.last_bar)
+    #     # p.setPen(self.bars_pen)
+    #     p.drawLines(*tuple(filter(bool, self._last_bar_lines)))
+    #     p.end()
 
     # @timeit
     def update_from_array(
@@ -642,12 +658,19 @@ class BarItems(pg.GraphicsObject):
             # update path
             old_path = self.path
             self.path = prepend_path
+            # self.path.reserve(int(100e3 * 6))
             self.path.addPath(old_path)
+
+            # trigger redraw despite caching
+            self.prepareGeometryChange()
 
         if append_length:
             # generate new lines objects for updatable "current bar"
             self._last_bar_lines = lines_from_ohlc(array[-1], self.w)
-            self.draw_last_bar()
+
+            # self.draw_last_bar()
+            # self.update()
+
 
             # generate new graphics to match provided array
             # path appending logic:
@@ -659,11 +682,14 @@ class BarItems(pg.GraphicsObject):
             self.path.moveTo(float(istop - self.w), float(new_bars[0]['open']))
             self.path.addPath(append_path)
 
+            # trigger redraw despite caching
+            self.prepareGeometryChange()
+
         self._xrange = first_index, last_index
 
-        if just_history:
-            self.update()
-            return
+        # if just_history:
+        #     self.update()
+        #     return
 
         # last bar update
         i, o, h, l, last, v = array[-1][
@@ -685,31 +711,32 @@ class BarItems(pg.GraphicsObject):
                 # update body
                 body.setLine(i, l, i, h)
 
-        # XXX: pretty sure this is causing an issue where the bar has
-        # a large upward move right before the next sample and the body
-        # is getting set to None since the next bar is flat but the shm
-        # array index update wasn't read by the time this code runs. Iow
-        # we're doing this removal of the body for a bar index that is
-        # now out of date / from some previous sample. It's weird
-        # though because i've seen it do this to bars i - 3 back?
+            # XXX: pretty sure this is causing an issue where the bar has
+            # a large upward move right before the next sample and the body
+            # is getting set to None since the next bar is flat but the shm
+            # array index update wasn't read by the time this code runs. Iow
+            # we're doing this removal of the body for a bar index that is
+            # now out of date / from some previous sample. It's weird
+            # though because i've seen it do this to bars i - 3 back?
 
         # else:
         #     # XXX: h == l -> remove any HL line to avoid render bug
         #     if body is not None:
-        #         body = self.lines[index - 1][0] = None
+        #         self._last_bar_lines = (None, larm, rarm)
+        #         # body = self.lines[index - 1][0] = None
 
-        self.draw_last_bar()
+        # self.draw_last_bar()
+        self.resetTransform()
+        self.setTransform(self.transform())
         self.update()
 
     # @timeit
     def paint(self, p, opt, widget):
 
-        # profiler = pg.debug.Profiler(disabled=False, delayed=False)
-
-        # TODO: use to avoid drawing artefacts?
-        # self.prepareGeometryChange()
+        profiler = pg.debug.Profiler(disabled=False) #, delayed=False)
 
         # p.setCompositionMode(0)
+        p.setPen(self.bars_pen)
 
         # TODO: one thing we could try here is pictures being drawn of
         # a fixed count of bars such that based on the viewbox indices we
@@ -717,10 +744,12 @@ class BarItems(pg.GraphicsObject):
         # as is necesarry for what's in "view". Not sure if this will
         # lead to any perf gains other then when zoomed in to less bars
         # in view.
-        p.drawPicture(0, 0, self.last_bar)
+        # p.drawPicture(0, 0, self.last_bar)
+        p.drawLines(*tuple(filter(bool, self._last_bar_lines)))
+        profiler('draw last bar')
 
-        p.setPen(self.bars_pen)
         p.drawPath(self.path)
+        profiler('draw history path')
 
     # @timeit
     def boundingRect(self):
@@ -738,16 +767,31 @@ class BarItems(pg.GraphicsObject):
         # bounding rect for us).
 
         # compute aggregate bounding rectangle
-        lb = self.last_bar.boundingRect()
-        hb = self.path.boundingRect()
+        # lb = self.last_bar.boundingRect()
 
-        return QtCore.QRectF(
+        # hb = self.path.boundingRect()
+
+        # apparently this a lot faster says the docs?
+        # https://doc.qt.io/qt-5/qpainterpath.html#controlPointRect
+        hb = self.path.controlPointRect()
+        hb_size = hb.size()
+        # print(f'hb_size: {hb_size}')
+
+        w = hb_size.width() + 1
+        h = hb_size.height() + 1
+
+        br = QtCore.QRectF(
+
             # top left
             QtCore.QPointF(hb.topLeft()),
+
             # total size
-            QtCore.QSizeF(QtCore.QSizeF(lb.size()) + hb.size())
+            # QtCore.QSizeF(QtCore.QSizeF(lb.size()) + hb.size())
+            QtCore.QSizeF(w, h)
             # QtCore.QSizeF(lb.size() + hb.size())
         )
+        # print(f'bounding rect: {br}')
+        return br
 
 
 # XXX: when we get back to enabling tina mode for xb
