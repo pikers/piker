@@ -112,8 +112,6 @@ CHART_MARGINS = (0, 0, 2, 2)
 _min_points_to_show = 6
 _bars_from_right_in_follow_mode = int(6**2)
 _bars_to_left_in_follow_mode = int(6**3)
-
-
 _tina_mode = False
 
 
