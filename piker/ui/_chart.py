@@ -841,10 +841,6 @@ async def _async_main(
 
         # eventually we'll support some kind of n-compose syntax
         fsp_conf = {
-            'vwap': {
-                'overlay': True,
-                'anchor': 'session',
-            },
             'rsi': {
                 'period': 14,
                 'chart_kwargs': {
@@ -853,6 +849,24 @@ async def _async_main(
             },
 
         }
+
+        # make sure that the instrument supports volume history
+        # (sometimes this is not the case for some commodities and derivatives)
+        volm = ohlcv.array['volume']
+        if (
+            np.all(np.isin(volm, -1)) or
+            np.all(np.isnan(volm))
+        ):
+            log.warning(
+                f"{sym} does not seem to have volume info,"
+                " dropping volume signals")
+        else:
+            fsp_conf.update({
+            'vwap': {
+                'overlay': True,
+                'anchor': 'session',
+            },
+        })
 
         async with trio.open_nursery() as n:
 
