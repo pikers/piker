@@ -29,13 +29,13 @@ from PyQt5.QtCore import QLineF, QPointF
 
 # from .._profile import timeit
 # from ..data._source import numba_ohlc_dtype
-from ._style import (
+from .._style import (
     _xaxis_at,
     hcolor,
     _font,
     _down_2_font_inches_we_like,
 )
-from ._axes import YAxisLabel, XAxisLabel, YSticky
+from .._axes import YAxisLabel, XAxisLabel, YSticky
 
 
 # XXX: these settings seem to result in really decent mouse scroll
