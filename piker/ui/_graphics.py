@@ -222,6 +222,7 @@ class CrossHair(pg.GraphicsObject):
         self.active_plot = None
         self.digits = digits
         self._lastx = None
+        # self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
 
     def add_plot(
         self,
@@ -231,8 +232,10 @@ class CrossHair(pg.GraphicsObject):
         # add ``pg.graphicsItems.InfiniteLine``s
         # vertical and horizonal lines and a y-axis label
         vl = plot.addLine(x=0, pen=self.lines_pen, movable=False)
+        vl.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
 
         hl = plot.addLine(y=0, pen=self.lines_pen, movable=False)
+        hl.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
         hl.hide()
 
         yl = YAxisLabel(
@@ -241,6 +244,7 @@ class CrossHair(pg.GraphicsObject):
             opacity=_ch_label_opac,
             bg_color='default',
         )
+        yl.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
         yl.hide()  # on startup if mouse is off screen
 
         # TODO: checkout what ``.sigDelayed`` can be used for
@@ -283,6 +287,7 @@ class CrossHair(pg.GraphicsObject):
         )
         # place label off-screen during startup
         self.xaxis_label.setPos(self.plots[0].mapFromView(QPointF(0, 0)))
+        self.xaxis_label.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
 
     def add_curve_cursor(
         self,
@@ -495,7 +500,7 @@ def gen_qpath(
     w,
 ) -> QtGui.QPainterPath:
 
-    profiler = pg.debug.Profiler(disabled=False)
+    profiler = pg.debug.Profiler(disabled=True)
 
     x, y, c = path_arrays_from_ohlc(data, start, bar_gap=w)
     profiler("generate stream with numba")
@@ -539,18 +544,12 @@ class BarItems(pg.GraphicsObject):
         # was worth a shot:
         # self.path.reserve(int(100e3 * 6))
 
-        # self.last_bar = QtGui.QPicture()
         self.path = QtGui.QPainterPath()
 
         self._pi = plotitem
 
         self._xrange: Tuple[int, int]
         self._yrange: Tuple[float, float]
-
-        # XXX: not sure this actually needs to be an array other
-        # then for the old tina mode calcs for up/down bars below?
-        # lines container
-        # self.lines = _mk_lines_array([], 50e3, 6)
 
         # TODO: don't render the full backing array each time
         # self._path_data = None
@@ -585,35 +584,11 @@ class BarItems(pg.GraphicsObject):
         # up to last to avoid double draw of last bar
         self._last_bar_lines = lines_from_ohlc(data[-1], self.w)
 
-        # create pics
-        # self.draw_history()
-        # self.draw_last_bar()
-
         # trigger render
         # https://doc.qt.io/qt-5/qgraphicsitem.html#update
         self.update()
 
         return self.path
-
-    # def update_ranges(
-    #     self,
-    #     xmn: int,
-    #     xmx: int,
-    #     ymn: float,
-    #     ymx: float,
-    # ) -> None:
-    #     ...
-
-    # def draw_last_bar(self) -> None:
-    #     """Currently this draws lines to a cached ``QPicture`` which
-    #     is supposed to speed things up on ``.paint()`` calls (which
-    #     is a call to ``QPainter.drawPicture()`` but I'm not so sure.
-
-    #     """
-    #     p = QtGui.QPainter(self.last_bar)
-    #     # p.setPen(self.bars_pen)
-    #     p.drawLines(*tuple(filter(bool, self._last_bar_lines)))
-    #     p.end()
 
     # @timeit
     def update_from_array(
@@ -642,6 +617,8 @@ class BarItems(pg.GraphicsObject):
         prepend_length = istart - first_index
         append_length = last_index - istop
 
+        flip_cache = False
+
         # TODO: allow mapping only a range of lines thus
         # only drawing as many bars as exactly specified.
 
@@ -658,7 +635,6 @@ class BarItems(pg.GraphicsObject):
             # update path
             old_path = self.path
             self.path = prepend_path
-            # self.path.reserve(int(100e3 * 6))
             self.path.addPath(old_path)
 
             # trigger redraw despite caching
@@ -667,10 +643,6 @@ class BarItems(pg.GraphicsObject):
         if append_length:
             # generate new lines objects for updatable "current bar"
             self._last_bar_lines = lines_from_ohlc(array[-1], self.w)
-
-            # self.draw_last_bar()
-            # self.update()
-
 
             # generate new graphics to match provided array
             # path appending logic:
@@ -684,12 +656,10 @@ class BarItems(pg.GraphicsObject):
 
             # trigger redraw despite caching
             self.prepareGeometryChange()
+            self.setCacheMode(QtGui.QGraphicsItem.NoCache)
+            flip_cache = True
 
         self._xrange = first_index, last_index
-
-        # if just_history:
-        #     self.update()
-        #     return
 
         # last bar update
         i, o, h, l, last, v = array[-1][
@@ -719,16 +689,10 @@ class BarItems(pg.GraphicsObject):
             # now out of date / from some previous sample. It's weird
             # though because i've seen it do this to bars i - 3 back?
 
-        # else:
-        #     # XXX: h == l -> remove any HL line to avoid render bug
-        #     if body is not None:
-        #         self._last_bar_lines = (None, larm, rarm)
-        #         # body = self.lines[index - 1][0] = None
-
-        # self.draw_last_bar()
-        self.resetTransform()
-        self.setTransform(self.transform())
         self.update()
+
+        if flip_cache:
+            self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
 
     # @timeit
     def paint(self, p, opt, widget):
@@ -744,7 +708,6 @@ class BarItems(pg.GraphicsObject):
         # as is necesarry for what's in "view". Not sure if this will
         # lead to any perf gains other then when zoomed in to less bars
         # in view.
-        # p.drawPicture(0, 0, self.last_bar)
         p.drawLines(*tuple(filter(bool, self._last_bar_lines)))
         profiler('draw last bar')
 
@@ -766,11 +729,6 @@ class BarItems(pg.GraphicsObject):
         # (in this case, QPicture does all the work of computing the
         # bounding rect for us).
 
-        # compute aggregate bounding rectangle
-        # lb = self.last_bar.boundingRect()
-
-        # hb = self.path.boundingRect()
-
         # apparently this a lot faster says the docs?
         # https://doc.qt.io/qt-5/qpainterpath.html#controlPointRect
         hb = self.path.controlPointRect()
@@ -786,9 +744,7 @@ class BarItems(pg.GraphicsObject):
             QtCore.QPointF(hb.topLeft()),
 
             # total size
-            # QtCore.QSizeF(QtCore.QSizeF(lb.size()) + hb.size())
             QtCore.QSizeF(w, h)
-            # QtCore.QSizeF(lb.size() + hb.size())
         )
         # print(f'bounding rect: {br}')
         return br
