@@ -20,7 +20,7 @@ Fast, smooth, sexy curves.
 from typing import Tuple
 
 import pyqtgraph as pg
-from PyQt5 import QtCore, QtGui
+from PyQt5 import QtCore, QtGui, QtWidgets
 
 from ..._profile import pg_profile_enabled
 
@@ -139,7 +139,12 @@ class FastAppendCurve(pg.PlotCurveItem):
         # print(f'bounding rect: {br}')
         return br
 
-    def paint(self, p, opt, widget):
+    def paint(
+        self,
+        p: QtGui.QPainter,
+        opt: QtWidgets.QStyleOptionGraphicsItem,
+        w: QtWidgets.QWidget
+    ) -> None:
 
         profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
         # p.setRenderHint(p.Antialiasing, True)

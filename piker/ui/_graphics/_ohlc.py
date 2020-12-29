@@ -22,7 +22,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 import pyqtgraph as pg
 from numba import jit, float64, int64  # , optional
-from PyQt5 import QtCore, QtGui
+from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QLineF, QPointF
 # from numba import types as ntypes
 # from ..data._source import numba_ohlc_dtype
@@ -339,9 +339,14 @@ class BarItems(pg.GraphicsObject):
         if flip_cache:
             self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
 
-    def paint(self, p, opt, widget):
+    def paint(
+        self,
+        p: QtGui.QPainter,
+        opt: QtWidgets.QStyleOptionGraphicsItem,
+        w: QtWidgets.QWidget
+    ) -> None:
 
-        profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())  # , delayed=False)
+        profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
 
         # p.setCompositionMode(0)
         p.setPen(self.bars_pen)
