@@ -25,9 +25,9 @@ from numba import jit, float64, int64  # , optional
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QLineF, QPointF
 # from numba import types as ntypes
-# from .._profile import timeit
 # from ..data._source import numba_ohlc_dtype
 
+from ..._profile import pg_profile_enabled
 from .._style import hcolor
 
 
@@ -141,14 +141,13 @@ def path_arrays_from_ohlc(
     return x, y, c
 
 
-# @timeit
 def gen_qpath(
     data,
     start,  # XXX: do we need this?
     w,
 ) -> QtGui.QPainterPath:
 
-    profiler = pg.debug.Profiler(disabled=True)
+    profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
 
     x, y, c = path_arrays_from_ohlc(data, start, bar_gap=w)
     profiler("generate stream with numba")
@@ -207,7 +206,6 @@ class BarItems(pg.GraphicsObject):
         self.start_index: int = 0
         self.stop_index: int = 0
 
-    # @timeit
     def draw_from_data(
         self,
         data: np.ndarray,
@@ -238,7 +236,6 @@ class BarItems(pg.GraphicsObject):
 
         return self.path
 
-    # @timeit
     def update_from_array(
         self,
         array: np.ndarray,
@@ -342,10 +339,9 @@ class BarItems(pg.GraphicsObject):
         if flip_cache:
             self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
 
-    # @timeit
     def paint(self, p, opt, widget):
 
-        profiler = pg.debug.Profiler(disabled=False)  # , delayed=False)
+        profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())  # , delayed=False)
 
         # p.setCompositionMode(0)
         p.setPen(self.bars_pen)
@@ -362,7 +358,6 @@ class BarItems(pg.GraphicsObject):
         p.drawPath(self.path)
         profiler('draw history path')
 
-    # @timeit
     def boundingRect(self):
         # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
 

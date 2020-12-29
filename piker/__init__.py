@@ -1,5 +1,5 @@
 # piker: trading gear for hackers.
-# Copyright 2018 Tyler Goodlet
+# Copyright 2020-eternity Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -16,6 +16,7 @@
 
 """
 piker: trading gear for hackers.
+
 """
 import msgpack  # noqa
 import msgpack_numpy

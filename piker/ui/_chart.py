@@ -1068,7 +1068,6 @@ async def chart_from_quotes(
                     mn_in_view = min(price, mn_in_view)
 
                 if mx_in_view > last_mx or mn_in_view < last_mn:
-                    print('scaling')
                     chart._set_yrange(yrange=(mn_in_view, mx_in_view))
                     last_mx, last_mn = mx_in_view, mn_in_view
 

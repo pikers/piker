@@ -22,6 +22,8 @@ from typing import Tuple
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
 
+from ..._profile import pg_profile_enabled
+
 
 class FastAppendCurve(pg.PlotCurveItem):
 
@@ -46,7 +48,7 @@ class FastAppendCurve(pg.PlotCurveItem):
         y,
     ) -> QtGui.QPainterPath:
 
-        profiler = pg.debug.Profiler(disabled=True)
+        profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
         flip_cache = False
 
         # print(f"xrange: {self._xrange}")
@@ -139,7 +141,7 @@ class FastAppendCurve(pg.PlotCurveItem):
 
     def paint(self, p, opt, widget):
 
-        profiler = pg.debug.Profiler(disabled=True)
+        profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
         # p.setRenderHint(p.Antialiasing, True)
 
         p.setPen(self.opts['pen'])

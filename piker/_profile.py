@@ -16,9 +16,17 @@
 
 """
 Profiling wrappers for internal libs.
+
 """
 import time
 from functools import wraps
+
+_pg_profile: bool = False
+
+
+def pg_profile_enabled() -> bool:
+    global _pg_profile
+    return _pg_profile
 
 
 def timeit(fn):
