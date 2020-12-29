@@ -33,11 +33,11 @@ from ._axes import (
 from ._graphics import (
     CrossHair,
     ContentsLabel,
-    BarItems,
     level_line,
     L1Labels,
 )
-from ._graphics._curves import FastAppendCurve
+from ._graphics._ohlc import BarItems
+from ._graphics._curve import FastAppendCurve
 from ._axes import YSticky
 from ._style import (
     _font,
