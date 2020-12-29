@@ -30,9 +30,11 @@ from ._axes import (
     DynamicDateAxis,
     PriceAxis,
 )
-from ._graphics import (
+from ._graphics._cursor import (
     CrossHair,
     ContentsLabel,
+)
+from ._graphics._lines import (
     level_line,
     L1Labels,
 )

@@ -15,15 +15,18 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 Super fast OHLC sampling graphics types.
+
 """
 from typing import List, Optional, Tuple
 
 import numpy as np
 import pyqtgraph as pg
 from numba import jit, float64, int64  # , optional
-# from numba import types as ntypes
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QLineF, QPointF
+# from numba import types as ntypes
+# from .._profile import timeit
+# from ..data._source import numba_ohlc_dtype
 
 from .._style import hcolor
 
