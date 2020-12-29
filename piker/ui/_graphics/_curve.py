@@ -25,6 +25,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from ..._profile import pg_profile_enabled
 
 
+# TODO: got a feeling that dropping this inheritance gets us even more speedups
 class FastAppendCurve(pg.PlotCurveItem):
 
     def __init__(self, *args, **kwargs):

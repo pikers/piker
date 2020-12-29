@@ -218,7 +218,6 @@ class CrossHair(pg.GraphicsObject):
         self.active_plot = None
         self.digits = digits
         self._lastx = None
-        # self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
 
     def add_plot(
         self,
@@ -240,7 +239,6 @@ class CrossHair(pg.GraphicsObject):
             opacity=_ch_label_opac,
             bg_color='default',
         )
-        yl.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
         yl.hide()  # on startup if mouse is off screen
 
         # TODO: checkout what ``.sigDelayed`` can be used for
@@ -283,8 +281,6 @@ class CrossHair(pg.GraphicsObject):
         )
         # place label off-screen during startup
         self.xaxis_label.setPos(self.plots[0].mapFromView(QPointF(0, 0)))
-        self.xaxis_label.setCacheMode(
-            QtGui.QGraphicsItem.DeviceCoordinateCache)
 
     def add_curve_cursor(
         self,
