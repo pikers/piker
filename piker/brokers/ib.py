@@ -192,6 +192,7 @@ class Client:
             # barSizeSetting='5 secs',
 
             durationStr='{count} S'.format(count=period_count),
+            # barSizeSetting='5 secs',
             barSizeSetting='1 secs',
 
             # barSizeSetting='1 min',
@@ -328,8 +329,9 @@ class Client:
             exch = 'SMART' if not exch else exch
             contract = (await self.ib.qualifyContractsAsync(con))[0]
 
-            head = await self.get_head_time(contract)
-            print(head)
+            # head = await self.get_head_time(contract)
+            # print(head)
+
         except IndexError:
             raise ValueError(f"No contract could be found {con}")
         return contract
@@ -617,9 +619,11 @@ async def activate_writer(key: str) -> (bool, trio.Nursery):
 
 
 async def fill_bars(
-    first_bars,
-    shm,
+    sym: str,
+    first_bars: list,
+    shm: 'ShmArray',  # type: ignore # noqa
     count: int = 21,
+    # count: int = 1,
 ) -> None:
     """Fill historical bars into shared mem / storage afap.
 
@@ -635,9 +639,7 @@ async def fill_bars(
         try:
             bars, bars_array = await _trio_run_client_method(
                 method='bars',
-                symbol='.'.join(
-                    (first_bars.contract.symbol, first_bars.contract.exchange)
-                ),
+                symbol=sym,
                 end_dt=next_dt,
 
             )
@@ -723,7 +725,7 @@ async def stream_quotes(
 
                 # TODO: generalize this for other brokers
                 # start bar filler task in bg
-                ln.start_soon(fill_bars, bars, shm)
+                ln.start_soon(fill_bars, sym, bars, shm)
 
                 times = shm.array['time']
                 delay_s = times[-1] - times[times != times[-1]][-1]
@@ -808,7 +810,7 @@ async def stream_quotes(
                             ['open', 'high', 'low', 'volume']
                         ]
 
-                        new_v = tick['size']
+                        new_v = tick.get('size', 0)
 
                         if v == 0 and new_v:
                             # no trades for this bar yet so the open

@@ -151,8 +151,8 @@ def wma(
     return np.convolve(signal, weights, 'valid')
 
 
-# @piker.fsp(
-    # aggregates=[60, 60*5, 60*60, '4H', '1D'],
+# @piker.fsp.signal(
+#     timeframes=['1s', '5s', '15s', '1m', '5m', '1H'],
 # )
 async def _rsi(
     source: 'QuoteStream[Dict[str, Any]]',  # noqa
@@ -171,8 +171,8 @@ async def _rsi(
     # TODO: the emas here should be seeded with a period SMA as per
     # wilder's original formula..
     rsi_h, last_up_ema_close, last_down_ema_close = rsi(sig, period, seed, seed)
-    up_ema_last = last_up_ema_close 
-    down_ema_last = last_down_ema_close 
+    up_ema_last = last_up_ema_close
+    down_ema_last = last_down_ema_close
 
     # deliver history
     yield rsi_h

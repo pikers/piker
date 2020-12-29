@@ -558,7 +558,9 @@ class ChartPlotWidget(pg.PlotWidget):
 
             # TODO: see how this handles with custom ohlcv bars graphics
             # and/or if we can implement something similar for OHLC graphics
-            clipToView=True,
+            # clipToView=True,
+            autoDownsample=True,
+            downsampleMethod='subsample',
 
             **pdi_kwargs,
         )
@@ -839,10 +841,6 @@ async def _async_main(
 
         # eventually we'll support some kind of n-compose syntax
         fsp_conf = {
-            # 'vwap': {
-            #     'overlay': True,
-            #     'anchor': 'session',
-            # },
             'rsi': {
                 'period': 14,
                 'chart_kwargs': {
@@ -851,6 +849,24 @@ async def _async_main(
             },
 
         }
+
+        # make sure that the instrument supports volume history
+        # (sometimes this is not the case for some commodities and derivatives)
+        volm = ohlcv.array['volume']
+        if (
+            np.all(np.isin(volm, -1)) or
+            np.all(np.isnan(volm))
+        ):
+            log.warning(
+                f"{sym} does not seem to have volume info,"
+                " dropping volume signals")
+        else:
+            fsp_conf.update({
+            'vwap': {
+                'overlay': True,
+                'anchor': 'session',
+            },
+        })
 
         async with trio.open_nursery() as n:
 
@@ -1099,11 +1115,11 @@ async def spawn_fsps(
                     print(f'FSP NAME: {fsp_name}')
                     portal = await n.run_in_actor(
 
-                        # name as title of sub-chart
-                        display_name,
-
                         # subactor entrypoint
                         fsp.cascade,
+
+                        # name as title of sub-chart
+                        name=display_name,
                         brokername=brokermod.name,
                         src_shm_token=src_shm.token,
                         dst_shm_token=conf['shm'].token,
@@ -1221,9 +1237,23 @@ async def update_signals(
     # update chart graphics
     async for value in stream:
 
-        # read last
-        array = shm.array
-        value = array[-1][fsp_func_name]
+        # TODO: provide a read sync mechanism to avoid this polling.
+        # the underlying issue is that a backfill and subsequent shm
+        # array first/last index update could result in an empty array
+        # read here since the stream is never torn down on the
+        # re-compute steps.
+        read_tries = 2
+        while read_tries > 0:
+
+            try:
+                # read last
+                array = shm.array
+                value = array[-1][fsp_func_name]
+                break
+
+            except IndexError:
+                read_tries -= 1
+                continue
 
         if last_val_sticky:
             last_val_sticky.update_from_data(-1, value)
