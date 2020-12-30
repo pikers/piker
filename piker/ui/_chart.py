@@ -384,7 +384,6 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # self.setViewportMargins(0, 0, 0, 0)
         self._ohlc = array  # readonly view of ohlc data
-        self.default_view()
 
         self._arrays = {}  # readonly view of overlays
         self._graphics = {}  # registry of underlying graphics
@@ -405,6 +404,8 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # show background grid
         self.showGrid(x=True, y=True, alpha=0.5)
+
+        self.default_view()
 
         # TODO: stick in config
         # use cross-hair for cursor?
@@ -478,9 +479,12 @@ class ChartPlotWidget(pg.PlotWidget):
 
         """
         xlast = self._ohlc[index]['index']
-        print(xlast)
         begin = xlast - _bars_to_left_in_follow_mode
         end = xlast + _bars_from_right_in_follow_mode
+
+        # remove any custom user yrange setttings
+        if self._static_yrange == 'axis':
+            self._static_yrange = None
 
         self.plotItem.vb.setXRange(
             min=begin,
@@ -697,7 +701,12 @@ class ChartPlotWidget(pg.PlotWidget):
         data set.
 
         """
-        if self._static_yrange is not None:
+        set_range = True
+
+        if self._static_yrange == 'axis':
+            set_range = False
+
+        elif self._static_yrange is not None:
             ylow, yhigh = self._static_yrange
 
         elif yrange is not None:
@@ -761,44 +770,46 @@ class ChartPlotWidget(pg.PlotWidget):
                 ylow = np.nanmin(bars)
                 yhigh = np.nanmax(bars)
 
-        # view margins: stay within a % of the "true range"
-        diff = yhigh - ylow
-        ylow = ylow - (diff * 0.04)
-        yhigh = yhigh + (diff * 0.04)
+        if set_range:
+            # view margins: stay within a % of the "true range"
+            diff = yhigh - ylow
+            ylow = ylow - (diff * 0.04)
+            yhigh = yhigh + (diff * 0.04)
 
-        # # compute contents label "height" in view terms
-        # # to avoid having data "contents" overlap with them
-        # if self._labels:
-        #     label = self._labels[self.name][0]
+            self.setLimits(
+                yMin=ylow,
+                yMax=yhigh,
+            )
+            self.setYRange(ylow, yhigh)
 
-        #     rect = label.itemRect()
-        #     tl, br = rect.topLeft(), rect.bottomRight()
-        #     vb = self.plotItem.vb
+    # def _label_h(self, yhigh: float, ylow: float) -> float:
+    #     # compute contents label "height" in view terms
+    #     # to avoid having data "contents" overlap with them
+    #     if self._labels:
+    #         label = self._labels[self.name][0]
 
-        #     try:
-        #         # on startup labels might not yet be rendered
-        #         top, bottom = (vb.mapToView(tl).y(), vb.mapToView(br).y())
+    #         rect = label.itemRect()
+    #         tl, br = rect.topLeft(), rect.bottomRight()
+    #         vb = self.plotItem.vb
 
-        #         # XXX: magic hack, how do we compute exactly?
-        #         label_h = (top - bottom) * 0.42
+    #         try:
+    #             # on startup labels might not yet be rendered
+    #             top, bottom = (vb.mapToView(tl).y(), vb.mapToView(br).y())
 
-        #     except np.linalg.LinAlgError:
-        #         label_h = 0
-        # else:
-        #     label_h = 0
+    #             # XXX: magic hack, how do we compute exactly?
+    #             label_h = (top - bottom) * 0.42
 
-        # # print(f'label height {self.name}: {label_h}')
+    #         except np.linalg.LinAlgError:
+    #             label_h = 0
+    #     else:
+    #         label_h = 0
 
-        # if label_h > yhigh - ylow:
-        #     label_h = 0
-        # print(f"bounds (ylow, yhigh): {(ylow, yhigh)}")
-        label_h = 0
+    #     # print(f'label height {self.name}: {label_h}')
 
-        self.setLimits(
-            yMin=ylow,
-            yMax=yhigh + label_h,
-        )
-        self.setYRange(ylow, yhigh + label_h)
+    #     if label_h > yhigh - ylow:
+    #         label_h = 0
+
+    #     print(f"bounds (ylow, yhigh): {(ylow, yhigh)}")
 
     def enterEvent(self, ev):  # noqa
         # pg.PlotWidget.enterEvent(self, ev)
@@ -1137,7 +1148,7 @@ async def spawn_fsps(
                     """Start an fsp subactor async.
 
                     """
-                    print(f'FSP NAME: {fsp_name}')
+                    # print(f'FSP NAME: {fsp_name}')
                     portal = await n.run_in_actor(
 
                         # subactor entrypoint
