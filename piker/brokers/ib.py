@@ -622,7 +622,8 @@ async def fill_bars(
     sym: str,
     first_bars: list,
     shm: 'ShmArray',  # type: ignore # noqa
-    count: int = 21,  # NOTE: any more and we'll overrun the underlying buffer
+    # count: int = 20,  # NOTE: any more and we'll overrun the underlying buffer
+    count: int = 2,  # NOTE: any more and we'll overrun the underlying buffer
 ) -> None:
     """Fill historical bars into shared mem / storage afap.
 
@@ -647,12 +648,24 @@ async def fill_bars(
             next_dt = bars[0].date
 
         except RequestError as err:
-            # TODO: retreive underlying ``ib_insync`` error~~
-            if err.code == 162:
-                log.exception(
-                    "Data query rate reached: Press `ctrl-alt-f` in TWS")
+            # TODO: retreive underlying ``ib_insync`` error?
 
-                await tractor.breakpoint()
+            if err.code == 162:
+
+                if 'HMDS query returned no data' in err.message:
+                    # means we hit some kind of historical "dead zone"
+                    # and further requests seem to always cause
+                    # throttling despite the rps being low
+                    break
+
+                else:
+                    log.exception(
+                        "Data query rate reached: Press `ctrl-alt-f` in TWS")
+
+                    # TODO: should probably create some alert on screen
+                    # and then somehow get that to trigger an event here
+                    # that restarts/resumes this task?
+                    await tractor.breakpoint()
 
 
 # TODO: figure out how to share quote feeds sanely despite
