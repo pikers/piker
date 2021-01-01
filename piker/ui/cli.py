@@ -150,5 +150,6 @@ def chart(config, symbol, date, rate, test, profile):
         tractor_kwargs={
             'debug_mode': True,
             'loglevel': tractorloglevel,
+            'rpc_module_paths': ['piker.ui._chart'],
         },
     )
