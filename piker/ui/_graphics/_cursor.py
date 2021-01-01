@@ -31,6 +31,10 @@ from .._style import (
     _font,
 )
 from .._axes import YAxisLabel, XAxisLabel
+from ...log import get_logger
+
+
+log = get_logger(__name__)
 
 # XXX: these settings seem to result in really decent mouse scroll
 # latency (in terms of perceived lag in cross hair) so really be sure
@@ -295,6 +299,7 @@ class CrossHair(pg.GraphicsObject):
         return cursor
 
     def mouseAction(self, action, plot):  # noqa
+        log.debug(f"{(action, plot.name)}")
         if action == 'Enter':
             self.active_plot = plot
 
@@ -303,7 +308,6 @@ class CrossHair(pg.GraphicsObject):
             self.graphics[plot]['yl'].show()
 
         else:  # Leave
-            self.active_plot = None
 
             # hide horiz line and y-label
             self.graphics[plot]['hl'].hide()
