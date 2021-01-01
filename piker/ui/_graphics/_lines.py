@@ -49,6 +49,8 @@ class LevelLabel(YSticky):
     ) -> None:
         super().__init__(chart, *args, **kwargs)
 
+        self._pen = self.line_pen
+
         # orientation around axis options
         self._orient_v = orient_v
         self._orient_h = orient_h
@@ -101,7 +103,7 @@ class LevelLabel(YSticky):
         p: QtGui.QPainter,
         rect: QtCore.QRectF
     ) -> None:
-        p.setPen(self.line_pen)
+        p.setPen(self._pen)
 
         if self._orient_v == 'bottom':
             lp, rp = rect.topLeft(), rect.topRight()
@@ -110,6 +112,15 @@ class LevelLabel(YSticky):
             lp, rp = rect.bottomLeft(), rect.bottomRight()
 
         p.drawLine(lp.x(), lp.y(), rp.x(), rp.y())
+
+    def highlight(self, pen) -> None:
+        self._pen = pen
+        self.update()
+
+    def unhighlight(self):
+        self._pen = self.line_pen
+        self.update()
+
 
 
 class L1Label(LevelLabel):
@@ -190,8 +201,37 @@ class LevelLine(pg.InfiniteLine):
         super().__init__(**kwargs)
         self.sigPositionChanged.connect(self.set_level)
 
+        # use slightly thicker highlight
+        self.setHoverPen(
+            color=(255, 0, 0),
+            width=self.pen.width() + 1
+        )
+
     def set_level(self, value: float) -> None:
         self.label.update_from_data(0, self.value())
+
+    def setMouseHover(self, hover: bool) -> None:
+        """Mouse hover callback.
+
+        """
+        if self.mouseHovering == hover:
+            return
+        self.mouseHovering = hover
+
+        if hover:
+
+            self.currentPen = self.hoverPen
+            self.label.highlight(self.hoverPen)
+
+        else:
+            self.currentPen = self.pen
+            self.label.unhighlight()
+
+        # highlight any attached label
+
+        # self.setCursor(QtCore.Qt.OpenHandCursor)
+        # self.setCursor(QtCore.Qt.DragMoveCursor)
+        self.update()
 
 
 def level_line(
