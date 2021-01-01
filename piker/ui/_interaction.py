@@ -215,12 +215,14 @@ class ChartView(ViewBox):
         self.addItem(self.select_box, ignoreBounds=True)
         self._chart: 'ChartPlotWidget' = None  # noqa
 
+        self._keys_on = {}
+
     @property
-    def chart(self) -> 'ChartPlotWidget':  # noqa
+    def chart(self) -> 'ChartPlotWidget':  # type: ignore # noqa
         return self._chart
 
     @chart.setter
-    def chart(self, chart: 'ChartPlotWidget') -> None:  # noqa
+    def chart(self, chart: 'ChartPlotWidget') -> None:  # type: ignore # noqa
         self._chart = chart
         self.select_box.chart = chart
 
@@ -305,7 +307,7 @@ class ChartView(ViewBox):
             if axis == 1:
                 # set a static y range special value on chart widget to
                 # prevent sizing to data in view.
-                self._chart._static_yrange = 'axis'
+                self.chart._static_yrange = 'axis'
 
                 scale_y = 1.3 ** (dif.y() * -1 / 20)
                 self.setLimits(yMin=None, yMax=None)
@@ -374,24 +376,46 @@ class ChartView(ViewBox):
 
     def keyReleaseEvent(self, ev):
         # print(f'release: {ev.text().encode()}')
+        if ev.isAutoRepeat():
+            ev.ignore()
+            return
+
         ev.accept()
-        if ev.key() == QtCore.Qt.Key_Shift:
+        text = ev.text()
+        key = ev.key()
+        mods = ev.modifiers()
+
+        if key == QtCore.Qt.Key_Shift:
             if self.state['mouseMode'] == ViewBox.RectMode:
                 self.setMouseMode(ViewBox.PanMode)
+
+        if text == 'a':
+
+            # how y line
+            chart = self.chart._cursor.active_plot
+            hl = chart._cursor.graphics[chart]['hl']
+            hl.show()
 
     def keyPressEvent(self, ev):
         """
         This routine should capture key presses in the current view box.
         """
         # print(ev.text().encode())
-        ev.accept()
+        if ev.isAutoRepeat():
+            ev.ignore()
+            return
 
-        if ev.modifiers() == QtCore.Qt.ShiftModifier:
+        ev.accept()
+        text = ev.text()
+        key = ev.key()
+        mods = ev.modifiers()
+
+        if mods == QtCore.Qt.ShiftModifier:
             if self.state['mouseMode'] == ViewBox.PanMode:
                 self.setMouseMode(ViewBox.RectMode)
 
         # ctl
-        if ev.modifiers() == QtCore.Qt.ControlModifier:
+        if mods == QtCore.Qt.ControlModifier:
             # print("CTRL")
             # TODO: ctrl-c as cancel?
             # https://forum.qt.io/topic/532/how-to-catch-ctrl-c-on-a-widget/9
@@ -400,16 +424,28 @@ class ChartView(ViewBox):
             pass
 
         # alt
-        if ev.modifiers() == QtCore.Qt.AltModifier:
+        if mods == QtCore.Qt.AltModifier:
             pass
             # print("ALT")
 
         # esc
-        if ev.key() == QtCore.Qt.Key_Escape:
+        if key == QtCore.Qt.Key_Escape:
             self.select_box.clear()
 
-        if ev.text() == 'r':
+        if text == 'r':
             self.chart.default_view()
+
+        if text == 'a':
+            self._keys_on['a'] = True
+
+            # hide y line
+            chart = self.chart._cursor.active_plot
+            print(f'on chart: {chart.name}')
+            chart._cursor.graphics[chart]['hl'].hide()
+
+            # XXX: should make this an explicit attr
+            # it's assigned inside ``.add_plot()``
+            self.linked_charts._to_router.send_nowait('yo')
 
         # Leaving this for light reference purposes
 
