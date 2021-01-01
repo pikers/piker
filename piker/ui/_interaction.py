@@ -288,6 +288,7 @@ class ChartView(ViewBox):
     ) -> None:
         #  if axis is specified, event will only affect that axis.
         ev.accept()  # we accept all buttons
+        button = ev.button()
 
         pos = ev.pos()
         lastPos = ev.lastPos()
@@ -301,7 +302,9 @@ class ChartView(ViewBox):
             mask[1-axis] = 0.0
 
         # Scale or translate based on mouse button
-        if ev.button() & (QtCore.Qt.LeftButton | QtCore.Qt.MidButton):
+        if button & (QtCore.Qt.LeftButton | QtCore.Qt.MidButton):
+
+            # print(f'left click drag pos {pos}')
 
             # zoom only y-axis when click-n-drag on it
             if axis == 1:
@@ -340,6 +343,8 @@ class ChartView(ViewBox):
                     # update shape of scale box
                     # self.updateScaleBox(ev.buttonDownPos(), ev.pos())
             else:
+                # default bevavior: click to pan view
+
                 tr = self.childGroup.transform()
                 tr = fn.invertQTransform(tr)
                 tr = tr.map(dif*mask) - tr.map(Point(0, 0))
@@ -348,13 +353,16 @@ class ChartView(ViewBox):
                 y = tr.y() if mask[1] == 1 else None
 
                 self._resetTarget()
+
                 if x is not None or y is not None:
                     self.translateBy(x=x, y=y)
+
                 self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
 
-        elif ev.button() & QtCore.Qt.RightButton:
+        elif button & QtCore.Qt.RightButton:
 
-            # print "vb.rightDrag"
+            # right click zoom to center behaviour
+
             if self.state['aspectLocked'] is not False:
                 mask[0] = 0
 
@@ -373,6 +381,20 @@ class ChartView(ViewBox):
             self._resetTarget()
             self.scaleBy(x=x, y=y, center=center)
             self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
+
+    def mouseClickEvent(self, ev):
+        """Full-click callback.
+
+        """
+        button = ev.button()
+        pos = ev.pos()
+
+        if  button == QtCore.Qt.RightButton and self.menuEnabled():
+            ev.accept()
+            self.raiseContextMenu(ev)
+
+        elif button == QtCore.Qt.LeftButton:
+            print(f'clicked {pos}')
 
     def keyReleaseEvent(self, ev):
         # print(f'release: {ev.text().encode()}')
