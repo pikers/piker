@@ -22,7 +22,7 @@ from typing import List, Tuple, Optional
 
 import pandas as pd
 import pyqtgraph as pg
-from PyQt5 import QtCore, QtGui
+from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
 
 from ._style import DpiAwareFont, hcolor, _font
@@ -44,6 +44,10 @@ class Axis(pg.AxisItem):
     ) -> None:
 
         super().__init__(**kwargs)
+
+        # XXX: pretty sure this makes things slower
+        # self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
+
         self.linked_charts = linked_charts
         self._min_tick = min_tick
 
@@ -158,9 +162,12 @@ class AxisLabel(pg.GraphicsObject):
         fg_color: str = 'black',
         opacity: int = 0,
         font_size_inches: Optional[float] = None,
-    ):
+    ) -> None:
+
         super().__init__(parent)
         self.setFlag(self.ItemIgnoresTransformations)
+        # XXX: pretty sure this is faster
+        self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
 
         self.parent = parent
         self.opacity = opacity
@@ -177,7 +184,12 @@ class AxisLabel(pg.GraphicsObject):
 
         self.rect = None
 
-    def paint(self, p, option, widget):
+    def paint(
+        self,
+        p: QtGui.QPainter,
+        opt: QtWidgets.QStyleOptionGraphicsItem,
+        w: QtWidgets.QWidget
+    ) -> None:
         # p.setCompositionMode(QtGui.QPainter.CompositionMode_SourceOver)
 
         if self.label_str:

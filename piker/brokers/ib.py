@@ -622,8 +622,7 @@ async def fill_bars(
     sym: str,
     first_bars: list,
     shm: 'ShmArray',  # type: ignore # noqa
-    count: int = 21,
-    # count: int = 1,
+    count: int = 21,  # NOTE: any more and we'll overrun the underlying buffer
 ) -> None:
     """Fill historical bars into shared mem / storage afap.
 

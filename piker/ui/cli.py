@@ -84,7 +84,7 @@ def monitor(config, rate, name, dhost, test, tl):
 
 
 @cli.command()
-@click.option('--tl', is_flag=True, help='Enable tractor logging')
+# @click.option('--tl', is_flag=True, help='Enable tractor logging')
 @click.option('--date', '-d', help='Contracts expiry date')
 @click.option('--test', '-t', help='Test quote stream file')
 @click.option('--rate', '-r', default=1, help='Logging level')
@@ -121,15 +121,24 @@ def optschain(config, symbol, date, tl, rate, test):
 
 
 @cli.command()
+@click.option(
+    '--profile',
+    is_flag=True,
+    help='Enable pyqtgraph profiling'
+)
 @click.option('--date', '-d', help='Contracts expiry date')
 @click.option('--test', '-t', help='Test quote stream file')
 @click.option('--rate', '-r', default=1, help='Logging level')
 @click.argument('symbol', required=True)
 @click.pass_obj
-def chart(config, symbol, date, rate, test):
-    """Start an option chain UI
+def chart(config, symbol, date, rate, test, profile):
+    """Start a real-time chartng UI
     """
+    from .. import _profile
     from ._chart import _main
+
+    # possibly enable profiling
+    _profile._pg_profile = profile
 
     # global opts
     brokername = config['broker']

@@ -83,8 +83,7 @@ class MainWindow(QtGui.QMainWindow):
         """Cancel the root actor asap.
 
         """
-        # raising KBI seems to get intercepted by by Qt so just use the
-        # system.
+        # raising KBI seems to get intercepted by by Qt so just use the system.
         os.kill(os.getpid(), signal.SIGINT)
 
 
@@ -160,20 +159,20 @@ def run_qtractor(
         'main': instance,
     }
 
-    # setup tractor entry point args
-    main = partial(
-        tractor._main,
-        async_fn=func,
-        args=args + (widgets,),
-        arbiter_addr=(
-            tractor._default_arbiter_host,
-            tractor._default_arbiter_port,
-        ),
-        name='qtractor',
-        **tractor_kwargs,
-    )
+    # define tractor entrypoint
+    async def main():
 
-    # guest mode
+        async with tractor.open_root_actor(
+            arbiter_addr=(
+                tractor._root._default_arbiter_host,
+                tractor._root._default_arbiter_port,
+            ),
+            name='qtractor',
+            **tractor_kwargs,
+        ) as a:
+            await func(*(args + (widgets,)))
+
+    # guest mode entry
     trio.lowlevel.start_guest_run(
         main,
         run_sync_soon_threadsafe=run_sync_soon_threadsafe,

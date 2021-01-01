@@ -30,13 +30,16 @@ from ._axes import (
     DynamicDateAxis,
     PriceAxis,
 )
-from ._graphics import (
+from ._graphics._cursor import (
     CrossHair,
     ContentsLabel,
-    BarItems,
+)
+from ._graphics._lines import (
     level_line,
     L1Labels,
 )
+from ._graphics._ohlc import BarItems
+from ._graphics._curve import FastAppendCurve
 from ._axes import YSticky
 from ._style import (
     _font,
@@ -550,20 +553,37 @@ class ChartPlotWidget(pg.PlotWidget):
         }
         pdi_kwargs.update(_pdi_defaults)
 
-        curve = pg.PlotDataItem(
+        # curve = pg.PlotDataItem(
+        # curve = pg.PlotCurveItem(
+        curve = FastAppendCurve(
             y=data[name],
             x=data['index'],
             # antialias=True,
             name=name,
 
+            # XXX: pretty sure this is just more overhead
+            # on data reads and makes graphics rendering no faster
+            # clipToView=True,
+
             # TODO: see how this handles with custom ohlcv bars graphics
             # and/or if we can implement something similar for OHLC graphics
-            # clipToView=True,
-            autoDownsample=True,
-            downsampleMethod='subsample',
+            # autoDownsample=True,
+            # downsample=60,
+            # downsampleMethod='subsample',
 
             **pdi_kwargs,
         )
+
+        # XXX: see explanation for differenct caching modes:
+        # https://stackoverflow.com/a/39410081
+        # seems to only be useful if we don't re-generate the entire
+        # QPainterPath every time
+        # curve.curve.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
+
+        # don't ever use this - it's a colossal nightmare of artefacts
+        # and is disastrous for performance.
+        # curve.setCacheMode(QtGui.QGraphicsItem.ItemCoordinateCache)
+
         self.addItem(curve)
 
         # register curve graphics and backing array for name
@@ -647,6 +667,7 @@ class ChartPlotWidget(pg.PlotWidget):
         """Update the named internal graphics from ``array``.
 
         """
+
         if name not in self._overlays:
             self._ohlc = array
         else:
@@ -654,11 +675,13 @@ class ChartPlotWidget(pg.PlotWidget):
 
         curve = self._graphics[name]
 
-        # TODO: we should instead implement a diff based
-        # "only update with new items" on the pg.PlotCurveItem
-        # one place to dig around this might be the `QBackingStore`
-        # https://doc.qt.io/qt-5/qbackingstore.html
-        curve.setData(y=array[name], x=array['index'], **kwargs)
+        if len(array):
+            # TODO: we should instead implement a diff based
+            # "only update with new items" on the pg.PlotCurveItem
+            # one place to dig around this might be the `QBackingStore`
+            # https://doc.qt.io/qt-5/qbackingstore.html
+            # curve.setData(y=array[name], x=array['index'], **kwargs)
+            curve.update_from_array(x=array['index'], y=array[name], **kwargs)
 
         return curve
 
@@ -689,13 +712,15 @@ class ChartPlotWidget(pg.PlotWidget):
             # figure out x-range in view such that user can scroll "off"
             # the data set up to the point where ``_min_points_to_show``
             # are left.
-            view_len = r - l
+            # view_len = r - l
 
             # TODO: logic to check if end of bars in view
-            extra = view_len - _min_points_to_show
-            begin = self._ohlc[0]['index'] - extra
-            # end = len(self._ohlc) - 1 + extra
-            end = self._ohlc[-1]['index'] - 1 + extra
+            # extra = view_len - _min_points_to_show
+
+            # begin = self._ohlc[0]['index'] - extra
+
+            # # end = len(self._ohlc) - 1 + extra
+            # end = self._ohlc[-1]['index'] - 1 + extra
 
             # XXX: test code for only rendering lines for the bars in view.
             # This turns out to be very very poor perf when scaling out to
@@ -862,11 +887,11 @@ async def _async_main(
                 " dropping volume signals")
         else:
             fsp_conf.update({
-            'vwap': {
-                'overlay': True,
-                'anchor': 'session',
-            },
-        })
+                'vwap': {
+                    'overlay': True,
+                    'anchor': 'session',
+                },
+            })
 
         async with trio.open_nursery() as n:
 
@@ -1292,11 +1317,11 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
         # current bar) and then either write the current bar manually
         # or place a cursor for visual cue of the current time step.
 
-        price_chart.update_ohlc_from_array(
-            price_chart.name,
-            ohlcv.array,
-            just_history=True,
-        )
+        # price_chart.update_ohlc_from_array(
+        #     price_chart.name,
+        #     ohlcv.array,
+        #     just_history=True,
+        # )
 
         # XXX: this puts a flat bar on the current time step
         # TODO: if we eventually have an x-axis time-step "cursor"
