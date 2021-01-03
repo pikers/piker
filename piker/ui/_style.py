@@ -169,6 +169,6 @@ def hcolor(name: str) -> str:
 
         # orders and alerts
         'alert_yellow': '#e2d083',
-        'alert_yellow_light': '#ffef66',
+        'alert_yellow_light': '#ffe366',
 
     }[name]
