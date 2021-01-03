@@ -59,7 +59,7 @@ from ..log import get_logger
 from ._exec import run_qtractor, current_screen
 from ._interaction import ChartView
 from .. import fsp
-from .._ems import spawn_router_stream_alerts, _to_router
+from .._ems import spawn_router_stream_alerts
 
 
 log = get_logger(__name__)
@@ -868,12 +868,13 @@ async def _async_main(
                     add_label=False,
                 )
 
+        # size view to data once at outset
         chart._set_yrange()
 
         # TODO: a data view api that makes this less shit
         chart._shm = ohlcv
 
-        # eventually we'll support some kind of n-compose syntax
+        # TODO: eventually we'll support some kind of n-compose syntax
         fsp_conf = {
             'rsi': {
                 'period': 14,
@@ -885,7 +886,8 @@ async def _async_main(
         }
 
         # make sure that the instrument supports volume history
-        # (sometimes this is not the case for some commodities and derivatives)
+        # (sometimes this is not the case for some commodities and
+        # derivatives)
         volm = ohlcv.array['volume']
         if (
             np.all(np.isin(volm, -1)) or
@@ -903,7 +905,6 @@ async def _async_main(
             })
 
         async with trio.open_nursery() as n:
-
 
             # load initial fsp chain (otherwise known as "indicators")
             n.start_soon(
@@ -925,6 +926,7 @@ async def _async_main(
                 wap_in_history,
             )
 
+            # spawn EMS actor-service
             router_send_chan = await n.start(
                 spawn_router_stream_alerts,
                 sym,
