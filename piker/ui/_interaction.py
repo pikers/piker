@@ -407,7 +407,12 @@ class ChartView(ViewBox):
 
                 # XXX: should make this an explicit attr
                 # it's assigned inside ``.add_plot()``
-                self.linked_charts._to_router.send_nowait({'alert': y})
+                self.linked_charts._to_router.send_nowait({
+                    'symbol': chart.name,
+                    'brokers': ['kraken'],
+                    'type': 'alert',
+                    'price': y,
+                })
 
                 line = level_line(
                     chart,
