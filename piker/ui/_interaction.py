@@ -26,6 +26,7 @@ import numpy as np
 
 from ..log import get_logger
 from ._style import _min_points_to_show, hcolor, _font
+from ._graphics._lines import level_line
 
 
 log = get_logger(__name__)
@@ -215,7 +216,8 @@ class ChartView(ViewBox):
         self.addItem(self.select_box, ignoreBounds=True)
         self._chart: 'ChartPlotWidget' = None  # noqa
 
-        self._keys_on = {}
+        self._key_buffer = []
+        self._active_staged_line: 'LevelLine' = None  # noqa
 
     @property
     def chart(self) -> 'ChartPlotWidget':  # type: ignore # noqa
@@ -389,15 +391,37 @@ class ChartView(ViewBox):
         button = ev.button()
         pos = ev.pos()
 
-        if  button == QtCore.Qt.RightButton and self.menuEnabled():
+        if button == QtCore.Qt.RightButton and self.menuEnabled():
             ev.accept()
             self.raiseContextMenu(ev)
 
         elif button == QtCore.Qt.LeftButton:
-            print(f'clicked {pos}')
+
+            ev.accept()
+
+            line = self._active_staged_line
+            if line:
+                chart = self.chart._cursor.active_plot
+
+                y = chart._cursor._datum_xy[1]
+
+                # XXX: should make this an explicit attr
+                # it's assigned inside ``.add_plot()``
+                self.linked_charts._to_router.send_nowait({'alert': y})
+
+                line = level_line(
+                    chart,
+                    level=y,
+                    color='alert_yellow',
+                )
+                log.info(f'clicked {pos}')
 
     def keyReleaseEvent(self, ev):
-        # print(f'release: {ev.text().encode()}')
+        """
+        Key release to normally to trigger release of input mode
+
+        """
+        # TODO: is there a global setting for this?
         if ev.isAutoRepeat():
             ev.ignore()
             return
@@ -405,7 +429,7 @@ class ChartView(ViewBox):
         ev.accept()
         text = ev.text()
         key = ev.key()
-        mods = ev.modifiers()
+        # mods = ev.modifiers()
 
         if key == QtCore.Qt.Key_Shift:
             if self.state['mouseMode'] == ViewBox.RectMode:
@@ -413,16 +437,29 @@ class ChartView(ViewBox):
 
         if text == 'a':
 
-            # how y line
             chart = self.chart._cursor.active_plot
-            hl = chart._cursor.graphics[chart]['hl']
+            chart.setCursor(QtCore.Qt.ArrowCursor)
+            cursor = chart._cursor
+
+            # delete "staged" cursor tracking line from view
+            line = self._active_staged_line
+            cursor._trackers.remove(line)
+
+            if line:
+                line.delete()
+
+            self._active_staged_line = None
+
+            # show the crosshair y line
+            hl = cursor.graphics[chart]['hl']
             hl.show()
 
     def keyPressEvent(self, ev):
         """
         This routine should capture key presses in the current view box.
+
         """
-        # print(ev.text().encode())
+        # TODO: is there a global setting for this?
         if ev.isAutoRepeat():
             ev.ignore()
             return
@@ -448,26 +485,47 @@ class ChartView(ViewBox):
         # alt
         if mods == QtCore.Qt.AltModifier:
             pass
-            # print("ALT")
 
         # esc
         if key == QtCore.Qt.Key_Escape:
             self.select_box.clear()
 
+        self._key_buffer.append(text)
+
+        # order modes
         if text == 'r':
             self.chart.default_view()
 
-        if text == 'a':
-            self._keys_on['a'] = True
+        elif text == 'a':
 
-            # hide y line
             chart = self.chart._cursor.active_plot
-            print(f'on chart: {chart.name}')
-            chart._cursor.graphics[chart]['hl'].hide()
+            chart.setCursor(QtCore.Qt.PointingHandCursor)
+            cursor = chart._cursor
 
-            # XXX: should make this an explicit attr
-            # it's assigned inside ``.add_plot()``
-            self.linked_charts._to_router.send_nowait('yo')
+            # add a "staged" cursor-tracking alert line
+
+            line = level_line(
+                chart,
+                level=chart._cursor._datum_xy[1],
+                color='alert_yellow',
+            )
+            self._active_staged_line = line
+
+            # hide crosshair y-line
+            cursor.graphics[chart]['hl'].hide()
+
+            # add line to cursor trackers
+            cursor._trackers.add(line)
+
+        elif text == 'd':
+            # Delete any hoverable under the cursor
+            cursor = self.chart._cursor
+            chart = cursor.active_plot
+
+            for item in cursor._hovered:
+                # hovered items must also offer
+                # a ``.delete()`` method
+                item.delete()
 
         # Leaving this for light reference purposes
 
