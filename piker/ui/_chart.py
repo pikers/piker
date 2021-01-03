@@ -32,7 +32,7 @@ from ._axes import (
     PriceAxis,
 )
 from ._graphics._cursor import (
-    CrossHair,
+    Cursor,
     ContentsLabel,
 )
 from ._graphics._lines import (
@@ -186,7 +186,7 @@ class LinkedSplitCharts(QtGui.QWidget):
     def __init__(self):
         super().__init__()
         self.signals_visible: bool = False
-        self._ch: CrossHair = None  # crosshair graphics
+        self._cursor: Cursor = None  # crosshair graphics
         self.chart: ChartPlotWidget = None  # main (ohlc) chart
         self.subplots: Dict[Tuple[str, ...], ChartPlotWidget] = {}
 
@@ -234,7 +234,7 @@ class LinkedSplitCharts(QtGui.QWidget):
         self.digits = symbol.digits()
 
         # add crosshairs
-        self._ch = CrossHair(
+        self._cursor = Cursor(
             linkedsplitcharts=self,
             digits=self.digits
         )
@@ -246,7 +246,7 @@ class LinkedSplitCharts(QtGui.QWidget):
             _is_main=True,
         )
         # add crosshair graphic
-        self.chart.addItem(self._ch)
+        self.chart.addItem(self._cursor)
 
         # axis placement
         if _xaxis_at == 'bottom':
@@ -298,7 +298,7 @@ class LinkedSplitCharts(QtGui.QWidget):
                 'right': PriceAxis(linked_charts=self)
             },
             viewBox=cv,
-            cursor=self._ch,
+            cursor=self._cursor,
             **cpw_kwargs,
         )
 
@@ -317,7 +317,7 @@ class LinkedSplitCharts(QtGui.QWidget):
         cpw.setXLink(self.chart)
 
         # add to cross-hair's known plots
-        self._ch.add_plot(cpw)
+        self._cursor.add_plot(cpw)
 
         # draw curve graphics
         if style == 'bar':
@@ -368,7 +368,7 @@ class ChartPlotWidget(pg.PlotWidget):
         name: str,
         array: np.ndarray,
         static_yrange: Optional[Tuple[float, float]] = None,
-        cursor: Optional[CrossHair] = None,
+        cursor: Optional[Cursor] = None,
         **kwargs,
     ):
         """Configure chart display settings.
