@@ -125,10 +125,9 @@ class ChartSpace(QtGui.QWidget):
     # def init_strategy_ui(self):
     #     self.strategy_box = StrategyBoxWidget(self)
     #     self.toolbar_layout.addWidget(self.strategy_box)
-
     def load_symbol(
         self,
-        symbol: str,
+        symbol: Symbol,
         data: np.ndarray,
         ohlc: bool = True,
     ) -> None:
@@ -148,16 +147,15 @@ class ChartSpace(QtGui.QWidget):
         # self.symbol_label.setText(f'/`{symbol}`')
 
         linkedcharts = self._chart_cache.setdefault(
-            symbol,
-            LinkedSplitCharts()
+            symbol.key,
+            LinkedSplitCharts(symbol)
         )
-        s = Symbol(key=symbol)
 
         # remove any existing plots
         if not self.v_layout.isEmpty():
             self.v_layout.removeWidget(linkedcharts)
 
-        main_chart = linkedcharts.plot_ohlc_main(s, data)
+        main_chart = linkedcharts.plot_ohlc_main(symbol, data)
 
         self.v_layout.addWidget(linkedcharts)
 
@@ -183,7 +181,10 @@ class LinkedSplitCharts(QtGui.QWidget):
 
     zoomIsDisabled = QtCore.pyqtSignal(bool)
 
-    def __init__(self):
+    def __init__(
+        self,
+        symbol: Symbol,
+    ) -> None:
         super().__init__()
         self.signals_visible: bool = False
         self._cursor: Cursor = None  # crosshair graphics
@@ -208,6 +209,13 @@ class LinkedSplitCharts(QtGui.QWidget):
         self.layout = QtGui.QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.addWidget(self.splitter)
+
+        # state tracker?
+        self._symbol: Symbol = symbol
+
+    @property
+    def symbol(self) -> Symbol:
+        return self._symbol
 
     def set_split_sizes(
         self,
@@ -381,7 +389,6 @@ class ChartPlotWidget(pg.PlotWidget):
             useOpenGL=True,
             **kwargs
         )
-
         self.name = name
 
         # self.setViewportMargins(0, 0, 0, 0)
@@ -842,6 +849,8 @@ async def _async_main(
     # historical data fetch
     brokermod = brokers.get_brokermod(brokername)
 
+    symbol = Symbol(sym, [brokername])
+
     async with data.open_feed(
         brokername,
         [sym],
@@ -852,8 +861,7 @@ async def _async_main(
         bars = ohlcv.array
 
         # load in symbol's ohlc data
-        # await tractor.breakpoint()
-        linked_charts, chart = chart_app.load_symbol(sym, bars)
+        linked_charts, chart = chart_app.load_symbol(symbol, bars)
 
         # plot historical vwap if available
         wap_in_history = False
@@ -929,7 +937,7 @@ async def _async_main(
             # spawn EMS actor-service
             router_send_chan = await n.start(
                 spawn_router_stream_alerts,
-                sym,
+                symbol,
             )
 
             # wait for router to come up before setting
