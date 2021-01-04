@@ -218,13 +218,13 @@ class AxisLabel(pg.GraphicsObject):
         p.drawRect(self.rect)
 
     def boundingRect(self):  # noqa
-        # if self.label_str:
-        #     self._size_br_from_str(self.label_str)
-        #     return self.rect
+        if self.label_str:
+            self._size_br_from_str(self.label_str)
+            return self.rect
 
-        # return QtCore.QRectF()
+        return QtCore.QRectF()
 
-        return self.rect or QtCore.QRectF()
+        # return self.rect or QtCore.QRectF()
 
     def _size_br_from_str(self, value: str) -> None:
         """Do our best to render the bounding rect to a set margin
