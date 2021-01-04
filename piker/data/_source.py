@@ -17,6 +17,7 @@
 """
 numpy data source coversion helpers.
 """
+from typing import List
 import decimal
 from dataclasses import dataclass
 
@@ -81,6 +82,7 @@ class Symbol:
 
     """
     key: str = ''
+    brokers: List[str] = None
     min_tick: float = 0.01
     contract: str = ''
 
