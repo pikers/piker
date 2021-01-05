@@ -17,7 +17,9 @@
 """
 UX interaction customs.
 """
+from dataclasses import dataclass
 from typing import Optional
+import uuid
 
 import pyqtgraph as pg
 from pyqtgraph import ViewBox, Point, QtCore, QtGui
@@ -27,6 +29,7 @@ import numpy as np
 from ..log import get_logger
 from ._style import _min_points_to_show, hcolor, _font
 from ._graphics._lines import level_line
+from .._ems import _lines
 
 
 log = get_logger(__name__)
@@ -195,13 +198,30 @@ class SelectRect(QtGui.QGraphicsRectItem):
         self.hide()
 
 
+@dataclass
+class LinesEditor:
+    view: 'ChartView'
+    chart: 'ChartPlotWidget'
+    active_line: 'LevelLine'
+
+    def stage_line(self) -> 'LevelLine':
+        ...
+
+    def commit_line(self) -> 'LevelLine':
+        ...
+
+    def remove_line(self, line) -> None:
+        ...
+
+
 class ChartView(ViewBox):
     """Price chart view box with interaction behaviors you'd expect from
     any interactive platform:
 
         - zoom on mouse scroll that auto fits y-axis
-        - no vertical scrolling
-        - zoom to a "fixed point" on the y-axis
+        - vertical scrolling on y-axis
+        - zoom on x to most recent in view datum
+        - zoom on right-click-n-drag to cursor position
     """
     def __init__(
         self,
@@ -306,9 +326,7 @@ class ChartView(ViewBox):
         # Scale or translate based on mouse button
         if button & (QtCore.Qt.LeftButton | QtCore.Qt.MidButton):
 
-            # print(f'left click drag pos {pos}')
-
-            # zoom only y-axis when click-n-drag on it
+            # zoom y-axis ONLY when click-n-drag on it
             if axis == 1:
                 # set a static y range special value on chart widget to
                 # prevent sizing to data in view.
@@ -407,11 +425,16 @@ class ChartView(ViewBox):
 
                 # XXX: should make this an explicit attr
                 # it's assigned inside ``.add_plot()``
-                self.linked_charts._to_router.send_nowait({
-                    'symbol': chart.name,
-                    'brokers': ['kraken'],
+                lc = self.linked_charts
+                oid = str(uuid.uuid4())
+                lc._to_router.send_nowait({
+                    'chart': lc,
                     'type': 'alert',
                     'price': y,
+                    'oid': oid,
+                    # 'symbol': lc.chart.name,
+                    # 'brokers': lc.symbol.brokers,
+                    # 'price': y,
                 })
 
                 line = level_line(
@@ -419,6 +442,7 @@ class ChartView(ViewBox):
                     level=y,
                     color='alert_yellow',
                 )
+                _lines[oid] = line
                 log.info(f'clicked {pos}')
 
     def keyReleaseEvent(self, ev):

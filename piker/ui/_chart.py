@@ -937,6 +937,7 @@ async def _async_main(
             # spawn EMS actor-service
             router_send_chan = await n.start(
                 spawn_router_stream_alerts,
+                chart,
                 symbol,
             )
 

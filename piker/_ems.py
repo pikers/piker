@@ -23,8 +23,9 @@ from typing import (
     AsyncIterator, List, Dict, Callable, Tuple,
     Any,
 )
-import uuid
+# import uuid
 
+import pyqtgraph as pg
 import trio
 from trio_typing import TaskStatus
 import tractor
@@ -32,12 +33,14 @@ import tractor
 from . import data
 from .log import get_logger
 from .data._source import Symbol
+from .ui._style import hcolor
 
 
 log = get_logger(__name__)
 
 _to_router: trio.abc.SendChannel = None
 _from_ui: trio.abc.ReceiveChannel = None
+_lines = {}
 
 
 _local_book = {}
@@ -53,6 +56,21 @@ class OrderBook:
     """
     orders: Dict[str, dict] = field(default_factory=dict)
     _cmds_from_ui: trio.abc.ReceiveChannel = _from_ui
+
+    async def alert(self, price: float) -> str:
+        ...
+
+    async def buy(self, price: float) -> str:
+        ...
+
+    async def sell(self, price: float) -> str:
+        ...
+
+    async def modify(self, oid: str, price) -> bool:
+        ...
+
+    async def cancel(self, oid: str) -> bool:
+        ...
 
 
 _orders: OrderBook = None
@@ -86,8 +104,11 @@ async def send_order_cmds():
         symbol = lc.symbol
         tp = order['type']
         price = order['price']
+        oid = order['oid']
 
-        oid = str(uuid.uuid4())
+        print(f'oid: {oid}')
+        # TODO
+        # oid = str(uuid.uuid4())
 
         cmd = {
             'price': price,
@@ -134,7 +155,7 @@ def mk_check(trigger_price, known_last) -> Callable[[float, float], bool]:
             else:
                 return False
 
-        return check_gt
+        return check_gt, 'gt'
 
     elif trigger_price <= known_last:
 
@@ -144,7 +165,7 @@ def mk_check(trigger_price, known_last) -> Callable[[float, float], bool]:
             else:
                 return False
 
-        return check_lt
+        return check_lt, 'lt'
 
 
 @dataclass
@@ -233,17 +254,23 @@ async def exec_orders(
                         if not execs:
                             continue
 
-                        for pred, action in tuple(execs):
+                        for oid, pred, action in tuple(execs):
                             # push trigger msg back to parent as an "alert"
                             # (mocking for eg. a "fill")
                             if pred(price):
-                                res = action(price)
+                                name = action(price)
                                 await ctx.send_yield({
                                     'type': 'alert',
                                     'price': price,
+                                    # current shm array index
+                                    'index': feed.shm._last.value - 1,
+                                    'name': name,
+                                    'oid': oid,
                                 })
-                                execs.remove((pred, action))
-                                print(f"GOT ALERT FOR {exec_price} @ \n{tick}")
+                                execs.remove((oid, pred, action))
+                                print(
+                                    f"GOT ALERT FOR {exec_price} @ \n{tick}\n")
+                                print(f'execs are {execs}')
 
         # feed teardown
 
@@ -264,10 +291,17 @@ async def stream_and_route(ctx, ui_name):
 
             async for cmd in await portal.run(send_order_cmds):
 
+                action = cmd.pop('action')
+
+                if action == 'cancel':
+                    pass
+
                 tp = cmd.pop('type')
+
                 trigger_price = cmd['price']
                 sym = cmd['symbol']
                 brokers = cmd['brokers']
+                oid = cmd['oid']
 
                 if tp == 'alert':
                     log.info(f'Alert {cmd} received in {actor.uid}')
@@ -295,18 +329,20 @@ async def stream_and_route(ctx, ui_name):
                 # should be based on the current first price received from the
                 # feed, instead of being like every other shitty tina platform
                 # that makes the user choose the predicate operator.
-                pred = mk_check(trigger_price, last)
+                pred, name = mk_check(trigger_price, last)
 
                 # create list of executions on first entry
                 book.orders.setdefault((broker, sym), []).append(
-                    (pred, lambda p: p)
+                    (oid, pred, lambda p: name)
                 )
 
             # continue and wait on next order cmd
 
 
 async def spawn_router_stream_alerts(
+    chart,
     symbol: Symbol,
+    # lines: 'LinesEditor',
     task_status: TaskStatus[str] = trio.TASK_STATUS_IGNORED,
 ) -> None:
     """Spawn an EMS daemon and begin sending orders and receiving
@@ -314,7 +350,7 @@ async def spawn_router_stream_alerts(
 
     """
     # setup local ui event streaming channels
-    global _from_ui, _to_router
+    global _from_ui, _to_router, _lines
     _to_router, _from_ui = trio.open_memory_channel(100)
 
     actor = tractor.current_actor()
@@ -337,6 +373,27 @@ async def spawn_router_stream_alerts(
 
         async for alert in stream:
 
+            yb = pg.mkBrush(hcolor('alert_yellow'))
+
+            angle = 90 if alert['name'] == 'lt' else -90
+
+            arrow = pg.ArrowItem(
+                angle=angle,
+                baseAngle=0,
+                headLen=5,
+                headWidth=2,
+                tailLen=None,
+                brush=yb,
+            )
+            arrow.setPos(alert['index'], alert['price'])
+            chart.plotItem.addItem(arrow)
+
+            # delete the line from view
+            oid = alert['oid']
+            print(f'_lines: {_lines}')
+            print(f'deleting line with oid: {oid}')
+            _lines.pop(oid).delete()
+
             # TODO: this in another task?
             # not sure if this will ever be a bottleneck,
             # we probably could do graphics stuff first tho?
@@ -345,10 +402,10 @@ async def spawn_router_stream_alerts(
             result = await trio.run_process(
                 [
                     'notify-send',
-                    'piker',
-                    f'Alert: {alert}',
                     '-u', 'normal',
                     '-t', '10000',
+                    'piker',
+                    f'alert: {alert}',
                 ],
             )
             log.runtime(result)
