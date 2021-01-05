@@ -266,6 +266,7 @@ def normalize(
     quote['broker_ts'] = quote['time']
     quote['brokerd_ts'] = time.time()
     quote['symbol'] = quote['pair'] = quote['pair'].replace('/', '')
+    quote['last'] = quote['close']
 
     # seriously eh? what's with this non-symmetry everywhere
     # in subscription systems...
