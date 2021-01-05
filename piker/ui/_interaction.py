@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -17,7 +17,7 @@
 """
 UX interaction customs.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 import uuid
 
@@ -28,7 +28,7 @@ import numpy as np
 
 from ..log import get_logger
 from ._style import _min_points_to_show, hcolor, _font
-from ._graphics._lines import level_line
+from ._graphics._lines import level_line, LevelLine
 from .._ems import _lines
 
 
@@ -199,19 +199,133 @@ class SelectRect(QtGui.QGraphicsRectItem):
 
 
 @dataclass
-class LinesEditor:
+class LineEditor:
     view: 'ChartView'
-    chart: 'ChartPlotWidget'
-    active_line: 'LevelLine'
+    _lines: field(default_factory=dict)
+    chart: 'ChartPlotWidget' = None  # type: ignore # noqa
+    _active_staged_line: LevelLine = None
+    _stage_line: LevelLine = None
 
-    def stage_line(self) -> 'LevelLine':
-        ...
+    def stage_line(self, color: str = 'alert_yellow') -> LevelLine:
+        """Stage a line at the current chart's cursor position
+        and return it.
 
-    def commit_line(self) -> 'LevelLine':
-        ...
+        """
+        chart = self.chart._cursor.active_plot
+        chart.setCursor(QtCore.Qt.PointingHandCursor)
+        cursor = chart._cursor
+        y = chart._cursor._datum_xy[1]
 
-    def remove_line(self, line) -> None:
-        ...
+        line = self._stage_line
+        if not line:
+            # add a "staged" cursor-tracking line to view
+            # and cash it in a a var
+            line = level_line(
+                chart,
+                level=y,
+                color=color,
+
+                # don't highlight the "staging" line
+                hl_on_hover=False,
+            )
+            self._stage_line = line
+
+        else:
+            # use the existing staged line instead
+            # of allocating more mem / objects repeatedly
+            line.setValue(y)
+            line.show()
+            line.label.show()
+
+        self._active_staged_line = line
+
+        # hide crosshair y-line
+        cursor.graphics[chart]['hl'].hide()
+
+        # add line to cursor trackers
+        cursor._trackers.add(line)
+
+        return line
+
+    def unstage_line(self) -> LevelLine:
+        """Inverse of ``.stage_line()``.
+
+        """
+        chart = self.chart._cursor.active_plot
+        chart.setCursor(QtCore.Qt.ArrowCursor)
+        cursor = chart._cursor
+
+        # delete "staged" cursor tracking line from view
+        line = self._active_staged_line
+
+        cursor._trackers.remove(line)
+
+        if self._stage_line:
+            self._stage_line.hide()
+            self._stage_line.label.hide()
+
+        # if line:
+        #     line.delete()
+
+        self._active_staged_line = None
+
+        # show the crosshair y line
+        hl = cursor.graphics[chart]['hl']
+        hl.show()
+
+    def commit_line(self) -> LevelLine:
+        line = self._active_staged_line
+        if line:
+            chart = self.chart._cursor.active_plot
+
+            y = chart._cursor._datum_xy[1]
+
+            # XXX: should make this an explicit attr
+            # it's assigned inside ``.add_plot()``
+            lc = self.view.linked_charts
+
+            oid = str(uuid.uuid4())
+            lc._to_router.send_nowait({
+                'chart': lc,
+                'type': 'alert',
+                'price': y,
+                'oid': oid,
+                # 'symbol': lc.chart.name,
+                # 'brokers': lc.symbol.brokers,
+                # 'price': y,
+            })
+
+            line = level_line(
+                chart,
+                level=y,
+                color='alert_yellow',
+            )
+            # register for later
+            _lines[oid] = line
+
+            log.debug(f'clicked y: {y}')
+
+    def remove_line(
+        self,
+        line: LevelLine = None,
+        uuid: str = None,
+    ) -> None:
+        """Remove a line by refernce or uuid.
+
+        If no lines or ids are provided remove all lines under the
+        cursor position.
+
+        """
+        # Delete any hoverable under the cursor
+        cursor = self.chart._cursor
+
+        if line:
+            line.delete()
+        else:
+            for item in cursor._hovered:
+                # hovered items must also offer
+                # a ``.delete()`` method
+                item.delete()
 
 
 class ChartView(ViewBox):
@@ -236,8 +350,9 @@ class ChartView(ViewBox):
         self.addItem(self.select_box, ignoreBounds=True)
         self._chart: 'ChartPlotWidget' = None  # noqa
 
+        self._lines_editor = LineEditor(view=self, _lines=_lines)
         self._key_buffer = []
-        self._active_staged_line: 'LevelLine' = None  # noqa
+        self._active_staged_line: LevelLine = None  # noqa
 
     @property
     def chart(self) -> 'ChartPlotWidget':  # type: ignore # noqa
@@ -247,6 +362,7 @@ class ChartView(ViewBox):
     def chart(self, chart: 'ChartPlotWidget') -> None:  # type: ignore # noqa
         self._chart = chart
         self.select_box.chart = chart
+        self._lines_editor.chart = chart
 
     def wheelEvent(self, ev, axis=None):
         """Override "center-point" location for scrolling.
@@ -407,7 +523,7 @@ class ChartView(ViewBox):
 
         """
         button = ev.button()
-        pos = ev.pos()
+        # pos = ev.pos()
 
         if button == QtCore.Qt.RightButton and self.menuEnabled():
             ev.accept()
@@ -417,33 +533,8 @@ class ChartView(ViewBox):
 
             ev.accept()
 
-            line = self._active_staged_line
-            if line:
-                chart = self.chart._cursor.active_plot
-
-                y = chart._cursor._datum_xy[1]
-
-                # XXX: should make this an explicit attr
-                # it's assigned inside ``.add_plot()``
-                lc = self.linked_charts
-                oid = str(uuid.uuid4())
-                lc._to_router.send_nowait({
-                    'chart': lc,
-                    'type': 'alert',
-                    'price': y,
-                    'oid': oid,
-                    # 'symbol': lc.chart.name,
-                    # 'brokers': lc.symbol.brokers,
-                    # 'price': y,
-                })
-
-                line = level_line(
-                    chart,
-                    level=y,
-                    color='alert_yellow',
-                )
-                _lines[oid] = line
-                log.info(f'clicked {pos}')
+            # commit the "staged" line under the cursor
+            self._lines_editor.commit_line()
 
     def keyReleaseEvent(self, ev):
         """
@@ -465,23 +556,8 @@ class ChartView(ViewBox):
                 self.setMouseMode(ViewBox.PanMode)
 
         if text == 'a':
-
-            chart = self.chart._cursor.active_plot
-            chart.setCursor(QtCore.Qt.ArrowCursor)
-            cursor = chart._cursor
-
-            # delete "staged" cursor tracking line from view
-            line = self._active_staged_line
-            cursor._trackers.remove(line)
-
-            if line:
-                line.delete()
-
-            self._active_staged_line = None
-
-            # show the crosshair y line
-            hl = cursor.graphics[chart]['hl']
-            hl.show()
+            # draw "staged" line under cursor position
+            self._lines_editor.unstage_line()
 
     def keyPressEvent(self, ev):
         """
@@ -526,35 +602,12 @@ class ChartView(ViewBox):
             self.chart.default_view()
 
         elif text == 'a':
-
-            chart = self.chart._cursor.active_plot
-            chart.setCursor(QtCore.Qt.PointingHandCursor)
-            cursor = chart._cursor
-
-            # add a "staged" cursor-tracking alert line
-
-            line = level_line(
-                chart,
-                level=chart._cursor._datum_xy[1],
-                color='alert_yellow',
-            )
-            self._active_staged_line = line
-
-            # hide crosshair y-line
-            cursor.graphics[chart]['hl'].hide()
-
-            # add line to cursor trackers
-            cursor._trackers.add(line)
+            # add a line at the current cursor
+            self._lines_editor.stage_line()
 
         elif text == 'd':
-            # Delete any hoverable under the cursor
-            cursor = self.chart._cursor
-            chart = cursor.active_plot
-
-            for item in cursor._hovered:
-                # hovered items must also offer
-                # a ``.delete()`` method
-                item.delete()
+            # delete any lines under the cursor
+            self._lines_editor.remove_line()
 
         # Leaving this for light reference purposes
 

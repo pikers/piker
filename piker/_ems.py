@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -47,8 +47,8 @@ _local_book = {}
 
 
 @dataclass
-class OrderBook:
-    """Send (client?) side order book tracking.
+class OrderBoi:
+    """'Buy' (client ?) side order book ctl and tracking.
 
     Mostly for keeping local state to match the EMS and use
     events to trigger graphics updates.
@@ -73,14 +73,14 @@ class OrderBook:
         ...
 
 
-_orders: OrderBook = None
+_orders: OrderBoi = None
 
 
-def get_orders() -> OrderBook:
+def get_orders() -> OrderBoi:
     global _orders
 
     if _orders is None:
-        _orders = OrderBook
+        _orders = OrderBoi
 
     return _orders
 
@@ -392,6 +392,8 @@ async def spawn_router_stream_alerts(
             oid = alert['oid']
             print(f'_lines: {_lines}')
             print(f'deleting line with oid: {oid}')
+
+            chart._vb._lines_editor
             _lines.pop(oid).delete()
 
             # TODO: this in another task?

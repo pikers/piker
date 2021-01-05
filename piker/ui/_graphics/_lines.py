@@ -18,6 +18,7 @@
 Lines for orders, alerts, L2.
 
 """
+from dataclasses import dataclass
 from typing import Tuple
 
 import pyqtgraph as pg
@@ -87,10 +88,11 @@ class LevelLabel(YSticky):
         self.level = level
 
     def set_label_str(self, level: float):
-        # this is read inside ``.paint()``
         # self.label_str = '{size} x {level:.{digits}f}'.format(
-        self.label_str = '{level:.{digits}f}'.format(
             # size=self._size,
+
+        # this is read inside ``.paint()``
+        self.label_str = '{level:.{digits}f}'.format(
             digits=self.digits,
             level=level
         ).replace(',', ' ')
@@ -200,14 +202,16 @@ class LevelLine(pg.InfiniteLine):
         chart: 'ChartPlotWidget',  # type: ignore # noqa
         label: LevelLabel,
         highlight_color: str = 'default_light',
+        hl_on_hover: bool = True,
         **kwargs,
     ) -> None:
-        self.label = label
+
         super().__init__(**kwargs)
+        self.label = label
 
         self.sigPositionChanged.connect(self.set_level)
-
         self._chart = chart
+        self._hoh = hl_on_hover
 
         # use slightly thicker highlight
         pen = pg.mkPen(hcolor(highlight_color))
@@ -231,7 +235,8 @@ class LevelLine(pg.InfiniteLine):
         """Mouse hover callback.
 
         """
-        if self.mouseHovering == hover:
+        # XXX: currently we'll just return if _hoh is False
+        if self.mouseHovering == hover or not self._hoh:
             return
 
         self.mouseHovering = hover
@@ -315,6 +320,10 @@ def level_line(
 
     show_label: bool = True,
 
+    # whether or not the line placed in view should highlight
+    # when moused over (aka "hovered")
+    hl_on_hover: bool = True,
+
     **linelabelkwargs
 ) -> LevelLine:
     """Convenience routine to add a styled horizontal line to a plot.
@@ -346,6 +355,7 @@ def level_line(
         highlight_color=color + '_light',
         movable=True,
         angle=0,
+        hl_on_hover=hl_on_hover,
     )
     line.setValue(level)
     line.setPen(pg.mkPen(hcolor(color)))
