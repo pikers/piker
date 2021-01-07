@@ -157,7 +157,7 @@ class L1Labels:
         self,
         chart: 'ChartPlotWidget',  # noqa
         digits: int = 2,
-        size_digits: int = 0,
+        size_digits: int = 3,
         font_size_inches: float = _down_2_font_inches_we_like,
     ) -> None:
 

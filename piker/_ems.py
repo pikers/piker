@@ -20,12 +20,11 @@ In suit parlance: "Execution management systems"
 """
 from dataclasses import dataclass, field
 from typing import (
-    AsyncIterator, List, Dict, Callable, Tuple,
+    AsyncIterator, Dict, Callable, Tuple,
     Any,
 )
 # import uuid
 
-import pyqtgraph as pg
 import trio
 from trio_typing import TaskStatus
 import tractor
@@ -33,32 +32,59 @@ import tractor
 from . import data
 from .log import get_logger
 from .data._source import Symbol
-from .ui._style import hcolor
 
 
 log = get_logger(__name__)
 
-_to_router: trio.abc.SendChannel = None
-_from_ui: trio.abc.ReceiveChannel = None
-_lines = {}
-
-
-_local_book = {}
+# setup local ui event streaming channels for request/resp
+# streamging with EMS daemon
+_to_ems, _from_order_book = trio.open_memory_channel(100)
 
 
 @dataclass
-class OrderBoi:
-    """'Buy' (client ?) side order book ctl and tracking.
+class OrderBook:
+    """Buy-side (client-side ?) order book ctl and tracking.
 
-    Mostly for keeping local state to match the EMS and use
-    events to trigger graphics updates.
+    A style similar to "model-view" is used here where this api is
+    provided as a supervised control for an EMS actor which does all the
+    hard/fast work of talking to brokers/exchanges to conduct
+    executions.
+
+    Currently, mostly for keeping local state to match the EMS and use
+    received events to trigger graphics updates.
 
     """
-    orders: Dict[str, dict] = field(default_factory=dict)
-    _cmds_from_ui: trio.abc.ReceiveChannel = _from_ui
+    _sent_orders: Dict[str, dict] = field(default_factory=dict)
+    _confirmed_orders: Dict[str, dict] = field(default_factory=dict)
 
-    async def alert(self, price: float) -> str:
-        ...
+    _to_ems: trio.abc.SendChannel = _to_ems
+    _from_order_book: trio.abc.ReceiveChannel = _from_order_book
+
+    def on_fill(self, uuid: str) -> None:
+        cmd = self._sent_orders[uuid]
+        log.info(f"Order executed: {cmd}")
+        self._confirmed_orders[uuid] = cmd
+
+    def alert(
+        self,
+        uuid: str,
+        symbol: 'Symbol',
+        price: float
+    ) -> str:
+        # XXX: should make this an explicit attr
+        # it's assigned inside ``.add_plot()``
+        # lc = self.view.linked_charts
+
+        # uid = str(uuid.uuid4())
+        cmd = {
+            'msg': 'alert',
+            'price': price,
+            'symbol': symbol.key,
+            'brokers': symbol.brokers,
+            'oid': uuid,
+        }
+        self._sent_orders[uuid] = cmd
+        self._to_ems.send_nowait(cmd)
 
     async def buy(self, price: float) -> str:
         ...
@@ -66,21 +92,34 @@ class OrderBoi:
     async def sell(self, price: float) -> str:
         ...
 
+    async def cancel(self, oid: str) -> bool:
+        """Cancel an order (or alert) from the EMS.
+
+        """
+        ...
+
+    # higher level operations
+
+    async def transmit_to_broker(self, price: float) -> str:
+        ...
+
     async def modify(self, oid: str, price) -> bool:
         ...
 
-    async def cancel(self, oid: str) -> bool:
-        ...
+
+_orders: OrderBook = None
 
 
-_orders: OrderBoi = None
+def get_orders(emsd_uid: Tuple[str, str] = None) -> OrderBook:
 
+    if emsd_uid is not None:
+        # TODO: read in target emsd's active book on startup
+        pass
 
-def get_orders() -> OrderBoi:
     global _orders
 
     if _orders is None:
-        _orders = OrderBoi
+        _orders = OrderBook()
 
     return _orders
 
@@ -91,48 +130,44 @@ async def send_order_cmds():
     to downstream consumers.
 
     This is run in the UI actor (usually the one running Qt).
-    The UI simply delivers order messages to the above ``_to_router``
+    The UI simply delivers order messages to the above ``_to_ems``
     send channel (from sync code using ``.send_nowait()``), these values
     are pulled from the channel here and send to any consumer(s).
 
+    This effectively makes order messages look like they're being
+    "pushed" from the parent to the EMS actor.
+
     """
-    global _from_ui
 
-    async for order in _from_ui:
+    global _from_order_book
+    # book = get_orders()
 
-        lc = order['chart']
-        symbol = lc.symbol
-        tp = order['type']
-        price = order['price']
-        oid = order['oid']
+    async for cmd in _from_order_book:
 
-        print(f'oid: {oid}')
+        # send msg over IPC / wire
+        log.info(f'sending order cmd: {cmd}')
+        yield cmd
+
+        # lc = order['chart']
+        # symbol = order['symol']
+        # msg = order['msg']
+        # price = order['price']
+        # oid = order['oid']
+
         # TODO
         # oid = str(uuid.uuid4())
 
-        cmd = {
-            'price': price,
-            'action': 'alert',
-            'symbol': symbol.key,
-            'brokers': symbol.brokers,
-            'type': tp,
-            'price': price,
-            'oid': oid,
-        }
+        # cmd = {
+        #     'price': price,
+        #     'action': 'alert',
+        #     'symbol': symbol.key,
+        #     'brokers': symbol.brokers,
+        #     'msg': msg,
+        #     'price': price,
+        #     'oid': oid,
+        # }
 
-        _local_book[oid] = cmd
-
-        yield cmd
-
-
-# streaming tasks which check for conditions per symbol per broker
-_scan_tasks: Dict[str, List] = {}
-
-# levels which have an executable action (eg. alert, order, signal)
-_levels: Dict[str, list] = {}
-
-# up to date last values from target streams
-_last_values: Dict[str, float] = {}
+        # book._sent_orders[oid] = cmd
 
 
 # TODO: numba all of this
@@ -146,26 +181,22 @@ def mk_check(trigger_price, known_last) -> Callable[[float, float], bool]:
     avoiding the case where the a predicate returns true immediately.
 
     """
+    # str compares:
+    # https://stackoverflow.com/questions/46708708/compare-strings-in-numba-compiled-function
 
     if trigger_price >= known_last:
 
         def check_gt(price: float) -> bool:
-            if price >= trigger_price:
-                return True
-            else:
-                return False
+            return price >= trigger_price
 
-        return check_gt, 'gt'
+        return check_gt, 'down'
 
     elif trigger_price <= known_last:
 
         def check_lt(price: float) -> bool:
-            if price <= trigger_price:
-                return True
-            else:
-                return False
+            return price <= trigger_price
 
-        return check_lt, 'lt'
+        return check_lt, 'up'
 
 
 @dataclass
@@ -173,9 +204,10 @@ class _ExecBook:
     """EMS-side execution book.
 
     Contains conditions for executions (aka "orders").
-    A singleton instance is created per EMS actor.
+    A singleton instance is created per EMS actor (for now).
 
     """
+    # levels which have an executable action (eg. alert, order, signal)
     orders: Dict[
         Tuple[str, str],
         Tuple[
@@ -188,7 +220,7 @@ class _ExecBook:
         ]
     ] = field(default_factory=dict)
 
-    # most recent values
+    # tracks most recent values per symbol each from data feed
     lasts: Dict[
         Tuple[str, str],
         float
@@ -236,6 +268,11 @@ async def exec_orders(
         with stream.shield():
             async for quotes in stream:
 
+                ##############################
+                # begin price actions sequence
+                # XXX: optimize this for speed
+                ##############################
+
                 for sym, quote in quotes.items():
 
                     execs = book.orders.get((broker, sym))
@@ -249,27 +286,36 @@ async def exec_orders(
                         # update to keep new cmds informed
                         book.lasts[(broker, symbol)] = price
 
-                        # begin price actions sequence
-
                         if not execs:
                             continue
 
-                        for oid, pred, action in tuple(execs):
+                        for oid, pred, name, cmd in tuple(execs):
+
                             # push trigger msg back to parent as an "alert"
                             # (mocking for eg. a "fill")
                             if pred(price):
-                                name = action(price)
-                                await ctx.send_yield({
-                                    'type': 'alert',
-                                    'price': price,
-                                    # current shm array index
-                                    'index': feed.shm._last.value - 1,
-                                    'name': name,
-                                    'oid': oid,
-                                })
-                                execs.remove((oid, pred, action))
+
+                                cmd['name'] = name
+                                cmd['index'] = feed.shm._last.value - 1
+                                # current shm array index
+                                cmd['trigger_price'] = price
+
+                                await ctx.send_yield(cmd)
+                                # await ctx.send_yield({
+                                #     'type': 'alert',
+                                #     'price': price,
+                                #     # current shm array index
+                                #     'index': feed.shm._last.value - 1,
+                                #     'name': name,
+                                #     'oid': oid,
+                                # })
+
                                 print(
                                     f"GOT ALERT FOR {exec_price} @ \n{tick}\n")
+
+                                print(f'removing pred for {oid}')
+                                execs.remove((oid, pred, name, cmd))
+
                                 print(f'execs are {execs}')
 
         # feed teardown
@@ -278,6 +324,10 @@ async def exec_orders(
 @tractor.stream
 async def stream_and_route(ctx, ui_name):
     """Order router (sub)actor entrypoint.
+
+    This is the daemon (child) side routine which starts an EMS
+    runtime per broker/feed and and begins streaming back alerts
+    from executions back to subscribers.
 
     """
     actor = tractor.current_actor()
@@ -291,19 +341,18 @@ async def stream_and_route(ctx, ui_name):
 
             async for cmd in await portal.run(send_order_cmds):
 
-                action = cmd.pop('action')
+                msg = cmd['msg']
 
-                if action == 'cancel':
+                if msg == 'cancel':
+                    # TODO:
                     pass
-
-                tp = cmd.pop('type')
 
                 trigger_price = cmd['price']
                 sym = cmd['symbol']
                 brokers = cmd['brokers']
                 oid = cmd['oid']
 
-                if tp == 'alert':
+                if msg == 'alert':
                     log.info(f'Alert {cmd} received in {actor.uid}')
 
                 broker = brokers[0]
@@ -333,14 +382,17 @@ async def stream_and_route(ctx, ui_name):
 
                 # create list of executions on first entry
                 book.orders.setdefault((broker, sym), []).append(
-                    (oid, pred, lambda p: name)
+                    (oid, pred, name, cmd)
                 )
+
+                # ack-respond that order is live
+                await ctx.send_yield({'msg': 'ack', 'oid': oid})
 
             # continue and wait on next order cmd
 
 
 async def spawn_router_stream_alerts(
-    chart,
+    order_mode,
     symbol: Symbol,
     # lines: 'LinesEditor',
     task_status: TaskStatus[str] = trio.TASK_STATUS_IGNORED,
@@ -349,13 +401,11 @@ async def spawn_router_stream_alerts(
     alerts.
 
     """
-    # setup local ui event streaming channels
-    global _from_ui, _to_router, _lines
-    _to_router, _from_ui = trio.open_memory_channel(100)
 
     actor = tractor.current_actor()
-    subactor_name = 'piker.ems'
+    subactor_name = 'emsd'
 
+    # TODO: add ``maybe_spawn_emsd()`` for this
     async with tractor.open_nursery() as n:
 
         portal = await n.start_actor(
@@ -369,32 +419,40 @@ async def spawn_router_stream_alerts(
 
         async with tractor.wait_for_actor(subactor_name):
             # let parent task continue
-            task_status.started(_to_router)
+            task_status.started(_to_ems)
 
+        # begin the trigger-alert stream
+        # this is where we receive **back** messages
+        # about executions **from** the EMS actor
         async for alert in stream:
-
-            yb = pg.mkBrush(hcolor('alert_yellow'))
-
-            angle = 90 if alert['name'] == 'lt' else -90
-
-            arrow = pg.ArrowItem(
-                angle=angle,
-                baseAngle=0,
-                headLen=5,
-                headWidth=2,
-                tailLen=None,
-                brush=yb,
-            )
-            arrow.setPos(alert['index'], alert['price'])
-            chart.plotItem.addItem(arrow)
 
             # delete the line from view
             oid = alert['oid']
-            print(f'_lines: {_lines}')
+            msg_type = alert['msg']
+
+            if msg_type == 'ack':
+                print(f"order accepted: {alert}")
+
+                # show line label once order is live
+                order_mode.lines.commit_line(oid)
+
+                continue
+
+            order_mode.arrows.add(
+                oid,
+                alert['index'],
+                alert['price'],
+                pointing='up' if alert['name'] == 'up' else 'down'
+            )
+
+            # print(f'_lines: {_lines}')
             print(f'deleting line with oid: {oid}')
 
-            chart._vb._lines_editor
-            _lines.pop(oid).delete()
+            # delete level from view
+            order_mode.lines.remove_line(uuid=oid)
+
+            # chart._vb._lines_editor
+            # _lines.pop(oid).delete()
 
             # TODO: this in another task?
             # not sure if this will ever be a bottleneck,
@@ -411,3 +469,6 @@ async def spawn_router_stream_alerts(
                 ],
             )
             log.runtime(result)
+
+            # do we need this?
+            # await _from_ems.put(alert)

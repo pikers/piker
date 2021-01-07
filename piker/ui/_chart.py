@@ -57,7 +57,7 @@ from .. import data
 from ..data import maybe_open_shm_array
 from ..log import get_logger
 from ._exec import run_qtractor, current_screen
-from ._interaction import ChartView
+from ._interaction import ChartView, open_order_mode
 from .. import fsp
 from .._ems import spawn_router_stream_alerts
 
@@ -301,6 +301,7 @@ class LinkedSplitCharts(QtGui.QWidget):
 
             array=array,
             parent=self.splitter,
+            linked_charts=self,
             axisItems={
                 'bottom': xaxis,
                 'right': PriceAxis(linked_charts=self)
@@ -310,9 +311,9 @@ class LinkedSplitCharts(QtGui.QWidget):
             **cpw_kwargs,
         )
 
-        # give viewbox a reference to primary chart
-        # allowing for kb controls and interactions
-        # (see our custom view in `._interactions.py`)
+        # give viewbox as reference to chart
+        # allowing for kb controls and interactions on **this** widget
+        # (see our custom view mode in `._interactions.py`)
         cv.chart = cpw
 
         cpw.plotItem.vb.linked_charts = self
@@ -375,6 +376,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # the data view we generate graphics from
         name: str,
         array: np.ndarray,
+        linked_charts: LinkedSplitCharts,
         static_yrange: Optional[Tuple[float, float]] = None,
         cursor: Optional[Cursor] = None,
         **kwargs,
@@ -390,6 +392,7 @@ class ChartPlotWidget(pg.PlotWidget):
             **kwargs
         )
         self.name = name
+        self._lc = linked_charts
 
         # self.setViewportMargins(0, 0, 0, 0)
         self._ohlc = array  # readonly view of ohlc data
@@ -934,17 +937,6 @@ async def _async_main(
                 wap_in_history,
             )
 
-            # spawn EMS actor-service
-            router_send_chan = await n.start(
-                spawn_router_stream_alerts,
-                chart,
-                symbol,
-            )
-
-            # wait for router to come up before setting
-            # enabling send channel on chart
-            linked_charts._to_router = router_send_chan
-
             # wait for a first quote before we start any update tasks
             quote = await feed.receive()
 
@@ -958,8 +950,26 @@ async def _async_main(
                 linked_charts
             )
 
-            # probably where we'll eventually start the user input loop
-            await trio.sleep_forever()
+            async with open_order_mode(
+                chart,
+            ) as order_mode:
+
+                # TODO: this should probably be implicitly spawned
+                # inside the above mngr?
+
+                # spawn EMS actor-service
+                to_ems_chan = await n.start(
+                    spawn_router_stream_alerts,
+                    order_mode,
+                    symbol,
+                )
+
+                # wait for router to come up before setting
+                # enabling send channel on chart
+                linked_charts._to_ems = to_ems_chan
+
+                # probably where we'll eventually start the user input loop
+                await trio.sleep_forever()
 
 
 async def chart_from_quotes(
@@ -1019,7 +1029,7 @@ async def chart_from_quotes(
         chart,
         # determine precision/decimal lengths
         digits=max(float_digits(last), 2),
-        size_digits=min(float_digits(volume), 3)
+        size_digits=min(float_digits(last), 3)
     )
 
     # TODO:

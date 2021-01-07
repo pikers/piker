@@ -17,8 +17,9 @@
 """
 UX interaction customs.
 """
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Dict, Callable
 import uuid
 
 import pyqtgraph as pg
@@ -29,7 +30,7 @@ import numpy as np
 from ..log import get_logger
 from ._style import _min_points_to_show, hcolor, _font
 from ._graphics._lines import level_line, LevelLine
-from .._ems import _lines
+from .._ems import get_orders, OrderBook
 
 
 log = get_logger(__name__)
@@ -198,10 +199,17 @@ class SelectRect(QtGui.QGraphicsRectItem):
         self.hide()
 
 
+# global store of order-lines graphics
+# keyed by uuid4 strs - used to sync draw
+# order lines **after** the order is 100%
+# active in emsd
+_order_lines: Dict[str, LevelLine] = {}
+
+
 @dataclass
 class LineEditor:
     view: 'ChartView'
-    _lines: field(default_factory=dict)
+    _order_lines: field(default_factory=_order_lines)
     chart: 'ChartPlotWidget' = None  # type: ignore # noqa
     _active_staged_line: LevelLine = None
     _stage_line: LevelLine = None
@@ -223,6 +231,7 @@ class LineEditor:
             line = level_line(
                 chart,
                 level=y,
+                digits=chart._lc.symbol.digits(),
                 color=color,
 
                 # don't highlight the "staging" line
@@ -264,46 +273,48 @@ class LineEditor:
             self._stage_line.hide()
             self._stage_line.label.hide()
 
-        # if line:
-        #     line.delete()
-
         self._active_staged_line = None
 
         # show the crosshair y line
         hl = cursor.graphics[chart]['hl']
         hl.show()
 
-    def commit_line(self) -> LevelLine:
+    def create_line(self, uuid: str) -> LevelLine:
+
         line = self._active_staged_line
-        if line:
-            chart = self.chart._cursor.active_plot
+        if not line:
+            raise RuntimeError("No line commit is currently staged!?")
 
-            y = chart._cursor._datum_xy[1]
+        chart = self.chart._cursor.active_plot
+        y = chart._cursor._datum_xy[1]
 
-            # XXX: should make this an explicit attr
-            # it's assigned inside ``.add_plot()``
-            lc = self.view.linked_charts
+        line = level_line(
+            chart,
+            level=y,
+            color='alert_yellow',
+            digits=chart._lc.symbol.digits(),
+            show_label=False,
+        )
 
-            oid = str(uuid.uuid4())
-            lc._to_router.send_nowait({
-                'chart': lc,
-                'type': 'alert',
-                'price': y,
-                'oid': oid,
-                # 'symbol': lc.chart.name,
-                # 'brokers': lc.symbol.brokers,
-                # 'price': y,
-            })
+        # register for later lookup/deletion
+        self._order_lines[uuid] = line
+        return line, y
 
-            line = level_line(
-                chart,
-                level=y,
-                color='alert_yellow',
-            )
-            # register for later
-            _lines[oid] = line
+    def commit_line(self, uuid: str) -> LevelLine:
+        """Commit a "staged line" to view.
 
-            log.debug(f'clicked y: {y}')
+        Submits the line graphic under the cursor as a (new) permanent
+        graphic in view.
+
+        """
+        line = self._order_lines[uuid]
+        line.label.show()
+
+        # TODO: other flashy things to indicate the order is active
+
+        log.debug(f'Level active for level: {line.value()}')
+
+        return line
 
     def remove_line(
         self,
@@ -316,16 +327,112 @@ class LineEditor:
         cursor position.
 
         """
-        # Delete any hoverable under the cursor
-        cursor = self.chart._cursor
-
         if line:
+            # If line is passed delete it
             line.delete()
+
+        elif uuid:
+            # try to look up line from our registry
+            self._order_lines.pop(uuid).delete()
+
         else:
+            # Delete any hoverable under the cursor
+            cursor = self.chart._cursor
+
             for item in cursor._hovered:
                 # hovered items must also offer
                 # a ``.delete()`` method
                 item.delete()
+
+
+@dataclass
+class ArrowEditor:
+
+    chart: 'ChartPlotWidget'  # noqa
+    _arrows: field(default_factory=dict)
+
+    def add(
+        self,
+        uid: str,
+        x: float,
+        y: float,
+        color='default',
+        pointing: str = 'up',
+    ) -> pg.ArrowItem:
+        """Add an arrow graphic to view at given (x, y).
+
+        """
+        yb = pg.mkBrush(hcolor('alert_yellow'))
+
+        angle = 90 if pointing == 'up' else -90
+
+        arrow = pg.ArrowItem(
+            angle=angle,
+            baseAngle=0,
+            headLen=5,
+            headWidth=2,
+            tailLen=None,
+            brush=yb,
+        )
+        arrow.setPos(x, y)
+
+        self._arrows[uid] = arrow
+
+        # render to view
+        self.chart.plotItem.addItem(arrow)
+
+        return arrow
+
+    def remove(self, arrow) -> bool:
+        self.chart.plotItem.removeItem(arrow)
+
+
+@dataclass
+class OrderMode:
+    """Major mode for placing orders on a chart view.
+
+    """
+    chart: 'ChartPlotWidget'
+    book: OrderBook
+    lines: LineEditor
+    arrows: ArrowEditor
+
+    key_map: Dict[str, Callable] = field(default_factory=dict)
+
+    def uuid(self) -> str:
+        return str(uuid.uuid4())
+
+
+@asynccontextmanager
+async def open_order_mode(
+    chart,
+):
+    # global _order_lines
+
+    view = chart._vb
+    book = get_orders()
+    lines = LineEditor(view=view, _order_lines=_order_lines, chart=chart)
+    arrows = ArrowEditor(chart, {})
+
+    log.info("Opening order mode")
+
+    mode = OrderMode(chart, book, lines, arrows)
+    view.mode = mode
+
+    # # setup local ui event streaming channels for request/resp
+    # # streamging with EMS daemon
+    # global _to_ems, _from_order_book
+    # _to_ems, _from_order_book = trio.open_memory_channel(100)
+
+    try:
+        yield mode
+
+    finally:
+        # XXX special teardown handling like for ex.
+        # - cancelling orders if needed?
+        # - closing positions if desired?
+        # - switching special condition orders to safer/more reliable variants
+        log.info("Closing order mode")
 
 
 class ChartView(ViewBox):
@@ -336,6 +443,7 @@ class ChartView(ViewBox):
         - vertical scrolling on y-axis
         - zoom on x to most recent in view datum
         - zoom on right-click-n-drag to cursor position
+
     """
     def __init__(
         self,
@@ -350,9 +458,11 @@ class ChartView(ViewBox):
         self.addItem(self.select_box, ignoreBounds=True)
         self._chart: 'ChartPlotWidget' = None  # noqa
 
-        self._lines_editor = LineEditor(view=self, _lines=_lines)
+        # self._lines_editor = LineEditor(view=self, _lines=_lines)
+        self.mode = None
+
+        # kb ctrls processing
         self._key_buffer = []
-        self._active_staged_line: LevelLine = None  # noqa
 
     @property
     def chart(self) -> 'ChartPlotWidget':  # type: ignore # noqa
@@ -362,7 +472,7 @@ class ChartView(ViewBox):
     def chart(self, chart: 'ChartPlotWidget') -> None:  # type: ignore # noqa
         self._chart = chart
         self.select_box.chart = chart
-        self._lines_editor.chart = chart
+        # self._lines_editor.chart = chart
 
     def wheelEvent(self, ev, axis=None):
         """Override "center-point" location for scrolling.
@@ -533,8 +643,27 @@ class ChartView(ViewBox):
 
             ev.accept()
 
-            # commit the "staged" line under the cursor
-            self._lines_editor.commit_line()
+            # self._lines_editor.commit_line()
+
+            # send order to EMS
+
+            # register the "staged" line under the cursor
+            # to be displayed when above order ack arrives
+            # (means the line graphic doesn't show on screen until the
+            # order is live in the emsd).
+            mode = self.mode
+            uuid = mode.uuid()
+
+            # make line graphic
+            line, y = mode.lines.create_line(uuid)
+
+            # send order cmd to ems
+            mode.book.alert(
+                uuid=uuid,
+                symbol=mode.chart._lc._symbol,
+                price=y
+            )
+
 
     def keyReleaseEvent(self, ev):
         """
@@ -557,7 +686,8 @@ class ChartView(ViewBox):
 
         if text == 'a':
             # draw "staged" line under cursor position
-            self._lines_editor.unstage_line()
+            # self._lines_editor.unstage_line()
+            self.mode.lines.unstage_line()
 
     def keyPressEvent(self, ev):
         """
@@ -580,12 +710,11 @@ class ChartView(ViewBox):
 
         # ctl
         if mods == QtCore.Qt.ControlModifier:
-            # print("CTRL")
             # TODO: ctrl-c as cancel?
             # https://forum.qt.io/topic/532/how-to-catch-ctrl-c-on-a-widget/9
             # if ev.text() == 'c':
             #     self.rbScaleBox.hide()
-            pass
+            print(f"CTRL + key:{key} + text:{text}")
 
         # alt
         if mods == QtCore.Qt.AltModifier:
@@ -603,13 +732,16 @@ class ChartView(ViewBox):
 
         elif text == 'a':
             # add a line at the current cursor
-            self._lines_editor.stage_line()
+            # self._lines_editor.stage_line()
+            self.mode.lines.stage_line()
 
         elif text == 'd':
             # delete any lines under the cursor
-            self._lines_editor.remove_line()
+            # self._lines_editor.remove_line()
+            self.mode.lines.remove_line()
 
-        # Leaving this for light reference purposes
+        # XXX: Leaving this for light reference purposes, there
+        # seems to be some work to at least gawk at for history mgmt.
 
         # Key presses are used only when mouse mode is RectMode
         # The following events are implemented:
