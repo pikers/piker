@@ -308,6 +308,7 @@ class LineEditor:
 
         """
         line = self._order_lines[uuid]
+        line.oid = uuid
         line.label.show()
 
         # TODO: other flashy things to indicate the order is active
@@ -315,6 +316,13 @@ class LineEditor:
         log.debug(f'Level active for level: {line.value()}')
 
         return line
+
+    def lines_under_cursor(self):
+        """Get the line(s) under the cursor position.
+
+        """
+        # Delete any hoverable under the cursor
+        return self.chart._cursor._hovered
 
     def remove_line(
         self,
@@ -328,21 +336,17 @@ class LineEditor:
 
         """
         if line:
-            # If line is passed delete it
-            line.delete()
+            uuid = line.oid
 
-        elif uuid:
-            # try to look up line from our registry
-            self._order_lines.pop(uuid).delete()
+        # try to look up line from our registry
+        line = self._order_lines.pop(uuid)
 
-        else:
-            # Delete any hoverable under the cursor
-            cursor = self.chart._cursor
+        # if hovered remove from cursor set
+        hovered = self.chart._cursor._hovered
+        if line in hovered:
+            hovered.remove(line)
 
-            for item in cursor._hovered:
-                # hovered items must also offer
-                # a ``.delete()`` method
-                item.delete()
+        line.delete()
 
 
 @dataclass
@@ -392,10 +396,15 @@ class OrderMode:
     """Major mode for placing orders on a chart view.
 
     """
-    chart: 'ChartPlotWidget'
+    chart: 'ChartPlotWidget'  #  type: ignore # noqa
     book: OrderBook
     lines: LineEditor
     arrows: ArrowEditor
+    _arrow_colors = {
+        'alert': 'alert_yellow',
+        'buy': 'buy_green',
+        'sell': 'sell_red',
+    }
 
     key_map: Dict[str, Callable] = field(default_factory=dict)
 
@@ -664,7 +673,6 @@ class ChartView(ViewBox):
                 price=y
             )
 
-
     def keyReleaseEvent(self, ev):
         """
         Key release to normally to trigger release of input mode
@@ -686,7 +694,6 @@ class ChartView(ViewBox):
 
         if text == 'a':
             # draw "staged" line under cursor position
-            # self._lines_editor.unstage_line()
             self.mode.lines.unstage_line()
 
     def keyPressEvent(self, ev):
@@ -732,13 +739,14 @@ class ChartView(ViewBox):
 
         elif text == 'a':
             # add a line at the current cursor
-            # self._lines_editor.stage_line()
             self.mode.lines.stage_line()
 
         elif text == 'd':
+
             # delete any lines under the cursor
-            # self._lines_editor.remove_line()
-            self.mode.lines.remove_line()
+            mode = self.mode
+            for line in mode.lines.lines_under_cursor():
+                mode.book.cancel(uuid=line.oid)
 
         # XXX: Leaving this for light reference purposes, there
         # seems to be some work to at least gawk at for history mgmt.
