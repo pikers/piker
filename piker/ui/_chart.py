@@ -964,10 +964,6 @@ async def _async_main(
                     symbol,
                 )
 
-                # wait for router to come up before setting
-                # enabling send channel on chart
-                linked_charts._to_ems = to_ems_chan
-
                 # probably where we'll eventually start the user input loop
                 await trio.sleep_forever()
 
