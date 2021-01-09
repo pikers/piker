@@ -65,14 +65,6 @@ async def increment_ohlc_buffer(
     # adjust delay to compensate for trio processing time
     ad = min(_shms.keys()) - 0.001
 
-    # async def sleep():
-    #     """Sleep until next time frames worth has passed from last bar.
-    #     """
-    #     # last_ts = shm.array[-1]['time']
-    #     # delay = max((last_ts + ad) - time.time(), 0)
-    #     # await trio.sleep(delay)
-    #     await trio.sleep(ad)
-
     total_s = 0  # total seconds counted
     lowest = min(_shms.keys())
     ad = lowest - 0.001
@@ -82,9 +74,6 @@ async def increment_ohlc_buffer(
         # adding a "lower" lowest increment period?
         await trio.sleep(ad)
         total_s += lowest
-
-        # # sleep for duration of current bar
-        # await sleep()
 
         # increment all subscribed shm arrays
         # TODO: this in ``numba``
