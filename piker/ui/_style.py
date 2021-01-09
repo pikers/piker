@@ -25,6 +25,7 @@ from PyQt5 import QtCore, QtGui
 from qdarkstyle.palette import DarkPalette
 
 from ..log import get_logger
+from ._exec import current_screen
 
 log = get_logger(__name__)
 
@@ -50,6 +51,10 @@ class DpiAwareFont:
     def _set_qfont_px_size(self, px_size: int) -> None:
         self._qfont.setPixelSize(px_size)
         self._qfm = QtGui.QFontMetrics(self._qfont)
+
+    @property
+    def screen(self) -> QtGui.QScreen:
+        return current_screen()
 
     @property
     def font(self):
@@ -82,7 +87,7 @@ class DpiAwareFont:
 
     def boundingRect(self, value: str) -> QtCore.QRectF:
 
-        screen = self._screen
+        screen = self.screen
         if screen is None:
             raise RuntimeError("You must call .configure_to_dpi() first!")
 
