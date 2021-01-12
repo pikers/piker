@@ -171,9 +171,31 @@ def hcolor(name: str) -> str:
         'tina_green': '#00cc00',
         'tina_red': '#fa0000',
 
+        'cucumber': '#006400',
+        'cool_green': '#33b864',
+        'dull_green': '#74a662',
+        'hedge_green': '#518360',
 
         # orders and alerts
         'alert_yellow': '#e2d083',
         'alert_yellow_light': '#ffe366',
+
+        # buys
+        # 'hedge': '#768a75',
+        # 'hedge': '#41694d',
+        # 'hedge': '#558964',
+        # 'hedge_light': '#5e9870',
+
+        # 'buy_green': '#41694d',
+        'buy_green': '#558964',
+        'buy_green_light': '#558964',
+
+        # sells
+        # techincally "raspberry"
+        # 'sell_red': '#980036',
+        'sell_red': '#990036',
+        'sell_red_light': '#f85462',
+        # 'sell_red': '#f85462',
+        # 'sell_red_light': '#ff4d5c',
 
     }[name]
