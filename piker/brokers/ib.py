@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -423,23 +423,26 @@ class Client:
         ticker = await ticker.updateEvent
         return contract, ticker
 
-    async def submit_limit(
+    def submit_limit(
         self,
         contract: Contract,
         price: float,
         action: str = 'BUY',
         quantity: int = 100,
-    ) -> None:
-        self.ib.placeOrder(
+    ) -> int:
+        """Place an order and return integer request id provided by client.
+
+        """
+        trade = self.ib.placeOrder(
             Order(
                 self,
                 orderType='LMT',
                 action=action,
                 totalQuantity=quantity,
                 lmtPrice=price,
-                # **kwargs
             )
         )
+        return trade.order.orderId
 
     async def recv_trade_updates(
         self,
@@ -611,7 +614,7 @@ class _MethodProxy:
         )
 
 
-def get_method_proxy(portal, target) -> _MethodProxy:
+def get_client_proxy(portal, target=Client) -> _MethodProxy:
 
     proxy = _MethodProxy(portal)
 
@@ -635,11 +638,10 @@ async def get_client(
     """
     async with maybe_spawn_brokerd(
         brokername='ib',
-        expose_mods=[__name__],
         infect_asyncio=True,
         **kwargs
     ) as portal:
-        yield get_method_proxy(portal, Client)
+        yield get_client_proxy(portal)
 
 
 # https://interactivebrokers.github.io/tws-api/tick_types.html
@@ -892,32 +894,32 @@ async def stream_quotes(
 
                 calc_price = False  # should be real volume for contract
 
-            with trio.move_on_after(10) as cs:
-                # wait for real volume on feed (trading might be closed)
-                async for ticker in stream:
+            # with trio.move_on_after(10) as cs:
+            # wait for real volume on feed (trading might be closed)
 
-                    # for a real volume contract we rait for the first
-                    # "real" trade to take place
-                    if not calc_price and not ticker.rtTime:
-                        # spin consuming tickers until we get a real market datum
-                        log.debug(f"New unsent ticker: {ticker}")
-                        continue
-                    else:
-                        log.debug("Received first real volume tick")
-                        # ugh, clear ticks since we've consumed them
-                        # (ahem, ib_insync is truly stateful trash)
-                        ticker.ticks = []
+            async for ticker in stream:
 
-                        # tell incrementer task it can start
-                        _buffer.shm_incrementing(key).set()
+                # for a real volume contract we rait for the first
+                # "real" trade to take place
+                if not calc_price and not ticker.rtTime:
+                    # spin consuming tickers until we get a real market datum
+                    log.debug(f"New unsent ticker: {ticker}")
+                    continue
+                else:
+                    log.debug("Received first real volume tick")
+                    # ugh, clear ticks since we've consumed them
+                    # (ahem, ib_insync is truly stateful trash)
+                    ticker.ticks = []
 
-                        # XXX: this works because we don't use
-                        # ``aclosing()`` above?
-                        break
+                    # tell incrementer task it can start
+                    _buffer.shm_incrementing(key).set()
 
-            if cs.cancelled_caught:
-                await tractor.breakpoint()
+                    # XXX: this works because we don't use
+                    # ``aclosing()`` above?
+                    break
 
+            # if cs.cancelled_caught:
+            #     await tractor.breakpoint()
 
             # real-time stream
             async for ticker in stream:
