@@ -244,6 +244,8 @@ class LineEditor:
             # of allocating more mem / objects repeatedly
             line.setValue(y)
             line.show()
+            line.color = color
+            line.label.color = color
             line.label.show()
 
         self._active_staged_line = line
@@ -279,7 +281,10 @@ class LineEditor:
         hl = cursor.graphics[chart]['hl']
         hl.show()
 
-    def create_line(self, uuid: str) -> LevelLine:
+    def create_line(
+        self,
+        uuid: str
+    ) -> LevelLine:
 
         line = self._active_staged_line
         if not line:
@@ -291,7 +296,7 @@ class LineEditor:
         line = level_line(
             chart,
             level=y,
-            color='alert_yellow',
+            color=line.color,
             digits=chart._lc.symbol.digits(),
             show_label=False,
         )
@@ -328,7 +333,7 @@ class LineEditor:
         self,
         line: LevelLine = None,
         uuid: str = None,
-    ) -> None:
+    ) -> LevelLine:
         """Remove a line by refernce or uuid.
 
         If no lines or ids are provided remove all lines under the
@@ -347,6 +352,7 @@ class LineEditor:
             hovered.remove(line)
 
         line.delete()
+        return line
 
 
 @dataclass
@@ -366,16 +372,18 @@ class ArrowEditor:
         """Add an arrow graphic to view at given (x, y).
 
         """
-        yb = pg.mkBrush(hcolor('alert_yellow'))
-
         angle = 90 if pointing == 'up' else -90
 
+        yb = pg.mkBrush(hcolor(color))
         arrow = pg.ArrowItem(
             angle=angle,
             baseAngle=0,
             headLen=5,
             headWidth=2,
             tailLen=None,
+
+            # coloring
+            pen=pg.mkPen(hcolor('papas_special')),
             brush=yb,
         )
         arrow.setPos(x, y)
@@ -400,16 +408,45 @@ class OrderMode:
     book: OrderBook
     lines: LineEditor
     arrows: ArrowEditor
-    _arrow_colors = {
+    _colors = {
         'alert': 'alert_yellow',
         'buy': 'buy_green',
         'sell': 'sell_red',
     }
+    _action: str = 'alert'
 
     key_map: Dict[str, Callable] = field(default_factory=dict)
 
     def uuid(self) -> str:
         return str(uuid.uuid4())
+
+    def set_exec(self, name: str) -> None:
+        """Set execution mode.
+
+        """
+        self._action = name
+        self.lines.stage_line(color=self._colors[name])
+
+    def submit_exec(self) -> None:
+        """Send execution order to EMS.
+
+        """
+        # register the "staged" line under the cursor
+        # to be displayed when above order ack arrives
+        # (means the line graphic doesn't show on screen until the
+        # order is live in the emsd).
+        uid = str(uuid.uuid4())
+
+        # make line graphic
+        line, y = self.lines.create_line(uid)
+
+        # send order cmd to ems
+        self.book.send(
+            uuid=uid,
+            symbol=self.chart._lc._symbol,
+            price=y,
+            action=self._action,
+        )
 
 
 @asynccontextmanager
@@ -649,29 +686,9 @@ class ChartView(ViewBox):
             self.raiseContextMenu(ev)
 
         elif button == QtCore.Qt.LeftButton:
-
+            # when in order mode, submit execution
             ev.accept()
-
-            # self._lines_editor.commit_line()
-
-            # send order to EMS
-
-            # register the "staged" line under the cursor
-            # to be displayed when above order ack arrives
-            # (means the line graphic doesn't show on screen until the
-            # order is live in the emsd).
-            mode = self.mode
-            uuid = mode.uuid()
-
-            # make line graphic
-            line, y = mode.lines.create_line(uuid)
-
-            # send order cmd to ems
-            mode.book.alert(
-                uuid=uuid,
-                symbol=mode.chart._lc._symbol,
-                price=y
-            )
+            self.mode.submit_exec()
 
     def keyReleaseEvent(self, ev):
         """
@@ -689,10 +706,10 @@ class ChartView(ViewBox):
         # mods = ev.modifiers()
 
         if key == QtCore.Qt.Key_Shift:
-            if self.state['mouseMode'] == ViewBox.RectMode:
-                self.setMouseMode(ViewBox.PanMode)
+            # if self.state['mouseMode'] == ViewBox.RectMode:
+            self.setMouseMode(ViewBox.PanMode)
 
-        if text == 'a':
+        if text in {'a', 'f', 's'}:
             # draw "staged" line under cursor position
             self.mode.lines.unstage_line()
 
@@ -733,14 +750,22 @@ class ChartView(ViewBox):
 
         self._key_buffer.append(text)
 
-        # order modes
+        # View modes
         if text == 'r':
             self.chart.default_view()
 
-        elif text == 'a':
-            # add a line at the current cursor
-            self.mode.lines.stage_line()
+        # Order modes
+        # stage orders at the current cursor level
+        elif text == 's':
+            self.mode.set_exec('sell')
 
+        elif text == 'f':
+            self.mode.set_exec('buy')
+
+        elif text == 'a':
+            self.mode.set_exec('alert')
+
+        # delete orders under cursor
         elif text == 'd':
 
             # delete any lines under the cursor
