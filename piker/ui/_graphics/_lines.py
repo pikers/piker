@@ -50,7 +50,8 @@ class LevelLabel(YSticky):
         super().__init__(chart, *args, **kwargs)
 
         # TODO: this is kinda cludgy
-        self._pen = self.pen = pg.mkPen(hcolor(color))
+        self._hcolor = None
+        self.color = color
 
         # orientation around axis options
         self._orient_v = orient_v
@@ -64,6 +65,15 @@ class LevelLabel(YSticky):
         self._h_shift = {
             'left': -1., 'right': 0
         }[orient_h]
+
+    @property
+    def color(self):
+        return self._hcolor
+
+    @color.setter
+    def color(self, color: str) -> None:
+        self._hcolor = color
+        self._pen = self.pen = pg.mkPen(hcolor(color))
 
     def update_label(
         self,
@@ -201,6 +211,7 @@ class LevelLine(pg.InfiniteLine):
         self,
         chart: 'ChartPlotWidget',  # type: ignore # noqa
         label: LevelLabel,
+        color: str = 'default',
         highlight_color: str = 'default_light',
         hl_on_hover: bool = True,
         **kwargs,
@@ -213,11 +224,23 @@ class LevelLine(pg.InfiniteLine):
         self._chart = chart
         self._hoh = hl_on_hover
 
+        self._hcolor = None
+        self.color = color
+
         # use slightly thicker highlight
         pen = pg.mkPen(hcolor(highlight_color))
         pen.setWidth(2)
         self.setHoverPen(pen)
         self._track_cursor: bool = False
+
+    @property
+    def color(self):
+        return self._hcolor
+
+    @color.setter
+    def color(self, color: str) -> None:
+        self._hcolor = color
+        self.setPen(pg.mkPen(hcolor(color)))
 
     def set_level(self, value: float) -> None:
         self.label.update_from_data(0, self.value())
@@ -351,6 +374,7 @@ def level_line(
     line = LevelLine(
         chart,
         label,
+        color=color,
         # lookup "highlight" equivalent
         highlight_color=color + '_light',
         movable=True,
@@ -358,7 +382,6 @@ def level_line(
         hl_on_hover=hl_on_hover,
     )
     line.setValue(level)
-    line.setPen(pg.mkPen(hcolor(color)))
 
     # activate/draw label
     line.setValue(level)
