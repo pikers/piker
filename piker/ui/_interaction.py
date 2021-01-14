@@ -17,8 +17,10 @@
 """
 UX interaction customs.
 """
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from pprint import pformat
 from typing import Optional, Dict, Callable
 import uuid
 
@@ -426,6 +428,57 @@ class OrderMode:
         """
         self._action = name
         self.lines.stage_line(color=self._colors[name])
+
+    def on_submit(self, uuid: str) -> dict:
+        self.lines.commit_line(uuid)
+        req_msg = self.book._sent_orders.get(uuid)
+        req_msg['ack_time_ns'] = time.time_ns()
+        # self.book._confirmed_orders[uuid] = req_msg
+        return req_msg
+
+    async def on_exec(
+        self,
+        uuid: str,
+        msg: Dict[str, str],
+    ) -> None:
+
+        line = self.lines.remove_line(uuid=uuid)
+        log.debug(f'deleting line with oid: {uuid}')
+
+        for fill in msg['fills']:
+
+            self.arrows.add(
+                uuid,
+                msg['index'],
+                msg['price'],
+                pointing='up' if msg['action'] == 'buy' else 'down',
+                color=line.color
+            )
+
+        # DESKTOP NOTIFICATIONS
+        #
+        # TODO: this in another task?
+        # not sure if this will ever be a bottleneck,
+        # we probably could do graphics stuff first tho?
+
+        # XXX: linux only for now
+        result = await trio.run_process(
+            [
+                'notify-send',
+                '-u', 'normal',
+                '-t', '10000',
+                'piker',
+                f'alert: {msg}',
+            ],
+        )
+        log.runtime(result)
+
+    def on_cancel(self, uuid: str) -> None:
+        msg = self.book._sent_orders.pop(uuid, None)
+        if msg is not None:
+            self.lines.remove_line(uuid=uuid)
+        else:
+            log.warning(f'Received cancel for unsubmitted order {pformat(msg)}')
 
     def submit_exec(self) -> None:
         """Send execution order to EMS.

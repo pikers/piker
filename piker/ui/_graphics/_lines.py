@@ -202,6 +202,9 @@ class L1Labels:
         self.ask_label._size_br_from_str(self.max_value)
 
 
+# TODO: probably worth investigating if we can
+# make .boundingRect() faster:
+# https://stackoverflow.com/questions/26156486/determine-bounding-rect-of-line-in-qt
 class LevelLine(pg.InfiniteLine):
 
     # TODO: fill in these slots for orders

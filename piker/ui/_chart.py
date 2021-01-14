@@ -59,7 +59,7 @@ from ..log import get_logger
 from ._exec import run_qtractor, current_screen
 from ._interaction import ChartView, open_order_mode
 from .. import fsp
-from .._ems import spawn_router_stream_alerts
+from .._ems import _ems_main
 
 
 log = get_logger(__name__)
@@ -959,8 +959,9 @@ async def _async_main(
 
                 # spawn EMS actor-service
                 to_ems_chan = await n.start(
-                    spawn_router_stream_alerts,
+                    _ems_main,
                     order_mode,
+                    brokername,
                     symbol,
                 )
 

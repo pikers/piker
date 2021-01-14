@@ -119,6 +119,8 @@ class NonShittyWrapper(Wrapper):
         """
         Get rid of datetime on executions.
         """
+        # this is the IB server's execution time supposedly
+        # https://interactivebrokers.github.io/tws-api/classIBApi_1_1Execution.html#a2e05cace0aa52d809654c7248e052ef2
         execu.time = execu.time.timestamp()
         return super().execDetails(reqId, contract, execu)
 

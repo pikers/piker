@@ -89,7 +89,6 @@ async def maybe_spawn_brokerd(
     brokername: str,
     sleep: float = 0.5,
     loglevel: Optional[str] = None,
-    expose_mods: List = [],
     **tractor_kwargs,
 ) -> tractor._portal.Portal:
     """If no ``brokerd.{brokername}`` daemon-actor can be found,
@@ -180,8 +179,14 @@ class Feed:
 
         if not self._trade_stream:
             self._trade_stream = await self._brokerd_portal.run(
+
                 self.mod.stream_trades,
-                topics=['all'],  # do we need this?
+
+                # do we need this? -> yes
+                # the broker side must declare this key
+                # in messages, though we could probably use
+                # more then one?
+                topics=['trade_events'],
             )
 
         return self._trade_stream
