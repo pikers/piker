@@ -58,6 +58,7 @@ setup(
 
         # numerics
         'arrow',  # better datetimes
+        'bidict',  # 2 way map
         'cython',
         'numpy',
         'numba',
