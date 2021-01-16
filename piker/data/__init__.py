@@ -186,7 +186,7 @@ class Feed:
                 # the broker side must declare this key
                 # in messages, though we could probably use
                 # more then one?
-                topics=['trade_events'],
+                topics=['local_trades'],
             )
 
         return self._trade_stream
