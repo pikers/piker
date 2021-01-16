@@ -166,4 +166,9 @@ def hcolor(name: str) -> str:
         'tina_green': '#00cc00',
         'tina_red': '#fa0000',
 
+
+        # orders and alerts
+        'alert_yellow': '#e2d083',
+        'alert_yellow_light': '#ffe366',
+
     }[name]

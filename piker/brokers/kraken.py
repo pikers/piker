@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -34,6 +34,7 @@ import tractor
 from ._util import resproc, SymbolNotFound, BrokerError
 from ..log import get_logger, get_console_log
 from ..data import (
+    _buffer,
     # iterticks,
     attach_shm_array,
     get_shm_token,
@@ -266,6 +267,7 @@ def normalize(
     quote['broker_ts'] = quote['time']
     quote['brokerd_ts'] = time.time()
     quote['symbol'] = quote['pair'] = quote['pair'].replace('/', '')
+    quote['last'] = quote['close']
 
     # seriously eh? what's with this non-symmetry everywhere
     # in subscription systems...
@@ -380,6 +382,9 @@ async def stream_quotes(
 
                     # packetize as {topic: quote}
                     yield {topic: quote}
+
+                    # tell incrementer task it can start
+                    _buffer.shm_incrementing(shm_token['shm_name']).set()
 
                     # keep start of last interval for volume tracking
                     last_interval_start = ohlc_last.etime

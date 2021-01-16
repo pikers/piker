@@ -123,6 +123,18 @@ class FastAppendCurve(pg.PlotCurveItem):
             self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
 
     def boundingRect(self):
+        if self.path is None:
+            return QtGui.QPainterPath().boundingRect()
+        else:
+            # dynamically override this method after initial
+            # path is created to avoid requiring the above None check
+            self.boundingRect = self._br
+            return self._br()
+
+    def _br(self):
+        """Post init ``.boundingRect()```.
+
+        """
         hb = self.path.controlPointRect()
         hb_size = hb.size()
         # print(f'hb_size: {hb_size}')

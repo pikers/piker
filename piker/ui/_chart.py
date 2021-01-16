@@ -16,6 +16,7 @@
 
 """
 High level Qt chart widgets.
+
 """
 from typing import Tuple, Dict, Any, Optional, Callable
 from functools import partial
@@ -31,7 +32,7 @@ from ._axes import (
     PriceAxis,
 )
 from ._graphics._cursor import (
-    CrossHair,
+    Cursor,
     ContentsLabel,
 )
 from ._graphics._lines import (
@@ -56,8 +57,9 @@ from .. import data
 from ..data import maybe_open_shm_array
 from ..log import get_logger
 from ._exec import run_qtractor, current_screen
-from ._interaction import ChartView
+from ._interaction import ChartView, open_order_mode
 from .. import fsp
+from .._ems import spawn_router_stream_alerts
 
 
 log = get_logger(__name__)
@@ -123,10 +125,9 @@ class ChartSpace(QtGui.QWidget):
     # def init_strategy_ui(self):
     #     self.strategy_box = StrategyBoxWidget(self)
     #     self.toolbar_layout.addWidget(self.strategy_box)
-
     def load_symbol(
         self,
-        symbol: str,
+        symbol: Symbol,
         data: np.ndarray,
         ohlc: bool = True,
     ) -> None:
@@ -146,16 +147,15 @@ class ChartSpace(QtGui.QWidget):
         # self.symbol_label.setText(f'/`{symbol}`')
 
         linkedcharts = self._chart_cache.setdefault(
-            symbol,
-            LinkedSplitCharts()
+            symbol.key,
+            LinkedSplitCharts(symbol)
         )
-        s = Symbol(key=symbol)
 
         # remove any existing plots
         if not self.v_layout.isEmpty():
             self.v_layout.removeWidget(linkedcharts)
 
-        main_chart = linkedcharts.plot_ohlc_main(s, data)
+        main_chart = linkedcharts.plot_ohlc_main(symbol, data)
 
         self.v_layout.addWidget(linkedcharts)
 
@@ -181,10 +181,13 @@ class LinkedSplitCharts(QtGui.QWidget):
 
     zoomIsDisabled = QtCore.pyqtSignal(bool)
 
-    def __init__(self):
+    def __init__(
+        self,
+        symbol: Symbol,
+    ) -> None:
         super().__init__()
         self.signals_visible: bool = False
-        self._ch: CrossHair = None  # crosshair graphics
+        self._cursor: Cursor = None  # crosshair graphics
         self.chart: ChartPlotWidget = None  # main (ohlc) chart
         self.subplots: Dict[Tuple[str, ...], ChartPlotWidget] = {}
 
@@ -206,6 +209,13 @@ class LinkedSplitCharts(QtGui.QWidget):
         self.layout = QtGui.QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.addWidget(self.splitter)
+
+        # state tracker?
+        self._symbol: Symbol = symbol
+
+    @property
+    def symbol(self) -> Symbol:
+        return self._symbol
 
     def set_split_sizes(
         self,
@@ -232,7 +242,7 @@ class LinkedSplitCharts(QtGui.QWidget):
         self.digits = symbol.digits()
 
         # add crosshairs
-        self._ch = CrossHair(
+        self._cursor = Cursor(
             linkedsplitcharts=self,
             digits=self.digits
         )
@@ -244,7 +254,7 @@ class LinkedSplitCharts(QtGui.QWidget):
             _is_main=True,
         )
         # add crosshair graphic
-        self.chart.addItem(self._ch)
+        self.chart.addItem(self._cursor)
 
         # axis placement
         if _xaxis_at == 'bottom':
@@ -291,18 +301,19 @@ class LinkedSplitCharts(QtGui.QWidget):
 
             array=array,
             parent=self.splitter,
+            linked_charts=self,
             axisItems={
                 'bottom': xaxis,
                 'right': PriceAxis(linked_charts=self)
             },
             viewBox=cv,
-            cursor=self._ch,
+            cursor=self._cursor,
             **cpw_kwargs,
         )
 
-        # give viewbox a reference to primary chart
-        # allowing for kb controls and interactions
-        # (see our custom view in `._interactions.py`)
+        # give viewbox as reference to chart
+        # allowing for kb controls and interactions on **this** widget
+        # (see our custom view mode in `._interactions.py`)
         cv.chart = cpw
 
         cpw.plotItem.vb.linked_charts = self
@@ -315,7 +326,7 @@ class LinkedSplitCharts(QtGui.QWidget):
         cpw.setXLink(self.chart)
 
         # add to cross-hair's known plots
-        self._ch.add_plot(cpw)
+        self._cursor.add_plot(cpw)
 
         # draw curve graphics
         if style == 'bar':
@@ -365,8 +376,9 @@ class ChartPlotWidget(pg.PlotWidget):
         # the data view we generate graphics from
         name: str,
         array: np.ndarray,
+        linked_charts: LinkedSplitCharts,
         static_yrange: Optional[Tuple[float, float]] = None,
-        cursor: Optional[CrossHair] = None,
+        cursor: Optional[Cursor] = None,
         **kwargs,
     ):
         """Configure chart display settings.
@@ -379,8 +391,8 @@ class ChartPlotWidget(pg.PlotWidget):
             useOpenGL=True,
             **kwargs
         )
-
         self.name = name
+        self._lc = linked_charts
 
         # self.setViewportMargins(0, 0, 0, 0)
         self._ohlc = array  # readonly view of ohlc data
@@ -406,10 +418,6 @@ class ChartPlotWidget(pg.PlotWidget):
         self.showGrid(x=True, y=True, alpha=0.5)
 
         self.default_view()
-
-        # TODO: stick in config
-        # use cross-hair for cursor?
-        # self.setCursor(QtCore.Qt.CrossCursor)
 
         # Assign callback for rescaling y-axis automatically
         # based on data contents and ``ViewBox`` state.
@@ -844,6 +852,8 @@ async def _async_main(
     # historical data fetch
     brokermod = brokers.get_brokermod(brokername)
 
+    symbol = Symbol(sym, [brokername])
+
     async with data.open_feed(
         brokername,
         [sym],
@@ -854,8 +864,7 @@ async def _async_main(
         bars = ohlcv.array
 
         # load in symbol's ohlc data
-        # await tractor.breakpoint()
-        linked_charts, chart = chart_app.load_symbol(sym, bars)
+        linked_charts, chart = chart_app.load_symbol(symbol, bars)
 
         # plot historical vwap if available
         wap_in_history = False
@@ -870,12 +879,13 @@ async def _async_main(
                     add_label=False,
                 )
 
+        # size view to data once at outset
         chart._set_yrange()
 
         # TODO: a data view api that makes this less shit
         chart._shm = ohlcv
 
-        # eventually we'll support some kind of n-compose syntax
+        # TODO: eventually we'll support some kind of n-compose syntax
         fsp_conf = {
             'rsi': {
                 'period': 14,
@@ -887,7 +897,8 @@ async def _async_main(
         }
 
         # make sure that the instrument supports volume history
-        # (sometimes this is not the case for some commodities and derivatives)
+        # (sometimes this is not the case for some commodities and
+        # derivatives)
         volm = ohlcv.array['volume']
         if (
             np.all(np.isin(volm, -1)) or
@@ -928,6 +939,7 @@ async def _async_main(
 
             # wait for a first quote before we start any update tasks
             quote = await feed.receive()
+
             log.info(f'Received first quote {quote}')
 
             n.start_soon(
@@ -938,8 +950,26 @@ async def _async_main(
                 linked_charts
             )
 
-            # probably where we'll eventually start the user input loop
-            await trio.sleep_forever()
+            async with open_order_mode(
+                chart,
+            ) as order_mode:
+
+                # TODO: this should probably be implicitly spawned
+                # inside the above mngr?
+
+                # spawn EMS actor-service
+                to_ems_chan = await n.start(
+                    spawn_router_stream_alerts,
+                    order_mode,
+                    symbol,
+                )
+
+                # wait for router to come up before setting
+                # enabling send channel on chart
+                linked_charts._to_ems = to_ems_chan
+
+                # probably where we'll eventually start the user input loop
+                await trio.sleep_forever()
 
 
 async def chart_from_quotes(
@@ -999,7 +1029,7 @@ async def chart_from_quotes(
         chart,
         # determine precision/decimal lengths
         digits=max(float_digits(last), 2),
-        size_digits=min(float_digits(volume), 3)
+        size_digits=min(float_digits(last), 3)
     )
 
     # TODO:

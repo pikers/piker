@@ -17,7 +17,7 @@
 Mouse interaction graphics
 
 """
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Set, Dict
 
 import inspect
 import numpy as np
@@ -31,6 +31,10 @@ from .._style import (
     _font,
 )
 from .._axes import YAxisLabel, XAxisLabel
+from ...log import get_logger
+
+
+log = get_logger(__name__)
 
 # XXX: these settings seem to result in really decent mouse scroll
 # latency (in terms of perceived lag in cross hair) so really be sure
@@ -194,7 +198,7 @@ class ContentsLabel(pg.LabelItem):
             self.setText(f"{name}: {data:.2f}")
 
 
-class CrossHair(pg.GraphicsObject):
+class Cursor(pg.GraphicsObject):
 
     def __init__(
         self,
@@ -213,11 +217,21 @@ class CrossHair(pg.GraphicsObject):
             style=QtCore.Qt.DashLine,
         )
         self.lsc = linkedsplitcharts
-        self.graphics = {}
-        self.plots = []
+        self.graphics: Dict[str, pg.GraphicsObject] = {}
+        self.plots: List['PlotChartWidget'] = []  # type: ignore # noqa
         self.active_plot = None
-        self.digits = digits
-        self._lastx = None
+        self.digits: int = digits
+        self._datum_xy: Tuple[int, float] = (0, 0)
+
+        self._hovered: Set[pg.GraphicsObject] = set()
+        self._trackers: Set[pg.GraphicsObject] = set()
+
+    def add_hovered(
+        self,
+        item: pg.GraphicsObject,
+    ) -> None:
+        assert getattr(item, 'delete'), f"{item} must define a ``.delete()``"
+        self._hovered.add(item)
 
     def add_plot(
         self,
@@ -289,12 +303,17 @@ class CrossHair(pg.GraphicsObject):
     ) -> LineDot:
         # if this plot contains curves add line dot "cursors" to denote
         # the current sample under the mouse
-        cursor = LineDot(curve, index=plot._ohlc[-1]['index'], plot=plot)
+        cursor = LineDot(
+            curve,
+            index=plot._ohlc[-1]['index'],
+            plot=plot
+        )
         plot.addItem(cursor)
         self.graphics[plot].setdefault('cursors', []).append(cursor)
         return cursor
 
     def mouseAction(self, action, plot):  # noqa
+        log.debug(f"{(action, plot.name)}")
         if action == 'Enter':
             self.active_plot = plot
 
@@ -303,7 +322,6 @@ class CrossHair(pg.GraphicsObject):
             self.graphics[plot]['yl'].show()
 
         else:  # Leave
-            self.active_plot = None
 
             # hide horiz line and y-label
             self.graphics[plot]['hl'].hide()
@@ -332,14 +350,20 @@ class CrossHair(pg.GraphicsObject):
         # update y-range items
         self.graphics[plot]['hl'].setY(y)
 
+
         self.graphics[self.active_plot]['yl'].update_label(
             abs_pos=pos, value=y
         )
 
         # Update x if cursor changed after discretization calc
         # (this saves draw cycles on small mouse moves)
-        lastx = self._lastx
+        lastx, lasty = self._datum_xy
         ix = round(x)  # since bars are centered around index
+
+        # update all trackers
+        for item in self._trackers:
+            # print(f'setting {item} with {(ix, y)}')
+            item.on_tracked_source(ix, y)
 
         if ix != lastx:
             for plot, opts in self.graphics.items():
@@ -351,7 +375,6 @@ class CrossHair(pg.GraphicsObject):
                 plot.update_contents_labels(ix)
 
                 # update all subscribed curve dots
-                # first = plot._ohlc[0]['index']
                 for cursor in opts.get('cursors', ()):
                     cursor.setIndex(ix)
 
@@ -367,7 +390,7 @@ class CrossHair(pg.GraphicsObject):
                 value=x,
             )
 
-        self._lastx = ix
+        self._datum_xy = ix, y
 
     def boundingRect(self):
         try:
