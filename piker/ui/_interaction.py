@@ -17,6 +17,8 @@
 """
 UX interaction customs.
 """
+from typing import Optional
+
 import pyqtgraph as pg
 from pyqtgraph import ViewBox, Point, QtCore, QtGui
 from pyqtgraph import functions as fn
@@ -144,7 +146,7 @@ class SelectRect(QtGui.QGraphicsRectItem):
         x1, x2 = start_pos.x(), end_pos.x()
 
         # TODO: heh, could probably use a max-min streamin algo here too
-        ymn, xmn = min(y1, y2), min(x1, x2)
+        _, xmn = min(y1, y2), min(x1, x2)
         ymx, xmx = max(y1, y2), max(x1, x2)
 
         pchng = (y2 - y1) / y1 * 100
@@ -277,7 +279,11 @@ class ChartView(ViewBox):
         ev.accept()
         self.sigRangeChangedManually.emit(mask)
 
-    def mouseDragEvent(self, ev, axis=None):
+    def mouseDragEvent(
+        self,
+        ev,
+        axis: Optional[int] = None,
+    ) -> None:
         #  if axis is specified, event will only affect that axis.
         ev.accept()  # we accept all buttons
 
@@ -294,6 +300,18 @@ class ChartView(ViewBox):
 
         # Scale or translate based on mouse button
         if ev.button() & (QtCore.Qt.LeftButton | QtCore.Qt.MidButton):
+
+            # zoom only y-axis when click-n-drag on it
+            if axis == 1:
+                # set a static y range special value on chart widget to
+                # prevent sizing to data in view.
+                self._chart._static_yrange = 'axis'
+
+                scale_y = 1.3 ** (dif.y() * -1 / 20)
+                self.setLimits(yMin=None, yMax=None)
+
+                # print(scale_y)
+                self.scaleBy((0, scale_y))
 
             if self.state['mouseMode'] == ViewBox.RectMode:
 
@@ -333,6 +351,7 @@ class ChartView(ViewBox):
                 self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
 
         elif ev.button() & QtCore.Qt.RightButton:
+
             # print "vb.rightDrag"
             if self.state['aspectLocked'] is not False:
                 mask[0] = 0
