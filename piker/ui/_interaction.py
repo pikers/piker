@@ -21,9 +21,10 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pprint import pformat
-from typing import Optional, Dict, Callable
+from typing import Optional, Dict, Callable, Any
 import uuid
 
+import trio
 import pyqtgraph as pg
 from pyqtgraph import ViewBox, Point, QtCore, QtGui
 from pyqtgraph import functions as fn
@@ -436,24 +437,41 @@ class OrderMode:
         # self.book._confirmed_orders[uuid] = req_msg
         return req_msg
 
+    def on_fill(
+        self,
+        uuid: str,
+        msg: Dict[str, Any],
+    ) -> None:
+        log.info(f'New fill\n{pformat(msg)}')
+        line = self.lines._order_lines[uuid]
+
+        # XXX: not sure why the time is so off here
+        # looks like we're gonna have to do some fixing..
+        ohlc = self.chart._shm.array
+        indexes = ohlc['time'] >= msg['broker_time']
+        if any(indexes):
+            arrow_index = ohlc['index'][indexes[-1]]
+        else:
+            arrow_index = ohlc['index'][-1]
+
+        self.arrows.add(
+            uuid,
+            arrow_index,
+            msg['price'],
+            pointing='up' if msg['action'] == 'buy' else 'down',
+            color=line.color
+        )
+
     async def on_exec(
         self,
         uuid: str,
-        msg: Dict[str, str],
+        msg: Dict[str, Any],
     ) -> None:
 
+        # only once all fills have cleared and the execution
+        # is complet do we remove our "order line"
         line = self.lines.remove_line(uuid=uuid)
-        log.debug(f'deleting line with oid: {uuid}')
-
-        for fill in msg['fills']:
-
-            self.arrows.add(
-                uuid,
-                msg['index'],
-                msg['price'],
-                pointing='up' if msg['action'] == 'buy' else 'down',
-                color=line.color
-            )
+        log.debug(f'deleting {line} with oid: {uuid}')
 
         # DESKTOP NOTIFICATIONS
         #
@@ -478,7 +496,9 @@ class OrderMode:
         if msg is not None:
             self.lines.remove_line(uuid=uuid)
         else:
-            log.warning(f'Received cancel for unsubmitted order {pformat(msg)}')
+            log.warning(
+                f'Received cancel for unsubmitted order {pformat(msg)}'
+            )
 
     def submit_exec(self) -> None:
         """Send execution order to EMS.
@@ -492,6 +512,7 @@ class OrderMode:
 
         # make line graphic
         line, y = self.lines.create_line(uid)
+        line.oid = uid
 
         # send order cmd to ems
         self.book.send(
