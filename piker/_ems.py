@@ -34,6 +34,7 @@ import tractor
 from . import data
 from .log import get_logger
 from .data._source import Symbol
+from .data._normalize import iterticks
 
 
 log = get_logger(__name__)
@@ -58,14 +59,14 @@ def mk_check(trigger_price, known_last) -> Callable[[float, float], bool]:
         def check_gt(price: float) -> bool:
             return price >= trigger_price
 
-        return check_gt, 'down'
+        return check_gt
 
     elif trigger_price <= known_last:
 
         def check_lt(price: float) -> bool:
             return price <= trigger_price
 
-        return check_lt, 'up'
+        return check_lt
 
     else:
         return None, None
@@ -113,6 +114,9 @@ def get_book(broker: str) -> _ExecBook:
     return _books.setdefault(broker, _ExecBook(broker))
 
 
+_DEFAULT_SIZE: float = 100.0
+
+
 @dataclass
 class PaperBoi:
     """Emulates a broker order client providing the same API and
@@ -130,7 +134,7 @@ class PaperBoi:
         symbol: str,
         price: float,
         action: str,
-        size: int = 100,
+        size: int = _DEFAULT_SIZE,
     ) -> int:
         """Place an order and return integer request id provided by client.
 
@@ -212,38 +216,51 @@ async def exec_loop(
                 # start = time.time()
                 for sym, quote in quotes.items():
 
-                    execs = book.orders.pop(sym, None)
+                    execs = book.orders.get(sym, None)
                     if execs is None:
                         continue
 
-                    for tick in quote.get('ticks', ()):
+                    for tick in iterticks(
+                        quote,
+                        # dark order price filter(s)
+                        types=('ask', 'bid', 'trade', 'last')
+                    ):
                         price = tick.get('price')
+                        ttype = tick['type']
+
+                        # lel, fuck you ib
                         if price < 0:
-                            # lel, fuck you ib
+                            log.error(f'!!?!?!VOLUME TICK {tick}!?!?')
                             continue
 
                         # update to keep new cmds informed
                         book.lasts[(broker, symbol)] = price
 
-                        for oid, (pred, name, cmd) in tuple(execs.items()):
+                        for oid, (pred, tf, cmd, percent_away) in (
+                            tuple(execs.items())
+                        ):
 
-                            # majority of iterations will be non-matches
-                            if not pred(price):
+                            if (ttype not in tf) or (not pred(price)):
+                                # majority of iterations will be non-matches
                                 continue
+
+                            submit_price = price + price*percent_away
+                            print(
+                                f'Dark order triggered for price {price}\n'
+                                f'Submitting order @ price {submit_price}')
 
                             reqid = await client.submit_limit(
                                 oid=oid,
                                 symbol=sym,
                                 action=cmd['action'],
-                                price=round(price, 2),
-                                size=1,
+                                price=round(submit_price, 2),
+                                size=_DEFAULT_SIZE,
                             )
                             # register broker request id to ems id
                             book._broker2ems_ids[reqid] = oid
 
                             resp = {
                                 'resp': 'dark_executed',
-                                'name': name,
                                 'time_ns': time.time_ns(),
                                 'trigger_price': price,
                                 'broker_reqid': reqid,
@@ -257,7 +274,7 @@ async def exec_loop(
 
                             # remove exec-condition from set
                             log.info(f'removing pred for {oid}')
-                            pred, name, cmd = execs.pop(oid)
+                            pred, tf, cmd, percent_away = execs.pop(oid)
 
                             await ctx.send_yield(resp)
 
@@ -306,7 +323,7 @@ async def process_broker_trades(
     """
     broker = feed.mod.name
 
-    with trio.fail_after(3):
+    with trio.fail_after(5):
         trades_stream = await feed.recv_trades_data()
         first = await trades_stream.__anext__()
 
@@ -383,7 +400,7 @@ async def _ems_main(
     client_actor_name: str,
     broker: str,
     symbol: str,
-    mode: str = 'live',  # ('paper', 'dark', 'live')
+    mode: str = 'dark',  # ('paper', 'dark', 'live')
 ) -> None:
     """EMS (sub)actor entrypoint providing the
     execution management (micro)service which conducts broker
@@ -454,12 +471,15 @@ async def _ems_main(
 
                     # check for EMS active exec
                     else:
-                        book.orders[symbol].pop(oid, None)
+                        try:
+                            book.orders[symbol].pop(oid, None)
 
-                        await ctx.send_yield({
-                            'resp': 'dark_cancelled',
-                            'oid': oid
-                        })
+                            await ctx.send_yield({
+                                'resp': 'dark_cancelled',
+                                'oid': oid
+                            })
+                        except KeyError:
+                            log.exception(f'No dark order for {symbol}?')
 
                 elif action in ('alert', 'buy', 'sell',):
 
@@ -467,6 +487,7 @@ async def _ems_main(
                     trigger_price = cmd['price']
                     brokers = cmd['brokers']
                     broker = brokers[0]
+                    mode = cmd.get('exec_mode', mode)
 
                     last = book.lasts[(broker, sym)]
 
@@ -478,7 +499,7 @@ async def _ems_main(
                             symbol=sym,
                             action=action,
                             price=round(trigger_price, 2),
-                            size=1,
+                            size=_DEFAULT_SIZE,
                         )
                         book._broker2ems_ids[order_id] = oid
 
@@ -489,12 +510,8 @@ async def _ems_main(
 
                     elif mode in ('dark', 'paper') or action in ('alert'):
 
-                        # if the predicate resolves immediately send the
-                        # execution to the broker asap
-                        # if pred(last):
-                        # send order
-
-                        # IF SEND ORDER RIGHT AWAY CONDITION
+                        # TODO: if the predicate resolves immediately send the
+                        # execution to the broker asap? Or no?
 
                         # submit order to local EMS
 
@@ -504,12 +521,22 @@ async def _ems_main(
                         # price received from the feed, instead of being
                         # like every other shitty tina platform that makes
                         # the user choose the predicate operator.
-                        pred, name = mk_check(trigger_price, last)
+                        pred = mk_check(trigger_price, last)
+
+                        if action == 'buy':
+                            tickfilter = ('ask', 'last', 'trade')
+                            percent_away = 0.005
+                        elif action == 'sell':
+                            tickfilter = ('bid', 'last', 'trade')
+                            percent_away = -0.005
+                        else:  # alert
+                            tickfilter = ('trade', 'utrade', 'last')
+                            percent_away = 0
 
                         # submit execution/order to EMS scanner loop
                         book.orders.setdefault(
                             sym, {}
-                        )[oid] = (pred, name, cmd)
+                        )[oid] = (pred, tickfilter, cmd, percent_away)
 
                         # ack-response that order is live here
                         await ctx.send_yield({
@@ -545,6 +572,7 @@ class OrderBook:
         symbol: 'Symbol',
         price: float,
         action: str,
+        exec_mode: str,
     ) -> str:
         cmd = {
             'action': action,
@@ -552,6 +580,7 @@ class OrderBook:
             'symbol': symbol.key,
             'brokers': symbol.brokers,
             'oid': uuid,
+            'exec_mode': exec_mode,  # dark or live
         }
         self._sent_orders[uuid] = cmd
         self._to_ems.send_nowait(cmd)
@@ -683,7 +712,7 @@ async def open_ems(
         # ready for order commands
         book = get_orders()
 
-        with trio.fail_after(3):
+        with trio.fail_after(5):
             await book._ready_to_receive.wait()
 
         yield book, trades_stream
