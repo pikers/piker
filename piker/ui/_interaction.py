@@ -33,7 +33,7 @@ import numpy as np
 from ..log import get_logger
 from ._style import _min_points_to_show, hcolor, _font
 from ._graphics._lines import level_line, LevelLine
-from .._ems import get_orders, OrderBook
+from .._ems import OrderBook
 
 
 log = get_logger(__name__)
@@ -370,12 +370,16 @@ class ArrowEditor:
         x: float,
         y: float,
         color='default',
-        pointing: str = 'up',
+        pointing: Optional[str] = None,
     ) -> pg.ArrowItem:
         """Add an arrow graphic to view at given (x, y).
 
         """
-        angle = 90 if pointing == 'up' else -90
+        angle = {
+            'up': 90,
+            'down': -90,
+            None: 0,
+        }[pointing]
 
         yb = pg.mkBrush(hcolor(color))
         arrow = pg.ArrowItem(
@@ -431,34 +435,33 @@ class OrderMode:
         self.lines.stage_line(color=self._colors[name])
 
     def on_submit(self, uuid: str) -> dict:
+        """On order submitted event, commit the order line
+        and registered order uuid, store ack time stamp.
+
+        TODO: annotate order line with submission type ('live' vs.
+        'dark').
+
+        """
         self.lines.commit_line(uuid)
         req_msg = self.book._sent_orders.get(uuid)
         req_msg['ack_time_ns'] = time.time_ns()
-        # self.book._confirmed_orders[uuid] = req_msg
+
         return req_msg
 
     def on_fill(
         self,
         uuid: str,
-        msg: Dict[str, Any],
+        price: float,
+        arrow_index: float,
+        pointing: Optional[str] = None
     ) -> None:
-        log.info(f'New fill\n{pformat(msg)}')
+
         line = self.lines._order_lines[uuid]
-
-        # XXX: not sure why the time is so off here
-        # looks like we're gonna have to do some fixing..
-        ohlc = self.chart._shm.array
-        indexes = ohlc['time'] >= msg['broker_time']
-        if any(indexes):
-            arrow_index = ohlc['index'][indexes[-1]]
-        else:
-            arrow_index = ohlc['index'][-1]
-
         self.arrows.add(
             uuid,
             arrow_index,
-            msg['price'],
-            pointing='up' if msg['action'] == 'buy' else 'down',
+            price,
+            pointing=pointing,
             color=line.color
         )
 
@@ -526,11 +529,12 @@ class OrderMode:
 @asynccontextmanager
 async def open_order_mode(
     chart,
+    book: OrderBook,
 ):
     # global _order_lines
 
     view = chart._vb
-    book = get_orders()
+    # book = get_orders()
     lines = LineEditor(view=view, _order_lines=_order_lines, chart=chart)
     arrows = ArrowEditor(chart, {})
 
@@ -538,11 +542,6 @@ async def open_order_mode(
 
     mode = OrderMode(chart, book, lines, arrows)
     view.mode = mode
-
-    # # setup local ui event streaming channels for request/resp
-    # # streamging with EMS daemon
-    # global _to_ems, _from_order_book
-    # _to_ems, _from_order_book = trio.open_memory_channel(100)
 
     try:
         yield mode
