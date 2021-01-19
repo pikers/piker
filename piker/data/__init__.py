@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -26,10 +26,10 @@ from contextlib import asynccontextmanager
 from importlib import import_module
 from types import ModuleType
 from typing import (
-    Dict, List, Any,
-    Sequence, AsyncIterator, Optional
+    Dict, Any, Sequence, AsyncIterator, Optional
 )
 
+import trio
 import tractor
 
 from ..brokers import get_brokermod
@@ -165,19 +165,26 @@ class Feed:
 
         return self._index_stream
 
+    def _set_fake_trades_stream(
+        self,
+        recv_chan: trio.abc.ReceiveChannel,
+    ) -> None:
+        self._trade_stream = recv_chan
+
     async def recv_trades_data(self) -> AsyncIterator[dict]:
 
         if not getattr(self.mod, 'stream_trades', False):
-            log.warning(f"{self.mod.name} doesn't have trade data support yet :(")
+            log.warning(
+                f"{self.mod.name} doesn't have trade data support yet :(")
 
-            # yah this is bullshitty but it worx
-            async def nuttin():
-                yield
-                return
+            if not self._trade_stream:
+                raise RuntimeError(
+                    f'Can not stream trade data from {self.mod.name}')
 
-            return nuttin()
-
+        # NOTE: this can be faked by setting a rx chan
+        # using the ``_.set_fake_trades_stream()`` method
         if not self._trade_stream:
+
             self._trade_stream = await self._brokerd_portal.run(
 
                 self.mod.stream_trades,
