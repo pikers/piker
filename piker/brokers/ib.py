@@ -1079,8 +1079,6 @@ async def stream_trades(
     get_topics: Callable = None,
 ) -> AsyncIterator[Dict[str, Any]]:
 
-    log.error('startedddd daa tradeeeez feeeedddzzz')
-
     # XXX: required to propagate ``tractor`` loglevel to piker logging
     get_console_log(loglevel or tractor.current_actor().loglevel)
 
