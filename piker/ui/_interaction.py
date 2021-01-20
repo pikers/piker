@@ -217,7 +217,11 @@ class LineEditor:
     _active_staged_line: LevelLine = None
     _stage_line: LevelLine = None
 
-    def stage_line(self, color: str = 'alert_yellow') -> LevelLine:
+    def stage_line(
+        self,
+        color: str = 'alert_yellow',
+        hl_on_hover: bool = False,
+    ) -> LevelLine:
         """Stage a line at the current chart's cursor position
         and return it.
 
@@ -238,18 +242,24 @@ class LineEditor:
                 color=color,
 
                 # don't highlight the "staging" line
-                hl_on_hover=False,
+                hl_on_hover=hl_on_hover,
             )
             self._stage_line = line
 
         else:
             # use the existing staged line instead
             # of allocating more mem / objects repeatedly
-            line.setValue(y)
-            line.show()
+            print(f'hl on hover: {hl_on_hover}')
+            line._hoh = hl_on_hover
             line.color = color
-            line.label.color = color
-            line.label.show()
+            line.setMouseHover(hl_on_hover)
+            line.setValue(y)
+            line.update()
+            line.show()
+
+            label = line.label
+            label.color = color
+            label.show()
 
         self._active_staged_line = line
 
@@ -421,18 +431,26 @@ class OrderMode:
         'sell': 'sell_red',
     }
     _action: str = 'alert'
+    _exec_mode: str = 'dark'
 
     key_map: Dict[str, Callable] = field(default_factory=dict)
 
     def uuid(self) -> str:
         return str(uuid.uuid4())
 
-    def set_exec(self, name: str) -> None:
+    def set_exec(
+        self,
+        action: str,
+        # mode: str,
+    ) -> None:
         """Set execution mode.
 
         """
-        self._action = name
-        self.lines.stage_line(color=self._colors[name])
+        self._action = action
+        self.lines.stage_line(
+            color=self._colors[action],
+            hl_on_hover=True if self._exec_mode == 'live' else False,
+        )
 
     def on_submit(self, uuid: str) -> dict:
         """On order submitted event, commit the order line
@@ -523,6 +541,7 @@ class OrderMode:
             symbol=self.chart._lc._symbol,
             price=y,
             action=self._action,
+            exec_mode=self._exec_mode,
         )
 
 
@@ -582,6 +601,7 @@ class ChartView(ViewBox):
 
         # kb ctrls processing
         self._key_buffer = []
+        self._key_active: bool = False
 
     @property
     def chart(self) -> 'ChartPlotWidget':  # type: ignore # noqa
@@ -760,8 +780,9 @@ class ChartView(ViewBox):
 
         elif button == QtCore.Qt.LeftButton:
             # when in order mode, submit execution
-            ev.accept()
-            self.mode.submit_exec()
+            if self._key_active:
+                ev.accept()
+                self.mode.submit_exec()
 
     def keyReleaseEvent(self, ev):
         """
@@ -774,17 +795,24 @@ class ChartView(ViewBox):
             return
 
         ev.accept()
-        text = ev.text()
+        # text = ev.text()
         key = ev.key()
-        # mods = ev.modifiers()
+        mods = ev.modifiers()
 
         if key == QtCore.Qt.Key_Shift:
             # if self.state['mouseMode'] == ViewBox.RectMode:
             self.setMouseMode(ViewBox.PanMode)
 
-        if text in {'a', 'f', 's'}:
-            # draw "staged" line under cursor position
+        # if self.state['mouseMode'] == ViewBox.RectMode:
+        # if key == QtCore.Qt.Key_Space:
+        if mods == QtCore.Qt.ControlModifier or key == QtCore.Qt.Key_Control:
+            self.mode._exec_mode = 'dark'
+
+        if key in {QtCore.Qt.Key_A, QtCore.Qt.Key_F, QtCore.Qt.Key_D}:
+            # remove "staged" level line under cursor position
             self.mode.lines.unstage_line()
+
+        self._key_active = False
 
     def keyPressEvent(self, ev):
         """
@@ -805,41 +833,52 @@ class ChartView(ViewBox):
             if self.state['mouseMode'] == ViewBox.PanMode:
                 self.setMouseMode(ViewBox.RectMode)
 
-        # ctl
+        # ctrl
+        ctrl = False
         if mods == QtCore.Qt.ControlModifier:
-            # TODO: ctrl-c as cancel?
-            # https://forum.qt.io/topic/532/how-to-catch-ctrl-c-on-a-widget/9
-            # if ev.text() == 'c':
-            #     self.rbScaleBox.hide()
-            print(f"CTRL + key:{key} + text:{text}")
+            ctrl = True
+
+        print(mods)
+        if mods == QtCore.Qt.ControlModifier:
+            print('space')
+            self.mode._exec_mode = 'live'
+
+        self._key_active = True
 
         # alt
         if mods == QtCore.Qt.AltModifier:
             pass
 
         # esc
-        if key == QtCore.Qt.Key_Escape:
+        if key == QtCore.Qt.Key_Escape or (ctrl and key == QtCore.Qt.Key_C):
+            # ctrl-c as cancel
+            # https://forum.qt.io/topic/532/how-to-catch-ctrl-c-on-a-widget/9
             self.select_box.clear()
+
+            # delete any lines under the cursor
+            mode = self.mode
+            for line in mode.lines.lines_under_cursor():
+                mode.book.cancel(uuid=line.oid)
 
         self._key_buffer.append(text)
 
         # View modes
-        if text == 'r':
+        if key == QtCore.Qt.Key_R:
             self.chart.default_view()
 
-        # Order modes
-        # stage orders at the current cursor level
-        elif text == 's':
+        # Order modes: stage orders at the current cursor level
+
+        elif key == QtCore.Qt.Key_D:
             self.mode.set_exec('sell')
 
-        elif text == 'f':
+        elif key == QtCore.Qt.Key_F:
             self.mode.set_exec('buy')
 
-        elif text == 'a':
+        elif key == QtCore.Qt.Key_A:
             self.mode.set_exec('alert')
 
         # delete orders under cursor
-        elif text == 'd':
+        elif key == QtCore.Qt.Key_Delete:
 
             # delete any lines under the cursor
             mode = self.mode
@@ -862,3 +901,4 @@ class ChartView(ViewBox):
         #     self.scaleHistory(len(self.axHistory))
         else:
             ev.ignore()
+            self._key_active = False
