@@ -18,7 +18,6 @@
 Lines for orders, alerts, L2.
 
 """
-from dataclasses import dataclass
 from typing import Tuple
 
 import pyqtgraph as pg
@@ -99,7 +98,7 @@ class LevelLabel(YSticky):
 
     def set_label_str(self, level: float):
         # self.label_str = '{size} x {level:.{digits}f}'.format(
-            # size=self._size,
+        # size=self._size,
 
         # this is read inside ``.paint()``
         self.label_str = '{level:.{digits}f}'.format(
@@ -151,7 +150,7 @@ class L1Label(LevelLabel):
         """
         self.label_str = '{size:.{size_digits}f} x {level:,.{digits}f}'.format(
             size_digits=self.size_digits,
-            size=self.size or '?',
+            size=self.size or 2,
             digits=self.digits,
             level=level
         ).replace(',', ' ')
@@ -230,10 +229,6 @@ class LevelLine(pg.InfiniteLine):
         self._hcolor = None
         self.color = color
 
-        # use slightly thicker highlight
-        pen = pg.mkPen(hcolor(highlight_color))
-        pen.setWidth(2)
-        self.setHoverPen(pen)
         self._track_cursor: bool = False
 
     @property
@@ -244,6 +239,12 @@ class LevelLine(pg.InfiniteLine):
     def color(self, color: str) -> None:
         self._hcolor = color
         self.setPen(pg.mkPen(hcolor(color)))
+
+        # set hover pen to new color
+        pen = pg.mkPen(hcolor(color + '_light'))
+        # use slightly thicker highlight
+        pen.setWidth(2)
+        self.setHoverPen(pen)
 
     def set_level(self, value: float) -> None:
         self.label.update_from_data(0, self.value())
@@ -262,7 +263,7 @@ class LevelLine(pg.InfiniteLine):
 
         """
         # XXX: currently we'll just return if _hoh is False
-        if self.mouseHovering == hover or not self._hoh:
+        if self.mouseHovering == hover:
             return
 
         self.mouseHovering = hover
@@ -270,14 +271,15 @@ class LevelLine(pg.InfiniteLine):
         chart = self._chart
 
         if hover:
-
-            self.currentPen = self.hoverPen
-            self.label.highlight(self.hoverPen)
+            # highlight if so configured
+            if self._hoh:
+                self.currentPen = self.hoverPen
+                self.label.highlight(self.hoverPen)
 
             # add us to cursor state
             chart._cursor.add_hovered(self)
 
-            # # hide y-crosshair
+            # TODO: hide y-crosshair?
             # chart._cursor.graphics[chart]['hl'].hide()
 
         else:
