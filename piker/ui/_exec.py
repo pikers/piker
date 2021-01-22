@@ -20,11 +20,11 @@ Trio - Qt integration
 Run ``trio`` in guest mode on top of the Qt event loop.
 All global Qt runtime settings are mostly defined here.
 """
+from typing import Tuple, Callable, Dict, Any
 import os
 import signal
-from functools import partial
+import time
 import traceback
-from typing import Tuple, Callable, Dict, Any
 
 # Qt specific
 import PyQt5  # noqa
@@ -32,13 +32,18 @@ import pyqtgraph as pg
 from pyqtgraph import QtGui
 from PyQt5 import QtCore
 from PyQt5.QtCore import (
-    pyqtRemoveInputHook, Qt, QCoreApplication
+    pyqtRemoveInputHook,
+    Qt,
+    QCoreApplication,
 )
 import qdarkstyle
 import trio
 import tractor
 from outcome import Error
 
+from ..log import get_logger
+
+log = get_logger(__name__)
 
 # pyqtgraph global config
 # might as well enable this for now?
@@ -51,10 +56,27 @@ _qt_app: QtGui.QApplication = None
 _qt_win: QtGui.QMainWindow = None
 
 
-def current_screen() -> QtGui.QScreen:
+def current_screen(timeout: float = 6) -> QtGui.QScreen:
+    print('yo screen zonnnee')
 
     global _qt_win, _qt_app
-    return _qt_app.screenAt(_qt_win.centralWidget().geometry().center())
+    screen = _qt_app.screenAt(_qt_win.centralWidget().geometry().center())
+
+    start = time.time()
+
+    # breakpoint()
+    # wait for 6 seconds to grab screen
+    while screen is None and (
+        (time.time() - start) < timeout
+    ):
+        screen = _qt_app.screenAt(_qt_win.centralWidget().geometry().center())
+        time.sleep(0.1)
+        log.info("Couldn't acquire screen trying again...")
+
+    if screen is None:
+        raise RuntimeError("Failed to acquire screen?")
+
+    return screen
 
 
 # Proper high DPI scaling is available in Qt >= 5.6.0. This attibute
@@ -78,7 +100,7 @@ class MainWindow(QtGui.QMainWindow):
 
     def closeEvent(
         self,
-        event: 'QCloseEvent'
+        event: QtGui.QCloseEvent,
     ) -> None:
         """Cancel the root actor asap.
 
@@ -169,7 +191,7 @@ def run_qtractor(
             ),
             name='qtractor',
             **tractor_kwargs,
-        ) as a:
+        ):
             await func(*(args + (widgets,)))
 
     # guest mode entry
