@@ -221,6 +221,7 @@ class LineEditor:
         self,
         color: str = 'alert_yellow',
         hl_on_hover: bool = False,
+        dotted: bool = False,
     ) -> LevelLine:
         """Stage a line at the current chart's cursor position
         and return it.
@@ -243,14 +244,18 @@ class LineEditor:
 
                 # don't highlight the "staging" line
                 hl_on_hover=hl_on_hover,
+                dotted=dotted,
             )
             self._stage_line = line
 
         else:
-            # use the existing staged line instead
-            # of allocating more mem / objects repeatedly
-            print(f'hl on hover: {hl_on_hover}')
+            # print(f'hl on hover: {hl_on_hover}')
+
+            # Use the existing staged line instead but copy
+            # overe it's current style "properties".
+            # Saves us allocating more mem / objects repeatedly
             line._hoh = hl_on_hover
+            line._dotted = dotted
             line.color = color
             line.setMouseHover(hl_on_hover)
             line.setValue(y)
@@ -312,6 +317,7 @@ class LineEditor:
             color=line.color,
             digits=chart._lc.symbol.digits(),
             show_label=False,
+            dotted=line._dotted,
         )
 
         # register for later lookup/deletion
@@ -325,15 +331,20 @@ class LineEditor:
         graphic in view.
 
         """
-        line = self._order_lines[uuid]
-        line.oid = uuid
-        line.label.show()
+        try:
+            line = self._order_lines[uuid]
+        except KeyError:
+            log.warning(f'No line for {uuid} could be found?')
+            return
+        else:
+            line.oid = uuid
+            line.label.show()
 
-        # TODO: other flashy things to indicate the order is active
+            # TODO: other flashy things to indicate the order is active
 
-        log.debug(f'Level active for level: {line.value()}')
+            log.debug(f'Level active for level: {line.value()}')
 
-        return line
+            return line
 
     def lines_under_cursor(self):
         """Get the line(s) under the cursor position.
@@ -357,15 +368,15 @@ class LineEditor:
             uuid = line.oid
 
         # try to look up line from our registry
-        line = self._order_lines.pop(uuid)
+        line = self._order_lines.pop(uuid, None)
+        if line:
+            # if hovered remove from cursor set
+            hovered = self.chart._cursor._hovered
+            if line in hovered:
+                hovered.remove(line)
 
-        # if hovered remove from cursor set
-        hovered = self.chart._cursor._hovered
-        if line in hovered:
-            hovered.remove(line)
-
-        line.delete()
-        return line
+            line.delete()
+            return line
 
 
 @dataclass
@@ -449,7 +460,8 @@ class OrderMode:
         self._action = action
         self.lines.stage_line(
             color=self._colors[action],
-            hl_on_hover=True if self._exec_mode == 'live' else False,
+            # hl_on_hover=True if self._exec_mode == 'live' else False,
+            dotted=True if self._exec_mode == 'dark' else False,
         )
 
     def on_submit(self, uuid: str) -> dict:
@@ -462,7 +474,8 @@ class OrderMode:
         """
         self.lines.commit_line(uuid)
         req_msg = self.book._sent_orders.get(uuid)
-        req_msg['ack_time_ns'] = time.time_ns()
+        if req_msg:
+            req_msg['ack_time_ns'] = time.time_ns()
 
         return req_msg
 
@@ -474,14 +487,15 @@ class OrderMode:
         pointing: Optional[str] = None
     ) -> None:
 
-        line = self.lines._order_lines[uuid]
-        self.arrows.add(
-            uuid,
-            arrow_index,
-            price,
-            pointing=pointing,
-            color=line.color
-        )
+        line = self.lines._order_lines.get(uuid)
+        if line:
+            self.arrows.add(
+                uuid,
+                arrow_index,
+                price,
+                pointing=pointing,
+                color=line.color
+            )
 
     async def on_exec(
         self,
@@ -838,9 +852,7 @@ class ChartView(ViewBox):
         if mods == QtCore.Qt.ControlModifier:
             ctrl = True
 
-        print(mods)
         if mods == QtCore.Qt.ControlModifier:
-            print('space')
             self.mode._exec_mode = 'live'
 
         self._key_active = True
@@ -868,10 +880,10 @@ class ChartView(ViewBox):
 
         # Order modes: stage orders at the current cursor level
 
-        elif key == QtCore.Qt.Key_D:
+        elif key == QtCore.Qt.Key_D:  # for "damp eet"
             self.mode.set_exec('sell')
 
-        elif key == QtCore.Qt.Key_F:
+        elif key == QtCore.Qt.Key_F:  # for "fillz eet"
             self.mode.set_exec('buy')
 
         elif key == QtCore.Qt.Key_A:
