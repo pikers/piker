@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -138,7 +138,10 @@ class ChartSpace(QtGui.QWidget):
         Expects a ``numpy`` structured array containing all the ohlcv fields.
         """
         # XXX: let's see if this causes mem problems
-        self.window.setWindowTitle(f'piker chart {symbol}')
+        self.window.setWindowTitle(
+            f'piker chart {symbol.key}@{symbol.brokers} '
+            f'tick:{symbol.min_tick}'
+        )
 
         # TODO: symbol search
         # # of course this doesn't work :eyeroll:
@@ -192,6 +195,7 @@ class LinkedSplitCharts(QtGui.QWidget):
         self._cursor: Cursor = None  # crosshair graphics
         self.chart: ChartPlotWidget = None  # main (ohlc) chart
         self.subplots: Dict[Tuple[str, ...], ChartPlotWidget] = {}
+        self.digits: int = 2
 
         self.xaxis = DynamicDateAxis(
             orientation='bottom',
@@ -241,6 +245,7 @@ class LinkedSplitCharts(QtGui.QWidget):
 
         The data input struct array must include OHLC fields.
         """
+        self.min_tick = symbol.min_tick
         self.digits = symbol.digits()
 
         # add crosshairs
@@ -652,7 +657,7 @@ class ChartPlotWidget(pg.PlotWidget):
             chart=self,
             parent=self.getAxis('right'),
             # TODO: pass this from symbol data
-            # digits=0,
+            digits=self._lc._symbol.digits(),
             opacity=1,
             bg_color=bg_color,
         )
@@ -854,8 +859,6 @@ async def _async_main(
     # historical data fetch
     brokermod = brokers.get_brokermod(brokername)
 
-    symbol = Symbol(sym, [brokername])
-
     async with data.open_feed(
         brokername,
         [sym],
@@ -864,6 +867,7 @@ async def _async_main(
 
         ohlcv = feed.shm
         bars = ohlcv.array
+        symbol = feed.symbols[sym]
 
         # load in symbol's ohlc data
         linked_charts, chart = chart_app.load_symbol(symbol, bars)

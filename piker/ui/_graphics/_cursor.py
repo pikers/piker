@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -226,6 +226,10 @@ class Cursor(pg.GraphicsObject):
         self._hovered: Set[pg.GraphicsObject] = set()
         self._trackers: Set[pg.GraphicsObject] = set()
 
+        # value used for rounding y-axis discreet tick steps
+        # computing once, up front, here cuz why not
+        self._y_incr_mult = 1 / self.lsc._symbol.min_tick
+
     def add_hovered(
         self,
         item: pg.GraphicsObject,
@@ -347,25 +351,31 @@ class Cursor(pg.GraphicsObject):
         x, y = mouse_point.x(), mouse_point.y()
         plot = self.active_plot
 
-        # update y-range items
-        self.graphics[plot]['hl'].setY(y)
-
-
-        self.graphics[self.active_plot]['yl'].update_label(
-            abs_pos=pos, value=y
-        )
-
         # Update x if cursor changed after discretization calc
         # (this saves draw cycles on small mouse moves)
-        lastx, lasty = self._datum_xy
+        last_ix, last_iy = self._datum_xy
+
         ix = round(x)  # since bars are centered around index
 
-        # update all trackers
-        for item in self._trackers:
-            # print(f'setting {item} with {(ix, y)}')
-            item.on_tracked_source(ix, y)
+        # round y value to nearest tick step
+        m = self._y_incr_mult
+        iy = round(y * m) / m
 
-        if ix != lastx:
+        if iy != last_iy:
+
+            # update y-range items
+            self.graphics[plot]['hl'].setY(iy)
+
+            self.graphics[self.active_plot]['yl'].update_label(
+                abs_pos=pos, value=iy
+            )
+
+            # update all trackers
+            for item in self._trackers:
+                # print(f'setting {item} with {(ix, y)}')
+                item.on_tracked_source(ix, iy)
+
+        if ix != last_ix:
             for plot, opts in self.graphics.items():
 
                 # move the vertical line to the current "center of bar"
@@ -390,7 +400,7 @@ class Cursor(pg.GraphicsObject):
                 value=x,
             )
 
-        self._datum_xy = ix, y
+        self._datum_xy = ix, iy
 
     def boundingRect(self):
         try:
