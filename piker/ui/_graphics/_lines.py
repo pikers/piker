@@ -216,6 +216,7 @@ class LevelLine(pg.InfiniteLine):
         color: str = 'default',
         highlight_color: str = 'default_light',
         hl_on_hover: bool = True,
+        dotted: bool = False,
         **kwargs,
     ) -> None:
 
@@ -223,13 +224,26 @@ class LevelLine(pg.InfiniteLine):
         self.label = label
 
         self.sigPositionChanged.connect(self.set_level)
+
         self._chart = chart
         self._hoh = hl_on_hover
+        self._dotted = dotted
 
         self._hcolor = None
         self.color = color
 
+        # TODO: for when we want to move groups of lines?
         self._track_cursor: bool = False
+
+        # testing markers
+        # self.addMarker('<|', 0.1, 3)
+        # self.addMarker('<|>', 0.2, 3)
+        # self.addMarker('>|', 0.3, 3)
+        # self.addMarker('>|<', 0.4, 3)
+        # self.addMarker('>|<', 0.5, 3)
+        # self.addMarker('^', 0.6, 3)
+        # self.addMarker('v', 0.7, 3)
+        # self.addMarker('o', 0.8, 3)
 
     @property
     def color(self):
@@ -237,14 +251,21 @@ class LevelLine(pg.InfiniteLine):
 
     @color.setter
     def color(self, color: str) -> None:
+        # set pens to new color
         self._hcolor = color
-        self.setPen(pg.mkPen(hcolor(color)))
+        pen = pg.mkPen(hcolor(color))
+        hoverpen = pg.mkPen(hcolor(color + '_light'))
 
-        # set hover pen to new color
-        pen = pg.mkPen(hcolor(color + '_light'))
-        # use slightly thicker highlight
-        pen.setWidth(2)
-        self.setHoverPen(pen)
+        if self._dotted:
+            pen.setStyle(QtCore.Qt.DashLine)
+            hoverpen.setStyle(QtCore.Qt.DashLine)
+
+        # set regular pen
+        self.setPen(pen)
+
+        # use slightly thicker highlight for hover pen
+        hoverpen.setWidth(2)
+        self.hoverPen = hoverpen
 
     def set_level(self, value: float) -> None:
         self.label.update_from_data(0, self.value())
@@ -352,6 +373,9 @@ def level_line(
     # when moused over (aka "hovered")
     hl_on_hover: bool = True,
 
+    # line style
+    dotted: bool = False,
+
     **linelabelkwargs
 ) -> LevelLine:
     """Convenience routine to add a styled horizontal line to a plot.
@@ -385,6 +409,7 @@ def level_line(
         movable=True,
         angle=0,
         hl_on_hover=hl_on_hover,
+        dotted=dotted,
     )
     line.setValue(level)
 
