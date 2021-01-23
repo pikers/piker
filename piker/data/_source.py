@@ -17,9 +17,9 @@
 """
 numpy data source coversion helpers.
 """
-from typing import List
+from typing import Dict, Any, List
 import decimal
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -82,9 +82,13 @@ class Symbol:
 
     """
     key: str = ''
-    brokers: List[str] = None
     min_tick: float = 0.01
-    contract: str = ''
+    broker_info: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    deriv: str = ''
+
+    @property
+    def brokers(self) -> List[str]:
+        return list(self.broker_info.keys())
 
     def digits(self) -> int:
         """Return the trailing number of digits specified by the
@@ -92,6 +96,13 @@ class Symbol:
 
         """
         return float_digits(self.min_tick)
+
+    def nearest_tick(self, value: float) -> float:
+        """Return the nearest tick value based on mininum increment.
+
+        """
+        mult = 1 / self.min_tick
+        return round(value * mult) / mult
 
 
 def from_df(

@@ -21,7 +21,7 @@ We provide tsdb integrations for retrieving
 and storing data from your brokers as well as
 sharing your feeds with other fellow pikers.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from contextlib import asynccontextmanager
 from importlib import import_module
 from types import ModuleType
@@ -42,7 +42,7 @@ from ._sharedmem import (
     ShmArray,
     get_shm_token,
 )
-from ._source import base_iohlc_dtype
+from ._source import base_iohlc_dtype, Symbol
 from ._buffer import (
     increment_ohlc_buffer,
     subscribe_ohlc_for_increment
@@ -149,6 +149,10 @@ class Feed:
     _index_stream: Optional[AsyncIterator[int]] = None
     _trade_stream: Optional[AsyncIterator[Dict[str, Any]]] = None
 
+    # cache of symbol info messages received as first message when
+    # a stream startsc.
+    symbols: Dict[str, Symbol] = field(default_factory=dict)
+
     async def receive(self) -> dict:
         return await self.stream.__anext__()
 
@@ -208,23 +212,26 @@ def sym_to_shm_key(
 
 @asynccontextmanager
 async def open_feed(
-    name: str,
+    brokername: str,
     symbols: Sequence[str],
     loglevel: Optional[str] = None,
 ) -> AsyncIterator[Dict[str, Any]]:
     """Open a "data feed" which provides streamed real-time quotes.
     """
     try:
-        mod = get_brokermod(name)
+        mod = get_brokermod(brokername)
     except ImportError:
-        mod = get_ingestormod(name)
+        mod = get_ingestormod(brokername)
 
     if loglevel is None:
         loglevel = tractor.current_actor().loglevel
 
+    # TODO: do all!
+    sym = symbols[0]
+
     # Attempt to allocate (or attach to) shm array for this broker/symbol
     shm, opened = maybe_open_shm_array(
-        key=sym_to_shm_key(name, symbols[0]),
+        key=sym_to_shm_key(brokername, sym),
 
         # use any broker defined ohlc dtype:
         dtype=getattr(mod, '_ohlc_dtype', base_iohlc_dtype),
@@ -234,34 +241,51 @@ async def open_feed(
     )
 
     async with maybe_spawn_brokerd(
-        mod.name,
+        brokername,
         loglevel=loglevel,
     ) as portal:
         stream = await portal.run(
             mod.stream_quotes,
+
+            # TODO: actually handy multiple symbols...
             symbols=symbols,
+
             shm_token=shm.token,
 
             # compat with eventual ``tractor.msg.pub``
             topics=symbols,
         )
 
-        # TODO: we can't do this **and** be compate with
-        # ``tractor.msg.pub``, should we maybe just drop this after
-        # tests are in?
-        shm_token, is_writer = await stream.receive()
-
-        if opened:
-            assert is_writer
-            log.info("Started shared mem bar writer")
-
-        shm_token['dtype_descr'] = list(shm_token['dtype_descr'])
-        assert shm_token == shm.token  # sanity
-
-        yield Feed(
-            name=name,
+        feed = Feed(
+            name=brokername,
             stream=stream,
             shm=shm,
             mod=mod,
             _brokerd_portal=portal,
         )
+
+        # TODO: we can't do this **and** be compate with
+        # ``tractor.msg.pub``, should we maybe just drop this after
+        # tests are in?
+        init_msg = await stream.receive()
+
+        for sym, data in init_msg.items():
+
+            si = data['symbol_info']
+            symbol = Symbol(
+                sym,
+                min_tick=si.get('minTick', 0.01),
+            )
+            symbol.broker_info[brokername] = si
+
+            feed.symbols[sym] = symbol
+
+            shm_token = data['shm_token']
+            if opened:
+                assert data['is_shm_writer']
+                log.info("Started shared mem bar writer")
+
+        shm_token['dtype_descr'] = list(shm_token['dtype_descr'])
+        assert shm_token == shm.token  # sanity
+
+        yield feed
