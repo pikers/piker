@@ -236,7 +236,13 @@ async def exec_loop(
                         # update to keep new cmds informed
                         book.lasts[(broker, symbol)] = price
 
-                        for oid, (pred, tf, cmd, percent_away) in (
+                        for oid, (
+                            pred,
+                            tf,
+                            cmd,
+                            percent_away,
+                            abs_diff_away
+                        ) in (
                             tuple(execs.items())
                         ):
 
@@ -244,8 +250,10 @@ async def exec_loop(
                                 # majority of iterations will be non-matches
                                 continue
 
-                            submit_price = price + price*percent_away
-                            print(
+                            # submit_price = price + price*percent_away
+                            submit_price = price + abs_diff_away
+
+                            log.info(
                                 f'Dark order triggered for price {price}\n'
                                 f'Submitting order @ price {submit_price}')
 
@@ -274,7 +282,7 @@ async def exec_loop(
 
                             # remove exec-condition from set
                             log.info(f'removing pred for {oid}')
-                            pred, tf, cmd, percent_away = execs.pop(oid)
+                            execs.pop(oid)
 
                             await ctx.send_yield(resp)
 
@@ -358,6 +366,9 @@ async def process_broker_trades(
 
             # XXX should we make one when it's blank?
             log.error(pformat(message))
+
+            # TODO: getting this bs, prolly need to handle status messages
+            # 'Market data farm connection is OK:usfarm.nj'
 
             # another stupid ib error to handle
             # if 10147 in message: cancel
@@ -523,20 +534,31 @@ async def _ems_main(
                         # the user choose the predicate operator.
                         pred = mk_check(trigger_price, last)
 
+                        mt = feed.symbols[sym].min_tick
+
                         if action == 'buy':
                             tickfilter = ('ask', 'last', 'trade')
                             percent_away = 0.005
+                            abs_diff_away = 2 * mt
                         elif action == 'sell':
                             tickfilter = ('bid', 'last', 'trade')
                             percent_away = -0.005
+                            abs_diff_away = -2 * mt
                         else:  # alert
                             tickfilter = ('trade', 'utrade', 'last')
                             percent_away = 0
+                            abs_diff_away = 0
 
                         # submit execution/order to EMS scanner loop
                         book.orders.setdefault(
                             sym, {}
-                        )[oid] = (pred, tickfilter, cmd, percent_away)
+                        )[oid] = (
+                            pred,
+                            tickfilter,
+                            cmd,
+                            percent_away,
+                            abs_diff_away
+                        )
 
                         # ack-response that order is live here
                         await ctx.send_yield({
