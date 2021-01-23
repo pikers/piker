@@ -312,11 +312,13 @@ async def stream_quotes(
     get_console_log(loglevel or tractor.current_actor().loglevel)
 
     ws_pairs = {}
+    sym_infos = {}
     async with get_client() as client:
 
         # keep client cached for real-time section
         for sym in symbols:
-            ws_pairs[sym] = (await client.symbol_info(sym))['wsname']
+            si = sym_infos[sym] = await client.symbol_info(sym)
+            ws_pairs[sym] = si['wsname']
 
         # maybe load historical ohlcv in to shared mem
         # check if shm has already been created by previous
@@ -340,7 +342,18 @@ async def stream_quotes(
             delay_s = times[-1] - times[times != times[-1]][-1]
             subscribe_ohlc_for_increment(shm, delay_s)
 
-        yield shm_token, not writer_exists
+        # yield shm_token, not writer_exists
+        init_msgs = {
+            # pass back token, and bool, signalling if we're the writer
+            # and that history has been written
+            symbol: {
+                'is_shm_writer': not writer_exists,
+                'shm_token': shm_token,
+                'symbol_info': sym_infos[symbol],
+            }
+            for sym in symbols
+        }
+        yield init_msgs
 
         while True:
             try:
