@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -54,7 +54,15 @@ class DpiAwareFont:
 
     @property
     def screen(self) -> QtGui.QScreen:
-        return current_screen()
+        if self._screen is not None:
+            try:
+                self._screen.refreshRate()
+            except RuntimeError:
+                self._screen = current_screen()
+        else:
+            self._screen = current_screen()
+
+        return self._screen
 
     @property
     def font(self):
@@ -64,13 +72,16 @@ class DpiAwareFont:
     def px_size(self):
         return self._qfont.pixelSize()
 
-    def configure_to_dpi(self, screen: QtGui.QScreen):
+    def configure_to_dpi(self, screen: Optional[QtGui.QScreen] = None):
         """Set an appropriately sized font size depending on the screen DPI.
 
         If we end up needing to generalize this more here there are resources
         listed in the script in ``snippets/qt_screen_info.py``.
 
         """
+        if screen is None:
+            screen = self.screen
+
         # take the max since scaling can make things ugly in some cases
         pdpi = screen.physicalDotsPerInch()
         ldpi = screen.logicalDotsPerInch()
@@ -83,7 +94,6 @@ class DpiAwareFont:
         )
         self._set_qfont_px_size(font_size)
         self._physical_dpi = dpi
-        self._screen = screen
 
     def boundingRect(self, value: str) -> QtCore.QRectF:
 
@@ -186,15 +196,23 @@ def hcolor(name: str) -> str:
         # 'hedge': '#558964',
         # 'hedge_light': '#5e9870',
 
+        '80s_neon_green': '#00b677',
         # 'buy_green': '#41694d',
         'buy_green': '#558964',
         'buy_green_light': '#558964',
 
         # sells
         # techincally "raspberry"
-        # 'sell_red': '#980036',
-        'sell_red': '#990036',
+        # 'sell_red': '#990036',
+        # 'sell_red': '#9A0036',
+
+        # brighter then above
+        # 'sell_red': '#8c0030',
+
+        'sell_red': '#b6003f',
+        # 'sell_red': '#d00048',
         'sell_red_light': '#f85462',
+
         # 'sell_red': '#f85462',
         # 'sell_red_light': '#ff4d5c',
 
