@@ -995,7 +995,8 @@ async def _async_main(
                         if resp in ('dark_submitted', 'broker_submitted'):
 
                             # show line label once order is live
-                            order_mode.on_submit(oid)
+                            line = order_mode.on_submit(oid)
+                            # await tractor.breakpoint()
 
                         # resp to 'cancel' request or error condition
                         # for action request
@@ -1017,7 +1018,7 @@ async def _async_main(
                                     price=msg['trigger_price'],
                                     arrow_index=get_index(time.time())
                                 )
-                                await order_mode.on_exec(oid, msg)
+                                line = await order_mode.on_exec(oid, msg)
 
                         # response to completed 'action' request for buy/sell
                         elif resp in ('broker_executed',):
@@ -1354,10 +1355,10 @@ async def update_signals(
 
     # add moveable over-[sold/bought] lines
     # and labels only for the 70/30 lines
-    level_line(chart, 20, show_label=False)
+    l = level_line(chart, 20)
     level_line(chart, 30, orient_v='top')
     level_line(chart, 70, orient_v='bottom')
-    level_line(chart, 80, orient_v='top', show_label=False)
+    l = level_line(chart, 80, orient_v='top')
 
     chart._set_yrange()
 
