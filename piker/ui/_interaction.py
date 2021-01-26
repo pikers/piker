@@ -253,6 +253,9 @@ class LineEditor:
                 dotted=dotted,
                 size=size,
             )
+            line.label._use_extra_fields = size is not None
+
+            # cache staging line after creation
             self._stage_line = line
 
         else:
@@ -271,17 +274,13 @@ class LineEditor:
             line._dotted = dotted
             line.color = color
             line.setMouseHover(hl_on_hover)
-
-            # XXX: must have this to trigger updated
-            # label contents rendering
-            line.setPos(y)
-            line.set_level()
-
-            line.update()
             line.show()
-            label.show()
 
-            # label.set_label_str(line.)
+        # XXX: must have this to trigger updated
+        # label contents rendering
+        line.setPos(y)
+        line.set_level()
+        label.show()
 
         self._active_staged_line = line
 
