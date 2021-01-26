@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -56,26 +56,29 @@ _qt_app: QtGui.QApplication = None
 _qt_win: QtGui.QMainWindow = None
 
 
-def current_screen(timeout: float = 6) -> QtGui.QScreen:
-    print('yo screen zonnnee')
+def current_screen() -> QtGui.QScreen:
+    """Get a frickin screen (if we can, gawd).
 
+    """
     global _qt_win, _qt_app
-    screen = _qt_app.screenAt(_qt_win.centralWidget().geometry().center())
 
     start = time.time()
 
-    # breakpoint()
-    # wait for 6 seconds to grab screen
-    while screen is None and (
-        (time.time() - start) < timeout
-    ):
-        screen = _qt_app.screenAt(_qt_win.centralWidget().geometry().center())
-        time.sleep(0.1)
-        log.info("Couldn't acquire screen trying again...")
+    tries = 3
+    for _ in range(3):
+        screen = _qt_app.screenAt(_qt_win.pos())
+        print(f'trying to get screen....')
+        if screen is None:
+            time.sleep(0.5)
+            continue
 
-    if screen is None:
-        raise RuntimeError("Failed to acquire screen?")
+        break
+    else:
+        if screen is None:
+            # try for the first one we can find
+            screen = _qt_app.screens()[0]
 
+    assert screen, "Wow Qt is dumb as shit and has no screen..."
     return screen
 
 
