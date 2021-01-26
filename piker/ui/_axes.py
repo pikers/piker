@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -166,6 +166,7 @@ class AxisLabel(pg.GraphicsObject):
 
         super().__init__(parent)
         self.setFlag(self.ItemIgnoresTransformations)
+
         # XXX: pretty sure this is faster
         self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
 
@@ -177,7 +178,7 @@ class AxisLabel(pg.GraphicsObject):
         self._txt_br: QtCore.QRect = None
 
         self._dpifont = DpiAwareFont(size_in_inches=font_size_inches)
-        self._dpifont.configure_to_dpi(_font._screen)
+        self._dpifont.configure_to_dpi()
 
         self.bg_color = pg.mkColor(hcolor(bg_color))
         self.fg_color = pg.mkColor(hcolor(fg_color))
@@ -232,8 +233,11 @@ class AxisLabel(pg.GraphicsObject):
 
         """
         # size the filled rect to text and/or parent axis
-        br = self._txt_br = self._dpifont.boundingRect(value)
+        # if not self._txt_br:
+        #     # XXX: this can't be c
+        #     self._txt_br = self._dpifont.boundingRect(value)
 
+        br = self._txt_br = self._dpifont.boundingRect(value)
         txt_h, txt_w = br.height(), br.width()
         h, w = self.size_hint()
 

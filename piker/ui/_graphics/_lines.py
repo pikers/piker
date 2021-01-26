@@ -18,7 +18,7 @@
 Lines for orders, alerts, L2.
 
 """
-from typing import Tuple
+from typing import Tuple, Dict, Any, Optional
 
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
@@ -27,6 +27,8 @@ from PyQt5.QtCore import QPointF
 from .._style import (
     hcolor,
     _down_2_font_inches_we_like,
+    # _font,
+    # DpiAwareFont
 )
 from .._axes import YSticky
 
@@ -35,7 +37,15 @@ class LevelLabel(YSticky):
 
     _w_margin = 4
     _h_margin = 3
-    level: float = 0
+
+    # adjustment "further away from" parent axis
+    _x_offset = 0
+
+    # fields to be displayed
+    level: float = 0.0
+    size: float = 2.0
+    size_digits: int = int(2.0)
+
 
     def __init__(
         self,
@@ -65,6 +75,9 @@ class LevelLabel(YSticky):
             'left': -1., 'right': 0
         }[orient_h]
 
+        self._fmt_fields: Dict[str, Dict[str, Any]] = {}
+        self._use_extra_fields: bool = False
+
     @property
     def color(self):
         return self._hcolor
@@ -82,29 +95,39 @@ class LevelLabel(YSticky):
     ) -> None:
 
         # write contents, type specific
-        self.set_label_str(level)
+        h, w = self.set_label_str(level)
 
-        br = self.boundingRect()
-        h, w = br.height(), br.width()
-
-        # this triggers ``.paint()`` implicitly?
+        # this triggers ``.paint()`` implicitly or no?
         self.setPos(QPointF(
-            self._h_shift * w - offset,
+            self._h_shift * w - self._x_offset,
             abs_pos.y() - (self._v_shift * h) - offset
         ))
+        # trigger .paint()
         self.update()
 
         self.level = level
 
     def set_label_str(self, level: float):
-        # self.label_str = '{size} x {level:.{digits}f}'.format(
-        # size=self._size,
+        # use space as e3 delim
+        label_str = (f'{level:,.{self.digits}f}').replace(',', ' ')
 
-        # this is read inside ``.paint()``
-        self.label_str = '{level:.{digits}f}'.format(
-            digits=self.digits,
-            level=level
-        ).replace(',', ' ')
+        # XXX: not huge on this approach but we need a more formal
+        # way to define "label fields" that i don't have the brain space
+        # for atm.. it's at least a **lot** better then the wacky
+        # internals of InfLinelabel or wtv.
+
+        # mutate label to contain any extra defined format fields
+        if self._use_extra_fields:
+            for fmt_str, fields in self._fmt_fields.items():
+                label_str = fmt_str.format(
+                    **{f: getattr(self, f) for f in fields}) + label_str
+
+        self.label_str = label_str
+
+        br = self.boundingRect()
+        h, w = br.height(), br.width()
+        return h, w
+
 
     def size_hint(self) -> Tuple[None, None]:
         return None, None
@@ -119,6 +142,7 @@ class LevelLabel(YSticky):
         if self._orient_v == 'bottom':
             lp, rp = rect.topLeft(), rect.topRight()
             # p.drawLine(rect.topLeft(), rect.topRight())
+
         elif self._orient_v == 'top':
             lp, rp = rect.bottomLeft(), rect.bottomRight()
 
@@ -133,10 +157,15 @@ class LevelLabel(YSticky):
         self.update()
 
 
+# global for now but probably should be
+# attached to chart instance?
+_max_l1_line_len: float = 0
+
+
 class L1Label(LevelLabel):
 
     size: float = 0
-    size_digits: float = 3
+    size_digits: int = 3
 
     text_flags = (
         QtCore.Qt.TextDontClip
@@ -148,12 +177,14 @@ class L1Label(LevelLabel):
         size in the text, eg. 100 x 323.3.
 
         """
-        self.label_str = '{size:.{size_digits}f} x {level:,.{digits}f}'.format(
-            size_digits=self.size_digits,
-            size=self.size or 2,
-            digits=self.digits,
-            level=level
-        ).replace(',', ' ')
+        h, w = super().set_label_str(level)
+
+        # Set a global "max L1 label length" so we can look it up
+        # on order lines and adjust their labels not to overlap with it.
+        global _max_l1_line_len
+        _max_l1_line_len = max(_max_l1_line_len, w)
+
+        return h, w
 
 
 class L1Labels:
@@ -200,6 +231,14 @@ class L1Labels:
         self.ask_label.size_digits = size_digits
         self.ask_label._size_br_from_str(self.max_value)
 
+        self.bid_label._use_extra_fields = True
+        self.ask_label._use_extra_fields = True
+
+        self.bid_label._fmt_fields['{size:.{size_digits}f} x '] = {
+            'size', 'size_digits'}
+        self.ask_label._fmt_fields['{size:.{size_digits}f} x '] = {
+            'size', 'size_digits'}
+
 
 # TODO: probably worth investigating if we can
 # make .boundingRect() faster:
@@ -217,6 +256,8 @@ class LevelLine(pg.InfiniteLine):
         highlight_color: str = 'default_light',
         hl_on_hover: bool = True,
         dotted: bool = False,
+        adjust_to_l1: bool = False,
+        always_show_label: bool = False,
         **kwargs,
     ) -> None:
 
@@ -234,6 +275,8 @@ class LevelLine(pg.InfiniteLine):
 
         # TODO: for when we want to move groups of lines?
         self._track_cursor: bool = False
+        self._adjust_to_l1 = adjust_to_l1
+        self._always_show_label = always_show_label
 
         # testing markers
         # self.addMarker('<|', 0.1, 3)
@@ -267,14 +310,24 @@ class LevelLine(pg.InfiniteLine):
         hoverpen.setWidth(2)
         self.hoverPen = hoverpen
 
-    def set_level(self, value: float) -> None:
-        self.label.update_from_data(0, self.value())
+    def set_level(self) -> None:
+
+        label = self.label
+
+        # TODO: a better way to accomplish this...
+        if self._adjust_to_l1:
+            label._x_offset = _max_l1_line_len
+
+        label.update_from_data(0, self.value())
 
     def on_tracked_source(
         self,
         x: int,
         y: float
     ) -> None:
+        # XXX: this is called by our ``Cursor`` type once this
+        # line is set to track the cursor: for every movement
+        # this callback is invoked to reposition the line
         self.movable = True
         self.setPos(y)  # implictly calls ``.set_level()``
         self.update()
@@ -300,19 +353,23 @@ class LevelLine(pg.InfiniteLine):
             # add us to cursor state
             chart._cursor.add_hovered(self)
 
+            self.label.show()
             # TODO: hide y-crosshair?
             # chart._cursor.graphics[chart]['hl'].hide()
 
+            # self.setCursor(QtCore.Qt.OpenHandCursor)
+            # self.setCursor(QtCore.Qt.DragMoveCursor)
         else:
             self.currentPen = self.pen
             self.label.unhighlight()
 
             chart._cursor._hovered.remove(self)
 
+            if not self._always_show_label:
+                self.label.hide()
+
         # highlight any attached label
 
-        # self.setCursor(QtCore.Qt.OpenHandCursor)
-        # self.setCursor(QtCore.Qt.DragMoveCursor)
         self.update()
 
     def mouseDragEvent(self, ev):
@@ -339,13 +396,6 @@ class LevelLine(pg.InfiniteLine):
     ) -> None:
         print(f'double click {ev}')
 
-    # def mouseMoved(
-    #     self,
-    #     ev: Tuple[QtGui.QMouseEvent],
-    # ) -> None:
-    #     pos = evt[0]
-    #     print(pos)
-
     def delete(self) -> None:
         """Remove this line from containing chart/view/scene.
 
@@ -357,6 +407,20 @@ class LevelLine(pg.InfiniteLine):
 
         self._chart.plotItem.removeItem(self)
 
+    def getEndpoints(self):
+        """Get line endpoints at view edges.
+
+        Stolen from InfLineLabel.
+
+        """
+        # calculate points where line intersects view box
+        # (in line coordinates)
+        lr = self.boundingRect()
+        pt1 = pg.Point(lr.left(), 0)
+        pt2 = pg.Point(lr.right(), 0)
+
+        return pt1, pt2
+
 
 def level_line(
     chart: 'ChartPlogWidget',  # noqa
@@ -367,14 +431,16 @@ def level_line(
     # size 4 font on 4k screen scaled down, so small-ish.
     font_size_inches: float = _down_2_font_inches_we_like,
 
-    show_label: bool = True,
-
     # whether or not the line placed in view should highlight
     # when moused over (aka "hovered")
     hl_on_hover: bool = True,
 
     # line style
     dotted: bool = False,
+
+    adjust_to_l1: bool = False,
+
+    always_show_label: bool = False,
 
     **linelabelkwargs
 ) -> LevelLine:
@@ -396,6 +462,7 @@ def level_line(
         **linelabelkwargs
     )
     label.update_from_data(0, level)
+    label.hide()
 
     # TODO: can we somehow figure out a max value from the parent axis?
     label._size_br_from_str(label.label_str)
@@ -410,15 +477,39 @@ def level_line(
         angle=0,
         hl_on_hover=hl_on_hover,
         dotted=dotted,
+        adjust_to_l1=adjust_to_l1,
+        always_show_label=always_show_label,
     )
-    line.setValue(level)
 
     # activate/draw label
     line.setValue(level)
+    line.set_level()
 
     chart.plotItem.addItem(line)
 
-    if not show_label:
-        label.hide()
+    return line
+
+
+def order_line(
+    *args,
+    size: Optional[int] = None,
+    size_digits: int = 0,
+    **kwargs,
+) -> LevelLine:
+    """Convenience routine to add a line graphic representing an order execution
+    submitted to the EMS via the chart's "order mode".
+
+    """
+    line = level_line(*args, adjust_to_l1=True, **kwargs)
+    line.label._fmt_fields['{size:.{size_digits}f} x '] = {
+        'size', 'size_digits'}
+
+    if size is not None:
+
+        line.label._use_extra_fields = True
+        line.label.size = size
+        line.label.size_digits = size_digits
+
+    line.label.hide()
 
     return line
