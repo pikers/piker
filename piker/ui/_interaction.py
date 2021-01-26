@@ -32,7 +32,7 @@ import numpy as np
 
 from ..log import get_logger
 from ._style import _min_points_to_show, hcolor, _font
-from ._graphics._lines import level_line, LevelLine
+from ._graphics._lines import order_line, LevelLine
 from .._ems import OrderBook
 
 
@@ -211,7 +211,11 @@ _order_lines: Dict[str, LevelLine] = {}
 
 @dataclass
 class LineEditor:
+    """The great editor of linez..
+
+    """
     view: 'ChartView'
+
     _order_lines: field(default_factory=_order_lines)
     chart: 'ChartPlotWidget' = None  # type: ignore # noqa
     _active_staged_line: LevelLine = None
@@ -222,13 +226,15 @@ class LineEditor:
         color: str = 'alert_yellow',
         hl_on_hover: bool = False,
         dotted: bool = False,
+        size: Optional[int] = None,
     ) -> LevelLine:
         """Stage a line at the current chart's cursor position
         and return it.
 
         """
+        # chart.setCursor(QtCore.Qt.PointingHandCursor)
+
         chart = self.chart._cursor.active_plot
-        chart.setCursor(QtCore.Qt.PointingHandCursor)
         cursor = chart._cursor
         y = chart._cursor._datum_xy[1]
 
@@ -236,7 +242,7 @@ class LineEditor:
         if not line:
             # add a "staged" cursor-tracking line to view
             # and cash it in a a var
-            line = level_line(
+            line = order_line(
                 chart,
                 level=y,
                 digits=chart._lc.symbol.digits(),
@@ -245,11 +251,18 @@ class LineEditor:
                 # don't highlight the "staging" line
                 hl_on_hover=hl_on_hover,
                 dotted=dotted,
+                size=size,
             )
             self._stage_line = line
 
         else:
-            # print(f'hl on hover: {hl_on_hover}')
+            label = line.label
+
+            # disable order size and other extras in label
+            label._use_extra_fields = size is not None
+            label.size = size
+            # label.size_digits = line.label.size_digits
+            label.color = color
 
             # Use the existing staged line instead but copy
             # overe it's current style "properties".
@@ -258,13 +271,17 @@ class LineEditor:
             line._dotted = dotted
             line.color = color
             line.setMouseHover(hl_on_hover)
-            line.setValue(y)
+
+            # XXX: must have this to trigger updated
+            # label contents rendering
+            line.setPos(y)
+            line.set_level()
+
             line.update()
             line.show()
-
-            label = line.label
-            label.color = color
             label.show()
+
+            # label.set_label_str(line.)
 
         self._active_staged_line = line
 
@@ -311,14 +328,16 @@ class LineEditor:
         chart = self.chart._cursor.active_plot
         y = chart._cursor._datum_xy[1]
 
-        line = level_line(
+        line = order_line(
             chart,
             level=y,
             color=line.color,
             digits=chart._lc.symbol.digits(),
-            show_label=False,
             dotted=line._dotted,
+            size=line.label.size,
         )
+        # for now, until submission reponse arrives
+        line.label.hide()
 
         # register for later lookup/deletion
         self._order_lines[uuid] = line
@@ -338,6 +357,8 @@ class LineEditor:
             return
         else:
             line.oid = uuid
+            line.set_level()
+            line.label.update()
             line.label.show()
 
             # TODO: other flashy things to indicate the order is active
@@ -399,7 +420,7 @@ class ArrowEditor:
         angle = {
             'up': 90,
             'down': -90,
-            None: 0,
+            None: 180,  # pointing to right
         }[pointing]
 
         yb = pg.mkBrush(hcolor(color))
@@ -443,6 +464,7 @@ class OrderMode:
     }
     _action: str = 'alert'
     _exec_mode: str = 'dark'
+    _size: int = 100
 
     key_map: Dict[str, Callable] = field(default_factory=dict)
 
@@ -452,7 +474,7 @@ class OrderMode:
     def set_exec(
         self,
         action: str,
-        # mode: str,
+        size: Optional[int] = None,
     ) -> None:
         """Set execution mode.
 
@@ -462,6 +484,7 @@ class OrderMode:
             color=self._colors[action],
             # hl_on_hover=True if self._exec_mode == 'live' else False,
             dotted=True if self._exec_mode == 'dark' else False,
+            size=size,
         )
 
     def on_submit(self, uuid: str) -> dict:
@@ -472,12 +495,12 @@ class OrderMode:
         'dark').
 
         """
-        self.lines.commit_line(uuid)
+        line = self.lines.commit_line(uuid)
         req_msg = self.book._sent_orders.get(uuid)
         if req_msg:
             req_msg['ack_time_ns'] = time.time_ns()
 
-        return req_msg
+        return line
 
     def on_fill(
         self,
@@ -557,6 +580,7 @@ class OrderMode:
             action=self._action,
             exec_mode=self._exec_mode,
         )
+        return line
 
 
 @asynccontextmanager
@@ -568,7 +592,7 @@ async def open_order_mode(
 
     view = chart._vb
     # book = get_orders()
-    lines = LineEditor(view=view, _order_lines=_order_lines, chart=chart)
+    lines = LineEditor(view=view, chart=chart, _order_lines=_order_lines)
     arrows = ArrowEditor(chart, {})
 
     log.info("Opening order mode")
@@ -873,6 +897,7 @@ class ChartView(ViewBox):
                 mode.book.cancel(uuid=line.oid)
 
         self._key_buffer.append(text)
+        order_size = self.mode._size
 
         # View modes
         if key == QtCore.Qt.Key_R:
@@ -881,13 +906,13 @@ class ChartView(ViewBox):
         # Order modes: stage orders at the current cursor level
 
         elif key == QtCore.Qt.Key_D:  # for "damp eet"
-            self.mode.set_exec('sell')
+            self.mode.set_exec('sell', size=order_size)
 
         elif key == QtCore.Qt.Key_F:  # for "fillz eet"
-            self.mode.set_exec('buy')
+            self.mode.set_exec('buy', size=order_size)
 
         elif key == QtCore.Qt.Key_A:
-            self.mode.set_exec('alert')
+            self.mode.set_exec('alert', size=None)
 
         # delete orders under cursor
         elif key == QtCore.Qt.Key_Delete:
