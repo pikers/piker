@@ -539,11 +539,17 @@ async def _ems_main(
                         if action == 'buy':
                             tickfilter = ('ask', 'last', 'trade')
                             percent_away = 0.005
-                            abs_diff_away = 2 * mt
+
+                            # TODO: we probably need to scale this based
+                            # on some near term historical spread
+                            # measure?
+                            abs_diff_away = 3 * mt
+
                         elif action == 'sell':
                             tickfilter = ('bid', 'last', 'trade')
                             percent_away = -0.005
-                            abs_diff_away = -2 * mt
+                            abs_diff_away = -3 * mt
+
                         else:  # alert
                             tickfilter = ('trade', 'utrade', 'last')
                             percent_away = 0
