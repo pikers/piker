@@ -819,7 +819,7 @@ async def fill_bars(
     first_bars: list,
     shm: 'ShmArray',  # type: ignore # noqa
     # count: int = 20,  # NOTE: any more and we'll overrun underlying buffer
-    count: int = 2,  # NOTE: any more and we'll overrun the underlying buffer
+    count: int = 6,  # NOTE: any more and we'll overrun the underlying buffer
 ) -> None:
     """Fill historical bars into shared mem / storage afap.
 
@@ -1176,5 +1176,10 @@ async def stream_trades(
 
         elif event_name == 'error':
             msg = item
+
+            # f$#$% gawd dammit insync..
+            con = msg['contract']
+            if isinstance(con, Contract):
+                msg['contract'] = asdict(con)
 
         yield {'local_trades': (event_name, msg)}
