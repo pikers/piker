@@ -462,6 +462,8 @@ def level_line(
         **linelabelkwargs
     )
     label.update_from_data(0, level)
+
+    # by default, the label must be shown by client code
     label.hide()
 
     # TODO: can we somehow figure out a max value from the parent axis?
@@ -470,19 +472,32 @@ def level_line(
     line = LevelLine(
         chart,
         label,
+
         color=color,
         # lookup "highlight" equivalent
         highlight_color=color + '_light',
+
         movable=True,
         angle=0,
-        hl_on_hover=hl_on_hover,
+
         dotted=dotted,
+
+        # UX related options
+
+        hl_on_hover=hl_on_hover,
+
+        # makes order line labels offset from their parent axis
+        # such that they don't collide with the L1/L2 lines/prices
+        # that are displayed on the axis
         adjust_to_l1=adjust_to_l1,
+
+        # when set to True the label is always shown instead of just on
+        # highlight (which is a privacy thing for orders)
         always_show_label=always_show_label,
     )
 
     # activate/draw label
-    line.setValue(level)
+    line.setValue(level)  # it's just .setPos() right?
     line.set_level()
 
     chart.plotItem.addItem(line)
@@ -509,7 +524,5 @@ def order_line(
         line.label._use_extra_fields = True
         line.label.size = size
         line.label.size_digits = size_digits
-
-    line.label.hide()
 
     return line
