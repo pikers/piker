@@ -367,7 +367,8 @@ class Cursor(pg.GraphicsObject):
             self.graphics[plot]['hl'].setY(iy)
 
             self.graphics[self.active_plot]['yl'].update_label(
-                abs_pos=pos, value=iy
+                abs_pos=plot.mapFromView(QPointF(ix, iy)),
+                value=iy
             )
 
             # update all trackers
