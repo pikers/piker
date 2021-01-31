@@ -34,6 +34,7 @@ import tractor
 
 from ..brokers import get_brokermod
 from ..log import get_logger, get_console_log
+from .._daemon import spawn_brokerd, maybe_spawn_pikerd
 from ._normalize import iterticks
 from ._sharedmem import (
     maybe_open_shm_array,
@@ -47,7 +48,6 @@ from ._buffer import (
     increment_ohlc_buffer,
     subscribe_ohlc_for_increment
 )
-
 
 __all__ = [
     'iterticks',
@@ -75,22 +75,10 @@ def get_ingestormod(name: str) -> ModuleType:
     return module
 
 
-# capable rpc modules
-_data_mods = [
-    'piker.brokers.core',
-    'piker.brokers.data',
-    'piker.data',
-    'piker.data._buffer',
-]
-
-
 @asynccontextmanager
 async def maybe_spawn_brokerd(
     brokername: str,
-    sleep: float = 0.5,
-    loglevel: Optional[str] = None,
-    expose_mods: List = [],
-    **tractor_kwargs,
+    loglevel: Optional[str] = None
 ) -> tractor._portal.Portal:
     """If no ``brokerd.{brokername}`` daemon-actor can be found,
     spawn one in a local subactor and return a portal to it.
@@ -101,9 +89,6 @@ async def maybe_spawn_brokerd(
     # disable debugger in brokerd?
     # tractor._state._runtime_vars['_debug_mode'] = False
 
-    tractor_kwargs['loglevel'] = loglevel
-
-    brokermod = get_brokermod(brokername)
     dname = f'brokerd.{brokername}'
     async with tractor.find_actor(dname) as portal:
 
@@ -112,24 +97,25 @@ async def maybe_spawn_brokerd(
             yield portal
 
         else:  # no daemon has been spawned yet
+            async with maybe_spawn_pikerd(
+                loglevel=loglevel
+            ) as pikerd_portal:
 
-            log.info(f"Spawning {brokername} broker daemon")
-            tractor_kwargs = getattr(brokermod, '_spawn_kwargs', {})
-            async with tractor.open_nursery() as nursery:
-                try:
-                    # spawn new daemon
-                    portal = await nursery.start_actor(
-                        dname,
-                        enable_modules=_data_mods + [brokermod.__name__],
-                        loglevel=loglevel,
-                        **tractor_kwargs
+                if pikerd_portal is None:
+                    await spawn_brokerd(
+                        brokername, loglevel=loglevel
                     )
-                    async with tractor.wait_for_actor(dname) as portal:
-                        yield portal
-                finally:
-                    # client code may block indefinitely so cancel when
-                    # teardown is invoked
-                    await nursery.cancel()
+
+                else:
+                    await pikerd_portal.run(
+                        spawn_brokerd,
+                        brokername=brokername,
+                        loglevel=loglevel
+                    )
+
+                async with tractor.wait_for_actor(dname) as portal:
+                    yield portal
+
 
 
 @dataclass
