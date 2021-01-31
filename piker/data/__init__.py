@@ -29,11 +29,11 @@ from typing import (
     Dict, Any, Sequence, AsyncIterator, Optional
 )
 
-import trio
 import tractor
 
 from ..brokers import get_brokermod
 from ..log import get_logger, get_console_log
+from .._daemon import spawn_brokerd, maybe_open_pikerd
 from ._normalize import iterticks
 from ._sharedmem import (
     maybe_open_shm_array,
@@ -47,7 +47,6 @@ from ._buffer import (
     increment_ohlc_buffer,
     subscribe_ohlc_for_increment
 )
-
 
 __all__ = [
     'iterticks',
@@ -75,15 +74,6 @@ def get_ingestormod(name: str) -> ModuleType:
     return module
 
 
-# capable rpc modules
-_data_mods = [
-    'piker.brokers.core',
-    'piker.brokers.data',
-    'piker.data',
-    'piker.data._buffer',
-]
-
-
 @asynccontextmanager
 async def maybe_spawn_brokerd(
     brokername: str,
@@ -95,11 +85,11 @@ async def maybe_spawn_brokerd(
 ) -> tractor._portal.Portal:
     """If no ``brokerd.{brokername}`` daemon-actor can be found,
     spawn one in a local subactor and return a portal to it.
+
     """
     if loglevel:
         get_console_log(loglevel)
 
-    brokermod = get_brokermod(brokername)
     dname = f'brokerd.{brokername}'
     async with tractor.find_actor(dname) as portal:
 
@@ -107,32 +97,29 @@ async def maybe_spawn_brokerd(
         if portal is not None:
             yield portal
 
-        else:  # no daemon has been spawned yet
+        else:
+            # ask root ``pikerd`` daemon to spawn the daemon we need if
+            # pikerd is not live we now become the root of the
+            # process tree
+            async with maybe_open_pikerd(
+                loglevel=loglevel
+            ) as pikerd_portal:
 
-            log.info(f"Spawning {brokername} broker daemon")
+                if pikerd_portal is None:
+                    # we are root so spawn brokerd directly in our tree
+                    # the root nursery is accessed through process global state
+                    await spawn_brokerd(brokername, loglevel=loglevel)
 
-            # retrieve any special config from the broker mod
-            tractor_kwargs = getattr(brokermod, '_spawn_kwargs', {})
-
-            async with tractor.open_nursery(
-                #debug_mode=debug_mode,
-            ) as nursery:
-                try:
-                    # spawn new daemon
-                    portal = await nursery.start_actor(
-                        dname,
-                        enable_modules=_data_mods + [brokermod.__name__],
+                else:
+                    await pikerd_portal.run(
+                        spawn_brokerd,
+                        brokername=brokername,
                         loglevel=loglevel,
                         debug_mode=debug_mode,
-                        **tractor_kwargs
                     )
-                    async with tractor.wait_for_actor(dname) as portal:
-                        yield portal
 
-                finally:
-                    # client code may block indefinitely so cancel when
-                    # teardown is invoked
-                    await nursery.cancel()
+                async with tractor.wait_for_actor(dname) as portal:
+                    yield portal
 
 
 @dataclass
