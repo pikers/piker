@@ -19,10 +19,10 @@ numpy data source coversion helpers.
 """
 from typing import Dict, Any, List
 import decimal
-from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
+from pydantic import BaseModel
 # from numba import from_dtype
 
 
@@ -75,18 +75,16 @@ def ohlc_zeros(length: int) -> np.ndarray:
     return np.zeros(length, dtype=base_ohlc_dtype)
 
 
-@dataclass
-class Symbol:
+class Symbol(BaseModel):
     """I guess this is some kinda container thing for dealing with
     all the different meta-data formats from brokers?
 
     Yah, i guess dats what it izz.
     """
-    key: str = ''
+    key: str
     tick_size: float = 0.01
-    v_tick_size: float = 0.01
-    broker_info: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    deriv: str = ''
+    lot_tick_size: float = 0.01  # "volume" precision as min step value
+    broker_info: Dict[str, Dict[str, Any]] = {}
 
     @property
     def brokers(self) -> List[str]:
