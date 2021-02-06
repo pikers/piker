@@ -114,7 +114,11 @@ def get_book(broker: str) -> _ExecBook:
     return _books.setdefault(broker, _ExecBook(broker))
 
 
-_DEFAULT_SIZE: float = 100.0
+# XXX: this is in place to prevent accidental positions that are too
+# big. Now obviously this won't make sense for crypto like BTC, but
+# for most traditional brokers it should be fine unless you start
+# slinging NQ futes or something.
+_DEFAULT_SIZE: float = 1.0
 
 
 @dataclass
@@ -326,7 +330,7 @@ async def process_broker_trades(
         'fill'   ->  'broker_filled'
 
     Currently accepted status values from IB
-        {'presubmitted', 'submitted', 'cancelled'}
+        {'presubmitted', 'submitted', 'cancelled', 'inactive'}
 
     """
     broker = feed.mod.name
@@ -352,7 +356,9 @@ async def process_broker_trades(
         oid = book._broker2ems_ids.get(reqid)
         resp = {'oid': oid}
 
-        if name in ('error',):
+        if name in (
+            'error',
+        ):
             # TODO: figure out how this will interact with EMS clients
             # for ex. on an error do we react with a dark orders
             # management response, like cancelling all dark orders?
@@ -373,8 +379,9 @@ async def process_broker_trades(
             # another stupid ib error to handle
             # if 10147 in message: cancel
 
-        elif name in ('status',):
-
+        elif name in (
+            'status',
+        ):
             # everyone doin camel case
             status = msg['status'].lower()
 
@@ -397,7 +404,9 @@ async def process_broker_trades(
 
                 await ctx.send_yield(resp)
 
-        elif name in ('fill',):
+        elif name in (
+            'fill',
+        ):
             # proxy through the "fill" result(s)
             resp['resp'] = 'broker_filled'
             resp.update(msg)
@@ -534,7 +543,7 @@ async def _ems_main(
                         # the user choose the predicate operator.
                         pred = mk_check(trigger_price, last)
 
-                        mt = feed.symbols[sym].min_tick
+                        mt = feed.symbols[sym].tick_size
 
                         if action == 'buy':
                             tickfilter = ('ask', 'last', 'trade')

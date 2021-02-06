@@ -80,9 +80,11 @@ class Symbol:
     """I guess this is some kinda container thing for dealing with
     all the different meta-data formats from brokers?
 
+    Yah, i guess dats what it izz.
     """
     key: str = ''
-    min_tick: float = 0.01
+    tick_size: float = 0.01
+    v_tick_size: float = 0.01
     broker_info: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     deriv: str = ''
 
@@ -91,17 +93,17 @@ class Symbol:
         return list(self.broker_info.keys())
 
     def digits(self) -> int:
-        """Return the trailing number of digits specified by the
-        min tick size for the instrument.
+        """Return the trailing number of digits specified by the min
+        tick size for the instrument.
 
         """
-        return float_digits(self.min_tick)
+        return float_digits(self.tick_size)
 
     def nearest_tick(self, value: float) -> float:
         """Return the nearest tick value based on mininum increment.
 
         """
-        mult = 1 / self.min_tick
+        mult = 1 / self.tick_size
         return round(value * mult) / mult
 
 

@@ -228,7 +228,7 @@ class Cursor(pg.GraphicsObject):
 
         # value used for rounding y-axis discreet tick steps
         # computing once, up front, here cuz why not
-        self._y_incr_mult = 1 / self.lsc._symbol.min_tick
+        self._y_incr_mult = 1 / self.lsc._symbol.tick_size
 
     def add_hovered(
         self,
