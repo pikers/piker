@@ -386,7 +386,7 @@ class Client:
         self,
         symbol: str,
         to_trio,
-        opts: Tuple[int] = ('375', '233',),
+        opts: Tuple[int] = ('375', '233', '236'),
         contract: Optional[Contract] = None,
     ) -> None:
         """Stream a ticker using the std L1 api.
@@ -818,8 +818,8 @@ async def fill_bars(
     sym: str,
     first_bars: list,
     shm: 'ShmArray',  # type: ignore # noqa
-    # count: int = 20,  # NOTE: any more and we'll overrun underlying buffer
-    count: int = 6,  # NOTE: any more and we'll overrun the underlying buffer
+    count: int = 20,  # NOTE: any more and we'll overrun underlying buffer
+    # count: int = 6,  # NOTE: any more and we'll overrun the underlying buffer
 ) -> None:
     """Fill historical bars into shared mem / storage afap.
 
@@ -952,8 +952,13 @@ async def stream_quotes(
         # pass back some symbol info like min_tick, trading_hours, etc.
         # con = asdict(contract)
         # syminfo = contract
-        symdeats = asdict(details)
-        symdeats.update(symdeats['contract'])
+        syminfo = asdict(details)
+        syminfo.update(syminfo['contract'])
+
+        # TODO: more consistent field translation
+        syminfo['price_tick_size'] = syminfo['minTick']
+        # for "traditional" assets, volume is discreet not a float
+        syminfo['lot_tick_size'] = 0
 
         # TODO: for loop through all symbols passed in
         init_msgs = {
@@ -962,7 +967,7 @@ async def stream_quotes(
             sym: {
                 'is_shm_writer': not writer_already_exists,
                 'shm_token': shm_token,
-                'symbol_info': symdeats,
+                'symbol_info': syminfo,
             }
         }
         await ctx.send_yield(init_msgs)
