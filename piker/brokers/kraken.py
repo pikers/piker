@@ -18,7 +18,7 @@
 Kraken backend.
 """
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, field
 from typing import List, Dict, Any, Tuple, Optional
 import json
 import time
@@ -30,6 +30,8 @@ import asks
 import numpy as np
 import trio
 import tractor
+from pydantic.dataclasses import dataclass
+from pydantic import BaseModel
 
 from ._util import resproc, SymbolNotFound, BrokerError
 from ..log import get_logger, get_console_log
@@ -66,6 +68,68 @@ _ohlc_dtype = [
 ohlc_dtype = np.dtype(_ohlc_dtype)
 
 _show_wap_in_history = True
+
+
+_symbol_info_translation: Dict[str, str] = {
+    'tick_decimals': 'pair_decimals',
+}
+
+
+# https://www.kraken.com/features/api#get-tradable-pairs
+class Pair(BaseModel):
+    altname: str  # alternate pair name
+    wsname: str  # WebSocket pair name (if available)
+    aclass_base: str  # asset class of base component
+    base: str  # asset id of base component
+    aclass_quote: str  # asset class of quote component
+    quote: str  # asset id of quote component
+    lot: str  # volume lot size
+
+    pair_decimals: int  # scaling decimal places for pair
+    lot_decimals: int  # scaling decimal places for volume
+
+    # amount to multiply lot volume by to get currency volume
+    lot_multiplier: float
+
+    # array of leverage amounts available when buying
+    leverage_buy: List[int]
+    # array of leverage amounts available when selling
+    leverage_sell: List[int]
+
+    # fee schedule array in [volume, percent fee] tuples
+    fees: List[Tuple[int, float]]
+
+    # maker fee schedule array in [volume, percent fee] tuples (if on
+    # maker/taker)
+    fees_maker: List[Tuple[int, float]]
+
+    fee_volume_currency: str  # volume discount currency
+    margin_call: str  # margin call level
+    margin_stop: str  # stop-out/liquidation margin level
+    ordermin: float  # minimum order volume for pair
+
+
+@dataclass
+class OHLC:
+    """Description of the flattened OHLC quote format.
+
+    For schema details see:
+        https://docs.kraken.com/websockets/#message-ohlc
+    """
+    chan_id: int  # internal kraken id
+    chan_name: str  # eg. ohlc-1  (name-interval)
+    pair: str  # fx pair
+    time: float  # Begin time of interval, in seconds since epoch
+    etime: float  # End time of interval, in seconds since epoch
+    open: float  # Open price of interval
+    high: float  # High price within interval
+    low: float  # Low price within interval
+    close: float  # Close price of interval
+    vwap: float  # Volume weighted average price within interval
+    volume: float  # Accumulated volume **within interval**
+    count: int  # Number of trades within interval
+    # (sampled) generated tick data
+    ticks: List[Any] = field(default_factory=list)
 
 
 class Client:
@@ -163,36 +227,6 @@ class Client:
 @asynccontextmanager
 async def get_client() -> Client:
     yield Client()
-
-
-@dataclass
-class OHLC:
-    """Description of the flattened OHLC quote format.
-
-    For schema details see:
-        https://docs.kraken.com/websockets/#message-ohlc
-    """
-    chan_id: int  # internal kraken id
-    chan_name: str  # eg. ohlc-1  (name-interval)
-    pair: str  # fx pair
-    time: float  # Begin time of interval, in seconds since epoch
-    etime: float  # End time of interval, in seconds since epoch
-    open: float  # Open price of interval
-    high: float  # High price within interval
-    low: float  # Low price within interval
-    close: float  # Close price of interval
-    vwap: float  # Volume weighted average price within interval
-    volume: float  # Accumulated volume **within interval**
-    count: int  # Number of trades within interval
-    # (sampled) generated tick data
-    ticks: List[Any] = field(default_factory=list)
-
-    # XXX: ugh, super hideous.. needs built-in converters.
-    def __post_init__(self):
-        for f, val in self.__dataclass_fields__.items():
-            if f == 'ticks':
-                continue
-            setattr(self, f, val.type(getattr(self, f)))
 
 
 async def recv_msg(recv):
@@ -317,8 +351,12 @@ async def stream_quotes(
 
         # keep client cached for real-time section
         for sym in symbols:
-            si = sym_infos[sym] = await client.symbol_info(sym)
-            ws_pairs[sym] = si['wsname']
+            si = Pair(**await client.symbol_info(sym))  # validation
+            syminfo = si.dict()
+            syminfo['price_tick_size'] = 1/10**si.pair_decimals
+            syminfo['lot_tick_size'] = 1/10**si.lot_decimals
+            sym_infos[sym] = syminfo
+            ws_pairs[sym] = si.wsname
 
         # maybe load historical ohlcv in to shared mem
         # check if shm has already been created by previous
@@ -349,9 +387,9 @@ async def stream_quotes(
             symbol: {
                 'is_shm_writer': not writer_exists,
                 'shm_token': shm_token,
-                'symbol_info': sym_infos[symbol],
+                'symbol_info': sym_infos[sym],
             }
-            for sym in symbols
+            # for sym in symbols
         }
         yield init_msgs
 

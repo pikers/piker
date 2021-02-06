@@ -45,6 +45,7 @@ setup(
         'attrs',
         'pygments',
         'colorama',  # numba traceback coloring
+        'pydantic',  # structured data
 
         # async
         'trio',
