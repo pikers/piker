@@ -84,11 +84,11 @@ def current_screen() -> QtGui.QScreen:
 
 # Proper high DPI scaling is available in Qt >= 5.6.0. This attibute
 # must be set before creating the application
-if hasattr(Qt, 'AA_EnableHighDpiScaling'):
-    QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+# if hasattr(Qt, 'AA_EnableHighDpiScaling'):
+#     QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
 
-if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
-    QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+# if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
+#     QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
 
 class MainWindow(QtGui.QMainWindow):
