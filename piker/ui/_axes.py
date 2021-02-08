@@ -53,10 +53,10 @@ class Axis(pg.AxisItem):
 
         self.setTickFont(_font.font)
         self.setStyle(**{
-            'textFillLimits': [(0, 0.666)],
+            'textFillLimits': [(0, 0.616)],
             'tickFont': _font.font,
             # offset of text *away from* axis line in px
-            'tickTextOffset': 2,
+            'tickTextOffset': 6,
         })
 
         self.setTickFont(_font.font)
@@ -78,6 +78,10 @@ class PriceAxis(Axis):
         **kwargs,
     ) -> None:
         super().__init__(*args, orientation='right', **kwargs)
+        self.setStyle(**{
+            # offset of text *away from* axis line in px
+            'tickTextOffset': 9,
+        })
 
     def resize(self) -> None:
         self.setWidth(self.typical_br.width())
@@ -151,8 +155,8 @@ class DynamicDateAxis(Axis):
 
 class AxisLabel(pg.GraphicsObject):
 
-    _w_margin = 0
-    _h_margin = 0
+    _x_margin = 0
+    _y_margin = 0
 
     def __init__(
         self,
@@ -161,6 +165,7 @@ class AxisLabel(pg.GraphicsObject):
         bg_color: str = 'bracket',
         fg_color: str = 'black',
         opacity: int = 0,
+        use_arrow: bool = True,
         font_size_inches: Optional[float] = None,
     ) -> None:
 
@@ -183,6 +188,10 @@ class AxisLabel(pg.GraphicsObject):
         self.bg_color = pg.mkColor(hcolor(bg_color))
         self.fg_color = pg.mkColor(hcolor(fg_color))
 
+        self._use_arrow = use_arrow
+
+        # create triangle path
+        self.path = None
         self.rect = None
 
     def paint(
@@ -195,13 +204,12 @@ class AxisLabel(pg.GraphicsObject):
 
         if self.label_str:
 
-            if not self.rect:
-                self._size_br_from_str(self.label_str)
+            # if not self.rect:
+            self._size_br_from_str(self.label_str)
 
             p.setFont(self._dpifont.font)
             p.setPen(self.fg_color)
             p.setOpacity(self.opacity)
-            p.fillRect(self.rect, self.bg_color)
 
             # can be overrided in subtype
             self.draw(p, self.rect)
@@ -215,13 +223,33 @@ class AxisLabel(pg.GraphicsObject):
     ) -> None:
         # this adds a nice black outline around the label for some odd
         # reason; ok by us
-        p.setOpacity(self.opacity)
+        # p.setOpacity(self.opacity)
         p.drawRect(self.rect)
+
+        if self._use_arrow:
+
+            if not self.path:
+                self._draw_arrow_path()
+
+            p.drawPath(self.path)
+            p.fillPath(self.path, pg.mkBrush(self.bg_color))
+
+        p.fillRect(self.rect, self.bg_color)
+
 
     def boundingRect(self):  # noqa
         if self.label_str:
             self._size_br_from_str(self.label_str)
-            return self.rect
+
+            # if self.path:
+            #     self.tl = self.path.controlPointRect().topLeft()
+            if not self.path:
+                self.tl = self.rect.topLeft()
+
+            return QtCore.QRectF(
+                self.tl,
+                self.rect.bottomRight(),
+            )
 
         return QtCore.QRectF()
 
@@ -237,16 +265,20 @@ class AxisLabel(pg.GraphicsObject):
         #     # XXX: this can't be c
         #     self._txt_br = self._dpifont.boundingRect(value)
 
-        br = self._txt_br = self._dpifont.boundingRect(value)
-        txt_h, txt_w = br.height(), br.width()
+        txt_br = self._txt_br = self._dpifont.boundingRect(value)
+        txt_h, txt_w = txt_br.height(), txt_br.width()
         h, w = self.size_hint()
 
         self.rect = QtCore.QRectF(
             0, 0,
-            (w or txt_w) + self._w_margin,
-            (h or txt_h) + self._h_margin,
+            (w or txt_w) + self._x_margin/2,
+            (h or txt_h) + self._y_margin/2,
         )
+        # print(self.rect)
+        # hb = self.path.controlPointRect()
+        # hb_size = hb.size()
 
+        return self.rect
 
 # _common_text_flags = (
 #     QtCore.Qt.TextDontClip |
@@ -258,7 +290,7 @@ class AxisLabel(pg.GraphicsObject):
 
 
 class XAxisLabel(AxisLabel):
-    _w_margin = 4
+    _x_margin = 8
 
     text_flags = (
         QtCore.Qt.TextDontClip
@@ -273,7 +305,7 @@ class XAxisLabel(AxisLabel):
         self,
         abs_pos: QPointF,  # scene coords
         value: float,  # data for text
-        offset: int = 1  # if have margins, k?
+        offset: int = 0  # if have margins, k?
     ) -> None:
 
         timestrs = self.parent._indexes_to_timestrs([int(value)])
@@ -281,18 +313,39 @@ class XAxisLabel(AxisLabel):
         if not timestrs.any():
             return
 
-        self.label_str = timestrs[0]
+        pad = 1*' '
+        self.label_str = pad + timestrs[0] + pad
+
+        y_offset = self.parent.style['tickTextOffset'][1]
 
         w = self.boundingRect().width()
         self.setPos(QPointF(
-            abs_pos.x() - w / 2 - offset,
-            1,
+            abs_pos.x() - w/2,
+            y_offset/2,
         ))
         self.update()
 
+    def _draw_arrow_path(self):
+        y_offset = self.parent.style['tickTextOffset'][1]
+        path = QtGui.QPainterPath()
+        h, w = self.rect.height(), self.rect.width()
+        # middle = (w + self._y_margin)/2
+        # middle = (w + self._x_margin)/2
+        middle = w/2 - 0.5
+        # aw = (h + self._x_margin)/2
+        aw = h/2
+        left = middle - aw
+        right = middle + aw
+        path.moveTo(left, 0)
+        path.lineTo(middle, -y_offset)
+        path.lineTo(right, 0)
+        path.closeSubpath()
+        self.path = path
+        self.tl = QtCore.QPointF(0, -y_offset)
+
 
 class YAxisLabel(AxisLabel):
-    _h_margin = 2
+    _y_margin = 4
 
     text_flags = (
         QtCore.Qt.AlignLeft
@@ -301,33 +354,6 @@ class YAxisLabel(AxisLabel):
         | QtCore.Qt.TextDontClip
     )
 
-    def size_hint(self) -> Tuple[float, float]:
-        # size to parent axis width
-        return None, self.parent.width()
-
-    def update_label(
-        self,
-        abs_pos: QPointF,  # scene coords
-        value: float,  # data for text
-        offset: int = 1  # on odd dimension and/or adds nice black line
-    ) -> None:
-
-        # this is read inside ``.paint()``
-        self.label_str = ' {value:,.{digits}f}'.format(
-            digits=self.digits, value=value).replace(',', ' ')
-
-        br = self.boundingRect()
-        h = br.height()
-        self.setPos(QPointF(
-            1,
-            abs_pos.y() - h / 2 - offset
-        ))
-        self.update()
-
-
-class YSticky(YAxisLabel):
-    """Y-axis label that sticks to where it's placed despite chart resizing.
-    """
     def __init__(
         self,
         chart,
@@ -341,11 +367,41 @@ class YSticky(YAxisLabel):
         chart.sigRangeChanged.connect(self.update_on_resize)
         self._last_datum = (None, None)
 
-    def update_on_resize(self, vr, r):
-        # TODO: add an `.index` to the array data-buffer layer
-        # and make this way less shitty...
+        # pull text offset from axis from parent axis
+        self.x_offset = self.parent.style['tickTextOffset'][0]
 
-        # pretty sure we did that ^ ?
+    def size_hint(self) -> Tuple[float, float]:
+        # size to parent axis width
+        return None, self.parent.width()
+
+    def update_label(
+        self,
+        abs_pos: QPointF,  # scene coords
+        value: float,  # data for text
+
+        # on odd dimension and/or adds nice black line
+        x_offset: Optional[int] = None
+    ) -> None:
+
+        # this is read inside ``.paint()``
+        self.label_str = '{value:,.{digits}f}'.format(
+            digits=self.digits, value=value).replace(',', ' ')
+
+        # pull text offset from axis from parent axis
+        x_offset = x_offset or self.x_offset
+
+        br = self.boundingRect()
+        h = br.height()
+        self.setPos(QPointF(
+            x_offset,
+            abs_pos.y() - h / 2 - self._y_margin / 2
+        ))
+        self.update()
+
+    def update_on_resize(self, vr, r):
+        """Tiis is a ``.sigRangeChanged()`` handler.
+
+        """
         index, last = self._last_datum
         if index is not None:
             self.update_from_data(index, last)
@@ -360,3 +416,14 @@ class YSticky(YAxisLabel):
             self._chart.mapFromView(QPointF(index, value)),
             value
         )
+
+    def _draw_arrow_path(self):
+        x_offset = self.parent.style['tickTextOffset'][0]
+        path = QtGui.QPainterPath()
+        h = self.rect.height()
+        path.moveTo(0, 0)
+        path.lineTo(-x_offset - 2, h/2.)
+        path.lineTo(0, h)
+        path.closeSubpath()
+        self.path = path
+        self.tl = path.controlPointRect().topLeft()
