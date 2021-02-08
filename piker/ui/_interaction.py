@@ -253,18 +253,19 @@ class LineEditor:
                 dotted=dotted,
                 size=size,
             )
-            line.label._use_extra_fields = size is not None
+            # line.label._use_extra_fields = size is not None
 
             # cache staging line after creation
             self._stage_line = line
 
         else:
+            # apply input settings to existing staging line
             label = line.label
 
             # disable order size and other extras in label
             label._use_extra_fields = size is not None
             label.size = size
-            # label.size_digits = line.label.size_digits
+
             label.color = color
 
             # Use the existing staged line instead but copy
@@ -276,11 +277,14 @@ class LineEditor:
             line.setMouseHover(hl_on_hover)
             line.show()
 
-        # XXX: must have this to trigger updated
-        # label contents rendering
-        line.setPos(y)
-        line.set_level()
-        label.show()
+            # XXX: must have this to trigger updated
+            # label contents rendering
+            line.setPos(y)
+            line.set_level()
+
+        # show order info label
+        line.label.update()
+        line.label.show()
 
         self._active_staged_line = line
 
@@ -302,14 +306,12 @@ class LineEditor:
 
         # delete "staged" cursor tracking line from view
         line = self._active_staged_line
-
-        cursor._trackers.remove(line)
-
-        if self._stage_line:
-            self._stage_line.hide()
-            self._stage_line.label.hide()
-
+        if line:
+            cursor._trackers.remove(line)
         self._active_staged_line = None
+
+        self._stage_line.hide()
+        self._stage_line.label.hide()
 
         # show the crosshair y line
         hl = cursor.graphics[chart]['hl']
@@ -422,17 +424,17 @@ class ArrowEditor:
             None: 180,  # pointing to right
         }[pointing]
 
-        yb = pg.mkBrush(hcolor(color))
         arrow = pg.ArrowItem(
             angle=angle,
             baseAngle=0,
-            headLen=5,
-            headWidth=2,
+            headLen=5*3,
+            headWidth=2*3,
             tailLen=None,
+            pxMode=True,
 
             # coloring
             pen=pg.mkPen(hcolor('papas_special')),
-            brush=yb,
+            brush=pg.mkBrush(hcolor(color)),
         )
         arrow.setPos(x, y)
 
@@ -866,6 +868,8 @@ class ChartView(ViewBox):
         key = ev.key()
         mods = ev.modifiers()
 
+        print(f'text: {text}, key: {key}')
+
         if mods == QtCore.Qt.ShiftModifier:
             if self.state['mouseMode'] == ViewBox.PanMode:
                 self.setMouseMode(ViewBox.RectMode)
@@ -890,6 +894,8 @@ class ChartView(ViewBox):
             # https://forum.qt.io/topic/532/how-to-catch-ctrl-c-on-a-widget/9
             self.select_box.clear()
 
+        # cancel order or clear graphics
+        if key == QtCore.Qt.Key_C:
             # delete any lines under the cursor
             mode = self.mode
             for line in mode.lines.lines_under_cursor():
