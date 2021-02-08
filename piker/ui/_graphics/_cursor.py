@@ -13,6 +13,7 @@
 
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 """
 Mouse interaction graphics
 
@@ -54,7 +55,7 @@ class LineDot(pg.CurvePoint):
         index: int,
         plot: 'ChartPlotWidget',  # type: ingore # noqa
         pos=None,
-        size: int = 2,  # in pxs
+        size: int = 6,  # in pxs
         color: str = 'default_light',
     ) -> None:
         pg.CurvePoint.__init__(
@@ -230,6 +231,9 @@ class Cursor(pg.GraphicsObject):
         # computing once, up front, here cuz why not
         self._y_incr_mult = 1 / self.lsc._symbol.tick_size
 
+        # line width in view coordinates
+        self._lw = self.pixelWidth() * self.lines_pen.width()
+
     def add_hovered(
         self,
         item: pg.GraphicsObject,
@@ -244,6 +248,7 @@ class Cursor(pg.GraphicsObject):
     ) -> None:
         # add ``pg.graphicsItems.InfiniteLine``s
         # vertical and horizonal lines and a y-axis label
+
         vl = plot.addLine(x=0, pen=self.lines_pen, movable=False)
         vl.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
 
@@ -252,6 +257,7 @@ class Cursor(pg.GraphicsObject):
         hl.hide()
 
         yl = YAxisLabel(
+            chart=plot,
             parent=plot.getAxis('right'),
             digits=digits or self.digits,
             opacity=_ch_label_opac,
@@ -361,10 +367,13 @@ class Cursor(pg.GraphicsObject):
         m = self._y_incr_mult
         iy = round(y * m) / m
 
+        # px perfect...
+        line_offset = self._lw / 2
+
         if iy != last_iy:
 
             # update y-range items
-            self.graphics[plot]['hl'].setY(iy)
+            self.graphics[plot]['hl'].setY(iy + line_offset)
 
             self.graphics[self.active_plot]['yl'].update_label(
                 abs_pos=plot.mapFromView(QPointF(ix, iy)),
@@ -379,11 +388,11 @@ class Cursor(pg.GraphicsObject):
         if ix != last_ix:
             for plot, opts in self.graphics.items():
 
-                # move the vertical line to the current "center of bar"
-                opts['vl'].setX(ix)
-
                 # update the chart's "contents" label
                 plot.update_contents_labels(ix)
+
+                # move the vertical line to the current "center of bar"
+                opts['vl'].setX(ix + line_offset)
 
                 # update all subscribed curve dots
                 for cursor in opts.get('cursors', ()):
@@ -397,8 +406,8 @@ class Cursor(pg.GraphicsObject):
                 # otherwise gobbles tons of CPU..
 
                 # map back to abs (label-local) coordinates
-                abs_pos=plot.mapFromView(QPointF(ix, y)),
-                value=x,
+                abs_pos=plot.mapFromView(QPointF(ix, iy)),
+                value=ix,
             )
 
         self._datum_xy = ix, iy
