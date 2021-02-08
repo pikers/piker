@@ -276,6 +276,7 @@ async def open_feed(
             symbol = Symbol(
                 key=sym,
                 tick_size=si.get('price_tick_size', 0.01),
+                lot_tick_size=si.get('lot_tick_size', 0.0),
             )
             symbol.broker_info[brokername] = si
 

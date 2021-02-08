@@ -97,6 +97,9 @@ class Symbol(BaseModel):
         """
         return float_digits(self.tick_size)
 
+    def lot_digits(self) -> int:
+        return float_digits(self.lot_tick_size)
+
     def nearest_tick(self, value: float) -> float:
         """Return the nearest tick value based on mininum increment.
 
