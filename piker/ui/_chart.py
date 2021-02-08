@@ -32,6 +32,7 @@ import trio
 from ._axes import (
     DynamicDateAxis,
     PriceAxis,
+    YAxisLabel,
 )
 from ._graphics._cursor import (
     Cursor,
@@ -43,7 +44,6 @@ from ._graphics._lines import (
 )
 from ._graphics._ohlc import BarItems
 from ._graphics._curve import FastAppendCurve
-from ._axes import YSticky
 from ._style import (
     _font,
     hcolor,
@@ -647,14 +647,22 @@ class ChartPlotWidget(pg.PlotWidget):
         self,
         name: str,
         bg_color='bracket',
-        # retreive: Callable[None, np.ndarray],
-    ) -> YSticky:
+    ) -> YAxisLabel:
+
+        # if the sticky is for our symbol
+        # use the tick size precision for display
+        sym = self._lc.symbol
+        if name == sym.key:
+            digits = sym.digits()
+        else:
+            digits = 2
+
         # add y-axis "last" value label
-        last = self._ysticks[name] = YSticky(
+        last = self._ysticks[name] = YAxisLabel(
             chart=self,
             parent=self.getAxis('right'),
             # TODO: pass this from symbol data
-            digits=self._lc.symbol.digits(),
+            digits=digits,
             opacity=1,
             bg_color=bg_color,
         )
@@ -1096,11 +1104,13 @@ async def chart_from_quotes(
 
     last, volume = ohlcv.array[-1][['close', 'volume']]
 
+    symbol = chart._lc.symbol
+
     l1 = L1Labels(
         chart,
         # determine precision/decimal lengths
-        digits=max(float_digits(last), 2),
-        size_digits=min(float_digits(last), 3)
+        digits=symbol.digits(),
+        size_digits=symbol.lot_digits(),
     )
 
     # TODO:
