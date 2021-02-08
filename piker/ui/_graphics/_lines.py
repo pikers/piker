@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -30,11 +30,14 @@ from .._style import (
     # _font,
     # DpiAwareFont
 )
-from .._axes import YSticky
+from .._axes import YAxisLabel
 
 
-class LevelLabel(YSticky):
+class LevelLabel(YAxisLabel):
+    """Y-axis oriented label that sticks to where it's placed despite
+    chart resizing and supports displaying multiple fields.
 
+    """
     _w_margin = 4
     _h_margin = 3
 
@@ -42,10 +45,11 @@ class LevelLabel(YSticky):
     _x_offset = 0
 
     # fields to be displayed
+    # class fields:
     level: float = 0.0
+    digits: int = 2
     size: float = 2.0
     size_digits: int = int(2.0)
-
 
     def __init__(
         self,
@@ -56,7 +60,12 @@ class LevelLabel(YSticky):
         orient_h: str = 'left',
         **kwargs
     ) -> None:
-        super().__init__(chart, *args, **kwargs)
+        super().__init__(
+            chart,
+            *args,
+            use_arrow=False,
+            **kwargs
+        )
 
         # TODO: this is kinda cludgy
         self._hcolor = None
@@ -109,7 +118,7 @@ class LevelLabel(YSticky):
 
     def set_label_str(self, level: float):
         # use space as e3 delim
-        label_str = (f'{level:,.{self.digits}f}').replace(',', ' ')
+        label_str = (f'{level:,.{self.digits}f}   ').replace(',', ' ')
 
         # XXX: not huge on this approach but we need a more formal
         # way to define "label fields" that i don't have the brain space
@@ -127,7 +136,6 @@ class LevelLabel(YSticky):
         br = self.boundingRect()
         h, w = br.height(), br.width()
         return h, w
-
 
     def size_hint(self) -> Tuple[None, None]:
         return None, None
@@ -155,6 +163,13 @@ class LevelLabel(YSticky):
     def unhighlight(self):
         self._pen = self.pen
         self.update()
+
+    # def view_size(self):
+    #     """Widgth and height of this label in view box coordinates.
+
+    #     """
+    #     return self.height()
+    #     self._chart.mapFromView(QPointF(index, value)),
 
 
 # global for now but probably should be
@@ -206,8 +221,6 @@ class L1Labels:
         self.bid_label = L1Label(
             chart=chart,
             parent=chart.getAxis('right'),
-            # TODO: pass this from symbol data
-            digits=digits,
             opacity=1,
             font_size_inches=font_size_inches,
             bg_color='papas_special',
@@ -215,13 +228,12 @@ class L1Labels:
             orient_v='bottom',
         )
         self.bid_label.size_digits = size_digits
-        self.bid_label._size_br_from_str(self.max_value)
+        self.bid_label.digits = digits
+        # self.bid_label._size_br_from_str(self.max_value)
 
         self.ask_label = L1Label(
             chart=chart,
             parent=chart.getAxis('right'),
-            # TODO: pass this from symbol data
-            digits=digits,
             opacity=1,
             font_size_inches=font_size_inches,
             bg_color='papas_special',
@@ -229,7 +241,8 @@ class L1Labels:
             orient_v='top',
         )
         self.ask_label.size_digits = size_digits
-        self.ask_label._size_br_from_str(self.max_value)
+        self.ask_label.digits = digits
+        # self.ask_label._size_br_from_str(self.max_value)
 
         self.bid_label._use_extra_fields = True
         self.ask_label._use_extra_fields = True
@@ -452,7 +465,7 @@ def level_line(
         parent=chart.getAxis('right'),
         # TODO: pass this from symbol data
         digits=digits,
-        opacity=0.666,
+        opacity=0.616,
         font_size_inches=font_size_inches,
         color=color,
 
