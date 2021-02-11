@@ -138,7 +138,7 @@ class PaperBoi:
         symbol: str,
         price: float,
         action: str,
-        size: int = _DEFAULT_SIZE,
+        size: float,
     ) -> int:
         """Place an order and return integer request id provided by client.
 
@@ -266,7 +266,7 @@ async def exec_loop(
                                 symbol=sym,
                                 action=cmd['action'],
                                 price=round(submit_price, 2),
-                                size=_DEFAULT_SIZE,
+                                size=cmd['size'],
                             )
                             # register broker request id to ems id
                             book._broker2ems_ids[reqid] = oid
@@ -420,7 +420,7 @@ async def _ems_main(
     client_actor_name: str,
     broker: str,
     symbol: str,
-    mode: str = 'dark',  # ('paper', 'dark', 'live')
+    _mode: str = 'dark',  # ('paper', 'dark', 'live')
 ) -> None:
     """EMS (sub)actor entrypoint providing the
     execution management (micro)service which conducts broker
@@ -463,7 +463,7 @@ async def _ems_main(
                 ctx,
                 broker,
                 symbol,
-                mode,
+                _mode,
             )
 
             await n.start(
@@ -505,13 +505,14 @@ async def _ems_main(
 
                     sym = cmd['symbol']
                     trigger_price = cmd['price']
+                    size = cmd['size']
                     brokers = cmd['brokers']
-                    broker = brokers[0]
-                    mode = cmd.get('exec_mode', mode)
+                    exec_mode = cmd.get('exec_mode', _mode)
 
+                    broker = brokers[0]
                     last = book.lasts[(broker, sym)]
 
-                    if mode == 'live' and action in ('buy', 'sell',):
+                    if exec_mode == 'live' and action in ('buy', 'sell',):
 
                         # register broker id for ems id
                         order_id = await client.submit_limit(
@@ -519,7 +520,7 @@ async def _ems_main(
                             symbol=sym,
                             action=action,
                             price=round(trigger_price, 2),
-                            size=_DEFAULT_SIZE,
+                            size=size,
                         )
                         book._broker2ems_ids[order_id] = oid
 
@@ -528,7 +529,7 @@ async def _ems_main(
                         # handle sending the ems side acks back to
                         # the cmd sender from here
 
-                    elif mode in ('dark', 'paper') or action in ('alert'):
+                    elif exec_mode in ('dark', 'paper') or action in ('alert'):
 
                         # TODO: if the predicate resolves immediately send the
                         # execution to the broker asap? Or no?
@@ -608,12 +609,14 @@ class OrderBook:
         uuid: str,
         symbol: 'Symbol',
         price: float,
+        size: float,
         action: str,
         exec_mode: str,
     ) -> str:
         cmd = {
             'action': action,
             'price': price,
+            'size': size,
             'symbol': symbol.key,
             'brokers': symbol.brokers,
             'oid': uuid,
