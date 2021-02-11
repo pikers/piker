@@ -105,6 +105,9 @@ class Label:
 
         self._af = self.txt.pos().x
 
+        # not sure if this makes a diff
+        self.txt.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
+
         # TODO: edit and selection support
         # https://doc.qt.io/qt-5/qt.html#TextInteractionFlag-enum
         # self.setTextInteractionFlags(QtGui.Qt.TextEditorInteraction)
@@ -186,3 +189,6 @@ class Label:
 
     def hide(self) -> None:
         self.txt.hide()
+
+    def delete(self) -> None:
+        self.vb.scene().removeItem(self.txt)
