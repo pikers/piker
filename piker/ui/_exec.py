@@ -81,6 +81,8 @@ def current_screen() -> QtGui.QScreen:
     assert screen, "Wow Qt is dumb as shit and has no screen..."
     return screen
 
+# XXX: pretty sure none of this shit works
+# https://bugreports.qt.io/browse/QTBUG-53022
 
 # Proper high DPI scaling is available in Qt >= 5.6.0. This attibute
 # must be set before creating the application
