@@ -129,6 +129,7 @@ _corner_margins = {
 }
 
 
+# TODO: change this into a ``pg.TextItem``...
 class ContentsLabel(pg.LabelItem):
     """Label anchored to a ``ViewBox`` typically for displaying
     datum-wise points from the "viewed" contents.
@@ -376,7 +377,7 @@ class Cursor(pg.GraphicsObject):
             self.graphics[plot]['hl'].setY(iy + line_offset)
 
             self.graphics[self.active_plot]['yl'].update_label(
-                abs_pos=plot.mapFromView(QPointF(ix, iy)),
+                abs_pos=plot.mapFromView(QPointF(ix, iy + line_offset)),
                 value=iy
             )
 
@@ -406,7 +407,7 @@ class Cursor(pg.GraphicsObject):
                 # otherwise gobbles tons of CPU..
 
                 # map back to abs (label-local) coordinates
-                abs_pos=plot.mapFromView(QPointF(ix, iy)),
+                abs_pos=plot.mapFromView(QPointF(ix + line_offset, iy)),
                 value=ix,
             )
 
