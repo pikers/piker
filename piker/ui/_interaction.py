@@ -223,9 +223,12 @@ class LineEditor:
 
     def stage_line(
         self,
+
         color: str = 'alert_yellow',
         hl_on_hover: bool = False,
         dotted: bool = False,
+
+        # fields settings
         size: Optional[int] = None,
     ) -> LevelLine:
         """Stage a line at the current chart's cursor position
@@ -238,20 +241,31 @@ class LineEditor:
         cursor = chart._cursor
         y = chart._cursor._datum_xy[1]
 
+        symbol = chart._lc.symbol
+
         line = self._stage_line
         if not line:
             # add a "staged" cursor-tracking line to view
             # and cash it in a a var
             line = order_line(
                 chart,
-                level=y,
-                digits=chart._lc.symbol.digits(),
-                color=color,
 
+                level=y,
+                level_digits=symbol.digits(),
+                size=size,
+                size_digits=symbol.lot_digits(),
+
+                # just for the stage line to avoid
+                # flickering while moving the cursor
+                # around where it might trigger highlight
+                # then non-highlight depending on sensitivity
+                always_show_labels=True,
+
+                # kwargs
+                color=color,
                 # don't highlight the "staging" line
                 hl_on_hover=hl_on_hover,
                 dotted=dotted,
-                size=size,
             )
             # line.label._use_extra_fields = size is not None
 
@@ -260,13 +274,13 @@ class LineEditor:
 
         else:
             # apply input settings to existing staging line
-            label = line.label
+            # label = line.label
 
             # disable order size and other extras in label
-            label._use_extra_fields = size is not None
-            label.size = size
+            # label._use_extra_fields = size is not None
+            # label.size = size
 
-            label.color = color
+            # label.color = color
 
             # Use the existing staged line instead but copy
             # overe it's current style "properties".
@@ -276,20 +290,18 @@ class LineEditor:
             line.color = color
             line.setMouseHover(hl_on_hover)
             line.show()
+            line.show_labels()
 
             # XXX: must have this to trigger updated
             # label contents rendering
-            line.setPos(y)
-            line.set_level()
-
-        # show order info label
-        line.label.update()
-        line.label.show()
+            line.set_level(level=y)
 
         self._active_staged_line = line
 
-        # hide crosshair y-line
-        cursor.graphics[chart]['hl'].hide()
+        # hide crosshair y-line and label
+        cg = cursor.graphics[chart]
+        cg['hl'].hide()
+        cg['yl'].hide()
 
         # add line to cursor trackers
         cursor._trackers.add(line)
@@ -310,16 +322,20 @@ class LineEditor:
             cursor._trackers.remove(line)
         self._active_staged_line = None
 
-        self._stage_line.hide()
-        self._stage_line.label.hide()
+        sl = self._stage_line
+        if sl:
+            sl.hide()
+            sl.hide_labels()
 
-        # show the crosshair y line
-        hl = cursor.graphics[chart]['hl']
-        hl.show()
+        # show the crosshair y line and label
+        cg = cursor.graphics[chart]
+        cg['hl'].show()
+        cg['yl'].show()
 
-    def create_line(
+    def create_order_line(
         self,
-        uuid: str
+        uuid: str,
+        size: float,
     ) -> LevelLine:
 
         line = self._active_staged_line
@@ -328,17 +344,24 @@ class LineEditor:
 
         chart = self.chart._cursor.active_plot
         y = chart._cursor._datum_xy[1]
+        sym = chart._lc.symbol
 
         line = order_line(
             chart,
+
+            # label fields default values
             level=y,
+            level_digits=sym.digits(),
+
+            size=size,
+            size_digits=sym.lot_digits(),
+
+            # LevelLine kwargs
             color=line.color,
-            digits=chart._lc.symbol.digits(),
             dotted=line._dotted,
-            size=line.label.size,
         )
         # for now, until submission reponse arrives
-        line.label.hide()
+        line.hide_labels()
 
         # register for later lookup/deletion
         self._order_lines[uuid] = line
@@ -358,9 +381,9 @@ class LineEditor:
             return
         else:
             line.oid = uuid
-            line.set_level()
-            line.label.update()
-            line.label.show()
+            # line.set_level(line.level)
+            line.show_labels()
+            # line.label.show()
 
             # TODO: other flashy things to indicate the order is active
 
@@ -465,7 +488,7 @@ class OrderMode:
     }
     _action: str = 'alert'
     _exec_mode: str = 'dark'
-    _size: int = 100
+    _size: float = 100.0
 
     key_map: Dict[str, Callable] = field(default_factory=dict)
 
@@ -485,7 +508,7 @@ class OrderMode:
             color=self._colors[action],
             # hl_on_hover=True if self._exec_mode == 'live' else False,
             dotted=True if self._exec_mode == 'dark' else False,
-            size=size,
+            size=size or self._size,
         )
 
     def on_submit(self, uuid: str) -> dict:
@@ -559,7 +582,10 @@ class OrderMode:
                 f'Received cancel for unsubmitted order {pformat(msg)}'
             )
 
-    def submit_exec(self) -> None:
+    def submit_exec(
+        self,
+        size: Optional[float] = None,
+    ) -> LevelLine:
         """Send execution order to EMS.
 
         """
@@ -569,8 +595,13 @@ class OrderMode:
         # order is live in the emsd).
         uid = str(uuid.uuid4())
 
+        size = size or self._size
+
         # make line graphic
-        line, y = self.lines.create_line(uid)
+        line, y = self.lines.create_order_line(
+            uid,
+            size=size,
+        )
         line.oid = uid
 
         # send order cmd to ems
@@ -578,6 +609,7 @@ class OrderMode:
             uuid=uid,
             symbol=self.chart._lc._symbol,
             price=y,
+            size=size,
             action=self._action,
             exec_mode=self._exec_mode,
         )
@@ -902,7 +934,6 @@ class ChartView(ViewBox):
                 mode.book.cancel(uuid=line.oid)
 
         self._key_buffer.append(text)
-        order_size = self.mode._size
 
         # View modes
         if key == QtCore.Qt.Key_R:
@@ -911,13 +942,13 @@ class ChartView(ViewBox):
         # Order modes: stage orders at the current cursor level
 
         elif key == QtCore.Qt.Key_D:  # for "damp eet"
-            self.mode.set_exec('sell', size=order_size)
+            self.mode.set_exec('sell')
 
         elif key == QtCore.Qt.Key_F:  # for "fillz eet"
-            self.mode.set_exec('buy', size=order_size)
+            self.mode.set_exec('buy')
 
         elif key == QtCore.Qt.Key_A:
-            self.mode.set_exec('alert', size=None)
+            self.mode.set_exec('alert')
 
         # delete orders under cursor
         elif key == QtCore.Qt.Key_Delete:
