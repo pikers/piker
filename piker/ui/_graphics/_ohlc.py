@@ -167,16 +167,17 @@ class BarItems(pg.GraphicsObject):
     # 0.5 is no overlap between arms, 1.0 is full overlap
     w: float = 0.43
 
-    # XXX: for the mega-lulz increasing width here increases draw latency...
-    # so probably don't do it until we figure that out.
-    bars_pen = pg.mkPen(hcolor('bracket'))
-
     def __init__(
         self,
         # scene: 'QGraphicsScene',  # noqa
         plotitem: 'pg.PlotItem',  # noqa
+        pen_color: str = 'bracket',
     ) -> None:
         super().__init__()
+
+        # XXX: for the mega-lulz increasing width here increases draw latency...
+        # so probably don't do it until we figure that out.
+        self.bars_pen = pg.mkPen(hcolor(pen_color))
 
         # NOTE: this prevents redraws on mouse interaction which is
         # a huge boon for avg interaction latency.
@@ -215,7 +216,9 @@ class BarItems(pg.GraphicsObject):
 
         This routine is usually only called to draw the initial history.
         """
-        self.path = gen_qpath(data, start, self.w)
+        hist, last = data[:-1], data[-1]
+
+        self.path = gen_qpath(hist, start, self.w)
 
         # save graphics for later reference and keep track
         # of current internal "last index"
@@ -228,7 +231,7 @@ class BarItems(pg.GraphicsObject):
         )
 
         # up to last to avoid double draw of last bar
-        self._last_bar_lines = lines_from_ohlc(data[-1], self.w)
+        self._last_bar_lines = lines_from_ohlc(last, self.w)
 
         # trigger render
         # https://doc.qt.io/qt-5/qgraphicsitem.html#update
@@ -396,37 +399,3 @@ class BarItems(pg.GraphicsObject):
         )
         # print(f'bounding rect: {br}')
         return br
-
-
-# XXX: when we get back to enabling tina mode for xb
-# class CandlestickItems(BarItems):
-
-#     w2 = 0.7
-#     line_pen = pg.mkPen('#000000')
-#     bull_brush = pg.mkBrush('#00ff00')
-#     bear_brush = pg.mkBrush('#ff0000')
-
-#     def _generate(self, p):
-#         rects = np.array(
-#             [
-#                 QtCore.QRectF(
-#                   q.id - self.w,
-#                   q.open,
-#                   self.w2,
-#                   q.close - q.open
-#               )
-#                 for q in Quotes
-#             ]
-#         )
-
-#         p.setPen(self.line_pen)
-#         p.drawLines(
-#             [QtCore.QLineF(q.id, q.low, q.id, q.high)
-#              for q in Quotes]
-#         )
-
-#         p.setBrush(self.bull_brush)
-#         p.drawRects(*rects[Quotes.close > Quotes.open])
-
-#         p.setBrush(self.bear_brush)
-#         p.drawRects(*rects[Quotes.close < Quotes.open])
