@@ -490,6 +490,7 @@ class LevelLine(pg.InfiniteLine):
             cur = chart._cursor
             cur.add_hovered(self)
             cur.graphics[chart]['yl'].hide()
+            cur.graphics[chart]['hl'].hide()
 
             for at, label in self._labels:
                 label.show()
@@ -504,7 +505,10 @@ class LevelLine(pg.InfiniteLine):
 
             cur = chart._cursor
             cur._hovered.remove(self)
-            cur.graphics[chart]['yl'].show()
+            if self not in cur._trackers:
+                g = cur.graphics[chart]
+                g['yl'].show()
+                g['hl'].show()
 
             if not self._always_show_labels:
                 for at, label in self._labels:
@@ -519,7 +523,9 @@ class LevelLine(pg.InfiniteLine):
         chart = self._chart
 
         # hide y-crosshair
-        chart._cursor.graphics[chart]['hl'].hide()
+        graphics = chart._cursor.graphics[chart]
+        graphics['hl'].hide()
+        graphics['yl'].hide()
 
         # highlight
         self.currentPen = self.hoverPen
@@ -534,7 +540,8 @@ class LevelLine(pg.InfiniteLine):
         # This is the final position in the drag
         if ev.isFinish():
             # show y-crosshair again
-            chart._cursor.graphics[chart]['hl'].show()
+            graphics['hl'].show()
+            graphics['yl'].show()
 
     def delete(self) -> None:
         """Remove this line from containing chart/view/scene.

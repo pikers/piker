@@ -141,6 +141,7 @@ class FastAppendCurve(pg.PlotCurveItem):
 
         w = hb_size.width() + 1
         h = hb_size.height() + 1
+
         br = QtCore.QRectF(
 
             # top left
