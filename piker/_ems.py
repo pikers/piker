@@ -382,6 +382,18 @@ async def process_broker_trades(
         elif name in (
             'status',
         ):
+            # TODO: templating the ib statuses in comparison with other
+            # brokers is likely the way to go:
+            # https://interactivebrokers.github.io/tws-api/interfaceIBApi_1_1EWrapper.html#a17f2a02d6449710b6394d0266a353313
+            # short list:
+            # - PendingSubmit
+            # - PendingCancel
+            # - PreSubmitted (simulated orders)
+            # - ApiCancelled (cancelled by client before submission to routing)
+            # - Cancelled
+            # - Filled
+            # - Inactive (reject or cancelled but not by trader)
+
             # everyone doin camel case
             status = msg['status'].lower()
 
@@ -481,6 +493,8 @@ async def _ems_main(
                 action = cmd['action']
                 oid = cmd['oid']
 
+                # TODO: can't wait for this stuff to land in 3.10
+                # https://www.python.org/dev/peps/pep-0636/#going-to-the-cloud-mappings
                 if action in ('cancel',):
 
                     # check for live-broker order
@@ -565,7 +579,7 @@ async def _ems_main(
                             percent_away = 0
                             abs_diff_away = 0
 
-                        # submit execution/order to EMS scanner loop
+                        # submit execution/order to EMS scan loop
                         book.orders.setdefault(
                             sym, {}
                         )[oid] = (
