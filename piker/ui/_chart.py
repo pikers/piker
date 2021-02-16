@@ -40,6 +40,7 @@ from ._graphics._cursor import (
 )
 from ._graphics._lines import (
     level_line,
+    order_line,
     L1Labels,
 )
 from ._graphics._ohlc import BarItems
@@ -53,7 +54,7 @@ from ._style import (
     _bars_from_right_in_follow_mode,
     _bars_to_left_in_follow_mode,
 )
-from ..data._source import Symbol, float_digits
+from ..data._source import Symbol
 from .. import brokers
 from .. import data
 from ..data import maybe_open_shm_array
@@ -307,12 +308,14 @@ class LinkedSplitCharts(QtGui.QWidget):
             linked_charts=self,
             axisItems={
                 'bottom': xaxis,
-                'right': PriceAxis(linked_charts=self)
+                'right': PriceAxis(linked_charts=self, orientation='right'),
+                'left': PriceAxis(linked_charts=self, orientation='left'),
             },
             viewBox=cv,
             cursor=self._cursor,
             **cpw_kwargs,
         )
+        print(f'xaxis ps: {xaxis.pos()}')
 
         # give viewbox as reference to chart
         # allowing for kb controls and interactions on **this** widget
@@ -380,14 +383,22 @@ class ChartPlotWidget(pg.PlotWidget):
         name: str,
         array: np.ndarray,
         linked_charts: LinkedSplitCharts,
+
+        view_color: str = 'papas_special',
+        pen_color: str = 'bracket',
+
         static_yrange: Optional[Tuple[float, float]] = None,
         cursor: Optional[Cursor] = None,
+
         **kwargs,
     ):
         """Configure chart display settings.
         """
+        self.view_color = view_color
+        self.pen_color = pen_color
+
         super().__init__(
-            background=hcolor('papas_special'),
+            background=hcolor(view_color),
             # parent=None,
             # plotItem=None,
             # antialias=True,
@@ -416,9 +427,10 @@ class ChartPlotWidget(pg.PlotWidget):
         # show only right side axes
         self.hideAxis('left')
         self.showAxis('right')
+        # self.showAxis('left')
 
         # show background grid
-        self.showGrid(x=True, y=True, alpha=0.5)
+        self.showGrid(x=False, y=True, alpha=0.3)
 
         self.default_view()
 
@@ -507,7 +519,8 @@ class ChartPlotWidget(pg.PlotWidget):
     def increment_view(
         self,
     ) -> None:
-        """Increment the data view one step to the right thus "following"
+        """
+        Increment the data view one step to the right thus "following"
         the current time slot/step/bar.
 
         """
@@ -524,12 +537,15 @@ class ChartPlotWidget(pg.PlotWidget):
         self,
         name: str,
         data: np.ndarray,
-        # XXX: pretty sure this is dumb and we don't need an Enum
-        style: pg.GraphicsObject = BarItems,
     ) -> pg.GraphicsObject:
-        """Draw OHLC datums to chart.
         """
-        graphics = style(self.plotItem)
+        Draw OHLC datums to chart.
+
+        """
+        graphics = BarItems(
+            self.plotItem,
+            pen_color=self.pen_color
+        )
 
         # adds all bar/candle graphics objects for each data point in
         # the np array buffer to be drawn on next render cycle
@@ -842,6 +858,83 @@ class ChartPlotWidget(pg.PlotWidget):
         self.scene().leaveEvent(ev)
 
 
+async def test_bed(
+    ohlcv,
+    chart,
+    lc,
+):
+    sleep = 6
+
+    # from PyQt5.QtCore import QPointF
+    vb = chart._vb
+    # scene = vb.scene()
+
+    # raxis = chart.getAxis('right')
+    # vb_right = vb.boundingRect().right()
+
+    last, i_end = ohlcv.array[-1][['close', 'index']]
+
+    line = order_line(
+        chart,
+        level=last,
+        level_digits=2
+    )
+    # eps = line.getEndpoints()
+
+    # llabel = line._labels[1][1]
+
+    line.update_labels({'level': last})
+    return
+
+    # rl = eps[1]
+    # rlabel.setPos(rl)
+
+    # ti = pg.TextItem(text='Fuck you')
+    # ti.setPos(pg.Point(i_end, last))
+    # ti.setParentItem(line)
+    # ti.setAnchor(pg.Point(1, 1))
+    # vb.addItem(ti)
+    # chart.plotItem.addItem(ti)
+
+    from ._label import Label
+
+    txt = Label(
+        vb,
+        fmt_str='fuck {it}',
+    )
+    txt.format(it='boy')
+    txt.place_on_scene('left')
+    txt.set_view_y(last)
+
+    # txt = QtGui.QGraphicsTextItem()
+    # txt.setPlainText("FUCK YOU")
+    # txt.setFont(_font.font)
+    # txt.setDefaultTextColor(pg.mkColor(hcolor('bracket')))
+    # # txt.setParentItem(vb)
+    # w = txt.boundingRect().width()
+    # scene.addItem(txt)
+
+    # txt.setParentItem(line)
+    # d_coords = vb.mapFromView(QPointF(i_end, last))
+    # txt.setPos(vb_right - w, d_coords.y())
+    # txt.show()
+    # txt.update()
+
+    # rlabel.setPos(vb_right - 2*w, d_coords.y())
+    # rlabel.show()
+
+    i = 0
+    while True:
+        await trio.sleep(sleep)
+        await tractor.breakpoint()
+        txt.format(it=f'dog_{i}')
+        # d_coords = vb.mapFromView(QPointF(i_end, last))
+        # txt.setPos(vb_right - w, d_coords.y())
+        # txt.setPlainText(f"FUCK YOU {i}")
+        i += 1
+        # rlabel.setPos(vb_right - 2*w, d_coords.y())
+
+
 async def _async_main(
     sym: str,
     brokername: str,
@@ -962,6 +1055,14 @@ async def _async_main(
                 linked_charts
             )
 
+            # interactive testing
+            # n.start_soon(
+            #     test_bed,
+            #     ohlcv,
+            #     chart,
+            #     linked_charts,
+            # )
+
             # spawn EMS actor-service
             async with open_ems(
                 brokername,
@@ -969,6 +1070,7 @@ async def _async_main(
             ) as (book, trades_stream):
 
                 async with open_order_mode(
+                    symbol,
                     chart,
                     book,
                 ) as order_mode:
@@ -1172,28 +1274,23 @@ async def chart_from_quotes(
                 # XXX: prettty sure this is correct?
                 # if ticktype in ('trade', 'last'):
                 if ticktype in ('last',):  # 'size'):
-
                     label = {
-                        l1.ask_label.level: l1.ask_label,
-                        l1.bid_label.level: l1.bid_label,
+                        l1.ask_label.fields['level']: l1.ask_label,
+                        l1.bid_label.fields['level']: l1.bid_label,
                     }.get(price)
 
                     if label is not None:
-                        label.size = size
-                        label.update_from_data(0, price)
+                        label.update_fields({'level': price, 'size': size})
 
                         # on trades should we be knocking down
                         # the relevant L1 queue?
                         # label.size -= size
 
                 elif ticktype in ('ask', 'asize'):
-                    l1.ask_label.size = size
-                    l1.ask_label.update_from_data(0, price)
-
+                    l1.ask_label.update_fields({'level': price, 'size': size})
 
                 elif ticktype in ('bid', 'bsize'):
-                    l1.bid_label.size = size
-                    l1.bid_label.update_from_data(0, price)
+                    l1.bid_label.update_fields({'level': price, 'size': size})
 
                 # update min price in view to keep bid on screen
                 mn = min(price - tick_margin, mn)
@@ -1218,10 +1315,8 @@ async def chart_from_quotes(
                 last_mx, last_mn = mx, mn
 
 
-
 async def spawn_fsps(
     linked_charts: LinkedSplitCharts,
-    # fsp_func_name,
     fsps: Dict[str, str],
     sym,
     src_shm,
@@ -1389,12 +1484,13 @@ async def update_signals(
     # graphics.curve.setBrush(50, 50, 200, 100)
     # graphics.curve.setFillLevel(50)
 
-    # add moveable over-[sold/bought] lines
-    # and labels only for the 70/30 lines
-    level_line(chart, 20)
-    level_line(chart, 30, orient_v='top')
-    level_line(chart, 70, orient_v='bottom')
-    level_line(chart, 80, orient_v='top')
+    if fsp_func_name == 'rsi':
+        # add moveable over-[sold/bought] lines
+        # and labels only for the 70/30 lines
+        level_line(chart, 20)
+        level_line(chart, 30, orient_v='top')
+        level_line(chart, 70, orient_v='bottom')
+        level_line(chart, 80, orient_v='top')
 
     chart._set_yrange()
 
