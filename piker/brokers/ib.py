@@ -594,7 +594,6 @@ async def _aio_get_client(
     """
     # first check cache for existing client
 
-    # breakpoint()
     try:
         if port:
             client = _client_cache[(host, port)]
@@ -818,8 +817,8 @@ async def fill_bars(
     sym: str,
     first_bars: list,
     shm: 'ShmArray',  # type: ignore # noqa
-    count: int = 20,  # NOTE: any more and we'll overrun underlying buffer
-    # count: int = 6,  # NOTE: any more and we'll overrun the underlying buffer
+    # count: int = 20,  # NOTE: any more and we'll overrun underlying buffer
+    count: int = 6,  # NOTE: any more and we'll overrun the underlying buffer
 ) -> None:
     """Fill historical bars into shared mem / storage afap.
 
@@ -862,6 +861,25 @@ async def fill_bars(
                     # and then somehow get that to trigger an event here
                     # that restarts/resumes this task?
                     await tractor.breakpoint()
+
+
+asset_type_map = {
+    'STK': 'stock',
+    'OPT': 'option',
+    'FUT': 'future',
+    'CONTFUT': 'continuous_future',
+    'CASH': 'forex',
+    'IND': 'index',
+    'CFD': 'cfd',
+    'BOND': 'bond',
+    'CMDTY': 'commodity',
+    'FOP': 'futures_option',
+    'FUND': 'mutual_fund',
+    'WAR': 'warrant',
+    'IOPT': 'warran',
+    'BAG': 'bag',
+    # 'NEWS': 'news',
+}
 
 
 # TODO: figure out how to share quote feeds sanely despite
@@ -956,9 +974,17 @@ async def stream_quotes(
         syminfo.update(syminfo['contract'])
 
         # TODO: more consistent field translation
-        syminfo['price_tick_size'] = syminfo['minTick']
-        # for "traditional" assets, volume is discreet not a float
-        syminfo['lot_tick_size'] = 0
+        atype = syminfo['asset_type'] = asset_type_map[syminfo['secType']]
+
+        # for stocks it seems TWS reports too small a tick size
+        # such that you can't submit orders with that granularity?
+        min_tick = 0.01 if atype == 'stock' else 0
+
+        syminfo['price_tick_size'] = max(syminfo['minTick'], min_tick)
+
+        # for "traditional" assets, volume is normally discreet, not a float
+        syminfo['lot_tick_size'] = 0.0
+
 
         # TODO: for loop through all symbols passed in
         init_msgs = {
@@ -1138,6 +1164,7 @@ async def stream_trades(
     stream = await _trio_run_client_method(
         method='recv_trade_updates',
     )
+    action_map = {'BOT': 'buy', 'SLD': 'sell'}
 
     async for event_name, item in stream:
 
@@ -1164,17 +1191,19 @@ async def stream_trades(
             }
 
         elif event_name == 'fill':
+
             trade, fill = item
             execu = fill.execution
+
             msg = {
                 'reqid': execu.orderId,
                 'execid': execu.execId,
 
                 # supposedly IB server fill time
                 'broker_time': execu.time,  # converted to float by us
-                'time': fill.time,  # ns in main TCP handler by us
+                'time': fill.time,  # ns from main TCP handler by us inside ``ib_insync`` override
                 'time_ns': time.time_ns(),  # cuz why not
-                'action': {'BOT': 'buy', 'SLD': 'sell'}[execu.side],
+                'action': action_map[execu.side],
                 'size': execu.shares,
                 'price': execu.price,
             }
