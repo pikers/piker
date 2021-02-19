@@ -86,6 +86,10 @@ class Symbol(BaseModel):
     lot_tick_size: float = 0.01  # "volume" precision as min step value
     broker_info: Dict[str, Dict[str, Any]] = {}
 
+    # specifies a "class" of financial instrument
+    # ex. stock, futer, option, bond etc.
+    type_key: str
+
     @property
     def brokers(self) -> List[str]:
         return list(self.broker_info.keys())
