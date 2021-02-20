@@ -163,18 +163,6 @@ class PaperBoi:
         # {'local_trades': (event_name, msg)}
         reqid = str(uuid.uuid4())
 
-        # register this submissions as a paper live order
-        if action == 'buy':
-            orders = self._buys
-
-        elif action == 'sell':
-            orders = self._sells
-
-        # buys/sells: (symbol  -> (price -> order))
-        orders.setdefault(symbol, {})[price] = (size, oid, reqid, action)
-
-        self._reqids[reqid] = (oid, symbol, action, price)
-
         # TODO: net latency model
         # we checkpoint here quickly particulalry
         # for dark orders since we want the dark_executed
@@ -198,6 +186,30 @@ class PaperBoi:
                 },
             }),
         })
+
+        # register order internally
+        self._reqids[reqid] = (oid, symbol, action, price)
+
+        # if we're already a clearing price simulate an immediate fill
+        if (
+            action == 'buy' and (clear_price := self.last_ask[0]) <= price
+            ) or (
+            action == 'sell' and (clear_price := self.last_bid[0]) >= price
+        ):
+            await self.fake_fill(clear_price, size, action, reqid, oid)
+
+        else:  # register this submissions as a paper live order
+
+            # submit order to book simulation fill loop
+            if action == 'buy':
+                orders = self._buys
+
+            elif action == 'sell':
+                orders = self._sells
+
+            # buys/sells: (symbol  -> (price -> order))
+            orders.setdefault(symbol, {})[price] = (size, oid, reqid, action)
+
         return reqid
 
     async def submit_cancel(
@@ -327,30 +339,26 @@ async def simulate_fills(
     async for quotes in quote_stream:
         for sym, quote in quotes.items():
 
-            buys, sells = client._buys.get(sym), client._sells.get(sym)
-
-            if not (buys or sells):
-                continue
-
             for tick in iterticks(
                 quote,
                 # dark order price filter(s)
                 types=('ask', 'bid', 'trade', 'last')
             ):
-                print(tick)
+                # print(tick)
                 tick_price = tick.get('price')
                 ttype = tick['type']
 
-                if ttype in ('ask',) and buys:
+                if ttype in ('ask',):
 
                     client.last_ask = (
                         tick_price,
                         tick.get('size', client.last_ask[1]),
                     )
 
+                    buys = client._buys.get(sym, {})
+
                     # iterate book prices descending
                     for our_bid in reversed(sorted(buys.keys())):
-
                         if tick_price < our_bid:
 
                             # retreive order info
@@ -370,16 +378,17 @@ async def simulate_fills(
                             # we're done
                             break
 
-                if ttype in ('bid',) and sells:
+                if ttype in ('bid',):
+
+                    client.last_bid = (
+                        tick_price,
+                        tick.get('size', client.last_bid[1]),
+                    )
+
+                    sells = client._sells.get(sym, {})
 
                     # iterate book prices ascending
                     for our_ask in sorted(sells.keys()):
-
-                        client.last_bid = (
-                            tick_price,
-                            tick.get('bid', client.last_bid[1]),
-                        )
-
                         if tick_price > our_ask:
 
                             # retreive order info
