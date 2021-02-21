@@ -169,12 +169,6 @@ class Feed:
 
         return self._index_stream
 
-    def _set_fake_trades_stream(
-        self,
-        recv_chan: trio.abc.ReceiveChannel,
-    ) -> None:
-        self._trade_stream = recv_chan
-
     async def recv_trades_data(self) -> AsyncIterator[dict]:
 
         if not getattr(self.mod, 'stream_trades', False):
@@ -187,7 +181,7 @@ class Feed:
 
         # NOTE: this can be faked by setting a rx chan
         # using the ``_.set_fake_trades_stream()`` method
-        if not self._trade_stream:
+        if self._trade_stream is None:
 
             self._trade_stream = await self._brokerd_portal.run(
 
@@ -254,6 +248,7 @@ async def open_feed(
 
             # compat with eventual ``tractor.msg.pub``
             topics=symbols,
+            loglevel=loglevel,
         )
 
         feed = Feed(
@@ -275,6 +270,7 @@ async def open_feed(
 
             symbol = Symbol(
                 key=sym,
+                type_key=si.get('asset_type', 'forex'),
                 tick_size=si.get('price_tick_size', 0.01),
                 lot_tick_size=si.get('lot_tick_size', 0.0),
             )
