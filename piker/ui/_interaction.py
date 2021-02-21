@@ -34,6 +34,7 @@ from ..log import get_logger
 from ._style import _min_points_to_show, hcolor, _font
 from ._graphics._lines import order_line, LevelLine
 from .._ems import OrderBook
+from ..data._source import Symbol
 
 
 log = get_logger(__name__)
@@ -283,7 +284,7 @@ class LineEditor:
             # label.color = color
 
             # Use the existing staged line instead but copy
-            # overe it's current style "properties".
+            # over it's current style "properties".
             # Saves us allocating more mem / objects repeatedly
             line._hoh = hl_on_hover
             line._dotted = dotted
@@ -374,6 +375,9 @@ class LineEditor:
         graphic in view.
 
         """
+        if uuid is None:
+            breakpoint()
+
         try:
             line = self._order_lines[uuid]
         except KeyError:
@@ -618,7 +622,8 @@ class OrderMode:
 
 @asynccontextmanager
 async def open_order_mode(
-    chart,
+    symbol: Symbol,
+    chart: pg.PlotWidget,
     book: OrderBook,
 ):
     # global _order_lines
@@ -632,6 +637,17 @@ async def open_order_mode(
 
     mode = OrderMode(chart, book, lines, arrows)
     view.mode = mode
+
+    asset_type = symbol.type_key
+
+    if asset_type == 'stock':
+        mode._size = 100.0
+
+    elif asset_type in ('future', 'option', 'futures_option'):
+        mode._size = 1.0
+
+    else:  # to be safe
+        mode._size = 1.0
 
     try:
         yield mode
