@@ -54,7 +54,7 @@ class Axis(pg.AxisItem):
 
         self.setTickFont(_font.font)
         self.setStyle(**{
-            'textFillLimits': [(0, 0.616)],
+            'textFillLimits': [(0, 0.5)],
             'tickFont': _font.font,
             # offset of text *away from* axis line in px
             'tickTextOffset': 6,
