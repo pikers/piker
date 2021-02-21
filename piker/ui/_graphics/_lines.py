@@ -37,6 +37,9 @@ class LevelLabel(YAxisLabel):
     where it's placed despite chart resizing and supports displaying
     multiple fields.
 
+
+    TODO: replace the rectangle-text part with our new ``Label`` type.
+
     """
     _x_margin = 0
     _y_margin = 0
@@ -338,9 +341,6 @@ class LevelLine(pg.InfiniteLine):
         self._track_cursor: bool = False
         self._always_show_labels = always_show_labels
 
-        # # indexed by int
-        # self._endpoints = (None, None)
-
         # testing markers
         # self.addMarker('<|', 0.1, 3)
         # self.addMarker('<|>', 0.2, 3)
@@ -505,6 +505,7 @@ class LevelLine(pg.InfiniteLine):
 
             cur = chart._cursor
             cur._hovered.remove(self)
+
             if self not in cur._trackers:
                 g = cur.graphics[chart]
                 g['yl'].show()
@@ -523,13 +524,10 @@ class LevelLine(pg.InfiniteLine):
         chart = self._chart
 
         # hide y-crosshair
-        graphics = chart._cursor.graphics[chart]
-        graphics['hl'].hide()
-        graphics['yl'].hide()
+        chart._cursor.hide_xhair()
 
         # highlight
         self.currentPen = self.hoverPen
-        # self.label.highlight(self.hoverPen)
         for at, label in self._labels:
             # label.highlight(self.hoverPen)
             label.show()
@@ -540,8 +538,7 @@ class LevelLine(pg.InfiniteLine):
         # This is the final position in the drag
         if ev.isFinish():
             # show y-crosshair again
-            graphics['hl'].show()
-            graphics['yl'].show()
+            chart._cursor.show_xhair()
 
     def delete(self) -> None:
         """Remove this line from containing chart/view/scene.
@@ -549,7 +546,6 @@ class LevelLine(pg.InfiniteLine):
         """
         scene = self.scene()
         if scene:
-            # self.label.parent.scene().removeItem(self.label)
             for at, label in self._labels:
                 label.delete()
 
