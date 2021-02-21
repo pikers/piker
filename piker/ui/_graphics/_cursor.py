@@ -24,7 +24,7 @@ import inspect
 import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
-from PyQt5.QtCore import QPointF
+from PyQt5.QtCore import QPointF, QRectF
 
 from .._style import (
     _xaxis_at,
@@ -413,8 +413,23 @@ class Cursor(pg.GraphicsObject):
 
         self._datum_xy = ix, iy
 
-    def boundingRect(self):
+    def boundingRect(self) -> QRectF:
         try:
             return self.active_plot.boundingRect()
         except AttributeError:
             return self.plots[0].boundingRect()
+
+    def show_xhair(self) -> None:
+        plot = self.active_plot
+        g = self.graphics[self.active_plot]
+        # show horiz line and y-label
+        g['hl'].show()
+        g['vl'].show()
+        g['yl'].show()
+
+    def hide_xhair(self) -> None:
+        plot = self.active_plot
+        g = self.graphics[self.active_plot]
+        g['hl'].hide()
+        g['vl'].hide()
+        g['yl'].hide()
