@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -16,7 +16,9 @@
 
 """
 Actor-aware broker agnostic interface.
+
 """
+from typing import Dict
 from contextlib import asynccontextmanager, AsyncExitStack
 
 import trio
@@ -28,7 +30,7 @@ from ..log import get_logger
 
 log = get_logger(__name__)
 
-_clients: Dict[str, 'Client'] = {}
+_cache: Dict[str, 'Client'] = {}
 
 @asynccontextmanager
 async def get_cached_client(
@@ -40,9 +42,11 @@ async def get_cached_client(
 
     If one has not been setup do it and cache it.
     """
-    global _clients
+    global _cache
 
-    clients = ss.setdefault('clients', {'_lock': trio.Lock()})
+    clients = _cache.setdefault('clients', {'_lock': trio.Lock()})
+
+    # global cache task lock
     lock = clients['_lock']
 
     client = None
