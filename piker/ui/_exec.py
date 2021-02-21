@@ -197,7 +197,7 @@ def run_qtractor(
             name='qtractor',
             **tractor_kwargs,
         ):
-            await func(*(args + (widgets,)))
+            await func(*((widgets,) + args))
 
     # guest mode entry
     trio.lowlevel.start_guest_run(

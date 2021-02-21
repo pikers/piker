@@ -936,14 +936,13 @@ async def test_bed(
 
 
 async def _async_main(
-    sym: str,
-    brokername: str,
-
     # implicit required argument provided by ``qtractor_run()``
     widgets: Dict[str, Any],
 
-    # all kwargs are passed through from the CLI entrypoint
-    loglevel: str = None,
+    sym: str,
+    brokername: str,
+    loglevel: str,
+
 ) -> None:
     """Main Qt-trio routine invoked by the Qt loop with
     the widgets ``dict``.
@@ -1093,7 +1092,7 @@ async def _async_main(
                     async for msg in trades_stream:
 
                         fmsg = pformat(msg)
-                        log.info(f'Received order msg: {fmsg}')
+                        log.info(f'Received order msg:\n{fmsg}')
 
                         # delete the line from view
                         oid = msg['oid']
@@ -1121,7 +1120,7 @@ async def _async_main(
                         elif resp in (
                             'dark_executed'
                         ):
-                            log.info(f'Dark order filled for {fmsg}')
+                            log.info(f'Dark order triggered for {fmsg}')
 
                             # for alerts add a triangle and remove the
                             # level line
@@ -1300,7 +1299,7 @@ async def chart_from_quotes(
                 if (mx > last_mx) or (
                     mn < last_mn
                 ):
-                    print(f'new y range: {(mn, mx)}')
+                    # print(f'new y range: {(mn, mx)}')
 
                     chart._set_yrange(
                         yrange=(mn, mx),
@@ -1581,6 +1580,7 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
 def _main(
     sym: str,
     brokername: str,
+    piker_loglevel: str,
     tractor_kwargs,
 ) -> None:
     """Sync entry point to start a chart app.
@@ -1589,7 +1589,7 @@ def _main(
     # Qt entry point
     run_qtractor(
         func=_async_main,
-        args=(sym, brokername),
+        args=(sym, brokername, piker_loglevel),
         main_widget=ChartSpace,
         tractor_kwargs=tractor_kwargs,
     )

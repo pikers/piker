@@ -126,27 +126,26 @@ def optschain(config, symbol, date, tl, rate, test):
     is_flag=True,
     help='Enable pyqtgraph profiling'
 )
-@click.option('--date', '-d', help='Contracts expiry date')
-@click.option('--test', '-t', help='Test quote stream file')
-@click.option('--rate', '-r', default=1, help='Logging level')
 @click.argument('symbol', required=True)
 @click.pass_obj
-def chart(config, symbol, date, rate, test, profile):
+def chart(config, symbol, profile):
     """Start a real-time chartng UI
     """
     from .. import _profile
     from ._chart import _main
 
-    # possibly enable profiling
+    # toggle to enable profiling
     _profile._pg_profile = profile
 
     # global opts
     brokername = config['broker']
     tractorloglevel = config['tractorloglevel']
+    pikerloglevel = config['loglevel']
 
     _main(
         sym=symbol,
         brokername=brokername,
+        piker_loglevel=pikerloglevel,
         tractor_kwargs={
             'debug_mode': True,
             'loglevel': tractorloglevel,
