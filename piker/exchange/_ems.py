@@ -33,10 +33,10 @@ import trio
 from trio_typing import TaskStatus
 import tractor
 
-from . import data
-from .log import get_logger
-from .data._source import Symbol
-from .data._normalize import iterticks
+from .. import data
+from ..log import get_logger
+from ..data._source import Symbol
+from ..data._normalize import iterticks
 
 
 log = get_logger(__name__)

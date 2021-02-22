@@ -33,7 +33,7 @@ import numpy as np
 from ..log import get_logger
 from ._style import _min_points_to_show, hcolor, _font
 from ._graphics._lines import order_line, LevelLine
-from .._ems import OrderBook
+from ..exchange._ems import OrderBook
 from ..data._source import Symbol
 
 

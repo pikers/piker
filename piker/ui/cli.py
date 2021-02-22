@@ -149,6 +149,6 @@ def chart(config, symbol, profile):
         tractor_kwargs={
             'debug_mode': True,
             'loglevel': tractorloglevel,
-            'rpc_module_paths': ['piker._ems'],
+            'enable_modules': ['piker.exchange._ems'],
         },
     )
