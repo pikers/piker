@@ -16,6 +16,7 @@
 
 """
 Console interface to UI components.
+
 """
 from functools import partial
 import os
@@ -149,6 +150,8 @@ def chart(config, symbol, profile):
         tractor_kwargs={
             'debug_mode': True,
             'loglevel': tractorloglevel,
-            'enable_modules': ['piker.exchange._ems'],
+            'enable_modules': [
+                'piker.exchange._client'
+            ],
         },
     )

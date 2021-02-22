@@ -62,7 +62,7 @@ from ..log import get_logger
 from ._exec import run_qtractor, current_screen
 from ._interaction import ChartView, open_order_mode
 from .. import fsp
-from ..exchange._ems import open_ems
+from ..exchange._client import open_ems
 
 
 log = get_logger(__name__)
