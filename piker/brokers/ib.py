@@ -23,13 +23,14 @@ built on it) and thus actor aware API calls must be spawned with
 """
 from contextlib import asynccontextmanager
 from dataclasses import asdict
-from functools import partial
 from datetime import datetime
+from functools import partial
 from typing import List, Dict, Any, Tuple, Optional, AsyncIterator, Callable
 import asyncio
-import logging
+from pprint import pformat
 import inspect
 import itertools
+import logging
 import time
 
 import trio
@@ -1215,5 +1216,11 @@ async def stream_trades(
             con = msg['contract']
             if isinstance(con, Contract):
                 msg['contract'] = asdict(con)
+
+            if msg['reqid'] == -1:
+                log.error(pformat(msg))
+
+                # don't forward, it's pointless..
+                continue
 
         yield {'local_trades': (event_name, msg)}
