@@ -103,7 +103,7 @@ class Label:
         self.fields = fields
         self.orient_v = 'bottom'
 
-        self._af = self.txt.pos().x
+        self._anchor_func = self.txt.pos().x
 
         # not sure if this makes a diff
         self.txt.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
@@ -140,14 +140,14 @@ class Label:
         func: Callable,
     ) -> None:
         assert isinstance(func(), float)
-        self._af = func
+        self._anchor_func = func
 
     def set_view_y(
         self,
         y: float,
     ) -> None:
 
-        scene_x = self._af() or self.txt.pos().x()
+        scene_x = self._anchor_func() or self.txt.pos().x()
 
         # get new (inside the) view coordinates / position
         self._view_xy = QPointF(
