@@ -157,11 +157,6 @@ async def execute_triggers(
                 price = tick.get('price')
                 ttype = tick['type']
 
-                # lel, fuck you ib
-                # if price < 0:
-                #     log.error(f'!!?!?!VOLUME TICK {tick}!?!?')
-                #     continue
-
                 # update to keep new cmds informed
                 book.lasts[(broker, symbol)] = price
 

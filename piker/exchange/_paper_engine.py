@@ -67,6 +67,10 @@ class PaperBoi:
         # {'local_trades': (event_name, msg)}
         reqid = str(uuid.uuid4())
 
+        if action == 'alert':
+            # bypass all fill simulation
+            return reqid
+
         # TODO: net latency model
         # we checkpoint here quickly particulalry
         # for dark orders since we want the dark_executed
@@ -102,7 +106,8 @@ class PaperBoi:
         ):
             await self.fake_fill(clear_price, size, action, reqid, oid)
 
-        else:  # register this submissions as a paper live order
+        else:
+            # register this submissions as a paper live order
 
             # submit order to book simulation fill loop
             if action == 'buy':
