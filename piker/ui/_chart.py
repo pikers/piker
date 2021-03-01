@@ -41,8 +41,8 @@ from ._graphics._cursor import (
 from ._graphics._lines import (
     level_line,
     order_line,
-    L1Labels,
 )
+from ._l1 import L1Labels
 from ._graphics._ohlc import BarItems
 from ._graphics._curve import FastAppendCurve
 from ._style import (
@@ -1105,7 +1105,7 @@ async def _async_main(
                         ):
 
                             # show line label once order is live
-                            line = order_mode.on_submit(oid)
+                            order_mode.on_submit(oid)
 
                         # resp to 'cancel' request or error condition
                         # for action request
@@ -1132,7 +1132,7 @@ async def _async_main(
                                     price=msg['trigger_price'],
                                     arrow_index=get_index(time.time())
                                 )
-                                line = await order_mode.on_exec(oid, msg)
+                                await order_mode.on_exec(oid, msg)
 
                         # response to completed 'action' request for buy/sell
                         elif resp in (
