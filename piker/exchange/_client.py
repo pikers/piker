@@ -147,6 +147,31 @@ async def send_order_cmds():
 
 
 @asynccontextmanager
+async def maybe_open_emsd(
+) -> 'StreamReceiveChannel':  # noqa
+
+    async with tractor.find_actor('emsd') as portal:
+        if portal is not None:
+            yield portal
+
+        else:
+            # we gotta spawn it
+            log.info("Spawning EMS daemon")
+
+            # TODO: add ``maybe_spawn_emsd()`` for this
+            async with tractor.open_nursery() as n:
+
+                portal = await n.start_actor(
+                    'emsd',
+                    enable_modules=[
+                        'piker.exchange._ems',
+                    ],
+                )
+
+                yield portal
+
+
+@asynccontextmanager
 async def open_ems(
     broker: str,
     symbol: Symbol,
@@ -182,18 +207,16 @@ async def open_ems(
     - 'dark_cancelled', 'broker_cancelled'
     - 'dark_executed', 'broker_executed'
     - 'broker_filled'
+
     """
     actor = tractor.current_actor()
 
-    # TODO: add ``maybe_spawn_emsd()`` for this
-    async with tractor.open_nursery() as n:
+    # wait for service to connect back to us signalling
+    # ready for order commands
+    book = get_orders()
 
-        portal = await n.start_actor(
-            'emsd',
-            enable_modules=[
-                'piker.exchange._ems',
-            ],
-        )
+    async with maybe_open_emsd() as portal:
+
         trades_stream = await portal.run(
             _ems_main,
             client_actor_name=actor.name,
@@ -201,11 +224,6 @@ async def open_ems(
             symbol=symbol.key,
 
         )
-
-        # wait for service to connect back to us signalling
-        # ready for order commands
-        book = get_orders()
-
         with trio.fail_after(10):
             await book._ready_to_receive.wait()
 
