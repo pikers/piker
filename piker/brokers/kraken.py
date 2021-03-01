@@ -417,8 +417,6 @@ async def open_autorecon_ws(url):
     """
     async with AsyncExitStack() as stack:
         ws = AutoReconWs(url, stack)
-        # async with trio_websocket.open_websocket_url(url) as ws:
-        #     await tractor.breakpoint()
 
         await ws._connect()
         try:
