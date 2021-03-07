@@ -36,7 +36,10 @@ from .._style import (
 class LevelLine(pg.InfiniteLine):
 
     # TODO: fill in these slots for orders
-    # .sigPositionChangeFinished.emit(self)
+    # available parent signals
+    # sigDragged(self)
+    # sigPositionChangeFinished(self)
+    # sigPositionChanged(self)
 
     def __init__(
         self,
@@ -60,6 +63,12 @@ class LevelLine(pg.InfiniteLine):
         self._chart = chart
         self._hoh = hl_on_hover
         self._dotted = dotted
+
+        if dotted:
+            self._style = QtCore.Qt.DashLine
+        else:
+            self._style = QtCore.Qt.SolidLine
+
         self._hcolor: str = None
 
         # the float y-value in the view coords
@@ -78,6 +87,9 @@ class LevelLine(pg.InfiniteLine):
         # TODO: for when we want to move groups of lines?
         self._track_cursor: bool = False
         self._always_show_labels = always_show_labels
+
+        self._on_drag_start = lambda l: None
+        self._on_drag_end = lambda l: None
 
         # testing markers
         # self.addMarker('<|', 0.1, 3)
@@ -103,9 +115,8 @@ class LevelLine(pg.InfiniteLine):
         pen = pg.mkPen(hcolor(color))
         hoverpen = pg.mkPen(hcolor(color + '_light'))
 
-        if self._dotted:
-            pen.setStyle(QtCore.Qt.DashLine)
-            hoverpen.setStyle(QtCore.Qt.DashLine)
+        pen.setStyle(self._style)
+        hoverpen.setStyle(self._style)
 
         # set regular pen
         self.setPen(pen)
@@ -166,6 +177,7 @@ class LevelLine(pg.InfiniteLine):
 
         for at, label in self._labels:
             label.color = self.color
+            # print(f'color is {self.color}')
 
             label.fields.update(fields_data)
 
@@ -189,6 +201,16 @@ class LevelLine(pg.InfiniteLine):
         self,
         level: float,
     ) -> None:
+        last = self.value()
+
+        # if the position hasn't changed then ``.update_labels()``
+        # will not be called by a non-triggered `.on_pos_change()`,
+        # so we need to call it manually to avoid mismatching
+        # label-to-line color when the line is updated but not
+        # "moved".
+        if level == last:
+            self.update_labels({'level': level})
+
         self.setPos(level)
         self.level = self.value()
         self.update()
@@ -259,6 +281,10 @@ class LevelLine(pg.InfiniteLine):
         self.update()
 
     def mouseDragEvent(self, ev):
+        """Override the ``InfiniteLine`` handler since we need more
+        detailed control and start end signalling.
+
+        """
         chart = self._chart
 
         # hide y-crosshair
@@ -270,8 +296,27 @@ class LevelLine(pg.InfiniteLine):
             # label.highlight(self.hoverPen)
             label.show()
 
-        # normal tracking behavior
-        super().mouseDragEvent(ev)
+        # XXX: normal tracking behavior pulled out from parent type
+        if self.movable and ev.button() == QtCore.Qt.LeftButton:
+
+            if ev.isStart():
+                self.moving = True
+                self.cursorOffset = self.pos() - self.mapToParent(
+                    ev.buttonDownPos())
+                self.startPosition = self.pos()
+                self._on_drag_start(self)
+
+            ev.accept()
+
+            if not self.moving:
+                return
+
+            self.setPos(self.cursorOffset + self.mapToParent(ev.pos()))
+            self.sigDragged.emit(self)
+            if ev.isFinish():
+                self.moving = False
+                self.sigPositionChangeFinished.emit(self)
+                self._on_drag_end(self)
 
         # This is the final position in the drag
         if ev.isFinish():
@@ -289,7 +334,14 @@ class LevelLine(pg.InfiniteLine):
 
             self._labels.clear()
 
-        self._chart.plotItem.removeItem(self)
+        # remove from chart/cursor states
+        chart = self._chart
+        cur = chart._cursor
+
+        if self in cur._hovered:
+            cur._hovered.remove(self)
+
+        chart.plotItem.removeItem(self)
 
     def mouseDoubleClickEvent(
         self,
