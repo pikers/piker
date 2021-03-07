@@ -279,63 +279,47 @@ async def simulate_fills(
                         tick.get('size', client.last_ask[1]),
                     )
 
-                    buys = client._buys.get(sym, {})
+                    orders = client._buys.get(sym, {})
+                    book_sequence = reversed(
+                        sorted(orders.keys(), key=itemgetter(1)))
 
-                    # iterate book prices descending
-                    for oid, our_bid in reversed(
-                        sorted(buys.keys(), key=itemgetter(1))
-                    ):
-                        if tick_price < our_bid:
+                    def pred(our_price):
+                        return tick_price < our_price
 
-                            # retreive order info
-                            (size, reqid, action) = buys.pop((oid, our_bid))
-
-                            # clearing price would have filled entirely
-                            await client.fake_fill(
-                                # todo slippage to determine fill price
-                                price=tick_price,
-                                size=size,
-                                action=action,
-                                reqid=reqid,
-                                oid=oid,
-                            )
-                        else:
-                            # prices are interated in sorted order so
-                            # we're done
-                            break
-
-                if ttype in ('bid',):
+                elif ttype in ('bid',):
 
                     client.last_bid = (
                         tick_price,
                         tick.get('size', client.last_bid[1]),
                     )
 
-                    sells = client._sells.get(sym, {})
+                    orders = client._sells.get(sym, {})
+                    book_sequence = sorted(orders.keys(), key=itemgetter(1))
 
-                    # iterate book prices ascending
-                    for oid, our_ask in sorted(
-                        sells.keys(), key=itemgetter(1)
-                    ):
-                        if tick_price > our_ask:
+                    def pred(our_price):
+                        return tick_price > our_price
 
-                            # retreive order info
-                            (size, reqid, action) = sells.pop((oid, our_ask))
-
-                            # clearing price would have filled entirely
-                            await client.fake_fill(
-                                price=tick_price,
-                                size=size,
-                                action=action,
-                                reqid=reqid,
-                                oid=oid,
-                            )
-                        else:
-                            # prices are interated in sorted order so
-                            # we're done
-                            break
-
-                if ttype in ('trade', 'last'):
+                elif ttype in ('trade', 'last'):
                     # TODO: simulate actual book queues and our orders
                     # place in it, might require full L2 data?
-                    pass
+                    continue
+
+                # iterate book prices descending
+                for oid, our_price in book_sequence:
+                    if pred(our_price):
+
+                        # retreive order info
+                        (size, reqid, action) = orders.pop((oid, our_price))
+
+                        # clearing price would have filled entirely
+                        await client.fake_fill(
+                            # todo slippage to determine fill price
+                            price=tick_price,
+                            size=size,
+                            action=action,
+                            reqid=reqid,
+                            oid=oid,
+                        )
+                    else:
+                        # prices are iterated in sorted order so we're done
+                        break
