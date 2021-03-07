@@ -19,8 +19,9 @@ Fake trading for forward testing.
 
 """
 from datetime import datetime
+from operator import itemgetter
 import time
-from typing import Tuple
+from typing import Tuple, Optional
 import uuid
 
 from bidict import bidict
@@ -32,8 +33,9 @@ from ..data._normalize import iterticks
 
 @dataclass
 class PaperBoi:
-    """Emulates a broker order client providing the same API and
-    order-event response event stream format but with methods for
+    """
+    Emulates a broker order client providing the same API and
+    delivering an order-event response stream but with methods for
     triggering desired events based on forward testing engine
     requirements.
 
@@ -59,13 +61,23 @@ class PaperBoi:
         price: float,
         action: str,
         size: float,
+        brid: Optional[str],
     ) -> int:
         """Place an order and return integer request id provided by client.
 
         """
-        # the trades stream expects events in the form
-        # {'local_trades': (event_name, msg)}
-        reqid = str(uuid.uuid4())
+
+        if brid is None:
+            reqid = str(uuid.uuid4())
+
+            # register order internally
+            self._reqids[reqid] = (oid, symbol, action, price)
+
+        else:
+            # order is already existing, this is a modify
+            (oid, symbol, action, old_price) = self._reqids[brid]
+            assert old_price != price
+            reqid = brid
 
         if action == 'alert':
             # bypass all fill simulation
@@ -95,9 +107,6 @@ class PaperBoi:
             }),
         })
 
-        # register order internally
-        self._reqids[reqid] = (oid, symbol, action, price)
-
         # if we're already a clearing price simulate an immediate fill
         if (
             action == 'buy' and (clear_price := self.last_ask[0]) <= price
@@ -116,8 +125,12 @@ class PaperBoi:
             elif action == 'sell':
                 orders = self._sells
 
+            # set the simulated order in the respective table for lookup
+            # and trigger by the simulated clearing task normally
+            # running ``simulate_fills()``.
+
             # buys/sells: (symbol  -> (price -> order))
-            orders.setdefault(symbol, {})[price] = (size, oid, reqid, action)
+            orders.setdefault(symbol, {})[(oid, price)] = (size, reqid, action)
 
         return reqid
 
@@ -131,9 +144,9 @@ class PaperBoi:
         oid, symbol, action, price = self._reqids[reqid]
 
         if action == 'buy':
-            self._buys[symbol].pop(price)
+            self._buys[symbol].pop((oid, price))
         elif action == 'sell':
-            self._sells[symbol].pop(price)
+            self._sells[symbol].pop((oid, price))
 
         # TODO: net latency model
         await trio.sleep(0.05)
@@ -174,6 +187,8 @@ class PaperBoi:
         # TODO: net latency model
         await trio.sleep(0.05)
 
+        # the trades stream expects events in the form
+        # {'local_trades': (event_name, msg)}
         await self._to_trade_stream.send({
 
             'local_trades': ('fill', {
@@ -267,20 +282,22 @@ async def simulate_fills(
                     buys = client._buys.get(sym, {})
 
                     # iterate book prices descending
-                    for our_bid in reversed(sorted(buys.keys())):
+                    for oid, our_bid in reversed(
+                        sorted(buys.keys(), key=itemgetter(1))
+                    ):
                         if tick_price < our_bid:
 
                             # retreive order info
-                            (size, oid, reqid, action) = buys.pop(our_bid)
+                            (size, reqid, action) = buys.pop((oid, our_bid))
 
                             # clearing price would have filled entirely
                             await client.fake_fill(
                                 # todo slippage to determine fill price
-                                tick_price,
-                                size,
-                                action,
-                                reqid,
-                                oid,
+                                price=tick_price,
+                                size=size,
+                                action=action,
+                                reqid=reqid,
+                                oid=oid,
                             )
                         else:
                             # prices are interated in sorted order so
@@ -297,19 +314,21 @@ async def simulate_fills(
                     sells = client._sells.get(sym, {})
 
                     # iterate book prices ascending
-                    for our_ask in sorted(sells.keys()):
+                    for oid, our_ask in sorted(
+                        sells.keys(), key=itemgetter(1)
+                    ):
                         if tick_price > our_ask:
 
                             # retreive order info
-                            (size, oid, reqid, action) = sells.pop(our_ask)
+                            (size, reqid, action) = sells.pop((oid, our_ask))
 
                             # clearing price would have filled entirely
                             await client.fake_fill(
-                                tick_price,
-                                size,
-                                action,
-                                reqid,
-                                oid,
+                                price=tick_price,
+                                size=size,
+                                action=action,
+                                reqid=reqid,
+                                oid=oid,
                             )
                         else:
                             # prices are interated in sorted order so
