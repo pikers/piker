@@ -19,19 +19,30 @@ Orders and execution client API.
 
 """
 from contextlib import asynccontextmanager
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 from pprint import pformat
 from dataclasses import dataclass, field
 
 import trio
 import tractor
+# import msgspec
 
 from ..data._source import Symbol
 from ..log import get_logger
-from ._ems import _ems_main
+from ._ems import _emsd_main
 
 
 log = get_logger(__name__)
+
+
+# class Order(msgspec.Struct):
+#     action: str
+#     price: float
+#     size: float
+#     symbol: str
+#     brokers: List[str]
+#     oid: str
+#     exec_mode: str
 
 
 @dataclass
@@ -57,7 +68,8 @@ class OrderBook:
     def send(
         self,
         uuid: str,
-        symbol: 'Symbol',
+        symbol: str,
+        brokers: List[str],
         price: float,
         size: float,
         action: str,
@@ -67,8 +79,8 @@ class OrderBook:
             'action': action,
             'price': price,
             'size': size,
-            'symbol': symbol.key,
-            'brokers': symbol.brokers,
+            'symbol': symbol,
+            'brokers': brokers,
             'oid': uuid,
             'exec_mode': exec_mode,  # dark or live
         }
@@ -76,8 +88,16 @@ class OrderBook:
         self._to_ems.send_nowait(cmd)
         return cmd
 
-    async def modify(self, oid: str, price) -> bool:
-        ...
+    def update(
+        self,
+        uuid: str,
+        **data: dict,
+    ) -> dict:
+        cmd = self._sent_orders[uuid]
+        cmd.update(data)
+        self._sent_orders[uuid] = cmd
+        self._to_ems.send_nowait(cmd)
+        return cmd
 
     def cancel(self, uuid: str) -> bool:
         """Cancel an order (or alert) from the EMS.
@@ -111,7 +131,7 @@ def get_orders(
     if _orders is None:
         # setup local ui event streaming channels for request/resp
         # streamging with EMS daemon
-        _orders = OrderBook(*trio.open_memory_channel(100))
+        _orders = OrderBook(*trio.open_memory_channel(1))
 
     return _orders
 
@@ -218,7 +238,7 @@ async def open_ems(
     async with maybe_open_emsd() as portal:
 
         trades_stream = await portal.run(
-            _ems_main,
+            _emsd_main,
             client_actor_name=actor.name,
             broker=broker,
             symbol=symbol.key,
