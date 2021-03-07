@@ -244,65 +244,66 @@ class LineEditor:
 
         symbol = chart._lc.symbol
 
-        line = self._stage_line
-        if not line:
-            # add a "staged" cursor-tracking line to view
-            # and cash it in a a var
-            line = order_line(
-                chart,
+        # line = self._stage_line
+        # if not line:
+        # add a "staged" cursor-tracking line to view
+        # and cash it in a a var
+        if self._active_staged_line:
+            self.unstage_line()
 
-                level=y,
-                level_digits=symbol.digits(),
-                size=size,
-                size_digits=symbol.lot_digits(),
+        line = order_line(
+            chart,
 
-                # just for the stage line to avoid
-                # flickering while moving the cursor
-                # around where it might trigger highlight
-                # then non-highlight depending on sensitivity
-                always_show_labels=True,
+            level=y,
+            level_digits=symbol.digits(),
+            size=size,
+            size_digits=symbol.lot_digits(),
 
-                # kwargs
-                color=color,
-                # don't highlight the "staging" line
-                hl_on_hover=hl_on_hover,
-                dotted=dotted,
-            )
-            # line.label._use_extra_fields = size is not None
+            # just for the stage line to avoid
+            # flickering while moving the cursor
+            # around where it might trigger highlight
+            # then non-highlight depending on sensitivity
+            always_show_labels=True,
 
-            # cache staging line after creation
-            self._stage_line = line
+            # kwargs
+            color=color,
+            # don't highlight the "staging" line
+            hl_on_hover=hl_on_hover,
+            dotted=dotted,
+        )
+        # line.label._use_extra_fields = size is not None
 
-        else:
-            # apply input settings to existing staging line
-            # label = line.label
+        # cache staging line after creation
+        # self._stage_line = line
 
-            # disable order size and other extras in label
-            # label._use_extra_fields = size is not None
-            # label.size = size
+        # else:
+        #     # apply input settings to existing staging line
+        #     # label = line.label
 
-            # label.color = color
+        #     # disable order size and other extras in label
+        #     # label._use_extra_fields = size is not None
+        #     # label.size = size
 
-            # Use the existing staged line instead but copy
-            # over it's current style "properties".
-            # Saves us allocating more mem / objects repeatedly
-            line._hoh = hl_on_hover
-            line._dotted = dotted
-            line.color = color
-            line.setMouseHover(hl_on_hover)
-            line.show()
-            line.show_labels()
+        #     # label.color = color
 
-            # XXX: must have this to trigger updated
-            # label contents rendering
-            line.set_level(level=y)
+        #     # Use the existing staged line instead but copy
+        #     # over it's current style "properties".
+        #     # Saves us allocating more mem / objects repeatedly
+        #     line._hoh = hl_on_hover
+        #     line._dotted = dotted
+        #     line.color = color
+        #     line.setMouseHover(hl_on_hover)
+        #     line.show()
+        #     line.show_labels()
+
+        #     # XXX: must have this to trigger updated
+        #     # label contents rendering
+        #     line.set_level(level=y)
 
         self._active_staged_line = line
 
         # hide crosshair y-line and label
-        cg = cursor.graphics[chart]
-        cg['hl'].hide()
-        cg['yl'].hide()
+        cursor.hide_xhair()
 
         # add line to cursor trackers
         cursor._trackers.add(line)
@@ -313,45 +314,45 @@ class LineEditor:
         """Inverse of ``.stage_line()``.
 
         """
-        chart = self.chart._cursor.active_plot
-        chart.setCursor(QtCore.Qt.ArrowCursor)
-        cursor = chart._cursor
+        # chart = self.chart._cursor.active_plot
+        # # chart.setCursor(QtCore.Qt.ArrowCursor)
+        cursor = self.chart._cursor
 
         # delete "staged" cursor tracking line from view
         line = self._active_staged_line
         if line:
             cursor._trackers.remove(line)
+            line.delete()
+
         self._active_staged_line = None
 
-        sl = self._stage_line
-        if sl:
-            sl.hide()
-            sl.hide_labels()
+        # sl = self._stage_line
+        # if sl:
+        #     sl.hide()
+        #     sl.hide_labels()
 
         # show the crosshair y line and label
-        cg = cursor.graphics[chart]
-        cg['hl'].show()
-        cg['yl'].show()
+        cursor.show_xhair()
 
     def create_order_line(
         self,
         uuid: str,
+        level: float,
+        chart: 'ChartPlotWidget',  # noqa
         size: float,
     ) -> LevelLine:
 
         line = self._active_staged_line
         if not line:
-            raise RuntimeError("No line commit is currently staged!?")
+            raise RuntimeError("No line is currently staged!?")
 
-        chart = self.chart._cursor.active_plot
-        y = chart._cursor._datum_xy[1]
         sym = chart._lc.symbol
 
         line = order_line(
             chart,
 
             # label fields default values
-            level=y,
+            level=level,
             level_digits=sym.digits(),
 
             size=size,
@@ -361,12 +362,14 @@ class LineEditor:
             color=line.color,
             dotted=line._dotted,
         )
+
         # for now, until submission reponse arrives
         line.hide_labels()
 
         # register for later lookup/deletion
         self._order_lines[uuid] = line
-        return line, y
+
+        return line
 
     def commit_line(self, uuid: str) -> LevelLine:
         """Commit a "staged line" to view.
@@ -375,16 +378,14 @@ class LineEditor:
         graphic in view.
 
         """
-        if uuid is None:
-            breakpoint()
-
         try:
             line = self._order_lines[uuid]
         except KeyError:
             log.warning(f'No line for {uuid} could be found?')
             return
         else:
-            line.oid = uuid
+            assert line.oid == uuid
+            # line.oid = uuid
             # line.set_level(line.level)
             line.show_labels()
             # line.label.show()
@@ -448,7 +449,7 @@ class ArrowEditor:
         angle = {
             'up': 90,
             'down': -90,
-            None: 180,  # pointing to right
+            None: 180,  # pointing to right (as in an alert)
         }[pointing]
 
         arrow = pg.ArrowItem(
@@ -479,6 +480,11 @@ class ArrowEditor:
 @dataclass
 class OrderMode:
     """Major mode for placing orders on a chart view.
+
+    This is the default mode that pairs with "follow mode"
+    (when wathing the rt price update at the current time step)
+    and allows entering orders using the ``a, d, f`` keys and
+    cancelling moused-over orders with the ``c`` key.
 
     """
     chart: 'ChartPlotWidget'  #  type: ignore # noqa
@@ -581,6 +587,7 @@ class OrderMode:
         msg = self.book._sent_orders.pop(uuid, None)
         if msg is not None:
             self.lines.remove_line(uuid=uuid)
+            self.chart._cursor.show_xhair()
         else:
             log.warning(
                 f'Received cancel for unsubmitted order {pformat(msg)}'
@@ -601,23 +608,60 @@ class OrderMode:
 
         size = size or self._size
 
-        # make line graphic
-        line, y = self.lines.create_order_line(
-            uid,
-            size=size,
-        )
-        line.oid = uid
+        chart = self.chart._cursor.active_plot
+        y = chart._cursor._datum_xy[1]
+
+        symbol = self.chart._lc._symbol
 
         # send order cmd to ems
         self.book.send(
             uuid=uid,
-            symbol=self.chart._lc._symbol,
+            symbol=symbol.key,
+            brokers=symbol.brokers,
             price=y,
             size=size,
             action=self._action,
             exec_mode=self._exec_mode,
         )
+
+        # make line graphic if order push was
+        # sucessful
+        line = self.lines.create_order_line(
+            uid,
+            level=y,
+            chart=chart,
+            size=size,
+        )
+        line.oid = uid
+
+        # hook up mouse drag handlers
+        line._on_drag_start = self.order_line_modify_start
+        line._on_drag_end = self.order_line_modify_complete
+
         return line
+
+    def cancel_order_under_cursor(self) -> None:
+        for line in self.lines.lines_under_cursor():
+            self.book.cancel(uuid=line.oid)
+
+    # order-line modify handlers
+    def order_line_modify_start(
+        self,
+        line: LevelLine,
+    ) -> None:
+        print(f'Line modify: {line}')
+        # cancel original order until new position is found
+
+    def order_line_modify_complete(
+        self,
+        line: LevelLine,
+    ) -> None:
+        self.book.update(
+            uuid=line.oid,
+
+            # TODO: should we round this to a nearest tick here?
+            price=line.value(),
+        )
 
 
 @asynccontextmanager
@@ -943,7 +987,7 @@ class ChartView(ViewBox):
             self.select_box.clear()
 
         # cancel order or clear graphics
-        if key == QtCore.Qt.Key_C:
+        if key == QtCore.Qt.Key_C or key == QtCore.Qt.Key_Delete:
             # delete any lines under the cursor
             mode = self.mode
             for line in mode.lines.lines_under_cursor():
@@ -965,14 +1009,6 @@ class ChartView(ViewBox):
 
         elif key == QtCore.Qt.Key_A:
             self.mode.set_exec('alert')
-
-        # delete orders under cursor
-        elif key == QtCore.Qt.Key_Delete:
-
-            # delete any lines under the cursor
-            mode = self.mode
-            for line in mode.lines.lines_under_cursor():
-                mode.book.cancel(uuid=line.oid)
 
         # XXX: Leaving this for light reference purposes, there
         # seems to be some work to at least gawk at for history mgmt.
