@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-UX interaction customs.
+Chart view box primitives.
 """
 import time
 from contextlib import asynccontextmanager
@@ -271,35 +271,6 @@ class LineEditor:
             hl_on_hover=hl_on_hover,
             dotted=dotted,
         )
-        # line.label._use_extra_fields = size is not None
-
-        # cache staging line after creation
-        # self._stage_line = line
-
-        # else:
-        #     # apply input settings to existing staging line
-        #     # label = line.label
-
-        #     # disable order size and other extras in label
-        #     # label._use_extra_fields = size is not None
-        #     # label.size = size
-
-        #     # label.color = color
-
-        #     # Use the existing staged line instead but copy
-        #     # over it's current style "properties".
-        #     # Saves us allocating more mem / objects repeatedly
-        #     line._hoh = hl_on_hover
-        #     line._dotted = dotted
-        #     line.color = color
-        #     line.setMouseHover(hl_on_hover)
-        #     line.show()
-        #     line.show_labels()
-
-        #     # XXX: must have this to trigger updated
-        #     # label contents rendering
-        #     line.set_level(level=y)
-
         self._active_staged_line = line
 
         # hide crosshair y-line and label
@@ -325,11 +296,6 @@ class LineEditor:
             line.delete()
 
         self._active_staged_line = None
-
-        # sl = self._stage_line
-        # if sl:
-        #     sl.hide()
-        #     sl.hide_labels()
 
         # show the crosshair y line and label
         cursor.show_xhair()
@@ -385,10 +351,7 @@ class LineEditor:
             return
         else:
             assert line.oid == uuid
-            # line.oid = uuid
-            # line.set_level(line.level)
             line.show_labels()
-            # line.label.show()
 
             # TODO: other flashy things to indicate the order is active
 
@@ -670,10 +633,7 @@ async def open_order_mode(
     chart: pg.PlotWidget,
     book: OrderBook,
 ):
-    # global _order_lines
-
     view = chart._vb
-    # book = get_orders()
     lines = LineEditor(view=view, chart=chart, _order_lines=_order_lines)
     arrows = ArrowEditor(chart, {})
 
@@ -727,7 +687,6 @@ class ChartView(ViewBox):
         self.addItem(self.select_box, ignoreBounds=True)
         self._chart: 'ChartPlotWidget' = None  # noqa
 
-        # self._lines_editor = LineEditor(view=self, _lines=_lines)
         self.mode = None
 
         # kb ctrls processing
@@ -742,7 +701,6 @@ class ChartView(ViewBox):
     def chart(self, chart: 'ChartPlotWidget') -> None:  # type: ignore # noqa
         self._chart = chart
         self.select_box.chart = chart
-        # self._lines_editor.chart = chart
 
     def wheelEvent(self, ev, axis=None):
         """Override "center-point" location for scrolling.
