@@ -18,10 +18,8 @@
 High level Qt chart widgets.
 
 """
-from pprint import pformat
 from typing import Tuple, Dict, Any, Optional, Callable
 from functools import partial
-import time
 
 from PyQt5 import QtCore, QtGui
 import numpy as np
@@ -60,9 +58,9 @@ from .. import data
 from ..data import maybe_open_shm_array
 from ..log import get_logger
 from ._exec import run_qtractor, current_screen
-from ._interaction import ChartView, open_order_mode
+from ._interaction import ChartView
+from .order_mode import start_order_mode
 from .. import fsp
-from ..exchange._client import open_ems
 
 
 log = get_logger(__name__)
@@ -1061,95 +1059,7 @@ async def _async_main(
             #     chart,
             #     linked_charts,
             # )
-
-            # spawn EMS actor-service
-            async with open_ems(
-                brokername,
-                symbol,
-            ) as (book, trades_stream):
-
-                async with open_order_mode(
-                    symbol,
-                    chart,
-                    book,
-                ) as order_mode:
-
-                    def get_index(time: float):
-                        # XXX: not sure why the time is so off here
-                        # looks like we're gonna have to do some fixing..
-                        ohlc = chart._shm.array
-                        indexes = ohlc['time'] >= time
-
-                        if any(indexes):
-                            return ohlc['index'][indexes[-1]]
-                        else:
-                            return ohlc['index'][-1]
-
-                    # Begin order-response streaming
-
-                    # this is where we receive **back** messages
-                    # about executions **from** the EMS actor
-                    async for msg in trades_stream:
-
-                        fmsg = pformat(msg)
-                        log.info(f'Received order msg:\n{fmsg}')
-
-                        # delete the line from view
-                        oid = msg['oid']
-                        resp = msg['resp']
-
-                        # response to 'action' request (buy/sell)
-                        if resp in (
-                            'dark_submitted',
-                            'broker_submitted'
-                        ):
-
-                            # show line label once order is live
-                            order_mode.on_submit(oid)
-
-                        # resp to 'cancel' request or error condition
-                        # for action request
-                        elif resp in (
-                            'broker_cancelled',
-                            'broker_inactive',
-                            'dark_cancelled'
-                        ):
-                            # delete level line from view
-                            order_mode.on_cancel(oid)
-
-                        elif resp in (
-                            'dark_executed'
-                        ):
-                            log.info(f'Dark order triggered for {fmsg}')
-
-                            # for alerts add a triangle and remove the
-                            # level line
-                            if msg['cmd']['action'] == 'alert':
-
-                                # should only be one "fill" for an alert
-                                order_mode.on_fill(
-                                    oid,
-                                    price=msg['trigger_price'],
-                                    arrow_index=get_index(time.time())
-                                )
-                                await order_mode.on_exec(oid, msg)
-
-                        # response to completed 'action' request for buy/sell
-                        elif resp in (
-                            'broker_executed',
-                        ):
-                            await order_mode.on_exec(oid, msg)
-
-                        # each clearing tick is responded individually
-                        elif resp in ('broker_filled',):
-                            action = msg['action']
-                            # TODO: some kinda progress system
-                            order_mode.on_fill(
-                                oid,
-                                price=msg['price'],
-                                arrow_index=get_index(msg['broker_time']),
-                                pointing='up' if action == 'buy' else 'down',
-                            )
+            await start_order_mode(chart, symbol, brokername)
 
 
 async def chart_from_quotes(
