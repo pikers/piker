@@ -22,6 +22,7 @@ from typing import Tuple, Optional, List
 
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
+from PyQt5.QtCore import QPointF
 
 from .._label import Label, vbr_left, right_axis
 from .._style import (
@@ -90,6 +91,8 @@ class LevelLine(pg.InfiniteLine):
 
         self._on_drag_start = lambda l: None
         self._on_drag_end = lambda l: None
+
+        self._y_incr_mult = 1 / chart._lc._symbol.tick_size
 
         # testing markers
         # self.addMarker('<|', 0.1, 3)
@@ -298,21 +301,31 @@ class LevelLine(pg.InfiniteLine):
 
         # XXX: normal tracking behavior pulled out from parent type
         if self.movable and ev.button() == QtCore.Qt.LeftButton:
+            ev.accept()
 
             if ev.isStart():
                 self.moving = True
-                self.cursorOffset = self.pos() - self.mapToParent(
-                    ev.buttonDownPos())
+                down_pos = ev.buttonDownPos()
+                self.cursorOffset = self.pos() - self.mapToParent(down_pos)
                 self.startPosition = self.pos()
-                self._on_drag_start(self)
 
-            ev.accept()
+                self._on_drag_start(self)
 
             if not self.moving:
                 return
 
-            self.setPos(self.cursorOffset + self.mapToParent(ev.pos()))
+            pos = self.cursorOffset + self.mapToParent(ev.pos())
+
+            # TODO: we should probably figure out a std api
+            # for this kind of thing given we already have
+            # it on the cursor system...
+
+            # round to nearest symbol tick
+            m = self._y_incr_mult
+            self.setPos(QPointF(pos.x(), round(pos.y() * m) / m))
+
             self.sigDragged.emit(self)
+
             if ev.isFinish():
                 self.moving = False
                 self.sigPositionChangeFinished.emit(self)
