@@ -70,14 +70,14 @@ class PaperBoi:
         if brid is None:
             reqid = str(uuid.uuid4())
 
-            # register order internally
-            self._reqids[reqid] = (oid, symbol, action, price)
-
         else:
             # order is already existing, this is a modify
             (oid, symbol, action, old_price) = self._reqids[brid]
             assert old_price != price
             reqid = brid
+
+        # register order internally
+        self._reqids[reqid] = (oid, symbol, action, price)
 
         if action == 'alert':
             # bypass all fill simulation
@@ -128,6 +128,10 @@ class PaperBoi:
             # set the simulated order in the respective table for lookup
             # and trigger by the simulated clearing task normally
             # running ``simulate_fills()``.
+
+            if brid is not None:
+                # remove any existing order for the old price
+                orders[symbol].pop((oid, old_price))
 
             # buys/sells: (symbol  -> (price -> order))
             orders.setdefault(symbol, {})[(oid, price)] = (size, reqid, action)
