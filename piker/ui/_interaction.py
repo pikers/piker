@@ -121,7 +121,7 @@ class SelectRect(QtGui.QGraphicsRectItem):
         p1: QtCore.QPointF,
         p2: QtCore.QPointF
     ) -> None:
-        """Set position of selection rectagle and accompanying label, move
+        """Set position of selection rect and accompanying label, move
         label to match.
 
         """

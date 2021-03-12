@@ -152,7 +152,7 @@ class LevelLabel(YAxisLabel):
         h, w = self.set_label_str(fields)
 
         if self._adjust_to_l1:
-            self._x_offset = _max_l1_line_len
+            self._x_offset = self._chart._max_l1_line_len
 
         self.setPos(QPointF(
             self._h_shift * (w + self._x_offset),
@@ -211,11 +211,6 @@ class LevelLabel(YAxisLabel):
         self.update()
 
 
-# global for now but probably should be
-# attached to chart instance?
-_max_l1_line_len: float = 0
-
-
 class L1Label(LevelLabel):
 
     text_flags = (
@@ -232,10 +227,14 @@ class L1Label(LevelLabel):
         """
         h, w = super().set_label_str(fields)
 
-        # Set a global "max L1 label length" so we can look it up
-        # on order lines and adjust their labels not to overlap with it.
-        global _max_l1_line_len
-        _max_l1_line_len = max(_max_l1_line_len, w)
+        # Set a global "max L1 label length" so we can
+        # look it up on order lines and adjust their
+        # labels not to overlap with it.
+        chart = self._chart
+        chart._max_l1_line_len: float = max(
+            chart._max_l1_line_len,
+            w
+        )
 
         return h, w
 
