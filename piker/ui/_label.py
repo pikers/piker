@@ -32,7 +32,11 @@ from ._style import (
 )
 
 
-def vbr_left(label) -> float:
+def vbr_left(label) -> Callable[None, float]:
+    """Return a closure which gives the scene x-coordinate for the
+    leftmost point of the containing view box.
+
+    """
 
     def viewbox_left():
         return label.vbr().left()
@@ -40,11 +44,30 @@ def vbr_left(label) -> float:
     return viewbox_left
 
 
-def right_axis(chart, label) -> float:
-    raxis = chart.getAxis('right')
+def right_axis(
 
-    def right_axis_offset_by_w():
-        return raxis.pos().x() - label.w
+    chart: 'ChartPlotWidget',  # noqa
+    label: 'Label',  # noqa
+    offset: float = 10,
+    width: float = None,
+
+) -> Callable[None, float]:
+    """Return a position closure which gives the scene x-coordinate for
+    the x point on the right y-axis minus the width of the label given
+    it's contents.
+
+    """
+    ryaxis = chart.getAxis('right')
+
+    def right_axis_offset_by_w() -> float:
+
+        # l1 spread graphics x-size
+        l1_len = chart._max_l1_line_len
+
+        # sum of all distances "from" the y-axis
+        right_offset = l1_len + label.w + offset
+
+        return ryaxis.pos().x() - right_offset
 
     return right_axis_offset_by_w
 
@@ -57,14 +80,13 @@ class Label:
     can't accomplish the simplest things, such as pinning to the left
     hand side of a view box.
 
-    This type is another effort (see our graphics lol) to start making
+    This type is another effort (see our graphics) to start making
     small, re-usable label components that can actually be used to build
-    production grade UIs.
-
-    just.. smh, hard.
+    production grade UIs...
 
     """
     def __init__(
+
         self,
         view: pg.ViewBox,
         fmt_str: str,
