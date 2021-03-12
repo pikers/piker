@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-Chart trading at it's finest.
+Chart trading, the only way to scalp.
 
 """
 from contextlib import asynccontextmanager
@@ -27,8 +27,9 @@ import uuid
 
 import pyqtgraph as pg
 import trio
+from pydantic import BaseModel
 
-from ._graphics._lines import LevelLine
+from ._graphics._lines import LevelLine, position_line
 from ._interaction import LineEditor, ArrowEditor, _order_lines
 from ..exchange._client import open_ems, OrderBook
 from ..data._source import Symbol
@@ -36,6 +37,14 @@ from ..log import get_logger
 
 
 log = get_logger(__name__)
+
+
+
+class Position(BaseModel):
+    symbol: Symbol
+    size: float
+    avg_price: float
+    fills: Dict[str, Any] = {}
 
 
 @dataclass
@@ -60,8 +69,31 @@ class OrderMode:
     _action: str = 'alert'
     _exec_mode: str = 'dark'
     _size: float = 100.0
+    _position: Dict[str, Any] = field(default_factory=dict)
+    _position_line: dict = None
 
     key_map: Dict[str, Callable] = field(default_factory=dict)
+
+    def on_position_update(
+        self,
+        msg: dict,
+    ) -> None:
+        print(f'Position update {msg}')
+
+        sym = self.chart._lc._symbol
+        if msg['symbol'].lower() not in sym.key:
+            return
+
+        self._position.update(msg)
+        if self._position_line:
+            self._position_line.delete()
+
+        line = self._position_line = position_line(
+            self.chart,
+            level=msg['avg_price'],
+            size=msg['size'],
+        )
+        line.show()
 
     def uuid(self) -> str:
         return str(uuid.uuid4())
@@ -224,6 +256,14 @@ class OrderMode:
             price=line.value(),
         )
 
+    # def on_key_press(
+    #     self,
+    #     key:
+    #     mods:
+    #     text: str,
+    # ) -> None:
+    #     pass
+
 
 @asynccontextmanager
 async def open_order_mode(
@@ -280,8 +320,10 @@ async def start_order_mode(
         ) as order_mode:
 
             def get_index(time: float):
+
                 # XXX: not sure why the time is so off here
                 # looks like we're gonna have to do some fixing..
+
                 ohlc = chart._shm.array
                 indexes = ohlc['time'] >= time
 
@@ -299,9 +341,17 @@ async def start_order_mode(
                 fmsg = pformat(msg)
                 log.info(f'Received order msg:\n{fmsg}')
 
+                resp = msg['resp']
+
+                if resp in (
+                    'position',
+                ):
+                    # show line label once order is live
+                    order_mode.on_position_update(msg)
+                    continue
+
                 # delete the line from view
                 oid = msg['oid']
-                resp = msg['resp']
 
                 # response to 'action' request (buy/sell)
                 if resp in (
