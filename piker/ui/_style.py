@@ -142,6 +142,10 @@ def enable_tina_mode() -> None:
 
 def hcolor(name: str) -> str:
     """Hex color codes by hipster speak.
+
+    This is an internal set of color codes hand picked
+    for certain purposes.
+
     """
     return {
 
@@ -154,6 +158,8 @@ def hcolor(name: str) -> str:
 
         # fifty shades
         'gray': '#808080',  # like the kick
+        'grayer': '#4c4c4c',
+        'grayest': '#3f3f3f',
         'jet': '#343434',
         'cadet': '#91A3B0',
         'marengo': '#91A3B0',
