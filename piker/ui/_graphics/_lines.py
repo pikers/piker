@@ -21,14 +21,77 @@ Lines for orders, alerts, L2.
 from typing import Tuple, Optional, List
 
 import pyqtgraph as pg
-from PyQt5 import QtCore, QtGui
+from pyqtgraph import Point, functions as fn
+from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
+import numpy as np
 
 from .._label import Label, vbr_left, right_axis
 from .._style import (
     hcolor,
     _down_2_font_inches_we_like,
 )
+
+
+def mk_marker(
+    self,
+    marker,
+    position: float = 0.5,
+    size: float = 10.0
+) -> QtGui.QPainterPath:
+    """Add a marker to be displayed on the line. 
+
+    ============= =========================================================
+    **Arguments**
+    marker        String indicating the style of marker to add:
+                  ``'<|'``, ``'|>'``, ``'>|'``, ``'|<'``, ``'<|>'``,
+                  ``'>|<'``, ``'^'``, ``'v'``, ``'o'``
+    position      Position (0.0-1.0) along the visible extent of the line
+                  to place the marker. Default is 0.5.
+    size          Size of the marker in pixels. Default is 10.0.
+    ============= =========================================================
+    """
+    path = QtGui.QPainterPath()
+
+    if marker == 'o':
+        path.addEllipse(QtCore.QRectF(-0.5, -0.5, 1, 1))
+
+    # arrow pointing away-from the top of line
+    if '<|' in marker:
+        p = QtGui.QPolygonF([Point(0.5, 0), Point(0, -0.5), Point(-0.5, 0)])
+        path.addPolygon(p)
+        path.closeSubpath()
+
+    # arrow pointing away-from the bottom of line
+    if '|>' in marker:
+        p = QtGui.QPolygonF([Point(0.5, 0), Point(0, 0.5), Point(-0.5, 0)])
+        path.addPolygon(p)
+        path.closeSubpath()
+
+    # arrow pointing in-to the top of line
+    if '>|' in marker:
+        p = QtGui.QPolygonF([Point(0.5, -0.5), Point(0, 0), Point(-0.5, -0.5)])
+        path.addPolygon(p)
+        path.closeSubpath()
+
+    # arrow pointing in-to the bottom of line
+    if '|<' in marker:
+        p = QtGui.QPolygonF([Point(0.5, 0.5), Point(0, 0), Point(-0.5, 0.5)])
+        path.addPolygon(p)
+        path.closeSubpath()
+
+    if '^' in marker:
+        p = QtGui.QPolygonF([Point(0, -0.5), Point(0.5, 0), Point(0, 0.5)])
+        path.addPolygon(p)
+        path.closeSubpath()
+
+    if 'v' in marker:
+        p = QtGui.QPolygonF([Point(0, -0.5), Point(-0.5, 0), Point(0, 0.5)])
+        path.addPolygon(p)
+        path.closeSubpath()
+
+    self._maxMarkerSize = max([m[2] / 2. for m in self.markers])
+
 
 
 # TODO: probably worth investigating if we can
@@ -52,18 +115,23 @@ class LevelLine(pg.InfiniteLine):
         hl_on_hover: bool = True,
         dotted: bool = False,
         always_show_labels: bool = False,
+        hide_xhair_on_hover: bool = True,
+        movable: bool = True,
 
     ) -> None:
 
         super().__init__(
-            movable=True,
+            movable=movable,
             angle=0,
-            label=None,  # don't use the shitty ``InfLineLabel``
+
+            # don't use the shitty ``InfLineLabel``
+            label=None,
         )
 
         self._chart = chart
         self._hoh = hl_on_hover
         self._dotted = dotted
+        self._hide_xhair_on_hover = hide_xhair_on_hover
 
         if dotted:
             self._style = QtCore.Qt.DashLine
@@ -83,6 +151,7 @@ class LevelLine(pg.InfiniteLine):
         self.sigPositionChanged.connect(self.on_pos_change)
 
         # sets color to value triggering pen creation
+        self._hl_color = highlight_color
         self.color = color
 
         # TODO: for when we want to move groups of lines?
@@ -93,16 +162,6 @@ class LevelLine(pg.InfiniteLine):
         self._on_drag_end = lambda l: None
 
         self._y_incr_mult = 1 / chart._lc._symbol.tick_size
-
-        # testing markers
-        # self.addMarker('<|', 0.1, 3)
-        # self.addMarker('<|>', 0.2, 3)
-        # self.addMarker('>|', 0.3, 3)
-        # self.addMarker('>|<', 0.4, 3)
-        # self.addMarker('>|<', 0.5, 3)
-        # self.addMarker('^', 0.6, 3)
-        # self.addMarker('v', 0.7, 3)
-        # self.addMarker('o', 0.8, 3)
 
     def txt_offsets(self) -> Tuple[int, int]:
         return 0, 0
@@ -116,7 +175,7 @@ class LevelLine(pg.InfiniteLine):
         # set pens to new color
         self._hcolor = color
         pen = pg.mkPen(hcolor(color))
-        hoverpen = pg.mkPen(hcolor(color + '_light'))
+        hoverpen = pg.mkPen(hcolor(self._hl_color))
 
         pen.setStyle(self._style)
         hoverpen.setStyle(self._style)
@@ -240,6 +299,7 @@ class LevelLine(pg.InfiniteLine):
         self.mouseHovering = hover
 
         chart = self._chart
+        cur = chart._cursor
 
         if hover:
             # highlight if so configured
@@ -250,13 +310,12 @@ class LevelLine(pg.InfiniteLine):
                 #     label.highlight(self.hoverPen)
 
             # add us to cursor state
-            cur = chart._cursor
             cur.add_hovered(self)
-            cur.graphics[chart]['yl'].hide()
-            cur.graphics[chart]['hl'].hide()
 
-            for at, label in self._labels:
-                label.show()
+            if self._hide_xhair_on_hover:
+                cur.hide_xhair()
+
+            self.show_labels()
 
             # TODO: hide y-crosshair?
             # chart._cursor.graphics[chart]['hl'].hide()
@@ -266,17 +325,18 @@ class LevelLine(pg.InfiniteLine):
         else:
             self.currentPen = self.pen
 
-            cur = chart._cursor
             cur._hovered.remove(self)
 
             if self not in cur._trackers:
-                g = cur.graphics[chart]
-                g['yl'].show()
-                g['hl'].show()
+                cur.show_xhair()
+                # g = cur.graphics[chart]
+                # g['yl'].show()
+                # g['hl'].show()
 
             if not self._always_show_labels:
                 for at, label in self._labels:
                     label.hide()
+                    label.txt.update()
                     # label.unhighlight()
 
         # highlight any attached label
@@ -295,9 +355,7 @@ class LevelLine(pg.InfiniteLine):
 
         # highlight
         self.currentPen = self.hoverPen
-        for at, label in self._labels:
-            # label.highlight(self.hoverPen)
-            label.show()
+        self.show_labels()
 
         # XXX: normal tracking behavior pulled out from parent type
         if self.movable and ev.button() == QtCore.Qt.LeftButton:
@@ -322,7 +380,12 @@ class LevelLine(pg.InfiniteLine):
 
             # round to nearest symbol tick
             m = self._y_incr_mult
-            self.setPos(QPointF(pos.x(), round(pos.y() * m) / m))
+            self.setPos(
+                QPointF(
+                    pos.x(),
+                    round(pos.y() * m) / m
+                )
+            )
 
             self.sigDragged.emit(self)
 
@@ -364,11 +427,112 @@ class LevelLine(pg.InfiniteLine):
         # TODO: enter labels edit mode
         print(f'double click {ev}')
 
+    def draw_markers(
+        self,
+        p: QtGui.QPainter,
+        left: float,
+        right: float,
+        right_offset: float,
+    ) -> None:
+        # paint markers in native coordinate system
+        tr = p.transform()
+        p.resetTransform()
+
+        start = tr.map(Point(left, 0))
+        end = tr.map(Point(right, 0))
+        up = tr.map(Point(left, 1))
+        dif = end - start
+        # length = Point(dif).length()
+        angle = np.arctan2(dif.y(), dif.x()) * 180 / np.pi
+
+        p.translate(start)
+        p.rotate(angle)
+
+        up = up - start
+        det = up.x() * dif.y() - dif.x() * up.y()
+        p.scale(1, 1 if det > 0 else -1)
+
+        p.setBrush(fn.mkBrush(self.currentPen.color()))
+        tr = p.transform()
+        for path, pos, size in self.markers:
+            p.setTransform(tr)
+            # x = length * pos
+            x = right_offset
+            p.translate(x, 0)
+            p.scale(size, size)
+            p.drawPath(path)
+
+    def right_point(
+        self,
+    ) -> float:
+
+        chart = self._chart
+        l1_len = chart._max_l1_line_len
+        ryaxis = chart.getAxis('right')
+
+        if self.markers:
+            size = self.markers[0][2]
+        else:
+            size = 0
+
+        r_axis_x = ryaxis.pos().x()
+        right_offset = l1_len + size + 10
+        right_scene_coords = r_axis_x - right_offset
+
+        right_view_coords = chart._vb.mapToView(
+            Point(right_scene_coords, 0)).x()
+
+        return (
+            right_scene_coords,
+            right_view_coords,
+            right_offset,
+        )
+
+    def paint(
+        self,
+        p: QtGui.QPainter,
+        opt: QtWidgets.QStyleOptionGraphicsItem,
+        w: QtWidgets.QWidget
+    ) -> None:
+        """Core paint which we override (yet again)
+        from pg..
+
+        """
+        p.setRenderHint(p.Antialiasing)
+
+        vb_left, vb_right = self._endPoints
+        pen = self.currentPen
+        pen.setJoinStyle(QtCore.Qt.MiterJoin)
+        p.setPen(pen)
+
+        rsc, rvc, rosc = self.right_point()
+
+        p.drawLine(
+            Point(vb_left, 0),
+            Point(rvc, 0)
+        )
+
+        if self.markers:
+            self.draw_markers(
+                p,
+                vb_left,
+                vb_right,
+                rsc
+            )
+
+    def hoverEvent(self, ev):
+        """Gawd, basically overriding it all at this point...
+
+        """
+        if (not ev.isExit()) and ev.acceptDrags(QtCore.Qt.LeftButton):
+            self.setMouseHover(True)
+        else:
+            self.setMouseHover(False)
+
 
 def level_line(
     chart: 'ChartPlogWidget',  # noqa
     level: float,
-
     color: str = 'default',
 
     # size 4 font on 4k screen scaled down, so small-ish.
@@ -390,16 +554,20 @@ def level_line(
 
     orient_v: str = 'bottom',
 
+    **kwargs,
+
 ) -> LevelLine:
     """Convenience routine to add a styled horizontal line to a plot.
 
     """
+    hl_color = color + '_light' if hl_on_hover else color
 
     line = LevelLine(
         chart,
         color=color,
+
         # lookup "highlight" equivalent
-        highlight_color=color + '_light',
+        highlight_color=hl_color,
 
         dotted=dotted,
 
@@ -409,6 +577,8 @@ def level_line(
         # when set to True the label is always shown instead of just on
         # highlight (which is a privacy thing for orders)
         always_show_labels=always_show_labels,
+
+        **kwargs,
     )
 
     chart.plotItem.addItem(line)
@@ -444,8 +614,6 @@ def order_line(
 
     order_status: str = 'dark',
     order_type: str = 'limit',
-
-    opacity=0.616,
 
     orient_v: str = 'bottom',
 
@@ -489,6 +657,54 @@ def order_line(
         'level_digits': level_digits,
     }
 
+    rlabel.orient_v = orient_v
+    rlabel.render()
+    rlabel.show()
+
+    # sanity check
+    line.update_labels({'level': level})
+
+    return line
+
+
+def position_line(
+    chart,
+    size: float,
+
+    level: float,
+
+    orient_v: str = 'bottom',
+
+) -> LevelLine:
+    """Convenience routine to add a line graphic representing an order
+    execution submitted to the EMS via the chart's "order mode".
+
+    """
+    line = level_line(
+        chart,
+        level,
+        color='default_light',
+        add_label=False,
+        hl_on_hover=False,
+        movable=False,
+        always_show_labels=False,
+        hide_xhair_on_hover=False,
+    )
+    if size > 0:
+        line.addMarker('|<', 0.9, 20)
+
+    elif size < 0:
+        line.addMarker('>|', 0.9, 20)
+
+    rlabel = line.add_label(
+        side='left',
+        fmt_str='{direction}: {size}\n${$:.2f}',
+    )
+    rlabel.fields = {
+        'direction': 'long' if size > 0 else 'short',
+        '$': size * level,
+        'size': size,
+    }
     rlabel.orient_v = orient_v
     rlabel.render()
     rlabel.show()
