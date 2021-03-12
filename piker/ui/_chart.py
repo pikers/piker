@@ -372,6 +372,8 @@ class ChartPlotWidget(pg.PlotWidget):
     sig_mouse_leave = QtCore.Signal(object)
     sig_mouse_enter = QtCore.Signal(object)
 
+    _l1_labels: L1Labels = None
+
     # TODO: can take a ``background`` color setting - maybe there's
     # a better one?
 
@@ -405,6 +407,10 @@ class ChartPlotWidget(pg.PlotWidget):
         )
         self.name = name
         self._lc = linked_charts
+
+        # view-local placeholder for book graphics
+        # sizing to avoid overlap with data contents
+        self._max_l1_line_len: float = 0
 
         # self.setViewportMargins(0, 0, 0, 0)
         self._ohlc = array  # readonly view of ohlc data
@@ -727,7 +733,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self,
         *,
         yrange: Optional[Tuple[float, float]] = None,
-        range_margin: float = 0.04,
+        range_margin: float = 0.06,
     ) -> None:
         """Set the viewable y-range based on embedded data.
 
@@ -1123,6 +1129,7 @@ async def chart_from_quotes(
         digits=symbol.digits(),
         size_digits=symbol.lot_digits(),
     )
+    chart._l1_labels = l1
 
     # TODO:
     # - in theory we should be able to read buffer data faster
