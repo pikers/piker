@@ -215,7 +215,7 @@ class Cursor(pg.GraphicsObject):
             style=QtCore.Qt.DashLine,
         )
         self.lines_pen = pg.mkPen(
-            color='#a9a9a9',  # gray?
+            color=hcolor('davies'),
             style=QtCore.Qt.DashLine,
         )
         self.lsc = linkedsplitcharts
@@ -257,12 +257,14 @@ class Cursor(pg.GraphicsObject):
         hl.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
         hl.hide()
 
+        label_color = 'default'
+
         yl = YAxisLabel(
             chart=plot,
             parent=plot.getAxis('right'),
             digits=digits or self.digits,
             opacity=_ch_label_opac,
-            bg_color='default',
+            bg_color=label_color,
         )
         yl.hide()  # on startup if mouse is off screen
 
@@ -302,7 +304,7 @@ class Cursor(pg.GraphicsObject):
         self.xaxis_label = XAxisLabel(
             parent=self.plots[plot_index].getAxis('bottom'),
             opacity=_ch_label_opac,
-            bg_color='default',
+            bg_color=label_color,
         )
         # place label off-screen during startup
         self.xaxis_label.setPos(self.plots[0].mapFromView(QPointF(0, 0)))
