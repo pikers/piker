@@ -87,20 +87,17 @@ _data_mods = [
 @asynccontextmanager
 async def maybe_spawn_brokerd(
     brokername: str,
-    sleep: float = 0.5,
     loglevel: Optional[str] = None,
-    **tractor_kwargs,
+
+    # XXX: you should pretty much never want debug mode
+    # for data daemons when running in production.
+    debug_mode: bool = False,
 ) -> tractor._portal.Portal:
     """If no ``brokerd.{brokername}`` daemon-actor can be found,
     spawn one in a local subactor and return a portal to it.
     """
     if loglevel:
         get_console_log(loglevel)
-
-    # disable debugger in brokerd?
-    # tractor._state._runtime_vars['_debug_mode'] = False
-
-    tractor_kwargs['loglevel'] = loglevel
 
     brokermod = get_brokermod(brokername)
     dname = f'brokerd.{brokername}'
@@ -113,18 +110,25 @@ async def maybe_spawn_brokerd(
         else:  # no daemon has been spawned yet
 
             log.info(f"Spawning {brokername} broker daemon")
+
+            # retrieve any special config from the broker mod
             tractor_kwargs = getattr(brokermod, '_spawn_kwargs', {})
-            async with tractor.open_nursery() as nursery:
+
+            async with tractor.open_nursery(
+                debug_mode=False,
+            ) as nursery:
                 try:
                     # spawn new daemon
                     portal = await nursery.start_actor(
                         dname,
                         enable_modules=_data_mods + [brokermod.__name__],
                         loglevel=loglevel,
+                        debug_mode=debug_mode,
                         **tractor_kwargs
                     )
                     async with tractor.wait_for_actor(dname) as portal:
                         yield portal
+
                 finally:
                     # client code may block indefinitely so cancel when
                     # teardown is invoked
@@ -235,9 +239,15 @@ async def open_feed(
     )
 
     async with maybe_spawn_brokerd(
+
         brokername,
         loglevel=loglevel,
+
+        # TODO: add a cli flag for this
+        debug_mode=False,
+
     ) as portal:
+
         stream = await portal.run(
             mod.stream_quotes,
 

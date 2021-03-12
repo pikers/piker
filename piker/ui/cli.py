@@ -91,7 +91,7 @@ def monitor(config, rate, name, dhost, test, tl):
 @click.option('--rate', '-r', default=1, help='Logging level')
 @click.argument('symbol', required=True)
 @click.pass_obj
-def optschain(config, symbol, date, tl, rate, test):
+def optschain(config, symbol, date, rate, test):
     """Start an option chain UI
     """
     # global opts
@@ -117,7 +117,7 @@ def optschain(config, symbol, date, tl, rate, test):
     tractor.run(
         partial(main, tries=1),
         name='kivy-options-chain',
-        loglevel=loglevel if tl else None,
+        # loglevel=loglevel if tl else None,
     )
 
 
