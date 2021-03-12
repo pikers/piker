@@ -32,7 +32,7 @@ from ._style import (
 )
 
 
-def vbr_left(label) -> Callable[None, float]:
+def vbr_left(label) -> Callable[..., float]:
     """Return a closure which gives the scene x-coordinate for the
     leftmost point of the containing view box.
 
@@ -51,7 +51,7 @@ def right_axis(
     offset: float = 10,
     width: float = None,
 
-) -> Callable[None, float]:
+) -> Callable[..., float]:
     """Return a position closure which gives the scene x-coordinate for
     the x point on the right y-axis minus the width of the label given
     it's contents.
