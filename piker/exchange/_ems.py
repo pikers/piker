@@ -353,6 +353,13 @@ async def process_broker_trades(
 
         log.info(f'Received broker trade event:\n{pformat(msg)}')
 
+        if name == 'position':
+            msg['resp'] = 'position'
+
+            # relay through
+            await ctx.send_yield(msg)
+            continue
+
         # Get the broker (order) request id, this **must** be normalized
         # into messaging provided by the broker backend
         reqid = msg['reqid']
@@ -366,7 +373,13 @@ async def process_broker_trades(
             # locally, so we need to retreive the oid that was already
             # packed at submission since we already know it ahead of
             # time
-            oid = msg['paper_info']['oid']
+            paper = msg.get('paper_info')
+            if paper:
+                oid = paper['oid']
+
+            else:
+                msg['external']
+                continue
 
         resp = {
             'resp': None,  # placeholder
@@ -543,6 +556,7 @@ async def process_order_cmds(
                 # the user choose the predicate operator.
                 pred = mk_check(trigger_price, last)
 
+                tick_slap: float = 5
                 min_tick = feed.symbols[sym].tick_size
 
                 if action == 'buy':
@@ -552,12 +566,12 @@ async def process_order_cmds(
                     # TODO: we probably need to scale this based
                     # on some near term historical spread
                     # measure?
-                    abs_diff_away = 3 * min_tick
+                    abs_diff_away = tick_slap * min_tick
 
                 elif action == 'sell':
                     tickfilter = ('bid', 'last', 'trade')
                     percent_away = -0.005
-                    abs_diff_away = -3 * min_tick
+                    abs_diff_away = -tick_slap * min_tick
 
                 else:  # alert
                     tickfilter = ('trade', 'utrade', 'last')
@@ -567,7 +581,6 @@ async def process_order_cmds(
                 # submit execution/order to EMS scan loop
                 # FYI: this may result in an override of an existing
                 # dark book entry if the order id already exists
-
                 dark_book.orders.setdefault(
                     sym, {}
                 )[oid] = (
