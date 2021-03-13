@@ -23,6 +23,7 @@ from typing import Tuple, Optional, List
 import pyqtgraph as pg
 from pyqtgraph import Point, functions as fn
 from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5.QtGui import QGraphicsPathItem
 from PyQt5.QtCore import QPointF
 import numpy as np
 
@@ -34,22 +35,18 @@ from .._style import (
 
 
 def mk_marker(
-    self,
     marker,
-    position: float = 0.5,
-    size: float = 10.0
-) -> QtGui.QPainterPath:
-    """Add a marker to be displayed on the line. 
+    size: float = 20.0
+) -> QGraphicsPathItem:
+    """Add a marker to be displayed on the line wrapped in a ``QGraphicsPathItem``
+    ready to be placed using scene coordinates (not view).
 
-    ============= =========================================================
     **Arguments**
     marker        String indicating the style of marker to add:
                   ``'<|'``, ``'|>'``, ``'>|'``, ``'|<'``, ``'<|>'``,
                   ``'>|<'``, ``'^'``, ``'v'``, ``'o'``
-    position      Position (0.0-1.0) along the visible extent of the line
-                  to place the marker. Default is 0.5.
     size          Size of the marker in pixels. Default is 10.0.
-    ============= =========================================================
+
     """
     path = QtGui.QPainterPath()
 
@@ -90,8 +87,9 @@ def mk_marker(
         path.addPolygon(p)
         path.closeSubpath()
 
-    self._maxMarkerSize = max([m[2] / 2. for m in self.markers])
+    # self._maxMarkerSize = max([m[2] / 2. for m in self.markers])
 
+    return QGraphicsPathItem(path)
 
 
 # TODO: probably worth investigating if we can
@@ -133,6 +131,8 @@ class LevelLine(pg.InfiniteLine):
         self._dotted = dotted
         self._hide_xhair_on_hover = hide_xhair_on_hover
 
+        self._marker = None
+
         if dotted:
             self._style = QtCore.Qt.DashLine
         else:
@@ -146,6 +146,7 @@ class LevelLine(pg.InfiniteLine):
         # list of labels anchored at one of the 2 line endpoints
         # inside the viewbox
         self._labels: List[(int, Label)] = []
+        self._markers: List[(int, Label)] = []
 
         # whenever this line is moved trigger label updates
         self.sigPositionChanged.connect(self.on_pos_change)
@@ -196,26 +197,37 @@ class LevelLine(pg.InfiniteLine):
             '{level:,.{level_digits}f}'
         ),
         side: str = 'right',
+        side_of_axis: str = 'left',
+        x_offset: float = 50,
 
         font_size_inches: float = _down_2_font_inches_we_like,
         color: str = None,
         bg_color: str = None,
+        avoid_book: bool = True,
 
         **label_kwargs,
     ) -> Label:
         """Add a ``LevelLabel`` anchored at one of the line endpoints in view.
 
         """
-        vb = self.getViewBox()
-
         label = Label(
-            view=vb,
+            view=self.getViewBox(),
             fmt_str=fmt_str,
             color=self.color,
         )
 
+        # set anchor callback
         if side == 'right':
-            label.set_x_anchor_func(right_axis(self._chart, label))
+            label.set_x_anchor_func(
+                right_axis(
+                    self._chart,
+                    label,
+                    side=side_of_axis,
+                    offset=x_offset,
+                    avoid_book=avoid_book,
+                )
+            )
+
         elif side == 'left':
             label.set_x_anchor_func(vbr_left(label))
 
@@ -288,7 +300,8 @@ class LevelLine(pg.InfiniteLine):
         self.movable = True
         self.set_level(y)  # implictly calls reposition handler
 
-    def setMouseHover(self, hover: bool) -> None:
+    # TODO: just put this in the hoverEvent handler
+    def set_mouser_hover(self, hover: bool) -> None:
         """Mouse hover callback.
 
         """
@@ -304,34 +317,38 @@ class LevelLine(pg.InfiniteLine):
         if hover:
             # highlight if so configured
             if self._hoh:
+
                 self.currentPen = self.hoverPen
 
-                # for at, label in self._labels:
-                #     label.highlight(self.hoverPen)
+                # only disable cursor y-label updates
+                # if we're highlighting a line
+                cur._y_label_update = False
 
             # add us to cursor state
             cur.add_hovered(self)
 
             if self._hide_xhair_on_hover:
-                cur.hide_xhair()
+                cur.hide_xhair(
+                    # set y-label to current value
+                    y_label_level=self.value(),
 
+                    # fg_color=self._hcolor,
+                    # bg_color=self._hcolor,
+                )
+
+            # if we want highlighting of labels
+            # it should be delegated into this method
             self.show_labels()
 
-            # TODO: hide y-crosshair?
-            # chart._cursor.graphics[chart]['hl'].hide()
-
-            # self.setCursor(QtCore.Qt.OpenHandCursor)
-            # self.setCursor(QtCore.Qt.DragMoveCursor)
         else:
+            cur._y_label_update = True
+
             self.currentPen = self.pen
 
             cur._hovered.remove(self)
 
             if self not in cur._trackers:
                 cur.show_xhair()
-                # g = cur.graphics[chart]
-                # g['yl'].show()
-                # g['hl'].show()
 
             if not self._always_show_labels:
                 for at, label in self._labels:
@@ -382,7 +399,7 @@ class LevelLine(pg.InfiniteLine):
             m = self._y_incr_mult
             self.setPos(
                 QPointF(
-                    pos.x(),
+                    self.pos().x(),  # don't allow shifting horizontally
                     round(pos.y() * m) / m
                 )
             )
@@ -409,6 +426,9 @@ class LevelLine(pg.InfiniteLine):
                 label.delete()
 
             self._labels.clear()
+
+            if self._marker:
+                self.scene().removeItem(self._marker)
 
         # remove from chart/cursor states
         chart = self._chart
@@ -456,8 +476,11 @@ class LevelLine(pg.InfiniteLine):
         tr = p.transform()
         for path, pos, size in self.markers:
             p.setTransform(tr)
+
+            # XXX: we drop the "scale / %" placement
             # x = length * pos
             x = right_offset
+
             p.translate(x, 0)
             p.scale(size, size)
             p.drawPath(path)
@@ -502,7 +525,7 @@ class LevelLine(pg.InfiniteLine):
 
         vb_left, vb_right = self._endPoints
         pen = self.currentPen
-        pen.setJoinStyle(QtCore.Qt.MiterJoin)
+        # pen.setJoinStyle(QtCore.Qt.MiterJoin)
         p.setPen(pen)
 
         rsc, rvc, rosc = self.right_point()
@@ -512,6 +535,18 @@ class LevelLine(pg.InfiniteLine):
             Point(rvc, 0)
         )
 
+        # this seems slower when moving around
+        # order lines.. not sure wtf is up with that.
+        # for now we're just using it on the position line.
+        if self._marker:
+            scene_pos = QPointF(rsc, self.scene_y())
+            self._marker.setPos(scene_pos)
+
+            # somehow this is adding a lot of lag, but without
+            # if we're getting weird trail artefacs grrr.
+            # gotta be some kinda boundingRect problem yet again
+            # self._marker.update()
+
         if self.markers:
             self.draw_markers(
                 p,
@@ -520,14 +555,36 @@ class LevelLine(pg.InfiniteLine):
                 rsc
             )
 
+    def scene_y(self) -> float:
+        return self.getViewBox().mapFromView(Point(0, self.value())).y()
+
+    def add_marker(
+        self,
+        path: QtGui.QGraphicsPathItem,
+    ) -> None:
+
+        # chart = self._chart
+        vb = self.getViewBox()
+        vb.scene().addItem(path)
+
+        self._marker = path
+
+        rsc, rvc, rosc = self.right_point()
+
+        self._marker.setPen(self.currentPen)
+        self._marker.setBrush(fn.mkBrush(self.currentPen.color()))
+        self._marker.scale(20, 20)
+        # y_in_sc = chart._vb.mapFromView(Point(0, self.value())).y()
+        path.setPos(QPointF(rsc, self.scene_y()))
+
     def hoverEvent(self, ev):
         """Gawd, basically overriding it all at this point...
 
         """
         if (not ev.isExit()) and ev.acceptDrags(QtCore.Qt.LeftButton):
-            self.setMouseHover(True)
+            self.set_mouser_hover(True)
         else:
-            self.setMouseHover(False)
+            self.set_mouser_hover(False)
 
 
 def level_line(
@@ -588,6 +645,8 @@ def level_line(
         label = line.add_label(
             side='right',
             opacity=1,
+            x_offset=0,
+            avoid_book=False,
         )
         label.orient_v = orient_v
 
@@ -606,18 +665,18 @@ def order_line(
     chart,
     level: float,
     level_digits: float,
+    action: str,  # buy or sell
 
     size: Optional[int] = 1,
     size_digits: int = 0,
-
+    show_markers: bool = False,
     submit_price: float = None,
-
-    order_status: str = 'dark',
+    exec_type: str = 'dark',
     order_type: str = 'limit',
-
     orient_v: str = 'bottom',
 
     **line_kwargs,
+
 ) -> LevelLine:
     """Convenience routine to add a line graphic representing an order
     execution submitted to the EMS via the chart's "order mode".
@@ -630,36 +689,115 @@ def order_line(
         **line_kwargs
     )
 
-    llabel = line.add_label(
-        side='left',
-        fmt_str='{order_status}-{order_type}:{submit_price}',
-    )
-    llabel.fields = {
-        'order_status': order_status,
-        'order_type': order_type,
-        'submit_price': submit_price,
-    }
-    llabel.orient_v = orient_v
-    llabel.render()
-    llabel.show()
+    if show_markers:
+        # add arrow marker on end of line nearest y-axis
+        marker_style, marker_size = {
+            'buy': ('|<', 20),
+            'sell': ('>|', 20),
+            'alert': ('^', 12),
+        }[action]
 
-    rlabel = line.add_label(
-        side='right',
-        fmt_str=(
-            '{size:.{size_digits}f} x '
-            '{level:,.{level_digits}f}'
-        ),
-    )
-    rlabel.fields = {
-        'size': size,
-        'size_digits': size_digits,
-        'level': level,
-        'level_digits': level_digits,
-    }
+        # XXX: not sure wtf but this is somehow laggier
+        # when tested manually staging an order..
+        # I would assume it's to do either with come kinda
+        # conflict of the ``QGraphicsPathItem`` with the custom
+        # object or that those types are just slower in general...
+        # Pretty annoying to say the least.
+        # line.add_marker(mk_marker(marker_style))
 
-    rlabel.orient_v = orient_v
-    rlabel.render()
-    rlabel.show()
+        line.addMarker(
+            marker_style,
+            # the "position" here is now ignored since we modified
+            # internals to pin markers to the right end of the line
+            0.9,
+            marker_size
+        )
+
+    orient_v = 'top' if action == 'sell' else 'bottom'
+
+    if action == 'alert':
+        # completely different labelling for alerts
+        fmt_str = 'alert => {level}'
+
+        # for now, we're just duplicating the label contents i guess..
+        llabel = line.add_label(
+            side='left',
+            fmt_str=fmt_str,
+        )
+        llabel.fields = {
+            'level': level,
+            'level_digits': level_digits,
+        }
+        llabel.orient_v = orient_v
+        llabel.render()
+        llabel.show()
+
+        # right before L1 label
+        rlabel = line.add_label(
+            side='right',
+            side_of_axis='left',
+            fmt_str=fmt_str,
+        )
+        rlabel.fields = {
+            'level': level,
+            'level_digits': level_digits,
+        }
+
+        rlabel.orient_v = orient_v
+        rlabel.render()
+        rlabel.show()
+
+    else:
+        # left side label
+        llabel = line.add_label(
+            side='left',
+            fmt_str='{exec_type}-{order_type}: ${$value}',
+        )
+        llabel.fields = {
+            'order_type': order_type,
+            'level': level,
+            '$value': lambda f: f['level'] * f['size'],
+            'size': size,
+            'exec_type': exec_type,
+        }
+        llabel.orient_v = orient_v
+        llabel.render()
+        llabel.show()
+
+        # right before L1 label
+        rlabel = line.add_label(
+            side='right',
+            side_of_axis='left',
+            fmt_str=(
+                '{size:.{size_digits}f} x'
+            ),
+        )
+        rlabel.fields = {
+            'size': size,
+            'size_digits': size_digits,
+        }
+
+        rlabel.orient_v = orient_v
+        rlabel.render()
+        rlabel.show()
+
+        # axis_label = line.add_label(
+        #     side='right',
+        #     side_of_axis='left',
+        #     x_offset=0,
+        #     avoid_book=False,
+        #     fmt_str=(
+        #         '{level:,.{level_digits}f}'
+        #     ),
+        # )
+        # axis_label.fields = {
+        #     'level': level,
+        #     'level_digits': level_digits,
+        # }
+
+        # axis_label.orient_v = orient_v
+        # axis_label.render()
+        # axis_label.show()
 
     # sanity check
     line.update_labels({'level': level})
@@ -691,10 +829,12 @@ def position_line(
         hide_xhair_on_hover=False,
     )
     if size > 0:
-        line.addMarker('|<', 0.9, 20)
+        arrow_path = mk_marker('|<')
 
     elif size < 0:
-        line.addMarker('>|', 0.9, 20)
+        arrow_path = mk_marker('>|')
+
+    line.add_marker(arrow_path)
 
     rlabel = line.add_label(
         side='left',
