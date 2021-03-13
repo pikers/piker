@@ -119,17 +119,18 @@ _corner_anchors = {
     'bottom': 1,
     'right': 1,
 }
+_y_margin = 5
 # XXX: fyi naming here is confusing / opposite to coords
 _corner_margins = {
-    ('top', 'left'): (-4, -5),
-    ('top', 'right'): (4, -5),
+    ('top', 'left'): (-4, -_y_margin),
+    ('top', 'right'): (4, -_y_margin),
 
-    ('bottom', 'left'): (-4, lambda font_size: font_size * 2),
-    ('bottom', 'right'): (4, lambda font_size: font_size * 2),
+    ('bottom', 'left'): (-4, lambda font_size: font_size + 2*_y_margin),
+    ('bottom', 'right'): (4, lambda font_size: font_size + 2*_y_margin),
 }
 
 
-# TODO: change this into a ``pg.TextItem``...
+# TODO: change this into our own ``Label``
 class ContentsLabel(pg.LabelItem):
     """Label anchored to a ``ViewBox`` typically for displaying
     datum-wise points from the "viewed" contents.
@@ -235,6 +236,11 @@ class Cursor(pg.GraphicsObject):
         # line width in view coordinates
         self._lw = self.pixelWidth() * self.lines_pen.width()
 
+        # xhair label's color name
+        self.label_color: str = 'default'
+
+        self._y_label_update: bool = True
+
     def add_hovered(
         self,
         item: pg.GraphicsObject,
@@ -257,14 +263,12 @@ class Cursor(pg.GraphicsObject):
         hl.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
         hl.hide()
 
-        label_color = 'default'
-
         yl = YAxisLabel(
             chart=plot,
             parent=plot.getAxis('right'),
             digits=digits or self.digits,
             opacity=_ch_label_opac,
-            bg_color=label_color,
+            bg_color=self.label_color,
         )
         yl.hide()  # on startup if mouse is off screen
 
@@ -304,7 +308,7 @@ class Cursor(pg.GraphicsObject):
         self.xaxis_label = XAxisLabel(
             parent=self.plots[plot_index].getAxis('bottom'),
             opacity=_ch_label_opac,
-            bg_color=label_color,
+            bg_color=self.label_color,
         )
         # place label off-screen during startup
         self.xaxis_label.setPos(self.plots[0].mapFromView(QPointF(0, 0)))
@@ -373,7 +377,7 @@ class Cursor(pg.GraphicsObject):
         # px perfect...
         line_offset = self._lw / 2
 
-        if iy != last_iy:
+        if iy != last_iy and self._y_label_update:
 
             # update y-range items
             self.graphics[plot]['hl'].setY(iy + line_offset)
@@ -422,16 +426,34 @@ class Cursor(pg.GraphicsObject):
             return self.plots[0].boundingRect()
 
     def show_xhair(self) -> None:
-        plot = self.active_plot
         g = self.graphics[self.active_plot]
         # show horiz line and y-label
         g['hl'].show()
         g['vl'].show()
-        g['yl'].show()
 
-    def hide_xhair(self) -> None:
-        plot = self.active_plot
+        yl = g['yl']
+        # yl.fg_color = pg.mkColor(hcolor('black'))
+        # yl.bg_color = pg.mkColor(hcolor(self.label_color))
+        yl.show()
+
+    def hide_xhair(
+        self,
+        hide_label: bool = False,
+        y_label_level: float = None,
+        fg_color: str = None,
+        # bg_color: str = 'papas_special',
+    ) -> None:
         g = self.graphics[self.active_plot]
         g['hl'].hide()
         g['vl'].hide()
-        g['yl'].hide()
+
+        yl = g['yl']
+
+        if hide_label:
+            yl.hide()
+        elif y_label_level:
+            yl.update_from_data(0, y_label_level)
+
+        if fg_color is not None:
+            yl.fg_color = pg.mkColor(hcolor(fg_color))
+            yl.bg_color = pg.mkColor(hcolor('papas_special'))
