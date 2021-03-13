@@ -378,7 +378,10 @@ async def process_broker_trades(
                 oid = paper['oid']
 
             else:
-                msg['external']
+                msg.get('external')
+                if not msg:
+                    log.error(f"Unknown trade event {event}")
+
                 continue
 
         resp = {
