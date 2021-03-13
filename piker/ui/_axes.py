@@ -454,7 +454,7 @@ class YAxisLabel(AxisLabel):
         path = QtGui.QPainterPath()
         h = self.rect.height()
         path.moveTo(0, 0)
-        path.lineTo(-x_offset - 2, h/2.)
+        path.lineTo(-x_offset - 4, h/2.)
         path.lineTo(0, h)
         path.closeSubpath()
         self.path = path
