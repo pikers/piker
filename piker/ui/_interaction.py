@@ -217,6 +217,7 @@ class LineEditor:
 
     def stage_line(
         self,
+        action: str,
 
         color: str = 'alert_yellow',
         hl_on_hover: bool = False,
@@ -263,7 +264,11 @@ class LineEditor:
             # don't highlight the "staging" line
             hl_on_hover=hl_on_hover,
             dotted=dotted,
+            exec_type='dark' if dotted else 'live',
+            action=action,
+            show_markers=True,
         )
+
         self._active_staged_line = line
 
         # hide crosshair y-line and label
@@ -299,6 +304,7 @@ class LineEditor:
         level: float,
         chart: 'ChartPlotWidget',  # noqa
         size: float,
+        action: str,
     ) -> LevelLine:
 
         line = self._active_staged_line
@@ -320,6 +326,8 @@ class LineEditor:
             # LevelLine kwargs
             color=line.color,
             dotted=line._dotted,
+
+            action=action,
         )
 
         # for now, until submission reponse arrives

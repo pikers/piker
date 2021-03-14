@@ -39,7 +39,6 @@ from ..log import get_logger
 log = get_logger(__name__)
 
 
-
 class Position(BaseModel):
     symbol: Symbol
     size: float
@@ -84,16 +83,19 @@ class OrderMode:
         if msg['symbol'].lower() not in sym.key:
             return
 
+        size = msg['size']
+
         self._position.update(msg)
         if self._position_line:
             self._position_line.delete()
 
-        line = self._position_line = position_line(
-            self.chart,
-            level=msg['avg_price'],
-            size=msg['size'],
-        )
-        line.show()
+        if size != 0.0:
+            line = self._position_line = position_line(
+                self.chart,
+                level=msg['avg_price'],
+                size=size,
+            )
+            line.show()
 
     def uuid(self) -> str:
         return str(uuid.uuid4())
@@ -108,10 +110,12 @@ class OrderMode:
         """
         self._action = action
         self.lines.stage_line(
+
             color=self._colors[action],
             # hl_on_hover=True if self._exec_mode == 'live' else False,
             dotted=True if self._exec_mode == 'dark' else False,
             size=size or self._size,
+            action=action,
         )
 
     def on_submit(self, uuid: str) -> dict:
@@ -206,6 +210,8 @@ class OrderMode:
 
         symbol = self.chart._lc._symbol
 
+        action = self._action
+
         # send order cmd to ems
         self.book.send(
             uuid=uid,
@@ -213,7 +219,7 @@ class OrderMode:
             brokers=symbol.brokers,
             price=y,
             size=size,
-            action=self._action,
+            action=action,
             exec_mode=self._exec_mode,
         )
 
@@ -224,6 +230,7 @@ class OrderMode:
             level=y,
             chart=chart,
             size=size,
+            action=action,
         )
         line.oid = uid
 
