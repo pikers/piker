@@ -438,12 +438,15 @@ class YAxisLabel(AxisLabel):
         self,
         index: int,
         value: float,
+        _save_last: bool = True,
     ) -> None:
         """Update the label's text contents **and** position from
         a view box coordinate datum.
 
         """
-        self._last_datum = (index, value)
+        if _save_last:
+            self._last_datum = (index, value)
+
         self.update_label(
             self._chart.mapFromView(QPointF(index, value)),
             value
