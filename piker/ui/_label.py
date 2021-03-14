@@ -18,12 +18,12 @@
 Non-shitty labels that don't re-invent the wheel.
 
 """
+from inspect import isfunction
 from typing import Callable
 
 import pyqtgraph as pg
 from PyQt5 import QtGui
 from PyQt5.QtCore import QPointF, QRectF
-
 
 from ._style import (
     DpiAwareFont,
@@ -37,18 +37,16 @@ def vbr_left(label) -> Callable[..., float]:
     leftmost point of the containing view box.
 
     """
-
-    def viewbox_left():
-        return label.vbr().left()
-
-    return viewbox_left
+    return label.vbr().left
 
 
 def right_axis(
 
     chart: 'ChartPlotWidget',  # noqa
     label: 'Label',  # noqa
+    side: str = 'left',
     offset: float = 10,
+    avoid_book: bool = True,
     width: float = None,
 
 ) -> Callable[..., float]:
@@ -59,17 +57,35 @@ def right_axis(
     """
     ryaxis = chart.getAxis('right')
 
-    def right_axis_offset_by_w() -> float:
+    if side == 'left':
 
-        # l1 spread graphics x-size
-        l1_len = chart._max_l1_line_len
+        if avoid_book:
+            def right_axis_offset_by_w() -> float:
 
-        # sum of all distances "from" the y-axis
-        right_offset = l1_len + label.w + offset
+                # l1 spread graphics x-size
+                l1_len = chart._max_l1_line_len
 
-        return ryaxis.pos().x() - right_offset
+                # sum of all distances "from" the y-axis
+                right_offset = l1_len + label.w + offset
 
-    return right_axis_offset_by_w
+                return ryaxis.pos().x() - right_offset
+
+        else:
+            def right_axis_offset_by_w() -> float:
+
+                return ryaxis.pos().x() - (label.w + offset)
+
+        return right_axis_offset_by_w
+
+    elif 'right':
+
+        # axis_offset = ryaxis.style['tickTextOffset'][0]
+
+        def on_axis() -> float:
+
+            return ryaxis.pos().x()  # + axis_offset - 2
+
+        return on_axis
 
 
 class Label:
@@ -200,7 +216,23 @@ class Label:
         self._fmt_str = fmt_str
 
     def format(self, **fields: dict) -> str:
-        text = self._fmt_str.format(**fields)
+
+        out = {}
+
+        # this is hacky support for single depth
+        # calcs of field data from field data
+        # ex. to calculate a $value = price * size
+        for k, v in fields.items():
+            if isfunction(v):
+                out[k] = v(fields)
+            else:
+                out[k] = v
+
+        text = self._fmt_str.format(**out)
+
+        # for large numbers with a thousands place
+        text = text.replace(',', ' ')
+
         self.txt.setPlainText(text)
 
     def render(self) -> None:
