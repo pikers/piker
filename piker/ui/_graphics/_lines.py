@@ -320,9 +320,10 @@ class LevelLine(pg.InfiniteLine):
 
                 self.currentPen = self.hoverPen
 
-                # only disable cursor y-label updates
-                # if we're highlighting a line
-                cur._y_label_update = False
+                if self not in cur._trackers:
+                    # only disable cursor y-label updates
+                    # if we're highlighting a line
+                    cur._y_label_update = False
 
             # add us to cursor state
             cur.add_hovered(self)
@@ -348,7 +349,7 @@ class LevelLine(pg.InfiniteLine):
             cur._hovered.remove(self)
 
             if self not in cur._trackers:
-                cur.show_xhair()
+                cur.show_xhair(y_label_level=self.value())
 
             if not self._always_show_labels:
                 for at, label in self._labels:

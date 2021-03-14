@@ -377,15 +377,16 @@ class Cursor(pg.GraphicsObject):
         # px perfect...
         line_offset = self._lw / 2
 
-        if iy != last_iy and self._y_label_update:
+        if iy != last_iy:
 
             # update y-range items
             self.graphics[plot]['hl'].setY(iy + line_offset)
 
-            self.graphics[self.active_plot]['yl'].update_label(
-                abs_pos=plot.mapFromView(QPointF(ix, iy + line_offset)),
-                value=iy
-            )
+            if self._y_label_update:
+                self.graphics[self.active_plot]['yl'].update_label(
+                    abs_pos=plot.mapFromView(QPointF(ix, iy + line_offset)),
+                    value=iy
+                )
 
             # update all trackers
             for item in self._trackers:
@@ -425,15 +426,22 @@ class Cursor(pg.GraphicsObject):
         except AttributeError:
             return self.plots[0].boundingRect()
 
-    def show_xhair(self) -> None:
+    def show_xhair(
+        self,
+        y_label_level: float = None,
+    ) -> None:
         g = self.graphics[self.active_plot]
         # show horiz line and y-label
         g['hl'].show()
         g['vl'].show()
 
+        self._y_label_update = True
         yl = g['yl']
         # yl.fg_color = pg.mkColor(hcolor('black'))
         # yl.bg_color = pg.mkColor(hcolor(self.label_color))
+        if y_label_level:
+            yl.update_from_data(0, y_label_level, _save_last=False)
+
         yl.show()
 
     def hide_xhair(
@@ -447,12 +455,15 @@ class Cursor(pg.GraphicsObject):
         g['hl'].hide()
         g['vl'].hide()
 
+        # only disable cursor y-label updates
+        # if we're highlighting a line
         yl = g['yl']
 
         if hide_label:
             yl.hide()
+
         elif y_label_level:
-            yl.update_from_data(0, y_label_level)
+            yl.update_from_data(0, y_label_level, _save_last=False)
 
         if fg_color is not None:
             yl.fg_color = pg.mkColor(hcolor(fg_color))
