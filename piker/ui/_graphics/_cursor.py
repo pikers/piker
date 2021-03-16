@@ -113,21 +113,8 @@ class LineDot(pg.CurvePoint):
         return False
 
 
-_corner_anchors = {
-    'top': 0,
-    'left': 0,
-    'bottom': 1,
-    'right': 1,
-}
+# TODO: likely will need to tweak this based on dpi...
 _y_margin = 5
-# XXX: fyi naming here is confusing / opposite to coords
-_corner_margins = {
-    ('top', 'left'): (-4, -_y_margin),
-    ('top', 'right'): (4, -_y_margin),
-
-    ('bottom', 'left'): (-4, lambda font_size: font_size + 2*_y_margin),
-    ('bottom', 'right'): (4, lambda font_size: font_size + 2*_y_margin),
-}
 
 
 # TODO: change this into our own ``Label``
@@ -136,6 +123,22 @@ class ContentsLabel(pg.LabelItem):
     datum-wise points from the "viewed" contents.
 
     """
+    _corner_anchors = {
+        'top': 0,
+        'left': 0,
+        'bottom': 1,
+        'right': 1,
+    }
+
+    # XXX: fyi naming here is confusing / opposite to coords
+    _corner_margins = {
+        ('top', 'left'): (-4, -_y_margin),
+        ('top', 'right'): (4, -_y_margin),
+
+        ('bottom', 'left'): (-4, lambda font_size: font_size + 2*_y_margin),
+        ('bottom', 'right'): (4, lambda font_size: font_size + 2*_y_margin),
+    }
+
     def __init__(
         self,
         chart: 'ChartPlotWidget',  # noqa
@@ -155,8 +158,8 @@ class ContentsLabel(pg.LabelItem):
         self.chart = chart
 
         v, h = anchor_at
-        index = (_corner_anchors[h], _corner_anchors[v])
-        margins = _corner_margins[(v, h)]
+        index = (self._corner_anchors[h], self._corner_anchors[v])
+        margins = self._corner_margins[(v, h)]
 
         ydim = margins[1]
         if inspect.isfunction(margins[1]):
