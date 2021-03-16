@@ -35,14 +35,15 @@ from .._style import (
 
 
 def mk_marker(
-    marker,
-    size: float = 20.0
+    style,
+    size: float = 20.0,
+    use_qgpath: bool = True,
 ) -> QGraphicsPathItem:
     """Add a marker to be displayed on the line wrapped in a ``QGraphicsPathItem``
     ready to be placed using scene coordinates (not view).
 
     **Arguments**
-    marker        String indicating the style of marker to add:
+    style        String indicating the style of marker to add:
                   ``'<|'``, ``'|>'``, ``'>|'``, ``'|<'``, ``'<|>'``,
                   ``'>|<'``, ``'^'``, ``'v'``, ``'o'``
     size          Size of the marker in pixels. Default is 10.0.
@@ -50,46 +51,104 @@ def mk_marker(
     """
     path = QtGui.QPainterPath()
 
-    if marker == 'o':
+    if style == 'o':
         path.addEllipse(QtCore.QRectF(-0.5, -0.5, 1, 1))
 
     # arrow pointing away-from the top of line
-    if '<|' in marker:
+    if '<|' in style:
         p = QtGui.QPolygonF([Point(0.5, 0), Point(0, -0.5), Point(-0.5, 0)])
         path.addPolygon(p)
         path.closeSubpath()
 
     # arrow pointing away-from the bottom of line
-    if '|>' in marker:
+    if '|>' in style:
         p = QtGui.QPolygonF([Point(0.5, 0), Point(0, 0.5), Point(-0.5, 0)])
         path.addPolygon(p)
         path.closeSubpath()
 
     # arrow pointing in-to the top of line
-    if '>|' in marker:
+    if '>|' in style:
         p = QtGui.QPolygonF([Point(0.5, -0.5), Point(0, 0), Point(-0.5, -0.5)])
         path.addPolygon(p)
         path.closeSubpath()
 
     # arrow pointing in-to the bottom of line
-    if '|<' in marker:
+    if '|<' in style:
         p = QtGui.QPolygonF([Point(0.5, 0.5), Point(0, 0), Point(-0.5, 0.5)])
         path.addPolygon(p)
         path.closeSubpath()
 
-    if '^' in marker:
+    if '^' in style:
         p = QtGui.QPolygonF([Point(0, -0.5), Point(0.5, 0), Point(0, 0.5)])
         path.addPolygon(p)
         path.closeSubpath()
 
-    if 'v' in marker:
+    if 'v' in style:
         p = QtGui.QPolygonF([Point(0, -0.5), Point(-0.5, 0), Point(0, 0.5)])
         path.addPolygon(p)
         path.closeSubpath()
 
     # self._maxMarkerSize = max([m[2] / 2. for m in self.markers])
 
-    return QGraphicsPathItem(path)
+    if use_qgpath:
+        path = QGraphicsPathItem(path)
+        path.scale(size, size)
+
+    return path
+
+
+def draw_markers(
+    markers: list,
+    color: pg.Color,
+    p: QtGui.QPainter,
+    left: float,
+    right: float,
+    right_offset: float,
+) -> None:
+    """Pain markers in ``pg.GraphicsItem`` style by first
+    removing the view transform for the painter, drawing the markers
+    in scene coords, then restoring the view coords.
+
+    """
+    # paint markers in native coordinate system
+    orig_tr = p.transform()
+
+    start = orig_tr.map(Point(left, 0))
+    end = orig_tr.map(Point(right, 0))
+    up = orig_tr.map(Point(left, 1))
+
+    dif = end - start
+    # length = Point(dif).length()
+    angle = np.arctan2(dif.y(), dif.x()) * 180 / np.pi
+
+    p.resetTransform()
+
+    p.translate(start)
+    p.rotate(angle)
+
+    up = up - start
+    det = up.x() * dif.y() - dif.x() * up.y()
+    p.scale(1, 1 if det > 0 else -1)
+
+    p.setBrush(fn.mkBrush(color))
+    # p.setBrush(fn.mkBrush(self.currentPen.color()))
+    tr = p.transform()
+
+    sizes = []
+    for path, pos, size in markers:
+        p.setTransform(tr)
+
+        # XXX: we drop the "scale / %" placement
+        # x = length * pos
+        x = right_offset
+
+        p.translate(x, 0)
+        p.scale(size, size)
+        p.drawPath(path)
+        sizes.append(size)
+
+    p.setTransform(orig_tr)
+    return max(sizes)
 
 
 # TODO: probably worth investigating if we can
@@ -163,6 +222,8 @@ class LevelLine(pg.InfiniteLine):
         self._on_drag_end = lambda l: None
 
         self._y_incr_mult = 1 / chart._lc._symbol.tick_size
+
+        self._right_end_sc: float = 0
 
     def txt_offsets(self) -> Tuple[int, int]:
         return 0, 0
@@ -300,67 +361,6 @@ class LevelLine(pg.InfiniteLine):
         self.movable = True
         self.set_level(y)  # implictly calls reposition handler
 
-    # TODO: just put this in the hoverEvent handler
-    def set_mouser_hover(self, hover: bool) -> None:
-        """Mouse hover callback.
-
-        """
-        # XXX: currently we'll just return if _hoh is False
-        if self.mouseHovering == hover:
-            return
-
-        self.mouseHovering = hover
-
-        chart = self._chart
-        cur = chart._cursor
-
-        if hover:
-            # highlight if so configured
-            if self._hoh:
-
-                self.currentPen = self.hoverPen
-
-                if self not in cur._trackers:
-                    # only disable cursor y-label updates
-                    # if we're highlighting a line
-                    cur._y_label_update = False
-
-            # add us to cursor state
-            cur.add_hovered(self)
-
-            if self._hide_xhair_on_hover:
-                cur.hide_xhair(
-                    # set y-label to current value
-                    y_label_level=self.value(),
-
-                    # fg_color=self._hcolor,
-                    # bg_color=self._hcolor,
-                )
-
-            # if we want highlighting of labels
-            # it should be delegated into this method
-            self.show_labels()
-
-        else:
-            cur._y_label_update = True
-
-            self.currentPen = self.pen
-
-            cur._hovered.remove(self)
-
-            if self not in cur._trackers:
-                cur.show_xhair(y_label_level=self.value())
-
-            if not self._always_show_labels:
-                for at, label in self._labels:
-                    label.hide()
-                    label.txt.update()
-                    # label.unhighlight()
-
-        # highlight any attached label
-
-        self.update()
-
     def mouseDragEvent(self, ev):
         """Override the ``InfiniteLine`` handler since we need more
         detailed control and start end signalling.
@@ -448,44 +448,6 @@ class LevelLine(pg.InfiniteLine):
         # TODO: enter labels edit mode
         print(f'double click {ev}')
 
-    def draw_markers(
-        self,
-        p: QtGui.QPainter,
-        left: float,
-        right: float,
-        right_offset: float,
-    ) -> None:
-        # paint markers in native coordinate system
-        tr = p.transform()
-        p.resetTransform()
-
-        start = tr.map(Point(left, 0))
-        end = tr.map(Point(right, 0))
-        up = tr.map(Point(left, 1))
-        dif = end - start
-        # length = Point(dif).length()
-        angle = np.arctan2(dif.y(), dif.x()) * 180 / np.pi
-
-        p.translate(start)
-        p.rotate(angle)
-
-        up = up - start
-        det = up.x() * dif.y() - dif.x() * up.y()
-        p.scale(1, 1 if det > 0 else -1)
-
-        p.setBrush(fn.mkBrush(self.currentPen.color()))
-        tr = p.transform()
-        for path, pos, size in self.markers:
-            p.setTransform(tr)
-
-            # XXX: we drop the "scale / %" placement
-            # x = length * pos
-            x = right_offset
-
-            p.translate(x, 0)
-            p.scale(size, size)
-            p.drawPath(path)
-
     def right_point(
         self,
     ) -> float:
@@ -493,24 +455,17 @@ class LevelLine(pg.InfiniteLine):
         chart = self._chart
         l1_len = chart._max_l1_line_len
         ryaxis = chart.getAxis('right')
+        up_to_l1_sc = ryaxis.pos().x() - l1_len
 
-        if self.markers:
-            size = self.markers[0][2]
-        else:
-            size = 0
+        # right_view_coords = chart._vb.mapToView(
+        #     Point(right_scene_coords, 0)).x()
 
-        r_axis_x = ryaxis.pos().x()
-        right_offset = l1_len + size + 10
-        right_scene_coords = r_axis_x - right_offset
-
-        right_view_coords = chart._vb.mapToView(
-            Point(right_scene_coords, 0)).x()
-
-        return (
-            right_scene_coords,
-            right_view_coords,
-            right_offset,
-        )
+        return up_to_l1_sc
+        # return (
+        #     right_scene_coords,
+        #     right_view_coords,
+        #     right_offset,
+        # )
 
     def paint(
         self,
@@ -529,32 +484,79 @@ class LevelLine(pg.InfiniteLine):
         # pen.setJoinStyle(QtCore.Qt.MiterJoin)
         p.setPen(pen)
 
-        rsc, rvc, rosc = self.right_point()
+        # l1_sc, rvc, rosc = self.right_point()
+
+        chart = self._chart
+        l1_len = chart._max_l1_line_len
+        ryaxis = chart.getAxis('right')
+
+        r_axis_x = ryaxis.pos().x()
+        # right_offset = l1_len  # + size #+ 10
+        up_to_l1_sc = r_axis_x - l1_len
+
+        vb = self.getViewBox()
+
+        size = 20  # default marker size
+        marker_right = up_to_l1_sc - (1.375 * size)
+
+        if self.markers:
+
+        #     size = self.markers[0][2]
+
+        #     # three_m_right_of_last_bar = last_bar_sc + 3*size
+
+        #     # marker_right = min(
+        #     #     two_m_left_of_l1,
+        #     #     three_m_right_of_last_bar
+        #     # )
+
+            size = draw_markers(
+                self.markers,
+                self.currentPen.color(),
+                p,
+                vb_left,
+                # right,
+                vb_right,
+                # rsc - 6,
+                marker_right,
+                # right_scene_coords,
+            )
+            # marker_size = self.markers[0][2]
+            self._maxMarkerSize = max([m[2] / 2. for m in self.markers])
+
+            line_end = marker_right - (6/16 * size)
+
+        # else:
+        #     line_end = last_bar_sc
+        #     line_end_view = rvc
+
+        # # this seems slower when moving around
+        # # order lines.. not sure wtf is up with that.
+        # # for now we're just using it on the position line.
+        elif self._marker:
+            self._marker.setPos(QPointF(marker_right, self.scene_y()))
+            line_end = marker_right - (6/16 * size)
+        else:
+            # leave small blank gap for style
+            line_end = r_axis_x - 10
+
+        line_end_view = vb.mapToView(Point(line_end, 0)).x()
+        #     # somehow this is adding a lot of lag, but without
+        #     # if we're getting weird trail artefacs grrr.
+        #     # gotta be some kinda boundingRect problem yet again
+        #     self._marker.update()
 
         p.drawLine(
             Point(vb_left, 0),
-            Point(rvc, 0)
+            # Point(right, 0)
+            Point(line_end_view, 0)
         )
+        self._right_end_sc = line_end
 
-        # this seems slower when moving around
-        # order lines.. not sure wtf is up with that.
-        # for now we're just using it on the position line.
-        if self._marker:
-            scene_pos = QPointF(rsc, self.scene_y())
-            self._marker.setPos(scene_pos)
-
-            # somehow this is adding a lot of lag, but without
-            # if we're getting weird trail artefacs grrr.
-            # gotta be some kinda boundingRect problem yet again
-            # self._marker.update()
-
-        if self.markers:
-            self.draw_markers(
-                p,
-                vb_left,
-                vb_right,
-                rsc
-            )
+    def scene_right_xy(self) -> QPointF:
+        return self.getViewBox().mapFromView(
+            QPointF(0, self.value())
+        )
 
     def scene_y(self) -> float:
         return self.getViewBox().mapFromView(Point(0, self.value())).y()
@@ -570,22 +572,79 @@ class LevelLine(pg.InfiniteLine):
 
         self._marker = path
 
-        rsc, rvc, rosc = self.right_point()
+        rsc = self.right_point()
 
         self._marker.setPen(self.currentPen)
         self._marker.setBrush(fn.mkBrush(self.currentPen.color()))
-        self._marker.scale(20, 20)
         # y_in_sc = chart._vb.mapFromView(Point(0, self.value())).y()
         path.setPos(QPointF(rsc, self.scene_y()))
 
+        # self.update()
+
     def hoverEvent(self, ev):
-        """Gawd, basically overriding it all at this point...
+        """Mouse hover callback.
 
         """
+        chart = self._chart
+        cur = chart._cursor
+
+        # hovered
         if (not ev.isExit()) and ev.acceptDrags(QtCore.Qt.LeftButton):
-            self.set_mouser_hover(True)
-        else:
-            self.set_mouser_hover(False)
+
+            # if already hovered we don't need to run again
+            if self.mouseHovering is True:
+                return
+
+            # highlight if so configured
+            if self._hoh:
+
+                self.currentPen = self.hoverPen
+
+                if self not in cur._trackers:
+                    # only disable cursor y-label updates
+                    # if we're highlighting a line
+                    cur._y_label_update = False
+
+            # add us to cursor state
+            cur.add_hovered(self)
+
+            if self._hide_xhair_on_hover:
+                cur.hide_xhair(
+                    # set y-label to current value
+                    y_label_level=self.value(),
+
+                    # fg_color=self._hcolor,
+                    # bg_color=self._hcolor,
+                )
+
+            # if we want highlighting of labels
+            # it should be delegated into this method
+            self.show_labels()
+
+            self.mouseHovering = True
+
+        else:  # un-hovered
+            if self.mouseHovering is False:
+                return
+
+            cur._y_label_update = True
+
+            self.currentPen = self.pen
+
+            cur._hovered.remove(self)
+
+            if self not in cur._trackers:
+                cur.show_xhair(y_label_level=self.value())
+
+            if not self._always_show_labels:
+                for at, label in self._labels:
+                    label.hide()
+                    label.txt.update()
+                    # label.unhighlight()
+
+            self.mouseHovering = False
+
+        self.update()
 
 
 def level_line(
@@ -698,21 +757,25 @@ def order_line(
             'alert': ('^', 12),
         }[action]
 
-        # XXX: not sure wtf but this is somehow laggier
-        # when tested manually staging an order..
-        # I would assume it's to do either with come kinda
-        # conflict of the ``QGraphicsPathItem`` with the custom
-        # object or that those types are just slower in general...
-        # Pretty annoying to say the least.
-        # line.add_marker(mk_marker(marker_style))
+        # this fixes it the artifact issue! .. of course, bouding rect stuff
+        line._maxMarkerSize = marker_size
 
-        line.addMarker(
+        # use ``QPathGraphicsItem``s to draw markers in scene coords
+        # instead of the old way that was doing the same but by
+        # resetting the graphics item transform intermittently
+        # line.add_marker(mk_marker(marker_style, marker_size))
+        assert not line.markers
+
+        # the old way which is still somehow faster?
+        path = mk_marker(
             marker_style,
             # the "position" here is now ignored since we modified
             # internals to pin markers to the right end of the line
-            0.9,
-            marker_size
+            marker_size,
+            use_qgpath=False,
         )
+        # manually append for later ``.pain()`` drawing
+        line.markers.append((path, 0, marker_size))
 
     orient_v = 'top' if action == 'sell' else 'bottom'
 
@@ -733,26 +796,11 @@ def order_line(
         llabel.render()
         llabel.show()
 
-        # right before L1 label
-        rlabel = line.add_label(
-            side='right',
-            side_of_axis='left',
-            fmt_str=fmt_str,
-        )
-        rlabel.fields = {
-            'level': level,
-            'level_digits': level_digits,
-        }
-
-        rlabel.orient_v = orient_v
-        rlabel.render()
-        rlabel.show()
-
     else:
         # left side label
         llabel = line.add_label(
             side='left',
-            fmt_str='{exec_type}-{order_type}: ${$value}',
+            fmt_str=' {exec_type}-{order_type}:\n ${$value}',
         )
         llabel.fields = {
             'order_type': order_type,
@@ -781,24 +829,6 @@ def order_line(
         rlabel.orient_v = orient_v
         rlabel.render()
         rlabel.show()
-
-        # axis_label = line.add_label(
-        #     side='right',
-        #     side_of_axis='left',
-        #     x_offset=0,
-        #     avoid_book=False,
-        #     fmt_str=(
-        #         '{level:,.{level_digits}f}'
-        #     ),
-        # )
-        # axis_label.fields = {
-        #     'level': level,
-        #     'level_digits': level_digits,
-        # }
-
-        # axis_label.orient_v = orient_v
-        # axis_label.render()
-        # axis_label.show()
 
     # sanity check
     line.update_labels({'level': level})
@@ -839,7 +869,7 @@ def position_line(
 
     rlabel = line.add_label(
         side='left',
-        fmt_str='{direction}: {size}\n${$:.2f}',
+        fmt_str='{direction}: {size} -> ${$:.2f}',
     )
     rlabel.fields = {
         'direction': 'long' if size > 0 else 'short',
@@ -849,6 +879,8 @@ def position_line(
     rlabel.orient_v = orient_v
     rlabel.render()
     rlabel.show()
+
+    line.set_level(level)
 
     # sanity check
     line.update_labels({'level': level})
