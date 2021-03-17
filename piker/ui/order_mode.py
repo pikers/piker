@@ -181,10 +181,13 @@ class OrderMode:
         log.runtime(result)
 
     def on_cancel(self, uuid: str) -> None:
+
         msg = self.book._sent_orders.pop(uuid, None)
+
         if msg is not None:
             self.lines.remove_line(uuid=uuid)
             self.chart._cursor.show_xhair()
+
         else:
             log.warning(
                 f'Received cancel for unsubmitted order {pformat(msg)}'

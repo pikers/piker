@@ -91,7 +91,7 @@ async def maybe_spawn_brokerd(
 
     # XXX: you should pretty much never want debug mode
     # for data daemons when running in production.
-    debug_mode: bool = False,
+    debug_mode: bool = True,
 ) -> tractor._portal.Portal:
     """If no ``brokerd.{brokername}`` daemon-actor can be found,
     spawn one in a local subactor and return a portal to it.
@@ -115,7 +115,7 @@ async def maybe_spawn_brokerd(
             tractor_kwargs = getattr(brokermod, '_spawn_kwargs', {})
 
             async with tractor.open_nursery(
-                debug_mode=False,
+                #debug_mode=debug_mode,
             ) as nursery:
                 try:
                     # spawn new daemon
@@ -244,7 +244,7 @@ async def open_feed(
         loglevel=loglevel,
 
         # TODO: add a cli flag for this
-        debug_mode=False,
+        # debug_mode=False,
 
     ) as portal:
 

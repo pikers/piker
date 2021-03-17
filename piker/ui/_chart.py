@@ -408,7 +408,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self.name = name
         self._lc = linked_charts
 
-        # view-local placeholder for book graphics
+        # scene-local placeholder for book graphics
         # sizing to avoid overlap with data contents
         self._max_l1_line_len: float = 0
 
@@ -448,7 +448,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # for when the splitter(s) are resized
         self._vb.sigResized.connect(self._set_yrange)
 
-    def last_bar_in_view(self) -> bool:
+    def last_bar_in_view(self) -> int:
         self._ohlc[-1]['index']
 
     def update_contents_labels(
