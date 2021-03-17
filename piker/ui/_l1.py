@@ -53,7 +53,7 @@ class LevelLabel(YAxisLabel):
         'level_digits': 2,
     }
     # default label template is just a y-level with so much precision
-    _fmt_str = '{level:,.{level_digits}f}'
+    _fmt_str = '{level:,.{level_digits}f} '
 
     def __init__(
         self,
@@ -265,8 +265,8 @@ class L1Labels:
         }
 
         fmt_str = (
-            '{size:.{size_digits}f} x '
-            '{level:,.{level_digits}f}'
+            ' {size:.{size_digits}f} x '
+            '{level:,.{level_digits}f} '
         )
         fields = {
             'level': 0,
