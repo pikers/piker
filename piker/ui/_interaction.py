@@ -15,10 +15,10 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-Chart view box primitives.
+Chart view box primitives
+
 """
 from dataclasses import dataclass, field
-from math import floor
 from typing import Optional, Dict
 
 import pyqtgraph as pg
@@ -269,6 +269,9 @@ class LineEditor:
             exec_type='dark' if dotted else 'live',
             action=action,
             show_markers=True,
+
+            # prevent flickering of marker while moving/tracking cursor
+            only_show_markers_on_hover=False,
         )
 
         self._active_staged_line = line
@@ -328,6 +331,9 @@ class LineEditor:
             # LevelLine kwargs
             color=line.color,
             dotted=line._dotted,
+
+            show_markers=True,
+            only_show_markers_on_hover=True,
 
             action=action,
         )
