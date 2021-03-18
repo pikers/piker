@@ -30,15 +30,17 @@ from ._exec import current_screen
 log = get_logger(__name__)
 
 # chart-wide fonts specified in inches
-# _default_font_inches_we_like = 0.055 #5 / 96
-_default_font_inches_we_like = 0.0616 #5 / 96
-# _down_2_font_inches_we_like = 0.05 #4 / 96
-_down_2_font_inches_we_like = 0.055 #4 / 96
+_default_font_inches_we_like_low_dpi = 6 / 64
+_down_2_font_inches_we_like_low_dpi = 4 / 64
+
+_default_font_inches_we_like = 0.0616  # 5 / 96
+_down_2_font_inches_we_like = 0.055  # 4 / 96
 
 
 class DpiAwareFont:
     def __init__(
         self,
+        # TODO: move to config
         name: str = 'Hack',
         size_in_inches: Optional[float] = None,
     ) -> None:
@@ -48,7 +50,6 @@ class DpiAwareFont:
         self._qfm = QtGui.QFontMetrics(self._qfont)
         self._physical_dpi = None
         self._screen = None
-        self._dpi_scalar = 1.
 
     def _set_qfont_px_size(self, px_size: int) -> None:
         self._qfont.setPixelSize(px_size)
@@ -127,8 +128,8 @@ _xaxis_at = 'bottom'
 # charting config
 CHART_MARGINS = (0, 0, 2, 2)
 _min_points_to_show = 6
-_bars_from_right_in_follow_mode = int(6**2)
-_bars_to_left_in_follow_mode = int(6**3)
+_bars_from_right_in_follow_mode = int(130)
+_bars_to_left_in_follow_mode = int(616)
 _tina_mode = False
 
 
