@@ -166,13 +166,19 @@ class LevelLine(pg.InfiniteLine):
         self,
         chart: 'ChartPlotWidget',  # type: ignore # noqa
 
+        # style
         color: str = 'default',
         highlight_color: str = 'default_light',
-
-        hl_on_hover: bool = True,
         dotted: bool = False,
+        marker_size: int = 20,
+
+        # UX look and feel opts
         always_show_labels: bool = False,
+        hl_on_hover: bool = True,
         hide_xhair_on_hover: bool = True,
+        only_show_markers_on_hover: bool = True,
+        use_marker_margin: bool = False,
+
         movable: bool = True,
 
     ) -> None:
@@ -191,6 +197,13 @@ class LevelLine(pg.InfiniteLine):
         self._hide_xhair_on_hover = hide_xhair_on_hover
 
         self._marker = None
+        self._default_mkr_size = marker_size
+        self._moh = only_show_markers_on_hover
+        self.show_markers: bool = True  # presuming the line is hovered at init
+
+        # should line go all the way to far end or leave a "margin"
+        # space for other graphics (eg. L1 book)
+        self.use_marker_margin: bool = use_marker_margin
 
         if dotted:
             self._style = QtCore.Qt.DashLine
@@ -222,6 +235,7 @@ class LevelLine(pg.InfiniteLine):
         self._on_drag_end = lambda l: None
 
         self._y_incr_mult = 1 / chart._lc._symbol.tick_size
+        self._last_scene_y: float = 0
 
         self._right_end_sc: float = 0
 
@@ -259,7 +273,7 @@ class LevelLine(pg.InfiniteLine):
         ),
         side: str = 'right',
         side_of_axis: str = 'left',
-        x_offset: float = 50,
+        x_offset: float = 0,
 
         font_size_inches: float = _down_2_font_inches_we_like,
         color: str = None,
@@ -457,15 +471,7 @@ class LevelLine(pg.InfiniteLine):
         ryaxis = chart.getAxis('right')
         up_to_l1_sc = ryaxis.pos().x() - l1_len
 
-        # right_view_coords = chart._vb.mapToView(
-        #     Point(right_scene_coords, 0)).x()
-
         return up_to_l1_sc
-        # return (
-        #     right_scene_coords,
-        #     right_view_coords,
-        #     right_offset,
-        # )
 
     def paint(
         self,
@@ -479,79 +485,66 @@ class LevelLine(pg.InfiniteLine):
         """
         p.setRenderHint(p.Antialiasing)
 
+        # these are in viewbox coords
         vb_left, vb_right = self._endPoints
-        pen = self.currentPen
-        # pen.setJoinStyle(QtCore.Qt.MiterJoin)
-        p.setPen(pen)
-
-        # l1_sc, rvc, rosc = self.right_point()
 
         chart = self._chart
         l1_len = chart._max_l1_line_len
         ryaxis = chart.getAxis('right')
 
         r_axis_x = ryaxis.pos().x()
-        # right_offset = l1_len  # + size #+ 10
         up_to_l1_sc = r_axis_x - l1_len
 
         vb = self.getViewBox()
 
-        size = 20  # default marker size
-        marker_right = up_to_l1_sc - (1.375 * size)
+        size = self._default_mkr_size
+        marker_right = up_to_l1_sc - (1.375 * 2*size)
+        line_end = marker_right - (6/16 * size)
 
-        if self.markers:
+        if self.show_markers and self.markers:
 
-        #     size = self.markers[0][2]
+            size = self.markers[0][2]
 
-        #     # three_m_right_of_last_bar = last_bar_sc + 3*size
-
-        #     # marker_right = min(
-        #     #     two_m_left_of_l1,
-        #     #     three_m_right_of_last_bar
-        #     # )
-
+            p.setPen(self.pen)
             size = draw_markers(
                 self.markers,
-                self.currentPen.color(),
+                self.pen.color(),
                 p,
                 vb_left,
-                # right,
                 vb_right,
-                # rsc - 6,
                 marker_right,
-                # right_scene_coords,
             )
             # marker_size = self.markers[0][2]
             self._maxMarkerSize = max([m[2] / 2. for m in self.markers])
 
-            line_end = marker_right - (6/16 * size)
-
-        # else:
-        #     line_end = last_bar_sc
-        #     line_end_view = rvc
-
-        # # this seems slower when moving around
-        # # order lines.. not sure wtf is up with that.
-        # # for now we're just using it on the position line.
+        # this seems slower when moving around
+        # order lines.. not sure wtf is up with that.
+        # for now we're just using it on the position line.
         elif self._marker:
-            self._marker.setPos(QPointF(marker_right, self.scene_y()))
-            line_end = marker_right - (6/16 * size)
-        else:
-            # leave small blank gap for style
+            self._marker.setPos(
+                QPointF(marker_right, self.scene_y())
+            )
+
+        elif not self.use_marker_margin:
+            # basically means **don't** shorten the line with normally
+            # reserved space for a direction marker but, leave small
+            # blank gap for style
             line_end = r_axis_x - 10
 
         line_end_view = vb.mapToView(Point(line_end, 0)).x()
-        #     # somehow this is adding a lot of lag, but without
-        #     # if we're getting weird trail artefacs grrr.
-        #     # gotta be some kinda boundingRect problem yet again
-        #     self._marker.update()
 
+        # self.currentPen.setJoinStyle(QtCore.Qt.MiterJoin)
+        p.setPen(self.currentPen)
         p.drawLine(
             Point(vb_left, 0),
-            # Point(right, 0)
             Point(line_end_view, 0)
         )
         self._right_end_sc = line_end
+
+    def hide(self) -> None:
+        super().hide()
+        if self._marker:
+            self._marker.hide()
 
     def scene_right_xy(self) -> QPointF:
         return self.getViewBox().mapFromView(
@@ -595,6 +588,9 @@ class LevelLine(pg.InfiniteLine):
             if self.mouseHovering is True:
                 return
 
+            if self._moh:
+                self.show_markers = True
+
             # highlight if so configured
             if self._hoh:
 
@@ -612,6 +608,7 @@ class LevelLine(pg.InfiniteLine):
                 cur.hide_xhair(
                     # set y-label to current value
                     y_label_level=self.value(),
+                    just_vertical=True,
 
                     # fg_color=self._hcolor,
                     # bg_color=self._hcolor,
@@ -623,7 +620,8 @@ class LevelLine(pg.InfiniteLine):
 
             self.mouseHovering = True
 
-        else:  # un-hovered
+        # un-hovered
+        else:
             if self.mouseHovering is False:
                 return
 
@@ -632,6 +630,9 @@ class LevelLine(pg.InfiniteLine):
             self.currentPen = self.pen
 
             cur._hovered.remove(self)
+
+            if self._moh:
+                self.show_markers = False
 
             if self not in cur._trackers:
                 cur.show_xhair(y_label_level=self.value())
@@ -746,6 +747,8 @@ def order_line(
         chart,
         level,
         add_label=False,
+        use_marker_margin=True,
+        # only_show_markers_on_hover=True,
         **line_kwargs
     )
 
@@ -754,7 +757,7 @@ def order_line(
         marker_style, marker_size = {
             'buy': ('|<', 20),
             'sell': ('>|', 20),
-            'alert': ('^', 12),
+            'alert': ('v', 12),
         }[action]
 
         # this fixes it the artifact issue! .. of course, bouding rect stuff
@@ -817,8 +820,9 @@ def order_line(
         rlabel = line.add_label(
             side='right',
             side_of_axis='left',
+            x_offset=3*marker_size + 5,
             fmt_str=(
-                '{size:.{size_digits}f} x'
+                '{size:.{size_digits}f} '
             ),
         )
         rlabel.fields = {
@@ -858,6 +862,7 @@ def position_line(
         movable=False,
         always_show_labels=False,
         hide_xhair_on_hover=False,
+        use_marker_margin=True,
     )
     if size > 0:
         arrow_path = mk_marker('|<')
@@ -866,6 +871,21 @@ def position_line(
         arrow_path = mk_marker('>|')
 
     line.add_marker(arrow_path)
+
+    #  hide position marker when out of view (for now)
+    vb = line.getViewBox()
+
+    def update_pp_nav(chartview):
+        vr = vb.state['viewRange']
+        ymn, ymx = vr[1]
+        level = line.value()
+
+        if level > ymx or level < ymn:
+            line._marker.hide()
+        else:
+            line._marker.show()
+
+    vb.sigYRangeChanged.connect(update_pp_nav)
 
     rlabel = line.add_label(
         side='left',
