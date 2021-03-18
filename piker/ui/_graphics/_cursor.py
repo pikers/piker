@@ -380,16 +380,18 @@ class Cursor(pg.GraphicsObject):
         # px perfect...
         line_offset = self._lw / 2
 
+        # update y-range items
         if iy != last_iy:
-
-            # update y-range items
-            self.graphics[plot]['hl'].setY(iy + line_offset)
 
             if self._y_label_update:
                 self.graphics[self.active_plot]['yl'].update_label(
                     abs_pos=plot.mapFromView(QPointF(ix, iy + line_offset)),
                     value=iy
                 )
+
+                # only update horizontal xhair line if label is enabled
+                self.graphics[plot]['hl'].setY(iy + line_offset)
+
 
             # update all trackers
             for item in self._trackers:
@@ -451,11 +453,16 @@ class Cursor(pg.GraphicsObject):
         self,
         hide_label: bool = False,
         y_label_level: float = None,
+        just_vertical: bool = False,
         fg_color: str = None,
         # bg_color: str = 'papas_special',
     ) -> None:
         g = self.graphics[self.active_plot]
-        g['hl'].hide()
+
+        hl = g['hl']
+        if not just_vertical:
+            hl.hide()
+
         g['vl'].hide()
 
         # only disable cursor y-label updates
@@ -467,6 +474,7 @@ class Cursor(pg.GraphicsObject):
 
         elif y_label_level:
             yl.update_from_data(0, y_label_level, _save_last=False)
+            hl.setY(y_label_level)
 
         if fg_color is not None:
             yl.fg_color = pg.mkColor(hcolor(fg_color))
