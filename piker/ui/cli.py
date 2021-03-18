@@ -18,7 +18,6 @@
 Console interface to UI components.
 
 """
-from functools import partial
 import os
 import click
 import tractor
@@ -64,10 +63,10 @@ def monitor(config, rate, name, dhost, test, tl):
     _kivy_import_hack()
     from .kivy.monitor import _async_main
 
-    async def main(tries):
+    async def main():
         async with maybe_spawn_brokerd(
             brokername=brokermod.name,
-            tries=tries, loglevel=loglevel
+            loglevel=loglevel
         ) as portal:
             # run app "main"
             await _async_main(
@@ -76,7 +75,7 @@ def monitor(config, rate, name, dhost, test, tl):
             )
 
     tractor.run(
-        partial(main, tries=1),
+        main,
         name='monitor',
         loglevel=loglevel if tl else None,
         rpc_module_paths=['piker.ui.kivy.monitor'],
@@ -101,9 +100,9 @@ def optschain(config, symbol, date, rate, test):
     _kivy_import_hack()
     from .kivy.option_chain import _async_main
 
-    async def main(tries):
+    async def main():
         async with maybe_spawn_brokerd(
-            tries=tries, loglevel=loglevel
+            loglevel=loglevel
         ):
             # run app "main"
             await _async_main(
@@ -115,9 +114,8 @@ def optschain(config, symbol, date, rate, test):
             )
 
     tractor.run(
-        partial(main, tries=1),
+        main,
         name='kivy-options-chain',
-        # loglevel=loglevel if tl else None,
     )
 
 
