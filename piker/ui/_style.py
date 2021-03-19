@@ -90,11 +90,16 @@ class DpiAwareFont:
         ldpi = screen.logicalDotsPerInch()
         dpi = max(pdpi, ldpi)
 
+        # for low dpi scale everything down
+        if dpi <= 96:
+            self._iwl = _default_font_inches_we_like_low_dpi
+
         font_size = math.floor(self._iwl * dpi)
         log.info(
             f"\nscreen:{screen.name()} with DPI: {dpi}"
             f"\nbest font size is {font_size}\n"
         )
+
         self._set_qfont_px_size(font_size)
         self._physical_dpi = dpi
 
