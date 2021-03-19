@@ -42,6 +42,7 @@ import tractor
 from outcome import Error
 
 from ..log import get_logger
+from ._pg_overrides import _do_overrides
 
 log = get_logger(__name__)
 
@@ -49,6 +50,10 @@ log = get_logger(__name__)
 # might as well enable this for now?
 pg.useOpenGL = True
 pg.enableExperimental = True
+
+# engage core tweaks that give us better response
+# latency then the average pg user
+_do_overrides()
 
 
 # singleton app per actor
