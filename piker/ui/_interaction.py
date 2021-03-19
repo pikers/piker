@@ -392,10 +392,15 @@ class LineEditor:
         # try to look up line from our registry
         line = self._order_lines.pop(uuid, None)
         if line:
+
             # if hovered remove from cursor set
             hovered = self.chart._cursor._hovered
             if line in hovered:
                 hovered.remove(line)
+
+                # make sure the xhair doesn't get left off
+                # just because we never got a un-hover event
+                self.chart._cursor.show_xhair()
 
             line.delete()
             return line
