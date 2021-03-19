@@ -31,6 +31,7 @@ from pprint import pformat
 import inspect
 import itertools
 import logging
+from random import randint
 import time
 
 import trio
@@ -45,6 +46,7 @@ import ib_insync as ibis
 from ib_insync.wrapper import Wrapper
 from ib_insync.client import Client as ib_Client
 
+from . import config
 from ..log import get_logger, get_console_log
 from ..data import (
     maybe_spawn_brokerd,
@@ -601,9 +603,29 @@ class Client:
 # default config ports
 _tws_port: int = 7497
 _gw_port: int = 4002
-_try_ports = [_tws_port, _gw_port]
-_client_ids = itertools.count()
+_try_ports = [
+    _gw_port,
+    _tws_port
+]
+# TODO: remove the randint stuff and use proper error checking in client
+# factor below..
+_client_ids = itertools.count(randint(1, 100))
 _client_cache = {}
+
+def get_config(
+    # force_from_user: bool = False,
+    # ask_user_on_failure: bool = False,
+) -> "configparser.ConfigParser":
+    conf, path = config.load()
+
+    section = conf.get('ib')
+
+    if not section:
+        log.warning(f'No config section found for ib in {path}')
+        return
+
+    return section
+
 
 
 @asynccontextmanager
@@ -614,8 +636,9 @@ async def _aio_get_client(
 ) -> Client:
     """Return an ``ib_insync.IB`` instance wrapped in our client API.
     """
-    # first check cache for existing client
+    conf = get_config()
 
+    # first check cache for existing client
     try:
         if port:
             client = _client_cache[(host, port)]
@@ -626,6 +649,7 @@ async def _aio_get_client(
         yield client
 
     except (KeyError, IndexError):
+
         # TODO: in case the arbiter has no record
         # of existing brokerd we need to broadcast for one.
 
@@ -635,9 +659,27 @@ async def _aio_get_client(
             client_id = next(_client_ids)
 
         ib = NonShittyIB()
-        ports = _try_ports if port is None else [port]
+
+        # attempt to get connection info from config
+        ports = conf['api'].get(
+            'ports',
+            {
+                # default order is to check for gw first
+                'gw': 4002,
+                'tws': 7497,
+                'order': ['gw', 'tws']
+            }
+        )
+        order = ports['order']
+        try_ports = [ports[key] for key in order]
+        ports = try_ports if port is None else [port]
+
+        # TODO: support multiple clients allowing for execution on
+        # multiple accounts (including a paper instance running on the
+        # same machine) and switching between accounts in the EMs
 
         _err = None
+
         for port in ports:
             try:
                 log.info(f"Connecting to the EYEBEE on port {port}!")

@@ -1,0 +1,29 @@
+[questrade]
+refresh_token = ""
+access_token = ""
+api_server = "https://api06.iq.questrade.com/"
+expires_in = 1800
+token_type = "Bearer"
+expires_at = 1616095326.355846
+
+[kraken]
+key_descr = "api_0"
+public_key = ""
+private_key = ""
+
+[position]
+position_type = "$v"
+v_position_size = 500.0
+
+[ib.api]
+ipaddr = "127.0.0.1"
+
+[ib.accounts]
+margin = ""
+registered = ""
+paper = ""
+
+[ib.api.ports]
+gw = 4002
+tws = 7497
+order = [ "gw", "tws",]
