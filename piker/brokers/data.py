@@ -180,15 +180,18 @@ async def symbol_data(broker: str, tickers: List[str]):
         return await feed.client.symbol_info(tickers)
 
 
+_feeds_cache = {}
+
 @asynccontextmanager
 async def get_cached_feed(
     brokername: str,
 ) -> BrokerFeed:
     """Get/create a ``BrokerFeed`` from/in the current actor.
     """
-    # check if a cached client is in the local actor's statespace
-    ss = tractor.current_actor().statespace
-    feeds = ss.setdefault('feeds', {'_lock': trio.Lock()})
+    global _feeds_cache
+
+    # check if a cached feed is in the local actor
+    feeds = _feeds_cache.setdefault('feeds', {'_lock': trio.Lock()})
     lock = feeds['_lock']
     feed = None
     try:

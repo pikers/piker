@@ -62,7 +62,7 @@ async def update_quotes(
                 color = colorcode('gray')
 
             # if the cell has been "highlighted" make sure to change its color
-            if hdrcell.background_color != [0]*4:
+            if hdrcell.background_color != [0] * 4:
                 hdrcell.background_color = color
 
             # update row header and '%' cell text color
@@ -144,14 +144,17 @@ async def update_quotes(
     log.warn("Data feed connection dropped")
 
 
+_widgets = {}
+
+
 async def stream_symbol_selection():
     """An RPC async gen for streaming the symbol corresponding
     value corresponding to the last clicked row.
 
     Essentially of an event stream of clicked symbol values.
     """
-    widgets = tractor.current_actor().statespace['widgets']
-    table = widgets['table']
+    global _widgets
+    table = _widgets['table']
     send_chan, recv_chan = trio.open_memory_channel(0)
     table._click_queues.append(send_chan)
     try:
@@ -238,8 +241,6 @@ async def _async_main(
     # set up a pager view for large ticker lists
     table.bind(minimum_height=table.setter('height'))
 
-    ss = tractor.current_actor().statespace
-
     async def spawn_opts_chain():
         """Spawn an options chain UI in a new subactor.
         """
@@ -276,7 +277,10 @@ async def _async_main(
             'header': header,
             'pager': pager,
         }
-        ss['widgets'] = widgets
+
+        global _widgets
+        _widgets = widgets
+
         nursery.start_soon(
             update_quotes,
             nursery,

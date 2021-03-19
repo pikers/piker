@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -21,15 +21,15 @@ We provide tsdb integrations for retrieving
 and storing data from your brokers as well as
 sharing your feeds with other fellow pikers.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from contextlib import asynccontextmanager
 from importlib import import_module
 from types import ModuleType
 from typing import (
-    Dict, List, Any,
-    Sequence, AsyncIterator, Optional
+    Dict, Any, Sequence, AsyncIterator, Optional
 )
 
+import trio
 import tractor
 
 from ..brokers import get_brokermod
@@ -42,7 +42,7 @@ from ._sharedmem import (
     ShmArray,
     get_shm_token,
 )
-from ._source import base_iohlc_dtype
+from ._source import base_iohlc_dtype, Symbol
 from ._buffer import (
     increment_ohlc_buffer,
     subscribe_ohlc_for_increment
@@ -87,21 +87,17 @@ _data_mods = [
 @asynccontextmanager
 async def maybe_spawn_brokerd(
     brokername: str,
-    sleep: float = 0.5,
     loglevel: Optional[str] = None,
-    expose_mods: List = [],
-    **tractor_kwargs,
+
+    # XXX: you should pretty much never want debug mode
+    # for data daemons when running in production.
+    debug_mode: bool = True,
 ) -> tractor._portal.Portal:
     """If no ``brokerd.{brokername}`` daemon-actor can be found,
     spawn one in a local subactor and return a portal to it.
     """
     if loglevel:
         get_console_log(loglevel)
-
-    # disable debugger in brokerd?
-    # tractor._state._runtime_vars['_debug_mode'] = False
-
-    tractor_kwargs['loglevel'] = loglevel
 
     brokermod = get_brokermod(brokername)
     dname = f'brokerd.{brokername}'
@@ -114,18 +110,25 @@ async def maybe_spawn_brokerd(
         else:  # no daemon has been spawned yet
 
             log.info(f"Spawning {brokername} broker daemon")
+
+            # retrieve any special config from the broker mod
             tractor_kwargs = getattr(brokermod, '_spawn_kwargs', {})
-            async with tractor.open_nursery() as nursery:
+
+            async with tractor.open_nursery(
+                #debug_mode=debug_mode,
+            ) as nursery:
                 try:
                     # spawn new daemon
                     portal = await nursery.start_actor(
                         dname,
                         enable_modules=_data_mods + [brokermod.__name__],
                         loglevel=loglevel,
+                        debug_mode=debug_mode,
                         **tractor_kwargs
                     )
                     async with tractor.wait_for_actor(dname) as portal:
                         yield portal
+
                 finally:
                     # client code may block indefinitely so cancel when
                     # teardown is invoked
@@ -144,9 +147,15 @@ class Feed:
     name: str
     stream: AsyncIterator[Dict[str, Any]]
     shm: ShmArray
+    mod: ModuleType
     # ticks: ShmArray
     _brokerd_portal: tractor._portal.Portal
-    _index_stream: Optional[AsyncIterator[Dict[str, Any]]] = None
+    _index_stream: Optional[AsyncIterator[int]] = None
+    _trade_stream: Optional[AsyncIterator[Dict[str, Any]]] = None
+
+    # cache of symbol info messages received as first message when
+    # a stream startsc.
+    symbols: Dict[str, Symbol] = field(default_factory=dict)
 
     async def receive(self) -> dict:
         return await self.stream.__anext__()
@@ -164,6 +173,33 @@ class Feed:
 
         return self._index_stream
 
+    async def recv_trades_data(self) -> AsyncIterator[dict]:
+
+        if not getattr(self.mod, 'stream_trades', False):
+            log.warning(
+                f"{self.mod.name} doesn't have trade data support yet :(")
+
+            if not self._trade_stream:
+                raise RuntimeError(
+                    f'Can not stream trade data from {self.mod.name}')
+
+        # NOTE: this can be faked by setting a rx chan
+        # using the ``_.set_fake_trades_stream()`` method
+        if self._trade_stream is None:
+
+            self._trade_stream = await self._brokerd_portal.run(
+
+                self.mod.stream_trades,
+
+                # do we need this? -> yes
+                # the broker side must declare this key
+                # in messages, though we could probably use
+                # more then one?
+                topics=['local_trades'],
+            )
+
+        return self._trade_stream
+
 
 def sym_to_shm_key(
     broker: str,
@@ -174,23 +210,26 @@ def sym_to_shm_key(
 
 @asynccontextmanager
 async def open_feed(
-    name: str,
+    brokername: str,
     symbols: Sequence[str],
     loglevel: Optional[str] = None,
 ) -> AsyncIterator[Dict[str, Any]]:
     """Open a "data feed" which provides streamed real-time quotes.
     """
     try:
-        mod = get_brokermod(name)
+        mod = get_brokermod(brokername)
     except ImportError:
-        mod = get_ingestormod(name)
+        mod = get_ingestormod(brokername)
 
     if loglevel is None:
         loglevel = tractor.current_actor().loglevel
 
+    # TODO: do all!
+    sym = symbols[0]
+
     # Attempt to allocate (or attach to) shm array for this broker/symbol
     shm, opened = maybe_open_shm_array(
-        key=sym_to_shm_key(name, symbols[0]),
+        key=sym_to_shm_key(brokername, sym),
 
         # use any broker defined ohlc dtype:
         dtype=getattr(mod, '_ohlc_dtype', base_iohlc_dtype),
@@ -200,33 +239,61 @@ async def open_feed(
     )
 
     async with maybe_spawn_brokerd(
-        mod.name,
+
+        brokername,
         loglevel=loglevel,
+
+        # TODO: add a cli flag for this
+        # debug_mode=False,
+
     ) as portal:
+
         stream = await portal.run(
             mod.stream_quotes,
+
+            # TODO: actually handy multiple symbols...
             symbols=symbols,
+
             shm_token=shm.token,
 
             # compat with eventual ``tractor.msg.pub``
             topics=symbols,
+            loglevel=loglevel,
+        )
+
+        feed = Feed(
+            name=brokername,
+            stream=stream,
+            shm=shm,
+            mod=mod,
+            _brokerd_portal=portal,
         )
 
         # TODO: we can't do this **and** be compate with
         # ``tractor.msg.pub``, should we maybe just drop this after
         # tests are in?
-        shm_token, is_writer = await stream.receive()
+        init_msg = await stream.receive()
 
-        if opened:
-            assert is_writer
-            log.info("Started shared mem bar writer")
+        for sym, data in init_msg.items():
+
+            si = data['symbol_info']
+
+            symbol = Symbol(
+                key=sym,
+                type_key=si.get('asset_type', 'forex'),
+                tick_size=si.get('price_tick_size', 0.01),
+                lot_tick_size=si.get('lot_tick_size', 0.0),
+            )
+            symbol.broker_info[brokername] = si
+
+            feed.symbols[sym] = symbol
+
+            shm_token = data['shm_token']
+            if opened:
+                assert data['is_shm_writer']
+                log.info("Started shared mem bar writer")
 
         shm_token['dtype_descr'] = list(shm_token['dtype_descr'])
         assert shm_token == shm.token  # sanity
 
-        yield Feed(
-            name=name,
-            stream=stream,
-            shm=shm,
-            _brokerd_portal=portal,
-        )
+        yield feed

@@ -45,6 +45,7 @@ setup(
         'attrs',
         'pygments',
         'colorama',  # numba traceback coloring
+        'pydantic',  # structured data
 
         # async
         'trio',
@@ -58,6 +59,7 @@ setup(
 
         # numerics
         'arrow',  # better datetimes
+        'bidict',  # 2 way map
         'cython',
         'numpy',
         'numba',

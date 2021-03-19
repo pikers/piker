@@ -15,22 +15,21 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-UX interaction customs.
+Chart view box primitives
+
 """
-from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Callable
-import uuid
+from typing import Optional, Dict
 
 import pyqtgraph as pg
+from PyQt5.QtCore import QPointF
 from pyqtgraph import ViewBox, Point, QtCore, QtGui
 from pyqtgraph import functions as fn
 import numpy as np
 
 from ..log import get_logger
 from ._style import _min_points_to_show, hcolor, _font
-from ._graphics._lines import level_line, LevelLine
-from .._ems import get_orders, OrderBook
+from ._graphics._lines import order_line, LevelLine
 
 
 log = get_logger(__name__)
@@ -110,8 +109,8 @@ class SelectRect(QtGui.QGraphicsRectItem):
 
     def mouse_drag_released(
         self,
-        p1: QtCore.QPointF,
-        p2: QtCore.QPointF
+        p1: QPointF,
+        p2: QPointF
     ) -> None:
         """Called on final button release for mouse drag with start and
         end positions.
@@ -121,10 +120,10 @@ class SelectRect(QtGui.QGraphicsRectItem):
 
     def set_pos(
         self,
-        p1: QtCore.QPointF,
-        p2: QtCore.QPointF
+        p1: QPointF,
+        p2: QPointF
     ) -> None:
-        """Set position of selection rectagle and accompanying label, move
+        """Set position of selection rect and accompanying label, move
         label to match.
 
         """
@@ -208,48 +207,77 @@ _order_lines: Dict[str, LevelLine] = {}
 
 @dataclass
 class LineEditor:
+    """The great editor of linez..
+
+    """
     view: 'ChartView'
+
     _order_lines: field(default_factory=_order_lines)
     chart: 'ChartPlotWidget' = None  # type: ignore # noqa
     _active_staged_line: LevelLine = None
     _stage_line: LevelLine = None
 
-    def stage_line(self, color: str = 'alert_yellow') -> LevelLine:
+    def stage_line(
+        self,
+        action: str,
+
+        color: str = 'alert_yellow',
+        hl_on_hover: bool = False,
+        dotted: bool = False,
+
+        # fields settings
+        size: Optional[int] = None,
+    ) -> LevelLine:
         """Stage a line at the current chart's cursor position
         and return it.
 
         """
+        # chart.setCursor(QtCore.Qt.PointingHandCursor)
+
         chart = self.chart._cursor.active_plot
-        chart.setCursor(QtCore.Qt.PointingHandCursor)
         cursor = chart._cursor
         y = chart._cursor._datum_xy[1]
 
-        line = self._stage_line
-        if not line:
-            # add a "staged" cursor-tracking line to view
-            # and cash it in a a var
-            line = level_line(
-                chart,
-                level=y,
-                digits=chart._lc.symbol.digits(),
-                color=color,
+        symbol = chart._lc.symbol
 
-                # don't highlight the "staging" line
-                hl_on_hover=False,
-            )
-            self._stage_line = line
+        # line = self._stage_line
+        # if not line:
+        # add a "staged" cursor-tracking line to view
+        # and cash it in a a var
+        if self._active_staged_line:
+            self.unstage_line()
 
-        else:
-            # use the existing staged line instead
-            # of allocating more mem / objects repeatedly
-            line.setValue(y)
-            line.show()
-            line.label.show()
+        line = order_line(
+            chart,
+
+            level=y,
+            level_digits=symbol.digits(),
+            size=size,
+            size_digits=symbol.lot_digits(),
+
+            # just for the stage line to avoid
+            # flickering while moving the cursor
+            # around where it might trigger highlight
+            # then non-highlight depending on sensitivity
+            always_show_labels=True,
+
+            # kwargs
+            color=color,
+            # don't highlight the "staging" line
+            hl_on_hover=hl_on_hover,
+            dotted=dotted,
+            exec_type='dark' if dotted else 'live',
+            action=action,
+            show_markers=True,
+
+            # prevent flickering of marker while moving/tracking cursor
+            only_show_markers_on_hover=False,
+        )
 
         self._active_staged_line = line
 
-        # hide crosshair y-line
-        cursor.graphics[chart]['hl'].hide()
+        # hide crosshair y-line and label
+        cursor.hide_xhair()
 
         # add line to cursor trackers
         cursor._trackers.add(line)
@@ -260,45 +288,63 @@ class LineEditor:
         """Inverse of ``.stage_line()``.
 
         """
-        chart = self.chart._cursor.active_plot
-        chart.setCursor(QtCore.Qt.ArrowCursor)
-        cursor = chart._cursor
+        # chart = self.chart._cursor.active_plot
+        # # chart.setCursor(QtCore.Qt.ArrowCursor)
+        cursor = self.chart._cursor
 
         # delete "staged" cursor tracking line from view
         line = self._active_staged_line
-
-        cursor._trackers.remove(line)
-
-        if self._stage_line:
-            self._stage_line.hide()
-            self._stage_line.label.hide()
+        if line:
+            cursor._trackers.remove(line)
+            line.delete()
 
         self._active_staged_line = None
 
-        # show the crosshair y line
-        hl = cursor.graphics[chart]['hl']
-        hl.show()
+        # show the crosshair y line and label
+        cursor.show_xhair()
 
-    def create_line(self, uuid: str) -> LevelLine:
+    def create_order_line(
+        self,
+        uuid: str,
+        level: float,
+        chart: 'ChartPlotWidget',  # noqa
+        size: float,
+        action: str,
+    ) -> LevelLine:
 
         line = self._active_staged_line
         if not line:
-            raise RuntimeError("No line commit is currently staged!?")
+            raise RuntimeError("No line is currently staged!?")
 
-        chart = self.chart._cursor.active_plot
-        y = chart._cursor._datum_xy[1]
+        sym = chart._lc.symbol
 
-        line = level_line(
+        line = order_line(
             chart,
-            level=y,
-            color='alert_yellow',
-            digits=chart._lc.symbol.digits(),
-            show_label=False,
+
+            # label fields default values
+            level=level,
+            level_digits=sym.digits(),
+
+            size=size,
+            size_digits=sym.lot_digits(),
+
+            # LevelLine kwargs
+            color=line.color,
+            dotted=line._dotted,
+
+            show_markers=True,
+            only_show_markers_on_hover=True,
+
+            action=action,
         )
+
+        # for now, until submission reponse arrives
+        line.hide_labels()
 
         # register for later lookup/deletion
         self._order_lines[uuid] = line
-        return line, y
+
+        return line
 
     def commit_line(self, uuid: str) -> LevelLine:
         """Commit a "staged line" to view.
@@ -307,15 +353,20 @@ class LineEditor:
         graphic in view.
 
         """
-        line = self._order_lines[uuid]
-        line.oid = uuid
-        line.label.show()
+        try:
+            line = self._order_lines[uuid]
+        except KeyError:
+            log.warning(f'No line for {uuid} could be found?')
+            return
+        else:
+            assert line.oid == uuid
+            line.show_labels()
 
-        # TODO: other flashy things to indicate the order is active
+            # TODO: other flashy things to indicate the order is active
 
-        log.debug(f'Level active for level: {line.value()}')
+            log.debug(f'Level active for level: {line.value()}')
 
-        return line
+            return line
 
     def lines_under_cursor(self):
         """Get the line(s) under the cursor position.
@@ -328,7 +379,7 @@ class LineEditor:
         self,
         line: LevelLine = None,
         uuid: str = None,
-    ) -> None:
+    ) -> LevelLine:
         """Remove a line by refernce or uuid.
 
         If no lines or ids are provided remove all lines under the
@@ -339,14 +390,20 @@ class LineEditor:
             uuid = line.oid
 
         # try to look up line from our registry
-        line = self._order_lines.pop(uuid)
+        line = self._order_lines.pop(uuid, None)
+        if line:
 
-        # if hovered remove from cursor set
-        hovered = self.chart._cursor._hovered
-        if line in hovered:
-            hovered.remove(line)
+            # if hovered remove from cursor set
+            hovered = self.chart._cursor._hovered
+            if line in hovered:
+                hovered.remove(line)
 
-        line.delete()
+                # make sure the xhair doesn't get left off
+                # just because we never got a un-hover event
+                self.chart._cursor.show_xhair()
+
+            line.delete()
+            return line
 
 
 @dataclass
@@ -361,22 +418,28 @@ class ArrowEditor:
         x: float,
         y: float,
         color='default',
-        pointing: str = 'up',
+        pointing: Optional[str] = None,
     ) -> pg.ArrowItem:
         """Add an arrow graphic to view at given (x, y).
 
         """
-        yb = pg.mkBrush(hcolor('alert_yellow'))
-
-        angle = 90 if pointing == 'up' else -90
+        angle = {
+            'up': 90,
+            'down': -90,
+            None: 180,  # pointing to right (as in an alert)
+        }[pointing]
 
         arrow = pg.ArrowItem(
             angle=angle,
             baseAngle=0,
-            headLen=5,
-            headWidth=2,
+            headLen=5*3,
+            headWidth=2*3,
             tailLen=None,
-            brush=yb,
+            pxMode=True,
+
+            # coloring
+            pen=pg.mkPen(hcolor('papas_special')),
+            brush=pg.mkBrush(hcolor(color)),
         )
         arrow.setPos(x, y)
 
@@ -389,59 +452,6 @@ class ArrowEditor:
 
     def remove(self, arrow) -> bool:
         self.chart.plotItem.removeItem(arrow)
-
-
-@dataclass
-class OrderMode:
-    """Major mode for placing orders on a chart view.
-
-    """
-    chart: 'ChartPlotWidget'  #  type: ignore # noqa
-    book: OrderBook
-    lines: LineEditor
-    arrows: ArrowEditor
-    _arrow_colors = {
-        'alert': 'alert_yellow',
-        'buy': 'buy_green',
-        'sell': 'sell_red',
-    }
-
-    key_map: Dict[str, Callable] = field(default_factory=dict)
-
-    def uuid(self) -> str:
-        return str(uuid.uuid4())
-
-
-@asynccontextmanager
-async def open_order_mode(
-    chart,
-):
-    # global _order_lines
-
-    view = chart._vb
-    book = get_orders()
-    lines = LineEditor(view=view, _order_lines=_order_lines, chart=chart)
-    arrows = ArrowEditor(chart, {})
-
-    log.info("Opening order mode")
-
-    mode = OrderMode(chart, book, lines, arrows)
-    view.mode = mode
-
-    # # setup local ui event streaming channels for request/resp
-    # # streamging with EMS daemon
-    # global _to_ems, _from_order_book
-    # _to_ems, _from_order_book = trio.open_memory_channel(100)
-
-    try:
-        yield mode
-
-    finally:
-        # XXX special teardown handling like for ex.
-        # - cancelling orders if needed?
-        # - closing positions if desired?
-        # - switching special condition orders to safer/more reliable variants
-        log.info("Closing order mode")
 
 
 class ChartView(ViewBox):
@@ -467,11 +477,11 @@ class ChartView(ViewBox):
         self.addItem(self.select_box, ignoreBounds=True)
         self._chart: 'ChartPlotWidget' = None  # noqa
 
-        # self._lines_editor = LineEditor(view=self, _lines=_lines)
         self.mode = None
 
         # kb ctrls processing
         self._key_buffer = []
+        self._key_active: bool = False
 
     @property
     def chart(self) -> 'ChartPlotWidget':  # type: ignore # noqa
@@ -481,7 +491,6 @@ class ChartView(ViewBox):
     def chart(self, chart: 'ChartPlotWidget') -> None:  # type: ignore # noqa
         self._chart = chart
         self.select_box.chart = chart
-        # self._lines_editor.chart = chart
 
     def wheelEvent(self, ev, axis=None):
         """Override "center-point" location for scrolling.
@@ -498,15 +507,17 @@ class ChartView(ViewBox):
         else:
             mask = self.state['mouseEnabled'][:]
 
+        chart = self.linked_charts.chart
+
         # don't zoom more then the min points setting
-        l, lbar, rbar, r = self.linked_charts.chart.bars_range()
+        l, lbar, rbar, r = chart.bars_range()
         vl = r - l
 
         if ev.delta() > 0 and vl <= _min_points_to_show:
             log.debug("Max zoom bruh...")
             return
 
-        if ev.delta() < 0 and vl >= len(self.linked_charts.chart._ohlc) + 666:
+        if ev.delta() < 0 and vl >= len(chart._ohlc) + 666:
             log.debug("Min zoom bruh...")
             return
 
@@ -531,10 +542,34 @@ class ChartView(ViewBox):
 
         # This seems like the most "intuitive option, a hybrid of
         # tws and tv styles
-        last_bar = pg.Point(int(rbar))
+        last_bar = pg.Point(int(rbar)) + 1
+
+        ryaxis = chart.getAxis('right')
+        r_axis_x = ryaxis.pos().x()
+
+        end_of_l1 = pg.Point(
+            round(
+                chart._vb.mapToView(
+                    pg.Point(r_axis_x - chart._max_l1_line_len)
+                    # QPointF(chart._max_l1_line_len, 0)
+                ).x()
+            )
+        )  # .x()
+
+        # self.state['viewRange'][0][1] = end_of_l1
+
+        # focal = pg.Point((last_bar.x() + end_of_l1)/2)
+
+        focal = min(
+            last_bar,
+            end_of_l1,
+            key=lambda p: p.x()
+        )
+        # breakpoint()
+        # focal = pg.Point(last_bar.x() + end_of_l1)
 
         self._resetTarget()
-        self.scaleBy(s, last_bar)
+        self.scaleBy(s, focal)
         ev.accept()
         self.sigRangeChangedManually.emit(mask)
 
@@ -649,29 +684,10 @@ class ChartView(ViewBox):
             self.raiseContextMenu(ev)
 
         elif button == QtCore.Qt.LeftButton:
-
-            ev.accept()
-
-            # self._lines_editor.commit_line()
-
-            # send order to EMS
-
-            # register the "staged" line under the cursor
-            # to be displayed when above order ack arrives
-            # (means the line graphic doesn't show on screen until the
-            # order is live in the emsd).
-            mode = self.mode
-            uuid = mode.uuid()
-
-            # make line graphic
-            line, y = mode.lines.create_line(uuid)
-
-            # send order cmd to ems
-            mode.book.alert(
-                uuid=uuid,
-                symbol=mode.chart._lc._symbol,
-                price=y
-            )
+            # when in order mode, submit execution
+            if self._key_active:
+                ev.accept()
+                self.mode.submit_exec()
 
     def keyReleaseEvent(self, ev):
         """
@@ -684,17 +700,24 @@ class ChartView(ViewBox):
             return
 
         ev.accept()
-        text = ev.text()
+        # text = ev.text()
         key = ev.key()
-        # mods = ev.modifiers()
+        mods = ev.modifiers()
 
         if key == QtCore.Qt.Key_Shift:
-            if self.state['mouseMode'] == ViewBox.RectMode:
-                self.setMouseMode(ViewBox.PanMode)
+            # if self.state['mouseMode'] == ViewBox.RectMode:
+            self.setMouseMode(ViewBox.PanMode)
 
-        if text == 'a':
-            # draw "staged" line under cursor position
+        # if self.state['mouseMode'] == ViewBox.RectMode:
+        # if key == QtCore.Qt.Key_Space:
+        if mods == QtCore.Qt.ControlModifier or key == QtCore.Qt.Key_Control:
+            self.mode._exec_mode = 'dark'
+
+        if key in {QtCore.Qt.Key_A, QtCore.Qt.Key_F, QtCore.Qt.Key_D}:
+            # remove "staged" level line under cursor position
             self.mode.lines.unstage_line()
+
+        self._key_active = False
 
     def keyPressEvent(self, ev):
         """
@@ -711,42 +734,55 @@ class ChartView(ViewBox):
         key = ev.key()
         mods = ev.modifiers()
 
+        print(f'text: {text}, key: {key}')
+
         if mods == QtCore.Qt.ShiftModifier:
             if self.state['mouseMode'] == ViewBox.PanMode:
                 self.setMouseMode(ViewBox.RectMode)
 
-        # ctl
+        # ctrl
+        ctrl = False
         if mods == QtCore.Qt.ControlModifier:
-            # TODO: ctrl-c as cancel?
-            # https://forum.qt.io/topic/532/how-to-catch-ctrl-c-on-a-widget/9
-            # if ev.text() == 'c':
-            #     self.rbScaleBox.hide()
-            print(f"CTRL + key:{key} + text:{text}")
+            ctrl = True
+
+        if mods == QtCore.Qt.ControlModifier:
+            self.mode._exec_mode = 'live'
+
+        self._key_active = True
 
         # alt
         if mods == QtCore.Qt.AltModifier:
             pass
 
         # esc
-        if key == QtCore.Qt.Key_Escape:
+        if key == QtCore.Qt.Key_Escape or (ctrl and key == QtCore.Qt.Key_C):
+            # ctrl-c as cancel
+            # https://forum.qt.io/topic/532/how-to-catch-ctrl-c-on-a-widget/9
             self.select_box.clear()
 
-        self._key_buffer.append(text)
-
-        # order modes
-        if text == 'r':
-            self.chart.default_view()
-
-        elif text == 'a':
-            # add a line at the current cursor
-            self.mode.lines.stage_line()
-
-        elif text == 'd':
-
+        # cancel order or clear graphics
+        if key == QtCore.Qt.Key_C or key == QtCore.Qt.Key_Delete:
             # delete any lines under the cursor
             mode = self.mode
             for line in mode.lines.lines_under_cursor():
                 mode.book.cancel(uuid=line.oid)
+
+        self._key_buffer.append(text)
+
+        # View modes
+        if key == QtCore.Qt.Key_R:
+            self.chart.default_view()
+
+        # Order modes: stage orders at the current cursor level
+
+        elif key == QtCore.Qt.Key_D:  # for "damp eet"
+            self.mode.set_exec('sell')
+
+        elif key == QtCore.Qt.Key_F:  # for "fillz eet"
+            self.mode.set_exec('buy')
+
+        elif key == QtCore.Qt.Key_A:
+            self.mode.set_exec('alert')
 
         # XXX: Leaving this for light reference purposes, there
         # seems to be some work to at least gawk at for history mgmt.
@@ -764,3 +800,4 @@ class ChartView(ViewBox):
         #     self.scaleHistory(len(self.axHistory))
         else:
             ev.ignore()
+            self._key_active = False

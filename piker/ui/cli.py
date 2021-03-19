@@ -16,8 +16,8 @@
 
 """
 Console interface to UI components.
+
 """
-from functools import partial
 import os
 import click
 import tractor
@@ -63,10 +63,10 @@ def monitor(config, rate, name, dhost, test, tl):
     _kivy_import_hack()
     from .kivy.monitor import _async_main
 
-    async def main(tries):
+    async def main():
         async with maybe_spawn_brokerd(
             brokername=brokermod.name,
-            tries=tries, loglevel=loglevel
+            loglevel=loglevel
         ) as portal:
             # run app "main"
             await _async_main(
@@ -75,7 +75,7 @@ def monitor(config, rate, name, dhost, test, tl):
             )
 
     tractor.run(
-        partial(main, tries=1),
+        main,
         name='monitor',
         loglevel=loglevel if tl else None,
         rpc_module_paths=['piker.ui.kivy.monitor'],
@@ -90,7 +90,7 @@ def monitor(config, rate, name, dhost, test, tl):
 @click.option('--rate', '-r', default=1, help='Logging level')
 @click.argument('symbol', required=True)
 @click.pass_obj
-def optschain(config, symbol, date, tl, rate, test):
+def optschain(config, symbol, date, rate, test):
     """Start an option chain UI
     """
     # global opts
@@ -100,9 +100,9 @@ def optschain(config, symbol, date, tl, rate, test):
     _kivy_import_hack()
     from .kivy.option_chain import _async_main
 
-    async def main(tries):
+    async def main():
         async with maybe_spawn_brokerd(
-            tries=tries, loglevel=loglevel
+            loglevel=loglevel
         ):
             # run app "main"
             await _async_main(
@@ -114,9 +114,8 @@ def optschain(config, symbol, date, tl, rate, test):
             )
 
     tractor.run(
-        partial(main, tries=1),
+        main,
         name='kivy-options-chain',
-        loglevel=loglevel if tl else None,
     )
 
 
@@ -126,30 +125,31 @@ def optschain(config, symbol, date, tl, rate, test):
     is_flag=True,
     help='Enable pyqtgraph profiling'
 )
-@click.option('--date', '-d', help='Contracts expiry date')
-@click.option('--test', '-t', help='Test quote stream file')
-@click.option('--rate', '-r', default=1, help='Logging level')
 @click.argument('symbol', required=True)
 @click.pass_obj
-def chart(config, symbol, date, rate, test, profile):
+def chart(config, symbol, profile):
     """Start a real-time chartng UI
     """
     from .. import _profile
     from ._chart import _main
 
-    # possibly enable profiling
+    # toggle to enable profiling
     _profile._pg_profile = profile
 
     # global opts
     brokername = config['broker']
     tractorloglevel = config['tractorloglevel']
+    pikerloglevel = config['loglevel']
 
     _main(
         sym=symbol,
         brokername=brokername,
+        piker_loglevel=pikerloglevel,
         tractor_kwargs={
             'debug_mode': True,
             'loglevel': tractorloglevel,
-            'rpc_module_paths': ['piker._ems'],
+            'enable_modules': [
+                'piker.exchange._client'
+            ],
         },
     )

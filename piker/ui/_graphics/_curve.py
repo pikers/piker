@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -16,6 +16,7 @@
 
 """
 Fast, smooth, sexy curves.
+
 """
 from typing import Tuple
 
@@ -141,6 +142,7 @@ class FastAppendCurve(pg.PlotCurveItem):
 
         w = hb_size.width() + 1
         h = hb_size.height() + 1
+
         br = QtCore.QRectF(
 
             # top left

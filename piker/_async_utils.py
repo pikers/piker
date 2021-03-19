@@ -17,7 +17,9 @@
 """
 Async utils no one seems to have built into a core lib (yet).
 """
+from typing import AsyncContextManager
 from collections import OrderedDict
+from contextlib import asynccontextmanager
 
 
 def async_lifo_cache(maxsize=128):
@@ -47,3 +49,18 @@ def async_lifo_cache(maxsize=128):
         return wrapper
 
     return decorator
+
+
+@asynccontextmanager
+async def _just_none():
+    # noop -> skip entering context
+    yield None
+
+
+@asynccontextmanager
+async def maybe_with_if(
+    predicate: bool,
+    context: AsyncContextManager,
+) -> AsyncContextManager:
+    async with context if predicate else _just_none() as output:
+        yield output

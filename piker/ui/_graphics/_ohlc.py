@@ -21,7 +21,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 import pyqtgraph as pg
-from numba import jit, float64, int64  # , optional
+from numba import njit, float64, int64  # , optional
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QLineF, QPointF
 # from numba import types as ntypes
@@ -46,9 +46,19 @@ def _mk_lines_array(
     )
 
 
-def lines_from_ohlc(row: np.ndarray, w: float) -> Tuple[QLineF]:
+def lines_from_ohlc(
+    row: np.ndarray,
+    w: float
+) -> Tuple[QLineF]:
+
     open, high, low, close, index = row[
         ['open', 'high', 'low', 'close', 'index']]
+
+    # TODO: maybe consider using `QGraphicsLineItem` ??
+    # gives us a ``.boundingRect()`` on the objects which may make
+    # computing the composite bounding rect of the last bars + the
+    # history path faster since it's done in C++:
+    # https://doc.qt.io/qt-5/qgraphicslineitem.html
 
     # high -> low vertical (body) line
     if low != high:
@@ -60,17 +70,18 @@ def lines_from_ohlc(row: np.ndarray, w: float) -> Tuple[QLineF]:
 
     # NOTE: place the x-coord start as "middle" of the drawing range such
     # that the open arm line-graphic is at the left-most-side of
-    # the index's range according to the view mapping.
+    # the index's range according to the view mapping coordinates.
 
     # open line
     o = QLineF(index - w, open, index, open)
+
     # close line
     c = QLineF(index, close, index + w, close)
 
     return [hl, o, c]
 
 
-@jit(
+@njit(
     # TODO: for now need to construct this manually for readonly arrays, see
     # https://github.com/numba/numba/issues/4511
     # ntypes.Tuple((float64[:], float64[:], float64[:]))(
@@ -78,7 +89,6 @@ def lines_from_ohlc(row: np.ndarray, w: float) -> Tuple[QLineF]:
     #     int64,
     #     optional(float64),
     # ),
-    nopython=True,
     nogil=True
 )
 def path_arrays_from_ohlc(
@@ -167,16 +177,17 @@ class BarItems(pg.GraphicsObject):
     # 0.5 is no overlap between arms, 1.0 is full overlap
     w: float = 0.43
 
-    # XXX: for the mega-lulz increasing width here increases draw latency...
-    # so probably don't do it until we figure that out.
-    bars_pen = pg.mkPen(hcolor('bracket'))
-
     def __init__(
         self,
         # scene: 'QGraphicsScene',  # noqa
         plotitem: 'pg.PlotItem',  # noqa
+        pen_color: str = 'bracket',
     ) -> None:
         super().__init__()
+
+        # XXX: for the mega-lulz increasing width here increases draw latency...
+        # so probably don't do it until we figure that out.
+        self.bars_pen = pg.mkPen(hcolor(pen_color), width=1)
 
         # NOTE: this prevents redraws on mouse interaction which is
         # a huge boon for avg interaction latency.
@@ -215,7 +226,9 @@ class BarItems(pg.GraphicsObject):
 
         This routine is usually only called to draw the initial history.
         """
-        self.path = gen_qpath(data, start, self.w)
+        hist, last = data[:-1], data[-1]
+
+        self.path = gen_qpath(hist, start, self.w)
 
         # save graphics for later reference and keep track
         # of current internal "last index"
@@ -228,7 +241,7 @@ class BarItems(pg.GraphicsObject):
         )
 
         # up to last to avoid double draw of last bar
-        self._last_bar_lines = lines_from_ohlc(data[-1], self.w)
+        self._last_bar_lines = lines_from_ohlc(last, self.w)
 
         # trigger render
         # https://doc.qt.io/qt-5/qgraphicsitem.html#update
@@ -311,15 +324,17 @@ class BarItems(pg.GraphicsObject):
             ['index', 'open', 'high', 'low', 'close', 'volume']
         ]
         # assert i == self.start_index - 1
-        assert i == last_index
+        # assert i == last_index
         body, larm, rarm = self._last_bar_lines
 
         # XXX: is there a faster way to modify this?
         rarm.setLine(rarm.x1(), last, rarm.x2(), last)
+
         # writer is responsible for changing open on "first" volume of bar
         larm.setLine(larm.x1(), o, larm.x2(), o)
 
         if l != h:  # noqa
+
             if body is None:
                 body = self._last_bar_lines[0] = QLineF(i, l, i, h)
             else:
@@ -380,53 +395,29 @@ class BarItems(pg.GraphicsObject):
         # apparently this a lot faster says the docs?
         # https://doc.qt.io/qt-5/qpainterpath.html#controlPointRect
         hb = self.path.controlPointRect()
-        hb_size = hb.size()
-        # print(f'hb_size: {hb_size}')
+        hb_tl, hb_br = hb.topLeft(), hb.bottomRight()
 
-        w = hb_size.width() + 1
-        h = hb_size.height() + 1
+        # need to include last bar height or BR will be off
+        mx_y = hb_br.y()
+        mn_y = hb_tl.y()
 
-        br = QtCore.QRectF(
+        body_line = self._last_bar_lines[0]
+        if body_line:
+            mx_y = max(mx_y, max(body_line.y1(), body_line.y2()))
+            mn_y = min(mn_y, min(body_line.y1(), body_line.y2()))
+
+        return QtCore.QRectF(
 
             # top left
-            QPointF(hb.topLeft()),
+            QPointF(
+                hb_tl.x(),
+                mn_y,
+            ),
 
-            # total size
-            QtCore.QSizeF(w, h)
+            # bottom right
+            QPointF(
+                hb_br.x() + 1,
+                mx_y,
+            )
+
         )
-        # print(f'bounding rect: {br}')
-        return br
-
-
-# XXX: when we get back to enabling tina mode for xb
-# class CandlestickItems(BarItems):
-
-#     w2 = 0.7
-#     line_pen = pg.mkPen('#000000')
-#     bull_brush = pg.mkBrush('#00ff00')
-#     bear_brush = pg.mkBrush('#ff0000')
-
-#     def _generate(self, p):
-#         rects = np.array(
-#             [
-#                 QtCore.QRectF(
-#                   q.id - self.w,
-#                   q.open,
-#                   self.w2,
-#                   q.close - q.open
-#               )
-#                 for q in Quotes
-#             ]
-#         )
-
-#         p.setPen(self.line_pen)
-#         p.drawLines(
-#             [QtCore.QLineF(q.id, q.low, q.id, q.high)
-#              for q in Quotes]
-#         )
-
-#         p.setBrush(self.bull_brush)
-#         p.drawRects(*rects[Quotes.close > Quotes.open])
-
-#         p.setBrush(self.bear_brush)
-#         p.drawRects(*rects[Quotes.close < Quotes.open])

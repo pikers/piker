@@ -17,12 +17,12 @@
 """
 numpy data source coversion helpers.
 """
-from typing import List
+from typing import Dict, Any, List
 import decimal
-from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from pydantic import BaseModel
 # from numba import from_dtype
 
 
@@ -75,23 +75,41 @@ def ohlc_zeros(length: int) -> np.ndarray:
     return np.zeros(length, dtype=base_ohlc_dtype)
 
 
-@dataclass
-class Symbol:
+class Symbol(BaseModel):
     """I guess this is some kinda container thing for dealing with
     all the different meta-data formats from brokers?
 
+    Yah, i guess dats what it izz.
     """
-    key: str = ''
-    brokers: List[str] = None
-    min_tick: float = 0.01
-    contract: str = ''
+    key: str
+    tick_size: float = 0.01
+    lot_tick_size: float = 0.01  # "volume" precision as min step value
+    broker_info: Dict[str, Dict[str, Any]] = {}
+
+    # specifies a "class" of financial instrument
+    # ex. stock, futer, option, bond etc.
+    type_key: str
+
+    @property
+    def brokers(self) -> List[str]:
+        return list(self.broker_info.keys())
 
     def digits(self) -> int:
-        """Return the trailing number of digits specified by the
-        min tick size for the instrument.
+        """Return the trailing number of digits specified by the min
+        tick size for the instrument.
 
         """
-        return float_digits(self.min_tick)
+        return float_digits(self.tick_size)
+
+    def lot_digits(self) -> int:
+        return float_digits(self.lot_tick_size)
+
+    def nearest_tick(self, value: float) -> float:
+        """Return the nearest tick value based on mininum increment.
+
+        """
+        mult = 1 / self.tick_size
+        return round(value * mult) / mult
 
 
 def from_df(

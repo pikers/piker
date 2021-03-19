@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,6 +13,7 @@
 
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 """
 Mouse interaction graphics
 
@@ -23,7 +24,7 @@ import inspect
 import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
-from PyQt5.QtCore import QPointF
+from PyQt5.QtCore import QPointF, QRectF
 
 from .._style import (
     _xaxis_at,
@@ -54,7 +55,7 @@ class LineDot(pg.CurvePoint):
         index: int,
         plot: 'ChartPlotWidget',  # type: ingore # noqa
         pos=None,
-        size: int = 2,  # in pxs
+        size: int = 6,  # in pxs
         color: str = 'default_light',
     ) -> None:
         pg.CurvePoint.__init__(
@@ -112,27 +113,32 @@ class LineDot(pg.CurvePoint):
         return False
 
 
-_corner_anchors = {
-    'top': 0,
-    'left': 0,
-    'bottom': 1,
-    'right': 1,
-}
-# XXX: fyi naming here is confusing / opposite to coords
-_corner_margins = {
-    ('top', 'left'): (-4, -5),
-    ('top', 'right'): (4, -5),
-
-    ('bottom', 'left'): (-4, lambda font_size: font_size * 2),
-    ('bottom', 'right'): (4, lambda font_size: font_size * 2),
-}
+# TODO: likely will need to tweak this based on dpi...
+_y_margin = 5
 
 
+# TODO: change this into our own ``Label``
 class ContentsLabel(pg.LabelItem):
     """Label anchored to a ``ViewBox`` typically for displaying
     datum-wise points from the "viewed" contents.
 
     """
+    _corner_anchors = {
+        'top': 0,
+        'left': 0,
+        'bottom': 1,
+        'right': 1,
+    }
+
+    # XXX: fyi naming here is confusing / opposite to coords
+    _corner_margins = {
+        ('top', 'left'): (-4, -_y_margin),
+        ('top', 'right'): (4, -_y_margin),
+
+        ('bottom', 'left'): (-4, lambda font_size: font_size + 2*_y_margin),
+        ('bottom', 'right'): (4, lambda font_size: font_size + 2*_y_margin),
+    }
+
     def __init__(
         self,
         chart: 'ChartPlotWidget',  # noqa
@@ -152,8 +158,8 @@ class ContentsLabel(pg.LabelItem):
         self.chart = chart
 
         v, h = anchor_at
-        index = (_corner_anchors[h], _corner_anchors[v])
-        margins = _corner_margins[(v, h)]
+        index = (self._corner_anchors[h], self._corner_anchors[v])
+        margins = self._corner_margins[(v, h)]
 
         ydim = margins[1]
         if inspect.isfunction(margins[1]):
@@ -213,7 +219,7 @@ class Cursor(pg.GraphicsObject):
             style=QtCore.Qt.DashLine,
         )
         self.lines_pen = pg.mkPen(
-            color='#a9a9a9',  # gray?
+            color=hcolor('davies'),
             style=QtCore.Qt.DashLine,
         )
         self.lsc = linkedsplitcharts
@@ -225,6 +231,18 @@ class Cursor(pg.GraphicsObject):
 
         self._hovered: Set[pg.GraphicsObject] = set()
         self._trackers: Set[pg.GraphicsObject] = set()
+
+        # value used for rounding y-axis discreet tick steps
+        # computing once, up front, here cuz why not
+        self._y_incr_mult = 1 / self.lsc._symbol.tick_size
+
+        # line width in view coordinates
+        self._lw = self.pixelWidth() * self.lines_pen.width()
+
+        # xhair label's color name
+        self.label_color: str = 'default'
+
+        self._y_label_update: bool = True
 
     def add_hovered(
         self,
@@ -240,6 +258,7 @@ class Cursor(pg.GraphicsObject):
     ) -> None:
         # add ``pg.graphicsItems.InfiniteLine``s
         # vertical and horizonal lines and a y-axis label
+
         vl = plot.addLine(x=0, pen=self.lines_pen, movable=False)
         vl.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
 
@@ -248,10 +267,11 @@ class Cursor(pg.GraphicsObject):
         hl.hide()
 
         yl = YAxisLabel(
+            chart=plot,
             parent=plot.getAxis('right'),
             digits=digits or self.digits,
             opacity=_ch_label_opac,
-            bg_color='default',
+            bg_color=self.label_color,
         )
         yl.hide()  # on startup if mouse is off screen
 
@@ -291,7 +311,7 @@ class Cursor(pg.GraphicsObject):
         self.xaxis_label = XAxisLabel(
             parent=self.plots[plot_index].getAxis('bottom'),
             opacity=_ch_label_opac,
-            bg_color='default',
+            bg_color=self.label_color,
         )
         # place label off-screen during startup
         self.xaxis_label.setPos(self.plots[0].mapFromView(QPointF(0, 0)))
@@ -347,32 +367,45 @@ class Cursor(pg.GraphicsObject):
         x, y = mouse_point.x(), mouse_point.y()
         plot = self.active_plot
 
-        # update y-range items
-        self.graphics[plot]['hl'].setY(y)
-
-
-        self.graphics[self.active_plot]['yl'].update_label(
-            abs_pos=pos, value=y
-        )
-
         # Update x if cursor changed after discretization calc
         # (this saves draw cycles on small mouse moves)
-        lastx, lasty = self._datum_xy
+        last_ix, last_iy = self._datum_xy
+
         ix = round(x)  # since bars are centered around index
 
-        # update all trackers
-        for item in self._trackers:
-            # print(f'setting {item} with {(ix, y)}')
-            item.on_tracked_source(ix, y)
+        # round y value to nearest tick step
+        m = self._y_incr_mult
+        iy = round(y * m) / m
 
-        if ix != lastx:
+        # px perfect...
+        line_offset = self._lw / 2
+
+        # update y-range items
+        if iy != last_iy:
+
+            if self._y_label_update:
+                self.graphics[self.active_plot]['yl'].update_label(
+                    abs_pos=plot.mapFromView(QPointF(ix, iy + line_offset)),
+                    value=iy
+                )
+
+                # only update horizontal xhair line if label is enabled
+                self.graphics[plot]['hl'].setY(iy + line_offset)
+
+
+            # update all trackers
+            for item in self._trackers:
+                # print(f'setting {item} with {(ix, y)}')
+                item.on_tracked_source(ix, iy)
+
+        if ix != last_ix:
             for plot, opts in self.graphics.items():
-
-                # move the vertical line to the current "center of bar"
-                opts['vl'].setX(ix)
 
                 # update the chart's "contents" label
                 plot.update_contents_labels(ix)
+
+                # move the vertical line to the current "center of bar"
+                opts['vl'].setX(ix + line_offset)
 
                 # update all subscribed curve dots
                 for cursor in opts.get('cursors', ()):
@@ -386,14 +419,63 @@ class Cursor(pg.GraphicsObject):
                 # otherwise gobbles tons of CPU..
 
                 # map back to abs (label-local) coordinates
-                abs_pos=plot.mapFromView(QPointF(ix, y)),
-                value=x,
+                abs_pos=plot.mapFromView(QPointF(ix + line_offset, iy)),
+                value=ix,
             )
 
-        self._datum_xy = ix, y
+        self._datum_xy = ix, iy
 
-    def boundingRect(self):
+    def boundingRect(self) -> QRectF:
         try:
             return self.active_plot.boundingRect()
         except AttributeError:
             return self.plots[0].boundingRect()
+
+    def show_xhair(
+        self,
+        y_label_level: float = None,
+    ) -> None:
+        g = self.graphics[self.active_plot]
+        # show horiz line and y-label
+        g['hl'].show()
+        g['vl'].show()
+
+        self._y_label_update = True
+        yl = g['yl']
+        # yl.fg_color = pg.mkColor(hcolor('black'))
+        # yl.bg_color = pg.mkColor(hcolor(self.label_color))
+        if y_label_level:
+            yl.update_from_data(0, y_label_level, _save_last=False)
+
+        yl.show()
+
+    def hide_xhair(
+        self,
+        hide_label: bool = False,
+        y_label_level: float = None,
+        just_vertical: bool = False,
+        fg_color: str = None,
+        # bg_color: str = 'papas_special',
+    ) -> None:
+        g = self.graphics[self.active_plot]
+
+        hl = g['hl']
+        if not just_vertical:
+            hl.hide()
+
+        g['vl'].hide()
+
+        # only disable cursor y-label updates
+        # if we're highlighting a line
+        yl = g['yl']
+
+        if hide_label:
+            yl.hide()
+
+        elif y_label_level:
+            yl.update_from_data(0, y_label_level, _save_last=False)
+            hl.setY(y_label_level)
+
+        if fg_color is not None:
+            yl.fg_color = pg.mkColor(hcolor(fg_color))
+            yl.bg_color = pg.mkColor(hcolor('papas_special'))

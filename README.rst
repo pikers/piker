@@ -8,7 +8,7 @@ trading gear for hackers.
     :target: https://actions-badge.atrox.dev/piker/pikers/goto
 
 ``piker`` is a broker agnostic, next-gen FOSS toolset for real-time
-trading targeted at hardcore Linux users.
+computational trading targeted at `hardcore Linux users <comp_trader>`_ .
 
 we use as much bleeding edge tech as possible including (but not limited to):
 
@@ -32,6 +32,7 @@ we use as much bleeding edge tech as possible including (but not limited to):
 .. _pyqtgraph: https://github.com/pyqtgraph/pyqtgraph
 .. _glue: https://numpy.org/doc/stable/user/c-info.python-as-glue.html#using-python-as-glue
 .. _fast numerics: https://zerowithdot.com/python-numpy-and-pandas-performance/
+.. _comp_trader: https://jfaleiro.wordpress.com/2019/10/09/computational-trader/
 
 
 focus and features:

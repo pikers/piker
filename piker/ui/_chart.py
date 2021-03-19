@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -30,6 +30,7 @@ import trio
 from ._axes import (
     DynamicDateAxis,
     PriceAxis,
+    YAxisLabel,
 )
 from ._graphics._cursor import (
     Cursor,
@@ -37,11 +38,11 @@ from ._graphics._cursor import (
 )
 from ._graphics._lines import (
     level_line,
-    L1Labels,
+    order_line,
 )
+from ._l1 import L1Labels
 from ._graphics._ohlc import BarItems
 from ._graphics._curve import FastAppendCurve
-from ._axes import YSticky
 from ._style import (
     _font,
     hcolor,
@@ -51,15 +52,15 @@ from ._style import (
     _bars_from_right_in_follow_mode,
     _bars_to_left_in_follow_mode,
 )
-from ..data._source import Symbol, float_digits
+from ..data._source import Symbol
 from .. import brokers
 from .. import data
 from ..data import maybe_open_shm_array
 from ..log import get_logger
 from ._exec import run_qtractor, current_screen
-from ._interaction import ChartView, open_order_mode
+from ._interaction import ChartView
+from .order_mode import start_order_mode
 from .. import fsp
-from .._ems import spawn_router_stream_alerts
 
 
 log = get_logger(__name__)
@@ -136,7 +137,10 @@ class ChartSpace(QtGui.QWidget):
         Expects a ``numpy`` structured array containing all the ohlcv fields.
         """
         # XXX: let's see if this causes mem problems
-        self.window.setWindowTitle(f'piker chart {symbol}')
+        self.window.setWindowTitle(
+            f'piker chart {symbol.key}@{symbol.brokers} '
+            f'tick:{symbol.tick_size}'
+        )
 
         # TODO: symbol search
         # # of course this doesn't work :eyeroll:
@@ -239,12 +243,10 @@ class LinkedSplitCharts(QtGui.QWidget):
 
         The data input struct array must include OHLC fields.
         """
-        self.digits = symbol.digits()
-
         # add crosshairs
         self._cursor = Cursor(
             linkedsplitcharts=self,
-            digits=self.digits
+            digits=symbol.digits(),
         )
         self.chart = self.add_plot(
             name=symbol.key,
@@ -304,12 +306,14 @@ class LinkedSplitCharts(QtGui.QWidget):
             linked_charts=self,
             axisItems={
                 'bottom': xaxis,
-                'right': PriceAxis(linked_charts=self)
+                'right': PriceAxis(linked_charts=self, orientation='right'),
+                'left': PriceAxis(linked_charts=self, orientation='left'),
             },
             viewBox=cv,
             cursor=self._cursor,
             **cpw_kwargs,
         )
+        print(f'xaxis ps: {xaxis.pos()}')
 
         # give viewbox as reference to chart
         # allowing for kb controls and interactions on **this** widget
@@ -368,6 +372,8 @@ class ChartPlotWidget(pg.PlotWidget):
     sig_mouse_leave = QtCore.Signal(object)
     sig_mouse_enter = QtCore.Signal(object)
 
+    _l1_labels: L1Labels = None
+
     # TODO: can take a ``background`` color setting - maybe there's
     # a better one?
 
@@ -377,14 +383,22 @@ class ChartPlotWidget(pg.PlotWidget):
         name: str,
         array: np.ndarray,
         linked_charts: LinkedSplitCharts,
+
+        view_color: str = 'papas_special',
+        pen_color: str = 'bracket',
+
         static_yrange: Optional[Tuple[float, float]] = None,
         cursor: Optional[Cursor] = None,
+
         **kwargs,
     ):
         """Configure chart display settings.
         """
+        self.view_color = view_color
+        self.pen_color = pen_color
+
         super().__init__(
-            background=hcolor('papas_special'),
+            background=hcolor(view_color),
             # parent=None,
             # plotItem=None,
             # antialias=True,
@@ -393,6 +407,10 @@ class ChartPlotWidget(pg.PlotWidget):
         )
         self.name = name
         self._lc = linked_charts
+
+        # scene-local placeholder for book graphics
+        # sizing to avoid overlap with data contents
+        self._max_l1_line_len: float = 0
 
         # self.setViewportMargins(0, 0, 0, 0)
         self._ohlc = array  # readonly view of ohlc data
@@ -413,15 +431,16 @@ class ChartPlotWidget(pg.PlotWidget):
         # show only right side axes
         self.hideAxis('left')
         self.showAxis('right')
+        # self.showAxis('left')
 
         # show background grid
-        self.showGrid(x=True, y=True, alpha=0.5)
+        self.showGrid(x=False, y=True, alpha=0.3)
 
         self.default_view()
 
         # Assign callback for rescaling y-axis automatically
         # based on data contents and ``ViewBox`` state.
-        self.sigXRangeChanged.connect(self._set_yrange)
+        # self.sigXRangeChanged.connect(self._set_yrange)
 
         # for mouse wheel which doesn't seem to emit XRangeChanged
         self._vb.sigRangeChangedManually.connect(self._set_yrange)
@@ -429,7 +448,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # for when the splitter(s) are resized
         self._vb.sigResized.connect(self._set_yrange)
 
-    def last_bar_in_view(self) -> bool:
+    def last_bar_in_view(self) -> int:
         self._ohlc[-1]['index']
 
     def update_contents_labels(
@@ -499,11 +518,13 @@ class ChartPlotWidget(pg.PlotWidget):
             max=end,
             padding=0,
         )
+        self._set_yrange()
 
     def increment_view(
         self,
     ) -> None:
-        """Increment the data view one step to the right thus "following"
+        """
+        Increment the data view one step to the right thus "following"
         the current time slot/step/bar.
 
         """
@@ -520,12 +541,15 @@ class ChartPlotWidget(pg.PlotWidget):
         self,
         name: str,
         data: np.ndarray,
-        # XXX: pretty sure this is dumb and we don't need an Enum
-        style: pg.GraphicsObject = BarItems,
     ) -> pg.GraphicsObject:
-        """Draw OHLC datums to chart.
         """
-        graphics = style(self.plotItem)
+        Draw OHLC datums to chart.
+
+        """
+        graphics = BarItems(
+            self.plotItem,
+            pen_color=self.pen_color
+        )
 
         # adds all bar/candle graphics objects for each data point in
         # the np array buffer to be drawn on next render cycle
@@ -643,14 +667,22 @@ class ChartPlotWidget(pg.PlotWidget):
         self,
         name: str,
         bg_color='bracket',
-        # retreive: Callable[None, np.ndarray],
-    ) -> YSticky:
+    ) -> YAxisLabel:
+
+        # if the sticky is for our symbol
+        # use the tick size precision for display
+        sym = self._lc.symbol
+        if name == sym.key:
+            digits = sym.digits()
+        else:
+            digits = 2
+
         # add y-axis "last" value label
-        last = self._ysticks[name] = YSticky(
+        last = self._ysticks[name] = YAxisLabel(
             chart=self,
             parent=self.getAxis('right'),
             # TODO: pass this from symbol data
-            # digits=0,
+            digits=digits,
             opacity=1,
             bg_color=bg_color,
         )
@@ -701,6 +733,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self,
         *,
         yrange: Optional[Tuple[float, float]] = None,
+        range_margin: float = 0.06,
     ) -> None:
         """Set the viewable y-range based on embedded data.
 
@@ -760,7 +793,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
             a = self._ohlc
             ifirst = a[0]['index']
-            bars = a[lbar - ifirst:rbar - ifirst]
+            bars = a[lbar - ifirst:rbar - ifirst + 1]
 
             if not len(bars):
                 # likely no data loaded yet or extreme scrolling?
@@ -781,8 +814,8 @@ class ChartPlotWidget(pg.PlotWidget):
         if set_range:
             # view margins: stay within a % of the "true range"
             diff = yhigh - ylow
-            ylow = ylow - (diff * 0.04)
-            yhigh = yhigh + (diff * 0.04)
+            ylow = ylow - (diff * range_margin)
+            yhigh = yhigh + (diff * range_margin)
 
             self.setLimits(
                 yMin=ylow,
@@ -829,15 +862,91 @@ class ChartPlotWidget(pg.PlotWidget):
         self.scene().leaveEvent(ev)
 
 
-async def _async_main(
-    sym: str,
-    brokername: str,
+async def test_bed(
+    ohlcv,
+    chart,
+    lc,
+):
+    sleep = 6
 
+    # from PyQt5.QtCore import QPointF
+    vb = chart._vb
+    # scene = vb.scene()
+
+    # raxis = chart.getAxis('right')
+    # vb_right = vb.boundingRect().right()
+
+    last, i_end = ohlcv.array[-1][['close', 'index']]
+
+    line = order_line(
+        chart,
+        level=last,
+        level_digits=2
+    )
+    # eps = line.getEndpoints()
+
+    # llabel = line._labels[1][1]
+
+    line.update_labels({'level': last})
+    return
+
+    # rl = eps[1]
+    # rlabel.setPos(rl)
+
+    # ti = pg.TextItem(text='Fuck you')
+    # ti.setPos(pg.Point(i_end, last))
+    # ti.setParentItem(line)
+    # ti.setAnchor(pg.Point(1, 1))
+    # vb.addItem(ti)
+    # chart.plotItem.addItem(ti)
+
+    from ._label import Label
+
+    txt = Label(
+        vb,
+        fmt_str='fuck {it}',
+    )
+    txt.format(it='boy')
+    txt.place_on_scene('left')
+    txt.set_view_y(last)
+
+    # txt = QtGui.QGraphicsTextItem()
+    # txt.setPlainText("FUCK YOU")
+    # txt.setFont(_font.font)
+    # txt.setDefaultTextColor(pg.mkColor(hcolor('bracket')))
+    # # txt.setParentItem(vb)
+    # w = txt.boundingRect().width()
+    # scene.addItem(txt)
+
+    # txt.setParentItem(line)
+    # d_coords = vb.mapFromView(QPointF(i_end, last))
+    # txt.setPos(vb_right - w, d_coords.y())
+    # txt.show()
+    # txt.update()
+
+    # rlabel.setPos(vb_right - 2*w, d_coords.y())
+    # rlabel.show()
+
+    i = 0
+    while True:
+        await trio.sleep(sleep)
+        await tractor.breakpoint()
+        txt.format(it=f'dog_{i}')
+        # d_coords = vb.mapFromView(QPointF(i_end, last))
+        # txt.setPos(vb_right - w, d_coords.y())
+        # txt.setPlainText(f"FUCK YOU {i}")
+        i += 1
+        # rlabel.setPos(vb_right - 2*w, d_coords.y())
+
+
+async def _async_main(
     # implicit required argument provided by ``qtractor_run()``
     widgets: Dict[str, Any],
 
-    # all kwargs are passed through from the CLI entrypoint
-    loglevel: str = None,
+    sym: str,
+    brokername: str,
+    loglevel: str,
+
 ) -> None:
     """Main Qt-trio routine invoked by the Qt loop with
     the widgets ``dict``.
@@ -852,8 +961,6 @@ async def _async_main(
     # historical data fetch
     brokermod = brokers.get_brokermod(brokername)
 
-    symbol = Symbol(sym, [brokername])
-
     async with data.open_feed(
         brokername,
         [sym],
@@ -862,6 +969,7 @@ async def _async_main(
 
         ohlcv = feed.shm
         bars = ohlcv.array
+        symbol = feed.symbols[sym]
 
         # load in symbol's ohlc data
         linked_charts, chart = chart_app.load_symbol(symbol, bars)
@@ -950,26 +1058,14 @@ async def _async_main(
                 linked_charts
             )
 
-            async with open_order_mode(
-                chart,
-            ) as order_mode:
-
-                # TODO: this should probably be implicitly spawned
-                # inside the above mngr?
-
-                # spawn EMS actor-service
-                to_ems_chan = await n.start(
-                    spawn_router_stream_alerts,
-                    order_mode,
-                    symbol,
-                )
-
-                # wait for router to come up before setting
-                # enabling send channel on chart
-                linked_charts._to_ems = to_ems_chan
-
-                # probably where we'll eventually start the user input loop
-                await trio.sleep_forever()
+            # interactive testing
+            # n.start_soon(
+            #     test_bed,
+            #     ohlcv,
+            #     chart,
+            #     linked_charts,
+            # )
+            await start_order_mode(chart, symbol, brokername)
 
 
 async def chart_from_quotes(
@@ -1017,7 +1113,7 @@ async def chart_from_quotes(
         # sym = chart.name
         # mx, mn = np.nanmax(in_view[sym]), np.nanmin(in_view[sym])
 
-        return last_bars_range, mx, mn
+        return last_bars_range, mx, max(mn, 0)
 
     chart.default_view()
 
@@ -1025,12 +1121,15 @@ async def chart_from_quotes(
 
     last, volume = ohlcv.array[-1][['close', 'volume']]
 
+    symbol = chart._lc.symbol
+
     l1 = L1Labels(
         chart,
         # determine precision/decimal lengths
-        digits=max(float_digits(last), 2),
-        size_digits=min(float_digits(last), 3)
+        digits=symbol.digits(),
+        size_digits=symbol.lot_digits(),
     )
+    chart._l1_labels = l1
 
     # TODO:
     # - in theory we should be able to read buffer data faster
@@ -1039,6 +1138,9 @@ async def chart_from_quotes(
     # - if trade volume jumps above / below prior L1 price
     # levels this might be dark volume we need to
     # present differently?
+
+    tick_size = chart._lc.symbol.tick_size
+    tick_margin = 2 * tick_size
 
     async for quotes in stream:
         for sym, quote in quotes.items():
@@ -1050,20 +1152,18 @@ async def chart_from_quotes(
                 price = tick.get('price')
                 size = tick.get('size')
 
-                # compute max and min trade values to display in view
-                # TODO: we need a streaming minmax algorithm here, see
-                # def above.
-                brange, mx_in_view, mn_in_view = maxmin()
-                l, lbar, rbar, r = brange
+                if ticktype == 'n/a' or price == -1:
+                    # okkk..
+                    continue
 
                 if ticktype in ('trade', 'utrade', 'last'):
 
                     array = ohlcv.array
 
                     # update price sticky(s)
-                    last = array[-1]
+                    end = array[-1]
                     last_price_sticky.update_from_data(
-                        *last[['index', 'close']]
+                        *end[['index', 'close']]
                     )
 
                     # plot bars
@@ -1075,53 +1175,64 @@ async def chart_from_quotes(
 
                     if wap_in_history:
                         # update vwap overlay line
-                        chart.update_curve_from_array('bar_wap', ohlcv.array)
+                        chart.update_curve_from_array(
+                            'bar_wap', ohlcv.array)
+
+                # compute max and min trade values to display in view
+                # TODO: we need a streaming minmax algorithm here, see
+                # def above.
+                brange, mx_in_view, mn_in_view = maxmin()
+                l, lbar, rbar, r = brange
+
+                mx = mx_in_view + tick_margin
+                mn = mn_in_view - tick_margin
 
                 # XXX: prettty sure this is correct?
                 # if ticktype in ('trade', 'last'):
                 if ticktype in ('last',):  # 'size'):
-
                     label = {
-                        l1.ask_label.level: l1.ask_label,
-                        l1.bid_label.level: l1.bid_label,
+                        l1.ask_label.fields['level']: l1.ask_label,
+                        l1.bid_label.fields['level']: l1.bid_label,
                     }.get(price)
 
                     if label is not None:
-                        label.size = size
-                        label.update_from_data(0, price)
+                        label.update_fields({'level': price, 'size': size})
 
                         # on trades should we be knocking down
                         # the relevant L1 queue?
                         # label.size -= size
 
                 elif ticktype in ('ask', 'asize'):
-                    l1.ask_label.size = size
-                    l1.ask_label.update_from_data(0, price)
-
-                    # update max price in view to keep ask on screen
-                    mx_in_view = max(price, mx_in_view)
+                    l1.ask_label.update_fields({'level': price, 'size': size})
 
                 elif ticktype in ('bid', 'bsize'):
-                    l1.bid_label.size = size
-                    l1.bid_label.update_from_data(0, price)
+                    l1.bid_label.update_fields({'level': price, 'size': size})
 
-                    # update min price in view to keep bid on screen
-                    mn_in_view = min(price, mn_in_view)
+                # update min price in view to keep bid on screen
+                mn = min(price - tick_margin, mn)
+                # update max price in view to keep ask on screen
+                mx = max(price + tick_margin, mx)
 
-                if mx_in_view > last_mx or mn_in_view < last_mn:
-                    chart._set_yrange(yrange=(mn_in_view, mx_in_view))
-                    last_mx, last_mn = mx_in_view, mn_in_view
+                if (mx > last_mx) or (
+                    mn < last_mn
+                ):
+                    # print(f'new y range: {(mn, mx)}')
 
-                if brange != last_bars_range:
-                    # we **must always** update the last values due to
-                    # the x-range change
-                    last_mx, last_mn = mx_in_view, mn_in_view
-                    last_bars_range = brange
+                    chart._set_yrange(
+                        yrange=(mn, mx),
+                        # TODO: we should probably scale
+                        # the view margin based on the size
+                        # of the true range? This way you can
+                        # slap in orders outside the current
+                        # L1 (only) book range.
+                        # range_margin=0.1,
+                    )
+
+                last_mx, last_mn = mx, mn
 
 
 async def spawn_fsps(
     linked_charts: LinkedSplitCharts,
-    # fsp_func_name,
     fsps: Dict[str, str],
     sym,
     src_shm,
@@ -1289,12 +1400,13 @@ async def update_signals(
     # graphics.curve.setBrush(50, 50, 200, 100)
     # graphics.curve.setFillLevel(50)
 
-    # add moveable over-[sold/bought] lines
-    # and labels only for the 70/30 lines
-    level_line(chart, 20, show_label=False)
-    level_line(chart, 30, orient_v='top')
-    level_line(chart, 70, orient_v='bottom')
-    level_line(chart, 80, orient_v='top', show_label=False)
+    if fsp_func_name == 'rsi':
+        # add moveable over-[sold/bought] lines
+        # and labels only for the 70/30 lines
+        level_line(chart, 20)
+        level_line(chart, 30, orient_v='top')
+        level_line(chart, 70, orient_v='bottom')
+        level_line(chart, 80, orient_v='top')
 
     chart._set_yrange()
 
@@ -1331,6 +1443,7 @@ async def update_signals(
 async def check_for_new_bars(feed, ohlcv, linked_charts):
     """Task which updates from new bars in the shared ohlcv buffer every
     ``delay_s`` seconds.
+
     """
     # TODO: right now we'll spin printing bars if the last time
     # stamp is before a large period of no market activity.
@@ -1358,12 +1471,6 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
         # current bar) and then either write the current bar manually
         # or place a cursor for visual cue of the current time step.
 
-        # price_chart.update_ohlc_from_array(
-        #     price_chart.name,
-        #     ohlcv.array,
-        #     just_history=True,
-        # )
-
         # XXX: this puts a flat bar on the current time step
         # TODO: if we eventually have an x-axis time-step "cursor"
         # we can get rid of this since it is extra overhead.
@@ -1373,9 +1480,6 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
             just_history=False,
         )
 
-        # resize view
-        # price_chart._set_yrange()
-
         for name in price_chart._overlays:
 
             price_chart.update_curve_from_array(
@@ -1383,15 +1487,8 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
                 price_chart._arrays[name]
             )
 
-            # # TODO: standard api for signal lookups per plot
-            # if name in price_chart._ohlc.dtype.fields:
-
-            #     # should have already been incremented above
-            #     price_chart.update_curve_from_array(name, price_chart._ohlc)
-
         for name, chart in linked_charts.subplots.items():
             chart.update_curve_from_array(chart.name, chart._shm.array)
-            # chart._set_yrange()
 
         # shift the view if in follow mode
         price_chart.increment_view()
@@ -1400,14 +1497,16 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
 def _main(
     sym: str,
     brokername: str,
+    piker_loglevel: str,
     tractor_kwargs,
 ) -> None:
     """Sync entry point to start a chart app.
+
     """
     # Qt entry point
     run_qtractor(
         func=_async_main,
-        args=(sym, brokername),
+        args=(sym, brokername, piker_loglevel),
         main_widget=ChartSpace,
         tractor_kwargs=tractor_kwargs,
     )

@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -20,11 +20,11 @@ Trio - Qt integration
 Run ``trio`` in guest mode on top of the Qt event loop.
 All global Qt runtime settings are mostly defined here.
 """
+from typing import Tuple, Callable, Dict, Any
 import os
 import signal
-from functools import partial
+import time
 import traceback
-from typing import Tuple, Callable, Dict, Any
 
 # Qt specific
 import PyQt5  # noqa
@@ -32,18 +32,28 @@ import pyqtgraph as pg
 from pyqtgraph import QtGui
 from PyQt5 import QtCore
 from PyQt5.QtCore import (
-    pyqtRemoveInputHook, Qt, QCoreApplication
+    pyqtRemoveInputHook,
+    Qt,
+    QCoreApplication,
 )
 import qdarkstyle
 import trio
 import tractor
 from outcome import Error
 
+from ..log import get_logger
+from ._pg_overrides import _do_overrides
+
+log = get_logger(__name__)
 
 # pyqtgraph global config
 # might as well enable this for now?
 pg.useOpenGL = True
 pg.enableExperimental = True
+
+# engage core tweaks that give us better response
+# latency then the average pg user
+_do_overrides()
 
 
 # singleton app per actor
@@ -52,18 +62,40 @@ _qt_win: QtGui.QMainWindow = None
 
 
 def current_screen() -> QtGui.QScreen:
+    """Get a frickin screen (if we can, gawd).
 
+    """
     global _qt_win, _qt_app
-    return _qt_app.screenAt(_qt_win.centralWidget().geometry().center())
 
+    start = time.time()
+
+    tries = 3
+    for _ in range(3):
+        screen = _qt_app.screenAt(_qt_win.pos())
+        print(f'trying to get screen....')
+        if screen is None:
+            time.sleep(0.5)
+            continue
+
+        break
+    else:
+        if screen is None:
+            # try for the first one we can find
+            screen = _qt_app.screens()[0]
+
+    assert screen, "Wow Qt is dumb as shit and has no screen..."
+    return screen
+
+# XXX: pretty sure none of this shit works
+# https://bugreports.qt.io/browse/QTBUG-53022
 
 # Proper high DPI scaling is available in Qt >= 5.6.0. This attibute
 # must be set before creating the application
-if hasattr(Qt, 'AA_EnableHighDpiScaling'):
-    QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+# if hasattr(Qt, 'AA_EnableHighDpiScaling'):
+#     QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
 
-if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
-    QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+# if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
+#     QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
 
 class MainWindow(QtGui.QMainWindow):
@@ -78,7 +110,7 @@ class MainWindow(QtGui.QMainWindow):
 
     def closeEvent(
         self,
-        event: 'QCloseEvent'
+        event: QtGui.QCloseEvent,
     ) -> None:
         """Cancel the root actor asap.
 
@@ -169,8 +201,8 @@ def run_qtractor(
             ),
             name='qtractor',
             **tractor_kwargs,
-        ) as a:
-            await func(*(args + (widgets,)))
+        ):
+            await func(*((widgets,) + args))
 
     # guest mode entry
     trio.lowlevel.start_guest_run(
