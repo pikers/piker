@@ -13,10 +13,12 @@ from .brokers import get_brokermod
 log = get_logger(__name__)
 
 _root_nursery: Optional[tractor._trionics.ActorNursery] = None
-root_dname = 'pikerd'
-root_modules = [
+_root_dname = 'pikerd'
+
+_root_modules = [
     __name__,
-    'piker._ems'
+    'piker.exchange._ems',
+    'piker.exchange._client',
 ]
 
 
@@ -33,16 +35,16 @@ async def maybe_open_pikerd(
     if loglevel:
         get_console_log(loglevel)
 
-    async with tractor.find_actor(root_dname) as portal:
+    async with tractor.find_actor(_root_dname) as portal:
 
         if portal is not None:  # pikerd exists
             yield portal
 
         else:  # assume role
             async with tractor.open_root_actor(
-                name=root_dname,
+                name=_root_dname,
                 loglevel=loglevel,
-                enable_modules=root_modules
+                enable_modules=_root_modules
             ):
                 # init root nursery
                 try:
@@ -55,7 +57,7 @@ async def maybe_open_pikerd(
                     await nursery.cancel()
 
 
-# brokerd enable modules
+# brokerd enabled modules
 _data_mods = [
     'piker.brokers.core',
     'piker.brokers.data',
@@ -63,11 +65,12 @@ _data_mods = [
     'piker.data._buffer'
 ]
 
+
 async def spawn_brokerd(
     brokername,
     loglevel: Optional[str] = None,
     **tractor_kwargs
-):
+) -> tractor._portal.Portal:
 
     brokermod = get_brokermod(brokername)
     dname = f'brokerd.{brokername}'
@@ -76,10 +79,10 @@ async def spawn_brokerd(
 
     # TODO: raise exception when _root_nursery == None?
     global _root_nursery
-    await _root_nursery.start_actor(
+    portal = await _root_nursery.start_actor(
         dname,
         enable_modules=_data_mods + [brokermod.__name__],
         loglevel=loglevel,
         **tractor_kwargs
     )
-
+    return portal
