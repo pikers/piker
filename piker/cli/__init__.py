@@ -35,7 +35,7 @@ _context_defaults = dict(
 def pikerd(loglevel, host, tl):
     """Spawn the piker broker-daemon.
     """
-    from ..data import _data_mods
+    from .._daemon import _data_mods
     get_console_log(loglevel)
     tractor.run_daemon(
         rpc_module_paths=_data_mods,
