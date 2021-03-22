@@ -174,22 +174,21 @@ async def maybe_open_emsd(
     async with tractor.find_actor('emsd') as portal:
         if portal is not None:
             yield portal
+            return
 
-        else:
-            # ask remote daemon tree to spawn it
-            from .._daemon import spawn_emsd
+    # ask remote daemon tree to spawn it
+    from .._daemon import spawn_emsd
 
-            async with tractor.find_actor('pikerd') as portal:
+    async with tractor.find_actor('pikerd') as portal:
+        assert portal
+        name = await portal.run(
+            spawn_emsd,
+            brokername=brokername,
+        )
 
-                if portal is not None:
+        async with tractor.wait_for_actor(name) as portal:
+            yield portal
 
-                    name = await portal.run(
-                        spawn_emsd,
-                        brokername=brokername,
-                    )
-
-                    async with tractor.wait_for_actor(name) as portal:
-                        yield portal
 
 
 @asynccontextmanager
