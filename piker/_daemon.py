@@ -1,7 +1,7 @@
 """
 pikerd daemon lifecylcle & rpc
 """
-from typing import Optional, Dict, Callable
+from typing import Optional
 from contextlib import asynccontextmanager
 
 import tractor
@@ -23,35 +23,32 @@ _root_modules = [
 
 @asynccontextmanager
 async def open_pikerd(
-    loglevel: Optional[str] = None
+    loglevel: Optional[str] = None,
+    **kwargs,
 ) -> Optional[tractor._portal.Portal]:
 
     global _root_nursery
 
-    async with tractor.open_root_actor(
+    # XXX: this may open a root actor as well
+    async with tractor.open_nursery(
         name=_root_dname,
-        loglevel=loglevel,
 
         # TODO: eventually we should be able to avoid
         # having the root have more then permissions to
         # spawn other specialized daemons I think?
         # enable_modules=[__name__],
-        enable_modules=_root_modules
-    ):
-        # init root nursery
-        try:
-            async with tractor.open_nursery() as nursery:
-                _root_nursery = nursery
-                yield nursery
-        finally:
-            # client code may block indefinitely so cancel when
-            # teardown is invoked
-            await nursery.cancel()
+        enable_modules=_root_modules,
+
+        loglevel=loglevel,
+    ) as nursery:
+        _root_nursery = nursery
+        yield nursery
 
 
 @asynccontextmanager
 async def maybe_open_pikerd(
-    loglevel: Optional[str] = None
+    loglevel: Optional[str] = None,
+    **kwargs,
 ) -> Optional[tractor._portal.Portal]:
     """If no ``pikerd`` daemon-root-actor can be found,
     assume that role and return a portal to myself
@@ -62,18 +59,27 @@ async def maybe_open_pikerd(
     if loglevel:
         get_console_log(loglevel)
 
-    async with tractor.find_actor(_root_dname) as portal:
+    try:
+        async with tractor.find_actor(_root_dname) as portal:
+            if portal is not None:  # pikerd exists
+                yield portal
+                return
 
-        if portal is not None:  # pikerd exists
-            yield portal
+    except RuntimeError:  # tractor runtime not started yet
+        pass
 
-        else:  # assume role
-            async with open_pikerd(loglevel) as nursery:
-                # in the case where we're starting up the
-                # tractor-piker runtime stack in **this** process
-                # we want to hand off a nursery for starting (as a sub)
-                # whatever actor is requesting pikerd.
-                yield None
+    # assume pikerd role
+    async with open_pikerd(
+        loglevel,
+        **kwargs,
+    ):
+        assert _root_nursery
+
+        # in the case where we're starting up the
+        # tractor-piker runtime stack in **this** process
+        # we want to hand off a nursery for starting (as a sub)
+        # whatever actor is requesting pikerd.
+        yield None
 
 
 # brokerd enabled modules
@@ -101,12 +107,14 @@ async def spawn_brokerd(
 
     # TODO: raise exception when _root_nursery == None?
     global _root_nursery
-    portal = await _root_nursery.start_actor(
+
+    await _root_nursery.start_actor(
         dname,
         enable_modules=_data_mods + [brokermod.__name__],
         loglevel=loglevel,
         **tractor_kwargs
     )
+
     return dname
 
 
@@ -116,15 +124,12 @@ async def spawn_emsd(
     **extra_tractor_kwargs
 ) -> tractor._portal.Portal:
 
-    from .clearing import _client
-
     log.info('Spawning emsd')
 
     # TODO: raise exception when _root_nursery == None?
     global _root_nursery
-    assert _root_nursery
 
-    portal = await _root_nursery.start_actor(
+    await _root_nursery.start_actor(
         'emsd',
         enable_modules=[
             'piker.clearing._ems',
