@@ -149,7 +149,7 @@ def chart(config, symbol, profile):
             'debug_mode': True,
             'loglevel': tractorloglevel,
             'enable_modules': [
-                'piker.exchange._client'
+                'piker.clearing._client'
             ],
         },
     )
