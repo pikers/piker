@@ -4,6 +4,7 @@ CLI commons.
 import os
 
 import click
+import trio
 import tractor
 
 from ..log import get_console_log, get_logger, colorize_json
@@ -35,13 +36,14 @@ _context_defaults = dict(
 def pikerd(loglevel, host, tl):
     """Spawn the piker broker-daemon.
     """
-    from .._daemon import _data_mods
+    from .._daemon import _data_mods, open_pikerd
     get_console_log(loglevel)
-    tractor.run_daemon(
-        rpc_module_paths=_data_mods,
-        name='brokerd',
-        loglevel=loglevel if tl else None,
-    )
+
+    async def main():
+        async with open_pikerd(loglevel):
+            await trio.sleep_forever()
+
+    trio.run(main)
 
 
 @click.group(context_settings=_context_defaults)
