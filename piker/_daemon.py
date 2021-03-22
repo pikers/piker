@@ -96,7 +96,8 @@ async def spawn_brokerd(
     brokermod = get_brokermod(brokername)
     dname = f'brokerd.{brokername}'
 
-    extra_tractor_kwargs = getattr(brokermod, '_spawnkwargs', {})
+    extra_tractor_kwargs = getattr(brokermod, '_spawn_kwargs', {})
+    tractor_kwargs.update(extra_tractor_kwargs)
 
     # TODO: raise exception when _root_nursery == None?
     global _root_nursery
@@ -104,7 +105,7 @@ async def spawn_brokerd(
         dname,
         enable_modules=_data_mods + [brokermod.__name__],
         loglevel=loglevel,
-        **extra_tractor_kwargs
+        **tractor_kwargs
     )
     return dname
 
