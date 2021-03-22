@@ -168,27 +168,28 @@ async def send_order_cmds():
 
 @asynccontextmanager
 async def maybe_open_emsd(
-) -> 'StreamReceiveChannel':  # noqa
+    brokername: str,
+) -> tractor._portal.Portal:  # noqa
 
     async with tractor.find_actor('emsd') as portal:
         if portal is not None:
             yield portal
 
         else:
-            # we gotta spawn it
-            log.info("Spawning EMS daemon")
+            # ask remote daemon tree to spawn it
+            from .._daemon import spawn_emsd
 
-            # TODO: add ``maybe_spawn_emsd()`` for this
-            async with tractor.open_nursery() as n:
+            async with tractor.find_actor('pikerd') as portal:
 
-                portal = await n.start_actor(
-                    'emsd',
-                    enable_modules=[
-                        'piker.exchange._ems',
-                    ],
-                )
+                if portal is not None:
 
-                yield portal
+                    name = await portal.run(
+                        spawn_emsd,
+                        brokername=brokername,
+                    )
+
+                    async with tractor.wait_for_actor(name) as portal:
+                        yield portal
 
 
 @asynccontextmanager
@@ -235,7 +236,7 @@ async def open_ems(
     # ready for order commands
     book = get_orders()
 
-    async with maybe_open_emsd() as portal:
+    async with maybe_open_emsd(broker) as portal:
 
         trades_stream = await portal.run(
             _emsd_main,
