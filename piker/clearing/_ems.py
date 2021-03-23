@@ -268,6 +268,7 @@ async def exec_loop(
                 *trio.open_memory_channel(100),
                 _buys={},
                 _sells={},
+
                 _reqids={},
             )
 
@@ -284,22 +285,20 @@ async def exec_loop(
         # return control to parent task
         task_status.started((first_quote, feed, client))
 
-        # shield this field so the remote brokerd does not get cancelled
         stream = feed.stream
-        with stream.shield():
-            async with trio.open_nursery() as n:
-                n.start_soon(
-                    execute_triggers,
-                    broker,
-                    symbol,
-                    stream,
-                    ctx,
-                    client,
-                    book
-                )
+        async with trio.open_nursery() as n:
+            n.start_soon(
+                execute_triggers,
+                broker,
+                symbol,
+                stream,
+                ctx,
+                client,
+                book
+            )
 
-                if _exec_mode == 'paper':
-                    n.start_soon(simulate_fills, stream.clone(), client)
+            if _exec_mode == 'paper':
+                n.start_soon(simulate_fills, stream.clone(), client)
 
 
 # TODO: lots of cases still to handle
