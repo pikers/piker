@@ -37,7 +37,7 @@ import trio
 import tractor
 from async_generator import aclosing
 from ib_insync.wrapper import RequestError
-from ib_insync.contract import Contract, ContractDetails
+from ib_insync.contract import Contract, ContractDetails, Option
 from ib_insync.order import Order
 from ib_insync.ticker import Ticker
 from ib_insync.objects import Position
@@ -1206,10 +1206,18 @@ async def stream_and_write(
 
 def pack_position(pos: Position) -> Dict[str, Any]:
     con = pos.contract
+
+    if isinstance(con, Option):
+        # TODO: option symbol parsing and sane display:
+        symbol = con.localSymbol.replace(' ', '')
+
+    else:
+        symbol = con.symbol
+
     return {
         'broker': 'ib',
         'account': pos.account,
-        'symbol': con.symbol,
+        'symbol': symbol,
         'currency': con.currency,
         'size': float(pos.position),
         'avg_price': float(pos.avgCost) / float(con.multiplier or 1.0),
