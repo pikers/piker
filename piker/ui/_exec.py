@@ -200,6 +200,7 @@ def run_qtractor(
                 tractor._root._default_arbiter_port,
             ),
             name='qtractor',
+            start_method='trio',
             **tractor_kwargs,
         ):
             await func(*((widgets,) + args))
