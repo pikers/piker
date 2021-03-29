@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -16,6 +16,7 @@
 
 """
 NumPy compatible shared memory buffers for real-time FSP.
+
 """
 from dataclasses import dataclass, asdict
 from sys import byteorder
@@ -424,7 +425,7 @@ def maybe_open_shm_array(
     **kwargs,
 ) -> Tuple[ShmArray, bool]:
     """Attempt to attach to a shared memory block using a "key" lookup
-    to registered blocks in the users overall "system" registryt
+    to registered blocks in the users overall "system" registry
     (presumes you don't have the block's explicit token).
 
     This function is meant to solve the problem of discovering whether
