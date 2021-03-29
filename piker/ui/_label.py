@@ -28,7 +28,6 @@ from PyQt5.QtCore import QPointF, QRectF
 from ._style import (
     DpiAwareFont,
     hcolor,
-    _down_2_font_inches_we_like,
 )
 
 
@@ -108,7 +107,7 @@ class Label:
         fmt_str: str,
         color: str = 'bracket',
         x_offset: float = 0,
-        font_size_inches: float = _down_2_font_inches_we_like,
+        font_size: str = 'small',
         opacity: float = 0.666,
         fields: dict = {}
 
@@ -125,7 +124,7 @@ class Label:
 
         # configure font size based on DPI
         dpi_font = DpiAwareFont(
-            size_in_inches=font_size_inches
+            font_size=font_size,
         )
         dpi_font.configure_to_dpi()
         txt.setFont(dpi_font.font)

@@ -27,10 +27,7 @@ from PyQt5.QtCore import QPointF
 
 from .._annotate import mk_marker, qgo_draw_markers
 from .._label import Label, vbr_left, right_axis
-from .._style import (
-    hcolor,
-    _down_2_font_inches_we_like,
-)
+from .._style import hcolor
 
 
 # TODO: probably worth investigating if we can
@@ -157,7 +154,6 @@ class LevelLine(pg.InfiniteLine):
         side_of_axis: str = 'left',
         x_offset: float = 0,
 
-        font_size_inches: float = _down_2_font_inches_we_like,
         color: str = None,
         bg_color: str = None,
         avoid_book: bool = True,
@@ -535,9 +531,6 @@ def level_line(
     level: float,
     color: str = 'default',
 
-    # size 4 font on 4k screen scaled down, so small-ish.
-    font_size_inches: float = _down_2_font_inches_we_like,
-
     # whether or not the line placed in view should highlight
     # when moused over (aka "hovered")
     hl_on_hover: bool = True,
@@ -682,21 +675,21 @@ def order_line(
         llabel.show()
 
     else:
-        # left side label
-        llabel = line.add_label(
-            side='left',
-            fmt_str=' {exec_type}-{order_type}:\n ${$value}',
-        )
-        llabel.fields = {
-            'order_type': order_type,
-            'level': level,
-            '$value': lambda f: f['level'] * f['size'],
-            'size': size,
-            'exec_type': exec_type,
-        }
-        llabel.orient_v = orient_v
-        llabel.render()
-        llabel.show()
+        # # left side label
+        # llabel = line.add_label(
+        #     side='left',
+        #     fmt_str=' {exec_type}-{order_type}:\n ${$value}',
+        # )
+        # llabel.fields = {
+        #     'order_type': order_type,
+        #     'level': level,
+        #     '$value': lambda f: f['level'] * f['size'],
+        #     'size': size,
+        #     'exec_type': exec_type,
+        # }
+        # llabel.orient_v = orient_v
+        # llabel.render()
+        # llabel.show()
 
         # right before L1 label
         rlabel = line.add_label(
@@ -770,7 +763,7 @@ def position_line(
     vb.sigYRangeChanged.connect(update_pp_nav)
 
     rlabel = line.add_label(
-        side='left',
+        side='right',
         fmt_str='{direction}: {size} -> ${$:.2f}',
     )
     rlabel.fields = {
