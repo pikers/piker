@@ -181,6 +181,7 @@ async def maybe_open_emsd(
 
     async with tractor.find_actor('pikerd') as portal:
         assert portal
+
         name = await portal.run(
             spawn_emsd,
             brokername=brokername,
