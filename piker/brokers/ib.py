@@ -34,6 +34,7 @@ import logging
 import time
 
 import trio
+from trio_typing import TaskStatus
 import tractor
 from async_generator import aclosing
 from ib_insync.wrapper import RequestError
@@ -46,14 +47,9 @@ from ib_insync.wrapper import Wrapper
 from ib_insync.client import Client as ib_Client
 
 from ..log import get_logger, get_console_log
-from ..data import (
-    maybe_spawn_brokerd,
-    iterticks,
-    attach_shm_array,
-    subscribe_ohlc_for_increment,
-    _buffer,
-)
+from ..data import maybe_spawn_brokerd
 from ..data._source import from_df
+from ..data._sharedmem import ShmArray
 from ._util import SymbolNotFound
 
 
@@ -781,36 +777,17 @@ def normalize(
     return data
 
 
-_local_buffer_writers = {}
+# _local_buffer_writers = {}
 
 
-@asynccontextmanager
-async def activate_writer(key: str) -> (bool, trio.Nursery):
-    """Mark the current actor with module var determining
-    whether an existing shm writer task is already active.
-
-    This avoids more then one writer resulting in data
-    clobbering.
-    """
-    global _local_buffer_writers
-
-    try:
-        assert not _local_buffer_writers.get(key, False)
-
-        _local_buffer_writers[key] = True
-
-        async with trio.open_nursery() as n:
-            yield n
-    finally:
-        _local_buffer_writers.pop(key, None)
-
-
-async def fill_bars(
+async def backfill_bars(
     sym: str,
-    first_bars: list,
-    shm: 'ShmArray',  # type: ignore # noqa
+    # first_bars: list,
+    shm: ShmArray,  # type: ignore # noqa
     # count: int = 20,  # NOTE: any more and we'll overrun underlying buffer
     count: int = 10,  # NOTE: any more and we'll overrun the underlying buffer
+
+    task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 ) -> None:
     """Fill historical bars into shared mem / storage afap.
 
@@ -818,41 +795,59 @@ async def fill_bars(
     https://github.com/pikers/piker/issues/128
 
     """
-    next_dt = first_bars[0].date
+    first_bars, bars_array = await _trio_run_client_method(
+        method='bars',
+        symbol=sym,
+    )
 
-    i = 0
-    while i < count:
+    # write historical data to buffer
+    shm.push(bars_array)
+    # shm_token = shm.token
 
-        try:
-            bars, bars_array = await _trio_run_client_method(
-                method='bars',
-                symbol=sym,
-                end_dt=next_dt,
-            )
+    with trio.CancelScope() as cs:
 
-            shm.push(bars_array, prepend=True)
-            i += 1
-            next_dt = bars[0].date
+        task_status.started(cs)
 
-        except RequestError as err:
-            # TODO: retreive underlying ``ib_insync`` error?
+        next_dt = first_bars[0].date
 
-            if err.code == 162:
+        i = 0
+        while i < count:
 
-                if 'HMDS query returned no data' in err.message:
-                    # means we hit some kind of historical "dead zone"
-                    # and further requests seem to always cause
-                    # throttling despite the rps being low
-                    break
+            try:
+                bars, bars_array = await _trio_run_client_method(
+                    method='bars',
+                    symbol=sym,
+                    end_dt=next_dt,
+                )
 
-                else:
-                    log.exception(
-                        "Data query rate reached: Press `ctrl-alt-f` in TWS")
+                if bars_array is None:
+                    raise SymbolNotFound(sym)
 
-                    # TODO: should probably create some alert on screen
-                    # and then somehow get that to trigger an event here
-                    # that restarts/resumes this task?
-                    await tractor.breakpoint()
+                shm.push(bars_array, prepend=True)
+                i += 1
+                next_dt = bars[0].date
+
+            except RequestError as err:
+                # TODO: retreive underlying ``ib_insync`` error?
+
+                if err.code == 162:
+
+                    if 'HMDS query returned no data' in err.message:
+                        # means we hit some kind of historical "dead zone"
+                        # and further requests seem to always cause
+                        # throttling despite the rps being low
+                        break
+
+                    else:
+                        log.exception(
+                            "Data query rate reached: Press `ctrl-alt-f`"
+                            "in TWS"
+                        )
+
+                        # TODO: should probably create some alert on screen
+                        # and then somehow get that to trigger an event here
+                        # that restarts/resumes this task?
+                        await tractor.breakpoint()
 
 
 asset_type_map = {
@@ -902,6 +897,7 @@ async def _setup_quote_stream(
             # log.debug(t)
             try:
                 to_trio.send_nowait(t)
+
             except trio.BrokenResourceError:
                 # XXX: eventkit's ``Event.emit()`` for whatever redic
                 # reason will catch and ignore regular exceptions
@@ -946,24 +942,22 @@ async def start_aio_quote_stream(
         return from_aio
 
 
-@tractor.stream
 async def stream_quotes(
-    ctx: tractor.Context,
+    send_chan: trio.abc.SendChannel,
     symbols: List[str],
-    shm_token: Tuple[str, str, List[tuple]],
+    shm: ShmArray,
+    feed_is_live: trio.Event,
     loglevel: str = None,
 
-    # compat for @tractor.msg.pub
-    topics: Any = None,
-    get_topics: Callable = None,
-) -> AsyncIterator[Dict[str, Any]]:
+    # startup sync
+    task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
+
+) -> None:
     """Stream symbol quotes.
 
     This is a ``trio`` callable routine meant to be invoked
     once the brokerd is up.
     """
-    # XXX: required to propagate ``tractor`` loglevel to piker logging
-    get_console_log(loglevel or tractor.current_actor().loglevel)
 
     # TODO: support multiple subscriptions
     sym = symbols[0]
@@ -975,119 +969,63 @@ async def stream_quotes(
 
     stream = await start_aio_quote_stream(symbol=sym, contract=contract)
 
-    shm = None
-    async with trio.open_nursery() as ln:
-        # check if a writer already is alive in a streaming task,
-        # otherwise start one and mark it as now existing
+    # pass back some symbol info like min_tick, trading_hours, etc.
+    syminfo = asdict(details)
+    syminfo.update(syminfo['contract'])
 
-        key = shm_token['shm_name']
+    # TODO: more consistent field translation
+    atype = syminfo['asset_type'] = asset_type_map[syminfo['secType']]
 
-        writer_already_exists = _local_buffer_writers.get(key, False)
+    # for stocks it seems TWS reports too small a tick size
+    # such that you can't submit orders with that granularity?
+    min_tick = 0.01 if atype == 'stock' else 0
 
-        # maybe load historical ohlcv in to shared mem
-        # check if shm has already been created by previous
-        # feed initialization
-        if not writer_already_exists:
-            _local_buffer_writers[key] = True
+    syminfo['price_tick_size'] = max(syminfo['minTick'], min_tick)
 
-            shm = attach_shm_array(
-                token=shm_token,
+    # for "traditional" assets, volume is normally discreet, not a float
+    syminfo['lot_tick_size'] = 0.0
 
-                # we are the buffer writer
-                readonly=False,
-            )
-
-            # async def retrieve_and_push():
-            start = time.time()
-
-            bars, bars_array = await _trio_run_client_method(
-                method='bars',
-                symbol=sym,
-
-            )
-
-            log.info(f"bars_array request: {time.time() - start}")
-
-            if bars_array is None:
-                raise SymbolNotFound(sym)
-
-            # write historical data to buffer
-            shm.push(bars_array)
-            shm_token = shm.token
-
-            # TODO: generalize this for other brokers
-            # start bar filler task in bg
-            ln.start_soon(fill_bars, sym, bars, shm)
-
-            times = shm.array['time']
-            delay_s = times[-1] - times[times != times[-1]][-1]
-            subscribe_ohlc_for_increment(shm, delay_s)
-
-        # pass back some symbol info like min_tick, trading_hours, etc.
-        syminfo = asdict(details)
-        syminfo.update(syminfo['contract'])
-
-        # TODO: more consistent field translation
-        atype = syminfo['asset_type'] = asset_type_map[syminfo['secType']]
-
-        # for stocks it seems TWS reports too small a tick size
-        # such that you can't submit orders with that granularity?
-        min_tick = 0.01 if atype == 'stock' else 0
-
-        syminfo['price_tick_size'] = max(syminfo['minTick'], min_tick)
-
-        # for "traditional" assets, volume is normally discreet, not a float
-        syminfo['lot_tick_size'] = 0.0
-
-        # TODO: for loop through all symbols passed in
-        init_msgs = {
-            # pass back token, and bool, signalling if we're the writer
-            # and that history has been written
-            sym: {
-                'is_shm_writer': not writer_already_exists,
-                'shm_token': shm_token,
-                'symbol_info': syminfo,
-            }
+    # TODO: for loop through all symbols passed in
+    init_msgs = {
+        # pass back token, and bool, signalling if we're the writer
+        # and that history has been written
+        sym: {
+            'symbol_info': syminfo,
         }
-        await ctx.send_yield(init_msgs)
+    }
 
-        # check for special contract types
-        if type(first_ticker.contract) not in (ibis.Commodity, ibis.Forex):
-            suffix = 'exchange'
-            # should be real volume for this contract
-            calc_price = False
-        else:
-            # commodities and forex don't have an exchange name and
-            # no real volume so we have to calculate the price
-            suffix = 'secType'
-            calc_price = True
-            # ticker = first_ticker
+    # check for special contract types
+    if type(first_ticker.contract) not in (ibis.Commodity, ibis.Forex):
+        suffix = 'exchange'
+        # should be real volume for this contract
+        calc_price = False
+    else:
+        # commodities and forex don't have an exchange name and
+        # no real volume so we have to calculate the price
+        suffix = 'secType'
+        calc_price = True
 
-        # pass first quote asap
-        quote = normalize(first_ticker, calc_price=calc_price)
-        con = quote['contract']
-        topic = '.'.join((con['symbol'], con[suffix])).lower()
-        quote['symbol'] = topic
+    # pass first quote asap
+    quote = normalize(first_ticker, calc_price=calc_price)
+    con = quote['contract']
+    topic = '.'.join((con['symbol'], con[suffix])).lower()
+    quote['symbol'] = topic
 
-        first_quote = {topic: quote}
+    first_quote = {topic: quote}
 
-        # yield first quote asap
-        await ctx.send_yield(first_quote)
+    # ugh, clear ticks since we've consumed them
+    # (ahem, ib_insync is stateful trash)
+    first_ticker.ticks = []
 
-        # ugh, clear ticks since we've consumed them
-        # (ahem, ib_insync is stateful trash)
-        first_ticker.ticks = []
+    log.debug(f"First ticker received {quote}")
 
-        log.debug(f"First ticker received {quote}")
+    task_status.started((init_msgs,  first_quote))
 
-        if type(first_ticker.contract) not in (ibis.Commodity, ibis.Forex):
-            suffix = 'exchange'
+    if type(first_ticker.contract) not in (ibis.Commodity, ibis.Forex):
+        suffix = 'exchange'
+        calc_price = False  # should be real volume for contract
 
-            calc_price = False  # should be real volume for contract
-
-        # with trio.move_on_after(10) as cs:
         # wait for real volume on feed (trading might be closed)
-
         async with aclosing(stream):
 
             async for ticker in stream:
@@ -1104,104 +1042,29 @@ async def stream_quotes(
                     # (ahem, ib_insync is truly stateful trash)
                     ticker.ticks = []
 
-                    # tell incrementer task it can start
-                    _buffer.shm_incrementing(key).set()
-
                     # XXX: this works because we don't use
                     # ``aclosing()`` above?
                     break
 
-            # enter stream loop
-            try:
-                async with stream:
-                    await stream_and_write(
-                        stream=stream,
-                        calc_price=calc_price,
-                        topic=topic,
-                        write_shm=not writer_already_exists,
-                        shm=shm,
-                        suffix=suffix,
-                        ctx=ctx,
-                    )
-            finally:
-                if not writer_already_exists:
-                    _local_buffer_writers[key] = False
+            # tell caller quotes are now coming in live
+            feed_is_live.set()
 
-                stream.close()
+            async for ticker in stream:
 
+                # print(ticker.vwap)
+                quote = normalize(
+                    ticker,
+                    calc_price=calc_price
+                )
 
-async def stream_and_write(
-    stream,
-    calc_price: bool,
-    topic: str,
-    write_shm: bool,
-    suffix: str,
-    ctx: tractor.Context,
-    shm: Optional['SharedArray'],  # noqa
-) -> None:
-    """Core quote streaming and shm writing loop; optimize for speed!
+                con = quote['contract']
+                topic = '.'.join((con['symbol'], con[suffix])).lower()
+                quote['symbol'] = topic
 
-    """
-    # real-time stream
-    async with stream:
-        async for ticker in stream:
+                await send_chan.send({topic: quote})
 
-            # print(ticker.vwap)
-            quote = normalize(
-                ticker,
-                calc_price=calc_price
-            )
-            quote['symbol'] = topic
-            # TODO: in theory you can send the IPC msg *before*
-            # writing to the sharedmem array to decrease latency,
-            # however, that will require `tractor.msg.pub` support
-            # here or at least some way to prevent task switching
-            # at the yield such that the array write isn't delayed
-            # while another consumer is serviced..
-
-            # if we are the lone tick writer start writing
-            # the buffer with appropriate trade data
-            if write_shm:
-                for tick in iterticks(quote, types=('trade', 'utrade',)):
-                    last = tick['price']
-
-                    # print(f"{quote['symbol']}: {tick}")
-
-                    # update last entry
-                    # benchmarked in the 4-5 us range
-                    o, high, low, v = shm.array[-1][
-                        ['open', 'high', 'low', 'volume']
-                    ]
-
-                    new_v = tick.get('size', 0)
-
-                    if v == 0 and new_v:
-                        # no trades for this bar yet so the open
-                        # is also the close/last trade price
-                        o = last
-
-                    shm.array[[
-                        'open',
-                        'high',
-                        'low',
-                        'close',
-                        'volume',
-                    ]][-1] = (
-                        o,
-                        max(high, last),
-                        min(low, last),
-                        last,
-                        v + new_v,
-                    )
-
-            con = quote['contract']
-            topic = '.'.join((con['symbol'], con[suffix])).lower()
-            quote['symbol'] = topic
-
-            await ctx.send_yield({topic: quote})
-
-            # ugh, clear ticks since we've consumed them
-            ticker.ticks = []
+                # ugh, clear ticks since we've consumed them
+                ticker.ticks = []
 
 
 def pack_position(pos: Position) -> Dict[str, Any]:

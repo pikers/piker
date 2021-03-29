@@ -23,23 +23,23 @@ sharing your feeds with other fellow pikers.
 """
 from dataclasses import dataclass, field
 from contextlib import asynccontextmanager
+from functools import partial
 from importlib import import_module
 from types import ModuleType
 from typing import (
     Dict, Any, Sequence,
     AsyncIterator, Optional,
-    Callable, Awaitable
+    List
 )
 
 import trio
+from trio_typing import TaskStatus
 import tractor
 from pydantic import BaseModel
 
 from ..brokers import get_brokermod
 from ..log import get_logger, get_console_log
 from .._daemon import (
-    spawn_brokerd,
-    maybe_open_pikerd,
     maybe_spawn_brokerd,
 )
 from ._normalize import iterticks
@@ -53,7 +53,8 @@ from ._sharedmem import (
 from ._source import base_iohlc_dtype, Symbol
 from ._buffer import (
     increment_ohlc_buffer,
-    subscribe_ohlc_for_increment
+    subscribe_ohlc_for_increment,
+    shm_incrementing,
 )
 
 __all__ = [
@@ -82,9 +83,8 @@ def get_ingestormod(name: str) -> ModuleType:
     return module
 
 
-# @dataclass
-class _FeedsCache(BaseModel):
-    """Data feeds manager.
+class _FeedsBus(BaseModel):
+    """Data feeds broadcaster and persistence management.
 
     This is a brokerd side api used to manager persistent real-time
     streams that can be allocated and left alive indefinitely.
@@ -92,82 +92,248 @@ class _FeedsCache(BaseModel):
     """
     brokername: str
     nursery: trio.Nursery
-    tasks: Dict[str, trio.CancelScope] = {}
+    feeds: Dict[str, trio.CancelScope] = {}
+    subscribers: Dict[str, List[tractor.Context]] = {}
 
     class Config:
         arbitrary_types_allowed = True
 
-    # tasks: Dict[str, trio.CancelScope] = field(default_factory=dict)
-
-    async def start_feed(
-        symbol: str,
-        func: Callable[[int], Awaitable[None]],
-    ) -> None:
-        """Start a bg feed task and register a surrouding cancel scope
-        for it.
-
-        """
-        with trio.CancelCscope() as cs:
-            pass
-
     async def cancel_all(self) -> None:
-        for name, cs in self.tasks.item():
-            log.debug(f'Cancelling cached feed for {name}')
+        for sym, (cs, msg, quote) in self.feeds.items():
+            log.debug(f'Cancelling cached feed for {self.brokername}:{sym}')
             cs.cancel()
 
 
-_feeds: _FeedsCache = None
+_bus: _FeedsBus = None
 
 
-def get_feeds_manager(
+def get_feed_bus(
     brokername: str,
     nursery: Optional[trio.Nursery] = None,
-) -> _FeedsCache:
+) -> _FeedsBus:
     """
-    Retreive data feeds manager from process global scope.
+    Retreive broker-daemon-local data feeds bus from process global
+    scope.
 
     """
 
-    global _feeds
+    global _bus
 
     if nursery is not None:
-        assert _feeds is None, "Feeds manager is already setup?"
+        assert _bus is None, "Feeds manager is already setup?"
 
         # this is initial setup by parent actor
-        _feeds = _FeedsCache(
+        _bus = _FeedsBus(
             brokername=brokername,
             nursery=nursery,
         )
-        assert not _feeds.tasks
+        assert not _bus.feeds
 
-    assert _feeds.brokername == brokername, "Uhhh wtf"
-    return _feeds
+    assert _bus.brokername == brokername, "Uhhh wtf"
+    return _bus
 
 
-async def _setup_persistent_feeds(brokername:  str) -> None:
+async def _setup_persistent_brokerd(brokername:  str) -> None:
     """Allocate a actor-wide service nursery in ``brokerd``
     such that feeds can be run in the background persistently by
     the broker backend as needed.
 
     """
-    async with trio.open_nursery() as service_nursery:
-        _feeds = get_feeds_manager(brokername, service_nursery)
+    try:
+        async with trio.open_nursery() as service_nursery:
 
-        # we pin this task to keep the feeds manager active until the
-        # parent actor decides to tear it down
-        await trio.sleep_forever()
+            # assign a nursery to the feeds bus for spawning
+            # background tasks from clients
+            bus = get_feed_bus(brokername, service_nursery)
+
+            # we pin this task to keep the feeds manager active until the
+            # parent actor decides to tear it down
+            await trio.sleep_forever()
+    finally:
+        await bus.cancel_all()
+
+
+async def allocate_persistent_feed(
+    ctx: tractor.Context,
+    bus: _FeedsBus,
+    brokername: str,
+    symbol: str,
+    loglevel: str,
+    task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
+) -> None:
+
+    try:
+        mod = get_brokermod(brokername)
+    except ImportError:
+        mod = get_ingestormod(brokername)
+
+    # allocate shm array for this broker/symbol
+    # XXX: we should get an error here if one already exists
+
+    shm, opened = maybe_open_shm_array(
+        key=sym_to_shm_key(brokername, symbol),
+
+        # use any broker defined ohlc dtype:
+        dtype=getattr(mod, '_ohlc_dtype', base_iohlc_dtype),
+
+        # we expect the sub-actor to write
+        readonly=False,
+    )
+
+    # assert opened
+    if not opened:
+        # do history validation?
+        pass
+
+    send, quote_stream = trio.open_memory_channel(2**8)
+    feed_is_live = trio.Event()
+
+    # establish broker backend quote stream
+    # ``stream_quotes()`` is a required backend func
+    init_msg, first_quote = await bus.nursery.start(
+        partial(
+            mod.stream_quotes,
+            send_chan=send,
+            feed_is_live=feed_is_live,
+            symbols=[symbol],
+            shm=shm,
+            loglevel=loglevel,
+        )
+    )
+
+    init_msg[symbol]['shm_token'] = shm.token
+    cs = trio.CancelScope()
+    bus.feeds[symbol] = (cs, init_msg, first_quote)
+
+    with cs:
+
+        if opened:
+            # start history backfill task
+            # ``backfill_bars()`` is a required backend func
+            await bus.nursery.start(mod.backfill_bars, symbol, shm)
+
+        # yield back control to starting nursery
+        task_status.started((init_msg,  first_quote))
+
+        times = shm.array['time']
+        delay_s = times[-1] - times[times != times[-1]][-1]
+
+        await feed_is_live.wait()
+
+        # tell incrementer task it can start
+        shm_incrementing(shm.token['shm_name']).set()
+
+        # start shm incrementingn for OHLC sampling
+        subscribe_ohlc_for_increment(shm, delay_s)
+
+        # begin shm write loop and broadcast to subscribers
+
+        sum_tick_vlm: bool = True
+
+        async with quote_stream:
+
+            log.info("Started shared mem bar writer")
+
+            # iterate stream delivered by broker
+            async for quotes in quote_stream:
+                for sym, quote in quotes.items():
+
+                    # TODO: in theory you can send the IPC msg *before*
+                    # writing to the sharedmem array to decrease latency,
+                    # however, that will require `tractor.msg.pub` support
+                    # here or at least some way to prevent task switching
+                    # at the yield such that the array write isn't delayed
+                    # while another consumer is serviced..
+
+                    # start writing the shm buffer with appropriate trade data
+                    for tick in iterticks(quote, types=('trade', 'utrade',)):
+                        last = tick['price']
+
+                        # update last entry
+                        # benchmarked in the 4-5 us range
+                        o, high, low, v = shm.array[-1][
+                            ['open', 'high', 'low', 'volume']
+                        ]
+
+                        new_v = tick.get('size', 0)
+
+                        if v == 0 and new_v:
+                            # no trades for this bar yet so the open
+                            # is also the close/last trade price
+                            o = last
+
+                        if sum_tick_vlm:
+                            volume = v + new_v
+                        else:
+                            volume = v
+
+                        shm.array[[
+                            'open',
+                            'high',
+                            'low',
+                            'close',
+                            'volume',
+                        ]][-1] = (
+                            o,
+                            max(high, last),
+                            min(low, last),
+                            last,
+                            volume,
+                        )
+
+                    for ctx in bus.subscribers[sym]:
+                        await ctx.send_yield({sym: quote})
 
 
 @tractor.stream
-async def allocate_cached_feed(
+async def attach_feed_bus(
     ctx: tractor.Context,
-    symbol: str
+    brokername: str,
+    symbol: str,
+    loglevel: str,
 ):
-    _feeds = get_feeds_manager(brokername, service_nursery)
 
-    # setup shared mem buffer
-    pass
+    if loglevel is None:
+        loglevel = tractor.current_actor().loglevel
 
+    # XXX: required to propagate ``tractor`` loglevel to piker logging
+    get_console_log(loglevel or tractor.current_actor().loglevel)
+
+    # ensure we are who we think we are
+    assert 'brokerd' in tractor.current_actor().name
+
+    bus = get_feed_bus(brokername)
+    task_cs = bus.feeds.get(symbol)
+    bus.subscribers.setdefault(symbol, []).append(ctx)
+
+    # if no cached feed for this symbol has been created for this
+    # brokerd yet, start persistent stream and shm writer task in
+    # service nursery
+    if task_cs is None:
+        init_msg, first_quote = await bus.nursery.start(
+            partial(
+                allocate_persistent_feed,
+                ctx=ctx,
+                bus=bus,
+                brokername=brokername,
+                symbol=symbol,
+                loglevel=loglevel,
+            )
+        )
+
+    # XXX: ``first_quote`` may be outdated here if this is secondary subscriber
+    cs, init_msg, first_quote = bus.feeds[symbol]
+
+    # send this even to subscribers to existing feed?
+    await ctx.send_yield(init_msg)
+    await ctx.send_yield(first_quote)
+
+    try:
+        # just block while the stream pumps
+        await trio.sleep_forever()
+
+    finally:
+        bus.subscribers[symbol].remove(ctx)
 
 
 @dataclass
@@ -183,7 +349,7 @@ class Feed:
     stream: AsyncIterator[Dict[str, Any]]
     shm: ShmArray
     mod: ModuleType
-    # ticks: ShmArray
+
     _brokerd_portal: tractor._portal.Portal
     _index_stream: Optional[AsyncIterator[int]] = None
     _trade_stream: Optional[AsyncIterator[Dict[str, Any]]] = None
@@ -262,38 +428,28 @@ async def open_feed(
     # TODO: do all!
     sym = symbols[0]
 
-    # Attempt to allocate (or attach to) shm array for this broker/symbol
-    shm, opened = maybe_open_shm_array(
-        key=sym_to_shm_key(brokername, sym),
-
-        # use any broker defined ohlc dtype:
-        dtype=getattr(mod, '_ohlc_dtype', base_iohlc_dtype),
-
-        # we expect the sub-actor to write
-        readonly=True,
-    )
-
     async with maybe_spawn_brokerd(
-
         brokername,
         loglevel=loglevel,
-
-        # TODO: add a cli flag for this
-        # debug_mode=False,
-
     ) as portal:
 
         stream = await portal.run(
-            mod.stream_quotes,
-
-            # TODO: actually handy multiple symbols...
-            symbols=symbols,
-
-            shm_token=shm.token,
-
-            # compat with eventual ``tractor.msg.pub``
-            topics=symbols,
+            attach_feed_bus,
+            brokername=brokername,
+            symbol=sym,
             loglevel=loglevel,
+        )
+
+        # TODO: we can't do this **and** be compate with
+        # ``tractor.msg.pub``, should we maybe just drop this after
+        # tests are in?
+        init_msg = await stream.receive()
+
+        shm = attach_shm_array(
+            token=init_msg[sym]['shm_token'],
+
+            # we are the buffer writer
+            readonly=False,
         )
 
         feed = Feed(
@@ -303,11 +459,6 @@ async def open_feed(
             mod=mod,
             _brokerd_portal=portal,
         )
-
-        # TODO: we can't do this **and** be compate with
-        # ``tractor.msg.pub``, should we maybe just drop this after
-        # tests are in?
-        init_msg = await stream.receive()
 
         for sym, data in init_msg.items():
 
@@ -324,11 +475,6 @@ async def open_feed(
             feed.symbols[sym] = symbol
 
             shm_token = data['shm_token']
-            if opened:
-                assert data['is_shm_writer']
-                log.info("Started shared mem bar writer")
-            else:
-                s = attach_shm_array(shm_token)
 
         shm_token['dtype_descr'] = list(shm_token['dtype_descr'])
         assert shm_token == shm.token  # sanity
