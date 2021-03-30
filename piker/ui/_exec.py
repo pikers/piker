@@ -22,6 +22,7 @@ All global Qt runtime settings are mostly defined here.
 """
 from typing import Tuple, Callable, Dict, Any
 import os
+import platform
 import signal
 import time
 import traceback
@@ -87,16 +88,19 @@ def current_screen() -> QtGui.QScreen:
     assert screen, "Wow Qt is dumb as shit and has no screen..."
     return screen
 
-# XXX: pretty sure none of this shit works
+
+# XXX: pretty sure none of this shit works on linux as per:
 # https://bugreports.qt.io/browse/QTBUG-53022
+# it seems to work on windows.. no idea wtf is up.
+if platform.system() == "Windows":
 
-# Proper high DPI scaling is available in Qt >= 5.6.0. This attibute
-# must be set before creating the application
-# if hasattr(Qt, 'AA_EnableHighDpiScaling'):
-#     QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    # Proper high DPI scaling is available in Qt >= 5.6.0. This attibute
+    # must be set before creating the application
+    if hasattr(Qt, 'AA_EnableHighDpiScaling'):
+        QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
 
-# if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
-#     QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
+        QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
 
 class MainWindow(QtGui.QMainWindow):
