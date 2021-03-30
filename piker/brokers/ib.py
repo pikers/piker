@@ -777,12 +777,8 @@ def normalize(
     return data
 
 
-# _local_buffer_writers = {}
-
-
 async def backfill_bars(
     sym: str,
-    # first_bars: list,
     shm: ShmArray,  # type: ignore # noqa
     # count: int = 20,  # NOTE: any more and we'll overrun underlying buffer
     count: int = 10,  # NOTE: any more and we'll overrun the underlying buffer
