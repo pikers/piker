@@ -31,7 +31,7 @@ from pydantic import BaseModel
 
 from ._graphics._lines import LevelLine, position_line
 from ._interaction import LineEditor, ArrowEditor, _order_lines
-from ..exchange._client import open_ems, OrderBook
+from ..clearing._client import open_ems, OrderBook
 from ..data._source import Symbol
 from ..log import get_logger
 
