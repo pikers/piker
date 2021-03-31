@@ -18,6 +18,7 @@
 Mouse interaction graphics
 
 """
+import math
 from typing import Optional, Tuple, Set, Dict
 
 import inspect
@@ -113,10 +114,6 @@ class LineDot(pg.CurvePoint):
         return False
 
 
-# TODO: likely will need to tweak this based on dpi...
-_y_margin = 5
-
-
 # TODO: change this into our own ``Label``
 class ContentsLabel(pg.LabelItem):
     """Label anchored to a ``ViewBox`` typically for displaying
@@ -132,11 +129,11 @@ class ContentsLabel(pg.LabelItem):
 
     # XXX: fyi naming here is confusing / opposite to coords
     _corner_margins = {
-        ('top', 'left'): (-4, -_y_margin),
-        ('top', 'right'): (4, -_y_margin),
+        ('top', 'left'): (-2, lambda font_size: -font_size*0.25),
+        ('top', 'right'): (2, lambda font_size: -font_size*0.25),
 
-        ('bottom', 'left'): (-4, lambda font_size: font_size + 2*_y_margin),
-        ('bottom', 'right'): (4, lambda font_size: font_size + 2*_y_margin),
+        ('bottom', 'left'): (-2, lambda font_size: font_size),
+        ('bottom', 'right'): (2, lambda font_size: font_size),
     }
 
     def __init__(
@@ -147,10 +144,20 @@ class ContentsLabel(pg.LabelItem):
         font_size: Optional[int] = None,
     ) -> None:
         font_size = font_size or _font.font.pixelSize()
+
         super().__init__(
             justify=justify_text,
             size=f'{str(font_size)}px'
         )
+
+        if _font._physical_dpi >= 97:
+            # ad-hoc scale it based on boundingRect
+            # TODO: need proper fix for this?
+            typical_br = _font._qfm.boundingRect('Qyp')
+            anchor_font_size = math.ceil(typical_br.height() * 1.25)
+
+        else:
+            anchor_font_size = font_size
 
         # anchor to viewbox
         self.setParentItem(chart._vb)
@@ -163,7 +170,9 @@ class ContentsLabel(pg.LabelItem):
 
         ydim = margins[1]
         if inspect.isfunction(margins[1]):
-            margins = margins[0], ydim(font_size)
+            margins = margins[0], ydim(anchor_font_size)
+
+        print(f'margins: {margins}')
 
         self.anchor(itemPos=index, parentPos=index, offset=margins)
 
@@ -385,13 +394,12 @@ class Cursor(pg.GraphicsObject):
 
             if self._y_label_update:
                 self.graphics[self.active_plot]['yl'].update_label(
-                    abs_pos=plot.mapFromView(QPointF(ix, iy + line_offset)),
+                    abs_pos=plot.mapFromView(QPointF(ix, iy)),
                     value=iy
                 )
 
                 # only update horizontal xhair line if label is enabled
-                self.graphics[plot]['hl'].setY(iy + line_offset)
-
+                self.graphics[plot]['hl'].setY(iy)
 
             # update all trackers
             for item in self._trackers:
