@@ -798,7 +798,6 @@ async def backfill_bars(
 
     # write historical data to buffer
     shm.push(bars_array)
-    # shm_token = shm.token
 
     with trio.CancelScope() as cs:
 
@@ -939,6 +938,7 @@ async def start_aio_quote_stream(
 
 
 async def stream_quotes(
+
     send_chan: trio.abc.SendChannel,
     symbols: List[str],
     shm: ShmArray,
@@ -946,7 +946,7 @@ async def stream_quotes(
     loglevel: str = None,
 
     # startup sync
-    task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
+    task_status: TaskStatus[Tuple[Dict, Dict]] = trio.TASK_STATUS_IGNORED,
 
 ) -> None:
     """Stream symbol quotes.
