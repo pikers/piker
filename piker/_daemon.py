@@ -68,19 +68,16 @@ async def open_pikerd(
     assert _services is None
 
     # XXX: this may open a root actor as well
-    async with tractor.open_nursery(
-
-        # passed through to ``open_root_actor``
-        name=_root_dname,
-        loglevel=loglevel,
-
-        # TODO: eventually we should be able to avoid
-        # having the root have more then permissions to
-        # spawn other specialized daemons I think?
-        # enable_modules=[__name__],
-        enable_modules=_root_modules,
-
-    ) as actor_nursery:
+    async with tractor.open_root_actor(
+            # passed through to ``open_root_actor``
+            name=_root_dname,
+            loglevel=loglevel,
+            # TODO: eventually we should be able to avoid
+            # having the root have more then permissions to
+            # spawn other specialized daemons I think?
+            # enable_modules=[__name__],
+            enable_modules=_root_modules,
+    ) as _, tractor.open_nursery() as actor_nursery:
         async with trio.open_nursery() as service_nursery:
 
             # assign globally for future daemon/task creation
@@ -107,22 +104,21 @@ async def maybe_open_pikerd(
 
     try:
         async with tractor.find_actor(_root_dname) as portal:
-            if portal is not None:  # pikerd exists
-                yield portal
-                return
+            assert portal is not None
+            yield portal
+            return
 
-    except RuntimeError:  # tractor runtime not started yet
-        pass
+    except (RuntimeError, AssertionError):  # tractor runtime not started yet
 
-    # assume pikerd role
-    async with open_pikerd(
-        loglevel,
-        **kwargs,
-    ) as _:
-        # in the case where we're starting up the
-        # tractor-piker runtime stack in **this** process
-        # we return no portal to self.
-        yield None
+        # presume pikerd role
+        async with open_pikerd(
+            loglevel,
+            **kwargs,
+        ) as _:
+            # in the case where we're starting up the
+            # tractor-piker runtime stack in **this** process
+            # we return no portal to self.
+            yield None
 
 
 # brokerd enabled modules
