@@ -1180,6 +1180,11 @@ def normalize(
     return new
 
 
+# TODO: currently this backend uses entirely different
+# data feed machinery that was written earlier then the
+# existing stuff used in other backends. This needs to
+# be ported eventually and should *just work* despite
+# being a multi-symbol, poll-style feed system.
 @tractor.stream
 async def stream_quotes(
     ctx: tractor.Context,  # marks this as a streaming func
@@ -1192,7 +1197,7 @@ async def stream_quotes(
     # XXX: required to propagate ``tractor`` loglevel to piker logging
     get_console_log(loglevel)
 
-    async with api.get_cached_client('questrade') as client:
+    async with api.open_cached_client('questrade') as client:
         if feed_type == 'stock':
             formatter = format_stock_quote
             get_quotes = await stock_quoter(client, symbols)
