@@ -72,7 +72,7 @@ def mk_check(
         return check_lt
 
     else:
-        return None, None
+        return None
 
 
 @dataclass
@@ -511,7 +511,6 @@ async def process_order_cmds(
             exec_mode = cmd['exec_mode']
 
             broker = brokers[0]
-            last = dark_book.lasts[(broker, sym)]
 
             if exec_mode == 'live' and action in ('buy', 'sell',):
 
@@ -556,9 +555,10 @@ async def process_order_cmds(
                 # price received from the feed, instead of being
                 # like every other shitty tina platform that makes
                 # the user choose the predicate operator.
+                last = dark_book.lasts[(broker, sym)]
                 pred = mk_check(trigger_price, last, action)
 
-                tick_slap: float = 5
+                spread_slap: float = 5
                 min_tick = feed.symbols[sym].tick_size
 
                 if action == 'buy':
@@ -568,12 +568,12 @@ async def process_order_cmds(
                     # TODO: we probably need to scale this based
                     # on some near term historical spread
                     # measure?
-                    abs_diff_away = tick_slap * min_tick
+                    abs_diff_away = spread_slap * min_tick
 
                 elif action == 'sell':
                     tickfilter = ('bid', 'last', 'trade')
                     percent_away = -0.005
-                    abs_diff_away = -tick_slap * min_tick
+                    abs_diff_away = -spread_slap * min_tick
 
                 else:  # alert
                     tickfilter = ('trade', 'utrade', 'last')
