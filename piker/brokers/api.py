@@ -22,7 +22,6 @@ from typing import Dict
 from contextlib import asynccontextmanager, AsyncExitStack
 
 import trio
-import tractor
 
 from . import get_brokermod
 from ..log import get_logger
@@ -30,10 +29,12 @@ from ..log import get_logger
 
 log = get_logger(__name__)
 
-_cache: Dict[str, 'Client'] = {}
+
+_cache: Dict[str, 'Client'] = {}  # noqa
+
 
 @asynccontextmanager
-async def get_cached_client(
+async def open_cached_client(
     brokername: str,
     *args,
     **kwargs,
@@ -74,10 +75,11 @@ async def get_cached_client(
             client._exit_stack = exit_stack
             clients[brokername] = client
 
-            yield client
+        yield client
 
     finally:
-        client._consumers -= 1
-        if client._consumers <= 0:
-            # teardown the client
-            await client._exit_stack.aclose()
+        if client is not None:
+            # if no more consumers, teardown the client
+            client._consumers -= 1
+            if client._consumers <= 0:
+                await client._exit_stack.aclose()
