@@ -136,8 +136,6 @@ async def spawn_brokerd(
     **tractor_kwargs
 ) -> tractor._portal.Portal:
 
-    from .data import _setup_persistent_feeds
-
     log.info(f'Spawning {brokername} broker daemon')
 
     brokermod = get_brokermod(brokername)
@@ -154,21 +152,6 @@ async def spawn_brokerd(
         enable_modules=_data_mods + [brokermod.__name__],
         loglevel=loglevel,
         **tractor_kwargs
-    )
-
-    # TODO: so i think this is the perfect use case for supporting
-    # a cross-actor async context manager api instead of this
-    # shoort-and-forget task spawned in the root nursery, we'd have an
-    # async exit stack that we'd register the `portal.open_context()`
-    # call with and then have the ability to unwind the call whenevs.
-
-    # non-blocking setup of brokerd service nursery
-    _services.service_n.start_soon(
-        partial(
-            portal.run,
-            _setup_persistent_feeds,
-            brokername=brokername,
-        )
     )
 
     return dname
