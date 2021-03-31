@@ -37,23 +37,25 @@ we use as much bleeding edge tech as possible including (but not limited to):
 
 focus and features:
 *******************
-- zero web, cloud or "backtesting frameworks" (aka yabf)
-- zero self promotion (aka pump); expected throughout the community
-- 100% federated: your code, your hardware, your data feeds, your broker fills
-- broker/exchange/asset-class agnostic
-- privacy
-- real-time financial signal processing from the ground up
-- high quality, attractive, native UX with expected use in tiling wms
-- sophisticated rt charting and data sharing facilities
-- geared for collaboration within trader communities
-- zero interest in adoption by suits; no corporate friendly license, ever.
-- not built for *sale*; built for *people*
+- 100% federated: your code, your hardware, your data feeds, your broker fills.
+- zero web: low latency, native software that doesn't try to re-invent the OS
+- maximal **privacy**: prevent brokers and mms from knowing your
+  planz; smack their spreads with dark volume.
+- zero clutter: modal, context oriented UIs that echew minimalism, reduce
+  thought noise and encourage un-emotion.
+- first class parallelism: built from the ground up on next-gen structured concurrency
+  primitives.
+- traders first: broker/exchange/asset-class agnostic
+- systems grounded: real-time financial signal processing that will
+  make any queuing or DSP eng juice their shorts.
+- non-tina UX: sleek, powerful keyboard driven interaction with expected use in tiling wms
+- data collaboration: every process and protocol is multi-host scalable.
+- fight club ready: zero interest in adoption by suits; no corporate friendly license, ever.
 
-fitting with these tenets, we're always open to new framework
-suggestions and ideas.
+fitting with these tenets, we're always open to new framework suggestions and ideas.
 
 building the best looking, most reliable, keyboard friendly trading
-platform is the dream.  feel free to pipe in with your ideas and quiffs.
+platform is the dream; join the cause.
 
 
 install
@@ -61,16 +63,13 @@ install
 ``piker`` is currently under heavy pre-alpha development and as such
 should be cloned from this repo and hacked on directly.
 
-a couple bleeding edge components are being used atm pertaining to
-new components within `trio`_.
-
 for a development install::
 
     git clone git@github.com:pikers/piker.git
     cd piker
     virtualenv env
     source ./env/bin/activate
-    pip install -e .
+    pip install -r requirements.txt -e .
 
 
 broker Support
@@ -96,6 +95,7 @@ if you want your broker supported and they have an API let us know.
 .. _yliveticker: https://github.com/yahoofinancelive/yliveticker
 .. _coinbase: https://docs.pro.coinbase.com/#websocket-feed
 
+
 check out our charts
 ********************
 bet you weren't expecting this from the foss bby::
@@ -107,9 +107,17 @@ if anyone asks you what this project is about
 *********************************************
 you don't talk about it.
 
+
 how do i get involved?
 **********************
 enter the matrix.
 
-learning the code is to your benefit and acts as a filter for desired
-users; many alpha nuggets within.
+
+how come there ain't that many docs
+***********************************
+suck it up, learn the code; no one is trying to sell you on anything.
+
+
+who is `piker0`?
+****************
+who do you think?
