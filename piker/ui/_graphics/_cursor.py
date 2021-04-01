@@ -90,15 +90,10 @@ class LineDot(pg.CurvePoint):
         self,
         ev: QtCore.QEvent,
     ) -> None:
-        # print((ev, type(ev)))
         if not isinstance(
             ev, QtCore.QDynamicPropertyChangeEvent
         ) or self.curve() is None:
             return False
-
-        # if ev.propertyName() == 'index':
-        #     print(ev)
-        #     # self.setProperty
 
         (x, y) = self.curve().getData()
         index = self.property('index')
@@ -171,8 +166,6 @@ class ContentsLabel(pg.LabelItem):
         ydim = margins[1]
         if inspect.isfunction(margins[1]):
             margins = margins[0], ydim(anchor_font_size)
-
-        print(f'margins: {margins}')
 
         self.anchor(itemPos=index, parentPos=index, offset=margins)
 
@@ -403,7 +396,6 @@ class Cursor(pg.GraphicsObject):
 
             # update all trackers
             for item in self._trackers:
-                # print(f'setting {item} with {(ix, y)}')
                 item.on_tracked_source(ix, iy)
 
         if ix != last_ix:
