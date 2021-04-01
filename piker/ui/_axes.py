@@ -18,8 +18,8 @@
 Chart axes graphics and behavior.
 
 """
-
 from typing import List, Tuple, Optional
+from math import floor
 
 import pandas as pd
 import pyqtgraph as pg
@@ -51,13 +51,24 @@ class Axis(pg.AxisItem):
 
         self.linked_charts = linked_charts
         self._min_tick = min_tick
+        self._dpi_font = _font
 
         self.setTickFont(_font.font)
+        font_size = self._dpi_font.font.pixelSize()
+
+        if self.orientation in ('bottom',):
+            text_offset = floor(0.25 * font_size)
+
+        elif self.orientation in ('left', 'right'):
+            text_offset = floor(font_size / 2)
+
         self.setStyle(**{
             'textFillLimits': [(0, 0.5)],
-            'tickFont': _font.font,
+            'tickFont': self._dpi_font.font,
+
             # offset of text *away from* axis line in px
-            'tickTextOffset': 6,
+            # use approx. half the font pixel size (height)
+            'tickTextOffset': text_offset,
         })
 
         self.setTickFont(_font.font)
@@ -78,17 +89,6 @@ class Axis(pg.AxisItem):
 
 
 class PriceAxis(Axis):
-
-    def __init__(
-        self,
-        *args,
-        **kwargs,
-    ) -> None:
-        super().__init__(*args, **kwargs)
-        self.setStyle(**{
-            # offset of text *away from* axis line in px
-            'tickTextOffset': 9,
-        })
 
     def size_to_values(self) -> None:
         self.setWidth(self.typical_br.width())
@@ -170,10 +170,10 @@ class AxisLabel(pg.GraphicsObject):
         parent: pg.GraphicsItem,
         digits: int = 2,
 
-        font_size_inches: Optional[float] = None,
         bg_color: str = 'bracket',
         fg_color: str = 'black',
         opacity: int = 1,  # XXX: seriously don't set this to 0
+        font_size: str = 'default',
 
         use_arrow: bool = True,
 
@@ -195,7 +195,7 @@ class AxisLabel(pg.GraphicsObject):
 
         self._txt_br: QtCore.QRect = None
 
-        self._dpifont = DpiAwareFont(size_in_inches=font_size_inches)
+        self._dpifont = DpiAwareFont(font_size=font_size)
         self._dpifont.configure_to_dpi()
 
         self.bg_color = pg.mkColor(hcolor(bg_color))
@@ -457,7 +457,7 @@ class YAxisLabel(AxisLabel):
         path = QtGui.QPainterPath()
         h = self.rect.height()
         path.moveTo(0, 0)
-        path.lineTo(-x_offset - 4, h/2.)
+        path.lineTo(-x_offset - h/4, h/2.)
         path.lineTo(0, h)
         path.closeSubpath()
         self.path = path

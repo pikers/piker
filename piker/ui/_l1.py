@@ -25,10 +25,7 @@ from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import QPointF
 
 from ._axes import YAxisLabel
-from ._style import (
-    hcolor,
-    _down_2_font_inches_we_like,
-)
+from ._style import hcolor
 
 
 class LevelLabel(YAxisLabel):
@@ -248,7 +245,7 @@ class L1Labels:
         chart: 'ChartPlotWidget',  # noqa
         digits: int = 2,
         size_digits: int = 3,
-        font_size_inches: float = _down_2_font_inches_we_like,
+        font_size: str = 'small',
     ) -> None:
 
         self.chart = chart
@@ -259,7 +256,7 @@ class L1Labels:
             'parent': raxis,
 
             'opacity': 1,
-            'font_size_inches': font_size_inches,
+            'font_size': font_size,
             'fg_color': chart.pen_color,
             'bg_color': chart.view_color,
         }

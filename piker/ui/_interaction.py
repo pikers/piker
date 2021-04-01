@@ -429,11 +429,14 @@ class ArrowEditor:
             None: 180,  # pointing to right (as in an alert)
         }[pointing]
 
+        # scale arrow sizing to dpi-aware font
+        size = _font.font.pixelSize() * 0.8
+
         arrow = pg.ArrowItem(
             angle=angle,
             baseAngle=0,
-            headLen=5*3,
-            headWidth=2*3,
+            headLen=size,
+            headWidth=size/2,
             tailLen=None,
             pxMode=True,
 

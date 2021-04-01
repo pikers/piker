@@ -18,6 +18,7 @@
 Lines for orders, alerts, L2.
 
 """
+from math import floor
 from typing import Tuple, Optional, List
 
 import pyqtgraph as pg
@@ -27,10 +28,7 @@ from PyQt5.QtCore import QPointF
 
 from .._annotate import mk_marker, qgo_draw_markers
 from .._label import Label, vbr_left, right_axis
-from .._style import (
-    hcolor,
-    _down_2_font_inches_we_like,
-)
+from .._style import hcolor, _font
 
 
 # TODO: probably worth investigating if we can
@@ -157,7 +155,6 @@ class LevelLine(pg.InfiniteLine):
         side_of_axis: str = 'left',
         x_offset: float = 0,
 
-        font_size_inches: float = _down_2_font_inches_we_like,
         color: str = None,
         bg_color: str = None,
         avoid_book: bool = True,
@@ -535,9 +532,6 @@ def level_line(
     level: float,
     color: str = 'default',
 
-    # size 4 font on 4k screen scaled down, so small-ish.
-    font_size_inches: float = _down_2_font_inches_we_like,
-
     # whether or not the line placed in view should highlight
     # when moused over (aka "hovered")
     hl_on_hover: bool = True,
@@ -635,11 +629,17 @@ def order_line(
     )
 
     if show_markers:
+        font_size = _font.font.pixelSize()
+
+        # scale marker size with dpi-aware font size
+        arrow_size = floor(1.375 * font_size)
+        alert_size = arrow_size * 0.666
+
         # add arrow marker on end of line nearest y-axis
         marker_style, marker_size = {
-            'buy': ('|<', 20),
-            'sell': ('>|', 20),
-            'alert': ('v', 12),
+            'buy': ('|<', arrow_size),
+            'sell': ('>|', arrow_size),
+            'alert': ('v', alert_size),
         }[action]
 
         # this fixes it the artifact issue! .. of course, bouding rect stuff
@@ -682,27 +682,27 @@ def order_line(
         llabel.show()
 
     else:
-        # left side label
-        llabel = line.add_label(
-            side='left',
-            fmt_str=' {exec_type}-{order_type}:\n ${$value}',
-        )
-        llabel.fields = {
-            'order_type': order_type,
-            'level': level,
-            '$value': lambda f: f['level'] * f['size'],
-            'size': size,
-            'exec_type': exec_type,
-        }
-        llabel.orient_v = orient_v
-        llabel.render()
-        llabel.show()
+        # # left side label
+        # llabel = line.add_label(
+        #     side='left',
+        #     fmt_str=' {exec_type}-{order_type}:\n ${$value}',
+        # )
+        # llabel.fields = {
+        #     'order_type': order_type,
+        #     'level': level,
+        #     '$value': lambda f: f['level'] * f['size'],
+        #     'size': size,
+        #     'exec_type': exec_type,
+        # }
+        # llabel.orient_v = orient_v
+        # llabel.render()
+        # llabel.show()
 
         # right before L1 label
         rlabel = line.add_label(
             side='right',
             side_of_axis='left',
-            x_offset=3*marker_size + 5,
+            x_offset=4*marker_size,
             fmt_str=(
                 '{size:.{size_digits}f} '
             ),
@@ -746,14 +746,6 @@ def position_line(
         hide_xhair_on_hover=False,
         use_marker_margin=True,
     )
-    if size > 0:
-        arrow_path = mk_marker('|<')
-
-    elif size < 0:
-        arrow_path = mk_marker('>|')
-
-    line.add_marker(arrow_path)
-
     #  hide position marker when out of view (for now)
     vb = line.getViewBox()
 
@@ -770,7 +762,7 @@ def position_line(
     vb.sigYRangeChanged.connect(update_pp_nav)
 
     rlabel = line.add_label(
-        side='left',
+        side='right',
         fmt_str='{direction}: {size} -> ${$:.2f}',
     )
     rlabel.fields = {
@@ -782,6 +774,20 @@ def position_line(
     rlabel.render()
     rlabel.show()
 
+    # arrow marker
+    # scale marker size with dpi-aware font size
+    font_size = _font.font.pixelSize()
+
+    # scale marker size with dpi-aware font size
+    arrow_size = floor(1.375 * font_size)
+
+    if size > 0:
+        style = '|<'
+    elif size < 0:
+        style = '>|'
+
+    arrow_path = mk_marker(style, size=arrow_size)
+    line.add_marker(arrow_path)
     line.set_level(level)
 
     # sanity check

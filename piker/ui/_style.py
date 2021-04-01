@@ -17,7 +17,7 @@
 """
 Qt UI styling.
 """
-from typing import Optional
+from typing import Optional, Dict
 import math
 
 import pyqtgraph as pg
@@ -30,11 +30,16 @@ from ._exec import current_screen
 log = get_logger(__name__)
 
 # chart-wide fonts specified in inches
-_default_font_inches_we_like_low_dpi = 6 / 64
-_down_2_font_inches_we_like_low_dpi = 4 / 64
-
-_default_font_inches_we_like = 0.0616  # 5 / 96
-_down_2_font_inches_we_like = 0.055  # 4 / 96
+_font_sizes: Dict[str, Dict[str, float]] = {
+    'hi': {
+        'default':  0.0616,
+        'small':  0.055,
+    },
+    'lo': {
+        'default':  6.5 / 64,
+        'small':  6 / 64,
+    },
+}
 
 
 class DpiAwareFont:
@@ -42,11 +47,13 @@ class DpiAwareFont:
         self,
         # TODO: move to config
         name: str = 'Hack',
-        size_in_inches: Optional[float] = None,
+        font_size: str = 'default',
+        # size_in_inches: Optional[float] = None,
     ) -> None:
         self.name = name
         self._qfont = QtGui.QFont(name)
-        self._iwl = size_in_inches or _default_font_inches_we_like
+        # self._iwl = size_in_inches or _default_font_inches_we_like
+        self._font_size: str = font_size
         self._qfm = QtGui.QFontMetrics(self._qfont)
         self._physical_dpi = None
         self._screen = None
@@ -91,10 +98,12 @@ class DpiAwareFont:
         dpi = max(pdpi, ldpi)
 
         # for low dpi scale everything down
-        if dpi <= 96:
-            self._iwl = _default_font_inches_we_like_low_dpi
+        if dpi <= 97:
+            inches = _font_sizes['lo'][self._font_size]
+        else:
+            inches = _font_sizes['hi'][self._font_size]
 
-        font_size = math.floor(self._iwl * dpi)
+        font_size = math.floor(inches * dpi)
         log.info(
             f"\nscreen:{screen.name()} with DPI: {dpi}"
             f"\nbest font size is {font_size}\n"
@@ -133,8 +142,8 @@ _xaxis_at = 'bottom'
 # charting config
 CHART_MARGINS = (0, 0, 2, 2)
 _min_points_to_show = 6
-_bars_from_right_in_follow_mode = int(130)
-_bars_to_left_in_follow_mode = int(616)
+_bars_to_left_in_follow_mode = int(61*6)
+_bars_from_right_in_follow_mode = round(0.16 * _bars_to_left_in_follow_mode)
 _tina_mode = False
 
 
