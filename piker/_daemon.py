@@ -20,7 +20,6 @@ Structured, daemon tree service management.
 """
 from typing import Optional, Union
 from contextlib import asynccontextmanager
-from functools import partial
 
 from pydantic import BaseModel
 import trio
@@ -40,7 +39,6 @@ _root_modules = [
 ]
 
 
-# @dataclass
 class Services(BaseModel):
     actor_n: tractor._trionics.ActorNursery
     service_n: trio.Nursery
@@ -147,7 +145,7 @@ async def spawn_brokerd(
     global _services
     assert _services
 
-    portal = await _services.actor_n.start_actor(
+    await _services.actor_n.start_actor(
         dname,
         enable_modules=_data_mods + [brokermod.__name__],
         loglevel=loglevel,
