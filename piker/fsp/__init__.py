@@ -28,7 +28,7 @@ from ..log import get_logger
 from .. import data
 from ._momo import _rsi, _wma
 from ._volume import _tina_vwap
-from ..data import attach_shm_array, Feed
+from ..data import attach_shm_array
 
 log = get_logger(__name__)
 
@@ -60,23 +60,6 @@ async def latency(
             # stack tracing.
             value = quote['brokerd_ts'] - quote['broker_ts']
             yield value
-
-
-async def increment_signals(
-    feed: Feed,
-    dst_shm: 'SharedArray',  # noqa
-) -> None:
-    """Increment the underlying shared memory buffer on every "increment"
-    msg received from the underlying data feed.
-
-    """
-    async for msg in await feed.index_stream():
-        array = dst_shm.array
-        last = array[-1:].copy()
-
-        # write new slot to the buffer
-        dst_shm.push(last)
-        len(dst_shm.array)
 
 
 @tractor.stream
@@ -150,7 +133,6 @@ async def cascade(
             )
             history[fsp_func_name] = history_output
 
-
             # check for data length mis-allignment and fill missing values
             diff = len(src.array) - len(history)
             if diff >= 0:
@@ -182,8 +164,8 @@ async def cascade(
 
             cs = await n.start(fsp_compute)
 
-            # Increment the underlying shared memory buffer on every "increment"
-            # msg received from the underlying data feed.
+            # Increment the underlying shared memory buffer on every
+            # "increment" msg received from the underlying data feed.
 
             async for msg in await feed.index_stream():
 
@@ -198,10 +180,11 @@ async def cascade(
                     # TODO: adopt an incremental update engine/approach
                     # where possible here eventually!
 
+                # read out last shm row
                 array = dst.array
                 last = array[-1:].copy()
 
-                # write new slot to the buffer
+                # write new row to the shm buffer
                 dst.push(last)
 
                 last_len = new_len
