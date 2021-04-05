@@ -18,6 +18,7 @@
 Structured, daemon tree service management.
 
 """
+from functools import partial
 from typing import Optional, Union
 from contextlib import asynccontextmanager
 
@@ -88,6 +89,18 @@ async def open_pikerd(
 
 
 @asynccontextmanager
+async def maybe_open_runtime(
+    loglevel: Optional[str] = None,
+    **kwargs,
+) -> None:
+    if not tractor.current_actor(err_on_no_runtime=False):
+        async with tractor.open_root_actor(loglevel=loglevel, **kwargs):
+            yield
+    else:
+        yield
+
+
+@asynccontextmanager
 async def maybe_open_pikerd(
     loglevel: Optional[str] = None,
     **kwargs,
@@ -100,23 +113,23 @@ async def maybe_open_pikerd(
     if loglevel:
         get_console_log(loglevel)
 
-    try:
+    # subtle, we must have the runtime up here or portal lookup will fail
+    async with maybe_open_runtime(loglevel, **kwargs):
         async with tractor.find_actor(_root_dname) as portal:
-            assert portal is not None
-            yield portal
-            return
+            # assert portal is not None
+            if portal is not None:
+                yield portal
+                return
 
-    except (RuntimeError, AssertionError):  # tractor runtime not started yet
-
-        # presume pikerd role
-        async with open_pikerd(
-            loglevel,
-            **kwargs,
-        ) as _:
-            # in the case where we're starting up the
-            # tractor-piker runtime stack in **this** process
-            # we return no portal to self.
-            yield None
+    # presume pikerd role
+    async with open_pikerd(
+        loglevel,
+        **kwargs,
+    ) as _:
+        # in the case where we're starting up the
+        # tractor-piker runtime stack in **this** process
+        # we return no portal to self.
+        yield None
 
 
 # brokerd enabled modules
@@ -147,7 +160,7 @@ async def spawn_brokerd(
     global _services
     assert _services
 
-    await _services.actor_n.start_actor(
+    portal = await _services.actor_n.start_actor(
         dname,
         enable_modules=_data_mods + [brokermod.__name__],
         loglevel=loglevel,
