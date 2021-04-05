@@ -298,7 +298,9 @@ async def exec_loop(
         )
 
         if _exec_mode == 'paper':
-            n.start_soon(simulate_fills, stream.clone(), client)
+            # TODO: make this an actual broadcast channels as in:
+            # https://github.com/python-trio/trio/issues/987
+            n.start_soon(simulate_fills, stream, client)
 
 
 # TODO: lots of cases still to handle
