@@ -467,7 +467,7 @@ async def stream_quotes(
     ws_pairs = {}
     sym_infos = {}
 
-    async with open_cached_client('kraken') as client:
+    async with open_cached_client('kraken') as client, send_chan as send_chan:
 
         # keep client cached for real-time section
         for sym in symbols:
