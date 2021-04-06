@@ -175,7 +175,7 @@ async def execute_triggers(
                     tuple(execs.items())
                 ):
 
-                    if (ttype not in tf) or (not pred(price)):
+                    if not pred or (ttype not in tf) or (not pred(price)):
                         # majority of iterations will be non-matches
                         continue
 
