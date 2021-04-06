@@ -22,7 +22,9 @@ from sys import byteorder
 from typing import List, Tuple, Optional
 from multiprocessing.shared_memory import SharedMemory, _USE_POSIX
 from multiprocessing import resource_tracker as mantracker
-from _posixshmem import shm_unlink
+
+if _USE_POSIX:
+    from _posixshmem import shm_unlink
 
 import tractor
 import numpy as np
@@ -73,7 +75,7 @@ class SharedInt:
 
     @value.setter
     def value(self, value) -> None:
-        self._shm.buf[:] = value.to_bytes(4, byteorder)
+        self._shm.buf[:] = value.to_bytes(self._shm.size, byteorder)
 
     def destroy(self) -> None:
         if _USE_POSIX:
