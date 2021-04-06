@@ -52,7 +52,7 @@ from ._sharedmem import (
     get_shm_token,
 )
 from ._source import base_iohlc_dtype, Symbol
-from ._buffer import (
+from ._sampling import (
     _shms,
     _incrementers,
     increment_ohlc_buffer,
