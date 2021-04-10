@@ -245,27 +245,31 @@ class Client:
         """
         descriptions = await self.ib.reqMatchingSymbolsAsync(pattern)
 
-        futs = []
-        for d in descriptions:
-            con = d.contract
-            futs.append(self.ib.reqContractDetailsAsync(con))
-
-        # batch request all details
-        results = await asyncio.gather(*futs)
-
-        # XXX: if there is more then one entry in the details list
-        details = {}
-        for details_set in results:
-            # then the contract is so called "ambiguous".
-            for d in details_set:
+        if descriptions is not None:
+            futs = []
+            for d in descriptions:
                 con = d.contract
-                unique_sym = f'{con.symbol}.{con.primaryExchange}'
-                details[unique_sym] = asdict(d) if asdicts else d
+                futs.append(self.ib.reqContractDetailsAsync(con))
 
-                if len(details) == upto:
-                    return details
+            # batch request all details
+            results = await asyncio.gather(*futs)
 
-        return details
+            # XXX: if there is more then one entry in the details list
+            details = {}
+            for details_set in results:
+                # then the contract is so called "ambiguous".
+                for d in details_set:
+                    con = d.contract
+                    unique_sym = f'{con.symbol}.{con.primaryExchange}'
+                    details[unique_sym] = asdict(d) if asdicts else d
+
+                    if len(details) == upto:
+                        return details
+
+            return details
+
+        else:
+            return {}
 
     async def search_futes(
         self,
@@ -562,7 +566,7 @@ class Client:
 # default config ports
 _tws_port: int = 7497
 _gw_port: int = 4002
-_try_ports = [_tws_port, _gw_port]
+_try_ports = [_gw_port, _tws_port]
 _client_ids = itertools.count()
 _client_cache = {}
 
