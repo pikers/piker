@@ -193,6 +193,8 @@ async def maybe_spawn_brokerd(
     # XXX: you should pretty much never want debug mode
     # for data daemons when running in production.
     debug_mode: bool = True,
+    **kwargs,
+
 ) -> tractor._portal.Portal:
     """If no ``brokerd.{brokername}`` daemon-actor can be found,
     spawn one in a local subactor and return a portal to it.
@@ -213,7 +215,8 @@ async def maybe_spawn_brokerd(
     # pikerd is not live we now become the root of the
     # process tree
     async with maybe_open_pikerd(
-        loglevel=loglevel
+        loglevel=loglevel,
+        **kwargs,
     ) as pikerd_portal:
 
         if pikerd_portal is None:
