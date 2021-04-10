@@ -371,7 +371,7 @@ def attach_shm_array(
     key = token.shm_name
 
     if key in _known_tokens:
-        assert _known_tokens[key] == token, "WTF"
+        assert _Token.from_msg(_known_tokens[key]) == token, "WTF"
 
     # attach to array buffer and view as per dtype
     shm = SharedMemory(name=key)
