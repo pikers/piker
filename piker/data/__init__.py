@@ -186,7 +186,7 @@ async def allocate_persistent_feed(
     )
 
     # do history validation?
-    assert opened, "Persistent shm for sym was already open?!"
+    assert opened, f'Persistent shm for {symbol} was already open?!'
     # if not opened:
     #     raise RuntimeError("Persistent shm for sym was already open?!")
 
