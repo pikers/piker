@@ -148,6 +148,7 @@ def chart(config, symbol, profile):
         tractor_kwargs={
             'debug_mode': True,
             'loglevel': tractorloglevel,
+            'name': 'chart',
             'enable_modules': [
                 'piker.clearing._client'
             ],

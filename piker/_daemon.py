@@ -18,6 +18,7 @@
 Structured, daemon tree service management.
 
 """
+from functools import partial
 from typing import Optional, Union
 from contextlib import asynccontextmanager
 
@@ -88,6 +89,18 @@ async def open_pikerd(
 
 
 @asynccontextmanager
+async def maybe_open_runtime(
+    loglevel: Optional[str] = None,
+    **kwargs,
+) -> None:
+    if not tractor.current_actor(err_on_no_runtime=False):
+        async with tractor.open_root_actor(loglevel=loglevel, **kwargs):
+            yield
+    else:
+        yield
+
+
+@asynccontextmanager
 async def maybe_open_pikerd(
     loglevel: Optional[str] = None,
     **kwargs,
@@ -100,23 +113,23 @@ async def maybe_open_pikerd(
     if loglevel:
         get_console_log(loglevel)
 
-    try:
+    # subtle, we must have the runtime up here or portal lookup will fail
+    async with maybe_open_runtime(loglevel, **kwargs):
         async with tractor.find_actor(_root_dname) as portal:
-            assert portal is not None
-            yield portal
-            return
+            # assert portal is not None
+            if portal is not None:
+                yield portal
+                return
 
-    except (RuntimeError, AssertionError):  # tractor runtime not started yet
-
-        # presume pikerd role
-        async with open_pikerd(
-            loglevel,
-            **kwargs,
-        ) as _:
-            # in the case where we're starting up the
-            # tractor-piker runtime stack in **this** process
-            # we return no portal to self.
-            yield None
+    # presume pikerd role
+    async with open_pikerd(
+        loglevel,
+        **kwargs,
+    ) as _:
+        # in the case where we're starting up the
+        # tractor-piker runtime stack in **this** process
+        # we return no portal to self.
+        yield None
 
 
 # brokerd enabled modules
@@ -124,7 +137,7 @@ _data_mods = [
     'piker.brokers.core',
     'piker.brokers.data',
     'piker.data',
-    'piker.data._buffer'
+    'piker.data._sampling'
 ]
 
 
@@ -133,6 +146,8 @@ async def spawn_brokerd(
     loglevel: Optional[str] = None,
     **tractor_kwargs
 ) -> tractor._portal.Portal:
+
+    from .data import _setup_persistent_brokerd
 
     log.info(f'Spawning {brokername} broker daemon')
 
@@ -145,11 +160,26 @@ async def spawn_brokerd(
     global _services
     assert _services
 
-    await _services.actor_n.start_actor(
+    portal = await _services.actor_n.start_actor(
         dname,
         enable_modules=_data_mods + [brokermod.__name__],
         loglevel=loglevel,
         **tractor_kwargs
+    )
+
+    # TODO: so i think this is the perfect use case for supporting
+    # a cross-actor async context manager api instead of this
+    # shoort-and-forget task spawned in the root nursery, we'd have an
+    # async exit stack that we'd register the `portal.open_context()`
+    # call with and then have the ability to unwind the call whenevs.
+
+    # non-blocking setup of brokerd service nursery
+    _services.service_n.start_soon(
+        partial(
+            portal.run,
+            _setup_persistent_brokerd,
+            brokername=brokername,
+        )
     )
 
     return dname

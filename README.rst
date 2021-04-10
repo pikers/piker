@@ -103,6 +103,21 @@ bet you weren't expecting this from the foss bby::
     piker -b kraken chart XBTUSD
 
 
+run in distributed mode
+***********************
+start the service daemon::
+
+    pikerd -l info
+
+
+connect yourt chart::
+
+    piker -b kraken chart XMRXBT
+
+
+enjoy persistent real-time data feeds tied to daemon lifetime.
+
+
 if anyone asks you what this project is about
 *********************************************
 you don't talk about it.

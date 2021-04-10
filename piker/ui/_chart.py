@@ -138,7 +138,7 @@ class ChartSpace(QtGui.QWidget):
         """
         # XXX: let's see if this causes mem problems
         self.window.setWindowTitle(
-            f'piker chart {symbol.key}@{symbol.brokers} '
+            f'{symbol.key}@{symbol.brokers} '
             f'tick:{symbol.tick_size}'
         )
 

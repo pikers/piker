@@ -181,6 +181,7 @@ async def maybe_open_emsd(
 
     async with tractor.find_actor('pikerd') as portal:
         assert portal
+
         name = await portal.run(
             spawn_emsd,
             brokername=brokername,
@@ -188,7 +189,6 @@ async def maybe_open_emsd(
 
         async with tractor.wait_for_actor(name) as portal:
             yield portal
-
 
 
 @asynccontextmanager
@@ -247,4 +247,13 @@ async def open_ems(
         with trio.fail_after(10):
             await book._ready_to_receive.wait()
 
-        yield book, trades_stream
+        try:
+            yield book, trades_stream
+
+        finally:
+            # TODO: we want to eventually keep this up (by having
+            # the exec loop keep running in the pikerd tree) but for
+            # now we have to kill the context to avoid backpressure
+            # build-up on the shm write loop.
+            with trio.CancelScope(shield=True):
+                await trades_stream.aclose()

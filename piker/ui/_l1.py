@@ -155,6 +155,8 @@ class LevelLabel(YAxisLabel):
             self._h_shift * (w + self._x_offset),
             abs_pos.y() + self._v_shift * h
         ))
+        # XXX: definitely need this!
+        self.update()
 
     def set_fmt_str(
         self,
