@@ -486,6 +486,8 @@ class ChartView(ViewBox):
         self._key_buffer = []
         self._key_active: bool = False
 
+        self.setFocusPolicy(QtCore.Qt.StrongFocus)
+
     @property
     def chart(self) -> 'ChartPlotWidget':  # type: ignore # noqa
         return self._chart
@@ -756,6 +758,12 @@ class ChartView(ViewBox):
         # alt
         if mods == QtCore.Qt.AltModifier:
             pass
+
+        # ctlr-k
+        if key == QtCore.Qt.Key_K and ctrl:
+            search = self._chart._lc.chart_space.search
+            search.show()
+            search.setFocus()
 
         # esc
         if key == QtCore.Qt.Key_Escape or (ctrl and key == QtCore.Qt.Key_C):
