@@ -24,13 +24,11 @@ from types import ModuleType
 from functools import partial
 
 from PyQt5 import QtCore, QtGui
-from PyQt5.QtCore import Qt
 from PyQt5 import QtWidgets
 import numpy as np
 import pyqtgraph as pg
 import tractor
 import trio
-from trio_typing import TaskStatus
 
 from ._axes import (
     DynamicDateAxis,
@@ -241,15 +239,14 @@ class ChartSpace(QtGui.QWidget):
 
         # switching to a new viewable chart
         if not self.v_layout.isEmpty():
-            # and not (
-            # self.linkedcharts is linkedcharts
-        # ):
             # XXX: this is CRITICAL especially with pixel buffer caching
             self.linkedcharts.hide()
 
-            # remove any existing plots
-            self.v_layout.removeWidget(self.linkedcharts)
+            # XXX: pretty sure we don't need this
+            # remove any existing plots?
+            # self.v_layout.removeWidget(self.linkedcharts)
 
+        # switching to a new viewable chart
         if linkedcharts is None or reset:
 
             # we must load a fresh linked charts set
@@ -262,24 +259,23 @@ class ChartSpace(QtGui.QWidget):
                 loglevel,
             )
             self.v_layout.addWidget(linkedcharts)
+            self._chart_cache[symbol_key] = linkedcharts
 
-        # if linkedcharts.chart:
-        #     breakpoint()
-
-        # else:
         # chart is already in memory so just focus it
         if self.linkedcharts:
             self.linkedcharts.unfocus()
 
         # self.v_layout.addWidget(linkedcharts)
-        self.linkedcharts = linkedcharts
+        linkedcharts.show()
         linkedcharts.focus()
+        self.linkedcharts = linkedcharts
 
-        # return linkedcharts
-
-    # TODO: add signalling painter system
-    # def add_signals(self):
-    #     self.chart.add_signals()
+        symbol = linkedcharts.symbol
+        if symbol is not None:
+            self.window.setWindowTitle(
+                f'{symbol.key}@{symbol.brokers} '
+                f'tick:{symbol.tick_size}'
+            )
 
 
 class LinkedSplitCharts(QtGui.QWidget):
@@ -352,7 +348,7 @@ class LinkedSplitCharts(QtGui.QWidget):
 
     def focus(self) -> None:
         if self.chart is not None:
-            self.chart.setFocus()
+            self.chart.focus()
 
     def unfocus(self) -> None:
         if self.chart is not None:
@@ -572,6 +568,10 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # for when the splitter(s) are resized
         self._vb.sigResized.connect(self._set_yrange)
+
+    def focus(self) -> None:
+        # self.setFocus()
+        self._vb.setFocus()
 
     def last_bar_in_view(self) -> int:
         self._ohlc[-1]['index']
@@ -1253,6 +1253,9 @@ async def spawn_fsps(
     Pass target entrypoint and historical data.
 
     """
+
+    linked_charts.focus()
+
     # spawns sub-processes which execute cpu bound FSP code
     async with tractor.open_nursery(loglevel=loglevel) as n:
 
@@ -1515,6 +1518,12 @@ async def chart_symbol(
     sym: str,
     loglevel: str,
 ) -> None:
+    """Spawn a real-time chart widget for this symbol and app session.
+
+    These widgets can remain up but hidden so that multiple symbols
+    can be viewed and switched between extremely fast.
+
+    """
     # historical data fetch
     brokermod = brokers.get_brokermod(brokername)
 
@@ -1533,12 +1542,12 @@ async def chart_symbol(
             f'{symbol.key}@{symbol.brokers} '
             f'tick:{symbol.tick_size}'
         )
+
         # await tractor.breakpoint()
         linked_charts = chart_app.linkedcharts
         linked_charts._symbol = symbol
         chart = linked_charts.plot_ohlc_main(symbol, bars)
-
-        linked_charts.focus()
+        chart.setFocus()
 
         # plot historical vwap if available
         wap_in_history = False
@@ -1611,9 +1620,6 @@ async def chart_symbol(
                 wap_in_history,
             )
 
-            # await tractor.breakpoint()
-            # chart_app.linkedcharts.focus()
-
             # wait for a first quote before we start any update tasks
             quote = await feed.receive()
 
@@ -1634,7 +1640,8 @@ async def chart_symbol(
             #     chart,
             #     linked_charts,
             # )
-            chart_app.linkedcharts.focus()
+            # chart.focus()
+
             await start_order_mode(chart, symbol, brokername)
 
 
