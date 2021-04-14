@@ -37,7 +37,7 @@ _context_defaults = dict(
 def pikerd(loglevel, host, tl, pdb):
     """Spawn the piker broker-daemon.
     """
-    from .._daemon import _data_mods, open_pikerd
+    from .._daemon import open_pikerd
     log = get_console_log(loglevel)
 
     if pdb:
@@ -112,11 +112,11 @@ def services(config, tl, names):
 
 
 def _load_clis() -> None:
-    from ..data import marketstore as _
-    from ..data import cli as _
-    from ..brokers import cli as _  # noqa
-    from ..ui import cli as _  # noqa
-    from ..watchlists import cli as _  # noqa
+    from ..data import marketstore  # noqa
+    from ..data import cli  # noqa
+    from ..brokers import cli  # noqa
+    from ..ui import cli  # noqa
+    from ..watchlists import cli  # noqa
 
 
 # load downstream cli modules
