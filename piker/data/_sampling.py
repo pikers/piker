@@ -236,5 +236,8 @@ async def sample_and_broadcast(
                     trio.BrokenResourceError,
                     trio.ClosedResourceError
                 ):
-                    subs.remove(ctx)
+                    # XXX: do we need to deregister here
+                    # if it's done in the fee bus code?
+                    # so far seems like no since this should all
+                    # be single-threaded.
                     log.error(f'{ctx.chan.uid} dropped connection')
