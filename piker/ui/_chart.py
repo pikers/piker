@@ -1613,7 +1613,6 @@ async def chart_symbol(
             #     chart,
             #     linked_charts,
             # )
-            # chart.focus()
 
             await start_order_mode(chart, symbol, brokername)
 
