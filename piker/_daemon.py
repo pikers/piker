@@ -43,6 +43,7 @@ _root_modules = [
 class Services(BaseModel):
     actor_n: tractor._trionics.ActorNursery
     service_n: trio.Nursery
+    debug_mode: bool  # tractor sub-actor debug mode flag
 
     class Config:
         arbitrary_types_allowed = True
@@ -54,9 +55,14 @@ _services: Optional[Services] = None
 @asynccontextmanager
 async def open_pikerd(
     loglevel: Optional[str] = None,
-    **kwargs,
+
+    # XXX: you should pretty much never want debug mode
+    # for data daemons when running in production.
+    debug_mode: bool = False,
+
 ) -> Optional[tractor._portal.Portal]:
-    """Start a root piker daemon who's lifetime extends indefinitely
+    """
+    Start a root piker daemon who's lifetime extends indefinitely
     until cancelled.
 
     A root actor nursery is created which can be used to create and keep
@@ -71,18 +77,22 @@ async def open_pikerd(
             # passed through to ``open_root_actor``
             name=_root_dname,
             loglevel=loglevel,
+            debug_mode=debug_mode,
+
             # TODO: eventually we should be able to avoid
             # having the root have more then permissions to
             # spawn other specialized daemons I think?
             # enable_modules=[__name__],
             enable_modules=_root_modules,
+
     ) as _, tractor.open_nursery() as actor_nursery:
         async with trio.open_nursery() as service_nursery:
 
             # assign globally for future daemon/task creation
             _services = Services(
                 actor_n=actor_nursery,
-                service_n=service_nursery
+                service_n=service_nursery,
+                debug_mode=debug_mode,
             )
 
             yield _services
@@ -93,6 +103,10 @@ async def maybe_open_runtime(
     loglevel: Optional[str] = None,
     **kwargs,
 ) -> None:
+    """
+    Start the ``tractor`` runtime (a root actor) if none exists.
+
+    """
     if not tractor.current_actor(err_on_no_runtime=False):
         async with tractor.open_root_actor(loglevel=loglevel, **kwargs):
             yield
@@ -142,9 +156,11 @@ _data_mods = [
 
 
 async def spawn_brokerd(
-    brokername,
+
+    brokername: str,
     loglevel: Optional[str] = None,
-    **tractor_kwargs
+    **tractor_kwargs,
+
 ) -> tractor._portal.Portal:
 
     from .data import _setup_persistent_brokerd
@@ -164,6 +180,7 @@ async def spawn_brokerd(
         dname,
         enable_modules=_data_mods + [brokermod.__name__],
         loglevel=loglevel,
+        debug_mode=_services.debug_mode,
         **tractor_kwargs
     )
 
@@ -187,16 +204,14 @@ async def spawn_brokerd(
 
 @asynccontextmanager
 async def maybe_spawn_brokerd(
+
     brokername: str,
     loglevel: Optional[str] = None,
-
-    # XXX: you should pretty much never want debug mode
-    # for data daemons when running in production.
-    debug_mode: bool = True,
     **kwargs,
 
 ) -> tractor._portal.Portal:
-    """If no ``brokerd.{brokername}`` daemon-actor can be found,
+    """
+    If no ``brokerd.{brokername}`` daemon-actor can be found,
     spawn one in a local subactor and return a portal to it.
 
     """
@@ -229,7 +244,6 @@ async def maybe_spawn_brokerd(
                 spawn_brokerd,
                 brokername=brokername,
                 loglevel=loglevel,
-                debug_mode=debug_mode,
             )
 
         async with tractor.wait_for_actor(dname) as portal:
@@ -237,11 +251,16 @@ async def maybe_spawn_brokerd(
 
 
 async def spawn_emsd(
-    brokername,
+
+    brokername: str,
     loglevel: Optional[str] = None,
     **extra_tractor_kwargs
-) -> tractor._portal.Portal:
 
+) -> tractor._portal.Portal:
+    """
+    Start the clearing engine under ``pikerd``.
+
+    """
     log.info('Spawning emsd')
 
     # TODO: raise exception when _services == None?
@@ -254,6 +273,7 @@ async def spawn_emsd(
             'piker.clearing._client',
         ],
         loglevel=loglevel,
+        debug_mode=_services.debug_mode,  # set by pikerd flag
         **extra_tractor_kwargs
     )
     return 'emsd'
