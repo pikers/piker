@@ -54,6 +54,7 @@ _services: Optional[Services] = None
 
 @asynccontextmanager
 async def open_pikerd(
+    start_method: str = 'trio',
     loglevel: Optional[str] = None,
 
     # XXX: you should pretty much never want debug mode
@@ -78,6 +79,7 @@ async def open_pikerd(
             name=_root_dname,
             loglevel=loglevel,
             debug_mode=debug_mode,
+            start_method=start_method,
 
             # TODO: eventually we should be able to avoid
             # having the root have more then permissions to
@@ -137,8 +139,7 @@ async def maybe_open_pikerd(
 
     # presume pikerd role
     async with open_pikerd(
-        loglevel,
-        **kwargs,
+        loglevel=loglevel,
     ) as _:
         # in the case where we're starting up the
         # tractor-piker runtime stack in **this** process

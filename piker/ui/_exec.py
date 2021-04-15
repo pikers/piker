@@ -200,7 +200,6 @@ def run_qtractor(
     async def main():
 
         async with maybe_open_pikerd(
-            start_method='trio',
             **tractor_kwargs,
         ):
             await func(*((widgets,) + args))
