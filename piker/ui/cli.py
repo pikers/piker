@@ -24,7 +24,7 @@ import tractor
 
 from ..cli import cli
 from .. import watchlists as wl
-from ..data import maybe_spawn_brokerd
+from .._daemon import maybe_spawn_brokerd
 
 
 _config_dir = click.get_app_dir('piker')
@@ -125,9 +125,14 @@ def optschain(config, symbol, date, rate, test):
     is_flag=True,
     help='Enable pyqtgraph profiling'
 )
+@click.option(
+    '--pdb',
+    is_flag=True,
+    help='Enable tractor debug mode'
+)
 @click.argument('symbol', required=True)
 @click.pass_obj
-def chart(config, symbol, profile):
+def chart(config, symbol, profile, pdb):
     """Start a real-time chartng UI
     """
     from .. import _profile
@@ -146,7 +151,7 @@ def chart(config, symbol, profile):
         brokername=brokername,
         piker_loglevel=pikerloglevel,
         tractor_kwargs={
-            'debug_mode': True,
+            'debug_mode': pdb,
             'loglevel': tractorloglevel,
             'name': 'chart',
             'enable_modules': [

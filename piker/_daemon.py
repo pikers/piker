@@ -152,6 +152,7 @@ _data_mods = [
     'piker.brokers.core',
     'piker.brokers.data',
     'piker.data',
+    'piker.data.feed',
     'piker.data._sampling'
 ]
 
