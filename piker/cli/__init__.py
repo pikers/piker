@@ -50,7 +50,7 @@ def pikerd(loglevel, host, tl, pdb):
         ))
 
     async def main():
-        async with open_pikerd(loglevel, debug_mode=pdb):
+        async with open_pikerd(loglevel=loglevel, debug_mode=pdb):
             await trio.sleep_forever()
 
     trio.run(main)
