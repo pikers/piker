@@ -341,6 +341,10 @@ def make_sub(pairs: List[str], data: Dict[str, Any]) -> Dict[str, str]:
 class AutoReconWs:
     """Make ``trio_websocketw` sockets stay up no matter the bs.
 
+    TODO:
+    apply any more insights from this:
+    https://support.kraken.com/hc/en-us/articles/360044504011-WebSocket-API-unexpected-disconnections-from-market-data-feeds
+
     """
     recon_errors = (
         ConnectionClosed,
