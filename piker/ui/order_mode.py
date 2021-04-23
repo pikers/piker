@@ -337,7 +337,7 @@ async def start_order_mode(
             indexes = ohlc['time'] >= time
 
             if any(indexes):
-                return ohlc['index'][indexes[-1]]
+                return ohlc['index'][indexes][-1]
             else:
                 return ohlc['index'][-1]
 
