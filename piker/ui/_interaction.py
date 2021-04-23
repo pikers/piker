@@ -762,8 +762,7 @@ class ChartView(ViewBox):
         # ctlr-k
         if key == QtCore.Qt.Key_K and ctrl:
             search = self._chart._lc.chart_space.search
-            search.show()
-            search.setFocus()
+            search.focus()
 
         # esc
         if key == QtCore.Qt.Key_Escape or (ctrl and key == QtCore.Qt.Key_C):
