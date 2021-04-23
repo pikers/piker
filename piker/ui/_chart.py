@@ -24,7 +24,6 @@ from types import ModuleType
 from functools import partial
 
 from PyQt5 import QtCore, QtGui
-from PyQt5 import QtWidgets
 import numpy as np
 import pyqtgraph as pg
 import tractor
@@ -48,7 +47,6 @@ from ._graphics._ohlc import BarItems
 from ._graphics._curve import FastAppendCurve
 from ._style import (
     _font,
-    DpiAwareFont,
     hcolor,
     CHART_MARGINS,
     _xaxis_at,
@@ -56,6 +54,7 @@ from ._style import (
     _bars_from_right_in_follow_mode,
     _bars_to_left_in_follow_mode,
 )
+from ._search import FontSizedQLineEdit
 from ..data._source import Symbol
 from ..data._sharedmem import ShmArray
 from .. import brokers
@@ -71,99 +70,6 @@ from .. import fsp
 log = get_logger(__name__)
 
 
-class FontSizedQLineEdit(QtWidgets.QLineEdit):
-
-    def __init__(
-        self,
-        parent_chart: 'ChartSpace',
-        font: DpiAwareFont = _font,
-    ) -> None:
-        super().__init__(parent_chart)
-
-        self.dpi_font = font
-        self.chart_app = parent_chart
-
-        # size it as we specify
-        self.setSizePolicy(
-            QtWidgets.QSizePolicy.Fixed,
-            QtWidgets.QSizePolicy.Fixed,
-        )
-        self.setFont(font.font)
-
-        # witty bit of margin
-        self.setTextMargins(2, 2, 2, 2)
-
-    def sizeHint(self) -> QtCore.QSize:
-        psh = super().sizeHint()
-        psh.setHeight(self.dpi_font.px_size + 2)
-        return psh
-
-    def unfocus(self) -> None:
-        self.hide()
-        self.clearFocus()
-
-    def keyPressEvent(self, ev: QtCore.QEvent) -> None:
-        # by default we don't markt it as consumed?
-        # ev.ignore()
-        super().keyPressEvent(ev)
-
-        ev.accept()
-        # text = ev.text()
-        key = ev.key()
-        mods = ev.modifiers()
-
-        ctrl = False
-        if mods == QtCore.Qt.ControlModifier:
-            ctrl = True
-
-        if ctrl:
-            if key == QtCore.Qt.Key_C:
-                self.unfocus()
-                self.chart_app.linkedcharts.focus()
-
-            # TODO:
-            elif key == QtCore.Qt.Key_K:
-                print('move up')
-
-            elif key == QtCore.Qt.Key_J:
-                print('move down')
-
-        elif key in (QtCore.Qt.Key_Enter, QtCore.Qt.Key_Return):
-            print(f'Requesting symbol: {self.text()}')
-            symbol = self.text()
-            app = self.chart_app
-            self.chart_app.load_symbol(
-                app.linkedcharts.symbol.brokers[0],
-                symbol,
-                'info',
-            )
-            # self.hide()
-            self.unfocus()
-
-        # if self._executing():
-        #     # ignore all key presses while executing, except for Ctrl-C
-        #     if event.modifiers() == Qt.ControlModifier and key == Qt.Key_C:
-        #         self._handle_ctrl_c()
-        #     return True
-
-        # handler = self._key_event_handlers.get(key)
-        # intercepted = handler and handler(event)
-
-        # Assumes that Control+Key is a movement command, i.e. should not be
-        # handled as text insertion. However, on win10 AltGr is reported as
-        # Alt+Control which is why we handle this case like regular
-        # # keypresses, see #53:
-        # if not event.modifiers() & Qt.ControlModifier or \
-        #         event.modifiers() & Qt.AltModifier:
-        #     self._keep_cursor_in_buffer()
-
-        #     if not intercepted and event.text():
-        #         intercepted = True
-        #         self.insert_input_text(event.text())
-
-        # return False
-
-
 class ChartSpace(QtGui.QWidget):
     """High level widget which contains layouts for organizing
     lower level charts as well as other widgets used to control
@@ -172,9 +78,9 @@ class ChartSpace(QtGui.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.v_layout = QtGui.QVBoxLayout(self)
-        self.v_layout.setContentsMargins(0, 0, 0, 0)
-        self.v_layout.setSpacing(1)
+        self.vbox = QtGui.QVBoxLayout(self)
+        self.vbox.setContentsMargins(0, 0, 0, 0)
+        self.vbox.setSpacing(2)
 
         self.toolbar_layout = QtGui.QHBoxLayout()
         self.toolbar_layout.setContentsMargins(0, 0, 0, 0)
@@ -184,8 +90,8 @@ class ChartSpace(QtGui.QWidget):
 
         # self.init_timeframes_ui()
         # self.init_strategy_ui()
-        self.v_layout.addLayout(self.toolbar_layout)
-        self.v_layout.addLayout(self.h_layout)
+        self.vbox.addLayout(self.toolbar_layout)
+        self.vbox.addLayout(self.h_layout)
         self._chart_cache = {}
         self.linkedcharts: 'LinkedSplitCharts' = None
         self.symbol_label: Optional[QtGui.QLabel] = None
@@ -196,7 +102,16 @@ class ChartSpace(QtGui.QWidget):
         # search = self.search = QtWidgets.QLineEdit()
         self.search = FontSizedQLineEdit(self)
         self.search.unfocus()
-        self.v_layout.addWidget(self.search)
+        self.vbox.addWidget(self.search)
+        self.vbox.addWidget(self.search.view)
+        self.search.view.set_results([
+            'XMRUSD',
+            'XBTUSD',
+            'XMRXBT',
+            # 'XMRXBT',
+            # 'XDGUSD',
+            # 'ADAUSD',
+        ])
 
         # search.installEventFilter(self)
 
@@ -237,14 +152,13 @@ class ChartSpace(QtGui.QWidget):
         """
         linkedcharts = self._chart_cache.get(symbol_key)
 
-        # switching to a new viewable chart
-        if not self.v_layout.isEmpty():
+        if not self.vbox.isEmpty():
             # XXX: this is CRITICAL especially with pixel buffer caching
             self.linkedcharts.hide()
 
             # XXX: pretty sure we don't need this
             # remove any existing plots?
-            # self.v_layout.removeWidget(self.linkedcharts)
+            # self.vbox.removeWidget(self.linkedcharts)
 
         # switching to a new viewable chart
         if linkedcharts is None or reset:
@@ -258,14 +172,14 @@ class ChartSpace(QtGui.QWidget):
                 symbol_key,
                 loglevel,
             )
-            self.v_layout.addWidget(linkedcharts)
+            self.vbox.addWidget(linkedcharts)
             self._chart_cache[symbol_key] = linkedcharts
 
         # chart is already in memory so just focus it
         if self.linkedcharts:
             self.linkedcharts.unfocus()
 
-        # self.v_layout.addWidget(linkedcharts)
+        # self.vbox.addWidget(linkedcharts)
         linkedcharts.show()
         linkedcharts.focus()
         self.linkedcharts = linkedcharts
@@ -1348,7 +1262,6 @@ async def run_fsp(
         # data-array as first msg
         _ = await stream.receive()
 
-        conf['stream'] = stream
         conf['portal'] = portal
 
         shm = conf['shm']
@@ -1413,8 +1326,6 @@ async def run_fsp(
             level_line(chart, 80, orient_v='top')
 
         chart._set_yrange()
-
-        stream = conf['stream']
 
         last = time.time()
 
@@ -1676,7 +1587,6 @@ async def _async_main(
     # configure global DPI aware font size
     _font.configure_to_dpi(screen)
 
-    # try:
     async with trio.open_nursery() as root_n:
 
         # set root nursery for spawning other charts/feeds
@@ -1690,9 +1600,6 @@ async def _async_main(
         chart_app.load_symbol(brokername, sym, loglevel)
 
         await trio.sleep_forever()
-
-    # finally:
-    #     root_n.cancel()
 
 
 def _main(
