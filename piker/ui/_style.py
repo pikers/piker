@@ -79,7 +79,7 @@ class DpiAwareFont:
         return self._qfont
 
     @property
-    def px_size(self):
+    def px_size(self) -> int:
         return self._qfont.pixelSize()
 
     def configure_to_dpi(self, screen: Optional[QtGui.QScreen] = None):
