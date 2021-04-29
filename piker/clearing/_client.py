@@ -246,23 +246,24 @@ async def open_ems(
 
     async with maybe_open_emsd(broker) as portal:
 
-        trades_stream = await portal.run(
+        async with portal.open_stream_from(
+
             _emsd_main,
             client_actor_name=actor.name,
             broker=broker,
             symbol=symbol.key,
 
-        )
-        with trio.fail_after(10):
-            await book._ready_to_receive.wait()
+        ) as trades_stream:
+            with trio.fail_after(10):
+                await book._ready_to_receive.wait()
 
-        try:
-            yield book, trades_stream
+            try:
+                yield book, trades_stream
 
-        finally:
-            # TODO: we want to eventually keep this up (by having
-            # the exec loop keep running in the pikerd tree) but for
-            # now we have to kill the context to avoid backpressure
-            # build-up on the shm write loop.
-            with trio.CancelScope(shield=True):
-                await trades_stream.aclose()
+            finally:
+                # TODO: we want to eventually keep this up (by having
+                # the exec loop keep running in the pikerd tree) but for
+                # now we have to kill the context to avoid backpressure
+                # build-up on the shm write loop.
+                with trio.CancelScope(shield=True):
+                    await trades_stream.aclose()
