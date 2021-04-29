@@ -30,7 +30,7 @@ import tractor
 from ..cli import cli
 from .. import watchlists as wl
 from ..log import get_console_log, colorize_json, get_logger
-from ..data import maybe_spawn_brokerd
+from .._daemon import maybe_spawn_brokerd
 from ..brokers import core, get_brokermod, data
 
 log = get_logger('cli')

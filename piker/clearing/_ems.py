@@ -175,7 +175,7 @@ async def execute_triggers(
                     tuple(execs.items())
                 ):
 
-                    if (ttype not in tf) or (not pred(price)):
+                    if not pred or (ttype not in tf) or (not pred(price)):
                         # majority of iterations will be non-matches
                         continue
 
@@ -675,7 +675,10 @@ async def _emsd_main(
                 # acting as an EMS client and will submit orders) to
                 # receive requests pushed over a tractor stream
                 # using (for now) an async generator.
-                order_stream = await portal.run(send_order_cmds)
+                order_stream = await portal.run(
+                    send_order_cmds,
+                    symbol_key=symbol,
+                )
 
                 # start inbound order request processing
                 await process_order_cmds(

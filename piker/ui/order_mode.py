@@ -317,6 +317,7 @@ async def start_order_mode(
     symbol: Symbol,
     brokername: str,
 ) -> None:
+
     # spawn EMS actor-service
     async with open_ems(
         brokername,

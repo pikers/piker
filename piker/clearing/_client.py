@@ -137,8 +137,9 @@ def get_orders(
 
 
 # TODO: make this a ``tractor.msg.pub``
-async def send_order_cmds():
-    """Order streaming task: deliver orders transmitted from UI
+async def send_order_cmds(symbol_key: str):
+    """
+    Order streaming task: deliver orders transmitted from UI
     to downstream consumers.
 
     This is run in the UI actor (usually the one running Qt but could be
@@ -160,10 +161,18 @@ async def send_order_cmds():
     book._ready_to_receive.set()
 
     async for cmd in orders_stream:
+        print(cmd)
+        if cmd['symbol'] == symbol_key:
 
-        # send msg over IPC / wire
-        log.info(f'Send order cmd:\n{pformat(cmd)}')
-        yield cmd
+            # send msg over IPC / wire
+            log.info(f'Send order cmd:\n{pformat(cmd)}')
+            yield cmd
+        else:
+            # XXX BRUTAL HACKZORZES !!!
+            # re-insert for another consumer
+            # we need broadcast channelz...asap
+            # https://github.com/goodboy/tractor/issues/204
+            book._to_ems.send_nowait(cmd)
 
 
 @asynccontextmanager

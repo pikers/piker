@@ -15,35 +15,27 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-Data infra.
+Ingestion, for dataz.
 
-We provide tsdb integrations for retrieving
-and storing data from your brokers as well as
-sharing live streams over a network.
+Api layer likely in here...
 
 """
-from ._normalize import iterticks
-from ._sharedmem import (
-    maybe_open_shm_array,
-    attach_shm_array,
-    open_shm_array,
-    get_shm_token,
-    ShmArray,
-)
-from .feed import (
-    open_feed,
-    _setup_persistent_brokerd,
-)
+from types import ModuleType
+from importlib import import_module
 
+from ..log import get_logger
 
-__all__ = [
-    'open_feed',
-    'maybe_spawn_brokerd',
-    'ShmArray',
-    'iterticks',
-    'maybe_open_shm_array',
-    'attach_shm_array',
-    'open_shm_array',
-    'get_shm_token',
-    '_setup_persistent_brokerd',
+log = get_logger(__name__)
+
+__ingestors__ = [
+    'marketstore',
 ]
+
+
+def get_ingestormod(name: str) -> ModuleType:
+    """Return the imported ingestor module by name.
+    """
+    module = import_module('.' + name, 'piker.data')
+    # we only allow monkeying because it's for internal keying
+    module.name = module.__name__.split('.')[-1]
+    return module

@@ -32,15 +32,25 @@ _context_defaults = dict(
 @click.command()
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--tl', is_flag=True, help='Enable tractor logging')
+@click.option('--pdb', is_flag=True, help='Enable tractor debug mode')
 @click.option('--host', '-h', default='127.0.0.1', help='Host address to bind')
-def pikerd(loglevel, host, tl):
+def pikerd(loglevel, host, tl, pdb):
     """Spawn the piker broker-daemon.
     """
     from .._daemon import _data_mods, open_pikerd
-    get_console_log(loglevel)
+    log = get_console_log(loglevel)
+
+    if pdb:
+        log.warning((
+            "\n"
+            "!!! You have enabled daemon DEBUG mode !!!\n"
+            "If a daemon crashes it will likely block"
+            " the service until resumed from console!\n"
+            "\n"
+        ))
 
     async def main():
-        async with open_pikerd(loglevel):
+        async with open_pikerd(loglevel=loglevel, debug_mode=pdb):
             await trio.sleep_forever()
 
     trio.run(main)
