@@ -1262,8 +1262,6 @@ async def run_fsp(
         # data-array as first msg
         _ = await stream.receive()
 
-        conf['portal'] = portal
-
         shm = conf['shm']
 
         if conf.get('overlay'):
@@ -1305,6 +1303,9 @@ async def run_fsp(
         last_val_sticky.update_from_data(-1, value)
 
         chart.update_curve_from_array(fsp_func_name, array)
+
+        chart._shm = shm
+        chart.update_curve_from_array(fsp_func_name, shm.array)
         chart._shm = shm
 
         # TODO: figure out if we can roll our own `FillToThreshold` to
@@ -1347,7 +1348,6 @@ async def run_fsp(
             # re-compute steps.
             read_tries = 2
             while read_tries > 0:
-
                 try:
                     # read last
                     array = shm.array
@@ -1444,7 +1444,7 @@ async def chart_symbol(
         loglevel=loglevel,
     ) as feed:
 
-        ohlcv = feed.shm
+        ohlcv: ShmArray = feed.shm
         bars = ohlcv.array
         symbol = feed.symbols[sym]
 
