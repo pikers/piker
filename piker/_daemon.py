@@ -76,6 +76,7 @@ async def open_pikerd(
     # XXX: this may open a root actor as well
     async with tractor.open_root_actor(
             # passed through to ``open_root_actor``
+            arbiter_addr=('127.0.0.1', 6116),
             name=_root_dname,
             loglevel=loglevel,
             debug_mode=debug_mode,
