@@ -179,31 +179,40 @@ async def execute_triggers(
                         # majority of iterations will be non-matches
                         continue
 
-                    # submit_price = price + price*percent_away
-                    submit_price = price + abs_diff_away
+                    action = cmd['action']
 
-                    log.info(
-                        f'Dark order triggered for price {price}\n'
-                        f'Submitting order @ price {submit_price}')
+                    if action != 'alert':
+                        # executable order submission
 
-                    reqid = await client.submit_limit(
-                        oid=oid,
+                        # submit_price = price + price*percent_away
+                        submit_price = price + abs_diff_away
 
-                        # this is a brand new order request for the
-                        # underlying broker so we set out "broker request
-                        # id" (brid) as nothing so that the broker
-                        # client knows that we aren't trying to modify
-                        # an existing order.
-                        brid=None,
+                        log.info(
+                            f'Dark order triggered for price {price}\n'
+                            f'Submitting order @ price {submit_price}')
 
-                        symbol=sym,
-                        action=cmd['action'],
-                        price=submit_price,
-                        size=cmd['size'],
-                    )
+                        reqid = await client.submit_limit(
+                            oid=oid,
 
-                    # register broker request id to ems id
-                    book._broker2ems_ids[reqid] = oid
+                            # this is a brand new order request for the
+                            # underlying broker so we set out "broker request
+                            # id" (brid) as nothing so that the broker
+                            # client knows that we aren't trying to modify
+                            # an existing order.
+                            brid=None,
+
+                            symbol=sym,
+                            action=cmd['action'],
+                            price=submit_price,
+                            size=cmd['size'],
+                        )
+
+                        # register broker request id to ems id
+                        book._broker2ems_ids[reqid] = oid
+
+                    else:
+                        # alerts have no broker request id
+                        reqid = ''
 
                     resp = {
                         'resp': 'dark_executed',
