@@ -1293,20 +1293,27 @@ async def run_fsp(
                 # fsp_func_name
             )
 
+            # XXX: ONLY for sub-chart fsps, overlays have their
+            # data looked up from the chart's internal array set.
+            # TODO: we must get a data view api going STAT!!
+            chart._shm = shm
+
+            # should **not** be the same sub-chart widget
+            assert chart.name != linked_charts.chart.name
+
+            # sticky only on sub-charts atm
+            last_val_sticky = chart._ysticks[chart.name]
+
+            # read from last calculated value
+            array = shm.array
+            value = array[fsp_func_name][-1]
+            last_val_sticky.update_from_data(-1, value)
+
         chart._lc.focus()
 
-        # read last value
-        array = shm.array
-        value = array[fsp_func_name][-1]
-
-        last_val_sticky = chart._ysticks[chart.name]
-        last_val_sticky.update_from_data(-1, value)
-
-        chart.update_curve_from_array(fsp_func_name, array)
-
-        chart._shm = shm
+        # works also for overlays in which case data is looked up from
+        # internal chart array set....
         chart.update_curve_from_array(fsp_func_name, shm.array)
-        chart._shm = shm
 
         # TODO: figure out if we can roll our own `FillToThreshold` to
         # get brush filled polygons for OS/OB conditions.
