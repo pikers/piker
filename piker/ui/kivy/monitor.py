@@ -179,121 +179,121 @@ async def _async_main(
     This is started with cli cmd `piker monitor`.
     '''
     feed = DataFeed(portal, brokermod)
-    quote_gen, first_quotes = await feed.open_stream(
+    async with feed.open_stream(
         symbols,
         'stock',
         rate=rate,
         test=test,
-    )
-    first_quotes_list = list(first_quotes.copy().values())
-    quotes = list(first_quotes.copy().values())
+    ) as (quote_gen, first_quotes):
+        first_quotes_list = list(first_quotes.copy().values())
+        quotes = list(first_quotes.copy().values())
 
-    # build out UI
-    Window.set_title(f"monitor: {name}\t(press ? for help)")
-    Builder.load_string(_kv)
-    box = BoxLayout(orientation='vertical', spacing=0)
+        # build out UI
+        Window.set_title(f"monitor: {name}\t(press ? for help)")
+        Builder.load_string(_kv)
+        box = BoxLayout(orientation='vertical', spacing=0)
 
-    # define bid-ask "stacked" cells
-    # (TODO: needs some rethinking and renaming for sure)
-    bidasks = brokermod._stock_bidasks
+        # define bid-ask "stacked" cells
+        # (TODO: needs some rethinking and renaming for sure)
+        bidasks = brokermod._stock_bidasks
 
-    # add header row
-    headers = list(first_quotes_list[0].keys())
-    headers.remove('displayable')
+        # add header row
+        headers = list(first_quotes_list[0].keys())
+        headers.remove('displayable')
 
-    header = Row(
-        {key: key for key in headers},
-        headers=headers,
-        bidasks=bidasks,
-        is_header=True,
-        size_hint=(1, None),
-    )
-    box.add_widget(header)
-
-    # build table
-    table = TickerTable(
-        cols=1,
-        size_hint=(1, None),
-    )
-    for ticker_record in first_quotes_list:
-        symbol = ticker_record['symbol']
-        table.append_row(
-            symbol,
-            Row(
-                ticker_record,
-                headers=('symbol',),
-                bidasks=bidasks,
-                no_cell=('displayable',),
-                table=table
-            )
+        header = Row(
+            {key: key for key in headers},
+            headers=headers,
+            bidasks=bidasks,
+            is_header=True,
+            size_hint=(1, None),
         )
-    table.last_clicked_row = next(iter(table.symbols2rows.values()))
+        box.add_widget(header)
 
-    # associate the col headers row with the ticker table even though
-    # they're technically wrapped separately in containing BoxLayout
-    header.table = table
-
-    # mark the initial sorted column header as bold and underlined
-    sort_cell = header.get_cell(table.sort_key)
-    sort_cell.bold = sort_cell.underline = True
-    table.last_clicked_col_cell = sort_cell
-
-    # set up a pager view for large ticker lists
-    table.bind(minimum_height=table.setter('height'))
-
-    async def spawn_opts_chain():
-        """Spawn an options chain UI in a new subactor.
-        """
-        from .option_chain import _async_main
-
-        try:
-            async with tractor.open_nursery() as tn:
-                portal = await tn.run_in_actor(
-                    'optschain',
-                    _async_main,
-                    symbol=table.last_clicked_row._last_record['symbol'],
-                    brokername=brokermod.name,
-                    loglevel=tractor.log.get_loglevel(),
+        # build table
+        table = TickerTable(
+            cols=1,
+            size_hint=(1, None),
+        )
+        for ticker_record in first_quotes_list:
+            symbol = ticker_record['symbol']
+            table.append_row(
+                symbol,
+                Row(
+                    ticker_record,
+                    headers=('symbol',),
+                    bidasks=bidasks,
+                    no_cell=('displayable',),
+                    table=table
                 )
-        except tractor.RemoteActorError:
-            # don't allow option chain errors to crash this monitor
-            # this is, like, the most basic of resliency policies
-            log.exception(f"{portal.actor.name} crashed:")
+            )
+        table.last_clicked_row = next(iter(table.symbols2rows.values()))
 
-    async with trio.open_nursery() as nursery:
-        pager = PagerView(
-            container=box,
-            contained=table,
-            nursery=nursery,
-            # spawn an option chain on 'o' keybinding
-            kbctls={('o',): spawn_opts_chain},
-        )
-        box.add_widget(pager)
+        # associate the col headers row with the ticker table even though
+        # they're technically wrapped separately in containing BoxLayout
+        header.table = table
 
-        widgets = {
-            'root': box,
-            'table': table,
-            'box': box,
-            'header': header,
-            'pager': pager,
-        }
+        # mark the initial sorted column header as bold and underlined
+        sort_cell = header.get_cell(table.sort_key)
+        sort_cell.bold = sort_cell.underline = True
+        table.last_clicked_col_cell = sort_cell
 
-        global _widgets
-        _widgets = widgets
+        # set up a pager view for large ticker lists
+        table.bind(minimum_height=table.setter('height'))
 
-        nursery.start_soon(
-            update_quotes,
-            nursery,
-            brokermod.format_stock_quote,
-            widgets,
-            quote_gen,
-            feed._symbol_data_cache,
-            quotes
-        )
-        try:
-            await async_runTouchApp(widgets['root'])
-        finally:
-            # cancel remote data feed task
-            await quote_gen.aclose()
-            # cancel GUI update task
-            nursery.cancel_scope.cancel()
+        async def spawn_opts_chain():
+            """Spawn an options chain UI in a new subactor.
+            """
+            from .option_chain import _async_main
+
+            try:
+                async with tractor.open_nursery() as tn:
+                    portal = await tn.run_in_actor(
+                        'optschain',
+                        _async_main,
+                        symbol=table.last_clicked_row._last_record['symbol'],
+                        brokername=brokermod.name,
+                        loglevel=tractor.log.get_loglevel(),
+                    )
+            except tractor.RemoteActorError:
+                # don't allow option chain errors to crash this monitor
+                # this is, like, the most basic of resliency policies
+                log.exception(f"{portal.actor.name} crashed:")
+
+        async with trio.open_nursery() as nursery:
+            pager = PagerView(
+                container=box,
+                contained=table,
+                nursery=nursery,
+                # spawn an option chain on 'o' keybinding
+                kbctls={('o',): spawn_opts_chain},
+            )
+            box.add_widget(pager)
+
+            widgets = {
+                'root': box,
+                'table': table,
+                'box': box,
+                'header': header,
+                'pager': pager,
+            }
+
+            global _widgets
+            _widgets = widgets
+
+            nursery.start_soon(
+                update_quotes,
+                nursery,
+                brokermod.format_stock_quote,
+                widgets,
+                quote_gen,
+                feed._symbol_data_cache,
+                quotes
+            )
+            try:
+                await async_runTouchApp(widgets['root'])
+            finally:
+                # cancel remote data feed task
+                await quote_gen.aclose()
+                # cancel GUI update task
+                nursery.cancel_scope.cancel()

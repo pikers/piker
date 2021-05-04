@@ -20,7 +20,6 @@ Real-time data feed machinery
 import time
 from functools import partial
 from dataclasses import dataclass, field
-from itertools import cycle
 import socket
 import json
 from types import ModuleType
@@ -31,7 +30,6 @@ from typing import (
     Sequence
 )
 import contextlib
-from operator import itemgetter
 
 import trio
 import tractor
@@ -182,6 +180,8 @@ async def symbol_data(broker: str, tickers: List[str]):
 
 _feeds_cache = {}
 
+
+# TODO: use the version of this from .api ?
 @asynccontextmanager
 async def get_cached_feed(
     brokername: str,
@@ -326,6 +326,7 @@ class DataFeed:
         self.quote_gen = None
         self._symbol_data_cache: Dict[str, Any] = {}
 
+    @asynccontextmanager
     async def open_stream(
         self,
         symbols: Sequence[str],
@@ -351,40 +352,32 @@ class DataFeed:
                 # subscribe for tickers (this performs a possible filtering
                 # where invalid symbols are discarded)
                 sd = await self.portal.run(
-                    "piker.brokers.data",
-                    'symbol_data',
+                    symbol_data,
                     broker=self.brokermod.name,
                     tickers=symbols
                 )
                 self._symbol_data_cache.update(sd)
 
-            if test:
-                # stream from a local test file
-                quote_gen = await self.portal.run(
-                    "piker.brokers.data",
-                    'stream_from_file',
-                    filename=test,
-                )
-            else:
-                log.info(f"Starting new stream for {symbols}")
-                # start live streaming from broker daemon
-                quote_gen = await self.portal.run(
-                    "piker.brokers.data",
-                    'start_quote_stream',
-                    broker=self.brokermod.name,
-                    symbols=symbols,
-                    feed_type=feed_type,
-                    rate=rate,
-                )
+            log.info(f"Starting new stream for {symbols}")
 
-            # get first quotes response
-            log.debug(f"Waiting on first quote for {symbols}...")
-            quotes = {}
-            quotes = await quote_gen.__anext__()
+            # start live streaming from broker daemon
+            async with self.portal.open_stream_from(
+                start_quote_stream,
+                broker=self.brokermod.name,
+                symbols=symbols,
+                feed_type=feed_type,
+                rate=rate,
+            ) as quote_gen:
 
-            self.quote_gen = quote_gen
-            self.first_quotes = quotes
-            return quote_gen, quotes
+                # get first quotes response
+                log.debug(f"Waiting on first quote for {symbols}...")
+                quotes = {}
+                quotes = await quote_gen.__anext__()
+
+                self.quote_gen = quote_gen
+                self.first_quotes = quotes
+                yield quote_gen, quotes
+
         except Exception:
             if self.quote_gen:
                 await self.quote_gen.aclose()
@@ -406,8 +399,7 @@ class DataFeed:
         """Call a broker ``Client`` method using RPC and return result.
         """
         return await self.portal.run(
-            'piker.brokers.data',
-            'call_client',
+            call_client,
             broker=self.brokermod.name,
             methname=method,
             **kwargs
@@ -425,27 +417,29 @@ async def stream_to_file(
     """Record client side received quotes to file ``filename``.
     """
     # an async generator instance
-    agen = await portal.run(
-        "piker.brokers.data", 'start_quote_stream',
-        broker=brokermod.name, symbols=tickers)
+    async with portal.open_stream_from(
+        start_quote_stream,
+        broker=brokermod.name,
+        symbols=tickers
+    ) as agen:
 
-    fname = filename or f'{watchlist_name}.jsonstream'
-    with open(fname, 'a') as f:
-        async for quotes in agen:
-            f.write(json.dumps(quotes))
-            f.write('\n--\n')
+        fname = filename or f'{watchlist_name}.jsonstream'
+        with open(fname, 'a') as f:
+            async for quotes in agen:
+                f.write(json.dumps(quotes))
+                f.write('\n--\n')
 
-    return fname
+        return fname
 
 
-async def stream_from_file(
-    filename: str,
-):
-    with open(filename, 'r') as quotes_file:
-        content = quotes_file.read()
+# async def stream_from_file(
+#     filename: str,
+# ):
+#     with open(filename, 'r') as quotes_file:
+#         content = quotes_file.read()
 
-    pkts = content.split('--')[:-1]  # simulate 2 separate quote packets
-    payloads = [json.loads(pkt) for pkt in pkts]
-    for payload in cycle(payloads):
-        yield payload
-        await trio.sleep(0.3)
+#     pkts = content.split('--')[:-1]  # simulate 2 separate quote packets
+#     payloads = [json.loads(pkt) for pkt in pkts]
+#     for payload in cycle(payloads):
+#         yield payload
+#         await trio.sleep(0.3)
