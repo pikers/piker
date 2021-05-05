@@ -18,12 +18,13 @@
 qompleterz: embeddable search and complete using trio, Qt and fuzzywuzzy.
 
 """
-from typing import Dict, List, Optional
+from typing import List, Optional
 import sys
 
 from PyQt5 import QtCore, QtGui
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QEvent
 from PyQt5 import QtWidgets
+import trio
 
 from PyQt5.QtCore import (
     Qt,
@@ -44,8 +45,6 @@ from PyQt5.QtWidgets import (
 )
 from fuzzywuzzy import process
 
-
-# from PyQt5.QtWidgets import QCompleter, QComboBox
 
 from ..log import get_logger
 from ._style import (
@@ -96,7 +95,7 @@ class CompleterView(QTreeView):
         super().__init__(parent)
 
         self._font_size: int = 0  # pixels
-        self._cache: Dict[str, List[str]] = {}
+        # self._cache: Dict[str, List[str]] = {}
 
     # def viewportSizeHint(self) -> QtCore.QSize:
     #     vps = super().viewportSizeHint()
@@ -129,6 +128,7 @@ class CompleterView(QTreeView):
         row_px = self.rowHeight(self.currentIndex())
         # print(f'font_h: {font_h}\n px_height: {px_height}')
 
+        # TODO: probably make this more general / less hacky
         self.setMinimumSize(self.width(), rows * row_px)
         self.setMaximumSize(self.width(), rows * row_px)
 
@@ -288,16 +288,36 @@ class FontSizedQLineEdit(QtWidgets.QLineEdit):
         if self.view:
             self.view.hide()
 
-    def keyPressEvent(self, ev: QtCore.QEvent) -> None:
-        # by default we don't markt it as consumed?
-        # ev.ignore()
-        super().keyPressEvent(ev)
+    # def keyPressEvent(self, ev: QEvent) -> None:
 
-        ev.accept()
-        # text = ev.text()
-        key = ev.key()
-        mods = ev.modifiers()
-        txt = self.text()
+    #     # XXX: we unpack here because apparently doing it
+    #     # after pop from the mem chan isn't showing the same
+    #     # event object? no clue wtf is going on there, likely
+    #     # something to do with Qt internals and calling the
+    #     # parent handler?
+    #     key = ev.key()
+    #     mods = ev.modifiers()
+    #     txt = self.text()
+
+    #     # run async processing
+    #     self._send_chan.send_nowait((key, mods, txt))
+
+    #     super().keyPressEvent(ev)
+
+    #     # ev.accept()
+
+
+async def handle_keyboard_input(
+    self,
+    recv_chan: trio.abc.ReceiveChannel,
+) -> None:
+
+    async for key, mods, txt in recv_chan:
+
+        # by default we don't mart it as consumed?
+        # ev.ignore()
+
+        print(f'key: {key}, mods: {mods}, txt: {txt}')
 
         if key in (Qt.Key_Enter, Qt.Key_Return):
 
@@ -305,7 +325,7 @@ class FontSizedQLineEdit(QtWidgets.QLineEdit):
 
             # TODO: ensure there is a matching completion or error and
             # do nothing
-            symbol = txt
+            symbol = self.text()
 
             app = self.chart_app
             self.chart_app.load_symbol(
@@ -313,8 +333,11 @@ class FontSizedQLineEdit(QtWidgets.QLineEdit):
                 symbol,
                 'info',
             )
+
+            # release kb control of search bar
             self.unfocus()
-            return
+            continue
+            # return
 
         ctrl = False
         if mods == Qt.ControlModifier:
@@ -340,7 +363,8 @@ class FontSizedQLineEdit(QtWidgets.QLineEdit):
                 if self.chart_app:
                     self.chart_app.linkedcharts.focus()
 
-                return
+                # return
+                continue
 
             # result selection nav
             if key in (Qt.Key_K, Qt.Key_J):
@@ -364,12 +388,12 @@ class FontSizedQLineEdit(QtWidgets.QLineEdit):
                         QItemSelectionModel.Rows
                     )
 
-                # TODO: make this not hard coded to 2
-                # and use the ``CompleterView`` schema/settings
-                # to figure out the desired field(s)
-                value = model.item(nidx.row(), 2).text()
-                print(f'value: {value}')
-                self.setText(value)
+                    # TODO: make this not hard coded to 2
+                    # and use the ``CompleterView`` schema/settings
+                    # to figure out the desired field(s)
+                    value = model.item(nidx.row(), 2).text()
+                    print(f'value: {value}')
+                    self.setText(value)
 
         else:
             sel.setCurrentIndex(
@@ -395,6 +419,7 @@ if __name__ == '__main__':
     ]
 
     # results.setFocusPolicy(Qt.NoFocus)
+    view = mk_completer_view(['src', 'i', 'symbol'])
     search = FontSizedQLineEdit(None, view=view)
     search.view.set_results(syms)
 
@@ -402,7 +427,7 @@ if __name__ == '__main__':
     class W(QtGui.QWidget):
         def __init__(self, parent=None):
             super().__init__(parent)
-            vbox = self.vbox = QtGui.QVBoxLayout(self)
+            self.vbox = QtGui.QVBoxLayout(self)
             self.vbox.setContentsMargins(0, 0, 0, 0)
             self.vbox.setSpacing(2)
 
