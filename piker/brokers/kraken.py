@@ -196,8 +196,11 @@ class Client:
 
     async def cache_symbols(
         self,
-    ) -> None:
-        self._pairs = await self.symbol_info()
+    ) -> dict:
+        if not self._pairs:
+            self._pairs = await self.symbol_info()
+
+        return self._pairs
 
     async def search_stocks(
         self,
@@ -279,8 +282,36 @@ class Client:
 @asynccontextmanager
 async def get_client() -> Client:
     client = Client()
+
+    # load all symbols locally for fast search
     await client.cache_symbols()
+
     yield client
+
+
+async def open_symbol_search(
+    ctx: tractor.Context,
+) -> Client:
+    async with open_cached_client('kraken') as client:
+
+        # load all symbols locally for fast search
+        cache = await client.cache_symbols()
+        await ctx.started(cache)
+
+        async with ctx.open_stream() as stream:
+
+            async for pattern in stream:
+
+                matches = fuzzy.extractBests(
+                    pattern,
+                    cache,
+                    score_cutoff=50,
+                )
+                # repack in dict form
+                await stream.send(
+                    {item[0]['altname']: item[0]
+                     for item in matches}
+                )
 
 
 async def stream_messages(ws):
