@@ -54,7 +54,9 @@ from ._style import (
     _bars_from_right_in_follow_mode,
     _bars_to_left_in_follow_mode,
 )
+from . import _search
 from ._search import FontSizedQLineEdit
+from ._event import open_key_stream
 from ..data._source import Symbol
 from ..data._sharedmem import ShmArray
 from .. import brokers
@@ -85,35 +87,18 @@ class ChartSpace(QtGui.QWidget):
         self.toolbar_layout = QtGui.QHBoxLayout()
         self.toolbar_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.h_layout = QtGui.QHBoxLayout()
-        self.h_layout.setContentsMargins(0, 0, 0, 0)
+        self.hbox = QtGui.QHBoxLayout()
+        self.hbox.setContentsMargins(0, 0, 0, 0)
 
         # self.init_timeframes_ui()
         # self.init_strategy_ui()
         self.vbox.addLayout(self.toolbar_layout)
-        self.vbox.addLayout(self.h_layout)
+        self.vbox.addLayout(self.hbox)
         self._chart_cache = {}
         self.linkedcharts: 'LinkedSplitCharts' = None
         self.symbol_label: Optional[QtGui.QLabel] = None
 
         self._root_n: Optional[trio.Nursery] = None
-
-    def open_search(self):
-        # search = self.search = QtWidgets.QLineEdit()
-        self.search = FontSizedQLineEdit(self)
-        self.search.unfocus()
-        self.vbox.addWidget(self.search)
-        self.vbox.addWidget(self.search.view)
-        self.search.view.set_results([
-            'XMRUSD',
-            'XBTUSD',
-            'XMRXBT',
-            # 'XMRXBT',
-            # 'XDGUSD',
-            # 'ADAUSD',
-        ])
-
-        # search.installEventFilter(self)
 
     def init_timeframes_ui(self):
         self.tf_layout = QtGui.QHBoxLayout()
@@ -165,6 +150,8 @@ class ChartSpace(QtGui.QWidget):
 
             # we must load a fresh linked charts set
             linkedcharts = LinkedSplitCharts(self)
+
+            # spawn new task to start up and update new sub-chart instances
             self._root_n.start_soon(
                 chart_symbol,
                 self,
@@ -172,6 +159,7 @@ class ChartSpace(QtGui.QWidget):
                 symbol_key,
                 loglevel,
             )
+
             self.vbox.addWidget(linkedcharts)
             self._chart_cache[symbol_key] = linkedcharts
 
@@ -1600,13 +1588,43 @@ async def _async_main(
         # that run cached in the bg
         chart_app._root_n = root_n
 
-        # TODO: trigger on ctlr-k
-        chart_app.open_search()
+        # setup search widget
+        # search.installEventFilter(self)
+
+        search = _search.FontSizedQLineEdit(chart_app)
+        # the main chart's view is given focus at startup
+        search.unfocus()
+
+        # add search singleton to global chart-space widget
+        chart_app.vbox.addWidget(search)
+        chart_app.vbox.addWidget(search.view)
+        chart_app.search = search
+
+        search.view.set_results([
+            'ETHUSD',
+            'XMRUSD',
+            'XBTUSD',
+            'XMRXBT',
+            # 'XMRXBT',
+            # 'XDGUSD',
+            # 'ADAUSD',
+        ])
 
         # this internally starts a ``chart_symbol()`` task above
         chart_app.load_symbol(brokername, sym, loglevel)
 
-        await trio.sleep_forever()
+        async with open_key_stream(
+            search,
+        ) as key_stream:
+
+            # start kb handling task for searcher
+            root_n.start_soon(
+                _search.handle_keyboard_input,
+                search,
+                key_stream,
+            )
+
+            await trio.sleep_forever()
 
 
 def _main(
