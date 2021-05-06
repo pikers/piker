@@ -289,6 +289,7 @@ async def get_client() -> Client:
     yield client
 
 
+@tractor.context
 async def open_symbol_search(
     ctx: tractor.Context,
 ) -> Client:
