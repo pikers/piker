@@ -71,9 +71,11 @@ setup(
         'PyQt5',
         'pyqtgraph',
         'qdarkstyle==2.8.1',
+        #'kivy',  see requirement.txt; using a custom branch atm
 
         # tsdbs
         'pymarketstore',
+
         #'kivy',  see requirement.txt; using a custom branch atm
 
         # fuzzy search
