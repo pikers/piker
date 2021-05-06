@@ -1600,16 +1600,6 @@ async def _async_main(
         chart_app.vbox.addWidget(search.view)
         chart_app.search = search
 
-        search.view.set_results([
-            'ETHUSD',
-            'XMRUSD',
-            'XBTUSD',
-            'XMRXBT',
-            # 'XMRXBT',
-            # 'XDGUSD',
-            # 'ADAUSD',
-        ])
-
         # this internally starts a ``chart_symbol()`` task above
         chart_app.load_symbol(brokername, sym, loglevel)
 
