@@ -18,20 +18,19 @@
 qompleterz: embeddable search and complete using trio, Qt and fuzzywuzzy.
 
 """
-from typing import List, Optional
+from typing import List, Optional, Callable, Awaitable
 import sys
+# from pprint import pformat
 
 from PyQt5 import QtCore, QtGui
-from PyQt5.QtCore import Qt, QEvent
 from PyQt5 import QtWidgets
 import trio
 
 from PyQt5.QtCore import (
     Qt,
-    QSize,
+    # QSize,
     QModelIndex,
     QItemSelectionModel,
-    # QStringListModel
 )
 from PyQt5.QtGui import (
     QStandardItem,
@@ -43,15 +42,15 @@ from PyQt5.QtWidgets import (
     QAbstractScrollArea,
     QStyledItemDelegate,
 )
-from fuzzywuzzy import process
 
 
 from ..log import get_logger
 from ._style import (
     _font,
     DpiAwareFont,
-    hcolor,
+    # hcolor,
 )
+from ..data import feed
 
 
 log = get_logger(__name__)
@@ -90,9 +89,33 @@ class CompleterView(QTreeView):
     def __init__(
         self,
         parent=None,
+        labels: List[str] = [],
     ) -> None:
 
         super().__init__(parent)
+
+        model = QStandardItemModel(self)
+        self.labels = labels
+
+        # a std "tabular" config
+        self.setItemDelegate(SimpleDelegate())
+        self.setModel(model)
+        self.setAlternatingRowColors(True)
+        self.setIndentation(1)
+
+        # self.setUniformRowHeights(True)
+        # self.setColumnWidth(0, 3)
+
+        # ux settings
+        self.setItemsExpandable(True)
+        self.setExpandsOnDoubleClick(False)
+        self.setAnimated(False)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        self.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
+
+        # column headers
+        model.setHorizontalHeaderLabels(labels)
 
         self._font_size: int = 0  # pixels
         # self._cache: Dict[str, List[str]] = {}
@@ -115,23 +138,6 @@ class CompleterView(QTreeView):
     #     # psh.setHeight(12)
     #     return QSize(-1, height)
 
-    def resize(self):
-        model = self.model()
-        cols = model.columnCount()
-
-        for i in range(cols):
-            self.resizeColumnToContents(i)
-
-        # inclusive of search bar and header "rows" in pixel terms
-        rows = model.rowCount() + 2
-        # max_rows = 8  # 6 + search and headers
-        row_px = self.rowHeight(self.currentIndex())
-        # print(f'font_h: {font_h}\n px_height: {px_height}')
-
-        # TODO: probably make this more general / less hacky
-        self.setMinimumSize(self.width(), rows * row_px)
-        self.setMaximumSize(self.width(), rows * row_px)
-
     def set_font_size(self, size: int = 18):
         # dpi_px_size = _font.px_size
         print(size)
@@ -148,6 +154,19 @@ class CompleterView(QTreeView):
     ) -> None:
 
         model = self.model()
+        model.clear()
+        model.setHorizontalHeaderLabels(self.labels)
+
+        # TODO: wtf.. this model shit
+        # row_count = model.rowCount()
+        # if row_count > 0:
+        #     model.removeRows(
+        #         0,
+        #         row_count,
+
+        #         # root index
+        #         model.index(0, 0, QModelIndex()),
+        #     )
 
         for i, s in enumerate(results):
 
@@ -160,49 +179,40 @@ class CompleterView(QTreeView):
             # Add the item to the model
             model.appendRow([src, ix, item])
 
-    def find_matches(
-        self,
-        field: str,
-        txt: str,
-    ) -> List[QStandardItem]:
+    def show_matches(self) -> None:
+        # print(f"SHOWING {self}")
+        self.show()
+        self.resize()
+
+    def resize(self):
         model = self.model()
-        items = model.findItems(
-            txt,
-            Qt.MatchContains,
-            self.field_to_col(field),
-        )
+        cols = model.columnCount()
 
+        for i in range(cols):
+            self.resizeColumnToContents(i)
 
-def mk_completer_view(
+        # inclusive of search bar and header "rows" in pixel terms
+        rows = model.rowCount() + 2
+        print(f'row count: {rows}')
+        # max_rows = 8  # 6 + search and headers
+        row_px = self.rowHeight(self.currentIndex())
+        # print(f'font_h: {font_h}\n px_height: {px_height}')
 
-    labels: List[str],
+        # TODO: probably make this more general / less hacky
+        self.setMinimumSize(self.width(), rows * row_px)
+        self.setMaximumSize(self.width(), rows * row_px)
 
-) -> QTreeView:
-
-    tree = CompleterView()
-    model = QStandardItemModel(tree)
-
-    # a std "tabular" config
-    tree.setItemDelegate(SimpleDelegate())
-    tree.setModel(model)
-    tree.setAlternatingRowColors(True)
-    tree.setIndentation(1)
-
-    # tree.setUniformRowHeights(True)
-    # tree.setColumnWidth(0, 3)
-
-    # ux settings
-    tree.setItemsExpandable(True)
-    tree.setExpandsOnDoubleClick(False)
-    tree.setAnimated(False)
-    tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-
-    tree.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
-
-    # column headers
-    model.setHorizontalHeaderLabels(labels)
-
-    return tree
+    # def find_matches(
+    #     self,
+    #     field: str,
+    #     txt: str,
+    # ) -> List[QStandardItem]:
+    #     model = self.model()
+    #     items = model.findItems(
+    #         txt,
+    #         Qt.MatchContains,
+    #         self.field_to_col(field),
+    #     )
 
 
 class FontSizedQLineEdit(QtWidgets.QLineEdit):
@@ -246,7 +256,7 @@ class FontSizedQLineEdit(QtWidgets.QLineEdit):
 
     def show(self) -> None:
         super().show()
-        self.show_matches()
+        self.view.show_matches()
         # self.view.show()
         # self.view.resize()
 
@@ -254,7 +264,7 @@ class FontSizedQLineEdit(QtWidgets.QLineEdit):
     def view(self) -> CompleterView:
 
         if self._view is None:
-            view = mk_completer_view(['src', 'i', 'symbol'])
+            view = CompleterView(labels=['src', 'i', 'symbol'])
 
             # print('yo')
             # self.chart_app.vbox.addWidget(view)
@@ -263,13 +273,6 @@ class FontSizedQLineEdit(QtWidgets.QLineEdit):
             self._view = view
 
         return self._view
-
-    def show_matches(self):
-        view = self.view
-        view.set_font_size(self.dpi_font.px_size)
-        view.show()
-        # scale columns
-        view.resize()
 
     def sizeHint(self) -> QtCore.QSize:
         """
@@ -307,102 +310,163 @@ class FontSizedQLineEdit(QtWidgets.QLineEdit):
     #     # ev.accept()
 
 
-async def handle_keyboard_input(
-    self,
+async def fill_results(
+    search: FontSizedQLineEdit,
+    symsearch: Callable[..., Awaitable],
     recv_chan: trio.abc.ReceiveChannel,
+    # pattern: str,
 ) -> None:
 
-    async for key, mods, txt in recv_chan:
+    sel = search.view.selectionModel()
+    model = search.view.model()
 
-        # by default we don't mart it as consumed?
-        # ev.ignore()
+    async for pattern in recv_chan:
+        # so symbol search
+        # pattern = search.text()
+        # print(f'searching for: {pattern}')
 
-        print(f'key: {key}, mods: {mods}, txt: {txt}')
+        results = await symsearch(pattern)
+        # print(f'results\n:{pformat(results)}')
 
-        if key in (Qt.Key_Enter, Qt.Key_Return):
+        if results:
+            # print(f"results: {results}")
 
-            print(f'Requesting symbol: {self.text()}')
-
-            # TODO: ensure there is a matching completion or error and
-            # do nothing
-            symbol = self.text()
-
-            app = self.chart_app
-            self.chart_app.load_symbol(
-                app.linkedcharts.symbol.brokers[0],
-                symbol,
-                'info',
+            # TODO: indented branch results for each provider
+            search.view.set_results(
+                [item['altname'] for item in
+                 results['kraken'].values()]
             )
 
-            # release kb control of search bar
-            self.unfocus()
-            continue
-            # return
-
-        ctrl = False
-        if mods == Qt.ControlModifier:
-            ctrl = True
-
-        view = self.view
-        model = view.model()
-        nidx = cidx = view.currentIndex()
-        sel = view.selectionModel()
-        # sel.clear()
-
-        # selection tips:
-        # - get parent: self.index(row, 0)
-        # - first item index: index = self.index(0, 0, parent)
-
-        if ctrl:
-            # we're in select mode or cancelling
-
-            if key == Qt.Key_C:
-                self.unfocus()
-
-                # kill the search and focus back on main chart
-                if self.chart_app:
-                    self.chart_app.linkedcharts.focus()
-
-                # return
-                continue
-
-            # result selection nav
-            if key in (Qt.Key_K, Qt.Key_J):
-
-                if key == Qt.Key_K:
-                    # self.view.setFocus()
-                    nidx = view.indexAbove(cidx)
-                    print('move up')
-
-                elif key == Qt.Key_J:
-                    # self.view.setFocus()
-                    nidx = view.indexBelow(cidx)
-                    print('move down')
-
-                # select row without selecting.. :eye_rollzz:
-                # https://doc.qt.io/qt-5/qabstractitemview.html#setCurrentIndex
-                if nidx.isValid():
-                    sel.setCurrentIndex(
-                        nidx,
-                        QItemSelectionModel.ClearAndSelect |
-                        QItemSelectionModel.Rows
-                    )
-
-                    # TODO: make this not hard coded to 2
-                    # and use the ``CompleterView`` schema/settings
-                    # to figure out the desired field(s)
-                    value = model.item(nidx.row(), 2).text()
-                    print(f'value: {value}')
-                    self.setText(value)
-
-        else:
+            # XXX: these 2 lines MUST be in sequence !?
             sel.setCurrentIndex(
                 model.index(0, 0, QModelIndex()),
                 QItemSelectionModel.ClearAndSelect |  # type: ignore[arg-type]
                 QItemSelectionModel.Rows
             )
+            search.show()
 
-        self.show_matches()
+
+async def handle_keyboard_input(
+    search: FontSizedQLineEdit,
+    recv_chan: trio.abc.ReceiveChannel,
+) -> None:
+
+    # startup
+    view = search.view
+    view.set_font_size(search.dpi_font.px_size)
+    model = view.model()
+    nidx = cidx = view.currentIndex()
+    sel = view.selectionModel()
+    # sel.clear()
+
+    symsearch = feed.get_multi_search()
+
+    send, recv = trio.open_memory_channel(16)
+
+    async with trio.open_nursery() as n:
+        # TODO: async debouncing!
+        n.start_soon(
+            fill_results,
+            search,
+            symsearch,
+            recv,
+            # pattern,
+        )
+
+        async for key, mods, txt in recv_chan:
+
+            # startup
+            # view = search.view
+            # view.set_font_size(search.dpi_font.px_size)
+            # model = view.model()
+            nidx = cidx = view.currentIndex()
+            # sel = view.selectionModel()
+
+            # by default we don't mart it as consumed?
+            # ev.ignore()
+            search.show()
+
+            log.debug(f'key: {key}, mods: {mods}, txt: {txt}')
+
+            ctrl = False
+            if mods == Qt.ControlModifier:
+                ctrl = True
+
+            if key in (Qt.Key_Enter, Qt.Key_Return):
+
+                value = model.item(nidx.row(), 2).text()
+
+                log.info(f'Requesting symbol: {value}')
+
+                app = search.chart_app
+                search.chart_app.load_symbol(
+                    app.linkedcharts.symbol.brokers[0],
+                    value,
+                    'info',
+                )
+
+                # release kb control of search bar
+                search.unfocus()
+                continue
+
+            # selection tips:
+            # - get parent: search.index(row, 0)
+            # - first item index: index = search.index(0, 0, parent)
+
+            if ctrl:
+                # we're in select mode or cancelling
+
+                if key == Qt.Key_C:
+                    search.unfocus()
+
+                    # kill the search and focus back on main chart
+                    if search.chart_app:
+                        search.chart_app.linkedcharts.focus()
+
+                    continue
+
+                # result selection nav
+                if key in (Qt.Key_K, Qt.Key_J):
+
+                    if key == Qt.Key_K:
+                        # search.view.setFocus()
+                        nidx = view.indexAbove(cidx)
+                        print('move up')
+
+                    elif key == Qt.Key_J:
+                        # search.view.setFocus()
+                        nidx = view.indexBelow(cidx)
+                        print('move down')
+
+                    # select row without selecting.. :eye_rollzz:
+                    # https://doc.qt.io/qt-5/qabstractitemview.html#setCurrentIndex
+                    if nidx.isValid():
+                        sel.setCurrentIndex(
+                            nidx,
+                            QItemSelectionModel.ClearAndSelect |
+                            QItemSelectionModel.Rows
+                        )
+
+                        # TODO: make this not hard coded to 2
+                        # and use the ``CompleterView`` schema/settings
+                        # to figure out the desired field(s)
+                        value = model.item(nidx.row(), 2).text()
+                        print(f'value: {value}')
+                        # search.setText(value)
+                        # continue
+
+                else:
+                    # auto-select the top matching result
+                    sel.setCurrentIndex(
+                        model.index(0, 0, QModelIndex()),
+                        QItemSelectionModel.ClearAndSelect |
+                        QItemSelectionModel.Rows
+                    )
+                search.view.show_matches()
+
+            else:
+                # relay to completer task
+                send.send_nowait(search.text())
 
 
 if __name__ == '__main__':
@@ -413,13 +477,14 @@ if __name__ == '__main__':
     syms = [
         'XMRUSD',
         'XBTUSD',
+        'ETHUSD',
         'XMRXBT',
         'XDGUSD',
         'ADAUSD',
     ]
 
     # results.setFocusPolicy(Qt.NoFocus)
-    view = mk_completer_view(['src', 'i', 'symbol'])
+    view = CompleterView(['src', 'i', 'symbol'])
     search = FontSizedQLineEdit(None, view=view)
     search.view.set_results(syms)
 
@@ -434,7 +499,6 @@ if __name__ == '__main__':
     main = W()
     main.vbox.addWidget(search)
     main.vbox.addWidget(view)
-    # main.show()
     search.show()
 
     sys.exit(app.exec_())
