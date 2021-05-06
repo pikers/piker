@@ -64,7 +64,8 @@ async def open_key_stream(
 
 ) -> trio.abc.ReceiveChannel:
 
-    send, recv = trio.open_memory_channel(1)
+    # 1 to force eager sending
+    send, recv = trio.open_memory_channel(16)
 
     kc = KeyCloner()
     kc._send_chan = send
