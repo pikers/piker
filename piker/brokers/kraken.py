@@ -289,32 +289,6 @@ async def get_client() -> Client:
     yield client
 
 
-@tractor.context
-async def open_symbol_search(
-    ctx: tractor.Context,
-) -> Client:
-    async with open_cached_client('kraken') as client:
-
-        # load all symbols locally for fast search
-        cache = await client.cache_symbols()
-        await ctx.started(cache)
-
-        async with ctx.open_stream() as stream:
-
-            async for pattern in stream:
-
-                matches = fuzzy.extractBests(
-                    pattern,
-                    cache,
-                    score_cutoff=50,
-                )
-                # repack in dict form
-                await stream.send(
-                    {item[0]['altname']: item[0]
-                     for item in matches}
-                )
-
-
 async def stream_messages(ws):
 
     too_slow_count = last_hb = 0
@@ -397,7 +371,8 @@ def normalize(
 
     # seriously eh? what's with this non-symmetry everywhere
     # in subscription systems...
-    topic = quote['pair'].replace('/', '')
+    # XXX: piker style is always lowercases symbols.
+    topic = quote['pair'].replace('/', '').lower()
 
     # print(quote)
     return topic, quote
@@ -558,6 +533,10 @@ async def stream_quotes(
 
         # keep client cached for real-time section
         for sym in symbols:
+
+            # transform to upper since piker style is always lower
+            sym = sym.upper()
+
             si = Pair(**await client.symbol_info(sym))  # validation
             syminfo = si.dict()
             syminfo['price_tick_size'] = 1 / 10**si.pair_decimals
@@ -565,7 +544,7 @@ async def stream_quotes(
             sym_infos[sym] = syminfo
             ws_pairs[sym] = si.wsname
 
-        symbol = symbols[0]
+        symbol = symbols[0].lower()
 
         init_msgs = {
             # pass back token, and bool, signalling if we're the writer
@@ -653,8 +632,35 @@ async def stream_quotes(
 
                 elif typ == 'l1':
                     quote = ohlc
-                    topic = quote['symbol']
+                    topic = quote['symbol'].lower()
 
                 # XXX: format required by ``tractor.msg.pub``
                 # requires a ``Dict[topic: str, quote: dict]``
                 await send_chan.send({topic: quote})
+
+
+
+@tractor.context
+async def open_symbol_search(
+    ctx: tractor.Context,
+) -> Client:
+    async with open_cached_client('kraken') as client:
+
+        # load all symbols locally for fast search
+        cache = await client.cache_symbols()
+        await ctx.started(cache)
+
+        async with ctx.open_stream() as stream:
+
+            async for pattern in stream:
+
+                matches = fuzzy.extractBests(
+                    pattern,
+                    cache,
+                    score_cutoff=50,
+                )
+                # repack in dict form
+                await stream.send(
+                    {item[0]['altname']: item[0]
+                     for item in matches}
+                )
