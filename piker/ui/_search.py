@@ -18,8 +18,12 @@
 qompleterz: embeddable search and complete using trio, Qt and fuzzywuzzy.
 
 """
-from typing import List, Optional, Callable, Awaitable
 import sys
+import time
+from typing import (
+    List, Optional, Callable,
+    Awaitable, Sequence, Dict,
+)
 # from pprint import pformat
 
 from PyQt5 import QtCore, QtGui
@@ -150,7 +154,7 @@ class CompleterView(QTreeView):
 
     def set_results(
         self,
-        results: List[str],
+        results: Dict[str, Sequence[str]],
     ) -> None:
 
         model = self.model()
@@ -167,17 +171,19 @@ class CompleterView(QTreeView):
         #         # root index
         #         model.index(0, 0, QModelIndex()),
         #     )
+        for key, values in results.items():
 
-        for i, s in enumerate(results):
+            # values just needs to be sequence-like
+            for i, s in enumerate(values):
 
-            ix = QStandardItem(str(i))
-            item = QStandardItem(s)
-            # item.setCheckable(False)
+                ix = QStandardItem(str(i))
+                item = QStandardItem(s)
+                # item.setCheckable(False)
 
-            src = QStandardItem('kraken')
+                src = QStandardItem(key)
 
-            # Add the item to the model
-            model.appendRow([src, ix, item])
+                # Add the item to the model
+                model.appendRow([src, ix, item])
 
     def show_matches(self) -> None:
         # print(f"SHOWING {self}")
@@ -291,23 +297,9 @@ class FontSizedQLineEdit(QtWidgets.QLineEdit):
         if self.view:
             self.view.hide()
 
-    # def keyPressEvent(self, ev: QEvent) -> None:
 
-    #     # XXX: we unpack here because apparently doing it
-    #     # after pop from the mem chan isn't showing the same
-    #     # event object? no clue wtf is going on there, likely
-    #     # something to do with Qt internals and calling the
-    #     # parent handler?
-    #     key = ev.key()
-    #     mods = ev.modifiers()
-    #     txt = self.text()
-
-    #     # run async processing
-    #     self._send_chan.send_nowait((key, mods, txt))
-
-    #     super().keyPressEvent(ev)
-
-    #     # ev.accept()
+_ongoing_search: trio.CancelScope = None
+_search_enabled: bool = False
 
 
 async def fill_results(
@@ -316,28 +308,37 @@ async def fill_results(
     recv_chan: trio.abc.ReceiveChannel,
     # pattern: str,
 ) -> None:
+    """Task to search through providers and fill in possible
+    completion results.
 
+    """
+    global _ongoing_search, _search_enabled
+
+    view = search.view
     sel = search.view.selectionModel()
     model = search.view.model()
 
     async for pattern in recv_chan:
-        # so symbol search
-        # pattern = search.text()
-        # print(f'searching for: {pattern}')
 
-        results = await symsearch(pattern)
-        # print(f'results\n:{pformat(results)}')
+        if not _search_enabled:
+            log.debug(f'Ignoring search for {pattern}')
+            continue
 
-        if results:
-            # print(f"results: {results}")
+        with trio.CancelScope() as cs:
+            _ongoing_search = cs
+            results = await symsearch(pattern)
+            _ongoing_search = None
+
+        if results and not cs.cancelled_caught:
 
             # TODO: indented branch results for each provider
-            search.view.set_results(
-                [item['altname'] for item in
-                 results['kraken'].values()]
-            )
+            view.set_results(results)
+                # [item['altname'] for item in
+                #  results['kraken'].values()]
+            # )
 
-            # XXX: these 2 lines MUST be in sequence !?
+            # XXX: these 2 lines MUST be in sequence in order
+            # to get the view to show right after typing input.
             sel.setCurrentIndex(
                 model.index(0, 0, QModelIndex()),
                 QItemSelectionModel.ClearAndSelect |  # type: ignore[arg-type]
@@ -347,9 +348,13 @@ async def fill_results(
 
 
 async def handle_keyboard_input(
+
     search: FontSizedQLineEdit,
     recv_chan: trio.abc.ReceiveChannel,
+
 ) -> None:
+
+    global _ongoing_search, _search_enabled
 
     # startup
     view = search.view
@@ -357,36 +362,29 @@ async def handle_keyboard_input(
     model = view.model()
     nidx = cidx = view.currentIndex()
     sel = view.selectionModel()
-    # sel.clear()
 
     symsearch = feed.get_multi_search()
-
     send, recv = trio.open_memory_channel(16)
 
     async with trio.open_nursery() as n:
-        # TODO: async debouncing!
+        # TODO: async debouncing?
         n.start_soon(
             fill_results,
             search,
             symsearch,
             recv,
-            # pattern,
         )
 
+        last_time = time.time()
+
         async for key, mods, txt in recv_chan:
-
-            # startup
-            # view = search.view
-            # view.set_font_size(search.dpi_font.px_size)
-            # model = view.model()
-            nidx = cidx = view.currentIndex()
-            # sel = view.selectionModel()
-
-            # by default we don't mart it as consumed?
-            # ev.ignore()
-            search.show()
+            # TODO: move this logic into completer task
+            now = time.time()
+            period = now - last_time
+            last_time = now
 
             log.debug(f'key: {key}, mods: {mods}, txt: {txt}')
+            nidx = cidx = view.currentIndex()
 
             ctrl = False
             if mods == Qt.ControlModifier:
@@ -394,7 +392,15 @@ async def handle_keyboard_input(
 
             if key in (Qt.Key_Enter, Qt.Key_Return):
 
-                value = model.item(nidx.row(), 2).text()
+                if _ongoing_search is not None:
+                    _ongoing_search.cancel()
+                    _search_enabled = False
+
+                node = model.item(nidx.row(), 2)
+                if node:
+                    value = node.text()
+                else:
+                    continue
 
                 log.info(f'Requesting symbol: {value}')
 
@@ -410,12 +416,14 @@ async def handle_keyboard_input(
                 continue
 
             # selection tips:
-            # - get parent: search.index(row, 0)
-            # - first item index: index = search.index(0, 0, parent)
+            # - get parent node: search.index(row, 0)
+            # - first node index: index = search.index(0, 0, parent)
+            # - root node index: index = search.index(0, 0, QModelIndex())
 
+            # we're in select mode or cancelling
             if ctrl:
-                # we're in select mode or cancelling
 
+                # cancel and close
                 if key == Qt.Key_C:
                     search.unfocus()
 
@@ -429,14 +437,10 @@ async def handle_keyboard_input(
                 if key in (Qt.Key_K, Qt.Key_J):
 
                     if key == Qt.Key_K:
-                        # search.view.setFocus()
                         nidx = view.indexAbove(cidx)
-                        print('move up')
 
                     elif key == Qt.Key_J:
-                        # search.view.setFocus()
                         nidx = view.indexBelow(cidx)
-                        print('move down')
 
                     # select row without selecting.. :eye_rollzz:
                     # https://doc.qt.io/qt-5/qabstractitemview.html#setCurrentIndex
@@ -451,22 +455,11 @@ async def handle_keyboard_input(
                         # and use the ``CompleterView`` schema/settings
                         # to figure out the desired field(s)
                         value = model.item(nidx.row(), 2).text()
-                        print(f'value: {value}')
-                        # search.setText(value)
-                        # continue
-
-                else:
-                    # auto-select the top matching result
-                    sel.setCurrentIndex(
-                        model.index(0, 0, QModelIndex()),
-                        QItemSelectionModel.ClearAndSelect |
-                        QItemSelectionModel.Rows
-                    )
-                search.view.show_matches()
-
             else:
-                # relay to completer task
-                send.send_nowait(search.text())
+                if period >= 0.1:
+                    _search_enabled = True
+                    # relay to completer task
+                    send.send_nowait(search.text())
 
 
 if __name__ == '__main__':
