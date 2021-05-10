@@ -94,6 +94,7 @@ class ChartSpace(QtGui.QWidget):
         # self.init_strategy_ui()
         self.vbox.addLayout(self.toolbar_layout)
         self.vbox.addLayout(self.hbox)
+
         self._chart_cache = {}
         self.linkedcharts: 'LinkedSplitCharts' = None
         self.symbol_label: Optional[QtGui.QLabel] = None
@@ -135,6 +136,9 @@ class ChartSpace(QtGui.QWidget):
         Expects a ``numpy`` structured array containing all the ohlcv fields.
 
         """
+        # our symbol key style is always lower case
+        symbol_key = symbol_key.lower()
+
         linkedcharts = self._chart_cache.get(symbol_key)
 
         if not self.vbox.isEmpty():

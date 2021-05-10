@@ -379,13 +379,25 @@ class Feed:
     @asynccontextmanager
     async def open_symbol_search(self) -> AsyncIterator[dict]:
 
+        open_search = getattr(self.mod, 'open_symbol_search', None)
+        if open_search is None:
+
+            # just return a pure pass through searcher
+            async def passthru(text: str) -> Dict[str, Any]:
+                return text
+
+            self.search = passthru
+            yield self.search
+            self.search = None
+            return
+
         async with self._brokerd_portal.open_context(
-
-            self.mod.open_symbol_search,
-
+            open_search,
         ) as (ctx, cache):
 
-            async with ctx.open_stream() as stream:
+            # shield here since we expect the search rpc to be
+            # cancellable by the user as they see fit.
+            async with ctx.open_stream(shield=True) as stream:
 
                 async def search(text: str) -> Dict[str, Any]:
                     await stream.send(text)
@@ -448,7 +460,7 @@ async def open_feed(
     """
     global _cache, _cache_lock
 
-    sym = symbols[0]
+    sym = symbols[0].lower()
 
     # TODO: feed cache locking, right now this is causing
     # issues when reconncting to a long running emsd?
@@ -526,11 +538,6 @@ async def open_feed(
 
             _cache[(brokername, sym)] = feed
 
-            try:
-                async with feed.open_symbol_search():
-                    yield feed
+            async with feed.open_symbol_search():
+                yield feed
 
-            finally:
-                # always cancel the far end producer task
-                with trio.CancelScope(shield=True):
-                    await stream.aclose()
