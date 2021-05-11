@@ -19,7 +19,6 @@ qompleterz: embeddable search and complete using trio, Qt and fuzzywuzzy.
 
 """
 import sys
-import time
 from typing import (
     List, Optional, Callable,
     Awaitable, Sequence, Dict,
@@ -298,50 +297,86 @@ class FontSizedQLineEdit(QtWidgets.QLineEdit):
             self.view.hide()
 
 
-_ongoing_search: trio.CancelScope = None
+_search_active: trio.Event = trio.Event()
 _search_enabled: bool = False
 
 
 async def fill_results(
+
     search: FontSizedQLineEdit,
     symsearch: Callable[..., Awaitable],
     recv_chan: trio.abc.ReceiveChannel,
-    # pattern: str,
+    pause_time: float = 0.25,
+
 ) -> None:
     """Task to search through providers and fill in possible
     completion results.
 
     """
-    global _ongoing_search, _search_enabled
+    global _search_active, _search_enabled
 
     view = search.view
     sel = search.view.selectionModel()
     model = search.view.model()
 
-    async for pattern in recv_chan:
+    last_search_text = ''
+    last_text = search.text()
+    repeats = 0
 
-        if not _search_enabled:
-            log.debug(f'Ignoring search for {pattern}')
+    while True:
+
+        last_text = search.text()
+        await _search_active.wait()
+
+        with trio.move_on_after(pause_time) as cs:
+            # cs.shield = True
+            pattern = await recv_chan.receive()
+            print(pattern)
+
+        # during fast multiple key inputs, wait until a pause
+        # (in typing) to initiate search
+        if not cs.cancelled_caught:
+            log.debug(f'Ignoring fast input for {pattern}')
             continue
 
-        with trio.CancelScope() as cs:
-            _ongoing_search = cs
-            results = await symsearch(pattern)
-            _ongoing_search = None
+        text = search.text()
+        print(f'search: {text}')
 
-        if results and not cs.cancelled_caught:
+        if not text:
+            print('idling')
+            _search_active = trio.Event()
+            continue
+
+        if text == last_text:
+            repeats += 1
+
+        if repeats > 1:
+            _search_active = trio.Event()
+            repeats = 0
+
+        if not _search_enabled:
+            print('search not ENABLED?')
+            continue
+
+        if last_search_text and last_search_text == text:
+            continue
+
+        log.debug(f'Search req for {text}')
+
+        last_search_text = text
+        results = await symsearch(text)
+        log.debug(f'Received search result {results}')
+
+        if results and _search_enabled:
 
             # TODO: indented branch results for each provider
             view.set_results(results)
-                # [item['altname'] for item in
-                #  results['kraken'].values()]
-            # )
 
             # XXX: these 2 lines MUST be in sequence in order
             # to get the view to show right after typing input.
             sel.setCurrentIndex(
                 model.index(0, 0, QModelIndex()),
-                QItemSelectionModel.ClearAndSelect |  # type: ignore[arg-type]
+                QItemSelectionModel.ClearAndSelect |
                 QItemSelectionModel.Rows
             )
             search.show()
@@ -354,7 +389,7 @@ async def handle_keyboard_input(
 
 ) -> None:
 
-    global _ongoing_search, _search_enabled
+    global _search_active, _search_enabled
 
     # startup
     view = search.view
@@ -375,13 +410,7 @@ async def handle_keyboard_input(
             recv,
         )
 
-        last_time = time.time()
-
         async for key, mods, txt in recv_chan:
-            # TODO: move this logic into completer task
-            now = time.time()
-            period = now - last_time
-            last_time = now
 
             log.debug(f'key: {key}, mods: {mods}, txt: {txt}')
             nidx = cidx = view.currentIndex()
@@ -391,10 +420,6 @@ async def handle_keyboard_input(
                 ctrl = True
 
             if key in (Qt.Key_Enter, Qt.Key_Return):
-
-                if _ongoing_search is not None:
-                    _ongoing_search.cancel()
-                    _search_enabled = False
 
                 node = model.item(nidx.row(), 2)
                 if node:
@@ -411,6 +436,7 @@ async def handle_keyboard_input(
                     'info',
                 )
 
+                _search_enabled = False
                 # release kb control of search bar
                 search.unfocus()
                 continue
@@ -422,7 +448,6 @@ async def handle_keyboard_input(
 
             # we're in select mode or cancelling
             if ctrl:
-
                 # cancel and close
                 if key == Qt.Key_C:
                     search.unfocus()
@@ -435,6 +460,7 @@ async def handle_keyboard_input(
 
                 # result selection nav
                 if key in (Qt.Key_K, Qt.Key_J):
+                    _search_enabled = False
 
                     if key == Qt.Key_K:
                         nidx = view.indexAbove(cidx)
@@ -456,10 +482,10 @@ async def handle_keyboard_input(
                         # to figure out the desired field(s)
                         value = model.item(nidx.row(), 2).text()
             else:
-                if period >= 0.1:
-                    _search_enabled = True
-                    # relay to completer task
-                    send.send_nowait(search.text())
+                # relay to completer task
+                _search_enabled = True
+                send.send_nowait(search.text())
+                _search_active.set()
 
 
 if __name__ == '__main__':
