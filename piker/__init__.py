@@ -19,6 +19,8 @@ piker: trading gear for hackers.
 
 """
 import msgpack  # noqa
+
+# TODO: remove this now right?
 import msgpack_numpy
 
 # patch msgpack for numpy arrays
