@@ -724,7 +724,7 @@ class ChartView(ViewBox):
 
         self._key_active = False
 
-    def keyPressEvent(self, ev):
+    def keyPressEvent(self, ev: QtCore.QEvent) -> None:
         """
         This routine should capture key presses in the current view box.
 
@@ -759,10 +759,10 @@ class ChartView(ViewBox):
         if mods == QtCore.Qt.AltModifier:
             pass
 
-        # ctlr-k
-        if key == QtCore.Qt.Key_K and ctrl:
+        # ctlr-l for "lookup" -> open search / lists
+        if ctrl and key == QtCore.Qt.Key_L:
             search = self._chart._lc.chart_space.search
-            search.focus()
+            search.bar.focus()
 
         # esc
         if key == QtCore.Qt.Key_Escape or (ctrl and key == QtCore.Qt.Key_C):
@@ -809,5 +809,6 @@ class ChartView(ViewBox):
         # elif ev.key() == QtCore.Qt.Key_Backspace:
         #     self.scaleHistory(len(self.axHistory))
         else:
+            # maybe propagate to parent widget
             ev.ignore()
             self._key_active = False

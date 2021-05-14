@@ -402,7 +402,9 @@ async def start_order_mode(
 
             # each clearing tick is responded individually
             elif resp in ('broker_filled',):
+
                 action = msg['action']
+
                 # TODO: some kinda progress system
                 order_mode.on_fill(
                     oid,
