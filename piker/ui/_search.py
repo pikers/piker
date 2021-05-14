@@ -19,6 +19,7 @@ qompleterz: embeddable search and complete using trio, Qt and fuzzywuzzy.
 
 """
 import sys
+from functools import partial
 from typing import (
     List, Optional, Callable,
     Awaitable, Sequence, Dict,
@@ -40,6 +41,7 @@ from PyQt5.QtGui import (
     QStandardItemModel,
 )
 from PyQt5.QtWidgets import (
+    QWidget,
     QTreeView,
     # QListWidgetItem,
     QAbstractScrollArea,
@@ -220,23 +222,21 @@ class CompleterView(QTreeView):
     #     )
 
 
-class FontSizedQLineEdit(QtWidgets.QLineEdit):
+class SearchBar(QtWidgets.QLineEdit):
 
     def __init__(
+
         self,
-        parent_chart: 'ChartSpace',  # noqa
+        parent: QWidget,
+        parent_chart: QWidget,  # noqa
         view: Optional[CompleterView] = None,
         font: DpiAwareFont = _font,
+
     ) -> None:
-        super().__init__(parent_chart)
 
-        # vbox = self.vbox = QtGui.QVBoxLayout(self)
-        # vbox.addWidget(self)
-        # self.vbox.setContentsMargins(0, 0, 0, 0)
-        # self.vbox.setSpacing(2)
+        super().__init__(parent)
 
-        self._view: CompleterView = view
-
+        self.view: CompleterView = view
         self.dpi_font = font
         self.chart_app = parent_chart
 
@@ -262,22 +262,6 @@ class FontSizedQLineEdit(QtWidgets.QLineEdit):
     def show(self) -> None:
         super().show()
         self.view.show_matches()
-        # self.view.show()
-        # self.view.resize()
-
-    @property
-    def view(self) -> CompleterView:
-
-        if self._view is None:
-            view = CompleterView(labels=['src', 'i', 'symbol'])
-
-            # print('yo')
-            # self.chart_app.vbox.addWidget(view)
-            # self.vbox.addWidget(view)
-
-            self._view = view
-
-        return self._view
 
     def sizeHint(self) -> QtCore.QSize:
         """
@@ -286,7 +270,7 @@ class FontSizedQLineEdit(QtWidgets.QLineEdit):
         """
         psh = super().sizeHint()
         psh.setHeight(self.dpi_font.px_size + 2)
-        # psh.setHeight(12)
+        psh.setWidth(6*6*6)
         return psh
 
     def unfocus(self) -> None:
@@ -303,10 +287,10 @@ _search_enabled: bool = False
 
 async def fill_results(
 
-    search: FontSizedQLineEdit,
+    search: SearchBar,
     symsearch: Callable[..., Awaitable],
     recv_chan: trio.abc.ReceiveChannel,
-    pause_time: float = 0.25,
+    pause_time: float = 0.0616,
 
 ) -> None:
     """Task to search through providers and fill in possible
@@ -315,17 +299,18 @@ async def fill_results(
     """
     global _search_active, _search_enabled
 
-    view = search.view
-    sel = search.view.selectionModel()
-    model = search.view.model()
+    bar = search.bar
+    view = bar.view
+    sel = bar.view.selectionModel()
+    model = bar.view.model()
 
     last_search_text = ''
-    last_text = search.text()
+    last_text = bar.text()
     repeats = 0
 
     while True:
 
-        last_text = search.text()
+        last_text = bar.text()
         await _search_active.wait()
 
         with trio.move_on_after(pause_time) as cs:
@@ -339,7 +324,7 @@ async def fill_results(
             log.debug(f'Ignoring fast input for {pattern}')
             continue
 
-        text = search.text()
+        text = bar.text()
         print(f'search: {text}')
 
         if not text:
@@ -379,21 +364,59 @@ async def fill_results(
                 QItemSelectionModel.ClearAndSelect |
                 QItemSelectionModel.Rows
             )
-            search.show()
+            bar.show()
+
+
+class SearchWidget(QtGui.QWidget):
+    def __init__(
+        self,
+        chart_space: 'ChartSpace',  # type: ignore # noqa
+        columns: List[str] = ['src', 'i', 'symbol'],
+        parent=None,
+    ):
+        super().__init__(parent or chart_space)
+
+        # size it as we specify
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Fixed,
+            QtWidgets.QSizePolicy.Fixed,
+        )
+
+        self.chart_app = chart_space
+        self.vbox = QtGui.QVBoxLayout(self)
+        self.vbox.setContentsMargins(0, 0, 0, 0)
+        self.vbox.setSpacing(2)
+
+        self.view = CompleterView(
+            parent=self,
+            labels=columns,
+        )
+        self.bar = SearchBar(
+            parent=self,
+            parent_chart=chart_space,
+            view=self.view,
+        )
+        self.vbox.addWidget(self.bar)
+        self.vbox.setAlignment(self.bar, Qt.AlignTop | Qt.AlignLeft)
+        self.vbox.addWidget(self.bar.view)
+        self.vbox.setAlignment(self.view, Qt.AlignTop | Qt.AlignLeft)
+        # self.vbox.addWidget(sel.bar.view)
 
 
 async def handle_keyboard_input(
 
-    search: FontSizedQLineEdit,
+    search: SearchWidget,
     recv_chan: trio.abc.ReceiveChannel,
+    keyboard_pause_period: float = 0.0616,
 
 ) -> None:
 
     global _search_active, _search_enabled
 
     # startup
-    view = search.view
-    view.set_font_size(search.dpi_font.px_size)
+    bar = search.bar
+    view = bar.view
+    view.set_font_size(bar.dpi_font.px_size)
     model = view.model()
     nidx = cidx = view.currentIndex()
     sel = view.selectionModel()
@@ -404,10 +427,13 @@ async def handle_keyboard_input(
     async with trio.open_nursery() as n:
         # TODO: async debouncing?
         n.start_soon(
-            fill_results,
-            search,
-            symsearch,
-            recv,
+            partial(
+                fill_results,
+                search,
+                symsearch,
+                recv,
+                pause_time=keyboard_pause_period,
+            )
         )
 
         async for key, mods, txt in recv_chan:
@@ -438,7 +464,7 @@ async def handle_keyboard_input(
 
                 _search_enabled = False
                 # release kb control of search bar
-                search.unfocus()
+                search.bar.unfocus()
                 continue
 
             # selection tips:
@@ -450,7 +476,7 @@ async def handle_keyboard_input(
             if ctrl:
                 # cancel and close
                 if key == Qt.Key_C:
-                    search.unfocus()
+                    search.bar.unfocus()
 
                     # kill the search and focus back on main chart
                     if search.chart_app:
@@ -484,7 +510,7 @@ async def handle_keyboard_input(
             else:
                 # relay to completer task
                 _search_enabled = True
-                send.send_nowait(search.text())
+                send.send_nowait(search.bar.text())
                 _search_active.set()
 
 
@@ -504,7 +530,7 @@ if __name__ == '__main__':
 
     # results.setFocusPolicy(Qt.NoFocus)
     view = CompleterView(['src', 'i', 'symbol'])
-    search = FontSizedQLineEdit(None, view=view)
+    search = SearchBar(None, view=view)
     search.view.set_results(syms)
 
     # make a root widget to tie shit together
