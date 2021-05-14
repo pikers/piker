@@ -24,6 +24,7 @@ from types import ModuleType
 from functools import partial
 
 from PyQt5 import QtCore, QtGui
+from PyQt5.QtCore import Qt
 import numpy as np
 import pyqtgraph as pg
 import tractor
@@ -55,7 +56,7 @@ from ._style import (
     _bars_to_left_in_follow_mode,
 )
 from . import _search
-from ._search import FontSizedQLineEdit
+from ._search import SearchBar, SearchWidget
 from ._event import open_key_stream
 from ..data._source import Symbol
 from ..data._sharedmem import ShmArray
@@ -80,20 +81,24 @@ class ChartSpace(QtGui.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.vbox = QtGui.QVBoxLayout(self)
+        self.hbox = QtGui.QHBoxLayout(self)
+        self.hbox.setContentsMargins(0, 0, 0, 0)
+        self.hbox.setSpacing(2)
+
+        self.vbox = QtGui.QVBoxLayout()
         self.vbox.setContentsMargins(0, 0, 0, 0)
         self.vbox.setSpacing(2)
+
+        self.hbox.addLayout(self.vbox)
 
         self.toolbar_layout = QtGui.QHBoxLayout()
         self.toolbar_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.hbox = QtGui.QHBoxLayout()
-        self.hbox.setContentsMargins(0, 0, 0, 0)
 
         # self.init_timeframes_ui()
         # self.init_strategy_ui()
         self.vbox.addLayout(self.toolbar_layout)
-        self.vbox.addLayout(self.hbox)
+        # self.vbox.addLayout(self.hbox)
 
         self._chart_cache = {}
         self.linkedcharts: 'LinkedSplitCharts' = None
@@ -1595,20 +1600,30 @@ async def _async_main(
         # setup search widget
         # search.installEventFilter(self)
 
-        search = _search.FontSizedQLineEdit(chart_app)
+        # search = _search.SearchBar(chart_app)
+
+        search = _search.SearchWidget(
+            chart_space=chart_app,
+        )
+
         # the main chart's view is given focus at startup
-        search.unfocus()
+        search.bar.unfocus()
 
         # add search singleton to global chart-space widget
-        chart_app.vbox.addWidget(search)
-        chart_app.vbox.addWidget(search.view)
+        chart_app.hbox.addWidget(
+            search,
+
+            # alights to top and uses minmial space based on
+            # search bar size hint (i think?)
+            alignment=Qt.AlignTop
+        )
         chart_app.search = search
 
         # this internally starts a ``chart_symbol()`` task above
         chart_app.load_symbol(brokername, sym, loglevel)
 
         async with open_key_stream(
-            search,
+            search.bar,
         ) as key_stream:
 
             # start kb handling task for searcher
