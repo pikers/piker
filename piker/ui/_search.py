@@ -18,6 +18,19 @@
 qompleterz: embeddable search and complete using trio, Qt and fuzzywuzzy.
 
 """
+
+# link set for hackzin on this stuff:
+# https://doc.qt.io/qt-5/qheaderview.html#moving-header-sections
+# https://doc.qt.io/qt-5/model-view-programming.html
+# https://doc.qt.io/qt-5/modelview.html
+# https://doc.qt.io/qt-5/qtreeview.html#selectedIndexes
+# https://doc.qt.io/qt-5/qmodelindex.html#siblingAtColumn
+# https://doc.qt.io/qt-5/qitemselectionmodel.html#currentIndex
+# https://www.programcreek.com/python/example/108109/PyQt5.QtWidgets.QTreeView
+# https://doc.qt.io/qt-5/qsyntaxhighlighter.html
+# https://github.com/qutebrowser/qutebrowser/blob/master/qutebrowser/completion/completiondelegate.py#L243
+# https://forum.qt.io/topic/61343/highlight-matched-substrings-in-qstyleditemdelegate
+
 import sys
 from functools import partial
 from typing import (
@@ -37,6 +50,7 @@ from PyQt5.QtCore import (
     QItemSelectionModel,
 )
 from PyQt5.QtGui import (
+    # QLayout,
     QStandardItem,
     QStandardItemModel,
 )
@@ -44,7 +58,7 @@ from PyQt5.QtWidgets import (
     QWidget,
     QTreeView,
     # QListWidgetItem,
-    QAbstractScrollArea,
+    # QAbstractScrollArea,
     QStyledItemDelegate,
 )
 
@@ -91,6 +105,14 @@ class SimpleDelegate(QStyledItemDelegate):
 
 class CompleterView(QTreeView):
 
+    # XXX: relevant docs links:
+    # - simple widget version of this:
+    #   https://doc.qt.io/qt-5/qtreewidget.html#details
+    # - MVC high level instructional:
+    #   https://doc.qt.io/qt-5/model-view-programming.html
+    # - MV tut:
+    #   https://doc.qt.io/qt-5/modelview.html
+
     def __init__(
         self,
         parent=None,
@@ -106,7 +128,8 @@ class CompleterView(QTreeView):
         self.setItemDelegate(SimpleDelegate())
         self.setModel(model)
         self.setAlternatingRowColors(True)
-        self.setIndentation(1)
+        # TODO: size this based on DPI font
+        self.setIndentation(16)
 
         # self.setUniformRowHeights(True)
         # self.setColumnWidth(0, 3)
@@ -117,7 +140,8 @@ class CompleterView(QTreeView):
         self.setAnimated(False)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-        self.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
+        # self.setVerticalBarPolicy(Qt.ScrollBarAlwaysOff)
+        # self.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
 
         # column headers
         model.setHorizontalHeaderLabels(labels)
@@ -172,19 +196,26 @@ class CompleterView(QTreeView):
         #         # root index
         #         model.index(0, 0, QModelIndex()),
         #     )
+        root = model.invisibleRootItem()
+
         for key, values in results.items():
+
+            src = QStandardItem(key)
+            root.appendRow(src)
+            # self.expand(model.index(1, 0, QModelIndex()))
 
             # values just needs to be sequence-like
             for i, s in enumerate(values):
 
+                # blank = QStandardItem('')
                 ix = QStandardItem(str(i))
                 item = QStandardItem(s)
                 # item.setCheckable(False)
 
-                src = QStandardItem(key)
-
                 # Add the item to the model
-                model.appendRow([src, ix, item])
+                src.appendRow([ix, item])
+
+        self.expandAll()
 
     def show_matches(self) -> None:
         # print(f"SHOWING {self}")
@@ -199,8 +230,8 @@ class CompleterView(QTreeView):
             self.resizeColumnToContents(i)
 
         # inclusive of search bar and header "rows" in pixel terms
-        rows = model.rowCount() + 2
-        print(f'row count: {rows}')
+        rows = 100
+        # print(f'row count: {rows}')
         # max_rows = 8  # 6 + search and headers
         row_px = self.rowHeight(self.currentIndex())
         # print(f'font_h: {font_h}\n px_height: {px_height}')
@@ -208,6 +239,41 @@ class CompleterView(QTreeView):
         # TODO: probably make this more general / less hacky
         self.setMinimumSize(self.width(), rows * row_px)
         self.setMaximumSize(self.width(), rows * row_px)
+
+    def select_previous(self) -> QModelIndex:
+        cidx = self.currentIndex()
+        nidx = self.indexAbove(cidx)
+        if nidx.parent() is QModelIndex():
+            nidx = self.indexAbove(cidx)
+            breakpoint()
+
+        return nidx
+
+    def select_next(self) -> QModelIndex:
+        cidx = self.currentIndex()
+        nidx = self.indexBelow(cidx)
+        if nidx.parent() is QModelIndex():
+            nidx = self.indexBelow(cidx)
+            breakpoint()
+
+        return nidx
+
+    def select_from_idx(
+        self,
+        idx: QModelIndex,
+    ) -> None:
+        sel = self.selectionModel()
+        model = self.model()
+
+        # select first indented entry
+        if idx == model.index(0, 0):
+            idx = self.select_next()
+
+        sel.setCurrentIndex(
+            idx,
+            QItemSelectionModel.ClearAndSelect |
+            QItemSelectionModel.Rows
+        )
 
     # def find_matches(
     #     self,
@@ -241,6 +307,7 @@ class SearchBar(QtWidgets.QLineEdit):
         self.chart_app = parent_chart
 
         # size it as we specify
+        # https://doc.qt.io/qt-5/qsizepolicy.html#Policy-enum
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Fixed,
             QtWidgets.QSizePolicy.Fixed,
@@ -366,12 +433,15 @@ async def fill_results(
             )
             bar.show()
 
+            # ensure we select first indented entry
+            view.select_from_idx(sel.currentIndex())
+
 
 class SearchWidget(QtGui.QWidget):
     def __init__(
         self,
         chart_space: 'ChartSpace',  # type: ignore # noqa
-        columns: List[str] = ['src', 'i', 'symbol'],
+        columns: List[str] = ['src', 'symbol'],
         parent=None,
     ):
         super().__init__(parent or chart_space)
@@ -379,13 +449,16 @@ class SearchWidget(QtGui.QWidget):
         # size it as we specify
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Fixed,
-            QtWidgets.QSizePolicy.Fixed,
+            QtWidgets.QSizePolicy.Expanding,
         )
 
         self.chart_app = chart_space
         self.vbox = QtGui.QVBoxLayout(self)
         self.vbox.setContentsMargins(0, 0, 0, 0)
-        self.vbox.setSpacing(2)
+        self.vbox.setSpacing(4)
+
+        # https://doc.qt.io/qt-5/qlayout.html#SizeConstraint-enum
+        # self.vbox.setSizeConstraint(QLayout.SetMaximumSize)
 
         self.view = CompleterView(
             parent=self,
@@ -400,7 +473,6 @@ class SearchWidget(QtGui.QWidget):
         self.vbox.setAlignment(self.bar, Qt.AlignTop | Qt.AlignLeft)
         self.vbox.addWidget(self.bar.view)
         self.vbox.setAlignment(self.view, Qt.AlignTop | Qt.AlignLeft)
-        # self.vbox.addWidget(sel.bar.view)
 
 
 async def handle_keyboard_input(
@@ -439,7 +511,18 @@ async def handle_keyboard_input(
         async for key, mods, txt in recv_chan:
 
             log.debug(f'key: {key}, mods: {mods}, txt: {txt}')
-            nidx = cidx = view.currentIndex()
+            # parent = view.currentIndex()
+            cidx = sel.currentIndex()
+            # view.select_from_idx(nidx)
+
+            # if cidx == model.index(0, 0):
+            #     print('uhh')
+            #     cidx = view.select_next()
+            #     sel.setCurrentIndex(
+            #         cidx,
+            #         QItemSelectionModel.ClearAndSelect |
+            #         QItemSelectionModel.Rows
+            #     )
 
             ctrl = False
             if mods == Qt.ControlModifier:
@@ -447,9 +530,12 @@ async def handle_keyboard_input(
 
             if key in (Qt.Key_Enter, Qt.Key_Return):
 
-                node = model.item(nidx.row(), 2)
+                # TODO: get rid of this hard coded column -> 1
+                # https://doc.qt.io/qt-5/qstandarditemmodel.html#itemFromIndex
+                node = model.itemFromIndex(cidx.siblingAtColumn(1))
                 if node:
                     value = node.text()
+                    # print(f' value: {value}')
                 else:
                     continue
 
@@ -489,24 +575,25 @@ async def handle_keyboard_input(
                     _search_enabled = False
 
                     if key == Qt.Key_K:
-                        nidx = view.indexAbove(cidx)
+                        nidx = view.select_previous()
 
                     elif key == Qt.Key_J:
-                        nidx = view.indexBelow(cidx)
+                        nidx = view.select_next()
 
                     # select row without selecting.. :eye_rollzz:
                     # https://doc.qt.io/qt-5/qabstractitemview.html#setCurrentIndex
                     if nidx.isValid():
-                        sel.setCurrentIndex(
-                            nidx,
-                            QItemSelectionModel.ClearAndSelect |
-                            QItemSelectionModel.Rows
-                        )
+                        view.select_from_idx(nidx)
+                        # sel.setCurrentIndex(
+                        #     nidx,
+                        #     QItemSelectionModel.ClearAndSelect |
+                        #     QItemSelectionModel.Rows
+                        # )
 
                         # TODO: make this not hard coded to 2
                         # and use the ``CompleterView`` schema/settings
                         # to figure out the desired field(s)
-                        value = model.item(nidx.row(), 2).text()
+                        # value = model.item(nidx.row(), 0).text()
             else:
                 # relay to completer task
                 _search_enabled = True
