@@ -181,7 +181,7 @@ class Client:
     ) -> dict:
         if since is None:
             since = arrow.utcnow().floor('minute').shift(
-                minutes=-count).timestamp
+                minutes=-count).timestamp()
         # UTC 2017-07-02 12:53:20 is oldest seconds value
         since = str(max(1499000000, since))
         json = await self._public(
