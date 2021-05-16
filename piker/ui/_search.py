@@ -39,10 +39,10 @@ from typing import (
 )
 # from pprint import pformat
 
+from fuzzywuzzy import process as fuzzy
+import trio
 from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets
-import trio
-
 from PyQt5.QtCore import (
     Qt,
     # QSize,
@@ -129,7 +129,7 @@ class CompleterView(QTreeView):
         self.setModel(model)
         self.setAlternatingRowColors(True)
         # TODO: size this based on DPI font
-        self.setIndentation(16)
+        self.setIndentation(20)
 
         # self.setUniformRowHeights(True)
         # self.setColumnWidth(0, 3)
@@ -357,6 +357,7 @@ async def fill_results(
     search: SearchBar,
     symsearch: Callable[..., Awaitable],
     recv_chan: trio.abc.ReceiveChannel,
+    # cached_symbols: Dict[str, 
     pause_time: float = 0.0616,
 
 ) -> None:
@@ -477,6 +478,7 @@ class SearchWidget(QtGui.QWidget):
 
 async def handle_keyboard_input(
 
+    # chart: 'ChartSpace',  # type: igore # noqa
     search: SearchWidget,
     recv_chan: trio.abc.ReceiveChannel,
     keyboard_pause_period: float = 0.0616,
@@ -513,16 +515,6 @@ async def handle_keyboard_input(
             log.debug(f'key: {key}, mods: {mods}, txt: {txt}')
             # parent = view.currentIndex()
             cidx = sel.currentIndex()
-            # view.select_from_idx(nidx)
-
-            # if cidx == model.index(0, 0):
-            #     print('uhh')
-            #     cidx = view.select_next()
-            #     sel.setCurrentIndex(
-            #         cidx,
-            #         QItemSelectionModel.ClearAndSelect |
-            #         QItemSelectionModel.Rows
-            #     )
 
             ctrl = False
             if mods == Qt.ControlModifier:
@@ -531,6 +523,8 @@ async def handle_keyboard_input(
             if key in (Qt.Key_Enter, Qt.Key_Return):
 
                 # TODO: get rid of this hard coded column -> 1
+                # and use the ``CompleterView`` schema/settings
+                # to figure out the desired field(s)
                 # https://doc.qt.io/qt-5/qstandarditemmodel.html#itemFromIndex
                 node = model.itemFromIndex(cidx.siblingAtColumn(1))
                 if node:
@@ -584,16 +578,6 @@ async def handle_keyboard_input(
                     # https://doc.qt.io/qt-5/qabstractitemview.html#setCurrentIndex
                     if nidx.isValid():
                         view.select_from_idx(nidx)
-                        # sel.setCurrentIndex(
-                        #     nidx,
-                        #     QItemSelectionModel.ClearAndSelect |
-                        #     QItemSelectionModel.Rows
-                        # )
-
-                        # TODO: make this not hard coded to 2
-                        # and use the ``CompleterView`` schema/settings
-                        # to figure out the desired field(s)
-                        # value = model.item(nidx.row(), 0).text()
             else:
                 # relay to completer task
                 _search_enabled = True
@@ -614,23 +598,7 @@ if __name__ == '__main__':
         'XDGUSD',
         'ADAUSD',
     ]
-
-    # results.setFocusPolicy(Qt.NoFocus)
-    view = CompleterView(['src', 'i', 'symbol'])
-    search = SearchBar(None, view=view)
-    search.view.set_results(syms)
-
-    # make a root widget to tie shit together
-    class W(QtGui.QWidget):
-        def __init__(self, parent=None):
-            super().__init__(parent)
-            self.vbox = QtGui.QVBoxLayout(self)
-            self.vbox.setContentsMargins(0, 0, 0, 0)
-            self.vbox.setSpacing(2)
-
-    main = W()
-    main.vbox.addWidget(search)
-    main.vbox.addWidget(view)
-    search.show()
+    # TODO: need to qtracor.run() here to make it work now...
+    # search.show()
 
     sys.exit(app.exec_())
