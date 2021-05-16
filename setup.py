@@ -40,6 +40,7 @@ setup(
         ]
     },
     install_requires=[
+        'toml',
         'click',
         'colorlog',
         'attrs',
@@ -69,7 +70,7 @@ setup(
         # UI
         'PyQt5',
         'pyqtgraph',
-        'qdarkstyle',
+        'qdarkstyle==2.8.1',
 
         # tsdbs
         'pymarketstore',
