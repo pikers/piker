@@ -188,7 +188,7 @@ class SelectRect(QtGui.QGraphicsRectItem):
 
         self._abs_top_right = label_anchor
         self._label_proxy.setPos(self.vb.mapFromView(label_anchor))
-        self._label.show()
+        # self._label.show()
 
     def clear(self):
         """Clear the selection box from view.
@@ -762,7 +762,7 @@ class ChartView(ViewBox):
         # ctlr-l for "lookup" -> open search / lists
         if ctrl and key == QtCore.Qt.Key_L:
             search = self._chart._lc.chart_space.search
-            search.bar.focus()
+            search.focus()
 
         # esc
         if key == QtCore.Qt.Key_Escape or (ctrl and key == QtCore.Qt.Key_C):
