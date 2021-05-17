@@ -56,13 +56,12 @@ from ._style import (
     _bars_to_left_in_follow_mode,
 )
 from . import _search
-from ._search import SearchBar, SearchWidget
 from ._event import open_key_stream
 from ..data._source import Symbol
 from ..data._sharedmem import ShmArray
+from ..data import maybe_open_shm_array
 from .. import brokers
 from .. import data
-from ..data import maybe_open_shm_array
 from ..log import get_logger
 from ._exec import run_qtractor, current_screen
 from ._interaction import ChartView
@@ -93,7 +92,6 @@ class ChartSpace(QtGui.QWidget):
 
         self.toolbar_layout = QtGui.QHBoxLayout()
         self.toolbar_layout.setContentsMargins(0, 0, 0, 0)
-
 
         # self.init_timeframes_ui()
         # self.init_strategy_ui()
@@ -182,6 +180,7 @@ class ChartSpace(QtGui.QWidget):
         self.linkedcharts = linkedcharts
 
         symbol = linkedcharts.symbol
+
         if symbol is not None:
             self.window.setWindowTitle(
                 f'{symbol.key}@{symbol.brokers} '
@@ -1600,8 +1599,6 @@ async def _async_main(
         # setup search widget
         # search.installEventFilter(self)
 
-        # search = _search.SearchBar(chart_app)
-
         search = _search.SearchWidget(
             chart_space=chart_app,
         )
@@ -1622,18 +1619,28 @@ async def _async_main(
         # this internally starts a ``chart_symbol()`` task above
         chart_app.load_symbol(brokername, sym, loglevel)
 
-        async with open_key_stream(
-            search.bar,
-        ) as key_stream:
+        async with _search.register_symbol_search(
 
-            # start kb handling task for searcher
-            root_n.start_soon(
-                _search.handle_keyboard_input,
-                search,
-                key_stream,
-            )
+            provider_name='cache',
+            search_routine=partial(
+                _search.search_simple_dict,
+                source=chart_app._chart_cache,
+            ),
 
-            await trio.sleep_forever()
+        ):
+            async with open_key_stream(
+                search.bar,
+            ) as key_stream:
+
+                # start kb handling task for searcher
+                root_n.start_soon(
+                    _search.handle_keyboard_input,
+                    # chart_app,
+                    search,
+                    key_stream,
+                )
+
+                await trio.sleep_forever()
 
 
 def _main(
