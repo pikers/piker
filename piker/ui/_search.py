@@ -31,11 +31,12 @@ qompleterz: embeddable search and complete using trio, Qt and fuzzywuzzy.
 # https://github.com/qutebrowser/qutebrowser/blob/master/qutebrowser/completion/completiondelegate.py#L243
 # https://forum.qt.io/topic/61343/highlight-matched-substrings-in-qstyleditemdelegate
 
-import sys
+from contextlib import asynccontextmanager
 from functools import partial
 from typing import (
     List, Optional, Callable,
     Awaitable, Sequence, Dict,
+    Any, AsyncIterator, Tuple,
 )
 # from pprint import pformat
 
@@ -69,7 +70,6 @@ from ._style import (
     DpiAwareFont,
     # hcolor,
 )
-from ..data import feed
 
 
 log = get_logger(__name__)
@@ -217,6 +217,17 @@ class CompleterView(QTreeView):
 
         self.expandAll()
 
+        # XXX: these 2 lines MUST be in sequence in order
+        # to get the view to show right after typing input.
+        sel = self.selectionModel()
+        sel.setCurrentIndex(
+            model.index(0, 0, QModelIndex()),
+            QItemSelectionModel.ClearAndSelect |
+            QItemSelectionModel.Rows
+        )
+        self.select_from_idx(model.index(0, 0, QModelIndex()))
+
+
     def show_matches(self) -> None:
         # print(f"SHOWING {self}")
         self.show()
@@ -259,9 +270,12 @@ class CompleterView(QTreeView):
         return nidx
 
     def select_from_idx(
+
         self,
         idx: QModelIndex,
-    ) -> None:
+
+    ) -> Tuple[QModelIndex, QStandardItem]:
+
         sel = self.selectionModel()
         model = self.model()
 
@@ -274,6 +288,8 @@ class CompleterView(QTreeView):
             QItemSelectionModel.ClearAndSelect |
             QItemSelectionModel.Rows
         )
+
+        return idx, model.itemFromIndex(idx)
 
     # def find_matches(
     #     self,
@@ -357,7 +373,7 @@ async def fill_results(
     search: SearchBar,
     symsearch: Callable[..., Awaitable],
     recv_chan: trio.abc.ReceiveChannel,
-    # cached_symbols: Dict[str, 
+    # cached_symbols: Dict[str,
     pause_time: float = 0.0616,
 
 ) -> None:
@@ -427,15 +443,19 @@ async def fill_results(
 
             # XXX: these 2 lines MUST be in sequence in order
             # to get the view to show right after typing input.
-            sel.setCurrentIndex(
-                model.index(0, 0, QModelIndex()),
-                QItemSelectionModel.ClearAndSelect |
-                QItemSelectionModel.Rows
-            )
+            # ensure we select first indented entry
+            # view.select_from_idx(model.index(0, 0, QModelIndex()))
+
+            # sel.setCurrentIndex(
+            #     model.index(0, 0, QModelIndex()),
+            #     QItemSelectionModel.ClearAndSelect |
+            #     QItemSelectionModel.Rows
+            # )
+
             bar.show()
 
-            # ensure we select first indented entry
-            view.select_from_idx(sel.currentIndex())
+            # # ensure we select first indented entry
+            # view.select_from_idx(sel.currentIndex())
 
 
 class SearchWidget(QtGui.QWidget):
@@ -476,6 +496,13 @@ class SearchWidget(QtGui.QWidget):
         self.vbox.setAlignment(self.view, Qt.AlignTop | Qt.AlignLeft)
 
 
+    def focus(self) -> None:
+        # fill cache list
+        self.view.set_results({'cache': list(self.chart_app._chart_cache)})
+        self.bar.focus()
+
+
+
 async def handle_keyboard_input(
 
     # chart: 'ChartSpace',  # type: igore # noqa
@@ -495,7 +522,7 @@ async def handle_keyboard_input(
     nidx = cidx = view.currentIndex()
     sel = view.selectionModel()
 
-    symsearch = feed.get_multi_search()
+    symsearch = get_multi_search()
     send, recv = trio.open_memory_channel(16)
 
     async with trio.open_nursery() as n:
@@ -577,7 +604,21 @@ async def handle_keyboard_input(
                     # select row without selecting.. :eye_rollzz:
                     # https://doc.qt.io/qt-5/qabstractitemview.html#setCurrentIndex
                     if nidx.isValid():
-                        view.select_from_idx(nidx)
+                        i, item = view.select_from_idx(nidx)
+
+                        if item:
+                            parent_item = item.parent()
+                            if parent_item and parent_item.text() == 'cache':
+                                node = model.itemFromIndex(i.siblingAtColumn(1))
+                                if node:
+                                    value = node.text()
+                                    print(f'cache selection')
+                                    search.chart_app.load_symbol(
+                                        app.linkedcharts.symbol.brokers[0],
+                                        value,
+                                        'info',
+                                    )
+
             else:
                 # relay to completer task
                 _search_enabled = True
@@ -585,20 +626,97 @@ async def handle_keyboard_input(
                 _search_active.set()
 
 
-if __name__ == '__main__':
+async def search_simple_dict(
+    text: str,
+    source: dict,
+) -> Dict[str, Any]:
 
+    # matches_per_src = {}
+
+    # for source, data in source.items():
+
+    # search routine can be specified as a function such
+    # as in the case of the current app's local symbol cache
+    matches = fuzzy.extractBests(
+        text,
+        source.keys(),
+        score_cutoff=90,
+    )
+
+    return [item[0] for item in matches]
+
+
+# cache of provider names to async search routines
+_searcher_cache: Dict[str, Callable[..., Awaitable]] = {}
+
+
+def get_multi_search() -> Callable[..., Awaitable]:
+
+    global _searcher_cache
+
+    async def multisearcher(
+        pattern: str,
+    ) -> dict:
+
+        matches = {}
+
+        async def pack_matches(
+            provider: str,
+            pattern: str,
+            search: Callable[..., Awaitable[dict]],
+        ) -> None:
+            log.debug(f'Searching {provider} for "{pattern}"')
+            results = await search(pattern)
+            if results:
+                matches[provider] = results
+
+        # TODO: make this an async stream?
+        async with trio.open_nursery() as n:
+
+            for brokername, search in _searcher_cache.items():
+                n.start_soon(pack_matches, brokername, pattern, search)
+
+        return matches
+
+    return multisearcher
+
+
+@asynccontextmanager
+async def register_symbol_search(
+
+    provider_name: str,
+    search_routine: Callable,
+
+) -> AsyncIterator[dict]:
+
+    global _searcher_cache
+
+    # deliver search func to consumer
+    try:
+        _searcher_cache[provider_name] = search_routine
+        yield search_routine
+    finally:
+        _searcher_cache.pop(provider_name)
+
+
+# if __name__ == '__main__':
+
+    # TODO: simple standalone widget testing script (moreso
+    # for if/when we decide to expose this module as a standalone
+    # repo/project).
+
+    # import sys
     # local testing of **just** the search UI
-    app = QtWidgets.QApplication(sys.argv)
+    # app = QtWidgets.QApplication(sys.argv)
 
-    syms = [
-        'XMRUSD',
-        'XBTUSD',
-        'ETHUSD',
-        'XMRXBT',
-        'XDGUSD',
-        'ADAUSD',
-    ]
-    # TODO: need to qtracor.run() here to make it work now...
-    # search.show()
+    # syms = [
+    #     'XMRUSD',
+    #     'XBTUSD',
+    #     'ETHUSD',
+    #     'XMRXBT',
+    #     'XDGUSD',
+    #     'ADAUSD',
+    # ]
+    # # search.show()
 
-    sys.exit(app.exec_())
+    # sys.exit(app.exec_())
