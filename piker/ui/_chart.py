@@ -1563,7 +1563,7 @@ async def _async_main(
     widgets: Dict[str, Any],
 
     sym: str,
-    brokername: str,
+    brokernames: str,
     loglevel: str,
 
 ) -> None:
@@ -1617,7 +1617,7 @@ async def _async_main(
         chart_app.search = search
 
         # this internally starts a ``chart_symbol()`` task above
-        chart_app.load_symbol(brokername, sym, loglevel)
+        chart_app.load_symbol(brokernames[0], sym, loglevel)
 
         async with _search.register_symbol_search(
 
@@ -1645,7 +1645,7 @@ async def _async_main(
 
 def _main(
     sym: str,
-    brokername: str,
+    brokernames: [str],
     piker_loglevel: str,
     tractor_kwargs,
 ) -> None:
@@ -1655,7 +1655,7 @@ def _main(
     # Qt entry point
     run_qtractor(
         func=_async_main,
-        args=(sym, brokername, piker_loglevel),
+        args=(sym, brokernames, piker_loglevel),
         main_widget=ChartSpace,
         tractor_kwargs=tractor_kwargs,
     )

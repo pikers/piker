@@ -57,21 +57,31 @@ def pikerd(loglevel, host, tl, pdb):
 
 
 @click.group(context_settings=_context_defaults)
-@click.option('--broker', '-b', default=DEFAULT_BROKER,
-              help='Broker backend to use')
+@click.option(
+    '--brokers', '-b',
+    default=[DEFAULT_BROKER],
+    multiple=True,
+    help='Broker backend to use'
+)
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--tl', is_flag=True, help='Enable tractor logging')
 @click.option('--configdir', '-c', help='Configuration directory')
 @click.pass_context
-def cli(ctx, broker, loglevel, tl, configdir):
+def cli(ctx, brokers, loglevel, tl, configdir):
     if configdir is not None:
         assert os.path.isdir(configdir), f"`{configdir}` is not a valid path"
         config._override_config_dir(configdir)
 
     ctx.ensure_object(dict)
+
+    if len(brokers) == 1:
+        brokermods = [get_brokermod(brokers[0])]
+    else:
+        brokermods = [get_brokermod(broker) for broker in brokers]
+
     ctx.obj.update({
-        'broker': broker,
-        'brokermod': get_brokermod(broker),
+        'brokers': brokers,
+        'brokermods': brokermods,
         'loglevel': loglevel,
         'tractorloglevel': None,
         'log': get_console_log(loglevel),
