@@ -164,6 +164,14 @@ _adhoc_futes_set = {
     'mes.globex',
 }
 
+# exchanges we don't support at the moment due to not knowing
+# how to do symbol-contract lookup correctly likely due
+# to not having the data feeds subscribed.
+_exch_skip_list = {
+    'ASX',  # aussie stocks
+    'MEXI',  # mexican stocks
+}
+
 # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
 
 _enters = 0
@@ -266,10 +274,12 @@ class Client:
         descriptions = await self.ib.reqMatchingSymbolsAsync(pattern)
 
         if descriptions is not None:
+
             futs = []
             for d in descriptions:
                 con = d.contract
-                futs.append(self.ib.reqContractDetailsAsync(con))
+                if con.primaryExchange not in _exch_skip_list:
+                    futs.append(self.ib.reqContractDetailsAsync(con))
 
             # batch request all details
             results = await asyncio.gather(*futs)
@@ -1273,7 +1283,7 @@ async def open_symbol_search(
                     pass
 
             if not pattern:
-                log.warning(f'empty pattern received, skipping..')
+                log.warning('empty pattern received, skipping..')
                 continue
 
             log.debug(f'searching for {pattern}')
