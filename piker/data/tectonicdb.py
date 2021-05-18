@@ -19,10 +19,8 @@ from typing import Union
 import trio
 import struct
 
-import piker.data.ffi
 
-
-class TectonicDB():
+class TectonicDB:
 
     def __init__(self, host="localhost", port=9001):
         self.host = host
@@ -40,17 +38,11 @@ class TectonicDB():
         else:
             msg = cmd + b'\n'
 
-        self.stream.send_all(msg)
+        print(msg)
 
-        if "GET" in cmd and "JSON" not in cmd and "CSV" not in cmd:
-            return await self._recv_dtf()
-        else:
-            return await self._recv_text()
-
-    async def _recv_dtf(self):
-        success, data = await self._recv_text()
-        ups = ffi.parse_stream(data)
-        return success, ups
+        await self.stream.send_all(msg)
+        
+        return await self._recv_text()
 
     async def _recv_text(self):
         header = await self.stream.receive_some(max_bytes=9)
