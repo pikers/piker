@@ -385,6 +385,32 @@ def sym_to_shm_key(
 
 
 @asynccontextmanager
+async def install_brokerd_search(
+    portal: tractor._portal.Portal,
+    brokermod: ModuleType,
+) -> None:
+    async with portal.open_context(
+        brokermod.open_symbol_search
+    ) as (ctx, cache):
+
+        # shield here since we expect the search rpc to be
+        # cancellable by the user as they see fit.
+        async with ctx.open_stream() as stream:
+
+            async def search(text: str) -> Dict[str, Any]:
+                await stream.send(text)
+                return await stream.receive()
+
+            async with _search.register_symbol_search(
+                provider_name=brokermod.name,
+                search_routine=search,
+                pause_period=brokermod._search_conf.get('pause_period'),
+
+            ):
+                yield
+
+
+@asynccontextmanager
 async def open_feed(
     brokername: str,
     symbols: Sequence[str],
@@ -475,22 +501,28 @@ async def open_feed(
                 yield feed
 
             else:
-                async with feed._brokerd_portal.open_context(
-                    mod.open_symbol_search
-                ) as (ctx, cache):
+                async with install_brokerd_search(
+                    feed._brokerd_portal,
+                    mod,
+                ):
+                    yield feed
 
-                    # shield here since we expect the search rpc to be
-                    # cancellable by the user as they see fit.
-                    async with ctx.open_stream() as stream:
+                # async with feed._brokerd_portal.open_context(
+                #     mod.open_symbol_search
+                # ) as (ctx, cache):
 
-                        async def search(text: str) -> Dict[str, Any]:
-                            await stream.send(text)
-                            return await stream.receive()
+                #     # shield here since we expect the search rpc to be
+                #     # cancellable by the user as they see fit.
+                #     async with ctx.open_stream() as stream:
 
-                        async with _search.register_symbol_search(
-                            provider_name=brokername,
-                            search_routine=search,
-                            pause_period=mod._search_conf.get('pause_period'),
+                #         async def search(text: str) -> Dict[str, Any]:
+                #             await stream.send(text)
+                #             return await stream.receive()
 
-                        ):
-                            yield feed
+                #         async with _search.register_symbol_search(
+                #             provider_name=brokername,
+                #             search_routine=search,
+                #             pause_period=mod._search_conf.get('pause_period'),
+
+                #         ):
+                #             yield feed
