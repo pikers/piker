@@ -89,7 +89,15 @@ _time_frames = {
     'Y': 'OneYear',
 }
 
-_show_wap_in_history = False
+_show_wap_in_history: bool = False
+
+# optional search config the backend can register for
+# it's symbol search handling (in this case we avoid
+# accepting patterns before the kb has settled more then
+# a quarter second).
+_search_conf = {
+    'pause_period': 6/16,
+}
 
 
 # overrides to sidestep pretty questionable design decisions in
@@ -156,7 +164,7 @@ _adhoc_futes_set = {
     'mes.globex',
 }
 
-    # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
+# https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
 
 _enters = 0
 
@@ -875,7 +883,16 @@ async def backfill_bars(
         i = 0
         while i < count:
 
-            bars, bars_array, next_dt = await get_bars(sym, end_dt=next_dt)
+            out = await get_bars(sym, end_dt=next_dt)
+
+            if out is None:
+                # could be trying to retreive bars over weekend
+                # TODO: add logic here to handle tradable hours and only grab
+                # valid bars in the range
+                log.error(f"Can't grab bars starting at {next_dt}!?!?")
+                continue
+
+            bars, bars_array, next_dt = out
             shm.push(bars_array, prepend=True)
             i += 1
 
@@ -1255,6 +1272,10 @@ async def open_symbol_search(
                 except trio.WouldBlock:
                     pass
 
+            if not pattern:
+                log.warning(f'empty pattern received, skipping..')
+                continue
+
             log.debug(f'searching for {pattern}')
             # await tractor.breakpoint()
             last = time.time()
@@ -1264,14 +1285,6 @@ async def open_symbol_search(
                 upto=5,
             )
             log.debug(f'got results {results.keys()}')
-            # results = await client.search_stocks(
-            #     pattern=pattern, upto=5)
-
-            # if cs.cancelled_caught:
-            #     print(f'timed out search for {pattern} !?')
-            #     # await tractor.breakpoint()
-            #     await stream.send({})
-            #     continue
 
             log.debug("fuzzy matching")
             matches = fuzzy.extractBests(

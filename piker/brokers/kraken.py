@@ -57,6 +57,11 @@ log = get_logger(__name__)
 _url = 'https://api.kraken.com/0'
 
 
+_search_conf = {
+    'pause_period': 0.0616
+}
+
+
 # Broker specific ohlc schema which includes a vwap field
 _ohlc_dtype = [
     ('index', int),
@@ -231,6 +236,7 @@ class Client:
         if since is None:
             since = arrow.utcnow().floor('minute').shift(
                 minutes=-count).timestamp()
+
         # UTC 2017-07-02 12:53:20 is oldest seconds value
         since = str(max(1499000000, since))
         json = await self._public(
@@ -488,12 +494,12 @@ async def open_autorecon_ws(url):
 
 
 async def backfill_bars(
+
     sym: str,
     shm: ShmArray,  # type: ignore # noqa
-
     count: int = 10,  # NOTE: any more and we'll overrun the underlying buffer
-
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
+
 ) -> None:
     """Fill historical bars into shared mem / storage afap.
     """
@@ -637,7 +643,6 @@ async def stream_quotes(
                 # XXX: format required by ``tractor.msg.pub``
                 # requires a ``Dict[topic: str, quote: dict]``
                 await send_chan.send({topic: quote})
-
 
 
 @tractor.context
