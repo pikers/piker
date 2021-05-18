@@ -473,6 +473,7 @@ async def open_feed(
 
             if brokername in _search._searcher_cache:
                 yield feed
+
             else:
                 async with feed._brokerd_portal.open_context(
                     mod.open_symbol_search
@@ -489,5 +490,7 @@ async def open_feed(
                         async with _search.register_symbol_search(
                             provider_name=brokername,
                             search_routine=search,
+                            pause_period=mod._search_conf.get('pause_period'),
+
                         ):
                             yield feed
