@@ -506,23 +506,3 @@ async def open_feed(
                     mod,
                 ):
                     yield feed
-
-                # async with feed._brokerd_portal.open_context(
-                #     mod.open_symbol_search
-                # ) as (ctx, cache):
-
-                #     # shield here since we expect the search rpc to be
-                #     # cancellable by the user as they see fit.
-                #     async with ctx.open_stream() as stream:
-
-                #         async def search(text: str) -> Dict[str, Any]:
-                #             await stream.send(text)
-                #             return await stream.receive()
-
-                #         async with _search.register_symbol_search(
-                #             provider_name=brokername,
-                #             search_routine=search,
-                #             pause_period=mod._search_conf.get('pause_period'),
-
-                #         ):
-                #             yield feed
