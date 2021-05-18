@@ -38,6 +38,7 @@ from typing import (
     Awaitable, Sequence, Dict,
     Any, AsyncIterator, Tuple,
 )
+import time
 # from pprint import pformat
 
 from fuzzywuzzy import process as fuzzy
@@ -207,7 +208,6 @@ class CompleterView(QTreeView):
             # values just needs to be sequence-like
             for i, s in enumerate(values):
 
-                # blank = QStandardItem('')
                 ix = QStandardItem(str(i))
                 item = QStandardItem(s)
                 # item.setCheckable(False)
@@ -220,16 +220,20 @@ class CompleterView(QTreeView):
         # XXX: these 2 lines MUST be in sequence in order
         # to get the view to show right after typing input.
         sel = self.selectionModel()
+
+        # select row without selecting.. :eye_rollzz:
+        # https://doc.qt.io/qt-5/qabstractitemview.html#setCurrentIndex
         sel.setCurrentIndex(
             model.index(0, 0, QModelIndex()),
             QItemSelectionModel.ClearAndSelect |
             QItemSelectionModel.Rows
         )
+
+        # ensure we're **not** selecting the first level parent node and
+        # instead its child.
         self.select_from_idx(model.index(0, 0, QModelIndex()))
 
-
     def show_matches(self) -> None:
-        # print(f"SHOWING {self}")
         self.show()
         self.resize()
 
@@ -242,7 +246,6 @@ class CompleterView(QTreeView):
 
         # inclusive of search bar and header "rows" in pixel terms
         rows = 100
-        # print(f'row count: {rows}')
         # max_rows = 8  # 6 + search and headers
         row_px = self.rowHeight(self.currentIndex())
         # print(f'font_h: {font_h}\n px_height: {px_height}')
@@ -374,7 +377,11 @@ async def fill_results(
     symsearch: Callable[..., Awaitable],
     recv_chan: trio.abc.ReceiveChannel,
     # cached_symbols: Dict[str,
-    pause_time: float = 0.0616,
+
+    # kb debouncing pauses
+    min_pause_time: float = 0.0616,
+    # long_pause_time: float = 0.4,
+    max_pause_time: float = 6/16,
 
 ) -> None:
     """Task to search through providers and fill in possible
@@ -385,77 +392,62 @@ async def fill_results(
 
     bar = search.bar
     view = bar.view
-    sel = bar.view.selectionModel()
-    model = bar.view.model()
 
-    last_search_text = ''
     last_text = bar.text()
     repeats = 0
 
     while True:
-
-        last_text = bar.text()
         await _search_active.wait()
+        period = None
 
-        with trio.move_on_after(pause_time) as cs:
-            # cs.shield = True
-            pattern = await recv_chan.receive()
-            print(pattern)
+        while True:
 
-        # during fast multiple key inputs, wait until a pause
-        # (in typing) to initiate search
-        if not cs.cancelled_caught:
-            log.debug(f'Ignoring fast input for {pattern}')
-            continue
+            last_text = bar.text()
+            wait_start = time.time()
 
-        text = bar.text()
-        print(f'search: {text}')
+            with trio.move_on_after(max_pause_time):
+                pattern = await recv_chan.receive()
 
-        if not text:
-            print('idling')
-            _search_active = trio.Event()
-            continue
+            period = time.time() - wait_start
+            print(f'{pattern} after {period}')
 
-        if text == last_text:
-            repeats += 1
+            # during fast multiple key inputs, wait until a pause
+            # (in typing) to initiate search
+            if period < min_pause_time:
+                log.debug(f'Ignoring fast input for {pattern}')
+                continue
 
-        if repeats > 1:
-            _search_active = trio.Event()
-            repeats = 0
+            text = bar.text()
+            print(f'search: {text}')
 
-        if not _search_enabled:
-            print('search not ENABLED?')
-            continue
+            if not text:
+                print('idling')
+                _search_active = trio.Event()
+                break
 
-        if last_search_text and last_search_text == text:
-            continue
+            if repeats > 2 and period >= max_pause_time:
+                _search_active = trio.Event()
+                repeats = 0
+                break
 
-        log.debug(f'Search req for {text}')
+            if text == last_text:
+                repeats += 1
 
-        last_search_text = text
-        results = await symsearch(text)
-        log.debug(f'Received search result {results}')
+            if not _search_enabled:
+                print('search currently disabled')
+                break
 
-        if results and _search_enabled:
+            log.debug(f'Search req for {text}')
 
-            # TODO: indented branch results for each provider
-            view.set_results(results)
+            results = await symsearch(text, period=period)
 
-            # XXX: these 2 lines MUST be in sequence in order
-            # to get the view to show right after typing input.
-            # ensure we select first indented entry
-            # view.select_from_idx(model.index(0, 0, QModelIndex()))
+            log.debug(f'Received search result {results}')
 
-            # sel.setCurrentIndex(
-            #     model.index(0, 0, QModelIndex()),
-            #     QItemSelectionModel.ClearAndSelect |
-            #     QItemSelectionModel.Rows
-            # )
+            if results and _search_enabled:
 
-            bar.show()
-
-            # # ensure we select first indented entry
-            # view.select_from_idx(sel.currentIndex())
+                # show the results in the completer view
+                view.set_results(results)
+                bar.show()
 
 
 class SearchWidget(QtGui.QWidget):
@@ -491,10 +483,9 @@ class SearchWidget(QtGui.QWidget):
             view=self.view,
         )
         self.vbox.addWidget(self.bar)
-        self.vbox.setAlignment(self.bar, Qt.AlignTop | Qt.AlignLeft)
+        self.vbox.setAlignment(self.bar, Qt.AlignTop | Qt.AlignRight)
         self.vbox.addWidget(self.bar.view)
         self.vbox.setAlignment(self.view, Qt.AlignTop | Qt.AlignLeft)
-
 
     def focus(self) -> None:
         # fill cache list
@@ -502,10 +493,8 @@ class SearchWidget(QtGui.QWidget):
         self.bar.focus()
 
 
-
 async def handle_keyboard_input(
 
-    # chart: 'ChartSpace',  # type: igore # noqa
     search: SearchWidget,
     recv_chan: trio.abc.ReceiveChannel,
     keyboard_pause_period: float = 0.0616,
@@ -533,7 +522,6 @@ async def handle_keyboard_input(
                 search,
                 symsearch,
                 recv,
-                pause_time=keyboard_pause_period,
             )
         )
 
@@ -601,21 +589,24 @@ async def handle_keyboard_input(
                     elif key == Qt.Key_J:
                         nidx = view.select_next()
 
-                    # select row without selecting.. :eye_rollzz:
-                    # https://doc.qt.io/qt-5/qabstractitemview.html#setCurrentIndex
                     if nidx.isValid():
                         i, item = view.select_from_idx(nidx)
 
                         if item:
                             parent_item = item.parent()
                             if parent_item and parent_item.text() == 'cache':
-                                node = model.itemFromIndex(i.siblingAtColumn(1))
+                                node = model.itemFromIndex(
+                                    i.siblingAtColumn(1)
+                                )
                                 if node:
+
+                                    # TODO: parse out provider from
+                                    # cached value.
                                     value = node.text()
-                                    print(f'cache selection')
+
                                     search.chart_app.load_symbol(
                                         app.linkedcharts.symbol.brokers[0],
-                                        value,
+                                        node.text(),
                                         'info',
                                     )
 
@@ -630,10 +621,6 @@ async def search_simple_dict(
     text: str,
     source: dict,
 ) -> Dict[str, Any]:
-
-    # matches_per_src = {}
-
-    # for source, data in source.items():
 
     # search routine can be specified as a function such
     # as in the case of the current app's local symbol cache
@@ -656,6 +643,8 @@ def get_multi_search() -> Callable[..., Awaitable]:
 
     async def multisearcher(
         pattern: str,
+        period: str,
+
     ) -> dict:
 
         matches = {}
@@ -664,7 +653,9 @@ def get_multi_search() -> Callable[..., Awaitable]:
             provider: str,
             pattern: str,
             search: Callable[..., Awaitable[dict]],
+
         ) -> None:
+
             log.debug(f'Searching {provider} for "{pattern}"')
             results = await search(pattern)
             if results:
@@ -673,8 +664,14 @@ def get_multi_search() -> Callable[..., Awaitable]:
         # TODO: make this an async stream?
         async with trio.open_nursery() as n:
 
-            for brokername, search in _searcher_cache.items():
-                n.start_soon(pack_matches, brokername, pattern, search)
+            for provider, (search, min_pause) in _searcher_cache.items():
+
+                # only conduct search on this backend if it's registered
+                # for the corresponding pause period.
+                if period >= min_pause:
+                    # print(
+                    #   f'searching {provider} after {period} > {min_pause}')
+                    n.start_soon(pack_matches, provider, pattern, search)
 
         return matches
 
@@ -686,15 +683,19 @@ async def register_symbol_search(
 
     provider_name: str,
     search_routine: Callable,
+    pause_period: Optional[float] = None,
 
 ) -> AsyncIterator[dict]:
 
     global _searcher_cache
 
+    pause_period = pause_period or 0.061
+
     # deliver search func to consumer
     try:
-        _searcher_cache[provider_name] = search_routine
+        _searcher_cache[provider_name] = (search_routine, pause_period)
         yield search_routine
+
     finally:
         _searcher_cache.pop(provider_name)
 
