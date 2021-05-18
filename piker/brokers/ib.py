@@ -158,10 +158,19 @@ _adhoc_cmdty_data_map = {
 }
 
 _adhoc_futes_set = {
+
+    # equities
     'nq.globex',
     'mnq.globex',
     'es.globex',
     'mes.globex',
+
+    # cypto$
+    'brr.cmecrypto',
+    'ethusdrr.cmecrypto',
+
+    # metals
+    'xauusd.cmdty',
 }
 
 # exchanges we don't support at the moment due to not knowing
