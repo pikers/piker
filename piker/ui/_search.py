@@ -492,6 +492,34 @@ class SearchWidget(QtGui.QWidget):
         self.view.set_results({'cache': list(self.chart_app._chart_cache)})
         self.bar.focus()
 
+    def get_current(self) -> Optional[Tuple[str, str]]:
+        '''Return the current completer tree selection as
+        a tuple ``(parent: str, child: str)`` if valid, else ``None``.
+
+
+        '''
+        model = self.view.model()
+        sel = self.view.selectionModel()
+        cidx = sel.currentIndex()
+
+        # TODO: get rid of this hard coded column -> 1
+        # and use the ``CompleterView`` schema/settings
+        # to figure out the desired field(s)
+        # https://doc.qt.io/qt-5/qstandarditemmodel.html#itemFromIndex
+        node = model.itemFromIndex(cidx.siblingAtColumn(1))
+        if node:
+            symbol = node.text()
+            provider = node.parent().text()
+
+            # TODO: move this to somewhere non-search machinery specific?
+            if provider == 'cache':
+                symbol, _, provider = symbol.rpartition('.')
+
+            return provider, symbol
+
+        else:
+            return None
+
 
 async def handle_keyboard_input(
 
@@ -507,9 +535,10 @@ async def handle_keyboard_input(
     bar = search.bar
     view = bar.view
     view.set_font_size(bar.dpi_font.px_size)
-    model = view.model()
-    nidx = cidx = view.currentIndex()
-    sel = view.selectionModel()
+    # model = view.model()
+    # nidx = cidx = view.currentIndex()
+    nidx = view.currentIndex()
+    # sel = view.selectionModel()
 
     symsearch = get_multi_search()
     send, recv = trio.open_memory_channel(16)
@@ -529,7 +558,7 @@ async def handle_keyboard_input(
 
             log.debug(f'key: {key}, mods: {mods}, txt: {txt}')
             # parent = view.currentIndex()
-            cidx = sel.currentIndex()
+            # cidx = sel.currentIndex()
 
             ctrl = False
             if mods == Qt.ControlModifier:
@@ -537,23 +566,30 @@ async def handle_keyboard_input(
 
             if key in (Qt.Key_Enter, Qt.Key_Return):
 
-                # TODO: get rid of this hard coded column -> 1
-                # and use the ``CompleterView`` schema/settings
-                # to figure out the desired field(s)
-                # https://doc.qt.io/qt-5/qstandarditemmodel.html#itemFromIndex
-                node = model.itemFromIndex(cidx.siblingAtColumn(1))
-                if node:
-                    value = node.text()
-                    # print(f' value: {value}')
-                else:
+                value = search.get_current()
+                if value is None:
                     continue
 
-                log.info(f'Requesting symbol: {value}')
+                provider, symbol = value
 
-                app = search.chart_app
+                # # TODO: get rid of this hard coded column -> 1
+                # # and use the ``CompleterView`` schema/settings
+                # # to figure out the desired field(s)
+                # # https://doc.qt.io/qt-5/qstandarditemmodel.html#itemFromIndex
+                # node = model.itemFromIndex(cidx.siblingAtColumn(1))
+                # if node:
+                #     symbol = node.text()
+                #     provider = node.parent().text()
+                #     # print(f' value: {value}')
+                # else:
+                #     continue
+
+                log.info(f'Requesting symbol: {symbol}.{provider}')
+
+                # app = search.chart_app
                 search.chart_app.load_symbol(
-                    app.linkedcharts.symbol.brokers[0],
-                    value,
+                    provider,
+                    symbol,
                     'info',
                 )
 
@@ -593,20 +629,27 @@ async def handle_keyboard_input(
                         i, item = view.select_from_idx(nidx)
 
                         if item:
+
                             parent_item = item.parent()
                             if parent_item and parent_item.text() == 'cache':
-                                node = model.itemFromIndex(
-                                    i.siblingAtColumn(1)
-                                )
-                                if node:
+
+                                value = search.get_current()
+                                if value is not None:
+                                    # continue
+
+                                    provider, symbol = value
+                                    # node = model.itemFromIndex(
+                                    #     i.siblingAtColumn(1)
+                                    # )
+                                    # if node:
 
                                     # TODO: parse out provider from
                                     # cached value.
-                                    value = node.text()
+                                    # value = node.text()
 
                                     search.chart_app.load_symbol(
-                                        app.linkedcharts.symbol.brokers[0],
-                                        node.text(),
+                                        provider,
+                                        symbol,
                                         'info',
                                     )
 
