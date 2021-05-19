@@ -227,7 +227,7 @@ async def sample_and_broadcast(
             # end up triggering backpressure which which will
             # eventually block this producer end of the feed and
             # thus other consumers still attached.
-            subs = bus.subscribers[sym]
+            subs = bus._subscribers[sym]
             for ctx in subs:
                 # print(f'sub is {ctx.chan.uid}')
                 try:
