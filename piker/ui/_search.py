@@ -233,6 +233,9 @@ class CompleterView(QTreeView):
         # instead its child.
         self.select_from_idx(model.index(0, 0, QModelIndex()))
 
+        # self.resize()
+        self.show_matches()
+
     def show_matches(self) -> None:
         self.show()
         self.resize()
@@ -252,7 +255,8 @@ class CompleterView(QTreeView):
 
         # TODO: probably make this more general / less hacky
         self.setMinimumSize(self.width(), rows * row_px)
-        self.setMaximumSize(self.width(), rows * row_px)
+        self.setMaximumSize(self.width() + 10, rows * row_px)
+        self.setFixedWidth(333)
 
     def select_previous(self) -> QModelIndex:
         cidx = self.currentIndex()
@@ -328,7 +332,7 @@ class SearchBar(QtWidgets.QLineEdit):
         # size it as we specify
         # https://doc.qt.io/qt-5/qsizepolicy.html#Policy-enum
         self.setSizePolicy(
-            QtWidgets.QSizePolicy.Fixed,
+            QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Fixed,
         )
         self.setFont(font.font)
@@ -356,7 +360,6 @@ class SearchBar(QtWidgets.QLineEdit):
         """
         psh = super().sizeHint()
         psh.setHeight(self.dpi_font.px_size + 2)
-        psh.setWidth(6*6*6)
         return psh
 
     def unfocus(self) -> None:
@@ -535,16 +538,12 @@ async def handle_keyboard_input(
     bar = search.bar
     view = bar.view
     view.set_font_size(bar.dpi_font.px_size)
-    # model = view.model()
-    # nidx = cidx = view.currentIndex()
     nidx = view.currentIndex()
-    # sel = view.selectionModel()
 
     symsearch = get_multi_search()
     send, recv = trio.open_memory_channel(16)
 
     async with trio.open_nursery() as n:
-        # TODO: async debouncing?
         n.start_soon(
             partial(
                 fill_results,
@@ -557,8 +556,6 @@ async def handle_keyboard_input(
         async for key, mods, txt in recv_chan:
 
             log.debug(f'key: {key}, mods: {mods}, txt: {txt}')
-            # parent = view.currentIndex()
-            # cidx = sel.currentIndex()
 
             ctrl = False
             if mods == Qt.ControlModifier:
@@ -571,18 +568,6 @@ async def handle_keyboard_input(
                     continue
 
                 provider, symbol = value
-
-                # # TODO: get rid of this hard coded column -> 1
-                # # and use the ``CompleterView`` schema/settings
-                # # to figure out the desired field(s)
-                # # https://doc.qt.io/qt-5/qstandarditemmodel.html#itemFromIndex
-                # node = model.itemFromIndex(cidx.siblingAtColumn(1))
-                # if node:
-                #     symbol = node.text()
-                #     provider = node.parent().text()
-                #     # print(f' value: {value}')
-                # else:
-                #     continue
 
                 log.info(f'Requesting symbol: {symbol}.{provider}')
 
@@ -606,7 +591,7 @@ async def handle_keyboard_input(
             # we're in select mode or cancelling
             if ctrl:
                 # cancel and close
-                if key == Qt.Key_C:
+                if (key == Qt.Key_C) or (key == Qt.Key_Space):
                     search.bar.unfocus()
 
                     # kill the search and focus back on main chart
@@ -634,19 +619,9 @@ async def handle_keyboard_input(
                             if parent_item and parent_item.text() == 'cache':
 
                                 value = search.get_current()
+
                                 if value is not None:
-                                    # continue
-
                                     provider, symbol = value
-                                    # node = model.itemFromIndex(
-                                    #     i.siblingAtColumn(1)
-                                    # )
-                                    # if node:
-
-                                    # TODO: parse out provider from
-                                    # cached value.
-                                    # value = node.text()
-
                                     search.chart_app.load_symbol(
                                         provider,
                                         symbol,
