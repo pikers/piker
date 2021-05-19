@@ -1286,13 +1286,12 @@ async def open_symbol_search(
                 await trio.sleep(diff)
                 try:
                     pattern = stream.receive_nowait()
-                    # if new:
-                    #     pattern = new
                 except trio.WouldBlock:
                     pass
 
-            if not pattern:
+            if not pattern or pattern.isspace():
                 log.warning('empty pattern received, skipping..')
+                await stream.send(matches)
                 continue
 
             log.debug(f'searching for {pattern}')
