@@ -1638,8 +1638,10 @@ async def _async_main(
         )
         chart_app.search = search
 
+        symbol, _, provider = sym.rpartition('.')
+
         # this internally starts a ``chart_symbol()`` task above
-        chart_app.load_symbol(brokernames[0], sym, loglevel)
+        chart_app.load_symbol(provider, symbol, loglevel)
 
         # TODO: seems like our incentive for brokerd caching lelel
         backends = {}

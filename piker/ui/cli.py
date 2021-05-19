@@ -138,6 +138,13 @@ def chart(config, symbol, profile, pdb):
     from .. import _profile
     from ._chart import _main
 
+    if '.' not in symbol:
+        click.echo(click.style(
+            f'symbol: {symbol} must have a {symbol}.<provider> suffix',
+            fg='red',
+        ))
+        return
+
     # toggle to enable profiling
     _profile._pg_profile = profile
 
