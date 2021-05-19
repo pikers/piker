@@ -383,7 +383,6 @@ async def fill_results(
 
     # kb debouncing pauses
     min_pause_time: float = 0.0616,
-    # long_pause_time: float = 0.4,
     max_pause_time: float = 6/16,
 
 ) -> None:
@@ -674,7 +673,7 @@ def get_multi_search() -> Callable[..., Awaitable]:
 
         ) -> None:
 
-            log.debug(f'Searching {provider} for "{pattern}"')
+            log.info(f'Searching {provider} for "{pattern}"')
             results = await search(pattern)
             if results:
                 matches[provider] = results
