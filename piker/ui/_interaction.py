@@ -759,8 +759,9 @@ class ChartView(ViewBox):
         if mods == QtCore.Qt.AltModifier:
             pass
 
-        # ctlr-l for "lookup" -> open search / lists
-        if ctrl and key == QtCore.Qt.Key_L:
+        # ctlr-<space>/<l> for "lookup", "search" -> open search tree
+        if ctrl and (key == QtCore.Qt.Key_L or key == QtCore.Qt.Key_Space):
+
             search = self._chart._lc.chart_space.search
             search.focus()
 
