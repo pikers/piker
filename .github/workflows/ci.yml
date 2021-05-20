@@ -7,7 +7,6 @@ jobs:
   basic_install:
     name: 'pip install'
     runs-on: ubuntu-latest
-
     steps:
 
       - name: Checkout
@@ -27,7 +26,8 @@ jobs:
         run: piker 
 
   testing:
-
+    name: 'pip install'
+    runs-on: ubuntu-latest
     steps:
 
       - name: Checkout
