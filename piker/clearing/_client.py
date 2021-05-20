@@ -136,7 +136,6 @@ def get_orders(
     return _orders
 
 
-# TODO: make this a ``tractor.msg.pub``
 async def send_order_cmds(symbol_key: str):
     """
     Order streaming task: deliver orders transmitted from UI
