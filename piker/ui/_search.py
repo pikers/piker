@@ -313,7 +313,6 @@ class CompleterView(QTreeView):
         idx: QModelIndex,
 
     ) -> QStandardItem:
-    # ) -> Tuple[QModelIndex, QStandardItem]:
 
         sel = self.selectionModel()
         model = self.model()
@@ -403,6 +402,76 @@ class SearchBar(QtWidgets.QLineEdit):
             self.view.hide()
 
 
+class SearchWidget(QtGui.QWidget):
+    def __init__(
+        self,
+        chart_space: 'ChartSpace',  # type: ignore # noqa
+        columns: List[str] = ['src', 'symbol'],
+        parent=None,
+    ):
+        super().__init__(parent or chart_space)
+
+        # size it as we specify
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Fixed,
+            QtWidgets.QSizePolicy.Expanding,
+        )
+
+        self.chart_app = chart_space
+        self.vbox = QtGui.QVBoxLayout(self)
+        self.vbox.setContentsMargins(0, 0, 0, 0)
+        self.vbox.setSpacing(4)
+
+        # https://doc.qt.io/qt-5/qlayout.html#SizeConstraint-enum
+        # self.vbox.setSizeConstraint(QLayout.SetMaximumSize)
+
+        self.view = CompleterView(
+            parent=self,
+            labels=columns,
+        )
+        self.bar = SearchBar(
+            parent=self,
+            parent_chart=chart_space,
+            view=self.view,
+        )
+        self.vbox.addWidget(self.bar)
+        self.vbox.setAlignment(self.bar, Qt.AlignTop | Qt.AlignRight)
+        self.vbox.addWidget(self.bar.view)
+        self.vbox.setAlignment(self.view, Qt.AlignTop | Qt.AlignLeft)
+
+    def focus(self) -> None:
+        # fill cache list
+        self.view.set_results({'cache': list(self.chart_app._chart_cache)})
+        self.bar.focus()
+
+    def get_current(self) -> Optional[Tuple[str, str]]:
+        '''Return the current completer tree selection as
+        a tuple ``(parent: str, child: str)`` if valid, else ``None``.
+
+        '''
+        model = self.view.model()
+        sel = self.view.selectionModel()
+        cidx = sel.currentIndex()
+
+        # TODO: get rid of this hard coded column -> 1
+        # and use the ``CompleterView`` schema/settings
+        # to figure out the desired field(s)
+        # https://doc.qt.io/qt-5/qstandarditemmodel.html#itemFromIndex
+        node = model.itemFromIndex(cidx.siblingAtColumn(1))
+        if node:
+            symbol = node.text()
+            provider = node.parent().text()
+
+            # TODO: move this to somewhere non-search machinery specific?
+            if provider == 'cache':
+                symbol, _, provider = symbol.rpartition('.')
+
+            return provider, symbol
+
+        else:
+            return None
+
+
 _search_active: trio.Event = trio.Event()
 _search_enabled: bool = False
 
@@ -485,76 +554,6 @@ async def fill_results(
                 bar.show()
 
 
-class SearchWidget(QtGui.QWidget):
-    def __init__(
-        self,
-        chart_space: 'ChartSpace',  # type: ignore # noqa
-        columns: List[str] = ['src', 'symbol'],
-        parent=None,
-    ):
-        super().__init__(parent or chart_space)
-
-        # size it as we specify
-        self.setSizePolicy(
-            QtWidgets.QSizePolicy.Fixed,
-            QtWidgets.QSizePolicy.Expanding,
-        )
-
-        self.chart_app = chart_space
-        self.vbox = QtGui.QVBoxLayout(self)
-        self.vbox.setContentsMargins(0, 0, 0, 0)
-        self.vbox.setSpacing(4)
-
-        # https://doc.qt.io/qt-5/qlayout.html#SizeConstraint-enum
-        # self.vbox.setSizeConstraint(QLayout.SetMaximumSize)
-
-        self.view = CompleterView(
-            parent=self,
-            labels=columns,
-        )
-        self.bar = SearchBar(
-            parent=self,
-            parent_chart=chart_space,
-            view=self.view,
-        )
-        self.vbox.addWidget(self.bar)
-        self.vbox.setAlignment(self.bar, Qt.AlignTop | Qt.AlignRight)
-        self.vbox.addWidget(self.bar.view)
-        self.vbox.setAlignment(self.view, Qt.AlignTop | Qt.AlignLeft)
-
-    def focus(self) -> None:
-        # fill cache list
-        self.view.set_results({'cache': list(self.chart_app._chart_cache)})
-        self.bar.focus()
-
-    def get_current(self) -> Optional[Tuple[str, str]]:
-        '''Return the current completer tree selection as
-        a tuple ``(parent: str, child: str)`` if valid, else ``None``.
-
-        '''
-        model = self.view.model()
-        sel = self.view.selectionModel()
-        cidx = sel.currentIndex()
-
-        # TODO: get rid of this hard coded column -> 1
-        # and use the ``CompleterView`` schema/settings
-        # to figure out the desired field(s)
-        # https://doc.qt.io/qt-5/qstandarditemmodel.html#itemFromIndex
-        node = model.itemFromIndex(cidx.siblingAtColumn(1))
-        if node:
-            symbol = node.text()
-            provider = node.parent().text()
-
-            # TODO: move this to somewhere non-search machinery specific?
-            if provider == 'cache':
-                symbol, _, provider = symbol.rpartition('.')
-
-            return provider, symbol
-
-        else:
-            return None
-
-
 async def handle_keyboard_input(
 
     search: SearchWidget,
@@ -592,14 +591,14 @@ async def handle_keyboard_input(
             if mods == Qt.ControlModifier:
                 ctrl = True
 
-            alt = False
-            if mods == Qt.AltModifier:
-                alt = True
+            # alt = False
+            # if mods == Qt.AltModifier:
+            #     alt = True
 
-            # ctrl + alt as combo
-            ctlalt = False
-            if (QtCore.Qt.AltModifier | QtCore.Qt.ControlModifier) == mods:
-                ctlalt = True
+            # # ctrl + alt as combo
+            # ctlalt = False
+            # if (QtCore.Qt.AltModifier | QtCore.Qt.ControlModifier) == mods:
+            #     ctlalt = True
 
             if key in (Qt.Key_Enter, Qt.Key_Return):
 
@@ -762,26 +761,3 @@ async def register_symbol_search(
 
     finally:
         _searcher_cache.pop(provider_name)
-
-
-# if __name__ == '__main__':
-
-    # TODO: simple standalone widget testing script (moreso
-    # for if/when we decide to expose this module as a standalone
-    # repo/project).
-
-    # import sys
-    # local testing of **just** the search UI
-    # app = QtWidgets.QApplication(sys.argv)
-
-    # syms = [
-    #     'XMRUSD',
-    #     'XBTUSD',
-    #     'ETHUSD',
-    #     'XMRXBT',
-    #     'XDGUSD',
-    #     'ADAUSD',
-    # ]
-    # # search.show()
-
-    # sys.exit(app.exec_())
