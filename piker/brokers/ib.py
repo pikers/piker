@@ -179,6 +179,7 @@ _adhoc_futes_set = {
 _exch_skip_list = {
     'ASX',  # aussie stocks
     'MEXI',  # mexican stocks
+    'VALUE',  # no idea
 }
 
 # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
@@ -832,7 +833,7 @@ async def get_bars(
 
     _err = None
 
-    for _ in range(1):
+    for _ in range(2):
         try:
 
             bars, bars_array = await _trio_run_client_method(
@@ -870,6 +871,7 @@ async def get_bars(
                     # and then somehow get that to trigger an event here
                     # that restarts/resumes this task?
                     await tractor.breakpoint()
+                    continue
 
     else:  # throttle wasn't fixed so error out immediately
         raise _err
@@ -1291,7 +1293,11 @@ async def open_symbol_search(
 
             if not pattern or pattern.isspace():
                 log.warning('empty pattern received, skipping..')
-                await stream.send(matches)
+
+                # XXX: this unblocks the far end search task which may
+                # hold up a multi-search nursery block
+                await stream.send({})
+
                 continue
 
             log.debug(f'searching for {pattern}')
