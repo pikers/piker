@@ -235,7 +235,7 @@ class CompleterView(QTreeView):
             else:
                 return cidx
 
-        return one_below  # just next up
+        return one_below  # just next down
 
     def select_from_idx(
 
@@ -277,6 +277,26 @@ class CompleterView(QTreeView):
         idx = self.previous_index()
         assert idx.isValid()
         return self.select_from_idx(idx)
+
+    def next_section(self, direction: str = 'down') -> QModelIndex:
+        cidx = start_idx = self.selectionModel().currentIndex()
+
+        # step up levels to depth == 1
+        while cidx.parent() != QModelIndex():
+            cidx = cidx.parent()
+
+        # move to next section in `direction`
+        op = {'up': -1, 'down': +1}[direction]
+        next_row = cidx.row() + op
+        nidx = self.model().index(next_row, cidx.column(), QModelIndex())
+
+        # do nothing, if there is no valid "next" section
+        if not nidx.isValid():
+            return self.select_from_idx(start_idx)
+
+        # go to next selectable child item
+        self.select_from_idx(nidx)
+        return self.select_next()
 
     def set_results(
         self,
@@ -370,7 +390,7 @@ class SearchBar(QtWidgets.QLineEdit):
         # self.setStyleSheet(f"font: 18px")
 
     def focus(self) -> None:
-        self.clear()
+        self.selectAll()
         self.show()
         self.setFocus()
 
@@ -433,8 +453,11 @@ class SearchWidget(QtGui.QWidget):
         self.vbox.setAlignment(self.view, Qt.AlignTop | Qt.AlignLeft)
 
     def focus(self) -> None:
-        # fill cache list
-        self.view.set_results({'cache': list(self.chart_app._chart_cache)})
+
+        if self.view.model().rowCount(QModelIndex()) == 0:
+            # fill cache list if nothing existing
+            self.view.set_results({'cache': list(self.chart_app._chart_cache)})
+
         self.bar.focus()
 
     def get_current_item(self) -> Optional[Tuple[str, str]]:
@@ -580,15 +603,15 @@ async def handle_keyboard_input(
 
             log.debug(f'key: {key}, mods: {mods}, txt: {txt}')
 
-            ctrl = False
+            ctl = False
             if mods == Qt.ControlModifier:
-                ctrl = True
+                ctl = True
 
             # alt = False
             # if mods == Qt.AltModifier:
             #     alt = True
 
-            # # ctrl + alt as combo
+            # # ctl + alt as combo
             # ctlalt = False
             # if (QtCore.Qt.AltModifier | QtCore.Qt.ControlModifier) == mods:
             #     ctlalt = True
@@ -609,10 +632,21 @@ async def handle_keyboard_input(
                     symbol,
                     'info',
                 )
+                search.bar.clear()
+                view.set_results({
+                    'cache': list(search.chart_app._chart_cache)
+                })
 
                 _search_enabled = False
                 # release kb control of search bar
-                search.bar.unfocus()
+                # search.bar.unfocus()
+                continue
+
+            elif not ctl and not bar.text():
+                # if nothing in search text show the cache
+                view.set_results({
+                    'cache': list(search.chart_app._chart_cache)
+                })
                 continue
 
             # selection tips:
@@ -621,7 +655,7 @@ async def handle_keyboard_input(
             # - root node index: index = search.index(0, 0, QModelIndex())
 
             # cancel and close
-            if ctrl and key in {
+            if ctl and key in {
                 Qt.Key_C,
                 Qt.Key_Space,   # i feel like this is the "native" one
                 Qt.Key_Alt,
@@ -635,7 +669,18 @@ async def handle_keyboard_input(
                 continue
 
             # selection navigation controls
-            elif ctrl and key in {
+            elif ctl and key in {
+                Qt.Key_D,
+            }:
+                view.next_section(direction='down')
+
+            elif ctl and key in {
+                Qt.Key_U,
+            }:
+                view.next_section(direction='up')
+
+            # selection navigation controls
+            elif ctl and key in {
 
                 Qt.Key_K,
                 Qt.Key_J,
@@ -654,6 +699,7 @@ async def handle_keyboard_input(
 
                 if item:
                     parent_item = item.parent()
+
                     if parent_item and parent_item.text() == 'cache':
 
                         value = search.get_current_item()
@@ -666,7 +712,7 @@ async def handle_keyboard_input(
                                 'info',
                             )
 
-            else:
+            elif not ctl:
                 # relay to completer task
                 _search_enabled = True
                 send.send_nowait(search.bar.text())
