@@ -38,7 +38,6 @@ from .feed import (
 
 __all__ = [
     'open_feed',
-    'maybe_spawn_brokerd',
     'ShmArray',
     'iterticks',
     'maybe_open_shm_array',

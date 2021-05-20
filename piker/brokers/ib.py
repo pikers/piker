@@ -47,7 +47,7 @@ from ib_insync.wrapper import Wrapper
 from ib_insync.client import Client as ib_Client
 
 from ..log import get_logger, get_console_log
-from ..data import maybe_spawn_brokerd
+from .._daemon import maybe_spawn_brokerd
 from ..data._source import from_df
 from ..data._sharedmem import ShmArray
 from ._util import SymbolNotFound
