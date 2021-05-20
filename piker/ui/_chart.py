@@ -172,6 +172,7 @@ class ChartSpace(QtGui.QWidget):
 
             # XXX: pretty sure we don't need this
             # remove any existing plots?
+            # XXX: ahh we might want to support cache unloading..
             # self.vbox.removeWidget(self.linkedcharts)
 
         # switching to a new viewable chart
