@@ -5,41 +5,7 @@ import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
 
 
-class SampleLegendItem(pg.graphicsItems.LegendItem.ItemSample):
-
-    def paint(self, p, *args):
-        p.setRenderHint(p.Antialiasing)
-        if isinstance(self.item, tuple):
-            positive = self.item[0].opts
-            negative = self.item[1].opts
-            p.setPen(pg.mkPen(positive['pen']))
-            p.setBrush(pg.mkBrush(positive['brush']))
-            p.drawPolygon(
-                QtGui.QPolygonF(
-                    [
-                        QtCore.QPointF(0, 0),
-                        QtCore.QPointF(18, 0),
-                        QtCore.QPointF(18, 18),
-                    ]
-                )
-            )
-            p.setPen(pg.mkPen(negative['pen']))
-            p.setBrush(pg.mkBrush(negative['brush']))
-            p.drawPolygon(
-                QtGui.QPolygonF(
-                    [
-                        QtCore.QPointF(0, 0),
-                        QtCore.QPointF(0, 18),
-                        QtCore.QPointF(18, 18),
-                    ]
-                )
-            )
-        else:
-            opts = self.item.opts
-            p.setPen(pg.mkPen(opts['pen']))
-            p.drawRect(0, 10, 18, 0.5)
-
-
+# TODO: test this out as our help menu
 class CenteredTextItem(QtGui.QGraphicsTextItem):
     def __init__(
         self,
