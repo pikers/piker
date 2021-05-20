@@ -39,7 +39,7 @@ jobs:
           python-version: '3.9'
 
       - name: Install dependencies
-        run: pip install -U . -r requirements-test.txt --upgrade-strategy eager
+        run: pip install -U . -r requirements-test.txt -r requirements.txt --upgrade-strategy eager
 
       - name: Test suite
         run: pytest tests -rs
