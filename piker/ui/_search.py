@@ -258,37 +258,69 @@ class CompleterView(QTreeView):
         self.setMaximumSize(self.width() + 10, rows * row_px)
         self.setFixedWidth(333)
 
-    def select_previous(self) -> QModelIndex:
-        cidx = self.currentIndex()
-        nidx = self.indexAbove(cidx)
-        if nidx.parent() is QModelIndex():
-            nidx = self.indexAbove(cidx)
-            breakpoint()
+    def previous_index(self) -> QModelIndex:
 
-        return nidx
+        cidx = self.selectionModel().currentIndex()
+        one_above = self.indexAbove(cidx)
 
-    def select_next(self) -> QModelIndex:
-        cidx = self.currentIndex()
-        nidx = self.indexBelow(cidx)
-        if nidx.parent() is QModelIndex():
-            nidx = self.indexBelow(cidx)
-            breakpoint()
+        if one_above.parent() == QModelIndex():
+            # if the next node up's parent is the root we don't want to select
+            # the next node up since it's a top level node and we only
+            # select entries depth >= 2.
 
-        return nidx
+            # see if one more up is not the root and we can select it.
+            two_above = self.indexAbove(one_above)
+            if two_above != QModelIndex():
+                return two_above
+            else:
+                return cidx
+
+        return one_above  # just next up
+
+    def next_index(self) -> QModelIndex:
+        cidx = self.selectionModel().currentIndex()
+        one_below = self.indexBelow(cidx)
+
+        if one_below.parent() == QModelIndex():
+            # if the next node up's parent is the root we don't want to select
+            # the next node up since it's a top level node and we only
+            # select entries depth >= 2.
+
+            # see if one more up is not the root and we can select it.
+            two_below = self.indexBelow(one_below)
+            if two_below != QModelIndex():
+                return two_below
+            else:
+                return cidx
+
+        return one_below  # just next up
+
+    # def first_selectable_index(self) -> QModelIndex:
+
+    def select_next(self) -> Tuple[QModelIndex, QStandardItem]:
+        idx = self.next_index()
+        assert idx.isValid()
+        return self.select_from_idx(idx)
+
+    def select_previous(self) -> Tuple[QModelIndex, QStandardItem]:
+        idx = self.previous_index()
+        assert idx.isValid()
+        return self.select_from_idx(idx)
 
     def select_from_idx(
 
         self,
         idx: QModelIndex,
 
-    ) -> Tuple[QModelIndex, QStandardItem]:
+    ) -> QStandardItem:
+    # ) -> Tuple[QModelIndex, QStandardItem]:
 
         sel = self.selectionModel()
         model = self.model()
 
-        # select first indented entry
-        if idx == model.index(0, 0):
-            idx = self.select_next()
+        # # select first indented entry
+        # if idx == model.index(0, 0):
+        #     idx = self.select_next()
 
         sel.setCurrentIndex(
             idx,
@@ -296,7 +328,8 @@ class CompleterView(QTreeView):
             QItemSelectionModel.Rows
         )
 
-        return idx, model.itemFromIndex(idx)
+        return model.itemFromIndex(idx)
+        # return idx, model.itemFromIndex(idx)
 
     # def find_matches(
     #     self,
@@ -498,7 +531,6 @@ class SearchWidget(QtGui.QWidget):
         '''Return the current completer tree selection as
         a tuple ``(parent: str, child: str)`` if valid, else ``None``.
 
-
         '''
         model = self.view.model()
         sel = self.view.selectionModel()
@@ -537,7 +569,7 @@ async def handle_keyboard_input(
     bar = search.bar
     view = bar.view
     view.set_font_size(bar.dpi_font.px_size)
-    nidx = view.currentIndex()
+    # nidx = view.currentIndex()
 
     symsearch = get_multi_search()
     send, recv = trio.open_memory_channel(16)
@@ -559,6 +591,15 @@ async def handle_keyboard_input(
             ctrl = False
             if mods == Qt.ControlModifier:
                 ctrl = True
+
+            alt = False
+            if mods == Qt.AltModifier:
+                alt = True
+
+            # ctrl + alt as combo
+            ctlalt = False
+            if (QtCore.Qt.AltModifier | QtCore.Qt.ControlModifier) == mods:
+                ctlalt = True
 
             if key in (Qt.Key_Enter, Qt.Key_Return):
 
@@ -587,45 +628,51 @@ async def handle_keyboard_input(
             # - first node index: index = search.index(0, 0, parent)
             # - root node index: index = search.index(0, 0, QModelIndex())
 
-            # we're in select mode or cancelling
-            if ctrl:
-                # cancel and close
-                if (key == Qt.Key_C) or (key == Qt.Key_Space):
-                    search.bar.unfocus()
+            # cancel and close
+            if ctrl and key in {
+                Qt.Key_C,
+                Qt.Key_Space,   # i feel like this is the "native" one
+                Qt.Key_Alt,
+            }:
+                search.bar.unfocus()
 
-                    # kill the search and focus back on main chart
-                    if search.chart_app:
-                        search.chart_app.linkedcharts.focus()
+                # kill the search and focus back on main chart
+                if search.chart_app:
+                    search.chart_app.linkedcharts.focus()
 
-                    continue
+                continue
 
-                # result selection nav
-                if key in (Qt.Key_K, Qt.Key_J):
-                    _search_enabled = False
+            # selection navigation controls
+            elif ctrl and key in {
 
-                    if key == Qt.Key_K:
-                        nidx = view.select_previous()
+                Qt.Key_K,
+                Qt.Key_J,
 
-                    elif key == Qt.Key_J:
-                        nidx = view.select_next()
+            } or key in {
 
-                    if nidx.isValid():
-                        i, item = view.select_from_idx(nidx)
+                Qt.Key_Up,
+                Qt.Key_Down,
+            }:
+                _search_enabled = False
+                if key in {Qt.Key_K, Qt.Key_Up}:
+                    item = view.select_previous()
 
-                        if item:
+                elif key in {Qt.Key_J, Qt.Key_Down}:
+                    item = view.select_next()
 
-                            parent_item = item.parent()
-                            if parent_item and parent_item.text() == 'cache':
+                if item:
+                    parent_item = item.parent()
+                    if parent_item and parent_item.text() == 'cache':
 
-                                value = search.get_current()
+                        value = search.get_current()
 
-                                if value is not None:
-                                    provider, symbol = value
-                                    search.chart_app.load_symbol(
-                                        provider,
-                                        symbol,
-                                        'info',
-                                    )
+                        if value is not None:
+                            provider, symbol = value
+                            search.chart_app.load_symbol(
+                                provider,
+                                symbol,
+                                'info',
+                            )
 
             else:
                 # relay to completer task
