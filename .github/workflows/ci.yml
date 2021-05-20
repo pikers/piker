@@ -26,7 +26,7 @@ jobs:
         run: piker 
 
   testing:
-    name: 'pip install'
+    name: 'test suite'
     runs-on: ubuntu-latest
     steps:
 
