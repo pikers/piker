@@ -25,7 +25,7 @@ from PyQt5.QtCore import QEvent
 import trio
 
 
-class KeyCloner(QtCore.QObject):
+class EventCloner(QtCore.QObject):
     """Clone and forward keyboard events over a trio memory channel
     for later async processing.
 
@@ -39,13 +39,21 @@ class KeyCloner(QtCore.QObject):
         ev: QEvent,
     ) -> None:
 
-        if ev.type() == QEvent.KeyPress:
+        if ev.type() in {
+            QEvent.KeyPress,
+            # QEvent.KeyRelease,
+        }:
+            # TODO: is there a global setting for this?
+            if ev.isAutoRepeat():
+                ev.ignore()
+                return False
 
             # XXX: we unpack here because apparently doing it
             # after pop from the mem chan isn't showing the same
             # event object? no clue wtf is going on there, likely
             # something to do with Qt internals and calling the
             # parent handler?
+
             key = ev.key()
             mods = ev.modifiers()
             txt = ev.text()
@@ -61,13 +69,14 @@ class KeyCloner(QtCore.QObject):
 async def open_key_stream(
 
     source_widget: QtGui.QWidget,
+    event_type: QEvent = QEvent.KeyPress,
 
 ) -> trio.abc.ReceiveChannel:
 
     # 1 to force eager sending
     send, recv = trio.open_memory_channel(16)
 
-    kc = KeyCloner()
+    kc = EventCloner()
     kc._send_chan = send
     source_widget.installEventFilter(kc)
 
