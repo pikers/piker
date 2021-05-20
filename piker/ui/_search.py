@@ -178,64 +178,6 @@ class CompleterView(QTreeView):
 
         self.setStyleSheet(f"font: {size}px")
 
-    def set_results(
-        self,
-        results: Dict[str, Sequence[str]],
-    ) -> None:
-
-        model = self.model()
-        model.clear()
-        model.setHorizontalHeaderLabels(self.labels)
-
-        # TODO: wtf.. this model shit
-        # row_count = model.rowCount()
-        # if row_count > 0:
-        #     model.removeRows(
-        #         0,
-        #         row_count,
-
-        #         # root index
-        #         model.index(0, 0, QModelIndex()),
-        #     )
-        root = model.invisibleRootItem()
-
-        for key, values in results.items():
-
-            src = QStandardItem(key)
-            root.appendRow(src)
-            # self.expand(model.index(1, 0, QModelIndex()))
-
-            # values just needs to be sequence-like
-            for i, s in enumerate(values):
-
-                ix = QStandardItem(str(i))
-                item = QStandardItem(s)
-                # item.setCheckable(False)
-
-                # Add the item to the model
-                src.appendRow([ix, item])
-
-        self.expandAll()
-
-        # XXX: these 2 lines MUST be in sequence in order
-        # to get the view to show right after typing input.
-        sel = self.selectionModel()
-
-        # select row without selecting.. :eye_rollzz:
-        # https://doc.qt.io/qt-5/qabstractitemview.html#setCurrentIndex
-        sel.setCurrentIndex(
-            model.index(0, 0, QModelIndex()),
-            QItemSelectionModel.ClearAndSelect |
-            QItemSelectionModel.Rows
-        )
-
-        # ensure we're **not** selecting the first level parent node and
-        # instead its child.
-        self.select_from_idx(model.index(0, 0, QModelIndex()))
-
-        # self.resize()
-        self.show_matches()
-
     def show_matches(self) -> None:
         self.show()
         self.resize()
@@ -295,31 +237,17 @@ class CompleterView(QTreeView):
 
         return one_below  # just next up
 
-    # def first_selectable_index(self) -> QModelIndex:
-
-    def select_next(self) -> Tuple[QModelIndex, QStandardItem]:
-        idx = self.next_index()
-        assert idx.isValid()
-        return self.select_from_idx(idx)
-
-    def select_previous(self) -> Tuple[QModelIndex, QStandardItem]:
-        idx = self.previous_index()
-        assert idx.isValid()
-        return self.select_from_idx(idx)
-
     def select_from_idx(
 
         self,
         idx: QModelIndex,
 
     ) -> QStandardItem:
+        '''Select and return the item at index ``idx``.
 
+        '''
         sel = self.selectionModel()
         model = self.model()
-
-        # # select first indented entry
-        # if idx == model.index(0, 0):
-        #     idx = self.select_next()
 
         sel.setCurrentIndex(
             idx,
@@ -328,7 +256,72 @@ class CompleterView(QTreeView):
         )
 
         return model.itemFromIndex(idx)
-        # return idx, model.itemFromIndex(idx)
+
+    def select_first(self) -> QStandardItem:
+        '''Select the first depth >= 2 entry from the completer tree and
+        return it's item.
+
+        '''
+        # ensure we're **not** selecting the first level parent node and
+        # instead its child.
+        return self.select_from_idx(
+            self.indexBelow(self.model().index(0, 0, QModelIndex()))
+        )
+
+    def select_next(self) -> QStandardItem:
+        idx = self.next_index()
+        assert idx.isValid()
+        return self.select_from_idx(idx)
+
+    def select_previous(self) -> QStandardItem:
+        idx = self.previous_index()
+        assert idx.isValid()
+        return self.select_from_idx(idx)
+
+    def set_results(
+        self,
+        results: Dict[str, Sequence[str]],
+    ) -> None:
+
+        model = self.model()
+
+        # XXX: currently we simply rewrite the model from scratch each call
+        # since it seems to be super fast anyway.
+        model.clear()
+
+        model.setHorizontalHeaderLabels(self.labels)
+        root = model.invisibleRootItem()
+
+        for key, values in results.items():
+
+            src = QStandardItem(key)
+            root.appendRow(src)
+
+            # values just needs to be sequence-like
+            for i, s in enumerate(values):
+
+                ix = QStandardItem(str(i))
+                item = QStandardItem(s)
+
+                # Add the item to the model
+                src.appendRow([ix, item])
+
+        self.expandAll()
+
+        # XXX: these 2 lines MUST be in sequence in order
+        # to get the view to show right after typing input.
+        sel = self.selectionModel()
+
+        # select row without selecting.. :eye_rollzz:
+        # https://doc.qt.io/qt-5/qabstractitemview.html#setCurrentIndex
+        sel.setCurrentIndex(
+            model.index(0, 0, QModelIndex()),
+            QItemSelectionModel.ClearAndSelect |
+            QItemSelectionModel.Rows
+        )
+
+        self.select_first()
+        self.show_matches()
 
     # def find_matches(
     #     self,
@@ -444,7 +437,7 @@ class SearchWidget(QtGui.QWidget):
         self.view.set_results({'cache': list(self.chart_app._chart_cache)})
         self.bar.focus()
 
-    def get_current(self) -> Optional[Tuple[str, str]]:
+    def get_current_item(self) -> Optional[Tuple[str, str]]:
         '''Return the current completer tree selection as
         a tuple ``(parent: str, child: str)`` if valid, else ``None``.
 
@@ -602,7 +595,7 @@ async def handle_keyboard_input(
 
             if key in (Qt.Key_Enter, Qt.Key_Return):
 
-                value = search.get_current()
+                value = search.get_current_item()
                 if value is None:
                     continue
 
@@ -663,7 +656,7 @@ async def handle_keyboard_input(
                     parent_item = item.parent()
                     if parent_item and parent_item.text() == 'cache':
 
-                        value = search.get_current()
+                        value = search.get_current_item()
 
                         if value is not None:
                             provider, symbol = value
