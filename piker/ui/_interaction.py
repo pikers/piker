@@ -694,7 +694,7 @@ class ChartView(ViewBox):
                 ev.accept()
                 self.mode.submit_exec()
 
-    def keyReleaseEvent(self, ev):
+    def keyReleaseEvent(self, ev: QtCore.QEvent):
         """
         Key release to normally to trigger release of input mode
 
@@ -712,6 +712,10 @@ class ChartView(ViewBox):
         if key == QtCore.Qt.Key_Shift:
             # if self.state['mouseMode'] == ViewBox.RectMode:
             self.setMouseMode(ViewBox.PanMode)
+
+        # ctlalt = False
+        # if (QtCore.Qt.AltModifier | QtCore.Qt.ControlModifier) == mods:
+        #     ctlalt = True
 
         # if self.state['mouseMode'] == ViewBox.RectMode:
         # if key == QtCore.Qt.Key_Space:
@@ -749,19 +753,20 @@ class ChartView(ViewBox):
         ctrl = False
         if mods == QtCore.Qt.ControlModifier:
             ctrl = True
-
-        if mods == QtCore.Qt.ControlModifier:
             self.mode._exec_mode = 'live'
 
         self._key_active = True
 
-        # alt
-        if mods == QtCore.Qt.AltModifier:
-            pass
+        # ctrl + alt
+        # ctlalt = False
+        # if (QtCore.Qt.AltModifier | QtCore.Qt.ControlModifier) == mods:
+        #     ctlalt = True
 
         # ctlr-<space>/<l> for "lookup", "search" -> open search tree
-        if ctrl and (key == QtCore.Qt.Key_L or key == QtCore.Qt.Key_Space):
-
+        if ctrl and key in {
+            QtCore.Qt.Key_L,
+            QtCore.Qt.Key_Space,
+        }:
             search = self._chart._lc.chart_space.search
             search.focus()
 
