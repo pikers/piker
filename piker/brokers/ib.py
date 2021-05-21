@@ -833,6 +833,7 @@ async def get_bars(
 
     _err = None
 
+    fails = 0
     for _ in range(2):
         try:
 
@@ -847,7 +848,7 @@ async def get_bars(
 
             next_dt = bars[0].date
 
-            return bars, bars_array, next_dt
+            return (bars, bars_array, next_dt), fails
 
         except RequestError as err:
             _err = err
@@ -871,10 +872,13 @@ async def get_bars(
                     # and then somehow get that to trigger an event here
                     # that restarts/resumes this task?
                     await tractor.breakpoint()
+                    fails += 1
                     continue
 
-    else:  # throttle wasn't fixed so error out immediately
-        raise _err
+    return (None, None)
+
+    # else:  # throttle wasn't fixed so error out immediately
+    #     raise _err
 
 
 async def backfill_bars(
@@ -892,7 +896,7 @@ async def backfill_bars(
     https://github.com/pikers/piker/issues/128
 
     """
-    first_bars, bars_array, next_dt = await get_bars(sym)
+    (first_bars, bars_array, next_dt), fails = await get_bars(sym)
 
     # write historical data to buffer
     shm.push(bars_array)
@@ -904,9 +908,12 @@ async def backfill_bars(
         i = 0
         while i < count:
 
-            out = await get_bars(sym, end_dt=next_dt)
+            out, fails = await get_bars(sym, end_dt=next_dt)
 
-            if out is None:
+            if fails is None or fails > 1:
+                break
+
+            if out is (None, None):
                 # could be trying to retreive bars over weekend
                 # TODO: add logic here to handle tradable hours and only grab
                 # valid bars in the range
