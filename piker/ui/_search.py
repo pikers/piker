@@ -668,6 +668,12 @@ async def handle_keyboard_input(
 
                 continue
 
+            if ctl and key in {
+                Qt.Key_L,
+            }:
+                # like url (link) highlight in a web browser
+                bar.focus()
+
             # selection navigation controls
             elif ctl and key in {
                 Qt.Key_D,
