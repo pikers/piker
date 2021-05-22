@@ -63,14 +63,17 @@ _ohlc_dtype = [
     ('low', float),
     ('close', float),
     ('volume', float),
-    # XXX: don't need these in shm history right?
+    ('bar_wap', float),  # will be zeroed by sampler if not filled
+
+    # XXX: some additional fields are defined in the docs:
+    # https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
+
     # ('close_time', int),
     # ('quote_vol', float),
     # ('num_trades', int),
     # ('buy_base_vol', float),
     # ('buy_quote_vol', float),
     # ('ignore', float),
-    ('bar_wap', float),  # will be zeroed by sampler if not filled
 ]
 
 # UI components allow this to be declared such that additional
@@ -106,33 +109,12 @@ class Pair(BaseModel):
     permissions: List[str]
 
 
-# TODO: this isn't being used yet right?
 @dataclass
 class OHLC:
     """Description of the flattened OHLC quote format.
 
     For schema details see:
     https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-streams
-
-    documented format:
-    ```
-        [
-          [
-            1499040000000,      // Open time
-            "0.01634790",       // Open
-            "0.80000000",       // High
-            "0.01575800",       // Low
-            "0.01577100",       // Close
-            "148976.11427815",  // Volume
-            1499644799999,      // Close time
-            "2434.19055334",    // Quote asset volume
-            308,                // Number of trades
-            "1756.87402397",    // Taker buy base asset volume
-            "28.46694368",      // Taker buy quote asset volume
-            "17928899.62484339" // Ignore.
-          ]
-        ]
-    ```
 
     """
     time: int
@@ -154,9 +136,6 @@ class OHLC:
     # null the place holder for `bar_wap` until we
     # figure out what to extract for this.
     bar_wap: float = 0.0
-
-    # (sampled) generated tick data
-    # ticks: List[Any] = field(default_factory=list)
 
 
 # convert arrow timestamp to unixtime in miliseconds
@@ -263,17 +242,17 @@ async def get_client() -> Client:
 
 # validation type
 class AggTrade(BaseModel):
-    e: str  # "aggTrade",  # Event type
-    E: int  # 123456789,   # Event time
-    s: str  # "BNBBTC",    # Symbol
-    a: int  # 12345,       # Aggregate trade ID
-    p: float  # "0.001",     # Price
-    q: float  # "100",       # Quantity
-    f: int  # 100,         # First trade ID
-    l: int  # 105,         # Last trade ID
-    T: int  # 123456785,   # Trade time
-    m: bool  # true,        # Is the buyer the market maker?
-    M: bool  # true         # Ignore
+    e: str  # Event type
+    E: int  # Event time
+    s: str  # Symbol
+    a: int  # Aggregate trade ID
+    p: float  # Price
+    q: float  # Quantity
+    f: int  # First trade ID
+    l: int  # Last trade ID
+    T: int  # Trade time
+    m: bool  # Is the buyer the market maker?
+    M: bool  # Ignore
 
 
 async def stream_messages(ws):
