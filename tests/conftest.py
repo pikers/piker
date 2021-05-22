@@ -44,7 +44,6 @@ def confdir(request, test_config):
     if confdir is not None:
         config._override_config_dir(confdir)
 
-    # return config.load()[0]
     return confdir
 
 

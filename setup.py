@@ -77,7 +77,7 @@ setup(
         #'kivy',  see requirement.txt; using a custom branch atm
     ],
     tests_require=['pytest'],
-    python_requires=">=3.7",  # literally for ``datetime.datetime.fromisoformat``...
+    python_requires=">=3.9",  # literally for ``datetime.datetime.fromisoformat``...
     keywords=["async", "trading", "finance", "quant", "charting"],
     classifiers=[
         'Development Status :: 3 - Alpha',
@@ -85,7 +85,7 @@ setup(
         'Operating System :: POSIX :: Linux',
         "Programming Language :: Python :: Implementation :: CPython",
         "Programming Language :: Python :: 3 :: Only",
-        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.9",
         'Intended Audience :: Financial and Insurance Industry',
         'Intended Audience :: Science/Research',
         'Intended Audience :: Developers',

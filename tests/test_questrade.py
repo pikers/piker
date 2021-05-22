@@ -10,11 +10,18 @@ import pytest
 import tractor
 from tractor.testing import tractor_test
 
+import piker
 from piker.brokers import get_brokermod
 from piker.brokers.data import DataFeed
 
 
-log = tractor.get_logger('tests')
+log = piker.log.get_logger('tests')
+
+
+pytestmark = pytest.mark.skipif(
+    True,
+    reason="questrade tests can only be run locally with an API key",
+)
 
 
 # stock quote

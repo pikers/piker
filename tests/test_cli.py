@@ -10,6 +10,12 @@ import os.path
 import piker.watchlists as wl
 
 
+pytestmark = pytest.mark.skipif(
+    True,
+    reason="cli tests rely on quote api and questrade symbols"
+)
+
+
 def run(cmd, *args):
     """Run cmd and check for zero return code.
     """

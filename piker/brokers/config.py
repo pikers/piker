@@ -18,9 +18,12 @@
 Broker configuration mgmt.
 """
 import os
-import configparser
+from os.path import dirname
+import shutil
+
 import toml
 import click
+
 from ..log import get_logger
 
 log = get_logger('broker-config')
@@ -40,12 +43,28 @@ def get_broker_conf_path():
     return os.path.join(_config_dir, _file_name)
 
 
+def repodir():
+    """Return the abspath to the repo directory.
+    """
+    dirpath = os.path.abspath(
+        # we're 3 levels down in **this** module file
+        dirname(dirname(dirname(os.path.realpath(__file__))))
+    )
+    return dirpath
+
+
 def load(
     path: str = None
 ) -> (dict, str):
     """Load broker config.
     """
     path = path or get_broker_conf_path()
+    if not os.path.isfile(path):
+        shutil.copyfile(
+            os.path.join(repodir(), 'data/brokers.toml'),
+            path,
+        )
+
     config = toml.load(path)
     log.debug(f"Read config file {path}")
     return config, path

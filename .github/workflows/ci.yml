@@ -3,19 +3,43 @@ name: CI
 on: push
 
 jobs:
-  mypy:
+
+  basic_install:
     name: 'pip install'
     runs-on: ubuntu-latest
     steps:
+
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          ref: chart_hacking
+          ref: master
+
       - name: Setup python
         uses: actions/setup-python@v2
         with:
-          python-version: '3.8'
+          python-version: '3.9'
+
       - name: Install dependencies
         run: pip install -e . --upgrade-strategy eager -r requirements.txt
-      - name: Run piker
+
+      - name: Run piker cli
         run: piker 
+
+  testing:
+    name: 'test suite'
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install -U . -r requirements-test.txt -r requirements.txt --upgrade-strategy eager
+
+      - name: Test suite
+        run: pytest tests -rs
