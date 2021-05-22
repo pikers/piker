@@ -18,6 +18,7 @@
 High level Qt chart widgets.
 
 """
+import time
 from typing import Tuple, Dict, Any, Optional, Callable
 from types import ModuleType
 from functools import partial
@@ -934,7 +935,9 @@ async def test_bed(
         # txt.setPos(vb_right - w, d_coords.y())
         # txt.setPlainText(f"FUCK YOU {i}")
         i += 1
-        # rlabel.setPos(vb_right - 2*w, d_coords.y())
+
+
+_quote_throttle_rate = 60  # Hz
 
 
 async def chart_from_quotes(
@@ -1011,9 +1014,17 @@ async def chart_from_quotes(
     tick_size = chart._lc.symbol.tick_size
     tick_margin = 2 * tick_size
 
+    last = time.time()
     async for quotes in stream:
-        for sym, quote in quotes.items():
 
+        now = time.time()
+        period = now - last
+        if period <= 1/_quote_throttle_rate:
+            # faster then display refresh rate
+            # print(f'quote too fast: {1/period}')
+            continue
+
+        for sym, quote in quotes.items():
             for tick in quote.get('ticks', ()):
 
                 # print(f"CHART: {quote['symbol']}: {tick}")
@@ -1098,6 +1109,8 @@ async def chart_from_quotes(
                     )
 
                 last_mx, last_mn = mx, mn
+
+                last = now
 
 
 async def spawn_fsps(
@@ -1272,8 +1285,18 @@ async def run_fsp(
 
         stream = conf['stream']
 
+        last = time.time()
+
         # update chart graphics
         async for value in stream:
+
+            now = time.time()
+            period = now - last
+            # if period <= 1/30:
+            if period <= 1/_quote_throttle_rate:
+                # faster then display refresh rate
+                # print(f'quote too fast: {1/period}')
+                continue
 
             # TODO: provide a read sync mechanism to avoid this polling.
             # the underlying issue is that a backfill and subsequent shm
@@ -1298,6 +1321,8 @@ async def run_fsp(
 
             # update graphics
             chart.update_curve_from_array(fsp_func_name, array)
+
+            last = now
 
 
 async def check_for_new_bars(feed, ohlcv, linked_charts):
