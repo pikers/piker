@@ -18,7 +18,6 @@
 Structured, daemon tree service management.
 
 """
-from functools import partial
 from typing import Optional, Union, Callable, Any
 from contextlib import asynccontextmanager, AsyncExitStack
 from collections import defaultdict
@@ -72,7 +71,7 @@ class Services(BaseModel):
         ctx, first = await self.ctx_stack.enter_async_context(
             portal.open_context(
                 target,
-            **kwargs,
+                **kwargs,
             )
         )
         return ctx
