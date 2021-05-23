@@ -116,7 +116,11 @@ def get_feed_bus(
     return _bus
 
 
-async def _setup_persistent_brokerd(brokername:  str) -> None:
+@tractor.context
+async def _setup_persistent_brokerd(
+    ctx: tractor.Context,
+    brokername: str
+) -> None:
     """Allocate a actor-wide service nursery in ``brokerd``
     such that feeds can be run in the background persistently by
     the broker backend as needed.
@@ -128,6 +132,9 @@ async def _setup_persistent_brokerd(brokername:  str) -> None:
             # assign a nursery to the feeds bus for spawning
             # background tasks from clients
             bus = get_feed_bus(brokername, service_nursery)
+
+            # unblock caller
+            await ctx.started()
 
             # we pin this task to keep the feeds manager active until the
             # parent actor decides to tear it down
@@ -232,7 +239,7 @@ async def attach_feed_bus(
     brokername: str,
     symbol: str,
     loglevel: str,
-):
+) -> None:
 
     # try:
     if loglevel is None:
@@ -274,6 +281,8 @@ async def attach_feed_bus(
 
     # send this even to subscribers to existing feed?
     await ctx.send_yield(init_msg)
+
+    # deliver a first quote asap
     await ctx.send_yield(first_quote)
 
     if sub_only:
