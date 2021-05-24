@@ -37,39 +37,16 @@ from .._cacheables import open_cached_client
 from ._util import resproc, SymbolNotFound
 from ..log import get_logger, get_console_log
 from ..data import ShmArray
-from ..data._web_bs import open_autorecon_ws, NoBsWs
+from ..data._web_bs import open_autorecon_ws
+from ..data._source import ohlc_fields, ohlc_with_index
 
 log = get_logger(__name__)
 
 
 _url = 'https://api.binance.com'
 
+ohlc_dtype = np.dtype(ohlc_with_index)
 
-# Broker specific ohlc schema (rest)
-_ohlc_dtype = [
-    ('index', int),
-    ('time', int),
-    ('open', float),
-    ('high', float),
-    ('low', float),
-    ('close', float),
-    ('volume', float),
-    ('bar_wap', float),  # will be zeroed by sampler if not filled
-
-    # XXX: some additional fields are defined in the docs:
-    # https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
-
-    # ('close_time', int),
-    # ('quote_vol', float),
-    # ('num_trades', int),
-    # ('buy_base_vol', float),
-    # ('buy_quote_vol', float),
-    # ('ignore', float),
-]
-
-# UI components allow this to be declared such that additional
-# (historical) fields can be exposed.
-ohlc_dtype = np.dtype(_ohlc_dtype)
 
 _show_wap_in_history = False
 
@@ -100,9 +77,8 @@ class Pair(BaseModel):
     permissions: List[str]
 
 
-@dataclass
-class OHLC:
-    """Description of the flattened OHLC quote format.
+class KLine(BaseModel):
+    """Description of the flattened KLine quote format.
 
     For schema details see:
     https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-streams
@@ -124,9 +100,19 @@ class OHLC:
     buy_quote_vol: float
     ignore: int
 
-    # null the place holder for `bar_wap` until we
-    # figure out what to extract for this.
-    bar_wap: float = 0.0
+    def as_row(self):
+        row = []
+        for (name, _) in ohlc_fields[:-1]:
+            # TODO: maybe we should go nanoseconds on all
+            # history time stamps?
+            if name == 'time':
+                # convert to epoch seconds: float
+                row.append(self.time / 1000.0)
+
+            else:
+                row.append(getattr(self, name))
+
+        return row
 
 
 # convert arrow timestamp to unixtime in miliseconds
@@ -245,31 +231,23 @@ class Client:
             }
         )
 
-        # TODO: pack this bars scheme into a ``pydantic`` validator type:
-        # https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
-
-        # TODO: we should port this to ``pydantic`` to avoid doing
-        # manual validation ourselves..
         new_bars = []
         for i, bar in enumerate(bars):
 
-            bar = OHLC(*bar)
+            init_dict = {}
+            for j, key in enumerate(
+                KLine.__dict__['__fields__'].keys()):
+                init_dict[key] = bar[j]
 
-            row = []
-            for j, (name, ftype) in enumerate(_ohlc_dtype[1:]):
+            bar = KLine(**init_dict)
+            bar_wap = .0
+            new_bars.append((i,) + tuple(bar.as_row()) + (bar_wap,))
 
-                # TODO: maybe we should go nanoseconds on all
-                # history time stamps?
-                if name == 'time':
-                    # convert to epoch seconds: float
-                    row.append(bar.time / 1000.0)
-
-                else:
-                    row.append(getattr(bar, name))
-
-            new_bars.append((i,) + tuple(row))
-
-        array = np.array(new_bars, dtype=_ohlc_dtype) if as_np else bars
+        array = np.array(
+            new_bars,
+            dtype=ohlc_dtype
+        ) if as_np else bars
+        
         return array
 
 
@@ -280,7 +258,16 @@ async def get_client() -> Client:
     yield client
 
 
-# validation type
+# validation types
+class BookTicker(BaseModel):
+  u: int  # order book updateId
+  s: str  # symbol
+  b: float  # best bid price
+  B: float  # best bid qty
+  a: float  # best ask price
+  A: float  # best ask qty
+
+
 class AggTrade(BaseModel):
     e: str  # Event type
     E: int  # Event time
@@ -317,19 +304,15 @@ async def stream_messages(ws: NoBsWs) -> AsyncGenerator[NoBsWs, dict]:
         # https://binance-docs.github.io/apidocs/spot/en/#individual-symbol-book-ticker-streams
 
         if msg.get('u'):
-            sym = msg['s']
-            bid = float(msg['b'])
-            bsize = float(msg['B'])
-            ask = float(msg['a'])
-            asize = float(msg['A'])
+            msg = BookTicker(**msg)
 
             yield 'l1', {
-                'symbol': sym,
+                'symbol': msg.s,
                 'ticks': [
-                    {'type': 'bid', 'price': bid, 'size': bsize},
-                    {'type': 'bsize', 'price': bid, 'size': bsize},
-                    {'type': 'ask', 'price': ask, 'size': asize},
-                    {'type': 'asize', 'price': ask, 'size': asize}
+                    {'type': 'bid', 'price': msg.b, 'size': msg.B},
+                    {'type': 'bsize', 'price': msg.b, 'size': msg.B},
+                    {'type': 'ask', 'price': msg.a, 'size': msg.A},
+                    {'type': 'asize', 'price': msg.a, 'size': msg.A}
                 ]
             }
 
