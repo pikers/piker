@@ -19,10 +19,11 @@ High level Qt chart widgets.
 
 """
 import time
+from collections import OrderedDict
+from contextlib import AsyncExitStack
 from typing import Tuple, Dict, Any, Optional, Callable
 from types import ModuleType
 from functools import partial
-from contextlib import AsyncExitStack
 
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import Qt
@@ -104,7 +105,7 @@ class ChartSpace(QtGui.QWidget):
         self.vbox.addLayout(self.toolbar_layout)
         # self.vbox.addLayout(self.hbox)
 
-        self._chart_cache = {}
+        self._chart_cache = OrderedDict()
         self.linkedcharts: 'LinkedSplitCharts' = None
         self.symbol_label: Optional[QtGui.QLabel] = None
 
@@ -116,6 +117,8 @@ class ChartSpace(QtGui.QWidget):
         linked_charts: 'LinkedSplitCharts',  # type: ignore
     ) -> None:
         self._chart_cache[symbol_key] = linked_charts
+        # re-sort list in LIFO order
+        self._chart_cache.move_to_end(symbol_key, last=False)
 
     def get_chart_symbol(
         self,
@@ -191,7 +194,8 @@ class ChartSpace(QtGui.QWidget):
             )
 
             self.vbox.addWidget(linkedcharts)
-            self.set_chart_symbol(fqsn, linkedcharts)
+
+        self.set_chart_symbol(fqsn, linkedcharts)
 
         # chart is already in memory so just focus it
         if self.linkedcharts:
