@@ -19,7 +19,7 @@ Structured, daemon tree service management.
 
 """
 from functools import partial
-from typing import Optional, Union, Callable
+from typing import Optional, Union, Callable, Any
 from contextlib import asynccontextmanager, AsyncExitStack
 from collections import defaultdict
 
@@ -34,6 +34,10 @@ from .brokers import get_brokermod
 log = get_logger(__name__)
 
 _root_dname = 'pikerd'
+_tractor_kwargs: dict[str, Any] = {
+    # use a different registry addr then tractor's default
+    'arbiter_addr':  ('127.0.0.1', 6116),
+}
 _root_modules = [
     __name__,
     'piker.clearing._ems',
@@ -101,7 +105,7 @@ async def open_pikerd(
     # XXX: this may open a root actor as well
     async with tractor.open_root_actor(
             # passed through to ``open_root_actor``
-            arbiter_addr=('127.0.0.1', 6116),
+            arbiter_addr=_tractor_kwargs['arbiter_addr'],
             name=_root_dname,
             loglevel=loglevel,
             debug_mode=debug_mode,
