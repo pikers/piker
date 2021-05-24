@@ -148,12 +148,14 @@ async def _setup_persistent_brokerd(
 
 
 async def allocate_persistent_feed(
+
     ctx: tractor.Context,
     bus: _FeedsBus,
     brokername: str,
     symbol: str,
     loglevel: str,
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
+
 ) -> None:
 
     try:
@@ -204,7 +206,6 @@ async def allocate_persistent_feed(
     bus.feeds[symbol] = (cs, init_msg, first_quote)
 
     if opened:
-
         # start history backfill task ``backfill_bars()`` is
         # a required backend func this must block until shm is
         # filled with first set of ohlc bars
@@ -243,9 +244,9 @@ async def attach_feed_bus(
     brokername: str,
     symbol: str,
     loglevel: str,
+
 ) -> None:
 
-    # try:
     if loglevel is None:
         loglevel = tractor.current_actor().loglevel
 
@@ -256,15 +257,15 @@ async def attach_feed_bus(
     assert 'brokerd' in tractor.current_actor().name
 
     bus = get_feed_bus(brokername)
+    sub_only: bool = False
 
+    entry = bus.feeds.get(symbol)
+
+    # if no cached feed for this symbol has been created for this
+    # brokerd yet, start persistent stream and shm writer task in
+    # service nursery
     async with bus.task_lock:
-        task_cs = bus.feeds.get(symbol)
-        sub_only: bool = False
-
-        # if no cached feed for this symbol has been created for this
-        # brokerd yet, start persistent stream and shm writer task in
-        # service nursery
-        if task_cs is None:
+        if entry is None:
             init_msg, first_quote = await bus.nursery.start(
                 partial(
                     allocate_persistent_feed,
@@ -276,6 +277,8 @@ async def attach_feed_bus(
                 )
             )
             bus._subscribers.setdefault(symbol, []).append(ctx)
+            assert isinstance(bus.feeds[symbol], tuple)
+
         else:
             sub_only = True
 
@@ -371,9 +374,9 @@ class Feed:
                 # more then one?
                 topics=['local_trades'],
             ) as self._trade_stream:
+
                 yield self._trade_stream
         else:
-
             yield self._trade_stream
 
 
@@ -386,9 +389,12 @@ def sym_to_shm_key(
 
 @asynccontextmanager
 async def install_brokerd_search(
+
     portal: tractor._portal.Portal,
     brokermod: ModuleType,
+
 ) -> None:
+
     async with portal.open_context(
         brokermod.open_symbol_search
     ) as (ctx, cache):
@@ -402,6 +408,7 @@ async def install_brokerd_search(
                 return await stream.receive()
 
             async with _search.register_symbol_search(
+
                 provider_name=brokermod.name,
                 search_routine=search,
                 pause_period=brokermod._search_conf.get('pause_period'),
@@ -412,18 +419,20 @@ async def install_brokerd_search(
 
 @asynccontextmanager
 async def open_feed(
+
     brokername: str,
     symbols: Sequence[str],
     loglevel: Optional[str] = None,
+
 ) -> AsyncIterator[Dict[str, Any]]:
-    """Open a "data feed" which provides streamed real-time quotes.
+    '''
+    Open a "data feed" which provides streamed real-time quotes.
 
-    """
-
+    '''
     sym = symbols[0].lower()
 
     # TODO: feed cache locking, right now this is causing
-    # issues when reconncting to a long running emsd?
+    # issues when reconnecting to a long running emsd?
     # global _searcher_cache
 
     # async with _cache_lock:
@@ -441,6 +450,7 @@ async def open_feed(
         mod = get_ingestormod(brokername)
 
     # no feed for broker exists so maybe spawn a data brokerd
+
     async with maybe_spawn_brokerd(
         brokername,
         loglevel=loglevel
@@ -497,12 +507,4 @@ async def open_feed(
 
             feed._max_sample_rate = max(ohlc_sample_rates)
 
-            if brokername in _search._searcher_cache:
-                yield feed
-
-            else:
-                async with install_brokerd_search(
-                    feed._brokerd_portal,
-                    mod,
-                ):
-                    yield feed
+            yield feed

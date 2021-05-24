@@ -1480,7 +1480,6 @@ async def chart_symbol(
             f'tick:{symbol.tick_size}'
         )
 
-        # await tractor.breakpoint()
         linked_charts = chart_app.linkedcharts
         linked_charts._symbol = symbol
         chart = linked_charts.plot_ohlc_main(symbol, bars)
@@ -1535,6 +1534,7 @@ async def chart_symbol(
                 },
             })
 
+
         async with trio.open_nursery() as n:
 
             # load initial fsp chain (otherwise known as "indicators")
@@ -1558,9 +1558,8 @@ async def chart_symbol(
             )
 
             # wait for a first quote before we start any update tasks
-            quote = await feed.receive()
-
-            log.info(f'Received first quote {quote}')
+            # quote = await feed.receive()
+            # log.info(f'Received first quote {quote}')
 
             n.start_soon(
                 check_for_new_bars,
@@ -1579,6 +1578,41 @@ async def chart_symbol(
             # )
 
             await start_order_mode(chart, symbol, brokername)
+
+
+async def load_providers(
+    brokernames: list[str],
+    loglevel: str,
+) -> None:
+
+    # TODO: seems like our incentive for brokerd caching lelel
+    backends = {}
+
+    async with AsyncExitStack() as stack:
+        # TODO: spawn these async in nursery.
+        # load all requested brokerd's at startup and load their
+        # search engines.
+        for broker in brokernames:
+
+            # spin up broker daemons for each provider
+            portal = await stack.enter_async_context(
+                maybe_spawn_brokerd(
+                    broker,
+                    loglevel=loglevel
+                )
+            )
+
+            backends[broker] = portal
+
+            await stack.enter_async_context(
+                feed.install_brokerd_search(
+                    portal,
+                    get_brokermod(broker),
+                )
+            )
+
+        # keep search engines up until cancelled
+        await trio.sleep_forever()
 
 
 async def _async_main(
@@ -1644,53 +1678,32 @@ async def _async_main(
         # this internally starts a ``chart_symbol()`` task above
         chart_app.load_symbol(provider, symbol, loglevel)
 
-        # TODO: seems like our incentive for brokerd caching lelel
-        backends = {}
+        root_n.start_soon(load_providers, brokernames, loglevel)
 
-        async with AsyncExitStack() as stack:
+        # spin up a search engine for the local cached symbol set
+        async with _search.register_symbol_search(
 
-            # TODO: spawn these async in nursery.
+            provider_name='cache',
+            search_routine=partial(
+                _search.search_simple_dict,
+                source=chart_app._chart_cache,
+            ),
 
-            # load all requested brokerd's at startup and load their
-            # search engines.
-            for broker in brokernames:
-                portal = await stack.enter_async_context(
-                    maybe_spawn_brokerd(
-                        broker,
-                        loglevel=loglevel
-                    )
+        ):
+            # start handling search bar kb inputs
+            async with open_key_stream(
+                search.bar,
+            ) as key_stream:
+
+                # start kb handling task for searcher
+                root_n.start_soon(
+                    _search.handle_keyboard_input,
+                    # chart_app,
+                    search,
+                    key_stream,
                 )
 
-                backends[broker] = portal
-                await stack.enter_async_context(
-                    feed.install_brokerd_search(
-                        portal,
-                        get_brokermod(broker),
-                    )
-                )
-
-            async with _search.register_symbol_search(
-
-                provider_name='cache',
-                search_routine=partial(
-                    _search.search_simple_dict,
-                    source=chart_app._chart_cache,
-                ),
-
-            ):
-                async with open_key_stream(
-                    search.bar,
-                ) as key_stream:
-
-                    # start kb handling task for searcher
-                    root_n.start_soon(
-                        _search.handle_keyboard_input,
-                        # chart_app,
-                        search,
-                        key_stream,
-                    )
-
-                    await trio.sleep_forever()
+                await trio.sleep_forever()
 
 
 def _main(
