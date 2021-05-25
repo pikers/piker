@@ -153,7 +153,7 @@ class Client:
             'User-Agent':
                 'krakenex/2.1.0 (+https://github.com/veox/python3-krakenex)'
         })
-        self._pairs = None
+        self._pairs: list[str] = []
 
     @property
     def pairs(self) -> Dict[str, Any]:
@@ -289,7 +289,7 @@ class Client:
 async def get_client() -> Client:
     client = Client()
 
-    # load all symbols locally for fast search
+    # at startup, load all symbols locally for fast search
     await client.cache_symbols()
 
     yield client
