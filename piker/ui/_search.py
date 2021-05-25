@@ -456,7 +456,7 @@ class SearchWidget(QtGui.QWidget):
 
         if self.view.model().rowCount(QModelIndex()) == 0:
             # fill cache list if nothing existing
-            self.view.set_results({'cache': list(self.chart_app._chart_cache)})
+            self.view.set_results({'cache': list(reversed(self.chart_app._chart_cache))})
 
         self.bar.focus()
 
@@ -625,15 +625,24 @@ async def handle_keyboard_input(
 
                 log.info(f'Requesting symbol: {symbol}.{provider}')
 
-                # app = search.chart_app
-                search.chart_app.load_symbol(
+                chart = search.chart_app
+                chart.load_symbol(
                     provider,
                     symbol,
                     'info',
                 )
+
+                # fully qualified symbol name (SNS i guess is what we're making?)
+                fqsn = '.'.join([symbol, provider]).lower()
+
+                # Re-order the symbol cache on the chart to display in
+                # LIFO order. this is normally only done internally by
+                # the chart on new symbols being loaded into memory
+                chart.set_chart_symbol(fqsn, chart.linkedcharts)
+
                 search.bar.clear()
                 view.set_results({
-                    'cache': list(search.chart_app._chart_cache)
+                    'cache': list(reversed(chart._chart_cache))
                 })
 
                 _search_enabled = False
@@ -644,7 +653,7 @@ async def handle_keyboard_input(
             elif not ctl and not bar.text():
                 # if nothing in search text show the cache
                 view.set_results({
-                    'cache': list(search.chart_app._chart_cache)
+                    'cache': list(reversed(chart._chart_cache))
                 })
                 continue
 
@@ -662,8 +671,8 @@ async def handle_keyboard_input(
                 search.bar.unfocus()
 
                 # kill the search and focus back on main chart
-                if search.chart_app:
-                    search.chart_app.linkedcharts.focus()
+                if chart:
+                    chart.linkedcharts.focus()
 
                 continue
 
@@ -711,7 +720,7 @@ async def handle_keyboard_input(
 
                         if value is not None:
                             provider, symbol = value
-                            search.chart_app.load_symbol(
+                            chart.load_symbol(
                                 provider,
                                 symbol,
                                 'info',

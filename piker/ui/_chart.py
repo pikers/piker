@@ -19,7 +19,6 @@ High level Qt chart widgets.
 
 """
 import time
-from collections import OrderedDict
 from contextlib import AsyncExitStack
 from typing import Tuple, Dict, Any, Optional, Callable
 from types import ModuleType
@@ -105,7 +104,7 @@ class ChartSpace(QtGui.QWidget):
         self.vbox.addLayout(self.toolbar_layout)
         # self.vbox.addLayout(self.hbox)
 
-        self._chart_cache = OrderedDict()
+        self._chart_cache = {}
         self.linkedcharts: 'LinkedSplitCharts' = None
         self.symbol_label: Optional[QtGui.QLabel] = None
 
@@ -115,10 +114,12 @@ class ChartSpace(QtGui.QWidget):
         self,
         symbol_key: str,  # of form <fqsn>.<providername>
         linked_charts: 'LinkedSplitCharts',  # type: ignore
+
     ) -> None:
-        self._chart_cache[symbol_key] = linked_charts
-        # re-sort list in LIFO order
-        self._chart_cache.move_to_end(symbol_key, last=False)
+        # re-sort org cache symbol list in LIFO order
+        cache = self._chart_cache
+        cache.pop(symbol_key, None)
+        cache[symbol_key] = linked_charts
 
     def get_chart_symbol(
         self,
@@ -176,7 +177,7 @@ class ChartSpace(QtGui.QWidget):
             # XXX: pretty sure we don't need this
             # remove any existing plots?
             # XXX: ahh we might want to support cache unloading..
-            # self.vbox.removeWidget(self.linkedcharts)
+            self.vbox.removeWidget(self.linkedcharts)
 
         # switching to a new viewable chart
         if linkedcharts is None or reset:
@@ -193,9 +194,10 @@ class ChartSpace(QtGui.QWidget):
                 loglevel,
             )
 
-            self.vbox.addWidget(linkedcharts)
 
-        self.set_chart_symbol(fqsn, linkedcharts)
+            self.set_chart_symbol(fqsn, linkedcharts)
+
+        self.vbox.addWidget(linkedcharts)
 
         # chart is already in memory so just focus it
         if self.linkedcharts:
