@@ -203,7 +203,10 @@ async def allocate_persistent_feed(
     # TODO: make this into a composed type which also
     # contains the backfiller cs for individual super-based
     # resspawns when needed.
-    bus.feeds[symbol] = (cs, init_msg, first_quote)
+
+    # XXX: the ``symbol`` here is put into our native piker format (i.e.
+    # lower case).
+    bus.feeds[symbol.lower()] = (cs, init_msg, first_quote)
 
     if opened:
         # start history backfill task ``backfill_bars()`` is
@@ -272,7 +275,12 @@ async def attach_feed_bus(
                     ctx=ctx,
                     bus=bus,
                     brokername=brokername,
+
+                    # here we pass through the selected symbol in native
+                    # "format" (i.e. upper vs. lowercase depending on
+                    # provider).
                     symbol=symbol,
+
                     loglevel=loglevel,
                 )
             )
@@ -411,7 +419,7 @@ async def install_brokerd_search(
 
                 provider_name=brokermod.name,
                 search_routine=search,
-                pause_period=brokermod._search_conf.get('pause_period'),
+                pause_period=brokermod._search_conf.get('pause_period', 0.0616),
 
             ):
                 yield

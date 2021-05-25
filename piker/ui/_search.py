@@ -497,7 +497,6 @@ async def fill_results(
     search: SearchBar,
     symsearch: Callable[..., Awaitable],
     recv_chan: trio.abc.ReceiveChannel,
-    # cached_symbols: Dict[str,
 
     # kb debouncing pauses
     min_pause_time: float = 0.0616,

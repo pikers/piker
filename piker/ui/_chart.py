@@ -1538,7 +1538,6 @@ async def chart_symbol(
                 },
             })
 
-
         async with trio.open_nursery() as n:
 
             # load initial fsp chain (otherwise known as "indicators")
@@ -1598,6 +1597,7 @@ async def load_providers(
         # search engines.
         for broker in brokernames:
 
+            log.info(f'Loading brokerd for {broker}')
             # spin up broker daemons for each provider
             portal = await stack.enter_async_context(
                 maybe_spawn_brokerd(
