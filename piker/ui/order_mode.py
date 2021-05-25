@@ -319,14 +319,10 @@ async def start_order_mode(
 ) -> None:
 
     # spawn EMS actor-service
-    async with open_ems(
-        brokername,
-        symbol,
-    ) as (book, trades_stream), open_order_mode(
-        symbol,
-        chart,
-        book,
-    ) as order_mode:
+    async with (
+        open_ems(brokername, symbol) as (book, trades_stream),
+        open_order_mode(symbol, chart, book) as order_mode
+    ):
 
         def get_index(time: float):
 
@@ -337,7 +333,7 @@ async def start_order_mode(
             indexes = ohlc['time'] >= time
 
             if any(indexes):
-                return ohlc['index'][indexes[-1]]
+                return ohlc['index'][indexes][-1]
             else:
                 return ohlc['index'][-1]
 

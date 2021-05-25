@@ -19,8 +19,9 @@ Structured, daemon tree service management.
 
 """
 from functools import partial
-from typing import Optional, Union
-from contextlib import asynccontextmanager
+from typing import Optional, Union, Callable, Any
+from contextlib import asynccontextmanager, AsyncExitStack
+from collections import defaultdict
 
 from pydantic import BaseModel
 import trio
@@ -33,6 +34,10 @@ from .brokers import get_brokermod
 log = get_logger(__name__)
 
 _root_dname = 'pikerd'
+_tractor_kwargs: dict[str, Any] = {
+    # use a different registry addr then tractor's default
+    'arbiter_addr':  ('127.0.0.1', 6116),
+}
 _root_modules = [
     __name__,
     'piker.clearing._ems',
@@ -44,9 +49,33 @@ class Services(BaseModel):
     actor_n: tractor._trionics.ActorNursery
     service_n: trio.Nursery
     debug_mode: bool  # tractor sub-actor debug mode flag
+    ctx_stack: AsyncExitStack
 
     class Config:
         arbitrary_types_allowed = True
+
+    async def open_remote_ctx(
+        self,
+        portal: tractor.Portal,
+        target: Callable,
+        **kwargs,
+
+    ) -> tractor.Context:
+        '''
+        Open a context in a service sub-actor, add to a stack
+        that gets unwound at ``pikerd`` tearodwn.
+
+        This allows for allocating long-running sub-services in our main
+        daemon and explicitly controlling their lifetimes.
+
+        '''
+        ctx, first = await self.ctx_stack.enter_async_context(
+            portal.open_context(
+                target,
+            **kwargs,
+            )
+        )
+        return ctx
 
 
 _services: Optional[Services] = None
@@ -62,20 +91,21 @@ async def open_pikerd(
     debug_mode: bool = False,
 
 ) -> Optional[tractor._portal.Portal]:
-    """
+    '''
     Start a root piker daemon who's lifetime extends indefinitely
     until cancelled.
 
     A root actor nursery is created which can be used to create and keep
     alive underling services (see below).
 
-    """
+    '''
     global _services
     assert _services is None
 
     # XXX: this may open a root actor as well
     async with tractor.open_root_actor(
             # passed through to ``open_root_actor``
+            arbiter_addr=_tractor_kwargs['arbiter_addr'],
             name=_root_dname,
             loglevel=loglevel,
             debug_mode=debug_mode,
@@ -90,14 +120,18 @@ async def open_pikerd(
     ) as _, tractor.open_nursery() as actor_nursery:
         async with trio.open_nursery() as service_nursery:
 
-            # assign globally for future daemon/task creation
-            _services = Services(
-                actor_n=actor_nursery,
-                service_n=service_nursery,
-                debug_mode=debug_mode,
-            )
+            # setup service mngr singleton instance
+            async with AsyncExitStack() as stack:
 
-            yield _services
+                # assign globally for future daemon/task creation
+                _services = Services(
+                    actor_n=actor_nursery,
+                    service_n=service_nursery,
+                    debug_mode=debug_mode,
+                    ctx_stack=stack,
+                )
+
+                yield _services
 
 
 @asynccontextmanager
@@ -140,6 +174,7 @@ async def maybe_open_pikerd(
     # presume pikerd role
     async with open_pikerd(
         loglevel=loglevel,
+        debug_mode=kwargs.get('debug_mode', False),
     ) as _:
         # in the case where we're starting up the
         # tractor-piker runtime stack in **this** process
@@ -193,15 +228,17 @@ async def spawn_brokerd(
     # call with and then have the ability to unwind the call whenevs.
 
     # non-blocking setup of brokerd service nursery
-    _services.service_n.start_soon(
-        partial(
-            portal.run,
-            _setup_persistent_brokerd,
-            brokername=brokername,
-        )
+    await _services.open_remote_ctx(
+        portal,
+        _setup_persistent_brokerd,
+        brokername=brokername,
     )
 
     return dname
+
+
+class Brokerd:
+    locks = defaultdict(trio.Lock)
 
 
 @asynccontextmanager
@@ -222,9 +259,15 @@ async def maybe_spawn_brokerd(
 
     dname = f'brokerd.{brokername}'
 
+    # serialize access to this section to avoid
+    # 2 or more tasks racing to create a daemon
+    lock = Brokerd.locks[brokername]
+    await lock.acquire()
+
     # attach to existing brokerd if possible
     async with tractor.find_actor(dname) as portal:
         if portal is not None:
+            lock.release()
             yield portal
             return
 
@@ -249,6 +292,7 @@ async def maybe_spawn_brokerd(
             )
 
         async with tractor.wait_for_actor(dname) as portal:
+            lock.release()
             yield portal
 
 

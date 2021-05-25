@@ -227,7 +227,7 @@ async def sample_and_broadcast(
             # end up triggering backpressure which which will
             # eventually block this producer end of the feed and
             # thus other consumers still attached.
-            subs = bus.subscribers[sym]
+            subs = bus._subscribers[sym]
             for ctx in subs:
                 # print(f'sub is {ctx.chan.uid}')
                 try:
@@ -236,5 +236,8 @@ async def sample_and_broadcast(
                     trio.BrokenResourceError,
                     trio.ClosedResourceError
                 ):
-                    subs.remove(ctx)
+                    # XXX: do we need to deregister here
+                    # if it's done in the fee bus code?
+                    # so far seems like no since this should all
+                    # be single-threaded.
                     log.error(f'{ctx.chan.uid} dropped connection')

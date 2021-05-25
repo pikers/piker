@@ -42,7 +42,7 @@ import trio
 import tractor
 from outcome import Error
 
-from .._daemon import maybe_open_pikerd
+from .._daemon import maybe_open_pikerd, _tractor_kwargs
 from ..log import get_logger
 from ._pg_overrides import _do_overrides
 
@@ -195,6 +195,10 @@ def run_qtractor(
         'window': window,
         'main': instance,
     }
+
+
+    # override tractor's defaults
+    tractor_kwargs.update(_tractor_kwargs)
 
     # define tractor entrypoint
     async def main():
