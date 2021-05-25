@@ -106,8 +106,6 @@ class ChartSpace(QtGui.QWidget):
 
         self._chart_cache = {}
         self.linkedcharts: 'LinkedSplitCharts' = None
-        self.symbol_label: Optional[QtGui.QLabel] = None
-
         self._root_n: Optional[trio.Nursery] = None
 
     def set_chart_symbol(
@@ -1660,11 +1658,7 @@ async def _async_main(
         chart_app._root_n = root_n
 
         # setup search widget
-        # search.installEventFilter(self)
-
-        search = _search.SearchWidget(
-            chart_space=chart_app,
-        )
+        search = _search.SearchWidget(chart_space=chart_app)
 
         # the main chart's view is given focus at startup
         search.bar.unfocus()

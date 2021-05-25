@@ -408,7 +408,7 @@ class SearchBar(QtWidgets.QLineEdit):
         return psh
 
     def unfocus(self) -> None:
-        self.hide()
+        self.parent().hide()
         self.clearFocus()
 
         if self.view:
@@ -431,9 +431,28 @@ class SearchWidget(QtGui.QWidget):
         )
 
         self.chart_app = chart_space
+
         self.vbox = QtGui.QVBoxLayout(self)
         self.vbox.setContentsMargins(0, 0, 0, 0)
         self.vbox.setSpacing(4)
+
+        # split layout for the (label:| search bar entry)
+        self.bar_hbox = QtGui.QHBoxLayout(self)
+        self.bar_hbox.setContentsMargins(0, 0, 0, 0)
+        self.bar_hbox.setSpacing(4)
+
+        self.label = label = QtGui.QLabel(parent=self)
+        label.setTextFormat(3)  # markdown
+        label.setFont(_font.font)
+        label.setMargin(4)
+        label.setText("`search`:")
+        label.show()
+        label.setAlignment(
+            QtCore.Qt.AlignVCenter
+            | QtCore.Qt.AlignLeft
+        )
+
+        self.bar_hbox.addWidget(label)
 
         # https://doc.qt.io/qt-5/qlayout.html#SizeConstraint-enum
         # self.vbox.setSizeConstraint(QLayout.SetMaximumSize)
@@ -447,7 +466,12 @@ class SearchWidget(QtGui.QWidget):
             parent_chart=chart_space,
             view=self.view,
         )
-        self.vbox.addWidget(self.bar)
+        self.bar_hbox.addWidget(self.bar)
+
+        # self.vbox.addWidget(self.bar)
+        # self.vbox.setAlignment(self.bar, Qt.AlignTop | Qt.AlignRight)
+        self.vbox.addLayout(self.bar_hbox)
+
         self.vbox.setAlignment(self.bar, Qt.AlignTop | Qt.AlignRight)
         self.vbox.addWidget(self.bar.view)
         self.vbox.setAlignment(self.view, Qt.AlignTop | Qt.AlignLeft)
@@ -456,9 +480,11 @@ class SearchWidget(QtGui.QWidget):
 
         if self.view.model().rowCount(QModelIndex()) == 0:
             # fill cache list if nothing existing
-            self.view.set_results({'cache': list(reversed(self.chart_app._chart_cache))})
+            self.view.set_results(
+                {'cache': list(reversed(self.chart_app._chart_cache))})
 
         self.bar.focus()
+        self.show()
 
     def get_current_item(self) -> Optional[Tuple[str, str]]:
         '''Return the current completer tree selection as
@@ -580,6 +606,7 @@ async def handle_keyboard_input(
     global _search_active, _search_enabled
 
     # startup
+    chart = search.chart_app
     bar = search.bar
     view = bar.view
     view.set_font_size(bar.dpi_font.px_size)
@@ -625,14 +652,14 @@ async def handle_keyboard_input(
 
                 log.info(f'Requesting symbol: {symbol}.{provider}')
 
-                chart = search.chart_app
                 chart.load_symbol(
                     provider,
                     symbol,
                     'info',
                 )
 
-                # fully qualified symbol name (SNS i guess is what we're making?)
+                # fully qualified symbol name (SNS i guess is what we're
+                # making?)
                 fqsn = '.'.join([symbol, provider]).lower()
 
                 # Re-order the symbol cache on the chart to display in
