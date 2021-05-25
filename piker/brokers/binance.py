@@ -288,10 +288,20 @@ class AggTrade(BaseModel):
 
 
 async def stream_messages(ws):
+
+    timeouts = 0
     while True:
 
-        with trio.move_on_after(5):
+        with trio.move_on_after(5) as cs:
             msg = await ws.recv_msg()
+
+        if cs.cancelled_caught:
+
+            timeouts += 1
+            if timeouts > 2:
+                raise trio.TooSlowError("binance feed seems down?")
+
+            continue
 
         # for l1 streams binance doesn't add an event type field so
         # identify those messages by matching keys
@@ -475,10 +485,17 @@ async def stream_quotes(
 
         # keep client cached for real-time section
         cache = await client.cache_symbols()
+
         for sym in symbols:
             d = cache[sym.upper()]
             syminfo = Pair(**d)  # validation
-            sym_infos[sym] = syminfo.dict()
+
+            si = sym_infos[sym] = syminfo.dict()
+
+            # XXX: after manually inspecting the response format we
+            # just directly pick out the info we need
+            si['price_tick_size'] = syminfo.filters[0]['tickSize']
+            si['lot_tick_size'] = syminfo.filters[2]['stepSize']
 
         symbol = symbols[0]
 
