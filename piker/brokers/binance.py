@@ -45,6 +45,8 @@ log = get_logger(__name__)
 
 _url = 'https://api.binance.com'
 
+# XXX: some additional fields are defined in the docs:
+# https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
 ohlc_dtype = np.dtype(ohlc_with_index)
 
 
@@ -233,13 +235,11 @@ class Client:
 
         new_bars = []
         for i, bar in enumerate(bars):
-
-            init_dict = {}
-            for j, key in enumerate(
-                KLine.__dict__['__fields__'].keys()):
-                init_dict[key] = bar[j]
-
-            bar = KLine(**init_dict)
+            bar = KLine(**{
+                key: bar[j]
+                for j, key in enumerate(
+                    KLine.__dict__['__fields__'].keys())
+            })
             bar_wap = .0
             new_bars.append((i,) + tuple(bar.as_row()) + (bar_wap,))
 
