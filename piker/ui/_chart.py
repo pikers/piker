@@ -937,7 +937,7 @@ async def test_bed(
         i += 1
 
 
-_quote_throttle_rate = 60  # Hz
+_quote_throttle_rate: int = 60  # Hz
 
 
 async def chart_from_quotes(
@@ -1019,7 +1019,7 @@ async def chart_from_quotes(
 
         now = time.time()
         period = now - last
-        if period <= 1/_quote_throttle_rate:
+        if period <= 1/_quote_throttle_rate - 0.001:
             # faster then display refresh rate
             # print(f'quote too fast: {1/period}')
             continue
@@ -1110,7 +1110,8 @@ async def chart_from_quotes(
 
                 last_mx, last_mn = mx, mn
 
-                last = now
+        # set time of last graphics update
+        last = now
 
 
 async def spawn_fsps(
@@ -1293,7 +1294,7 @@ async def run_fsp(
             now = time.time()
             period = now - last
             # if period <= 1/30:
-            if period <= 1/_quote_throttle_rate:
+            if period <= 1/_quote_throttle_rate - 0.001:
                 # faster then display refresh rate
                 # print(f'quote too fast: {1/period}')
                 continue
@@ -1322,6 +1323,7 @@ async def run_fsp(
             # update graphics
             chart.update_curve_from_array(fsp_func_name, array)
 
+            # set time of last graphics update
             last = now
 
 
@@ -1531,10 +1533,22 @@ async def _async_main(
     Provision the "main" widget with initial symbol data and root nursery.
 
     """
+
     chart_app = widgets['main']
 
     # attempt to configure DPI aware font size
-    _font.configure_to_dpi(current_screen())
+    screen = current_screen()
+
+    # configure graphics update throttling based on display refresh rate
+    global _quote_throttle_rate
+    _quote_throttle_rate = min(
+        round(screen.refreshRate()),
+        _quote_throttle_rate,
+    )
+    log.info(f'Set graphics update rate to {_quote_throttle_rate} Hz')
+
+    # configure global DPI aware font size
+    _font.configure_to_dpi(screen)
 
     async with trio.open_nursery() as root_n:
 
