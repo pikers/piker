@@ -31,6 +31,7 @@ qompleterz: embeddable search and complete using trio, Qt and fuzzywuzzy.
 # https://github.com/qutebrowser/qutebrowser/blob/master/qutebrowser/completion/completiondelegate.py#L243
 # https://forum.qt.io/topic/61343/highlight-matched-substrings-in-qstyleditemdelegate
 
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from functools import partial
 from typing import (
@@ -91,18 +92,6 @@ class SimpleDelegate(QStyledItemDelegate):
         super().__init__(parent)
         self.dpi_font = font
 
-    # def sizeHint(self, *args) -> QtCore.QSize:
-    #     """
-    #     Scale edit box to size of dpi aware font.
-
-    #     """
-    #     psh = super().sizeHint(*args)
-    #     # psh.setHeight(self.dpi_font.px_size + 2)
-
-    #     psh.setHeight(18)
-    #     # psh.setHeight(18)
-    #     return psh
-
 
 class CompleterView(QTreeView):
 
@@ -141,6 +130,12 @@ class CompleterView(QTreeView):
         self.setAnimated(False)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
+        # TODO: this up front?
+        # self.setSelectionModel(
+        #     QItemSelectionModel.ClearAndSelect |
+        #     QItemSelectionModel.Rows
+        # )
+
         # self.setVerticalBarPolicy(Qt.ScrollBarAlwaysOff)
         # self.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
 
@@ -148,7 +143,6 @@ class CompleterView(QTreeView):
         model.setHorizontalHeaderLabels(labels)
 
         self._font_size: int = 0  # pixels
-        # self._cache: Dict[str, List[str]] = {}
 
     # def viewportSizeHint(self) -> QtCore.QSize:
     #     vps = super().viewportSizeHint()
@@ -178,10 +172,6 @@ class CompleterView(QTreeView):
 
         self.setStyleSheet(f"font: {size}px")
 
-    def show_matches(self) -> None:
-        self.show()
-        self.resize()
-
     def resize(self):
         model = self.model()
         cols = model.columnCount()
@@ -199,6 +189,10 @@ class CompleterView(QTreeView):
         self.setMinimumSize(self.width(), rows * row_px)
         self.setMaximumSize(self.width() + 10, rows * row_px)
         self.setFixedWidth(333)
+
+    def is_selecting_d1(self) -> bool:
+        cidx = self.selectionModel().currentIndex()
+        return cidx.parent() == QModelIndex()
 
     def previous_index(self) -> QModelIndex:
 
@@ -264,9 +258,12 @@ class CompleterView(QTreeView):
         '''
         # ensure we're **not** selecting the first level parent node and
         # instead its child.
-        return self.select_from_idx(
-            self.indexBelow(self.model().index(0, 0, QModelIndex()))
-        )
+        model = self.model()
+        for idx, item in self.iter_d1():
+            if model.rowCount(idx) == 0:
+                continue
+            else:
+                return self.select_from_idx(self.indexBelow(idx))
 
     def select_next(self) -> QStandardItem:
         idx = self.next_index()
@@ -298,62 +295,113 @@ class CompleterView(QTreeView):
         self.select_from_idx(nidx)
         return self.select_next()
 
-    def set_results(
+    def iter_d1(
         self,
-        results: Dict[str, Sequence[str]],
-    ) -> None:
+    ) -> tuple[QModelIndex, QStandardItem]:
 
         model = self.model()
+        isections = model.rowCount()
 
-        # XXX: currently we simply rewrite the model from scratch each call
-        # since it seems to be super fast anyway.
-        model.clear()
+        # much thanks to following code to figure out breadth-first
+        # traversing from the root node:
+        # https://stackoverflow.com/a/33126689
+        for i in range(isections):
+            idx = model.index(i, 0, QModelIndex())
+            item = model.itemFromIndex(idx)
+            yield idx, item
+
+    def find_section(
+        self,
+        section: str,
+
+    ) -> Optional[QModelIndex]:
+        '''Find the *first* depth = 1 section matching ``section`` in
+        the tree and return its index.
+
+        '''
+        for idx, item in self.iter_d1():
+            if item.text() == section:
+                return idx
+        else:
+            # caller must expect his
+            return None
+
+    def clear_section(
+        self,
+        section: str,
+        status_field: str = None,
+
+    ) -> None:
+        '''Clear all result-rows from under the depth = 1 section.
+
+        '''
+        idx = self.find_section(section)
+        model = self.model()
+
+        if idx is not None:
+            if model.hasChildren(idx):
+                rows = model.rowCount(idx)
+                # print(f'removing {rows} from {section}')
+                assert model.removeRows(0, rows, parent=idx)
+
+            # remove section as well
+            # model.removeRow(i, QModelIndex())
+
+            return idx
+        else:
+            return None
+
+    def set_section_entries(
+        self,
+        section: str,
+        values: Sequence[str],
+        clear_all: bool = False,
+
+    ) -> None:
+        '''Set result-rows for depth = 1 tree section ``section``.
+
+        '''
+        model = self.model()
+        if clear_all:
+            # XXX: rewrite the model from scratch if caller requests it
+            model.clear()
 
         model.setHorizontalHeaderLabels(self.labels)
-        root = model.invisibleRootItem()
 
-        for key, values in results.items():
 
-            src = QStandardItem(key)
-            root.appendRow(src)
+        section_idx = self.clear_section(section)
 
-            # values just needs to be sequence-like
-            for i, s in enumerate(values):
+        # for key, values in results.items():
 
-                ix = QStandardItem(str(i))
-                item = QStandardItem(s)
+        if section_idx is None:
+            root = model.invisibleRootItem()
+            section_item = QStandardItem(section)
+            root.appendRow(section_item)
+        else:
+            section_item = model.itemFromIndex(section_idx)
 
-                # Add the item to the model
-                src.appendRow([ix, item])
+        # values just needs to be sequence-like
+        for i, s in enumerate(values):
+
+            ix = QStandardItem(str(i))
+            item = QStandardItem(s)
+
+            # Add the item to the model
+            section_item.appendRow([ix, item])
 
         self.expandAll()
 
-        # XXX: these 2 lines MUST be in sequence in order
-        # to get the view to show right after typing input.
-        sel = self.selectionModel()
-
-        # select row without selecting.. :eye_rollzz:
-        # https://doc.qt.io/qt-5/qabstractitemview.html#setCurrentIndex
-        sel.setCurrentIndex(
-            model.index(0, 0, QModelIndex()),
-            QItemSelectionModel.ClearAndSelect |
-            QItemSelectionModel.Rows
-        )
-
+        # XXX: THE BELOW LINE MUST BE CALLED.
+        # this stuff is super finicky and if not done right will cause
+        # Qt crashes out our buttz. it's required in order to get the
+        # view to show right after typing input.
         self.select_first()
+
         self.show_matches()
 
-    # def find_matches(
-    #     self,
-    #     field: str,
-    #     txt: str,
-    # ) -> List[QStandardItem]:
-    #     model = self.model()
-    #     items = model.findItems(
-    #         txt,
-    #         Qt.MatchContains,
-    #         self.field_to_col(field),
-    #     )
+    def show_matches(self) -> None:
+        self.show()
+        self.resize()
 
 
 class SearchBar(QtWidgets.QLineEdit):
@@ -480,8 +528,11 @@ class SearchWidget(QtGui.QWidget):
 
         if self.view.model().rowCount(QModelIndex()) == 0:
             # fill cache list if nothing existing
-            self.view.set_results(
-                {'cache': list(reversed(self.chart_app._chart_cache))})
+            self.view.set_section_entries(
+                'cache',
+                list(reversed(self.chart_app._chart_cache)),
+                clear_all=True,
+            )
 
         self.bar.focus()
         self.show()
@@ -521,7 +572,7 @@ _search_enabled: bool = False
 async def fill_results(
 
     search: SearchBar,
-    symsearch: Callable[..., Awaitable],
+    # multisearch: Callable[..., Awaitable],
     recv_chan: trio.abc.ReceiveChannel,
 
     # kb debouncing pauses
@@ -535,11 +586,15 @@ async def fill_results(
     """
     global _search_active, _search_enabled
 
+    multisearch = get_multi_search()
+
     bar = search.bar
     view = bar.view
+    view.select_from_idx(QModelIndex())
 
     last_text = bar.text()
     repeats = 0
+    last_patt = None
 
     while True:
         await _search_active.wait()
@@ -584,15 +639,36 @@ async def fill_results(
 
             log.debug(f'Search req for {text}')
 
-            results = await symsearch(text, period=period)
+            # issue multi-provider fan-out search request
+            results = await multisearch(text, period=period)
 
-            log.debug(f'Received search result {results}')
+            # matches = {}
+            # unmatches = []
 
-            if results and _search_enabled:
+            if _search_enabled:
 
-                # show the results in the completer view
-                view.set_results(results)
-                bar.show()
+                for (provider, pattern), output in results.items():
+                    if output:
+                        # matches[provider] = output
+                        view.set_section_entries(
+                            section=provider,
+                            values=output,
+                        )
+
+                    else:
+                        view.clear_section(provider)
+
+                if last_patt is None or last_patt != text:
+                    view.select_first()
+
+                    # only change select on first search iteration,
+                    # late results from other providers should **not**
+                    # move the current selection
+                    # if pattern not in patt_searched:
+                    #     patt_searched[pattern].append(provider)
+
+            last_patt = text
+            bar.show()
 
 
 async def handle_keyboard_input(
@@ -610,17 +686,19 @@ async def handle_keyboard_input(
     bar = search.bar
     view = bar.view
     view.set_font_size(bar.dpi_font.px_size)
-    # nidx = view.currentIndex()
 
-    symsearch = get_multi_search()
     send, recv = trio.open_memory_channel(16)
 
     async with trio.open_nursery() as n:
+
+        # start a background multi-searcher task which receives
+        # patterns relayed from this keyboard input handler and
+        # async updates the completer view's results.
         n.start_soon(
             partial(
                 fill_results,
                 search,
-                symsearch,
+                # multisearch,
                 recv,
             )
         )
@@ -632,10 +710,6 @@ async def handle_keyboard_input(
             ctl = False
             if mods == Qt.ControlModifier:
                 ctl = True
-
-            # alt = False
-            # if mods == Qt.AltModifier:
-            #     alt = True
 
             # # ctl + alt as combo
             # ctlalt = False
@@ -668,26 +742,23 @@ async def handle_keyboard_input(
                 chart.set_chart_symbol(fqsn, chart.linkedcharts)
 
                 search.bar.clear()
-                view.set_results({
-                    'cache': list(reversed(chart._chart_cache))
-                })
+                view.set_section_entries(
+                    'cache',
+                    values=list(reversed(chart._chart_cache)),
+                    clear_all=True,
+                )
 
                 _search_enabled = False
-                # release kb control of search bar
-                # search.bar.unfocus()
                 continue
 
             elif not ctl and not bar.text():
                 # if nothing in search text show the cache
-                view.set_results({
-                    'cache': list(reversed(chart._chart_cache))
-                })
+                view.set_section_entries(
+                    'cache',
+                    list(reversed(chart._chart_cache)),
+                    clear_all=True,
+                )
                 continue
-
-            # selection tips:
-            # - get parent node: search.index(row, 0)
-            # - first node index: index = search.index(0, 0, parent)
-            # - root node index: index = search.index(0, 0, QModelIndex())
 
             # cancel and close
             if ctl and key in {
@@ -789,7 +860,7 @@ def get_multi_search() -> Callable[..., Awaitable]:
         period: str,
 
     ) -> dict:
-
+        # nonlocal matches
         matches = {}
 
         async def pack_matches(
@@ -801,8 +872,8 @@ def get_multi_search() -> Callable[..., Awaitable]:
 
             log.info(f'Searching {provider} for "{pattern}"')
             results = await search(pattern)
-            if results:
-                matches[provider] = results
+            # print(f'results from {provider}: {results}')
+            matches[(provider, pattern)] = results
 
         # TODO: make this an async stream?
         async with trio.open_nursery() as n:
@@ -811,7 +882,7 @@ def get_multi_search() -> Callable[..., Awaitable]:
 
                 # only conduct search on this backend if it's registered
                 # for the corresponding pause period.
-                if period >= min_pause:
+                if period >= min_pause and (provider, pattern) not in matches:
                     # print(
                     #   f'searching {provider} after {period} > {min_pause}')
                     n.start_soon(pack_matches, provider, pattern, search)
