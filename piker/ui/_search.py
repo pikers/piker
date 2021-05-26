@@ -44,6 +44,7 @@ import time
 
 from fuzzywuzzy import process as fuzzy
 import trio
+from trio_typing import TaskStatus
 from PyQt5 import QtCore, QtGui
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import (
@@ -347,6 +348,21 @@ class CompleterView(QTreeView):
             # remove section as well
             # model.removeRow(i, QModelIndex())
 
+            if status_field is not None:
+                model.setItem(idx.row(), 1, QStandardItem(status_field))
+            else:
+                model.setItem(idx.row(), 1, QStandardItem())
+
+                # XXX: not idea how to use this
+                # model.setItemData(
+                #     idx,
+                #     {
+                #         0: 'cache',
+                #         1: 'searching',
+                #     }
+                # )
+            self.resize()
+
             return idx
         else:
             return None
@@ -368,15 +384,15 @@ class CompleterView(QTreeView):
 
         model.setHorizontalHeaderLabels(self.labels)
 
-
         section_idx = self.clear_section(section)
 
-        # for key, values in results.items():
-
+        # if we can't find a section start adding to the root
         if section_idx is None:
             root = model.invisibleRootItem()
             section_item = QStandardItem(section)
-            root.appendRow(section_item)
+            blank = QStandardItem('')
+            root.appendRow([section_item, blank])
+
         else:
             section_item = model.itemFromIndex(section_idx)
 
@@ -553,7 +569,11 @@ class SearchWidget(QtGui.QWidget):
         node = model.itemFromIndex(cidx.siblingAtColumn(1))
         if node:
             symbol = node.text()
-            provider = node.parent().text()
+            try:
+                provider = node.parent().text()
+            except AttributeError:
+                # no text set
+                return None
 
             # TODO: move this to somewhere non-search machinery specific?
             if provider == 'cache':
@@ -567,6 +587,47 @@ class SearchWidget(QtGui.QWidget):
 
 _search_active: trio.Event = trio.Event()
 _search_enabled: bool = False
+
+
+async def pack_matches(
+    view: CompleterView,
+    has_results: dict[str, set[str]],
+    matches: dict[(str, str), [str]],
+    provider: str,
+    pattern: str,
+    search: Callable[..., Awaitable[dict]],
+    task_status: TaskStatus[
+        trio.CancelScope] = trio.TASK_STATUS_IGNORED,
+
+) -> None:
+
+    log.info(f'Searching {provider} for "{pattern}"')
+    if provider != 'cache':
+        view.set_section_entries(
+            section=provider,
+            values=[],
+        )
+        view.clear_section(provider, status_field='-> searchin..')
+
+    else:  # for the cache just clear it's entries and don't put a status
+        view.clear_section(provider)
+
+    with trio.CancelScope() as cs:
+        task_status.started(cs)
+        # ensure ^ status is updated
+        results = await search(pattern)
+
+    if provider != 'cache':
+        matches[(provider, pattern)] = results
+
+        # print(f'results from {provider}: {results}')
+        has_results[pattern].add(provider)
+
+    if results:
+        view.set_section_entries(
+            section=provider,
+            values=results,
+        )
 
 
 async def fill_results(
@@ -584,9 +645,7 @@ async def fill_results(
     completion results.
 
     """
-    global _search_active, _search_enabled
-
-    multisearch = get_multi_search()
+    global _search_active, _search_enabled, _searcher_cache
 
     bar = search.bar
     view = bar.view
@@ -595,6 +654,10 @@ async def fill_results(
     last_text = bar.text()
     repeats = 0
     last_patt = None
+
+    # cache of prior patterns to search results
+    matches = defaultdict(list)
+    has_results: defaultdict[str, set[str]] = defaultdict(set)
 
     while True:
         await _search_active.wait()
@@ -639,33 +702,47 @@ async def fill_results(
 
             log.debug(f'Search req for {text}')
 
-            # issue multi-provider fan-out search request
-            results = await multisearch(text, period=period)
+            already_has_results = has_results[text]
 
-            # matches = {}
-            # unmatches = []
+            # issue multi-provider fan-out search request and place
+            # "searching.." statuses on outstanding results providers
+            async with trio.open_nursery() as n:
 
-            if _search_enabled:
+                for provider, (search, pause) in _searcher_cache.items():
+                    print(provider)
 
-                for (provider, pattern), output in results.items():
-                    if output:
-                        # matches[provider] = output
-                        view.set_section_entries(
-                            section=provider,
-                            values=output,
+                    # TODO: put "searching..." status in result field
+
+                    if provider != 'cache':
+                        view.clear_section(
+                            provider, status_field='-> searchin..')
+
+                    # only conduct search on this backend if it's
+                    # registered for the corresponding pause period.
+                    if (period >= pause) and (
+                        provider not in already_has_results
+                    ):
+                        await n.start(
+                            pack_matches,
+                            view,
+                            has_results,
+                            matches,
+                            provider,
+                            text,
+                            search
                         )
+                    else:  # already has results for this input text
+                        results = matches[(provider, text)]
+                        if results:
+                            view.set_section_entries(
+                                section=provider,
+                                values=results,
+                            )
+                        else:
+                            view.clear_section(provider)
 
-                    else:
-                        view.clear_section(provider)
-
-                if last_patt is None or last_patt != text:
-                    view.select_first()
-
-                    # only change select on first search iteration,
-                    # late results from other providers should **not**
-                    # move the current selection
-                    # if pattern not in patt_searched:
-                    #     patt_searched[pattern].append(provider)
+            if last_patt is None or last_patt != text:
+                view.select_first()
 
             last_patt = text
             bar.show()
@@ -698,7 +775,6 @@ async def handle_keyboard_input(
             partial(
                 fill_results,
                 search,
-                # multisearch,
                 recv,
             )
         )
@@ -815,7 +891,6 @@ async def handle_keyboard_input(
                     if parent_item and parent_item.text() == 'cache':
 
                         value = search.get_current_item()
-
                         if value is not None:
                             provider, symbol = value
                             chart.load_symbol(
@@ -849,47 +924,6 @@ async def search_simple_dict(
 
 # cache of provider names to async search routines
 _searcher_cache: Dict[str, Callable[..., Awaitable]] = {}
-
-
-def get_multi_search() -> Callable[..., Awaitable]:
-
-    global _searcher_cache
-
-    async def multisearcher(
-        pattern: str,
-        period: str,
-
-    ) -> dict:
-        # nonlocal matches
-        matches = {}
-
-        async def pack_matches(
-            provider: str,
-            pattern: str,
-            search: Callable[..., Awaitable[dict]],
-
-        ) -> None:
-
-            log.info(f'Searching {provider} for "{pattern}"')
-            results = await search(pattern)
-            # print(f'results from {provider}: {results}')
-            matches[(provider, pattern)] = results
-
-        # TODO: make this an async stream?
-        async with trio.open_nursery() as n:
-
-            for provider, (search, min_pause) in _searcher_cache.items():
-
-                # only conduct search on this backend if it's registered
-                # for the corresponding pause period.
-                if period >= min_pause and (provider, pattern) not in matches:
-                    # print(
-                    #   f'searching {provider} after {period} > {min_pause}')
-                    n.start_soon(pack_matches, provider, pattern, search)
-
-        return matches
-
-    return multisearcher
 
 
 @asynccontextmanager
