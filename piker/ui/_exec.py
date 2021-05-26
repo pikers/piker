@@ -145,6 +145,9 @@ def run_qtractor(
     # currently seem tricky..
     app.setQuitOnLastWindowClosed(False)
 
+    # XXX: lmfao, this is how you disable text edit cursor blinking..smh
+    app.setCursorFlashTime(0)
+
     # set global app singleton
     global _qt_app
     _qt_app = app
