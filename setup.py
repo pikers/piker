@@ -75,6 +75,10 @@ setup(
         # tsdbs
         'pymarketstore',
         #'kivy',  see requirement.txt; using a custom branch atm
+
+        # fuzzy search
+        'fuzzywuzzy[speedup]',
+
     ],
     tests_require=['pytest'],
     python_requires=">=3.9",  # literally for ``datetime.datetime.fromisoformat``...

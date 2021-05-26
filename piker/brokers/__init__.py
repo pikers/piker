@@ -25,6 +25,7 @@ import asks
 asks.init('trio')
 
 __brokers__ = [
+    'binance',
     'questrade',
     'robinhood',
     'ib',
