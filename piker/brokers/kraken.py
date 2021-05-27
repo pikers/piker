@@ -487,7 +487,7 @@ async def stream_quotes(
 
             # unsub from all pairs on teardown
             await ws.send_msg({
-                'pair': ws_pairs.values(),
+                'pair': list(ws_pairs.values()),
                 'event': 'unsubscribe',
                 'subscription': ['ohlc', 'spread'],
             })
