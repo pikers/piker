@@ -192,7 +192,6 @@ class ChartSpace(QtGui.QWidget):
                 loglevel,
             )
 
-
             self.set_chart_symbol(fqsn, linkedcharts)
 
         self.vbox.addWidget(linkedcharts)
@@ -1079,13 +1078,8 @@ async def chart_from_quotes(
 
     last = time.time()
     async for quotes in stream:
-
         now = time.time()
         period = now - last
-        if period <= 1/_quote_throttle_rate - 0.001:
-            # faster then display refresh rate
-            # print(f'quote too fast: {1/period}')
-            continue
 
         for sym, quote in quotes.items():
             for tick in quote.get('ticks', ()):
@@ -1100,6 +1094,12 @@ async def chart_from_quotes(
                     continue
 
                 if ticktype in ('trade', 'utrade', 'last'):
+
+                    # throttle clearing price updates to ~ 60 FPS
+                    if period <= 1/_quote_throttle_rate - 0.001:
+                        # faster then display refresh rate
+                        # print(f'quote too fast: {1/period}')
+                        continue
 
                     array = ohlcv.array
 
@@ -1121,6 +1121,19 @@ async def chart_from_quotes(
                         chart.update_curve_from_array(
                             'bar_wap', ohlcv.array)
 
+                else:  # non-clearing tick
+
+                    now = time.time()
+                    period = now - last
+
+                    # throttle the book graphics updates at a lower rate
+                    # since they aren't as critical for a manual user
+                    # viewing the chart
+
+                    if period <= 1/_quote_throttle_rate/2:
+                        # print(f'skipping\n{tick}')
+                        continue
+
                 # compute max and min trade values to display in view
                 # TODO: we need a streaming minmax algorithm here, see
                 # def above.
@@ -1133,6 +1146,7 @@ async def chart_from_quotes(
                 # XXX: prettty sure this is correct?
                 # if ticktype in ('trade', 'last'):
                 if ticktype in ('last',):  # 'size'):
+
                     label = {
                         l1.ask_label.fields['level']: l1.ask_label,
                         l1.bid_label.fields['level']: l1.bid_label,
