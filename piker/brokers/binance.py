@@ -308,7 +308,8 @@ async def stream_messages(ws):
 
             timeouts += 1
             if timeouts > 10:
-                raise trio.TooSlowError("binance feed seems down?")
+                log.error("binance feed seems down and slow af? rebooting...")
+                await ws._connect()
 
             continue
 
