@@ -32,6 +32,10 @@ class SymbolNotFound(BrokerError):
     "Symbol not found by broker search"
 
 
+class NoData(BrokerError):
+    "Symbol data not permitted"
+
+
 def resproc(
     resp: asks.response_objects.Response,
     log: logging.Logger,
