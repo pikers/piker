@@ -309,7 +309,7 @@ class LinkedSplitCharts(QtGui.QWidget):
         self.chart = self.add_plot(
             name=symbol.key,
             array=array,
-            xaxis=self.xaxis,
+            # xaxis=self.xaxis,
             style=style,
             _is_main=True,
         )
