@@ -103,6 +103,18 @@ class CompleterView(QTreeView):
     #   https://doc.qt.io/qt-5/model-view-programming.html
     # - MV tut:
     #   https://doc.qt.io/qt-5/modelview.html
+    # - custome header view (for doing stuff like we have in  kivy?):
+    #   https://doc.qt.io/qt-5/qheaderview.html#moving-header-sections
+
+    # TODO: selection model stuff for eventual aggregate feeds
+    # charting and mgmt;
+    # https://doc.qt.io/qt-5/qabstractitemview.html#setSelectionModel
+    # https://doc.qt.io/qt-5/qitemselectionmodel.html
+    # https://doc.qt.io/qt-5/modelview.html#3-2-working-with-selections
+    # https://doc.qt.io/qt-5/model-view-programming.html#handling-selections-of-items
+
+    # TODO: mouse extended handling:
+    # https://doc.qt.io/qt-5/qabstractitemview.html#entered
 
     def __init__(
         self,
@@ -126,21 +138,14 @@ class CompleterView(QTreeView):
 
         # self.setUniformRowHeights(True)
         # self.setColumnWidth(0, 3)
+        # self.setVerticalBarPolicy(Qt.ScrollBarAlwaysOff)
+        # self.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
 
         # ux settings
         self.setItemsExpandable(True)
         self.setExpandsOnDoubleClick(False)
         self.setAnimated(False)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-
-        # TODO: this up front?
-        # self.setSelectionModel(
-        #     QItemSelectionModel.ClearAndSelect |
-        #     QItemSelectionModel.Rows
-        # )
-
-        # self.setVerticalBarPolicy(Qt.ScrollBarAlwaysOff)
-        # self.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
 
         # column headers
         model.setHorizontalHeaderLabels(labels)
@@ -150,46 +155,8 @@ class CompleterView(QTreeView):
     def on_pressed(self, idx: QModelIndex) -> None:
 
         search = self.parent()
-        value = search.get_current_item()
-
-        if value is not None:
-            provider, symbol = value
-            chart = search.chart_app
-
-            chart.load_symbol(
-                provider,
-                symbol,
-                'info',
-            )
-
-            # fully qualified symbol name (SNS i guess is what we're
-            # making?)
-            fqsn = '.'.join([symbol, provider]).lower()
-
-            # Re-order the symbol cache on the chart to display in
-            # LIFO order. this is normally only done internally by
-            # the chart on new symbols being loaded into memory
-            chart.set_chart_symbol(fqsn, chart.linkedcharts)
-
+        search.chart_current_item(clear_to_cache=False)
         search.focus()
-
-    # def viewportSizeHint(self) -> QtCore.QSize:
-    #     vps = super().viewportSizeHint()
-    #     return QSize(vps.width(), _font.px_size * 6 * 2)
-
-    # def sizeHint(self) -> QtCore.QSize:
-    #     """Scale completion results up to 6/16 of window.
-    #     """
-    #     # height = self.window().height() * 1/6
-    #     # psh.setHeight(self.dpi_font.px_size * 6)
-    #     # print(_font.px_size)
-    #     height = _font.px_size * 6 * 2
-    #     # the default here is just the vp size without scroll bar
-    #     # https://doc.qt.io/qt-5/qabstractscrollarea.html#viewportSizeHint
-    #     vps = self.viewportSizeHint()
-    #     # print(f'h: {height}\n{vps}')
-    #     # psh.setHeight(12)
-    #     return QSize(-1, height)
 
     def set_font_size(self, size: int = 18):
         # dpi_px_size = _font.px_size
@@ -373,22 +340,15 @@ class CompleterView(QTreeView):
                 # print(f'removing {rows} from {section}')
                 assert model.removeRows(0, rows, parent=idx)
 
-            # remove section as well
+            # remove section as well ?
             # model.removeRow(i, QModelIndex())
 
             if status_field is not None:
                 model.setItem(idx.row(), 1, QStandardItem(status_field))
+
             else:
                 model.setItem(idx.row(), 1, QStandardItem())
 
-                # XXX: not idea how to use this
-                # model.setItemData(
-                #     idx,
-                #     {
-                #         0: 'cache',
-                #         1: 'searching',
-                #     }
-                # )
             self.resize()
 
             return idx
@@ -435,6 +395,11 @@ class CompleterView(QTreeView):
 
         self.expandAll()
 
+        # TODO: figure out if we can avoid this line in a better way
+        # such that "re-selection" doesn't happen tree-wise for each new
+        # sub-search:
+        # https://doc.qt.io/qt-5/model-view-programming.html#handling-selections-in-item-views
+
         # XXX: THE BELOW LINE MUST BE CALLED.
         # this stuff is super finicky and if not done right will cause
         # Qt crashes out our buttz. it's required in order to get the
@@ -462,6 +427,10 @@ class SearchBar(QtWidgets.QLineEdit):
 
         super().__init__(parent)
 
+        # self.setContextMenuPolicy(Qt.CustomContextMenu)
+        # self.customContextMenuRequested.connect(self.show_menu)
+        # self.setStyleSheet(f"font: 18px")
+
         self.view: CompleterView = view
         self.dpi_font = font
         self.chart_app = parent_chart
@@ -476,10 +445,6 @@ class SearchBar(QtWidgets.QLineEdit):
 
         # witty bit of margin
         self.setTextMargins(2, 2, 2, 2)
-
-        # self.setContextMenuPolicy(Qt.CustomContextMenu)
-        # self.customContextMenuRequested.connect(self.show_menu)
-        # self.setStyleSheet(f"font: 18px")
 
     def focus(self) -> None:
         self.selectAll()
@@ -508,12 +473,18 @@ class SearchBar(QtWidgets.QLineEdit):
 
 
 class SearchWidget(QtGui.QWidget):
+    '''Composed widget of ``SearchBar`` + ``CompleterView``.
+
+    Includes helper methods for item management in the sub-widgets.
+
+    '''
     def __init__(
         self,
         chart_space: 'ChartSpace',  # type: ignore # noqa
         columns: List[str] = ['src', 'symbol'],
         parent=None,
-    ):
+
+    ) -> None:
         super().__init__(parent or chart_space)
 
         # size it as we specify
@@ -529,10 +500,11 @@ class SearchWidget(QtGui.QWidget):
         self.vbox.setSpacing(4)
 
         # split layout for the (label:| search bar entry)
-        self.bar_hbox = QtGui.QHBoxLayout(self)
+        self.bar_hbox = QtGui.QHBoxLayout()
         self.bar_hbox.setContentsMargins(0, 0, 0, 0)
         self.bar_hbox.setSpacing(4)
 
+        # add label to left of search bar
         self.label = label = QtGui.QLabel(parent=self)
         label.setTextFormat(3)  # markdown
         label.setFont(_font.font)
@@ -546,9 +518,6 @@ class SearchWidget(QtGui.QWidget):
 
         self.bar_hbox.addWidget(label)
 
-        # https://doc.qt.io/qt-5/qlayout.html#SizeConstraint-enum
-        # self.vbox.setSizeConstraint(QLayout.SetMaximumSize)
-
         self.view = CompleterView(
             parent=self,
             labels=columns,
@@ -560,8 +529,6 @@ class SearchWidget(QtGui.QWidget):
         )
         self.bar_hbox.addWidget(self.bar)
 
-        # self.vbox.addWidget(self.bar)
-        # self.vbox.setAlignment(self.bar, Qt.AlignTop | Qt.AlignRight)
         self.vbox.addLayout(self.bar_hbox)
 
         self.vbox.setAlignment(self.bar, Qt.AlignTop | Qt.AlignRight)
@@ -595,6 +562,7 @@ class SearchWidget(QtGui.QWidget):
         # to figure out the desired field(s)
         # https://doc.qt.io/qt-5/qstandarditemmodel.html#itemFromIndex
         node = model.itemFromIndex(cidx.siblingAtColumn(1))
+
         if node:
             symbol = node.text()
             try:
@@ -611,6 +579,52 @@ class SearchWidget(QtGui.QWidget):
 
         else:
             return None
+
+    def chart_current_item(
+        self,
+        clear_to_cache: bool = True,
+    ) -> Optional[str]:
+        '''Attempt to load and switch the current selected
+        completion result to the affiliated chart app.
+
+        Return any loaded symbol
+
+        '''
+        value = self.get_current_item()
+        if value is None:
+            return None
+
+        provider, symbol = value
+        chart = self.chart_app
+
+        log.info(f'Requesting symbol: {symbol}.{provider}')
+
+        chart.load_symbol(
+            provider,
+            symbol,
+            'info',
+        )
+
+        # fully qualified symbol name (SNS i guess is what we're
+        # making?)
+        fqsn = '.'.join([symbol, provider]).lower()
+
+        # Re-order the symbol cache on the chart to display in
+        # LIFO order. this is normally only done internally by
+        # the chart on new symbols being loaded into memory
+        chart.set_chart_symbol(fqsn, chart.linkedcharts)
+
+        if clear_to_cache:
+            self.bar.clear()
+            self.view.set_section_entries(
+                'cache',
+                values=list(reversed(chart._chart_cache)),
+
+                # remove all other completion results except for cache
+                clear_all=True,
+            )
+
+        return fqsn
 
 
 _search_active: trio.Event = trio.Event()
@@ -630,7 +644,9 @@ async def pack_matches(
 ) -> None:
 
     log.info(f'Searching {provider} for "{pattern}"')
+
     if provider != 'cache':
+        # insert provider entries with search status
         view.set_section_entries(
             section=provider,
             values=[],
@@ -645,13 +661,14 @@ async def pack_matches(
         # ensure ^ status is updated
         results = await search(pattern)
 
-    if provider != 'cache':
+    if provider != 'cache':  # XXX: don't cache the cache results xD
         matches[(provider, pattern)] = results
 
         # print(f'results from {provider}: {results}')
         has_results[pattern].add(provider)
 
     if results:
+        # display completion results
         view.set_section_entries(
             section=provider,
             values=results,
@@ -661,10 +678,9 @@ async def pack_matches(
 async def fill_results(
 
     search: SearchBar,
-    # multisearch: Callable[..., Awaitable],
     recv_chan: trio.abc.ReceiveChannel,
 
-    # kb debouncing pauses
+    # kb debouncing pauses (bracket defaults)
     min_pause_time: float = 0.0616,
     max_pause_time: float = 6/16,
 
@@ -736,7 +752,9 @@ async def fill_results(
             # "searching.." statuses on outstanding results providers
             async with trio.open_nursery() as n:
 
-                for provider, (search, pause) in _searcher_cache.copy().items():
+                for provider, (search, pause) in (
+                    _searcher_cache.copy().items()
+                ):
 
                     if provider != 'cache':
                         view.clear_section(
@@ -766,8 +784,8 @@ async def fill_results(
                         else:
                             view.clear_section(provider)
 
-            # if last_patt is None or last_patt != text:
-            #     view.select_first()
+            if last_patt is None or last_patt != text:
+                view.select_first()
 
             last_patt = text
             bar.show()
@@ -777,7 +795,6 @@ async def handle_keyboard_input(
 
     search: SearchWidget,
     recv_chan: trio.abc.ReceiveChannel,
-    keyboard_pause_period: float = 0.0616,
 
 ) -> None:
 
@@ -819,36 +836,7 @@ async def handle_keyboard_input(
 
             if key in (Qt.Key_Enter, Qt.Key_Return):
 
-                value = search.get_current_item()
-                if value is None:
-                    continue
-
-                provider, symbol = value
-
-                log.info(f'Requesting symbol: {symbol}.{provider}')
-
-                chart.load_symbol(
-                    provider,
-                    symbol,
-                    'info',
-                )
-
-                # fully qualified symbol name (SNS i guess is what we're
-                # making?)
-                fqsn = '.'.join([symbol, provider]).lower()
-
-                # Re-order the symbol cache on the chart to display in
-                # LIFO order. this is normally only done internally by
-                # the chart on new symbols being loaded into memory
-                chart.set_chart_symbol(fqsn, chart.linkedcharts)
-
-                search.bar.clear()
-                view.set_section_entries(
-                    'cache',
-                    values=list(reversed(chart._chart_cache)),
-                    clear_all=True,
-                )
-
+                search.chart_current_item(clear_to_cache=True)
                 _search_enabled = False
                 continue
 
@@ -893,12 +881,12 @@ async def handle_keyboard_input(
                 view.next_section(direction='up')
 
             # selection navigation controls
-            elif ctl and key in {
+            elif (ctl and key in {
 
                 Qt.Key_K,
                 Qt.Key_J,
 
-            } or key in {
+            }) or key in {
 
                 Qt.Key_Up,
                 Qt.Key_Down,
