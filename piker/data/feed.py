@@ -419,8 +419,12 @@ async def install_brokerd_search(
 
                 provider_name=brokermod.name,
                 search_routine=search,
-                pause_period=brokermod._search_conf.get('pause_period', 0.0616),
 
+                # TODO: should be make this a required attr of
+                # a backend module?
+                pause_period=getattr(
+                    brokermod, '_search_conf', {}
+                    ).get('pause_period', 0.0616),
             ):
                 yield
 
