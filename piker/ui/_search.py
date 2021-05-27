@@ -122,6 +122,8 @@ class CompleterView(QTreeView):
         # TODO: size this based on DPI font
         self.setIndentation(20)
 
+        self.pressed.connect(self.on_pressed)
+
         # self.setUniformRowHeights(True)
         # self.setColumnWidth(0, 3)
 
@@ -145,6 +147,32 @@ class CompleterView(QTreeView):
 
         self._font_size: int = 0  # pixels
 
+    def on_pressed(self, idx: QModelIndex) -> None:
+
+        search = self.parent()
+        value = search.get_current_item()
+
+        if value is not None:
+            provider, symbol = value
+            chart = search.chart_app
+
+            chart.load_symbol(
+                provider,
+                symbol,
+                'info',
+            )
+
+            # fully qualified symbol name (SNS i guess is what we're
+            # making?)
+            fqsn = '.'.join([symbol, provider]).lower()
+
+            # Re-order the symbol cache on the chart to display in
+            # LIFO order. this is normally only done internally by
+            # the chart on new symbols being loaded into memory
+            chart.set_chart_symbol(fqsn, chart.linkedcharts)
+
+        search.focus()
+
     # def viewportSizeHint(self) -> QtCore.QSize:
     #     vps = super().viewportSizeHint()
     #     return QSize(vps.width(), _font.px_size * 6 * 2)
@@ -165,7 +193,7 @@ class CompleterView(QTreeView):
 
     def set_font_size(self, size: int = 18):
         # dpi_px_size = _font.px_size
-        print(size)
+        # print(size)
         if size < 0:
             size = 16
 
@@ -681,10 +709,10 @@ async def fill_results(
                 continue
 
             text = bar.text()
-            print(f'search: {text}')
+            # print(f'search: {text}')
 
             if not text:
-                print('idling')
+                # print('idling')
                 _search_active = trio.Event()
                 break
 
@@ -697,7 +725,7 @@ async def fill_results(
                 repeats += 1
 
             if not _search_enabled:
-                print('search currently disabled')
+                # print('search currently disabled')
                 break
 
             log.debug(f'Search req for {text}')
@@ -708,10 +736,7 @@ async def fill_results(
             # "searching.." statuses on outstanding results providers
             async with trio.open_nursery() as n:
 
-                for provider, (search, pause) in _searcher_cache.items():
-                    print(provider)
-
-                    # TODO: put "searching..." status in result field
+                for provider, (search, pause) in _searcher_cache.copy().items():
 
                     if provider != 'cache':
                         view.clear_section(
@@ -741,8 +766,8 @@ async def fill_results(
                         else:
                             view.clear_section(provider)
 
-            if last_patt is None or last_patt != text:
-                view.select_first()
+            # if last_patt is None or last_patt != text:
+            #     view.select_first()
 
             last_patt = text
             bar.show()
