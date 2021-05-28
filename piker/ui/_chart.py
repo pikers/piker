@@ -508,6 +508,8 @@ class ChartPlotWidget(pg.PlotWidget):
     def focus(self) -> None:
         # self.setFocus()
         self._vb.setFocus()
+        app = QtGui.QApplication.instance()
+        app.activeWindow().statusBar().showMessage("mode: view")
 
     def last_bar_in_view(self) -> int:
         self._ohlc[-1]['index']
@@ -1661,6 +1663,8 @@ async def _async_main(
 
     chart_app = widgets['main']
 
+
+
     # attempt to configure DPI aware font size
     screen = current_screen()
 
@@ -1674,6 +1678,10 @@ async def _async_main(
 
     # configure global DPI aware font size
     _font.configure_to_dpi(screen)
+
+    sbar = chart_app.window.statusBar()
+    sbar.setStyleSheet(f"font: {_font.px_size - 3}px")
+    sbar.showMessage('starting ze chartz...')
 
     async with trio.open_nursery() as root_n:
 
@@ -1700,6 +1708,7 @@ async def _async_main(
         symbol, _, provider = sym.rpartition('.')
 
         # this internally starts a ``chart_symbol()`` task above
+        sbar.showMessage(f'loading {provider}.{symbol}...')
         chart_app.load_symbol(provider, symbol, loglevel)
 
         root_n.start_soon(load_providers, brokernames, loglevel)
