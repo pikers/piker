@@ -735,7 +735,7 @@ async def fill_results(
             text = bar.text()
             # print(f'search: {text}')
 
-            if not text:
+            if not text or text.isspace():
                 # print('idling')
                 _search_active = trio.Event()
                 break
