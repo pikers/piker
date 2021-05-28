@@ -207,6 +207,25 @@ class Client:
 
         return self._pairs
 
+    async def search_symbols(
+        self,
+        pattern: str,
+        limit: int = None,
+    ) -> Dict[str, Any]:
+        if self._pairs is not None:
+            data = self._pairs
+        else:
+            data = await self.symbol_info()
+
+        matches = fuzzy.extractBests(
+            pattern,
+            data,
+            score_cutoff=50,
+        )
+        # repack in dict form
+        return {item[0]['symbol']: item[0]
+         for item in matches}
+
     async def bars(
         self,
         symbol: str,

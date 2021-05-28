@@ -52,7 +52,7 @@ from ..log import get_logger, get_console_log
 from .._daemon import maybe_spawn_brokerd
 from ..data._source import from_df
 from ..data._sharedmem import ShmArray
-from ._util import SymbolNotFound
+from ._util import SymbolNotFound, NoData
 
 
 log = get_logger(__name__)
@@ -310,6 +310,18 @@ class Client:
 
         else:
             return {}
+
+    async def search_symbols(
+        self,
+        pattern: str,
+        # how many contracts to search "up to"
+        upto: int = 3,
+        asdicts: bool = True,
+    ) -> Dict[str, ContractDetails]:
+
+        # TODO add search though our adhoc-locally defined symbol set
+        # for futes/cmdtys/
+        return await self.search_stocks(pattern, upto, asdicts)
 
     async def search_futes(
         self,
@@ -862,6 +874,13 @@ async def get_bars(
                     # throttling despite the rps being low
                     break
 
+                elif 'No market data permissions for' in err.message:
+
+                    # TODO: signalling for no permissions searches
+                    raise NoData(f'Symbol: {sym}')
+                    break
+
+
                 else:
                     log.exception(
                         "Data query rate reached: Press `ctrl-alt-f`"
@@ -1133,8 +1152,10 @@ async def stream_quotes(
     # tell caller quotes are now coming in live
     feed_is_live.set()
 
+    # last = time.time()
     async with aclosing(stream):
         async for ticker in stream:
+            # print(f'ticker rate: {1/(time.time() - last)}')
 
             # print(ticker.vwap)
             quote = normalize(
@@ -1149,6 +1170,7 @@ async def stream_quotes(
 
             # ugh, clear ticks since we've consumed them
             ticker.ticks = []
+            # last = time.time()
 
 
 def pack_position(pos: Position) -> Dict[str, Any]:

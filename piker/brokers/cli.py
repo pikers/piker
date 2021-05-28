@@ -30,7 +30,7 @@ import tractor
 from ..cli import cli
 from .. import watchlists as wl
 from ..log import get_console_log, colorize_json, get_logger
-from .._daemon import maybe_spawn_brokerd
+from .._daemon import maybe_spawn_brokerd, maybe_open_pikerd
 from ..brokers import core, get_brokermod, data
 
 log = get_logger('cli')
@@ -273,13 +273,25 @@ def search(config, pattern):
     """Search for symbols from broker backend(s).
     """
     # global opts
-    brokermod = config['brokermods'][0]
+    brokermods = config['brokermods']
 
-    quotes = tractor.run(
-        partial(core.symbol_search, brokermod, pattern),
-        start_method='forkserver',
-        loglevel='info',
+    # define tractor entrypoint
+    async def main(func):
+
+        async with maybe_open_pikerd(
+            loglevel=config['loglevel'],
+        ):
+            return await func()
+
+    quotes = trio.run(
+        main,
+        partial(
+            core.symbol_search,
+            brokermods,
+            pattern,
+        ),
     )
+
     if not quotes:
         log.error(f"No matches could be found for {pattern}?")
         return

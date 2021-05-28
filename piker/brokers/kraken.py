@@ -207,7 +207,7 @@ class Client:
 
         return self._pairs
 
-    async def search_stocks(
+    async def search_symbols(
         self,
         pattern: str,
         limit: int = None,

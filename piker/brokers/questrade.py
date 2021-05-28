@@ -628,7 +628,7 @@ class Client:
             f"Took {time.time() - start} seconds to retreive {len(bars)} bars")
         return bars
 
-    async def search_stocks(
+    async def search_symbols(
         self,
         pattern: str,
         # how many contracts to return
