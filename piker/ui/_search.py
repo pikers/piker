@@ -825,7 +825,7 @@ async def handle_keyboard_input(
             )
         )
 
-        async for key, mods, txt in recv_chan:
+        async for event, key, mods, txt in recv_chan:
 
             log.debug(f'key: {key}, mods: {mods}, txt: {txt}')
 

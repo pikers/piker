@@ -30,7 +30,7 @@ class EventCloner(QtCore.QObject):
     for later async processing.
 
     """
-
+    _event_types: set[QEvent] = set()
     _send_chan: trio.abc.SendChannel = None
 
     def eventFilter(
@@ -39,14 +39,11 @@ class EventCloner(QtCore.QObject):
         ev: QEvent,
     ) -> None:
 
-        if ev.type() in {
-            QEvent.KeyPress,
-            # QEvent.KeyRelease,
-        }:
-            # TODO: is there a global setting for this?
-            if ev.isAutoRepeat():
-                ev.ignore()
-                return False
+        if ev.type() in self._event_types:
+
+            # TODO: what's the right way to allow this?
+            # if ev.isAutoRepeat():
+            #     ev.ignore()
 
             # XXX: we unpack here because apparently doing it
             # after pop from the mem chan isn't showing the same
@@ -59,7 +56,7 @@ class EventCloner(QtCore.QObject):
             txt = ev.text()
 
             # run async processing
-            self._send_chan.send_nowait((key, mods, txt))
+            self._send_chan.send_nowait((ev, key, mods, txt))
 
         # never intercept the event
         return False
@@ -69,7 +66,11 @@ class EventCloner(QtCore.QObject):
 async def open_key_stream(
 
     source_widget: QtGui.QWidget,
-    event_type: QEvent = QEvent.KeyPress,
+    event_types: set[QEvent] = {QEvent.KeyPress},
+
+    # TODO: should we offer some kinda option for toggling releases?
+    # would it require a channel per event type?
+    # QEvent.KeyRelease,
 
 ) -> trio.abc.ReceiveChannel:
 
@@ -78,10 +79,13 @@ async def open_key_stream(
 
     kc = EventCloner()
     kc._send_chan = send
+    kc._event_types = event_types
+
     source_widget.installEventFilter(kc)
 
     try:
         yield recv
+
     finally:
         await send.aclose()
         source_widget.removeEventFilter(kc)
