@@ -72,7 +72,6 @@ _ohlc_dtype = [
 ohlc_dtype = np.dtype(_ohlc_dtype)
 
 _show_wap_in_history = False
-_search_conf = {'pause_period': 0.0616}
 
 
 # https://binance-docs.github.io/apidocs/spot/en/#exchange-information
@@ -301,13 +300,13 @@ async def stream_messages(ws):
     timeouts = 0
     while True:
 
-        with trio.move_on_after(5) as cs:
+        with trio.move_on_after(3) as cs:
             msg = await ws.recv_msg()
 
         if cs.cancelled_caught:
 
             timeouts += 1
-            if timeouts > 10:
+            if timeouts > 2:
                 log.error("binance feed seems down and slow af? rebooting...")
                 await ws._connect()
 
