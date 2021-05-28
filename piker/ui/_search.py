@@ -682,6 +682,8 @@ async def pack_matches(
             section=provider,
             values=results,
         )
+    else:
+        view.clear_section(provider)
 
 
 async def fill_results(
