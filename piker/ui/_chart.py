@@ -999,7 +999,8 @@ async def test_bed(
         i += 1
 
 
-_quote_throttle_rate: int = 60  # Hz
+_clear_throttle_rate: int = 60  # Hz
+_book_throttle_rate: int = 20  # Hz
 
 
 async def chart_from_quotes(
@@ -1076,12 +1077,12 @@ async def chart_from_quotes(
     tick_size = chart._lc.symbol.tick_size
     tick_margin = 2 * tick_size
 
-    last = time.time()
+    last_ask = last_bid = last_clear = time.time()
     async for quotes in stream:
-        now = time.time()
-        period = now - last
-
         for sym, quote in quotes.items():
+
+            now = time.time()
+
             for tick in quote.get('ticks', ()):
 
                 # print(f"CHART: {quote['symbol']}: {tick}")
@@ -1093,13 +1094,18 @@ async def chart_from_quotes(
                     # okkk..
                     continue
 
+                # clearing price event
                 if ticktype in ('trade', 'utrade', 'last'):
 
-                    # throttle clearing price updates to ~ 60 FPS
-                    if period <= 1/_quote_throttle_rate - 0.001:
+                    # throttle clearing price updates to ~ max 60 FPS
+                    period = now - last_clear
+                    if period <= 1/_clear_throttle_rate:
                         # faster then display refresh rate
-                        # print(f'quote too fast: {1/period}')
                         continue
+
+                    # print(f'passthrough {tick}\n{1/(now-last_clear)}')
+                    # set time of last graphics update
+                    last_clear = now
 
                     array = ohlcv.array
 
@@ -1121,18 +1127,25 @@ async def chart_from_quotes(
                         chart.update_curve_from_array(
                             'bar_wap', ohlcv.array)
 
-                else:  # non-clearing tick
+                # l1 book events
+                # throttle the book graphics updates at a lower rate
+                # since they aren't as critical for a manual user
+                # viewing the chart
 
-                    now = time.time()
-                    period = now - last
-
-                    # throttle the book graphics updates at a lower rate
-                    # since they aren't as critical for a manual user
-                    # viewing the chart
-
-                    if period <= 1/_quote_throttle_rate/2:
+                elif ticktype in ('ask', 'asize'):
+                    if (now - last_ask) <= 1/_book_throttle_rate:
                         # print(f'skipping\n{tick}')
                         continue
+
+                    # print(f'passthrough {tick}\n{1/(now-last_ask)}')
+                    last_ask = now
+
+                elif ticktype in ('bid', 'bsize'):
+                    if (now - last_bid) <= 1/_book_throttle_rate:
+                        continue
+
+                    # print(f'passthrough {tick}\n{1/(now-last_bid)}')
+                    last_bid = now
 
                 # compute max and min trade values to display in view
                 # TODO: we need a streaming minmax algorithm here, see
@@ -1186,9 +1199,6 @@ async def chart_from_quotes(
                     )
 
                 last_mx, last_mn = mx, mn
-
-        # set time of last graphics update
-        last = now
 
 
 async def spawn_fsps(
@@ -1380,7 +1390,7 @@ async def run_fsp(
             now = time.time()
             period = now - last
             # if period <= 1/30:
-            if period <= 1/_quote_throttle_rate - 0.001:
+            if period <= 1/_clear_throttle_rate - 0.001:
                 # faster then display refresh rate
                 # print(f'quote too fast: {1/period}')
                 continue
@@ -1655,12 +1665,12 @@ async def _async_main(
     screen = current_screen()
 
     # configure graphics update throttling based on display refresh rate
-    global _quote_throttle_rate
-    _quote_throttle_rate = min(
+    global _clear_throttle_rate
+    _clear_throttle_rate = min(
         round(screen.refreshRate()),
-        _quote_throttle_rate,
+        _clear_throttle_rate,
     )
-    log.info(f'Set graphics update rate to {_quote_throttle_rate} Hz')
+    log.info(f'Set graphics update rate to {_clear_throttle_rate} Hz')
 
     # configure global DPI aware font size
     _font.configure_to_dpi(screen)
