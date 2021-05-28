@@ -404,7 +404,16 @@ class CompleterView(QTreeView):
         # this stuff is super finicky and if not done right will cause
         # Qt crashes out our buttz. it's required in order to get the
         # view to show right after typing input.
+
         self.select_first()
+
+        # TODO: the way we might be able to do this more sanely is,
+        # 1. for the currently selected item, when start rewriting
+        #    a section figure out the row, column, parent "abstract"
+        #    position in the tree view and store it
+        # 2. take that position and re-apply the selection to the new
+        #    model/tree by looking up the new "equivalent element" and
+        #    selecting
 
         self.show_matches()
 
@@ -681,7 +690,7 @@ async def fill_results(
     recv_chan: trio.abc.ReceiveChannel,
 
     # kb debouncing pauses (bracket defaults)
-    min_pause_time: float = 0.0616,
+    min_pause_time: float = 0.1,
     max_pause_time: float = 6/16,
 
 ) -> None:
@@ -697,7 +706,6 @@ async def fill_results(
 
     last_text = bar.text()
     repeats = 0
-    last_patt = None
 
     # cache of prior patterns to search results
     matches = defaultdict(list)
@@ -776,7 +784,7 @@ async def fill_results(
                         )
                     else:  # already has results for this input text
                         results = matches[(provider, text)]
-                        if results:
+                        if results and provider != 'cache':
                             view.set_section_entries(
                                 section=provider,
                                 values=results,
@@ -784,10 +792,6 @@ async def fill_results(
                         else:
                             view.clear_section(provider)
 
-            if last_patt is None or last_patt != text:
-                view.select_first()
-
-            last_patt = text
             bar.show()
 
 
@@ -874,11 +878,13 @@ async def handle_keyboard_input(
                 Qt.Key_D,
             }:
                 view.next_section(direction='down')
+                _search_enabled = False
 
             elif ctl and key in {
                 Qt.Key_U,
             }:
                 view.next_section(direction='up')
+                _search_enabled = False
 
             # selection navigation controls
             elif (ctl and key in {
@@ -903,14 +909,8 @@ async def handle_keyboard_input(
 
                     if parent_item and parent_item.text() == 'cache':
 
-                        value = search.get_current_item()
-                        if value is not None:
-                            provider, symbol = value
-                            chart.load_symbol(
-                                provider,
-                                symbol,
-                                'info',
-                            )
+                        # if it's a cache item, switch and show it immediately
+                        search.chart_current_item(clear_to_cache=False)
 
             elif not ctl:
                 # relay to completer task
@@ -950,7 +950,7 @@ async def register_symbol_search(
 
     global _searcher_cache
 
-    pause_period = pause_period or 0.061
+    pause_period = pause_period or 0.125
 
     # deliver search func to consumer
     try:
