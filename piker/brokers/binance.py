@@ -18,36 +18,26 @@
 Binance backend
 
 """
-from contextlib import asynccontextmanager, AsyncExitStack
-from types import ModuleType
+from contextlib import asynccontextmanager
 from typing import List, Dict, Any, Tuple, Union, Optional
-import json
 import time
 
-import trio_websocket
+import trio
 from trio_typing import TaskStatus
-from trio_websocket._impl import (
-    ConnectionClosed,
-    DisconnectionTimeout,
-    ConnectionRejected,
-    HandshakeError,
-    ConnectionTimeout,
-)
-
 import arrow
 import asks
 from fuzzywuzzy import process as fuzzy
 import numpy as np
-import trio
 import tractor
 from pydantic.dataclasses import dataclass
 from pydantic import BaseModel
-
+import wsproto
 
 from .api import open_cached_client
 from ._util import resproc, SymbolNotFound
 from ..log import get_logger, get_console_log
 from ..data import ShmArray
+from ..data._web_bs import open_autorecon_ws
 
 log = get_logger(__name__)
 
@@ -82,7 +72,6 @@ _ohlc_dtype = [
 ohlc_dtype = np.dtype(_ohlc_dtype)
 
 _show_wap_in_history = False
-_search_conf = {'pause_period': 0.0616}
 
 
 # https://binance-docs.github.io/apidocs/spot/en/#exchange-information
@@ -311,14 +300,15 @@ async def stream_messages(ws):
     timeouts = 0
     while True:
 
-        with trio.move_on_after(5) as cs:
+        with trio.move_on_after(3) as cs:
             msg = await ws.recv_msg()
 
         if cs.cancelled_caught:
 
             timeouts += 1
-            if timeouts > 10:
-                raise trio.TooSlowError("binance feed seems down?")
+            if timeouts > 2:
+                log.error("binance feed seems down and slow af? rebooting...")
+                await ws._connect()
 
             continue
 
@@ -376,93 +366,6 @@ def make_sub(pairs: List[str], sub_name: str, uid: int) -> Dict[str, str]:
         ],
         'id': uid
     }
-
-
-class AutoReconWs:
-    """Make ``trio_websocketw` sockets stay up no matter the bs.
-
-    """
-    recon_errors = (
-        ConnectionClosed,
-        DisconnectionTimeout,
-        ConnectionRejected,
-        HandshakeError,
-        ConnectionTimeout,
-    )
-
-    def __init__(
-        self,
-        url: str,
-        stack: AsyncExitStack,
-        serializer: ModuleType = json,
-    ):
-        self.url = url
-        self._stack = stack
-        self._ws: 'WebSocketConnection' = None  # noqa
-
-    async def _connect(
-        self,
-        tries: int = 10000,
-    ) -> None:
-        try:
-            await self._stack.aclose()
-        except (DisconnectionTimeout, RuntimeError):
-            await trio.sleep(1)
-
-        last_err = None
-        for i in range(tries):
-            try:
-                self._ws = await self._stack.enter_async_context(
-                    trio_websocket.open_websocket_url(self.url)
-                )
-                log.info(f'Connection success: {self.url}')
-                return
-            except self.recon_errors as err:
-                last_err = err
-                log.error(
-                    f'{self} connection bail with '
-                    f'{type(err)}...retry attempt {i}'
-                )
-                await trio.sleep(1)
-                continue
-        else:
-            log.exception('ws connection fail...')
-            raise last_err
-
-    async def send_msg(
-        self,
-        data: Any,
-    ) -> None:
-        while True:
-            try:
-                return await self._ws.send_message(json.dumps(data))
-            except self.recon_errors:
-                await self._connect()
-
-    async def recv_msg(
-        self,
-    ) -> Any:
-        while True:
-            try:
-                return json.loads(await self._ws.get_message())
-            except self.recon_errors:
-                await self._connect()
-
-
-@asynccontextmanager
-async def open_autorecon_ws(url):
-    """Apparently we can QoS for all sorts of reasons..so catch em.
-
-    """
-    async with AsyncExitStack() as stack:
-        ws = AutoReconWs(url, stack)
-
-        await ws._connect()
-        try:
-            yield ws
-
-        finally:
-            await stack.aclose()
 
 
 async def backfill_bars(
@@ -527,8 +430,8 @@ async def stream_quotes(
             },
         }
 
-        async with open_autorecon_ws('wss://stream.binance.com/ws') as ws:
-
+        @asynccontextmanager
+        async def subscribe(ws: wsproto.WSConnection):
             # setup subs
 
             # trade data (aka L1)
@@ -545,6 +448,28 @@ async def stream_quotes(
             # ack from ws server
             res = await ws.recv_msg()
             assert res['id'] == uid
+
+            yield
+
+            subs = []
+            for sym in symbols:
+                subs.append("{sym}@aggTrade")
+                subs.append("{sym}@bookTicker")
+
+            # unsub from all pairs on teardown
+            await ws.send_msg({
+                "method": "UNSUBSCRIBE",
+                "params": subs,
+                "id": uid,
+            })
+
+            # XXX: do we need to ack the unsub?
+            # await ws.recv_msg()
+
+        async with open_autorecon_ws(
+            'wss://stream.binance.com/ws',
+            fixture=subscribe,
+        ) as ws:
 
             # pull a first quote and deliver
             msg_gen = stream_messages(ws)
