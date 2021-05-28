@@ -49,7 +49,7 @@ def monitor(config, rate, name, dhost, test, tl):
     """Start a real-time watchlist UI
     """
     # global opts
-    brokermod = config['brokermod']
+    brokermod = config['brokermods'][0]
     loglevel = config['loglevel']
     log = config['log']
 
@@ -138,17 +138,24 @@ def chart(config, symbol, profile, pdb):
     from .. import _profile
     from ._chart import _main
 
+    if '.' not in symbol:
+        click.echo(click.style(
+            f'symbol: {symbol} must have a {symbol}.<provider> suffix',
+            fg='red',
+        ))
+        return
+
     # toggle to enable profiling
     _profile._pg_profile = profile
 
     # global opts
-    brokername = config['broker']
+    brokernames = config['brokers']
     tractorloglevel = config['tractorloglevel']
     pikerloglevel = config['loglevel']
 
     _main(
         sym=symbol,
-        brokername=brokername,
+        brokernames=brokernames,
         piker_loglevel=pikerloglevel,
         tractor_kwargs={
             'debug_mode': pdb,

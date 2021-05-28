@@ -24,8 +24,12 @@ import inspect
 from types import ModuleType
 from typing import List, Dict, Any, Optional
 
+import trio
+
 from ..log import get_logger
 from . import get_brokermod
+from .._daemon import maybe_spawn_brokerd
+from .api import open_cached_client
 
 
 log = get_logger(__name__)
@@ -126,13 +130,41 @@ async def symbol_info(
         return await client.symbol_info(symbol, **kwargs)
 
 
+async def search_w_brokerd(name: str, pattern: str) -> dict:
+
+    async with open_cached_client(name) as client:
+
+        # TODO: support multiple asset type concurrent searches.
+        return await client.search_symbols(pattern=pattern)
+
+
 async def symbol_search(
-    brokermod: ModuleType,
+    brokermods: list[ModuleType],
     pattern: str,
     **kwargs,
 ) -> Dict[str, Dict[str, Dict[str, Any]]]:
     """Return symbol info from broker.
     """
-    async with brokermod.get_client() as client:
-        # TODO: support multiple asset type concurrent searches.
-        return await client.search_stocks(pattern=pattern, **kwargs)
+    results = []
+
+    async def search_backend(brokername: str) -> None:
+
+        async with maybe_spawn_brokerd(
+            brokername,
+        ) as portal:
+
+            results.append((
+                brokername,
+                await portal.run(
+                    search_w_brokerd,
+                    name=brokername,
+                    pattern=pattern,
+                ),
+            ))
+
+    async with trio.open_nursery() as n:
+
+        for mod in brokermods:
+            n.start_soon(search_backend, mod.name)
+
+    return results

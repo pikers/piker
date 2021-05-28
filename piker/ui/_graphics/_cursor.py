@@ -435,7 +435,12 @@ class Cursor(pg.GraphicsObject):
         self,
         y_label_level: float = None,
     ) -> None:
-        g = self.graphics[self.active_plot]
+
+        plot = self.active_plot
+        if not plot:
+            return
+
+        g = self.graphics[plot]
         # show horiz line and y-label
         g['hl'].show()
         g['vl'].show()

@@ -45,12 +45,14 @@ from ib_insync.objects import Position
 import ib_insync as ibis
 from ib_insync.wrapper import Wrapper
 from ib_insync.client import Client as ib_Client
+from fuzzywuzzy import process as fuzzy
+import numpy as np
 
 from ..log import get_logger, get_console_log
 from .._daemon import maybe_spawn_brokerd
 from ..data._source import from_df
 from ..data._sharedmem import ShmArray
-from ._util import SymbolNotFound
+from ._util import SymbolNotFound, NoData
 
 
 log = get_logger(__name__)
@@ -87,7 +89,15 @@ _time_frames = {
     'Y': 'OneYear',
 }
 
-_show_wap_in_history = False
+_show_wap_in_history: bool = False
+
+# optional search config the backend can register for
+# it's symbol search handling (in this case we avoid
+# accepting patterns before the kb has settled more then
+# a quarter second).
+_search_conf = {
+    'pause_period': 6/16,
+}
 
 
 # overrides to sidestep pretty questionable design decisions in
@@ -141,10 +151,38 @@ class NonShittyIB(ibis.IB):
 # map of symbols to contract ids
 _adhoc_cmdty_data_map = {
     # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
-    # NOTE: cmdtys don't have trade data:
+
+    # NOTE: some cmdtys/metals don't have trade data like gold/usd:
     # https://groups.io/g/twsapi/message/44174
     'XAUUSD': ({'conId': 69067924}, {'whatToShow': 'MIDPOINT'}),
 }
+
+_adhoc_futes_set = {
+
+    # equities
+    'nq.globex',
+    'mnq.globex',
+    'es.globex',
+    'mes.globex',
+
+    # cypto$
+    'brr.cmecrypto',
+    'ethusdrr.cmecrypto',
+
+    # metals
+    'xauusd.cmdty',
+}
+
+# exchanges we don't support at the moment due to not knowing
+# how to do symbol-contract lookup correctly likely due
+# to not having the data feeds subscribed.
+_exch_skip_list = {
+    'ASX',  # aussie stocks
+    'MEXI',  # mexican stocks
+    'VALUE',  # no idea
+}
+
+# https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
 
 _enters = 0
 
@@ -245,27 +283,45 @@ class Client:
         """
         descriptions = await self.ib.reqMatchingSymbolsAsync(pattern)
 
-        futs = []
-        for d in descriptions:
-            con = d.contract
-            futs.append(self.ib.reqContractDetailsAsync(con))
+        if descriptions is not None:
 
-        # batch request all details
-        results = await asyncio.gather(*futs)
-
-        # XXX: if there is more then one entry in the details list
-        details = {}
-        for details_set in results:
-            # then the contract is so called "ambiguous".
-            for d in details_set:
+            futs = []
+            for d in descriptions:
                 con = d.contract
-                unique_sym = f'{con.symbol}.{con.primaryExchange}'
-                details[unique_sym] = asdict(d) if asdicts else d
+                if con.primaryExchange not in _exch_skip_list:
+                    futs.append(self.ib.reqContractDetailsAsync(con))
 
-                if len(details) == upto:
-                    return details
+            # batch request all details
+            results = await asyncio.gather(*futs)
 
-        return details
+            # XXX: if there is more then one entry in the details list
+            details = {}
+            for details_set in results:
+                # then the contract is so called "ambiguous".
+                for d in details_set:
+                    con = d.contract
+                    unique_sym = f'{con.symbol}.{con.primaryExchange}'
+                    details[unique_sym] = asdict(d) if asdicts else d
+
+                    if len(details) == upto:
+                        return details
+
+            return details
+
+        else:
+            return {}
+
+    async def search_symbols(
+        self,
+        pattern: str,
+        # how many contracts to search "up to"
+        upto: int = 3,
+        asdicts: bool = True,
+    ) -> Dict[str, ContractDetails]:
+
+        # TODO add search though our adhoc-locally defined symbol set
+        # for futes/cmdtys/
+        return await self.search_stocks(pattern, upto, asdicts)
 
     async def search_futes(
         self,
@@ -318,7 +374,7 @@ class Client:
             sym, exch = symbol.upper().rsplit('.', maxsplit=1)
         except ValueError:
             # likely there's an embedded `.` for a forex pair
-            await tractor.breakpoint()
+            breakpoint()
 
         # futes
         if exch in ('GLOBEX', 'NYMEX', 'CME', 'CMECRYPTO'):
@@ -346,10 +402,13 @@ class Client:
 
             if exch in ('PURE', 'TSE'):  # non-yankee
                 currency = 'CAD'
-                if exch in ('PURE', 'TSE'):
-                    # stupid ib...
-                    primaryExchange = exch
-                    exch = 'SMART'
+                # stupid ib...
+                primaryExchange = exch
+                exch = 'SMART'
+
+            else:
+                exch = 'SMART'
+                primaryExchange = exch
 
             con = ibis.Stock(
                 symbol=sym,
@@ -562,7 +621,7 @@ class Client:
 # default config ports
 _tws_port: int = 7497
 _gw_port: int = 4002
-_try_ports = [_tws_port, _gw_port]
+_try_ports = [_gw_port, _tws_port]
 _client_ids = itertools.count()
 _client_cache = {}
 
@@ -640,6 +699,8 @@ async def _aio_run_client_method(
         args = tuple(inspect.getfullargspec(async_meth).args)
         if to_trio and 'to_trio' in args:
             kwargs['to_trio'] = to_trio
+
+        log.runtime(f'Running {meth}({kwargs})')
 
         return await async_meth(**kwargs)
 
@@ -777,13 +838,76 @@ def normalize(
     return data
 
 
+async def get_bars(
+    sym: str,
+    end_dt: str = "",
+) -> (dict, np.ndarray):
+
+    _err = None
+
+    fails = 0
+    for _ in range(2):
+        try:
+
+            bars, bars_array = await _trio_run_client_method(
+                method='bars',
+                symbol=sym,
+                end_dt=end_dt,
+            )
+
+            if bars_array is None:
+                raise SymbolNotFound(sym)
+
+            next_dt = bars[0].date
+
+            return (bars, bars_array, next_dt), fails
+
+        except RequestError as err:
+            _err = err
+
+            # TODO: retreive underlying ``ib_insync`` error?
+            if err.code == 162:
+
+                if 'HMDS query returned no data' in err.message:
+                    # means we hit some kind of historical "dead zone"
+                    # and further requests seem to always cause
+                    # throttling despite the rps being low
+                    break
+
+                elif 'No market data permissions for' in err.message:
+
+                    # TODO: signalling for no permissions searches
+                    raise NoData(f'Symbol: {sym}')
+                    break
+
+
+                else:
+                    log.exception(
+                        "Data query rate reached: Press `ctrl-alt-f`"
+                        "in TWS"
+                    )
+
+                    # TODO: should probably create some alert on screen
+                    # and then somehow get that to trigger an event here
+                    # that restarts/resumes this task?
+                    await tractor.breakpoint()
+                    fails += 1
+                    continue
+
+    return (None, None)
+
+    # else:  # throttle wasn't fixed so error out immediately
+    #     raise _err
+
+
 async def backfill_bars(
     sym: str,
     shm: ShmArray,  # type: ignore # noqa
     # count: int = 20,  # NOTE: any more and we'll overrun underlying buffer
-    count: int = 10,  # NOTE: any more and we'll overrun the underlying buffer
+    count: int = 6,  # NOTE: any more and we'll overrun the underlying buffer
 
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
+
 ) -> None:
     """Fill historical bars into shared mem / storage afap.
 
@@ -791,10 +915,7 @@ async def backfill_bars(
     https://github.com/pikers/piker/issues/128
 
     """
-    first_bars, bars_array = await _trio_run_client_method(
-        method='bars',
-        symbol=sym,
-    )
+    (first_bars, bars_array, next_dt), fails = await get_bars(sym)
 
     # write historical data to buffer
     shm.push(bars_array)
@@ -803,46 +924,24 @@ async def backfill_bars(
 
         task_status.started(cs)
 
-        next_dt = first_bars[0].date
-
         i = 0
         while i < count:
 
-            try:
-                bars, bars_array = await _trio_run_client_method(
-                    method='bars',
-                    symbol=sym,
-                    end_dt=next_dt,
-                )
+            out, fails = await get_bars(sym, end_dt=next_dt)
 
-                if bars_array is None:
-                    raise SymbolNotFound(sym)
+            if fails is None or fails > 1:
+                break
 
-                shm.push(bars_array, prepend=True)
-                i += 1
-                next_dt = bars[0].date
+            if out is (None, None):
+                # could be trying to retreive bars over weekend
+                # TODO: add logic here to handle tradable hours and only grab
+                # valid bars in the range
+                log.error(f"Can't grab bars starting at {next_dt}!?!?")
+                continue
 
-            except RequestError as err:
-                # TODO: retreive underlying ``ib_insync`` error?
-
-                if err.code == 162:
-
-                    if 'HMDS query returned no data' in err.message:
-                        # means we hit some kind of historical "dead zone"
-                        # and further requests seem to always cause
-                        # throttling despite the rps being low
-                        break
-
-                    else:
-                        log.exception(
-                            "Data query rate reached: Press `ctrl-alt-f`"
-                            "in TWS"
-                        )
-
-                        # TODO: should probably create some alert on screen
-                        # and then somehow get that to trigger an event here
-                        # that restarts/resumes this task?
-                        await tractor.breakpoint()
+            bars, bars_array, next_dt = out
+            shm.push(bars_array, prepend=True)
+            i += 1
 
 
 asset_type_map = {
@@ -990,23 +1089,31 @@ async def stream_quotes(
         }
     }
 
+    con = first_ticker.contract
+
+    # should be real volume for this contract by default
+    calc_price = False
+
     # check for special contract types
     if type(first_ticker.contract) not in (ibis.Commodity, ibis.Forex):
-        suffix = 'exchange'
-        # should be real volume for this contract
-        calc_price = False
+
+        suffix = con.primaryExchange
+        if not suffix:
+            suffix = con.exchange
+
     else:
         # commodities and forex don't have an exchange name and
         # no real volume so we have to calculate the price
-        suffix = 'secType'
+        suffix = con.secType
+        # no real volume on this tract
         calc_price = True
 
-    # pass first quote asap
     quote = normalize(first_ticker, calc_price=calc_price)
     con = quote['contract']
-    topic = '.'.join((con['symbol'], con[suffix])).lower()
+    topic = '.'.join((con['symbol'], suffix)).lower()
     quote['symbol'] = topic
 
+    # pass first quote asap
     first_quote = {topic: quote}
 
     # ugh, clear ticks since we've consumed them
@@ -1018,49 +1125,52 @@ async def stream_quotes(
     task_status.started((init_msgs,  first_quote))
 
     if type(first_ticker.contract) not in (ibis.Commodity, ibis.Forex):
-        suffix = 'exchange'
-        calc_price = False  # should be real volume for contract
+        # suffix = 'exchange'
+        # calc_price = False  # should be real volume for contract
 
         # wait for real volume on feed (trading might be closed)
-        async with aclosing(stream):
+        while True:
 
-            async for ticker in stream:
+            ticker = await stream.receive()
 
-                # for a real volume contract we rait for the first
-                # "real" trade to take place
-                if not calc_price and not ticker.rtTime:
-                    # spin consuming tickers until we get a real market datum
-                    log.debug(f"New unsent ticker: {ticker}")
-                    continue
-                else:
-                    log.debug("Received first real volume tick")
-                    # ugh, clear ticks since we've consumed them
-                    # (ahem, ib_insync is truly stateful trash)
-                    ticker.ticks = []
-
-                    # XXX: this works because we don't use
-                    # ``aclosing()`` above?
-                    break
-
-            # tell caller quotes are now coming in live
-            feed_is_live.set()
-
-            async for ticker in stream:
-
-                # print(ticker.vwap)
-                quote = normalize(
-                    ticker,
-                    calc_price=calc_price
-                )
-
-                con = quote['contract']
-                topic = '.'.join((con['symbol'], con[suffix])).lower()
-                quote['symbol'] = topic
-
-                await send_chan.send({topic: quote})
-
+            # for a real volume contract we rait for the first
+            # "real" trade to take place
+            if not calc_price and not ticker.rtTime:
+                # spin consuming tickers until we get a real market datum
+                log.debug(f"New unsent ticker: {ticker}")
+                continue
+            else:
+                log.debug("Received first real volume tick")
                 # ugh, clear ticks since we've consumed them
+                # (ahem, ib_insync is truly stateful trash)
                 ticker.ticks = []
+
+                # XXX: this works because we don't use
+                # ``aclosing()`` above?
+                break
+
+    # tell caller quotes are now coming in live
+    feed_is_live.set()
+
+    # last = time.time()
+    async with aclosing(stream):
+        async for ticker in stream:
+            # print(f'ticker rate: {1/(time.time() - last)}')
+
+            # print(ticker.vwap)
+            quote = normalize(
+                ticker,
+                calc_price=calc_price
+            )
+
+            # con = quote['contract']
+            # topic = '.'.join((con['symbol'], suffix)).lower()
+            quote['symbol'] = topic
+            await send_chan.send({topic: quote})
+
+            # ugh, clear ticks since we've consumed them
+            ticker.ticks = []
+            # last = time.time()
 
 
 def pack_position(pos: Position) -> Dict[str, Any]:
@@ -1179,3 +1289,63 @@ async def stream_trades(
             continue
 
         yield {'local_trades': (event_name, msg)}
+
+
+@tractor.context
+async def open_symbol_search(
+    ctx: tractor.Context,
+) -> None:
+    # async with open_cached_client('ib') as client:
+
+    # load all symbols locally for fast search
+    await ctx.started({})
+
+    async with ctx.open_stream() as stream:
+
+        last = time.time()
+
+        async for pattern in stream:
+            log.debug(f'received {pattern}')
+            now = time.time()
+
+            assert pattern, 'IB can not accept blank search pattern'
+
+            # throttle search requests to no faster then 1Hz
+            diff = now - last
+            if diff < 1.0:
+                log.debug('throttle sleeping')
+                await trio.sleep(diff)
+                try:
+                    pattern = stream.receive_nowait()
+                except trio.WouldBlock:
+                    pass
+
+            if not pattern or pattern.isspace():
+                log.warning('empty pattern received, skipping..')
+
+                # XXX: this unblocks the far end search task which may
+                # hold up a multi-search nursery block
+                await stream.send({})
+
+                continue
+
+            log.debug(f'searching for {pattern}')
+            # await tractor.breakpoint()
+            last = time.time()
+            results = await _trio_run_client_method(
+                method='search_stocks',
+                pattern=pattern,
+                upto=5,
+            )
+            log.debug(f'got results {results.keys()}')
+
+            log.debug("fuzzy matching")
+            matches = fuzzy.extractBests(
+                pattern,
+                results,
+                score_cutoff=50,
+            )
+
+            matches = {item[2]: item[0] for item in matches}
+            log.debug(f"sending matches: {matches.keys()}")
+            await stream.send(matches)

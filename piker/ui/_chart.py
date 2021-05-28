@@ -19,17 +19,22 @@ High level Qt chart widgets.
 
 """
 import time
+from contextlib import AsyncExitStack
 from typing import Tuple, Dict, Any, Optional, Callable
 from types import ModuleType
 from functools import partial
 
 from PyQt5 import QtCore, QtGui
+from PyQt5.QtCore import Qt
 import numpy as np
 import pyqtgraph as pg
 import tractor
 import trio
-from trio_typing import TaskStatus
 
+from .._daemon import (
+    maybe_spawn_brokerd,
+)
+from ..brokers import get_brokermod
 from ._axes import (
     DynamicDateAxis,
     PriceAxis,
@@ -55,16 +60,19 @@ from ._style import (
     _bars_from_right_in_follow_mode,
     _bars_to_left_in_follow_mode,
 )
+from . import _search
+from ._event import open_key_stream
 from ..data._source import Symbol
 from ..data._sharedmem import ShmArray
+from ..data import maybe_open_shm_array
 from .. import brokers
 from .. import data
-from ..data import maybe_open_shm_array
 from ..log import get_logger
 from ._exec import run_qtractor, current_screen
 from ._interaction import ChartView
 from .order_mode import start_order_mode
 from .. import fsp
+from ..data import feed
 
 
 log = get_logger(__name__)
@@ -78,36 +86,44 @@ class ChartSpace(QtGui.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.v_layout = QtGui.QVBoxLayout(self)
-        self.v_layout.setContentsMargins(0, 0, 0, 0)
-        self.v_layout.setSpacing(0)
+        self.hbox = QtGui.QHBoxLayout(self)
+        self.hbox.setContentsMargins(0, 0, 0, 0)
+        self.hbox.setSpacing(2)
+
+        self.vbox = QtGui.QVBoxLayout()
+        self.vbox.setContentsMargins(0, 0, 0, 0)
+        self.vbox.setSpacing(2)
+
+        self.hbox.addLayout(self.vbox)
 
         self.toolbar_layout = QtGui.QHBoxLayout()
         self.toolbar_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.h_layout = QtGui.QHBoxLayout()
-        self.h_layout.setContentsMargins(0, 0, 0, 0)
-
         # self.init_timeframes_ui()
         # self.init_strategy_ui()
-        self.v_layout.addLayout(self.toolbar_layout)
-        self.v_layout.addLayout(self.h_layout)
+        self.vbox.addLayout(self.toolbar_layout)
+        # self.vbox.addLayout(self.hbox)
+
         self._chart_cache = {}
-        self.symbol_label: Optional[QtGui.QLabel] = None
+        self.linkedcharts: 'LinkedSplitCharts' = None
+        self._root_n: Optional[trio.Nursery] = None
 
-    def init_search(self):
-        self.symbol_label = label = QtGui.QLabel()
-        label.setTextFormat(3)  # markdown
-        label.setFont(_font.font)
-        label.setMargin(0)
-        # title = f'sym:   {self.symbol}'
-        # label.setText(title)
+    def set_chart_symbol(
+        self,
+        symbol_key: str,  # of form <fqsn>.<providername>
+        linked_charts: 'LinkedSplitCharts',  # type: ignore
 
-        label.setAlignment(
-            QtCore.Qt.AlignVCenter
-            | QtCore.Qt.AlignLeft
-        )
-        self.v_layout.addWidget(label)
+    ) -> None:
+        # re-sort org cache symbol list in LIFO order
+        cache = self._chart_cache
+        cache.pop(symbol_key, None)
+        cache[symbol_key] = linked_charts
+
+    def get_chart_symbol(
+        self,
+        symbol_key: str,
+    ) -> 'LinkedSplitCharts':  # type: ignore
+        return self._chart_cache.get(symbol_key)
 
     def init_timeframes_ui(self):
         self.tf_layout = QtGui.QHBoxLayout()
@@ -130,42 +146,73 @@ class ChartSpace(QtGui.QWidget):
     # def init_strategy_ui(self):
     #     self.strategy_box = StrategyBoxWidget(self)
     #     self.toolbar_layout.addWidget(self.strategy_box)
+
     def load_symbol(
         self,
-        brokername: str,
+        providername: str,
         symbol_key: str,
-        data: np.ndarray,
+        loglevel: str,
         ohlc: bool = True,
+        reset: bool = False,
     ) -> None:
         """Load a new contract into the charting app.
 
         Expects a ``numpy`` structured array containing all the ohlcv fields.
-        """
-        # TODO: symbol search
-        # # of course this doesn't work :eyeroll:
-        # h = _font.boundingRect('Ag').height()
-        # print(f'HEIGHT {h}')
-        # self.symbol_label.setFixedHeight(h + 4)
-        # self.v_layout.update()
-        # self.symbol_label.setText(f'/`{symbol}`')
 
-        linkedcharts = self._chart_cache.setdefault(
-            symbol_key,
-            LinkedSplitCharts(self)
-        )
+        """
+        # our symbol key style is always lower case
+        symbol_key = symbol_key.lower()
+
+        # fully qualified symbol name (SNS i guess is what we're making?)
+        fqsn = '.'.join([symbol_key, providername])
+
+        linkedcharts = self.get_chart_symbol(fqsn)
+
+        if not self.vbox.isEmpty():
+            # XXX: this is CRITICAL especially with pixel buffer caching
+            self.linkedcharts.hide()
+
+            # XXX: pretty sure we don't need this
+            # remove any existing plots?
+            # XXX: ahh we might want to support cache unloading..
+            self.vbox.removeWidget(self.linkedcharts)
+
+        # switching to a new viewable chart
+        if linkedcharts is None or reset:
+
+            # we must load a fresh linked charts set
+            linkedcharts = LinkedSplitCharts(self)
+
+            # spawn new task to start up and update new sub-chart instances
+            self._root_n.start_soon(
+                chart_symbol,
+                self,
+                providername,
+                symbol_key,
+                loglevel,
+            )
+
+
+            self.set_chart_symbol(fqsn, linkedcharts)
+
+        self.vbox.addWidget(linkedcharts)
+
+        # chart is already in memory so just focus it
+        if self.linkedcharts:
+            self.linkedcharts.unfocus()
+
+        # self.vbox.addWidget(linkedcharts)
+        linkedcharts.show()
+        linkedcharts.focus()
         self.linkedcharts = linkedcharts
 
-        # remove any existing plots
-        if not self.v_layout.isEmpty():
-            self.v_layout.removeWidget(linkedcharts)
+        symbol = linkedcharts.symbol
 
-        self.v_layout.addWidget(linkedcharts)
-
-        return linkedcharts
-
-    # TODO: add signalling painter system
-    # def add_signals(self):
-    #     self.chart.add_signals()
+        if symbol is not None:
+            self.window.setWindowTitle(
+                f'{symbol.key}@{symbol.brokers} '
+                f'tick:{symbol.tick_size}'
+            )
 
 
 class LinkedSplitCharts(QtGui.QWidget):
@@ -184,14 +231,18 @@ class LinkedSplitCharts(QtGui.QWidget):
     zoomIsDisabled = QtCore.pyqtSignal(bool)
 
     def __init__(
+
         self,
         chart_space: ChartSpace,
+
     ) -> None:
         super().__init__()
         self.signals_visible: bool = False
         self._cursor: Cursor = None  # crosshair graphics
         self.chart: ChartPlotWidget = None  # main (ohlc) chart
         self.subplots: Dict[Tuple[str, ...], ChartPlotWidget] = {}
+        self.chart_space = chart_space
+
         self.chart_space = chart_space
 
         self.xaxis = DynamicDateAxis(
@@ -232,6 +283,14 @@ class LinkedSplitCharts(QtGui.QWidget):
         sizes.extend([min_h_ind] * len(self.subplots))
         self.splitter.setSizes(sizes)  # , int(self.height()*0.2)
 
+    def focus(self) -> None:
+        if self.chart is not None:
+            self.chart.focus()
+
+    def unfocus(self) -> None:
+        if self.chart is not None:
+            self.chart.clearFocus()
+
     def plot_ohlc_main(
         self,
         symbol: Symbol,
@@ -250,7 +309,7 @@ class LinkedSplitCharts(QtGui.QWidget):
         self.chart = self.add_plot(
             name=symbol.key,
             array=array,
-            xaxis=self.xaxis,
+            # xaxis=self.xaxis,
             style=style,
             _is_main=True,
         )
@@ -446,6 +505,10 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # for when the splitter(s) are resized
         self._vb.sigResized.connect(self._set_yrange)
+
+    def focus(self) -> None:
+        # self.setFocus()
+        self._vb.setFocus()
 
     def last_bar_in_view(self) -> int:
         self._ohlc[-1]['index']
@@ -1127,6 +1190,9 @@ async def spawn_fsps(
     Pass target entrypoint and historical data.
 
     """
+
+    linked_charts.focus()
+
     # spawns sub-processes which execute cpu bound FSP code
     async with tractor.open_nursery(loglevel=loglevel) as n:
 
@@ -1159,7 +1225,7 @@ async def spawn_fsps(
 
                 # XXX: fsp may have been opened by a duplicate chart. Error for
                 # now until we figure out how to wrap fsps as "feeds".
-                assert opened, f"A chart for {key} likely already exists?"
+                # assert opened, f"A chart for {key} likely already exists?"
 
                 conf['shm'] = shm
 
@@ -1219,9 +1285,6 @@ async def run_fsp(
         # data-array as first msg
         _ = await stream.receive()
 
-        conf['stream'] = stream
-        conf['portal'] = portal
-
         shm = conf['shm']
 
         if conf.get('overlay'):
@@ -1253,16 +1316,27 @@ async def run_fsp(
                 # fsp_func_name
             )
 
-            # read last value
+            # XXX: ONLY for sub-chart fsps, overlays have their
+            # data looked up from the chart's internal array set.
+            # TODO: we must get a data view api going STAT!!
+            chart._shm = shm
+
+            # should **not** be the same sub-chart widget
+            assert chart.name != linked_charts.chart.name
+
+            # sticky only on sub-charts atm
+            last_val_sticky = chart._ysticks[chart.name]
+
+            # read from last calculated value
             array = shm.array
             value = array[fsp_func_name][-1]
-
-            last_val_sticky = chart._ysticks[chart.name]
             last_val_sticky.update_from_data(-1, value)
 
-            chart.update_curve_from_array(fsp_func_name, array)
+        chart._lc.focus()
 
-            chart._shm = shm
+        # works also for overlays in which case data is looked up from
+        # internal chart array set....
+        chart.update_curve_from_array(fsp_func_name, shm.array)
 
         # TODO: figure out if we can roll our own `FillToThreshold` to
         # get brush filled polygons for OS/OB conditions.
@@ -1284,8 +1358,6 @@ async def run_fsp(
 
         chart._set_yrange()
 
-        stream = conf['stream']
-
         last = time.time()
 
         # update chart graphics
@@ -1306,7 +1378,6 @@ async def run_fsp(
             # re-compute steps.
             read_tries = 2
             while read_tries > 0:
-
                 try:
                     # read last
                     array = shm.array
@@ -1387,7 +1458,6 @@ async def chart_symbol(
     brokername: str,
     sym: str,
     loglevel: str,
-    task_status: TaskStatus[Symbol] = trio.TASK_STATUS_IGNORED,
 ) -> None:
     """Spawn a real-time chart widget for this symbol and app session.
 
@@ -1408,19 +1478,15 @@ async def chart_symbol(
         bars = ohlcv.array
         symbol = feed.symbols[sym]
 
-        task_status.started(symbol)
-
         # load in symbol's ohlc data
         chart_app.window.setWindowTitle(
             f'{symbol.key}@{symbol.brokers} '
             f'tick:{symbol.tick_size}'
         )
 
-        # await tractor.breakpoint()
         linked_charts = chart_app.linkedcharts
         linked_charts._symbol = symbol
         chart = linked_charts.plot_ohlc_main(symbol, bars)
-
         chart.setFocus()
 
         # plot historical vwap if available
@@ -1495,9 +1561,8 @@ async def chart_symbol(
             )
 
             # wait for a first quote before we start any update tasks
-            quote = await feed.receive()
-
-            log.info(f'Received first quote {quote}')
+            # quote = await feed.receive()
+            # log.info(f'Received first quote {quote}')
 
             n.start_soon(
                 check_for_new_bars,
@@ -1518,12 +1583,48 @@ async def chart_symbol(
             await start_order_mode(chart, symbol, brokername)
 
 
+async def load_providers(
+    brokernames: list[str],
+    loglevel: str,
+) -> None:
+
+    # TODO: seems like our incentive for brokerd caching lelel
+    backends = {}
+
+    async with AsyncExitStack() as stack:
+        # TODO: spawn these async in nursery.
+        # load all requested brokerd's at startup and load their
+        # search engines.
+        for broker in brokernames:
+
+            log.info(f'Loading brokerd for {broker}')
+            # spin up broker daemons for each provider
+            portal = await stack.enter_async_context(
+                maybe_spawn_brokerd(
+                    broker,
+                    loglevel=loglevel
+                )
+            )
+
+            backends[broker] = portal
+
+            await stack.enter_async_context(
+                feed.install_brokerd_search(
+                    portal,
+                    get_brokermod(broker),
+                )
+            )
+
+        # keep search engines up until cancelled
+        await trio.sleep_forever()
+
+
 async def _async_main(
     # implicit required argument provided by ``qtractor_run()``
     widgets: Dict[str, Any],
 
-    symbol_key: str,
-    brokername: str,
+    sym: str,
+    brokernames: str,
     loglevel: str,
 
 ) -> None:
@@ -1556,27 +1657,58 @@ async def _async_main(
         # that run cached in the bg
         chart_app._root_n = root_n
 
-        chart_app.load_symbol(brokername, symbol_key, loglevel)
+        # setup search widget
+        search = _search.SearchWidget(chart_space=chart_app)
 
-        symbol = await root_n.start(
-            chart_symbol,
-            chart_app,
-            brokername,
-            symbol_key,
-            loglevel,
+        # the main chart's view is given focus at startup
+        search.bar.unfocus()
+
+        # add search singleton to global chart-space widget
+        chart_app.hbox.addWidget(
+            search,
+
+            # alights to top and uses minmial space based on
+            # search bar size hint (i think?)
+            alignment=Qt.AlignTop
         )
+        chart_app.search = search
 
-        chart_app.window.setWindowTitle(
-            f'{symbol.key}@{symbol.brokers} '
-            f'tick:{symbol.tick_size}'
-        )
+        symbol, _, provider = sym.rpartition('.')
 
-        await trio.sleep_forever()
+        # this internally starts a ``chart_symbol()`` task above
+        chart_app.load_symbol(provider, symbol, loglevel)
+
+        root_n.start_soon(load_providers, brokernames, loglevel)
+
+        # spin up a search engine for the local cached symbol set
+        async with _search.register_symbol_search(
+
+            provider_name='cache',
+            search_routine=partial(
+                _search.search_simple_dict,
+                source=chart_app._chart_cache,
+            ),
+
+        ):
+            # start handling search bar kb inputs
+            async with open_key_stream(
+                search.bar,
+            ) as key_stream:
+
+                # start kb handling task for searcher
+                root_n.start_soon(
+                    _search.handle_keyboard_input,
+                    # chart_app,
+                    search,
+                    key_stream,
+                )
+
+                await trio.sleep_forever()
 
 
 def _main(
     sym: str,
-    brokername: str,
+    brokernames: [str],
     piker_loglevel: str,
     tractor_kwargs,
 ) -> None:
@@ -1586,7 +1718,7 @@ def _main(
     # Qt entry point
     run_qtractor(
         func=_async_main,
-        args=(sym, brokername, piker_loglevel),
+        args=(sym, brokernames, piker_loglevel),
         main_widget=ChartSpace,
         tractor_kwargs=tractor_kwargs,
     )

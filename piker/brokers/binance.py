@@ -82,7 +82,7 @@ _ohlc_dtype = [
 ohlc_dtype = np.dtype(_ohlc_dtype)
 
 _show_wap_in_history = False
-_search_conf = {'pause_period': 0.375}
+_search_conf = {'pause_period': 0.0616}
 
 
 # https://binance-docs.github.io/apidocs/spot/en/#exchange-information
@@ -207,6 +207,25 @@ class Client:
 
         return self._pairs
 
+    async def search_symbols(
+        self,
+        pattern: str,
+        limit: int = None,
+    ) -> Dict[str, Any]:
+        if self._pairs is not None:
+            data = self._pairs
+        else:
+            data = await self.symbol_info()
+
+        matches = fuzzy.extractBests(
+            pattern,
+            data,
+            score_cutoff=50,
+        )
+        # repack in dict form
+        return {item[0]['symbol']: item[0]
+         for item in matches}
+
     async def bars(
         self,
         symbol: str,
@@ -298,7 +317,7 @@ async def stream_messages(ws):
         if cs.cancelled_caught:
 
             timeouts += 1
-            if timeouts > 2:
+            if timeouts > 10:
                 raise trio.TooSlowError("binance feed seems down?")
 
             continue

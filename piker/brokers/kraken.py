@@ -21,7 +21,7 @@ Kraken backend.
 from contextlib import asynccontextmanager, AsyncExitStack
 from dataclasses import asdict, field
 from types import ModuleType
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 import json
 import time
 
@@ -37,6 +37,7 @@ from trio_websocket._impl import (
 
 import arrow
 import asks
+from fuzzywuzzy import process as fuzzy
 import numpy as np
 import trio
 import tractor
@@ -54,6 +55,11 @@ log = get_logger(__name__)
 
 # <uri>/<version>/
 _url = 'https://api.kraken.com/0'
+
+
+_search_conf = {
+    'pause_period': 0.0616
+}
 
 
 # Broker specific ohlc schema which includes a vwap field
@@ -147,6 +153,17 @@ class Client:
             'User-Agent':
                 'krakenex/2.1.0 (+https://github.com/veox/python3-krakenex)'
         })
+        self._pairs: list[str] = []
+
+    @property
+    def pairs(self) -> Dict[str, Any]:
+        if self._pairs is None:
+            raise RuntimeError(
+                "Make sure to run `cache_symbols()` on startup!"
+            )
+            # retreive and cache all symbols
+
+        return self._pairs
 
     async def _public(
         self,
@@ -162,14 +179,51 @@ class Client:
 
     async def symbol_info(
         self,
-        pair: str = 'all',
+        pair: Optional[str] = None,
     ):
-        resp = await self._public('AssetPairs', {'pair': pair})
+        if pair is not None:
+            pairs = {'pair': pair}
+        else:
+            pairs = None  # get all pairs
+
+        resp = await self._public('AssetPairs', pairs)
         err = resp['error']
         if err:
             raise BrokerError(err)
-        true_pair_key, data = next(iter(resp['result'].items()))
-        return data
+
+        pairs = resp['result']
+
+        if pair is not None:
+            _, data = next(iter(pairs.items()))
+            return data
+        else:
+            return pairs
+
+    async def cache_symbols(
+        self,
+    ) -> dict:
+        if not self._pairs:
+            self._pairs = await self.symbol_info()
+
+        return self._pairs
+
+    async def search_symbols(
+        self,
+        pattern: str,
+        limit: int = None,
+    ) -> Dict[str, Any]:
+        if self._pairs is not None:
+            data = self._pairs
+        else:
+            data = await self.symbol_info()
+
+        matches = fuzzy.extractBests(
+            pattern,
+            data,
+            score_cutoff=50,
+        )
+        # repack in dict form
+        return {item[0]['altname']: item[0] for item in matches}
 
     async def bars(
         self,
@@ -182,6 +236,7 @@ class Client:
         if since is None:
             since = arrow.utcnow().floor('minute').shift(
                 minutes=-count).timestamp()
+
         # UTC 2017-07-02 12:53:20 is oldest seconds value
         since = str(max(1499000000, since))
         json = await self._public(
@@ -232,7 +287,12 @@ class Client:
 
 @asynccontextmanager
 async def get_client() -> Client:
-    yield Client()
+    client = Client()
+
+    # at startup, load all symbols locally for fast search
+    await client.cache_symbols()
+
+    yield client
 
 
 async def stream_messages(ws):
@@ -249,7 +309,7 @@ async def stream_messages(ws):
 
             too_slow_count += 1
 
-            if too_slow_count > 10:
+            if too_slow_count > 20:
                 log.warning(
                     "Heartbeat is too slow, resetting ws connection")
 
@@ -317,7 +377,8 @@ def normalize(
 
     # seriously eh? what's with this non-symmetry everywhere
     # in subscription systems...
-    topic = quote['pair'].replace('/', '')
+    # XXX: piker style is always lowercases symbols.
+    topic = quote['pair'].replace('/', '').lower()
 
     # print(quote)
     return topic, quote
@@ -368,10 +429,13 @@ class AutoReconWs:
         self,
         tries: int = 10000,
     ) -> None:
-        try:
-            await self._stack.aclose()
-        except (DisconnectionTimeout, RuntimeError):
-            await trio.sleep(1)
+        while True:
+            try:
+                await self._stack.aclose()
+            except (DisconnectionTimeout, RuntimeError):
+                await trio.sleep(1)
+            else:
+                break
 
         last_err = None
         for i in range(tries):
@@ -430,12 +494,12 @@ async def open_autorecon_ws(url):
 
 
 async def backfill_bars(
+
     sym: str,
     shm: ShmArray,  # type: ignore # noqa
-
     count: int = 10,  # NOTE: any more and we'll overrun the underlying buffer
-
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
+
 ) -> None:
     """Fill historical bars into shared mem / storage afap.
     """
@@ -475,6 +539,10 @@ async def stream_quotes(
 
         # keep client cached for real-time section
         for sym in symbols:
+
+            # transform to upper since piker style is always lower
+            sym = sym.upper()
+
             si = Pair(**await client.symbol_info(sym))  # validation
             syminfo = si.dict()
             syminfo['price_tick_size'] = 1 / 10**si.pair_decimals
@@ -482,7 +550,7 @@ async def stream_quotes(
             sym_infos[sym] = syminfo
             ws_pairs[sym] = si.wsname
 
-        symbol = symbols[0]
+        symbol = symbols[0].lower()
 
         init_msgs = {
             # pass back token, and bool, signalling if we're the writer
@@ -570,8 +638,34 @@ async def stream_quotes(
 
                 elif typ == 'l1':
                     quote = ohlc
-                    topic = quote['symbol']
+                    topic = quote['symbol'].lower()
 
                 # XXX: format required by ``tractor.msg.pub``
                 # requires a ``Dict[topic: str, quote: dict]``
                 await send_chan.send({topic: quote})
+
+
+@tractor.context
+async def open_symbol_search(
+    ctx: tractor.Context,
+) -> Client:
+    async with open_cached_client('kraken') as client:
+
+        # load all symbols locally for fast search
+        cache = await client.cache_symbols()
+        await ctx.started(cache)
+
+        async with ctx.open_stream() as stream:
+
+            async for pattern in stream:
+
+                matches = fuzzy.extractBests(
+                    pattern,
+                    cache,
+                    score_cutoff=50,
+                )
+                # repack in dict form
+                await stream.send(
+                    {item[0]['altname']: item[0]
+                     for item in matches}
+                )

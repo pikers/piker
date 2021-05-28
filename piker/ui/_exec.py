@@ -38,6 +38,7 @@ from PyQt5.QtCore import (
     QCoreApplication,
 )
 import qdarkstyle
+# import qdarkgraystyle
 import trio
 import tractor
 from outcome import Error
@@ -143,6 +144,9 @@ def run_qtractor(
     # close, however the details of doing that correctly
     # currently seem tricky..
     app.setQuitOnLastWindowClosed(False)
+
+    # XXX: lmfao, this is how you disable text edit cursor blinking..smh
+    app.setCursorFlashTime(0)
 
     # set global app singleton
     global _qt_app

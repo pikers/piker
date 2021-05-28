@@ -30,7 +30,7 @@ import tractor
 from ..cli import cli
 from .. import watchlists as wl
 from ..log import get_console_log, colorize_json, get_logger
-from .._daemon import maybe_spawn_brokerd
+from .._daemon import maybe_spawn_brokerd, maybe_open_pikerd
 from ..brokers import core, get_brokermod, data
 
 log = get_logger('cli')
@@ -50,7 +50,7 @@ def api(config, meth, kwargs, keys):
     """Make a broker-client API method call
     """
     # global opts
-    broker = config['broker']
+    broker = config['brokers'][0]
 
     _kwargs = {}
     for kwarg in kwargs:
@@ -87,7 +87,7 @@ def quote(config, tickers, df_output):
     """Print symbol quotes to the console
     """
     # global opts
-    brokermod = config['brokermod']
+    brokermod = config['brokermods'][0]
 
     quotes = trio.run(partial(core.stocks_quote, brokermod, tickers))
     if not quotes:
@@ -123,7 +123,7 @@ def bars(config, symbol, count, df_output):
     """Retreive 1m bars for symbol and print on the console
     """
     # global opts
-    brokermod = config['brokermod']
+    brokermod = config['brokermods'][0]
 
     # broker backend should return at the least a
     # list of candle dictionaries
@@ -159,7 +159,7 @@ def record(config, rate, name, dhost, filename):
     """Record client side quotes to a file on disk
     """
     # global opts
-    brokermod = config['brokermod']
+    brokermod = config['brokermods'][0]
     loglevel = config['loglevel']
     log = config['log']
 
@@ -222,7 +222,7 @@ def optsquote(config, symbol, df_output, date):
     """Retreive symbol option quotes on the console
     """
     # global opts
-    brokermod = config['brokermod']
+    brokermod = config['brokermods'][0]
 
     quotes = trio.run(
         partial(
@@ -250,7 +250,7 @@ def symbol_info(config, tickers):
     """Print symbol quotes to the console
     """
     # global opts
-    brokermod = config['brokermod']
+    brokermod = config['brokermods'][0]
 
     quotes = trio.run(partial(core.symbol_info, brokermod, tickers))
     if not quotes:
@@ -273,13 +273,25 @@ def search(config, pattern):
     """Search for symbols from broker backend(s).
     """
     # global opts
-    brokermod = config['brokermod']
+    brokermods = config['brokermods']
 
-    quotes = tractor.run(
-        partial(core.symbol_search, brokermod, pattern),
-        start_method='forkserver',
-        loglevel='info',
+    # define tractor entrypoint
+    async def main(func):
+
+        async with maybe_open_pikerd(
+            loglevel=config['loglevel'],
+        ):
+            return await func()
+
+    quotes = trio.run(
+        main,
+        partial(
+            core.symbol_search,
+            brokermods,
+            pattern,
+        ),
     )
+
     if not quotes:
         log.error(f"No matches could be found for {pattern}?")
         return

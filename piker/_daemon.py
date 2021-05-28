@@ -18,7 +18,6 @@
 Structured, daemon tree service management.
 
 """
-from functools import partial
 from typing import Optional, Union, Callable, Any
 from contextlib import asynccontextmanager, AsyncExitStack
 from collections import defaultdict
@@ -72,7 +71,7 @@ class Services(BaseModel):
         ctx, first = await self.ctx_stack.enter_async_context(
             portal.open_context(
                 target,
-            **kwargs,
+                **kwargs,
             )
         )
         return ctx
@@ -143,8 +142,14 @@ async def maybe_open_runtime(
     Start the ``tractor`` runtime (a root actor) if none exists.
 
     """
+    settings = _tractor_kwargs
+    settings.update(kwargs)
+
     if not tractor.current_actor(err_on_no_runtime=False):
-        async with tractor.open_root_actor(loglevel=loglevel, **kwargs):
+        async with tractor.open_root_actor(
+            loglevel=loglevel,
+            **settings,
+        ):
             yield
     else:
         yield
