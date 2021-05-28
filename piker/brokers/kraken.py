@@ -47,11 +47,6 @@ log = get_logger(__name__)
 _url = 'https://api.kraken.com/0'
 
 
-_search_conf = {
-    'pause_period': 0.0616
-}
-
-
 # Broker specific ohlc schema which includes a vwap field
 _ohlc_dtype = [
     ('index', int),
