@@ -124,6 +124,26 @@ class MainWindow(QtGui.QMainWindow):
         # raising KBI seems to get intercepted by by Qt so just use the system.
         os.kill(os.getpid(), signal.SIGINT)
 
+    @property
+    def status_bar(self) -> 'QStatusBar':
+        return self.statusBar()
+
+    def on_focus_change(
+        self,
+        old: QtGui.QWidget,
+        new: QtGui.QWidget,
+    ) -> None:
+
+        log.debug(f'widget focus changed from {old} -> {new}')
+
+        if new is None:
+            # cursor left window?
+            self.statusBar().showMessage('mode: none')
+
+        else:
+            name = getattr(new, 'mode_name', '')
+            self.statusBar().showMessage(name)
+
 
 def run_qtractor(
     func: Callable,
@@ -192,6 +212,10 @@ def run_qtractor(
 
     # make window and exec
     window = window_type()
+
+    # hook into app focus change events
+    app.focusChanged.connect(window.on_focus_change)
+
     instance = main_widget()
     instance.window = window
 
