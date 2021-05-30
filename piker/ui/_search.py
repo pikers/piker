@@ -96,6 +96,8 @@ class SimpleDelegate(QStyledItemDelegate):
 
 class CompleterView(QTreeView):
 
+    mode_name: str = 'mode: search-nav'
+
     # XXX: relevant docs links:
     # - simple widget version of this:
     #   https://doc.qt.io/qt-5/qtreewidget.html#details
@@ -153,7 +155,9 @@ class CompleterView(QTreeView):
         self._font_size: int = 0  # pixels
 
     def on_pressed(self, idx: QModelIndex) -> None:
+        '''Mouse pressed on view handler.
 
+        '''
         search = self.parent()
         search.chart_current_item(clear_to_cache=False)
         search.focus()
@@ -424,6 +428,8 @@ class CompleterView(QTreeView):
 
 class SearchBar(QtWidgets.QLineEdit):
 
+    mode_name: str = 'mode: search'
+
     def __init__(
 
         self,
@@ -487,6 +493,8 @@ class SearchWidget(QtGui.QWidget):
     Includes helper methods for item management in the sub-widgets.
 
     '''
+    mode_name: str = 'mode: search'
+
     def __init__(
         self,
         chart_space: 'ChartSpace',  # type: ignore # noqa
@@ -499,7 +507,7 @@ class SearchWidget(QtGui.QWidget):
         # size it as we specify
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Fixed,
-            QtWidgets.QSizePolicy.Expanding,
+            QtWidgets.QSizePolicy.Fixed,
         )
 
         self.chart_app = chart_space
@@ -618,13 +626,15 @@ class SearchWidget(QtGui.QWidget):
         # making?)
         fqsn = '.'.join([symbol, provider]).lower()
 
-        # Re-order the symbol cache on the chart to display in
-        # LIFO order. this is normally only done internally by
-        # the chart on new symbols being loaded into memory
-        chart.set_chart_symbol(fqsn, chart.linkedcharts)
-
         if clear_to_cache:
+
             self.bar.clear()
+
+            # Re-order the symbol cache on the chart to display in
+            # LIFO order. this is normally only done internally by
+            # the chart on new symbols being loaded into memory
+            chart.set_chart_symbol(fqsn, chart.linkedcharts)
+
             self.view.set_section_entries(
                 'cache',
                 values=list(reversed(chart._chart_cache)),
