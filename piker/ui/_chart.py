@@ -79,10 +79,11 @@ log = get_logger(__name__)
 
 
 class ChartSpace(QtGui.QWidget):
-    """High level widget which contains layouts for organizing
-    lower level charts as well as other widgets used to control
-    or modify them.
-    """
+    '''Highest level composed widget which contains layouts for
+    organizing lower level charts as well as other widgets used to
+    control or modify them.
+
+    '''
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -431,6 +432,8 @@ class ChartPlotWidget(pg.PlotWidget):
 
     _l1_labels: L1Labels = None
 
+    mode_name: str = 'mode: view'
+
     # TODO: can take a ``background`` color setting - maybe there's
     # a better one?
 
@@ -508,8 +511,6 @@ class ChartPlotWidget(pg.PlotWidget):
     def focus(self) -> None:
         # self.setFocus()
         self._vb.setFocus()
-        app = QtGui.QApplication.instance()
-        app.activeWindow().statusBar().showMessage("mode: view")
 
     def last_bar_in_view(self) -> int:
         self._ohlc[-1]['index']
@@ -1080,7 +1081,14 @@ async def chart_from_quotes(
     tick_margin = 2 * tick_size
 
     last_ask = last_bid = last_clear = time.time()
+    chart.show()
+
     async for quotes in stream:
+
+        # chart isn't actively shown so just skip render cycle
+        if chart._lc.isHidden():
+            continue
+
         for sym, quote in quotes.items():
 
             now = time.time()
@@ -1389,10 +1397,15 @@ async def run_fsp(
         # update chart graphics
         async for value in stream:
 
+            # chart isn't actively shown so just skip render cycle
+            if chart._lc.isHidden():
+                continue
+
             now = time.time()
             period = now - last
+
             # if period <= 1/30:
-            if period <= 1/_clear_throttle_rate - 0.001:
+            if period <= 1/_clear_throttle_rate:
                 # faster then display refresh rate
                 # print(f'quote too fast: {1/period}')
                 continue
@@ -1679,7 +1692,7 @@ async def _async_main(
     # configure global DPI aware font size
     _font.configure_to_dpi(screen)
 
-    sbar = chart_app.window.statusBar()
+    sbar = chart_app.window.status_bar
     sbar.setStyleSheet(f"font: {_font.px_size - 3}px")
     sbar.showMessage('starting ze chartz...')
 
