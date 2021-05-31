@@ -40,7 +40,6 @@ from PyQt5.QtCore import (
 import qdarkstyle
 # import qdarkgraystyle
 import trio
-import tractor
 from outcome import Error
 
 from .._daemon import maybe_open_pikerd, _tractor_kwargs
@@ -114,6 +113,29 @@ class MainWindow(QtGui.QMainWindow):
         self.setMinimumSize(*self.size)
         self.setWindowTitle(self.title)
 
+        self._status_label: QLabel = None
+
+    @property
+    def status(self) -> QtGui.QLabel:
+        if not self._status_label:
+            # init mode label
+            from ._style import _font
+            self._status_label = label = QtGui.QLabel() #parent=self.status_bar)
+            label.setTextFormat(3)  # markdown
+            label.setFont(_font.font)
+            label.setMargin(4)
+            label.setText("yo")
+            # label.show()
+            label.setAlignment(
+                QtCore.Qt.AlignVCenter
+                | QtCore.Qt.AlignRight
+            )
+            self.status_bar.addPermanentWidget(label)
+            label.show()
+
+        return self._status_label
+
+
     def closeEvent(
         self,
         event: QtGui.QCloseEvent,
@@ -136,13 +158,12 @@ class MainWindow(QtGui.QMainWindow):
 
         log.debug(f'widget focus changed from {old} -> {new}')
 
-        if new is None:
-            # cursor left window?
-            self.statusBar().showMessage('mode: none')
-
-        else:
+        if new is not None:
+            # # cursor left window?
+            # self.statusBar().showMessage('mode: none')
             name = getattr(new, 'mode_name', '')
-            self.statusBar().showMessage(name)
+            self.status.setText(name)
+            # self.statusBar().showMessage(name)
 
 
 def run_qtractor(
