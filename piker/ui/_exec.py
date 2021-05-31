@@ -32,12 +32,14 @@ import PyQt5  # noqa
 import pyqtgraph as pg
 from pyqtgraph import QtGui
 from PyQt5 import QtCore
+from PyQt5.QtGui import QLabel, QStatusBar
 from PyQt5.QtCore import (
     pyqtRemoveInputHook,
     Qt,
     QCoreApplication,
 )
 import qdarkstyle
+from qdarkstyle import DarkPalette
 # import qdarkgraystyle
 import trio
 from outcome import Error
@@ -69,12 +71,9 @@ def current_screen() -> QtGui.QScreen:
     """
     global _qt_win, _qt_app
 
-    start = time.time()
-
-    tries = 3
     for _ in range(3):
         screen = _qt_app.screenAt(_qt_win.pos())
-        print(f'trying to get screen....')
+        print('trying to access QScreen...')
         if screen is None:
             time.sleep(0.5)
             continue
@@ -113,19 +112,23 @@ class MainWindow(QtGui.QMainWindow):
         self.setMinimumSize(*self.size)
         self.setWindowTitle(self.title)
 
+        self._status_bar: QStatusbar = None
         self._status_label: QLabel = None
 
     @property
-    def status(self) -> QtGui.QLabel:
+    def mode_label(self) -> QtGui.QLabel:
+
+        # init mode label
         if not self._status_label:
-            # init mode label
-            from ._style import _font
-            self._status_label = label = QtGui.QLabel() #parent=self.status_bar)
+            # TODO: i guess refactor stuff to avoid having to import here?
+            from ._style import _font, hcolor
+            self._status_label = label = QtGui.QLabel()
+            label.setStyleSheet(
+                f"QLabel {{ color : {hcolor('gunmetal')}; }}"
+            )
             label.setTextFormat(3)  # markdown
             label.setFont(_font.font)
-            label.setMargin(4)
-            label.setText("yo")
-            # label.show()
+            label.setMargin(2)
             label.setAlignment(
                 QtCore.Qt.AlignVCenter
                 | QtCore.Qt.AlignRight
@@ -133,8 +136,8 @@ class MainWindow(QtGui.QMainWindow):
             self.status_bar.addPermanentWidget(label)
             label.show()
 
-        return self._status_label
 
+        return self._status_label
 
     def closeEvent(
         self,
@@ -147,8 +150,25 @@ class MainWindow(QtGui.QMainWindow):
         os.kill(os.getpid(), signal.SIGINT)
 
     @property
-    def status_bar(self) -> 'QStatusBar':
-        return self.statusBar()
+    def status_bar(self) -> QStatusBar:
+
+        # style and cached the status bar on first access
+        if not self._status_bar:
+            # TODO: i guess refactor stuff to avoid having to import here?
+            from ._style import _font, hcolor
+            sb = self.statusBar()
+            sb.setStyleSheet((
+                f"color : {hcolor('gunmetal')};"
+                f"background : {hcolor('default_dark')};"
+                # "min-height : 19px;"
+                f"font-size : {_font.px_size - 4}px;"
+                "padding : 0px;"
+                # "qproperty-alignment: AlignVCenter;"
+            ))
+            self.setStatusBar(sb)
+            self._status_bar = sb
+
+        return self._status_bar
 
     def on_focus_change(
         self,
@@ -159,11 +179,9 @@ class MainWindow(QtGui.QMainWindow):
         log.debug(f'widget focus changed from {old} -> {new}')
 
         if new is not None:
-            # # cursor left window?
-            # self.statusBar().showMessage('mode: none')
+            # cursor left window?
             name = getattr(new, 'mode_name', '')
-            self.status.setText(name)
-            # self.statusBar().showMessage(name)
+            self.mode_label.setText(name)
 
 
 def run_qtractor(
@@ -229,7 +247,11 @@ def run_qtractor(
         app.quit()
 
     # load dark theme
-    app.setStyleSheet(qdarkstyle.load_stylesheet(qt_api='pyqt5'))
+    stylesheet = qdarkstyle.load_stylesheet(
+        qt_api='pyqt5',
+        palette=DarkPalette,
+    )
+    app.setStyleSheet(stylesheet)
 
     # make window and exec
     window = window_type()
@@ -244,7 +266,6 @@ def run_qtractor(
         'window': window,
         'main': instance,
     }
-
 
     # override tractor's defaults
     tractor_kwargs.update(_tractor_kwargs)
