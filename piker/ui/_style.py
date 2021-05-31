@@ -22,7 +22,7 @@ import math
 
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
-from qdarkstyle.palette import DarkPalette
+from qdarkstyle import DarkPalette
 
 from ..log import get_logger
 from ._exec import current_screen
@@ -134,8 +134,6 @@ _font = DpiAwareFont()
 # TODO: re-compute font size when main widget switches screens?
 # https://forum.qt.io/topic/54136/how-do-i-get-the-qscreen-my-widget-is-on-qapplication-desktop-screen-returns-a-qwidget-and-qobject_cast-qscreen-returns-null/3
 
-# _i3_rgba = QtGui.QColor.fromRgbF(*[0.14]*3 + [1])
-
 # splitter widget config
 _xaxis_at = 'bottom'
 
@@ -175,6 +173,7 @@ def hcolor(name: str) -> str:
         'gray': '#808080',  # like the kick
         'grayer': '#4c4c4c',
         'grayest': '#3f3f3f',
+        'i3': '#494D4F',
         'jet': '#343434',
         'cadet': '#91A3B0',
         'marengo': '#91A3B0',
@@ -185,9 +184,13 @@ def hcolor(name: str) -> str:
         'bracket': '#666666',  # like the logo
         'original': '#a9a9a9',
 
-        # palette
-        'default': DarkPalette.COLOR_BACKGROUND_NORMAL,
-        'default_light': DarkPalette.COLOR_BACKGROUND_LIGHT,
+        # from ``qdarkstyle`` palette
+        'default_darkest': DarkPalette.COLOR_BACKGROUND_1,
+        'default_dark': DarkPalette.COLOR_BACKGROUND_2,
+        'default': DarkPalette.COLOR_BACKGROUND_3,
+        'default_light': DarkPalette.COLOR_BACKGROUND_4,
+        'default_lightest': DarkPalette.COLOR_BACKGROUND_5,
+        'default_spotlight': DarkPalette.COLOR_BACKGROUND_6,
 
         'white': '#ffffff',  # for tinas and sunbathers
 

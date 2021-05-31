@@ -70,17 +70,12 @@ setup(
         # UI
         'PyQt5',
         'pyqtgraph',
-        'qdarkstyle==2.8.1',
-        #'kivy',  see requirement.txt; using a custom branch atm
-
-        # tsdbs
-        'pymarketstore',
-
-        #'kivy',  see requirement.txt; using a custom branch atm
-
+        'qdarkstyle >= 3.0.2',
         # fuzzy search
         'fuzzywuzzy[speedup]',
 
+        # tsdbs
+        'pymarketstore',
     ],
     tests_require=['pytest'],
     python_requires=">=3.9",  # literally for ``datetime.datetime.fromisoformat``...
