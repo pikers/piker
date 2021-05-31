@@ -51,6 +51,7 @@ from ._graphics._lines import (
 from ._l1 import L1Labels
 from ._graphics._ohlc import BarItems
 from ._graphics._curve import FastAppendCurve
+from . import _style
 from ._style import (
     _font,
     hcolor,
@@ -192,6 +193,8 @@ class ChartSpace(QtGui.QWidget):
                 symbol_key,
                 loglevel,
             )
+            self.window.status_bar.showMessage(
+                f'Loading {symbol_key}.{providername}...')
 
             self.set_chart_symbol(fqsn, linkedcharts)
 
@@ -1241,6 +1244,9 @@ async def spawn_fsps(
 
                 display_name = f'fsp.{fsp_func_name}'
 
+                linked_charts.window().status_bar.showMessage(
+                    f'Loading FSP: {display_name}...')
+
                 # TODO: load function here and introspect
                 # return stream type(s)
 
@@ -1280,6 +1286,10 @@ async def spawn_fsps(
                     display_name,
                     conf,
                 )
+
+                status = linked_charts.window().status_bar
+                if display_name in status.currentMessage():
+                    status.clearMessage()
 
         # blocks here until all fsp actors complete
 
@@ -1541,6 +1551,9 @@ async def chart_symbol(
                     add_label=False,
                 )
 
+        chart_app.window.status_bar.showMessage(
+            f'Finished loading {sym}.{brokername}')
+
         # size view to data once at outset
         chart._set_yrange()
 
@@ -1619,6 +1632,7 @@ async def chart_symbol(
             #     linked_charts,
             # )
 
+            linked_charts.window().status_bar.showMessage('Starting order mode...')
             await start_order_mode(chart, symbol, brokername)
 
 
@@ -1676,8 +1690,6 @@ async def _async_main(
 
     chart_app = widgets['main']
 
-
-
     # attempt to configure DPI aware font size
     screen = current_screen()
 
@@ -1692,8 +1704,10 @@ async def _async_main(
     # configure global DPI aware font size
     _font.configure_to_dpi(screen)
 
+    # TODO: do styling / themeing setup
+    # _style.style_ze_sheets(chart_app)
+
     sbar = chart_app.window.status_bar
-    sbar.setStyleSheet(f"font: {_font.px_size - 3}px")
     sbar.showMessage('starting ze chartz...')
 
     async with trio.open_nursery() as root_n:

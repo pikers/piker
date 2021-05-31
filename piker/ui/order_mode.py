@@ -336,6 +336,8 @@ async def start_order_mode(
 
         # Begin order-response streaming
 
+        chart.window().status_bar.showMessage('Ready for trading')
+
         # this is where we receive **back** messages
         # about executions **from** the EMS actor
         async for msg in trades_stream:
