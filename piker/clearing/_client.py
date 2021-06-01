@@ -30,6 +30,7 @@ import tractor
 from ..data._source import Symbol
 from ..log import get_logger
 from ._ems import _emsd_main
+from .._daemon import maybe_open_emsd
 
 
 log = get_logger(__name__)
@@ -172,31 +173,6 @@ async def send_order_cmds(symbol_key: str):
             # we need broadcast channelz...asap
             # https://github.com/goodboy/tractor/issues/204
             book._to_ems.send_nowait(cmd)
-
-
-@asynccontextmanager
-async def maybe_open_emsd(
-    brokername: str,
-) -> tractor._portal.Portal:  # noqa
-
-    async with tractor.find_actor('emsd') as portal:
-        if portal is not None:
-            yield portal
-            return
-
-    # ask remote daemon tree to spawn it
-    from .._daemon import spawn_emsd
-
-    async with tractor.find_actor('pikerd') as portal:
-        assert portal
-
-        name = await portal.run(
-            spawn_emsd,
-            brokername=brokername,
-        )
-
-        async with tractor.wait_for_actor(name) as portal:
-            yield portal
 
 
 @asynccontextmanager
