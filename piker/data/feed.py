@@ -217,8 +217,8 @@ async def allocate_persistent_feed(
     times = shm.array['time']
     delay_s = times[-1] - times[times != times[-1]][-1]
 
-    # pass OHLC sample rate in seconds
-    init_msg[symbol]['sample_rate'] = delay_s
+    # pass OHLC sample rate in seconds (be sure to use python int type)
+    init_msg[symbol]['sample_rate'] = int(delay_s)
 
     # yield back control to starting nursery
     task_status.started((init_msg,  first_quote))
