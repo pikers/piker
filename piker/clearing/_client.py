@@ -36,6 +36,7 @@ from .._daemon import maybe_open_emsd
 log = get_logger(__name__)
 
 
+# TODO: some kinda validation like this
 # class Order(msgspec.Struct):
 #     action: str
 #     price: float
@@ -137,7 +138,11 @@ def get_orders(
     return _orders
 
 
-async def send_order_cmds(symbol_key: str):
+async def relay_order_cmds_from_sync_code(
+    symbol_key: str,
+    to_ems_stream: tractor.MsgStream,
+
+) -> None:
     """
     Order streaming task: deliver orders transmitted from UI
     to downstream consumers.
@@ -157,16 +162,15 @@ async def send_order_cmds(symbol_key: str):
     book = get_orders()
     orders_stream = book._from_order_book
 
-    # signal that ems connection is up and ready
-    book._ready_to_receive.set()
-
     async for cmd in orders_stream:
+
         print(cmd)
         if cmd['symbol'] == symbol_key:
 
             # send msg over IPC / wire
             log.info(f'Send order cmd:\n{pformat(cmd)}')
-            yield cmd
+            await to_ems_stream.send(cmd)
+
         else:
             # XXX BRUTAL HACKZORZES !!!
             # re-insert for another consumer
@@ -213,32 +217,32 @@ async def open_ems(
     - 'broker_filled'
 
     """
-    actor = tractor.current_actor()
-
     # wait for service to connect back to us signalling
     # ready for order commands
     book = get_orders()
 
     async with maybe_open_emsd(broker) as portal:
 
-        async with portal.open_stream_from(
+        async with (
 
-            _emsd_main,
-            client_actor_name=actor.name,
-            broker=broker,
-            symbol=symbol.key,
+            # connect to emsd
+            portal.open_context(
+                _emsd_main,
+                broker=broker,
+                symbol=symbol.key,
 
-        ) as trades_stream:
-            with trio.fail_after(10):
-                await book._ready_to_receive.wait()
+            # TODO: ``first`` here should be the active orders/execs
+            # persistent on the ems so that loca UI's can be populated.
+            ) as (ctx, first),
 
-            try:
+            # open 2-way trade command stream
+            ctx.open_stream() as trades_stream,
+        ):
+            async with trio.open_nursery() as n:
+                n.start_soon(
+                    relay_order_cmds_from_sync_code,
+                    symbol.key,
+                    trades_stream
+                )
+
                 yield book, trades_stream
-
-            finally:
-                # TODO: we want to eventually keep this up (by having
-                # the exec loop keep running in the pikerd tree) but for
-                # now we have to kill the context to avoid backpressure
-                # build-up on the shm write loop.
-                with trio.CancelScope(shield=True):
-                    await trades_stream.aclose()

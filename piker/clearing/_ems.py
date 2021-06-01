@@ -21,11 +21,10 @@ In da suit parlances: "Execution management systems"
 from pprint import pformat
 import time
 from dataclasses import dataclass, field
-from typing import (
-    AsyncIterator, Dict, Callable, Tuple,
-)
+from typing import AsyncIterator, Callable
 
 from bidict import bidict
+from pydantic import BaseModel
 import trio
 from trio_typing import TaskStatus
 import tractor
@@ -89,11 +88,11 @@ class _DarkBook:
     broker: str
 
     # levels which have an executable action (eg. alert, order, signal)
-    orders: Dict[
+    orders: dict[
         str,  # symbol
-        Dict[
+        dict[
             str,  # uuid
-            Tuple[
+            tuple[
                 Callable[[float], bool],  # predicate
                 str,  # name
                 dict,  # cmd / msg type
@@ -102,22 +101,13 @@ class _DarkBook:
     ] = field(default_factory=dict)
 
     # tracks most recent values per symbol each from data feed
-    lasts: Dict[
-        Tuple[str, str],
+    lasts: dict[
+        tuple[str, str],
         float
     ] = field(default_factory=dict)
 
     # mapping of broker order ids to piker ems ids
-    _broker2ems_ids: Dict[str, str] = field(default_factory=bidict)
-
-
-_books: Dict[str, _DarkBook] = {}
-
-
-def get_dark_book(broker: str) -> _DarkBook:
-
-    global _books
-    return _books.setdefault(broker, _DarkBook(broker))
+    _broker2ems_ids: dict[str, str] = field(default_factory=bidict)
 
 
 # XXX: this is in place to prevent accidental positions that are too
@@ -255,10 +245,12 @@ async def exec_loop(
     to brokers.
 
     """
+    global _router
+
     # XXX: this should be initial price quote from target provider
     first_quote = await feed.receive()
 
-    book = get_dark_book(broker)
+    book = _router.get_dark_book(broker)
     book.lasts[(broker, symbol)] = first_quote[symbol]['last']
 
     # TODO: wrap this in a more re-usable general api
@@ -478,12 +470,14 @@ async def process_broker_trades(
 
 
 async def process_order_cmds(
+
     ctx: tractor.Context,
     cmd_stream: 'tractor.ReceiveStream',  # noqa
     symbol: str,
     feed: 'Feed',  # noqa
     client: 'Client',  # noqa
     dark_book: _DarkBook,
+
 ) -> None:
 
     async for cmd in cmd_stream:
@@ -509,6 +503,7 @@ async def process_order_cmds(
                 try:
                     dark_book.orders[symbol].pop(oid, None)
 
+                    # TODO: move these to `tractor.MsgStream`
                     await ctx.send_yield({
                         'resp': 'dark_cancelled',
                         'oid': oid
@@ -616,13 +611,15 @@ async def process_order_cmds(
                 })
 
 
-@tractor.stream
+@tractor.context
 async def _emsd_main(
+
     ctx: tractor.Context,
-    client_actor_name: str,
+    # client_actor_name: str,
     broker: str,
     symbol: str,
     _mode: str = 'dark',  # ('paper', 'dark', 'live')
+
 ) -> None:
     """EMS (sub)actor entrypoint providing the
     execution management (micro)service which conducts broker
@@ -649,9 +646,10 @@ async def _emsd_main(
       accept normalized trades responses, process and relay to ems client(s)
 
     """
-    from ._client import send_order_cmds
+    # from ._client import send_order_cmds
 
-    dark_book = get_dark_book(broker)
+    global _router
+    dark_book = _router.get_dark_book(broker)
 
     # spawn one task per broker feed
     async with trio.open_nursery() as n:
@@ -664,40 +662,84 @@ async def _emsd_main(
         ) as feed:
 
             # get a portal back to the client
-            async with tractor.wait_for_actor(client_actor_name) as portal:
+            # async with tractor.wait_for_actor(client_actor_name) as portal:
 
-                # connect back to the calling actor (the one that is
-                # acting as an EMS client and will submit orders) to
-                # receive requests pushed over a tractor stream
-                # using (for now) an async generator.
-                async with portal.open_stream_from(
-                    send_order_cmds,
-                    symbol_key=symbol,
-                ) as order_stream:
+            await ctx.started()
 
-                    # start the condition scan loop
-                    quote, feed, client = await n.start(
-                        exec_loop,
-                        ctx,
-                        feed,
-                        broker,
-                        symbol,
-                        _mode,
-                    )
+            # establish 2-way stream with requesting order-client
+            async with ctx.open_stream() as order_stream:
 
-                    await n.start(
-                        process_broker_trades,
-                        ctx,
-                        feed,
-                        dark_book,
-                    )
+                # start the condition scan loop
+                quote, feed, client = await n.start(
+                    exec_loop,
+                    ctx,
+                    feed,
+                    broker,
+                    symbol,
+                    _mode,
+                )
 
-                    # start inbound order request processing
-                    await process_order_cmds(
-                        ctx,
-                        order_stream,
-                        symbol,
-                        feed,
-                        client,
-                        dark_book,
-                    )
+                # begin processing order events from the target brokerd backend
+                await n.start(
+                    process_broker_trades,
+                    ctx,
+                    feed,
+                    dark_book,
+                )
+
+                # start inbound (from attached client) order request processing
+                await process_order_cmds(
+                    ctx,
+                    order_stream,
+                    symbol,
+                    feed,
+                    client,
+                    dark_book,
+                )
+
+
+class _Router(BaseModel):
+    '''Order router which manages per-broker dark books, alerts,
+    and clearing related data feed management.
+
+    '''
+    nursery: trio.Nursery
+
+    feeds: dict[str, tuple[trio.CancelScope, float]] = {}
+    books: dict[str, _DarkBook] = {}
+
+    class Config:
+        arbitrary_types_allowed = True
+        underscore_attrs_are_private = False
+
+    def get_dark_book(
+        self,
+        brokername: str,
+
+    ) -> _DarkBook:
+
+        return self.books.setdefault(brokername, _DarkBook(brokername))
+
+
+_router: _Router = None
+
+
+@tractor.context
+async def _setup_persistent_emsd(
+
+    ctx: tractor.Context,
+
+) -> None:
+
+    global _router
+
+    # spawn one task per broker feed
+    async with trio.open_nursery() as service_nursery:
+        _router = _Router(nursery=service_nursery)
+
+        # TODO: send back the full set of persistent orders/execs persistent
+        await ctx.started()
+
+        # we pin this task to keep the feeds manager active until the
+        # parent actor decides to tear it down
+        await trio.sleep_forever()
