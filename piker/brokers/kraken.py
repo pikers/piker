@@ -174,7 +174,8 @@ class Client:
         resp = await self._public('AssetPairs', pairs)
         err = resp['error']
         if err:
-            raise BrokerError(err)
+            symbolname = pairs['pair'] if pair else None
+            raise SymbolNotFound(f'kraken: {symbolname}')
 
         pairs = resp['result']
 
