@@ -32,8 +32,10 @@ log = get_logger(__name__)
 # chart-wide fonts specified in inches
 _font_sizes: Dict[str, Dict[str, float]] = {
     'hi': {
-        'default':  0.0616,
-        'small':  0.055,
+        # 'default':  0.0616,
+        'default':  0.0616 * 2,
+        # 'small':  0.055,
+        'small':  6/66 * (1 + 6/16),
     },
     'lo': {
         'default':  6.5 / 64,
@@ -95,7 +97,7 @@ class DpiAwareFont:
         # take the max since scaling can make things ugly in some cases
         pdpi = screen.physicalDotsPerInch()
         ldpi = screen.logicalDotsPerInch()
-        dpi = max(pdpi, ldpi)
+        dpi = min(pdpi, ldpi)
 
         # for low dpi scale everything down
         if dpi <= 97:
@@ -105,8 +107,8 @@ class DpiAwareFont:
 
         font_size = math.floor(inches * dpi)
         log.info(
-            f"\nscreen:{screen.name()} with DPI: {dpi}"
-            f"\nbest font size is {font_size}\n"
+            f"\nscreen:{screen.name()} with pDPI: {pdpi}, lDPI: {ldpi}"
+            f"\nbest font size is {font_size} for min dpi {dpi}\n"
         )
 
         self._set_qfont_px_size(font_size)
