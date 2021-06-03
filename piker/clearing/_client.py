@@ -96,9 +96,10 @@ class OrderBook:
         **data: dict,
     ) -> dict:
         cmd = self._sent_orders[uuid]
-        cmd.update(data)
-        self._sent_orders[uuid] = cmd
-        self._to_ems.send_nowait(cmd)
+        msg = cmd.dict()
+        msg.update(data)
+        self._sent_orders[uuid] = OrderMsg(**msg)
+        self._to_ems.send_nowait(msg)
         return cmd
 
     def cancel(self, uuid: str) -> bool:
