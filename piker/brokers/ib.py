@@ -738,7 +738,7 @@ async def _trio_run_client_method(
 class _MethodProxy:
     def __init__(
         self,
-        portal: tractor._portal.Portal
+        portal: tractor.Portal
     ) -> None:
         self._portal = portal
 
@@ -755,7 +755,12 @@ class _MethodProxy:
         )
 
 
-def get_client_proxy(portal, target=Client) -> _MethodProxy:
+def get_client_proxy(
+
+    portal: tractor.Portal,
+    target=Client,
+
+) -> _MethodProxy:
 
     proxy = _MethodProxy(portal)
 
@@ -1197,8 +1202,10 @@ def pack_position(pos: Position) -> Dict[str, Any]:
     send_on_connect={'local_trades': 'start'}
 )
 async def stream_trades(
+
     loglevel: str = None,
     get_topics: Callable = None,
+
 ) -> AsyncIterator[Dict[str, Any]]:
 
     # XXX: required to propagate ``tractor`` loglevel to piker logging
