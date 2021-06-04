@@ -31,6 +31,7 @@ from .._style import (
     _xaxis_at,
     hcolor,
     _font,
+    _font_small,
 )
 from .._axes import YAxisLabel, XAxisLabel
 from ...log import get_logger
@@ -109,7 +110,7 @@ class LineDot(pg.CurvePoint):
         return False
 
 
-# TODO: change this into our own ``Label``
+# TODO: change this into our own ``_label.Label``
 class ContentsLabel(pg.LabelItem):
     """Label anchored to a ``ViewBox`` typically for displaying
     datum-wise points from the "viewed" contents.
@@ -138,21 +139,13 @@ class ContentsLabel(pg.LabelItem):
         justify_text: str = 'left',
         font_size: Optional[int] = None,
     ) -> None:
-        font_size = font_size or _font.font.pixelSize()
+
+        font_size = font_size or _font_small.px_size
 
         super().__init__(
             justify=justify_text,
             size=f'{str(font_size)}px'
         )
-
-        if _font._physical_dpi >= 97:
-            # ad-hoc scale it based on boundingRect
-            # TODO: need proper fix for this?
-            typical_br = _font._qfm.boundingRect('Qyp')
-            anchor_font_size = math.ceil(typical_br.height() * 1.25)
-
-        else:
-            anchor_font_size = font_size
 
         # anchor to viewbox
         self.setParentItem(chart._vb)
@@ -165,7 +158,7 @@ class ContentsLabel(pg.LabelItem):
 
         ydim = margins[1]
         if inspect.isfunction(margins[1]):
-            margins = margins[0], ydim(anchor_font_size)
+            margins = margins[0], ydim(font_size)
 
         self.anchor(itemPos=index, parentPos=index, offset=margins)
 
