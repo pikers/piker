@@ -129,7 +129,7 @@ class OrderMode:
         line = self.lines.commit_line(uuid)
         req_msg = self.book._sent_orders.get(uuid)
         if req_msg:
-            req_msg['ack_time_ns'] = time.time_ns()
+            req_msg.ack_time_ns = time.time_ns()
 
         return line
 
@@ -196,8 +196,10 @@ class OrderMode:
     def submit_exec(
         self,
         size: Optional[float] = None,
+
     ) -> LevelLine:
-        """Send execution order to EMS.
+        """Send execution order to EMS return a level line to
+        represent the order on a chart.
 
         """
         # register the "staged" line under the cursor
@@ -225,6 +227,9 @@ class OrderMode:
             action=action,
             exec_mode=self._exec_mode,
         )
+
+        # TODO: update the line once an ack event comes back
+        # from the EMS!
 
         # make line graphic if order push was
         # sucessful
@@ -265,14 +270,6 @@ class OrderMode:
             # TODO: should we round this to a nearest tick here?
             price=line.value(),
         )
-
-    # def on_key_press(
-    #     self,
-    #     key:
-    #     mods:
-    #     text: str,
-    # ) -> None:
-    #     pass
 
 
 @asynccontextmanager
