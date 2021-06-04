@@ -29,13 +29,15 @@ from ._exec import current_screen
 
 log = get_logger(__name__)
 
+_magic_inches = 0.0666 * (1 + 6/16)
+
 # chart-wide fonts specified in inches
 _font_sizes: Dict[str, Dict[str, float]] = {
     'hi': {
         # 'default':  0.0616,
-        'default':  0.0616 * 2,
+        'default':  _magic_inches,
         # 'small':  0.055,
-        'small':  6/66 * (1 + 6/16),
+        'small': 0.9 * _magic_inches,
     },
     'lo': {
         'default':  6.5 / 64,
@@ -45,6 +47,7 @@ _font_sizes: Dict[str, Dict[str, float]] = {
 
 
 class DpiAwareFont:
+
     def __init__(
         self,
         # TODO: move to config
@@ -54,10 +57,10 @@ class DpiAwareFont:
     ) -> None:
         self.name = name
         self._qfont = QtGui.QFont(name)
-        # self._iwl = size_in_inches or _default_font_inches_we_like
         self._font_size: str = font_size
         self._qfm = QtGui.QFontMetrics(self._qfont)
         self._physical_dpi = None
+        self._font_inches: float = None
         self._screen = None
 
     def _set_qfont_px_size(self, px_size: int) -> None:
@@ -97,22 +100,30 @@ class DpiAwareFont:
         # take the max since scaling can make things ugly in some cases
         pdpi = screen.physicalDotsPerInch()
         ldpi = screen.logicalDotsPerInch()
-        dpi = min(pdpi, ldpi)
+        mx_dpi = max(pdpi, ldpi)
+        scale = round(ldpi/pdpi)
 
-        # for low dpi scale everything down
-        if dpi <= 97:
+        if mx_dpi <= 97:  # for low dpi use larger font sizes
             inches = _font_sizes['lo'][self._font_size]
-        else:
+
+        else:  # hidpi use smaller font sizes
             inches = _font_sizes['hi'][self._font_size]
 
-        font_size = math.floor(inches * dpi)
+        # dpi is likely somewhat scaled down so use slightly larger font size
+        if scale > 1 and self._font_size:
+            # TODO: this denominator should probably be determined from
+            # relative aspect rations or something?
+            inches *= scale / 2.5
+
+        self._font_inches = inches
+
+        font_size = math.floor(inches * mx_dpi)
         log.info(
             f"\nscreen:{screen.name()} with pDPI: {pdpi}, lDPI: {ldpi}"
-            f"\nbest font size is {font_size} for min dpi {dpi}\n"
+            f"\nOur best guess font size is {font_size}\n"
         )
-
+        # apply the size
         self._set_qfont_px_size(font_size)
-        self._physical_dpi = dpi
 
     def boundingRect(self, value: str) -> QtCore.QRectF:
 
@@ -132,6 +143,14 @@ class DpiAwareFont:
 
 # use inches size to be cross-resolution compatible?
 _font = DpiAwareFont()
+_font_small = DpiAwareFont(font_size='small')
+
+
+def _config_fonts_to_screen() -> None:
+    global _font, _font_small
+    _font.configure_to_dpi()
+    _font_small.configure_to_dpi()
+
 
 # TODO: re-compute font size when main widget switches screens?
 # https://forum.qt.io/topic/54136/how-do-i-get-the-qscreen-my-widget-is-on-qapplication-desktop-screen-returns-a-qwidget-and-qobject_cast-qscreen-returns-null/3
