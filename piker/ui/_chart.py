@@ -53,7 +53,7 @@ from ._graphics._ohlc import BarItems
 from ._graphics._curve import FastAppendCurve
 from . import _style
 from ._style import (
-    _font,
+    _config_fonts_to_screen,
     hcolor,
     CHART_MARGINS,
     _xaxis_at,
@@ -1006,7 +1006,7 @@ async def test_bed(
 
 
 _clear_throttle_rate: int = 60  # Hz
-_book_throttle_rate: int = 20  # Hz
+_book_throttle_rate: int = 16  # Hz
 
 
 async def chart_from_quotes(
@@ -1702,7 +1702,7 @@ async def _async_main(
     log.info(f'Set graphics update rate to {_clear_throttle_rate} Hz')
 
     # configure global DPI aware font size
-    _font.configure_to_dpi(screen)
+    _config_fonts_to_screen()
 
     # TODO: do styling / themeing setup
     # _style.style_ze_sheets(chart_app)
@@ -1738,8 +1738,6 @@ async def _async_main(
         sbar.showMessage(f'loading {provider}.{symbol}...')
         chart_app.load_symbol(provider, symbol, loglevel)
 
-        root_n.start_soon(load_providers, brokernames, loglevel)
-
         # spin up a search engine for the local cached symbol set
         async with _search.register_symbol_search(
 
@@ -1748,8 +1746,14 @@ async def _async_main(
                 _search.search_simple_dict,
                 source=chart_app._chart_cache,
             ),
+            # cache is super fast so debounce on super short period
+            pause_period=0.01,
 
         ):
+            # load other providers into search **after**
+            # the chart's select cache
+            root_n.start_soon(load_providers, brokernames, loglevel)
+
             # start handling search bar kb inputs
             async with open_key_stream(
                 search.bar,
