@@ -163,7 +163,6 @@ class CompleterView(QTreeView):
         search.focus()
 
     def set_font_size(self, size: int = 18):
-        # dpi_px_size = _font.px_size
         # print(size)
         if size < 0:
             size = 16
@@ -702,8 +701,8 @@ async def fill_results(
     recv_chan: trio.abc.ReceiveChannel,
 
     # kb debouncing pauses (bracket defaults)
-    min_pause_time: float = 0.1,
-    max_pause_time: float = 6/16,
+    min_pause_time: float = 0.01,  # absolute min typing throttle
+    max_pause_time: float = 6/16,  # max pause required before slow relay
 
 ) -> None:
     """Task to search through providers and fill in possible
@@ -752,7 +751,7 @@ async def fill_results(
                 _search_active = trio.Event()
                 break
 
-            if repeats > 2 and period >= max_pause_time:
+            if repeats > 2 and period > max_pause_time:
                 _search_active = trio.Event()
                 repeats = 0
                 break
@@ -775,13 +774,17 @@ async def fill_results(
                 for provider, (search, pause) in (
                     _searcher_cache.copy().items()
                 ):
-
+                    # TODO: it may make more sense TO NOT search the cache in a bg
+                    # task since we know it's fully cpu-bound.
                     if provider != 'cache':
                         view.clear_section(
                             provider, status_field='-> searchin..')
 
-                    # only conduct search on this backend if it's
-                    # registered for the corresponding pause period.
+                    # XXX: only conduct search on this backend if it's
+                    # registered for the corresponding pause period 
+                    # AND it hasn't already been searched with the
+                    # current input pattern (in which case just look up
+                    # the old results).
                     if (period >= pause) and (
                         provider not in already_has_results
                     ):
@@ -796,6 +799,14 @@ async def fill_results(
                         )
                     else:  # already has results for this input text
                         results = matches[(provider, text)]
+
+                        # TODO really for the cache we need an
+                        # invalidation signal so that we only re-search
+                        # the cache once it's been mutated by the chart
+                        # switcher.. right now we're just always
+                        # re-searching it's ``dict`` since it's easier
+                        # but it also causes it to be slower then cached
+                        # results from other providers on occasion.
                         if results and provider != 'cache':
                             view.set_section_entries(
                                 section=provider,
@@ -962,7 +973,7 @@ async def register_symbol_search(
 
     global _searcher_cache
 
-    pause_period = pause_period or 0.125
+    pause_period = pause_period or 0.1
 
     # deliver search func to consumer
     try:
