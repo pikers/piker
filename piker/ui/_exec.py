@@ -112,7 +112,7 @@ class MainWindow(QtGui.QMainWindow):
         self.setMinimumSize(*self.size)
         self.setWindowTitle(self.title)
 
-        self._status_bar: QStatusbar = None
+        self._status_bar: QStatusBar = None
         self._status_label: QLabel = None
 
     @property
@@ -121,13 +121,13 @@ class MainWindow(QtGui.QMainWindow):
         # init mode label
         if not self._status_label:
             # TODO: i guess refactor stuff to avoid having to import here?
-            from ._style import _font, hcolor
+            from ._style import _font_small, hcolor
             self._status_label = label = QtGui.QLabel()
             label.setStyleSheet(
                 f"QLabel {{ color : {hcolor('gunmetal')}; }}"
             )
             label.setTextFormat(3)  # markdown
-            label.setFont(_font.font)
+            label.setFont(_font_small.font)
             label.setMargin(2)
             label.setAlignment(
                 QtCore.Qt.AlignVCenter
@@ -135,7 +135,6 @@ class MainWindow(QtGui.QMainWindow):
             )
             self.status_bar.addPermanentWidget(label)
             label.show()
-
 
         return self._status_label
 
@@ -155,14 +154,14 @@ class MainWindow(QtGui.QMainWindow):
         # style and cached the status bar on first access
         if not self._status_bar:
             # TODO: i guess refactor stuff to avoid having to import here?
-            from ._style import _font, hcolor
+            from ._style import _font_small, hcolor
             sb = self.statusBar()
             sb.setStyleSheet((
                 f"color : {hcolor('gunmetal')};"
                 f"background : {hcolor('default_dark')};"
-                # "min-height : 19px;"
-                f"font-size : {_font.px_size - 4}px;"
+                f"font-size : {_font_small.px_size}px;"
                 "padding : 0px;"
+                # "min-height : 19px;"
                 # "qproperty-alignment: AlignVCenter;"
             ))
             self.setStatusBar(sb)
