@@ -19,32 +19,21 @@ Orders and execution client API.
 
 """
 from contextlib import asynccontextmanager
-from typing import Dict, Tuple, List
+from typing import Dict
 from pprint import pformat
 from dataclasses import dataclass, field
 
 import trio
 import tractor
-# import msgspec
 
 from ..data._source import Symbol
 from ..log import get_logger
 from ._ems import _emsd_main
 from .._daemon import maybe_open_emsd
+from ._messages import Order, Cancel
 
 
 log = get_logger(__name__)
-
-
-# TODO: some kinda validation like this
-# class Order(msgspec.Struct):
-#     action: str
-#     price: float
-#     size: float
-#     symbol: str
-#     brokers: List[str]
-#     oid: str
-#     exec_mode: str
 
 
 @dataclass
@@ -64,31 +53,34 @@ class OrderBook:
     _to_ems: trio.abc.SendChannel
     _from_order_book: trio.abc.ReceiveChannel
 
-    _sent_orders: Dict[str, dict] = field(default_factory=dict)
+    _sent_orders: Dict[str, Order] = field(default_factory=dict)
     _ready_to_receive: trio.Event = trio.Event()
 
     def send(
+
         self,
         uuid: str,
         symbol: str,
-        brokers: List[str],
+        brokers: list[str],
         price: float,
         size: float,
         action: str,
         exec_mode: str,
+
     ) -> dict:
-        cmd = {
-            'action': action,
-            'price': price,
-            'size': size,
-            'symbol': symbol,
-            'brokers': brokers,
-            'oid': uuid,
-            'exec_mode': exec_mode,  # dark or live
-        }
-        self._sent_orders[uuid] = cmd
-        self._to_ems.send_nowait(cmd)
-        return cmd
+        msg = Order(
+            action=action,
+            price=price,
+            size=size,
+            symbol=symbol,
+            brokers=brokers,
+            oid=uuid,
+            exec_mode=exec_mode,  # dark or live
+        )
+
+        self._sent_orders[uuid] = msg
+        self._to_ems.send_nowait(msg.dict())
+        return msg
 
     def update(
         self,
@@ -98,28 +90,27 @@ class OrderBook:
         cmd = self._sent_orders[uuid]
         msg = cmd.dict()
         msg.update(data)
-        self._sent_orders[uuid] = OrderMsg(**msg)
+        self._sent_orders[uuid] = Order(**msg)
         self._to_ems.send_nowait(msg)
         return cmd
 
     def cancel(self, uuid: str) -> bool:
-        """Cancel an order (or alert) from the EMS.
+        """Cancel an order (or alert) in the EMS.
 
         """
         cmd = self._sent_orders[uuid]
-        msg = {
-            'action': 'cancel',
-            'oid': uuid,
-            'symbol': cmd['symbol'],
-        }
-        self._to_ems.send_nowait(msg)
+        msg = Cancel(
+            oid=uuid,
+            symbol=cmd.symbol,
+        )
+        self._to_ems.send_nowait(msg.dict())
 
 
 _orders: OrderBook = None
 
 
 def get_orders(
-    emsd_uid: Tuple[str, str] = None
+    emsd_uid: tuple[str, str] = None
 ) -> OrderBook:
     """"
     OrderBook singleton factory per actor.
@@ -139,7 +130,10 @@ def get_orders(
     return _orders
 
 
+# TODO: we can get rid of this relay loop once we move
+# order_mode inputs to async code!
 async def relay_order_cmds_from_sync_code(
+
     symbol_key: str,
     to_ems_stream: tractor.MsgStream,
 
@@ -184,7 +178,8 @@ async def relay_order_cmds_from_sync_code(
 async def open_ems(
     broker: str,
     symbol: Symbol,
-) -> None:
+
+) -> (OrderBook, tractor.MsgStream, dict):
     """Spawn an EMS daemon and begin sending orders and receiving
     alerts.
 
@@ -232,9 +227,9 @@ async def open_ems(
                 broker=broker,
                 symbol=symbol.key,
 
-            # TODO: ``first`` here should be the active orders/execs
-            # persistent on the ems so that loca UI's can be populated.
-            ) as (ctx, first),
+                # TODO: ``first`` here should be the active orders/execs
+                # persistent on the ems so that loca UI's can be populated.
+            ) as (ctx, positions),
 
             # open 2-way trade command stream
             ctx.open_stream() as trades_stream,
@@ -246,4 +241,4 @@ async def open_ems(
                     trades_stream
                 )
 
-                yield book, trades_stream
+                yield book, trades_stream, positions
