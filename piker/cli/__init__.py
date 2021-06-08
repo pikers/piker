@@ -9,6 +9,7 @@ import tractor
 
 from ..log import get_console_log, get_logger, colorize_json
 from ..brokers import get_brokermod, config
+from .._daemon import _tractor_kwargs
 
 
 log = get_logger('cli')
@@ -101,8 +102,9 @@ def cli(ctx, brokers, loglevel, tl, configdir):
 def services(config, tl, names):
 
     async def list_services():
+
         async with tractor.get_arbiter(
-            *tractor.current_actor()._arb_addr
+            *_tractor_kwargs['arbiter_addr']
         ) as portal:
             registry = await portal.run('self', 'get_registry')
             json_d = {}
@@ -118,6 +120,7 @@ def services(config, tl, names):
         list_services,
         name='service_query',
         loglevel=config['loglevel'] if tl else None,
+        arbiter_addr=_tractor_kwargs['arbiter_addr'],
     )
 
 
