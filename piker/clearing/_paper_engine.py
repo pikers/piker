@@ -460,4 +460,10 @@ async def open_paperboi(
                 loglevel=loglevel,
 
         ) as (ctx, first):
-            yield ctx, first
+            try:
+                yield ctx, first
+
+            finally:
+                # be sure to tear down the paper service on exit
+                with trio.CancelScope(shield=True):
+                    await portal.cancel_actor()
