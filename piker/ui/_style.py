@@ -101,6 +101,7 @@ class DpiAwareFont:
         pdpi = screen.physicalDotsPerInch()
         ldpi = screen.logicalDotsPerInch()
         mx_dpi = max(pdpi, ldpi)
+        mn_dpi = min(pdpi, ldpi)
         scale = round(ldpi/pdpi)
 
         if mx_dpi <= 97:  # for low dpi use larger font sizes
@@ -109,15 +110,18 @@ class DpiAwareFont:
         else:  # hidpi use smaller font sizes
             inches = _font_sizes['hi'][self._font_size]
 
+        dpi = mn_dpi
+
         # dpi is likely somewhat scaled down so use slightly larger font size
         if scale > 1 and self._font_size:
             # TODO: this denominator should probably be determined from
             # relative aspect rations or something?
-            inches *= scale / 2.5
+            inches = inches * (1 / scale) * (1 + 6/16)
+            dpi = mx_dpi
 
         self._font_inches = inches
 
-        font_size = math.floor(inches * mx_dpi)
+        font_size = math.floor(inches * dpi)
         log.info(
             f"\nscreen:{screen.name()} with pDPI: {pdpi}, lDPI: {ldpi}"
             f"\nOur best guess font size is {font_size}\n"
