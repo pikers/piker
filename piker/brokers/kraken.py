@@ -175,7 +175,7 @@ class Client:
         err = resp['error']
         if err:
             symbolname = pairs['pair'] if pair else None
-            raise SymbolNotFound(f'kraken: {symbolname}')
+            raise SymbolNotFound(f'{symbolname}.kraken')
 
         pairs = resp['result']
 
