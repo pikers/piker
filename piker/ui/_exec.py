@@ -102,6 +102,39 @@ if platform.system() == "Windows":
         QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
 
+class MultiStatus:
+
+    bar: QStatusBar
+    statuses: list[str]
+
+    def __init__(self, bar, statuses) -> None:
+        self.bar = bar
+        self.statuses = statuses
+
+    def open_status(
+        self,
+        msg: str,
+    ) -> Callable[..., None]:
+        '''Add a status to the status bar and return a close callback which
+        when called will remove the status ``msg``.
+
+        '''
+        self.statuses.append(msg)
+
+        def remove_msg() -> None:
+            self.statuses.remove(msg)
+            self.render()
+
+        self.render()
+        return remove_msg
+
+    def render(self) -> None:
+        if self.statuses:
+            self.bar.showMessage(f'{" ".join(self.statuses)}')
+        else:
+            self.bar.clearMessage()
+
+
 class MainWindow(QtGui.QMainWindow):
 
     size = (800, 500)
@@ -133,7 +166,7 @@ class MainWindow(QtGui.QMainWindow):
                 QtCore.Qt.AlignVCenter
                 | QtCore.Qt.AlignRight
             )
-            self.status_bar.addPermanentWidget(label)
+            self.statusBar().addPermanentWidget(label)
             label.show()
 
         return self._status_label
@@ -165,7 +198,7 @@ class MainWindow(QtGui.QMainWindow):
                 # "qproperty-alignment: AlignVCenter;"
             ))
             self.setStatusBar(sb)
-            self._status_bar = sb
+            self._status_bar = MultiStatus(sb, [])
 
         return self._status_bar
 
@@ -261,11 +294,6 @@ def run_qtractor(
     instance = main_widget()
     instance.window = window
 
-    widgets = {
-        'window': window,
-        'main': instance,
-    }
-
     # override tractor's defaults
     tractor_kwargs.update(_tractor_kwargs)
 
@@ -275,7 +303,7 @@ def run_qtractor(
         async with maybe_open_pikerd(
             **tractor_kwargs,
         ):
-            await func(*((widgets,) + args))
+            await func(*((instance,) + args))
 
     # guest mode entry
     trio.lowlevel.start_guest_run(
