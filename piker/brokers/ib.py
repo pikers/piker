@@ -1400,7 +1400,7 @@ async def trades_dialogue(
                 # mark msg as from "external system"
                 # TODO: probably something better then this.. and start
                 # considering multiplayer/group trades tracking
-                msg['external'] = True
+                msg.external = True
                 continue
 
             # XXX: we always serialize to a dict for msgpack
