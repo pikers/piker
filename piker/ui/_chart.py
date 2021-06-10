@@ -51,7 +51,6 @@ from ._graphics._lines import (
 from ._l1 import L1Labels
 from ._graphics._ohlc import BarItems
 from ._graphics._curve import FastAppendCurve
-from . import _style
 from ._style import (
     _config_fonts_to_screen,
     hcolor,
@@ -193,8 +192,6 @@ class ChartSpace(QtGui.QWidget):
                 symbol_key,
                 loglevel,
             )
-            self.window.status_bar.showMessage(
-                f'Loading {symbol_key}.{providername}...')
 
             self.set_chart_symbol(fqsn, linkedcharts)
 
@@ -1244,9 +1241,6 @@ async def spawn_fsps(
 
                 display_name = f'fsp.{fsp_func_name}'
 
-                linked_charts.window().status_bar.showMessage(
-                    f'Loading FSP: {display_name}...')
-
                 # TODO: load function here and introspect
                 # return stream type(s)
 
@@ -1287,10 +1281,6 @@ async def spawn_fsps(
                     conf,
                 )
 
-                status = linked_charts.window().status_bar
-                if display_name in status.currentMessage():
-                    status.clearMessage()
-
         # blocks here until all fsp actors complete
 
 
@@ -1311,6 +1301,9 @@ async def run_fsp(
     This is called once for each entry in the fsp
     config map.
     """
+    done = linked_charts.window().status_bar.open_status(
+        f'loading FSP: {display_name}..')
+
     async with portal.open_stream_from(
 
         # subactor entrypoint
@@ -1403,6 +1396,8 @@ async def run_fsp(
         chart._set_yrange()
 
         last = time.time()
+
+        done()
 
         # update chart graphics
         async for value in stream:
@@ -1504,7 +1499,7 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
 
 async def chart_symbol(
     chart_app: ChartSpace,
-    brokername: str,
+    provider: str,
     sym: str,
     loglevel: str,
 ) -> None:
@@ -1514,11 +1509,14 @@ async def chart_symbol(
     can be viewed and switched between extremely fast.
 
     """
+    sbar = chart_app.window.status_bar
+    loading_sym_done = sbar.open_status(f'loading {sym}.{provider}..')
+
     # historical data fetch
-    brokermod = brokers.get_brokermod(brokername)
+    brokermod = brokers.get_brokermod(provider)
 
     async with data.open_feed(
-        brokername,
+        provider,
         [sym],
         loglevel=loglevel,
     ) as feed:
@@ -1551,8 +1549,7 @@ async def chart_symbol(
                     add_label=False,
                 )
 
-        chart_app.window.status_bar.showMessage(
-            f'Finished loading {sym}.{brokername}')
+        loading_sym_done()
 
         # size view to data once at outset
         chart._set_yrange()
@@ -1632,8 +1629,7 @@ async def chart_symbol(
             #     linked_charts,
             # )
 
-            linked_charts.window().status_bar.showMessage('Starting order mode...')
-            await start_order_mode(chart, symbol, brokername)
+            await start_order_mode(chart, symbol, provider)
 
 
 async def load_providers(
@@ -1650,7 +1646,7 @@ async def load_providers(
         # search engines.
         for broker in brokernames:
 
-            log.info(f'Loading brokerd for {broker}')
+            log.info(f'loading brokerd for {broker}..')
             # spin up broker daemons for each provider
             portal = await stack.enter_async_context(
                 maybe_spawn_brokerd(
@@ -1674,7 +1670,7 @@ async def load_providers(
 
 async def _async_main(
     # implicit required argument provided by ``qtractor_run()``
-    widgets: Dict[str, Any],
+    main_widget: ChartSpace,
 
     sym: str,
     brokernames: str,
@@ -1688,7 +1684,7 @@ async def _async_main(
 
     """
 
-    chart_app = widgets['main']
+    chart_app = main_widget
 
     # attempt to configure DPI aware font size
     screen = current_screen()
@@ -1708,7 +1704,7 @@ async def _async_main(
     # _style.style_ze_sheets(chart_app)
 
     sbar = chart_app.window.status_bar
-    sbar.showMessage('starting ze chartz...')
+    starting_done = sbar.open_status('starting ze chartz...')
 
     async with trio.open_nursery() as root_n:
 
@@ -1735,7 +1731,6 @@ async def _async_main(
         symbol, _, provider = sym.rpartition('.')
 
         # this internally starts a ``chart_symbol()`` task above
-        sbar.showMessage(f'loading {provider}.{symbol}...')
         chart_app.load_symbol(provider, symbol, loglevel)
 
         # spin up a search engine for the local cached symbol set
@@ -1767,6 +1762,7 @@ async def _async_main(
                     key_stream,
                 )
 
+                starting_done()
                 await trio.sleep_forever()
 
 

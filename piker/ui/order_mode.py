@@ -309,7 +309,15 @@ async def start_order_mode(
     chart: 'ChartPlotWidget',  # noqa
     symbol: Symbol,
     brokername: str,
+
 ) -> None:
+    '''Activate chart-trader order mode loop:
+      - connect to emsd
+      - load existing positions
+      - begin order handling loop
+
+    '''
+    done = chart.window().status_bar.open_status('Starting order mode...')
 
     # spawn EMS actor-service
     async with (
@@ -335,8 +343,7 @@ async def start_order_mode(
                 return ohlc['index'][-1]
 
         # Begin order-response streaming
-
-        chart.window().status_bar.showMessage('Ready for trading')
+        done()
 
         # this is where we receive **back** messages
         # about executions **from** the EMS actor
