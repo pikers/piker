@@ -248,7 +248,6 @@ async def maybe_spawn_daemon(
         if pikerd_portal is None:
             # we are root so spawn brokerd directly in our tree
             # the root nursery is accessed through process global state
-            # await spawn_brokerd(brokername, loglevel=loglevel)
             await spawn_func(**spawn_args)
 
         else:

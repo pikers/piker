@@ -127,10 +127,6 @@ class OrderMode:
 
         """
         line = self.lines.commit_line(uuid)
-        # req_msg = self.book._sent_orders.get(uuid)
-        # if req_msg:
-        #     req_msg.ack_time_ns = time.time_ns()
-
         return line
 
     def on_fill(

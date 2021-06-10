@@ -223,12 +223,11 @@ async def open_ems(
 
             # connect to emsd
             portal.open_context(
+
                 _emsd_main,
                 broker=broker,
                 symbol=symbol.key,
 
-                # TODO: ``first`` here should be the active orders/execs
-                # persistent on the ems so that loca UI's can be populated.
             ) as (ctx, positions),
 
             # open 2-way trade command stream

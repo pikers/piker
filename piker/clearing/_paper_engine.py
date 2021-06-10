@@ -216,7 +216,6 @@ class PaperBoi:
                 time_ns=time.time_ns(),
 
                 status='filled',
-                # broker=self.broker,
                 filled=size,
                 remaining=0 if order_complete else remaining,
 
@@ -224,7 +223,6 @@ class PaperBoi:
                 size=size,
                 price=price,
 
-                # broker=self.broker,
                 broker_details={
                     'paper_info': {
                         'oid': oid,
@@ -319,12 +317,6 @@ async def simulate_fills(
                     else:
                         # prices are iterated in sorted order so we're done
                         break
-
-
-# class MockBrokerdMsgStream:
-
-
-# async def MockContext(*args, **kwargs):
 
 
 async def handle_order_requests(
