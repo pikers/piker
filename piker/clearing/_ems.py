@@ -21,7 +21,7 @@ In da suit parlances: "Execution management systems"
 from pprint import pformat
 import time
 from dataclasses import dataclass, field
-from typing import AsyncIterator, Callable
+from typing import AsyncIterator, Callable, Any
 
 from bidict import bidict
 from pydantic import BaseModel
@@ -817,7 +817,7 @@ class _Router(BaseModel):
     '''
     nursery: trio.Nursery
 
-    feeds: dict[tuple[str, str], data.feed.Feed] = {}
+    feeds: dict[tuple[str, str], Any] = {}
     books: dict[str, _DarkBook] = {}
 
     class Config:
