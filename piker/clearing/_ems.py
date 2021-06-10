@@ -21,19 +21,22 @@ In da suit parlances: "Execution management systems"
 from pprint import pformat
 import time
 from dataclasses import dataclass, field
-from typing import (
-    AsyncIterator, Dict, Callable, Tuple,
-)
+from typing import AsyncIterator, Callable, Any
 
 from bidict import bidict
+from pydantic import BaseModel
 import trio
-from trio_typing import TaskStatus
 import tractor
 
 from .. import data
 from ..log import get_logger
 from ..data._normalize import iterticks
-from ._paper_engine import PaperBoi, simulate_fills
+from . import _paper_engine as paper
+from ._messages import (
+    Status, Order,
+    BrokerdCancel, BrokerdOrder, BrokerdOrderAck, BrokerdStatus,
+    BrokerdFill, BrokerdError, BrokerdPosition,
+)
 
 
 log = get_logger(__name__)
@@ -89,11 +92,11 @@ class _DarkBook:
     broker: str
 
     # levels which have an executable action (eg. alert, order, signal)
-    orders: Dict[
+    orders: dict[
         str,  # symbol
-        Dict[
+        dict[
             str,  # uuid
-            Tuple[
+            tuple[
                 Callable[[float], bool],  # predicate
                 str,  # name
                 dict,  # cmd / msg type
@@ -102,22 +105,14 @@ class _DarkBook:
     ] = field(default_factory=dict)
 
     # tracks most recent values per symbol each from data feed
-    lasts: Dict[
-        Tuple[str, str],
+    lasts: dict[
+        tuple[str, str],
         float
     ] = field(default_factory=dict)
 
-    # mapping of broker order ids to piker ems ids
-    _broker2ems_ids: Dict[str, str] = field(default_factory=bidict)
-
-
-_books: Dict[str, _DarkBook] = {}
-
-
-def get_dark_book(broker: str) -> _DarkBook:
-
-    global _books
-    return _books.setdefault(broker, _DarkBook(broker))
+    # mapping of piker ems order ids to current brokerd order flow message
+    _ems_entries: dict[str, str] = field(default_factory=dict)
+    _ems2brokerd_ids: dict[str, str] = field(default_factory=bidict)
 
 
 # XXX: this is in place to prevent accidental positions that are too
@@ -127,13 +122,17 @@ def get_dark_book(broker: str) -> _DarkBook:
 _DEFAULT_SIZE: float = 1.0
 
 
-async def execute_triggers(
+async def clear_dark_triggers(
+
+    brokerd_orders_stream: tractor.MsgStream,
+    ems_client_order_stream: tractor.MsgStream,
+    quote_stream: tractor.ReceiveMsgStream,  # noqa
+
     broker: str,
     symbol: str,
-    stream: 'tractor.ReceiveStream',  # noqa
-    ctx: tractor.Context,
-    client: 'Client',  # noqa
+
     book: _DarkBook,
+
 ) -> None:
     """Core dark order trigger loop.
 
@@ -143,7 +142,7 @@ async def execute_triggers(
     """
     # this stream may eventually contain multiple symbols
     # XXX: optimize this for speed!
-    async for quotes in stream:
+    async for quotes in quote_stream:
 
         # TODO: numba all this!
 
@@ -179,10 +178,15 @@ async def execute_triggers(
                         # majority of iterations will be non-matches
                         continue
 
-                    action = cmd['action']
+                    action: str = cmd['action']
+                    symbol: str = cmd['symbol']
 
-                    if action != 'alert':
-                        # executable order submission
+                    if action == 'alert':
+                        # nothing to do but relay a status
+                        # message back to the requesting ems client
+                        resp = 'alert_triggered'
+
+                    else:  # executable order submission
 
                         # submit_price = price + price*percent_away
                         submit_price = price + abs_diff_away
@@ -191,47 +195,56 @@ async def execute_triggers(
                             f'Dark order triggered for price {price}\n'
                             f'Submitting order @ price {submit_price}')
 
-                        reqid = await client.submit_limit(
+                        msg = BrokerdOrder(
+                            action=cmd['action'],
                             oid=oid,
+                            time_ns=time.time_ns(),
 
-                            # this is a brand new order request for the
-                            # underlying broker so we set out "broker request
-                            # id" (brid) as nothing so that the broker
-                            # client knows that we aren't trying to modify
-                            # an existing order.
-                            brid=None,
+                            # this **creates** new order request for the
+                            # underlying broker so we set a "broker
+                            # request id" (``reqid`` kwarg) to ``None``
+                            # so that the broker client knows that we
+                            # aren't trying to modify an existing
+                            # order-request and instead create a new one.
+                            reqid=None,
 
                             symbol=sym,
-                            action=cmd['action'],
                             price=submit_price,
                             size=cmd['size'],
                         )
+                        await brokerd_orders_stream.send(msg.dict())
 
-                        # register broker request id to ems id
-                        book._broker2ems_ids[reqid] = oid
+                        # mark this entry as having sent an order
+                        # request.  the entry will be replaced once the
+                        # target broker replies back with
+                        # a ``BrokerdOrderAck`` msg including the
+                        # allocated unique ``BrokerdOrderAck.reqid`` key
+                        # generated by the broker's own systems.
+                        book._ems_entries[oid] = msg
 
-                    else:
-                        # alerts have no broker request id
-                        reqid = ''
+                        # our internal status value for client-side
+                        # triggered "dark orders"
+                        resp = 'dark_triggered'
 
-                    resp = {
-                        'resp': 'dark_executed',
-                        'time_ns': time.time_ns(),
-                        'trigger_price': price,
+                    msg = Status(
+                        oid=oid,  # ems order id
+                        resp=resp,
+                        time_ns=time.time_ns(),
 
-                        'cmd': cmd,  # original request message
+                        symbol=symbol,
+                        trigger_price=price,
 
-                        'broker_reqid': reqid,
-                        'broker': broker,
-                        'oid': oid,  # piker order id
+                        broker_details={'name': broker},
 
-                    }
+                        cmd=cmd,  # original request message
+
+                    ).dict()
 
                     # remove exec-condition from set
                     log.info(f'removing pred for {oid}')
                     execs.pop(oid)
 
-                    await ctx.send_yield(resp)
+                    await ems_client_order_stream.send(msg)
 
                 else:  # condition scan loop complete
                     log.debug(f'execs are {execs}')
@@ -239,78 +252,6 @@ async def execute_triggers(
                         book.orders[symbol] = execs
 
         # print(f'execs scan took: {time.time() - start}')
-
-
-async def exec_loop(
-
-    ctx: tractor.Context,
-    feed: 'Feed',  # noqa
-    broker: str,
-    symbol: str,
-    _exec_mode: str,
-    task_status: TaskStatus[dict] = trio.TASK_STATUS_IGNORED,
-
-) -> AsyncIterator[dict]:
-    """Main scan loop for order execution conditions and submission
-    to brokers.
-
-    """
-    # XXX: this should be initial price quote from target provider
-    first_quote = await feed.receive()
-
-    book = get_dark_book(broker)
-    book.lasts[(broker, symbol)] = first_quote[symbol]['last']
-
-    # TODO: wrap this in a more re-usable general api
-    client_factory = getattr(feed.mod, 'get_client_proxy', None)
-
-    if client_factory is not None and _exec_mode != 'paper':
-
-        # we have an order API for this broker
-        client = client_factory(feed._brokerd_portal)
-
-    else:
-        # force paper mode
-        log.warning(f'Entering paper trading mode for {broker}')
-
-        client = PaperBoi(
-            broker,
-            *trio.open_memory_channel(100),
-            _buys={},
-            _sells={},
-
-            _reqids={},
-        )
-
-        # for paper mode we need to mock this trades response feed
-        # so we pass a duck-typed feed-looking mem chan which is fed
-        # fill and submission events from the exec loop
-        feed._trade_stream = client.trade_stream
-
-        # init the trades stream
-        client._to_trade_stream.send_nowait({'local_trades': 'start'})
-
-        _exec_mode = 'paper'
-
-    # return control to parent task
-    task_status.started((first_quote, feed, client))
-
-    stream = feed.stream
-    async with trio.open_nursery() as n:
-        n.start_soon(
-            execute_triggers,
-            broker,
-            symbol,
-            stream,
-            ctx,
-            client,
-            book
-        )
-
-        if _exec_mode == 'paper':
-            # TODO: make this an actual broadcast channels as in:
-            # https://github.com/python-trio/trio/issues/987
-            n.start_soon(simulate_fills, stream, client)
 
 
 # TODO: lots of cases still to handle
@@ -323,11 +264,13 @@ async def exec_loop(
 #   reqId 1550: Order held while securities are located.'),
 # status='PreSubmitted', message='')],
 
-async def process_broker_trades(
-    ctx: tractor.Context,
-    feed: 'Feed',  # noqa
+async def translate_and_relay_brokerd_events(
+
+    broker: str,
+    ems_client_order_stream: tractor.MsgStream,
+    brokerd_trades_stream: tractor.MsgStream,
     book: _DarkBook,
-    task_status: TaskStatus[dict] = trio.TASK_STATUS_IGNORED,
+
 ) -> AsyncIterator[dict]:
     """Trades update loop - receive updates from broker, convert
     to EMS responses, transmit to ordering client(s).
@@ -347,195 +290,282 @@ async def process_broker_trades(
         {'presubmitted', 'submitted', 'cancelled', 'inactive'}
 
     """
-    broker = feed.mod.name
+    async for brokerd_msg in brokerd_trades_stream:
 
-    # TODO: make this a context
-    # in the paper engine case this is just a mem receive channel
-    async with feed.receive_trades_data() as trades_stream:
+        name = brokerd_msg['name']
 
-        first = await trades_stream.__anext__()
+        log.info(f'Received broker trade event:\n{pformat(brokerd_msg)}')
 
-        # startup msg expected as first from broker backend
-        assert first['local_trades'] == 'start'
-        task_status.started()
+        if name == 'position':
 
-        async for event in trades_stream:
+            # relay through position msgs immediately
+            await ems_client_order_stream.send(
+                BrokerdPosition(**brokerd_msg).dict()
+            )
+            continue
 
-            name, msg = event['local_trades']
+        # Get the broker (order) request id, this **must** be normalized
+        # into messaging provided by the broker backend
+        reqid = brokerd_msg['reqid']
 
-            log.info(f'Received broker trade event:\n{pformat(msg)}')
+        # all piker originated requests will have an ems generated oid field
+        oid = brokerd_msg.get(
+            'oid',
+            book._ems2brokerd_ids.inverse.get(reqid)
+        )
 
-            if name == 'position':
-                msg['resp'] = 'position'
+        if oid is None:
 
-                # relay through
-                await ctx.send_yield(msg)
+            # XXX: paper clearing special cases
+            # paper engine race case: ``Client.submit_limit()`` hasn't
+            # returned yet and provided an output reqid to register
+            # locally, so we need to retreive the oid that was already
+            # packed at submission since we already know it ahead of
+            # time
+            paper = brokerd_msg['broker_details'].get('paper_info')
+            if paper:
+                # paperboi keeps the ems id up front
+                oid = paper['oid']
+
+            else:
+                # may be an order msg specified as "external" to the
+                # piker ems flow (i.e. generated by some other
+                # external broker backend client (like tws for ib)
+                ext = brokerd_msg.get('external')
+                if ext:
+                    log.error(f"External trade event {ext}")
+
+                continue
+        else:
+            # check for existing live flow entry
+            entry = book._ems_entries.get(oid)
+
+            # initial response to brokerd order request
+            if name == 'ack':
+
+                # register the brokerd request id (that was generated
+                # / created internally by the broker backend) with our
+                # local ems order id for reverse lookup later.
+                # a ``BrokerdOrderAck`` **must** be sent after an order
+                # request in order to establish this id mapping.
+                book._ems2brokerd_ids[oid] = reqid
+
+                # new order which has not yet be registered into the
+                # local ems book, insert it now and handle 2 cases:
+
+                # - the order has previously been requested to be
+                # cancelled by the ems controlling client before we
+                # received this ack, in which case we relay that cancel
+                # signal **asap** to the backend broker
+                if entry.action == 'cancel':
+                    # assign newly providerd broker backend request id
+                    entry.reqid = reqid
+
+                    # tell broker to cancel immediately
+                    await brokerd_trades_stream.send(entry.dict())
+
+                # - the order is now active and will be mirrored in
+                # our book -> registered as live flow
+                else:
+                    # update the flow with the ack msg
+                    book._ems_entries[oid] = BrokerdOrderAck(**brokerd_msg)
+
                 continue
 
-            # Get the broker (order) request id, this **must** be normalized
-            # into messaging provided by the broker backend
-            reqid = msg['reqid']
+            # a live flow now exists
+            oid = entry.oid
 
-            # make response packet to EMS client(s)
-            oid = book._broker2ems_ids.get(reqid)
+        resp = None
+        broker_details = {}
 
-            if oid is None:
-                # paper engine race case: ``Client.submit_limit()`` hasn't
-                # returned yet and provided an output reqid to register
-                # locally, so we need to retreive the oid that was already
-                # packed at submission since we already know it ahead of
-                # time
-                paper = msg.get('paper_info')
-                if paper:
-                    oid = paper['oid']
+        if name in (
+            'error',
+        ):
+            # TODO: figure out how this will interact with EMS clients
+            # for ex. on an error do we react with a dark orders
+            # management response, like cancelling all dark orders?
 
+            # This looks like a supervision policy for pending orders on
+            # some unexpected failure - something we need to think more
+            # about.  In most default situations, with composed orders
+            # (ex.  brackets), most brokers seem to use a oca policy.
+
+            msg = BrokerdError(**brokerd_msg)
+
+            # XXX should we make one when it's blank?
+            log.error(pformat(msg))
+
+            # TODO: getting this bs, prolly need to handle status messages
+            # 'Market data farm connection is OK:usfarm.nj'
+
+            # another stupid ib error to handle
+            # if 10147 in message: cancel
+
+            # don't relay message to order requester client
+            continue
+
+        elif name in (
+            'status',
+        ):
+            # TODO: templating the ib statuses in comparison with other
+            # brokers is likely the way to go:
+            # https://interactivebrokers.github.io/tws-api/interfaceIBApi_1_1EWrapper.html#a17f2a02d6449710b6394d0266a353313
+            # short list:
+            # - PendingSubmit
+            # - PendingCancel
+            # - PreSubmitted (simulated orders)
+            # - ApiCancelled (cancelled by client before submission
+            #                 to routing)
+            # - Cancelled
+            # - Filled
+            # - Inactive (reject or cancelled but not by trader)
+
+            # everyone doin camel case
+            msg = BrokerdStatus(**brokerd_msg)
+
+            if msg.status == 'filled':
+
+                # conditional execution is fully complete, no more
+                # fills for the noted order
+                if not msg.remaining:
+
+                    resp = 'broker_executed'
+
+                    log.info(f'Execution for {oid} is complete!')
+
+                # just log it
                 else:
-                    msg.get('external')
-                    if not msg:
-                        log.error(f"Unknown trade event {event}")
+                    log.info(f'{broker} filled {msg}')
 
-                    continue
+            else:
+                # one of {submitted, cancelled}
+                resp = 'broker_' + msg.status
 
-            resp = {
-                'resp': None,  # placeholder
-                'oid': oid
-            }
+            # pass the BrokerdStatus msg inside the broker details field
+            broker_details = msg.dict()
 
-            if name in (
-                'error',
-            ):
-                # TODO: figure out how this will interact with EMS clients
-                # for ex. on an error do we react with a dark orders
-                # management response, like cancelling all dark orders?
+        elif name in (
+            'fill',
+        ):
+            msg = BrokerdFill(**brokerd_msg)
 
-                # This looks like a supervision policy for pending orders on
-                # some unexpected failure - something we need to think more
-                # about.  In most default situations, with composed orders
-                # (ex.  brackets), most brokers seem to use a oca policy.
+            # proxy through the "fill" result(s)
+            resp = 'broker_filled'
+            broker_details = msg.dict()
 
-                message = msg['message']
+            log.info(f'\nFill for {oid} cleared with:\n{pformat(resp)}')
 
-                # XXX should we make one when it's blank?
-                log.error(pformat(message))
+        else:
+            raise ValueError(f'Brokerd message {brokerd_msg} is invalid')
 
-                # TODO: getting this bs, prolly need to handle status messages
-                # 'Market data farm connection is OK:usfarm.nj'
-
-                # another stupid ib error to handle
-                # if 10147 in message: cancel
-
-                # don't relay message to order requester client
-                continue
-
-            elif name in (
-                'status',
-            ):
-                # TODO: templating the ib statuses in comparison with other
-                # brokers is likely the way to go:
-                # https://interactivebrokers.github.io/tws-api/interfaceIBApi_1_1EWrapper.html#a17f2a02d6449710b6394d0266a353313
-                # short list:
-                # - PendingSubmit
-                # - PendingCancel
-                # - PreSubmitted (simulated orders)
-                # - ApiCancelled (cancelled by client before submission
-                #                 to routing)
-                # - Cancelled
-                # - Filled
-                # - Inactive (reject or cancelled but not by trader)
-
-                # everyone doin camel case
-                status = msg['status'].lower()
-
-                if status == 'filled':
-
-                    # conditional execution is fully complete, no more
-                    # fills for the noted order
-                    if not msg['remaining']:
-
-                        resp['resp'] = 'broker_executed'
-
-                        log.info(f'Execution for {oid} is complete!')
-
-                    # just log it
-                    else:
-                        log.info(f'{broker} filled {msg}')
-
-                else:
-                    # one of (submitted, cancelled)
-                    resp['resp'] = 'broker_' + status
-
-            elif name in (
-                'fill',
-            ):
-                # proxy through the "fill" result(s)
-                resp['resp'] = 'broker_filled'
-                resp.update(msg)
-
-                log.info(f'\nFill for {oid} cleared with:\n{pformat(resp)}')
-
-            # respond to requesting client
-            await ctx.send_yield(resp)
+        # Create and relay response status message
+        # to requesting EMS client
+        await ems_client_order_stream.send(
+            Status(
+                oid=oid,
+                resp=resp,
+                time_ns=time.time_ns(),
+                broker_reqid=reqid,
+                brokerd_msg=broker_details,
+            ).dict()
+        )
 
 
-async def process_order_cmds(
-    ctx: tractor.Context,
-    cmd_stream: 'tractor.ReceiveStream',  # noqa
+async def process_client_order_cmds(
+
+    client_order_stream: tractor.MsgStream,  # noqa
+    brokerd_order_stream: tractor.MsgStream,
+
     symbol: str,
     feed: 'Feed',  # noqa
-    client: 'Client',  # noqa
     dark_book: _DarkBook,
+
 ) -> None:
 
-    async for cmd in cmd_stream:
+    # cmd: dict
+    async for cmd in client_order_stream:
 
         log.info(f'Received order cmd:\n{pformat(cmd)}')
 
         action = cmd['action']
         oid = cmd['oid']
-
-        brid = dark_book._broker2ems_ids.inverse.get(oid)
+        reqid = dark_book._ems2brokerd_ids.inverse.get(oid)
+        live_entry = dark_book._ems_entries.get(oid)
 
         # TODO: can't wait for this stuff to land in 3.10
         # https://www.python.org/dev/peps/pep-0636/#going-to-the-cloud-mappings
         if action in ('cancel',):
 
             # check for live-broker order
-            if brid:
-                log.info("Submitting cancel for live order")
-                await client.submit_cancel(reqid=brid)
+            if live_entry:
 
-            # check for EMS active exec
+                msg = BrokerdCancel(
+                    oid=oid,
+                    reqid=reqid or live_entry.reqid,
+                    time_ns=time.time_ns(),
+                )
+
+                # send cancel to brokerd immediately!
+                log.info("Submitting cancel for live order")
+
+                # NOTE: cancel response will be relayed back in messages
+                # from corresponding broker
+                await brokerd_order_stream.send(msg.dict())
+
             else:
+                # this might be a cancel for an order that hasn't been
+                # acked yet by a brokerd, so register a cancel for when
+                # the order ack does show up later
+                dark_book._ems_entries[oid] = msg
+
+                # check for EMS active exec
                 try:
+                    # remove from dark book clearing
                     dark_book.orders[symbol].pop(oid, None)
 
-                    await ctx.send_yield({
-                        'resp': 'dark_cancelled',
-                        'oid': oid
-                    })
+                    # tell client side that we've cancelled the
+                    # dark-trigger order
+                    await client_order_stream.send(
+                        Status(
+                            resp='dark_cancelled',
+                            oid=oid,
+                            time_ns=time.time_ns(),
+                        ).dict()
+                    )
+
                 except KeyError:
                     log.exception(f'No dark order for {symbol}?')
 
+        # TODO: 3.10 struct-pattern matching and unpacking here
         elif action in ('alert', 'buy', 'sell',):
 
-            sym = cmd['symbol']
-            trigger_price = cmd['price']
-            size = cmd['size']
-            brokers = cmd['brokers']
-            exec_mode = cmd['exec_mode']
+            msg = Order(**cmd)
 
-            broker = brokers[0]
+            sym = msg.symbol
+            trigger_price = msg.price
+            size = msg.size
+            exec_mode = msg.exec_mode
+            broker = msg.brokers[0]
 
             if exec_mode == 'live' and action in ('buy', 'sell',):
 
-                # register broker id for ems id
-                order_id = await client.submit_limit(
+                if live_entry is not None:
 
+                    # sanity check on emsd id
+                    assert live_entry.oid == oid
+
+                    # if we already had a broker order id then
+                    # this is likely an order update commmand.
+                    log.info(
+                        f"Modifying live {broker} order: {live_entry.reqid}")
+
+                msg = BrokerdOrder(
                     oid=oid,  # no ib support for oids...
+                    time_ns=time.time_ns(),
 
                     # if this is None, creates a new order
                     # otherwise will modify any existing one
-                    brid=brid,
+                    reqid=reqid,
 
                     symbol=sym,
                     action=action,
@@ -543,25 +573,24 @@ async def process_order_cmds(
                     size=size,
                 )
 
-                if brid:
-                    assert dark_book._broker2ems_ids[brid] == oid
-
-                    # if we already had a broker order id then
-                    # this is likely an order update commmand.
-                    log.info(f"Modifying order: {brid}")
-
-                else:
-                    dark_book._broker2ems_ids[order_id] = oid
-
+                # send request to backend
                 # XXX: the trades data broker response loop
-                # (``process_broker_trades()`` above) will
-                # handle sending the ems side acks back to
-                # the cmd sender from here
+                # (``translate_and_relay_brokerd_events()`` above) will
+                # handle relaying the ems side responses back to
+                # the client/cmd sender from this request
+                log.info(f'Sending live order to {broker}:\n{pformat(msg)}')
+                await brokerd_order_stream.send(msg.dict())
+
+                # an immediate response should be brokerd ack with order
+                # id but we register our request as part of the flow
+                dark_book._ems_entries[oid] = msg
 
             elif exec_mode in ('dark', 'paper') or (
                 action in ('alert')
             ):
-                # submit order to local EMS
+                # submit order to local EMS book and scan loop,
+                # effectively a local clearing engine, which
+                # scans for conditions and triggers matching executions
 
                 # Auto-gen scanner predicate:
                 # we automatically figure out what the alert check
@@ -595,8 +624,10 @@ async def process_order_cmds(
                     abs_diff_away = 0
 
                 # submit execution/order to EMS scan loop
-                # FYI: this may result in an override of an existing
+
+                # NOTE: this may result in an override of an existing
                 # dark book entry if the order id already exists
+
                 dark_book.orders.setdefault(
                     sym, {}
                 )[oid] = (
@@ -606,25 +637,32 @@ async def process_order_cmds(
                     percent_away,
                     abs_diff_away
                 )
-                # TODO: if the predicate resolves immediately send the
-                # execution to the broker asap? Or no?
 
-                # ack-response that order is live in EMS
-                await ctx.send_yield({
-                    'resp': 'dark_submitted',
-                    'oid': oid
-                })
+                if action == 'alert':
+                    resp = 'alert_submitted'
+                else:
+                    resp = 'dark_submitted'
+
+                await client_order_stream.send(
+                    Status(
+                        resp=resp,
+                        oid=oid,
+                        time_ns=time.time_ns(),
+                    ).dict()
+                )
 
 
-@tractor.stream
+@tractor.context
 async def _emsd_main(
+
     ctx: tractor.Context,
-    client_actor_name: str,
     broker: str,
     symbol: str,
-    _mode: str = 'dark',  # ('paper', 'dark', 'live')
+    _exec_mode: str = 'dark',  # ('paper', 'dark', 'live')
+    loglevel: str = 'info',
+
 ) -> None:
-    """EMS (sub)actor entrypoint providing the
+    '''EMS (sub)actor entrypoint providing the
     execution management (micro)service which conducts broker
     order control on behalf of clients.
 
@@ -638,66 +676,183 @@ async def _emsd_main(
     received in a stream from that client actor and then responses are
     streamed back up to the original calling task in the same client.
 
-    The task tree is:
+    The primary ``emsd`` task tree is:
+
     - ``_emsd_main()``:
-      accepts order cmds, registers execs with exec loop
+      sets up brokerd feed, order feed with ems client, trades dialogue with
+      brokderd trading api.
+       |
+        - ``clear_dark_triggers()``:
+          run (dark order) conditions on inputs and trigger brokerd "live"
+          order submissions.
+       |
+        - ``translate_and_relay_brokerd_events()``:
+          accept normalized trades responses from brokerd, process and
+          relay to ems client(s); this is a effectively a "trade event
+          reponse" proxy-broker.
+       |
+        - ``process_client_order_cmds()``:
+          accepts order cmds from requesting piker clients, registers
+          execs with exec loop
 
-    - ``exec_loop()``:
-      run (dark) conditions on inputs and trigger broker submissions
+    '''
+    global _router
+    dark_book = _router.get_dark_book(broker)
 
-    - ``process_broker_trades()``:
-      accept normalized trades responses, process and relay to ems client(s)
+    # TODO: would be nice if in tractor we can require either a ctx arg,
+    # or a named arg with ctx in it and a type annotation of
+    # tractor.Context instead of strictly requiring a ctx arg.
+    ems_ctx = ctx
 
-    """
-    from ._client import send_order_cmds
-
-    dark_book = get_dark_book(broker)
+    cached_feed = _router.feeds.get((broker, symbol))
+    if cached_feed:
+        # TODO: use cached feeds per calling-actor
+        log.warning(f'Opening duplicate feed for {(broker, symbol)}')
 
     # spawn one task per broker feed
-    async with trio.open_nursery() as n:
+    async with (
+        trio.open_nursery() as n,
 
         # TODO: eventually support N-brokers
-        async with data.open_feed(
+        data.open_feed(
             broker,
             [symbol],
-            loglevel='info',
-        ) as feed:
+            loglevel=loglevel,
+        ) as feed,
+    ):
+        if not cached_feed:
+            _router.feeds[(broker, symbol)] = feed
 
-            # get a portal back to the client
-            async with tractor.wait_for_actor(client_actor_name) as portal:
+        # XXX: this should be initial price quote from target provider
+        first_quote = await feed.receive()
 
-                # connect back to the calling actor (the one that is
-                # acting as an EMS client and will submit orders) to
-                # receive requests pushed over a tractor stream
-                # using (for now) an async generator.
-                async with portal.open_stream_from(
-                    send_order_cmds,
-                    symbol_key=symbol,
-                ) as order_stream:
+        # open a stream with the brokerd backend for order
+        # flow dialogue
 
-                    # start the condition scan loop
-                    quote, feed, client = await n.start(
-                        exec_loop,
-                        ctx,
-                        feed,
-                        broker,
-                        symbol,
-                        _mode,
-                    )
+        book = _router.get_dark_book(broker)
+        book.lasts[(broker, symbol)] = first_quote[symbol]['last']
 
-                    await n.start(
-                        process_broker_trades,
-                        ctx,
-                        feed,
-                        dark_book,
-                    )
+        trades_endpoint = getattr(feed.mod, 'trades_dialogue', None)
+        portal = feed._brokerd_portal
 
-                    # start inbound order request processing
-                    await process_order_cmds(
-                        ctx,
-                        order_stream,
-                        symbol,
-                        feed,
-                        client,
-                        dark_book,
-                    )
+        if trades_endpoint is None or _exec_mode == 'paper':
+
+            # for paper mode we need to mock this trades response feed
+            # so we load bidir stream to a new sub-actor running a
+            # paper-simulator clearing engine.
+
+            # load the paper trading engine
+            _exec_mode = 'paper'
+            log.warning(f'Entering paper trading mode for {broker}')
+
+            # load the paper trading engine as a subactor of this emsd
+            # actor to simulate the real IPC load it'll have when also
+            # pulling data from feeds
+            open_trades_endpoint = paper.open_paperboi(
+                broker=broker,
+                symbol=symbol,
+                loglevel=loglevel,
+            )
+
+        else:
+            # open live brokerd trades endpoint
+            open_trades_endpoint = portal.open_context(
+                trades_endpoint,
+                loglevel=loglevel,
+            )
+
+        async with (
+            open_trades_endpoint as (brokerd_ctx, positions),
+            brokerd_ctx.open_stream() as brokerd_trades_stream,
+        ):
+            # signal to client that we're started
+            # TODO: we could eventually send back **all** brokerd
+            # positions here?
+            await ems_ctx.started(positions)
+
+            # establish 2-way stream with requesting order-client and
+            # begin handling inbound order requests and updates
+            async with ems_ctx.open_stream() as ems_client_order_stream:
+
+                # trigger scan and exec loop
+                n.start_soon(
+                    clear_dark_triggers,
+
+                    brokerd_trades_stream,
+                    ems_client_order_stream,
+                    feed.stream,
+
+                    broker,
+                    symbol,
+                    book
+                )
+
+                # begin processing order events from the target brokerd backend
+                # by receiving order submission response messages,
+                # normalizing them to EMS messages and relaying back to
+                # the piker order client.
+                n.start_soon(
+                    translate_and_relay_brokerd_events,
+
+                    broker,
+                    ems_client_order_stream,
+                    brokerd_trades_stream,
+                    dark_book,
+                )
+
+                # start inbound (from attached client) order request processing
+                await process_client_order_cmds(
+                    ems_client_order_stream,
+                    brokerd_trades_stream,
+                    symbol,
+                    feed,
+                    dark_book,
+                )
+
+
+class _Router(BaseModel):
+    '''Order router which manages per-broker dark books, alerts,
+    and clearing related data feed management.
+
+    '''
+    nursery: trio.Nursery
+
+    feeds: dict[tuple[str, str], Any] = {}
+    books: dict[str, _DarkBook] = {}
+
+    class Config:
+        arbitrary_types_allowed = True
+        underscore_attrs_are_private = False
+
+    def get_dark_book(
+        self,
+        brokername: str,
+
+    ) -> _DarkBook:
+
+        return self.books.setdefault(brokername, _DarkBook(brokername))
+
+
+_router: _Router = None
+
+
+@tractor.context
+async def _setup_persistent_emsd(
+
+    ctx: tractor.Context,
+
+) -> None:
+
+    global _router
+
+    # open a root "service nursery" for the ``emsd`` actor
+    async with trio.open_nursery() as service_nursery:
+
+        _router = _Router(nursery=service_nursery)
+
+        # TODO: send back the full set of persistent orders/execs persistent
+        await ctx.started()
+
+        # we pin this task to keep the feeds manager active until the
+        # parent actor decides to tear it down
+        await trio.sleep_forever()

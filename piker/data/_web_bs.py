@@ -64,13 +64,13 @@ class NoBsWs:
 
     async def _connect(
         self,
-        tries: int = 10000,
+        tries: int = 1000,
     ) -> None:
         while True:
             try:
                 await self._stack.aclose()
             except (DisconnectionTimeout, RuntimeError):
-                await trio.sleep(1)
+                await trio.sleep(0.5)
             else:
                 break
 
@@ -95,7 +95,7 @@ class NoBsWs:
                     f'{self} connection bail with '
                     f'{type(err)}...retry attempt {i}'
                 )
-                await trio.sleep(1)
+                await trio.sleep(0.5)
                 continue
         else:
             log.exception('ws connection fail...')

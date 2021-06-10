@@ -127,10 +127,6 @@ class OrderMode:
 
         """
         line = self.lines.commit_line(uuid)
-        req_msg = self.book._sent_orders.get(uuid)
-        if req_msg:
-            req_msg['ack_time_ns'] = time.time_ns()
-
         return line
 
     def on_fill(
@@ -196,8 +192,10 @@ class OrderMode:
     def submit_exec(
         self,
         size: Optional[float] = None,
+
     ) -> LevelLine:
-        """Send execution order to EMS.
+        """Send execution order to EMS return a level line to
+        represent the order on a chart.
 
         """
         # register the "staged" line under the cursor
@@ -225,6 +223,9 @@ class OrderMode:
             action=action,
             exec_mode=self._exec_mode,
         )
+
+        # TODO: update the line once an ack event comes back
+        # from the EMS!
 
         # make line graphic if order push was
         # sucessful
@@ -265,14 +266,6 @@ class OrderMode:
             # TODO: should we round this to a nearest tick here?
             price=line.value(),
         )
-
-    # def on_key_press(
-    #     self,
-    #     key:
-    #     mods:
-    #     text: str,
-    # ) -> None:
-    #     pass
 
 
 @asynccontextmanager
@@ -320,9 +313,13 @@ async def start_order_mode(
 
     # spawn EMS actor-service
     async with (
-        open_ems(brokername, symbol) as (book, trades_stream),
+        open_ems(brokername, symbol) as (book, trades_stream, positions),
         open_order_mode(symbol, chart, book) as order_mode
     ):
+
+        # update any exising positions
+        for sym, msg in positions.items():
+            order_mode.on_position_update(msg)
 
         def get_index(time: float):
 
@@ -346,16 +343,15 @@ async def start_order_mode(
             fmsg = pformat(msg)
             log.info(f'Received order msg:\n{fmsg}')
 
-            resp = msg['resp']
-
-            if resp in (
+            name = msg['name']
+            if name in (
                 'position',
             ):
                 # show line label once order is live
                 order_mode.on_position_update(msg)
                 continue
 
-            # delete the line from view
+            resp = msg['resp']
             oid = msg['oid']
 
             # response to 'action' request (buy/sell)
@@ -378,21 +374,21 @@ async def start_order_mode(
                 order_mode.on_cancel(oid)
 
             elif resp in (
-                'dark_executed'
+                'dark_triggered'
             ):
                 log.info(f'Dark order triggered for {fmsg}')
 
-                # for alerts add a triangle and remove the
-                # level line
-                if msg['cmd']['action'] == 'alert':
-
-                    # should only be one "fill" for an alert
-                    order_mode.on_fill(
-                        oid,
-                        price=msg['trigger_price'],
-                        arrow_index=get_index(time.time())
-                    )
-                    await order_mode.on_exec(oid, msg)
+            elif resp in (
+                'alert_triggered'
+            ):
+                # should only be one "fill" for an alert
+                # add a triangle and remove the level line
+                order_mode.on_fill(
+                    oid,
+                    price=msg['trigger_price'],
+                    arrow_index=get_index(time.time())
+                )
+                await order_mode.on_exec(oid, msg)
 
             # response to completed 'action' request for buy/sell
             elif resp in (
@@ -403,12 +399,15 @@ async def start_order_mode(
             # each clearing tick is responded individually
             elif resp in ('broker_filled',):
 
-                action = msg['action']
+                action = book._sent_orders[oid].action
+                details = msg['brokerd_msg']
 
                 # TODO: some kinda progress system
                 order_mode.on_fill(
                     oid,
-                    price=msg['price'],
-                    arrow_index=get_index(msg['broker_time']),
+                    price=details['price'],
                     pointing='up' if action == 'buy' else 'down',
+
+                    # TODO: put the actual exchange timestamp
+                    arrow_index=get_index(details['broker_time']),
                 )

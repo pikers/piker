@@ -19,30 +19,21 @@ Orders and execution client API.
 
 """
 from contextlib import asynccontextmanager
-from typing import Dict, Tuple, List
+from typing import Dict
 from pprint import pformat
 from dataclasses import dataclass, field
 
 import trio
 import tractor
-# import msgspec
 
 from ..data._source import Symbol
 from ..log import get_logger
 from ._ems import _emsd_main
+from .._daemon import maybe_open_emsd
+from ._messages import Order, Cancel
 
 
 log = get_logger(__name__)
-
-
-# class Order(msgspec.Struct):
-#     action: str
-#     price: float
-#     size: float
-#     symbol: str
-#     brokers: List[str]
-#     oid: str
-#     exec_mode: str
 
 
 @dataclass
@@ -62,31 +53,34 @@ class OrderBook:
     _to_ems: trio.abc.SendChannel
     _from_order_book: trio.abc.ReceiveChannel
 
-    _sent_orders: Dict[str, dict] = field(default_factory=dict)
+    _sent_orders: Dict[str, Order] = field(default_factory=dict)
     _ready_to_receive: trio.Event = trio.Event()
 
     def send(
+
         self,
         uuid: str,
         symbol: str,
-        brokers: List[str],
+        brokers: list[str],
         price: float,
         size: float,
         action: str,
         exec_mode: str,
+
     ) -> dict:
-        cmd = {
-            'action': action,
-            'price': price,
-            'size': size,
-            'symbol': symbol,
-            'brokers': brokers,
-            'oid': uuid,
-            'exec_mode': exec_mode,  # dark or live
-        }
-        self._sent_orders[uuid] = cmd
-        self._to_ems.send_nowait(cmd)
-        return cmd
+        msg = Order(
+            action=action,
+            price=price,
+            size=size,
+            symbol=symbol,
+            brokers=brokers,
+            oid=uuid,
+            exec_mode=exec_mode,  # dark or live
+        )
+
+        self._sent_orders[uuid] = msg
+        self._to_ems.send_nowait(msg.dict())
+        return msg
 
     def update(
         self,
@@ -94,29 +88,29 @@ class OrderBook:
         **data: dict,
     ) -> dict:
         cmd = self._sent_orders[uuid]
-        cmd.update(data)
-        self._sent_orders[uuid] = cmd
-        self._to_ems.send_nowait(cmd)
+        msg = cmd.dict()
+        msg.update(data)
+        self._sent_orders[uuid] = Order(**msg)
+        self._to_ems.send_nowait(msg)
         return cmd
 
     def cancel(self, uuid: str) -> bool:
-        """Cancel an order (or alert) from the EMS.
+        """Cancel an order (or alert) in the EMS.
 
         """
         cmd = self._sent_orders[uuid]
-        msg = {
-            'action': 'cancel',
-            'oid': uuid,
-            'symbol': cmd['symbol'],
-        }
-        self._to_ems.send_nowait(msg)
+        msg = Cancel(
+            oid=uuid,
+            symbol=cmd.symbol,
+        )
+        self._to_ems.send_nowait(msg.dict())
 
 
 _orders: OrderBook = None
 
 
 def get_orders(
-    emsd_uid: Tuple[str, str] = None
+    emsd_uid: tuple[str, str] = None
 ) -> OrderBook:
     """"
     OrderBook singleton factory per actor.
@@ -136,7 +130,14 @@ def get_orders(
     return _orders
 
 
-async def send_order_cmds(symbol_key: str):
+# TODO: we can get rid of this relay loop once we move
+# order_mode inputs to async code!
+async def relay_order_cmds_from_sync_code(
+
+    symbol_key: str,
+    to_ems_stream: tractor.MsgStream,
+
+) -> None:
     """
     Order streaming task: deliver orders transmitted from UI
     to downstream consumers.
@@ -156,16 +157,15 @@ async def send_order_cmds(symbol_key: str):
     book = get_orders()
     orders_stream = book._from_order_book
 
-    # signal that ems connection is up and ready
-    book._ready_to_receive.set()
-
     async for cmd in orders_stream:
+
         print(cmd)
         if cmd['symbol'] == symbol_key:
 
             # send msg over IPC / wire
             log.info(f'Send order cmd:\n{pformat(cmd)}')
-            yield cmd
+            await to_ems_stream.send(cmd)
+
         else:
             # XXX BRUTAL HACKZORZES !!!
             # re-insert for another consumer
@@ -175,35 +175,11 @@ async def send_order_cmds(symbol_key: str):
 
 
 @asynccontextmanager
-async def maybe_open_emsd(
-    brokername: str,
-) -> tractor._portal.Portal:  # noqa
-
-    async with tractor.find_actor('emsd') as portal:
-        if portal is not None:
-            yield portal
-            return
-
-    # ask remote daemon tree to spawn it
-    from .._daemon import spawn_emsd
-
-    async with tractor.find_actor('pikerd') as portal:
-        assert portal
-
-        name = await portal.run(
-            spawn_emsd,
-            brokername=brokername,
-        )
-
-        async with tractor.wait_for_actor(name) as portal:
-            yield portal
-
-
-@asynccontextmanager
 async def open_ems(
     broker: str,
     symbol: Symbol,
-) -> None:
+
+) -> (OrderBook, tractor.MsgStream, dict):
     """Spawn an EMS daemon and begin sending orders and receiving
     alerts.
 
@@ -237,32 +213,31 @@ async def open_ems(
     - 'broker_filled'
 
     """
-    actor = tractor.current_actor()
-
     # wait for service to connect back to us signalling
     # ready for order commands
     book = get_orders()
 
     async with maybe_open_emsd(broker) as portal:
 
-        async with portal.open_stream_from(
+        async with (
 
-            _emsd_main,
-            client_actor_name=actor.name,
-            broker=broker,
-            symbol=symbol.key,
+            # connect to emsd
+            portal.open_context(
 
-        ) as trades_stream:
-            with trio.fail_after(10):
-                await book._ready_to_receive.wait()
+                _emsd_main,
+                broker=broker,
+                symbol=symbol.key,
 
-            try:
-                yield book, trades_stream
+            ) as (ctx, positions),
 
-            finally:
-                # TODO: we want to eventually keep this up (by having
-                # the exec loop keep running in the pikerd tree) but for
-                # now we have to kill the context to avoid backpressure
-                # build-up on the shm write loop.
-                with trio.CancelScope(shield=True):
-                    await trades_stream.aclose()
+            # open 2-way trade command stream
+            ctx.open_stream() as trades_stream,
+        ):
+            async with trio.open_nursery() as n:
+                n.start_soon(
+                    relay_order_cmds_from_sync_code,
+                    symbol.key,
+                    trades_stream
+                )
+
+                yield book, trades_stream, positions
