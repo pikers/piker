@@ -702,7 +702,9 @@ async def fill_results(
 
     # kb debouncing pauses (bracket defaults)
     min_pause_time: float = 0.01,  # absolute min typing throttle
-    max_pause_time: float = 6/16,  # max pause required before slow relay
+
+    # max pause required before slow relay
+    max_pause_time: float = 6/16 + 0.001,
 
 ) -> None:
     """Task to search through providers and fill in possible
@@ -751,11 +753,6 @@ async def fill_results(
                 _search_active = trio.Event()
                 break
 
-            if repeats > 2 and period > max_pause_time:
-                _search_active = trio.Event()
-                repeats = 0
-                break
-
             if text == last_text:
                 repeats += 1
 
@@ -763,9 +760,8 @@ async def fill_results(
                 # print('search currently disabled')
                 break
 
-            log.debug(f'Search req for {text}')
-
             already_has_results = has_results[text]
+            log.debug(f'Search req for {text}')
 
             # issue multi-provider fan-out search request and place
             # "searching.." statuses on outstanding results providers
@@ -774,20 +770,22 @@ async def fill_results(
                 for provider, (search, pause) in (
                     _searcher_cache.copy().items()
                 ):
-                    # TODO: it may make more sense TO NOT search the cache in a bg
-                    # task since we know it's fully cpu-bound.
-                    if provider != 'cache':
-                        view.clear_section(
-                            provider, status_field='-> searchin..')
-
                     # XXX: only conduct search on this backend if it's
-                    # registered for the corresponding pause period 
-                    # AND it hasn't already been searched with the
-                    # current input pattern (in which case just look up
-                    # the old results).
+                    # registered for the corresponding pause period AND
+                    # it hasn't already been searched with the current
+                    # input pattern (in which case just look up the old
+                    # results).
                     if (period >= pause) and (
                         provider not in already_has_results
                     ):
+
+                        # TODO: it may make more sense TO NOT search the
+                        # cache in a bg task since we know it's fully
+                        # cpu-bound.
+                        if provider != 'cache':
+                            view.clear_section(
+                                provider, status_field='-> searchin..')
+
                         await n.start(
                             pack_matches,
                             view,
@@ -814,6 +812,11 @@ async def fill_results(
                             )
                         else:
                             view.clear_section(provider)
+
+            if repeats > 2 and period > max_pause_time:
+                _search_active = trio.Event()
+                repeats = 0
+                break
 
             bar.show()
 
