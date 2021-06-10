@@ -399,7 +399,12 @@ async def start_order_mode(
             # each clearing tick is responded individually
             elif resp in ('broker_filled',):
 
-                action = book._sent_orders[oid].action
+                known_order = book._sent_orders.get(oid)
+                if not known_order:
+                    log.warning(f'order {oid} is unknown')
+                    continue
+
+                action = known_order.action
                 details = msg['brokerd_msg']
 
                 # TODO: some kinda progress system
