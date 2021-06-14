@@ -282,7 +282,6 @@ class Client:
         pattern: str,
         # how many contracts to search "up to"
         upto: int = 3,
-        asdicts: bool = True,
     ) -> Dict[str, ContractDetails]:
         """Search for stocks matching provided ``str`` pattern.
 
@@ -304,11 +303,17 @@ class Client:
             # XXX: if there is more then one entry in the details list
             details = {}
             for details_set in results:
+
                 # then the contract is so called "ambiguous".
                 for d in details_set:
                     con = d.contract
                     unique_sym = f'{con.symbol}.{con.primaryExchange}'
-                    details[unique_sym] = asdict(d) if asdicts else d
+
+                    as_dict = asdict(d)
+                    # nested dataclass we probably don't need and that won't IPC serialize
+                    as_dict.pop('secIdList')
+
+                    details[unique_sym] = as_dict
 
                     if len(details) == upto:
                         return details
@@ -1085,6 +1090,9 @@ async def stream_quotes(
     # pass back some symbol info like min_tick, trading_hours, etc.
     syminfo = asdict(details)
     syminfo.update(syminfo['contract'])
+
+    # nested dataclass we probably don't need and that won't IPC serialize
+    syminfo.pop('secIdList')
 
     # TODO: more consistent field translation
     atype = syminfo['asset_type'] = asset_type_map[syminfo['secType']]
