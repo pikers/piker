@@ -33,9 +33,7 @@ _magic_inches = 0.0666 * (1 + 6/16)
 # chart-wide fonts specified in inches
 _font_sizes: Dict[str, Dict[str, float]] = {
     'hi': {
-        # 'default':  0.0616,
         'default':  _magic_inches,
-        # 'small':  0.055,
         'small': 0.9 * _magic_inches,
     },
     'lo': {
