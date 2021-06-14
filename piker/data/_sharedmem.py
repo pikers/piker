@@ -97,8 +97,7 @@ class _Token:
 
     def __post_init__(self):
         # np.array requires a list for dtype
-        self.dtype_descr = np.dtype(
-            list(self.dtype_descr)).descr
+        self.dtype_descr = np.dtype(list(map(tuple, self.dtype_descr))).descr
 
     def as_msg(self):
         return asdict(self)
