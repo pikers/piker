@@ -514,7 +514,10 @@ async def open_feed(
 
                 # cast shm dtype to list... can't member why we need this
                 shm_token = data['shm_token']
-                shm_token['dtype_descr'] = list(shm_token['dtype_descr'])
+
+                # XXX: msgspec won't relay through the tuples XD
+                shm_token['dtype_descr'] = list(map(tuple, shm_token['dtype_descr']))
+
                 assert shm_token == shm.token  # sanity
 
             feed._max_sample_rate = max(ohlc_sample_rates)
