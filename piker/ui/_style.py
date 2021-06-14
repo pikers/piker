@@ -22,18 +22,19 @@ import math
 
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
-from qdarkstyle.palette import DarkPalette
+from qdarkstyle import DarkPalette
 
 from ..log import get_logger
-from ._exec import current_screen
 
 log = get_logger(__name__)
+
+_magic_inches = 0.0666 * (1 + 6/16)
 
 # chart-wide fonts specified in inches
 _font_sizes: Dict[str, Dict[str, float]] = {
     'hi': {
-        'default':  0.0616,
-        'small':  0.055,
+        'default':  _magic_inches,
+        'small': 0.9 * _magic_inches,
     },
     'lo': {
         'default':  6.5 / 64,
@@ -43,6 +44,7 @@ _font_sizes: Dict[str, Dict[str, float]] = {
 
 
 class DpiAwareFont:
+
     def __init__(
         self,
         # TODO: move to config
@@ -52,10 +54,10 @@ class DpiAwareFont:
     ) -> None:
         self.name = name
         self._qfont = QtGui.QFont(name)
-        # self._iwl = size_in_inches or _default_font_inches_we_like
         self._font_size: str = font_size
         self._qfm = QtGui.QFontMetrics(self._qfont)
         self._physical_dpi = None
+        self._font_inches: float = None
         self._screen = None
 
     def _set_qfont_px_size(self, px_size: int) -> None:
@@ -64,13 +66,15 @@ class DpiAwareFont:
 
     @property
     def screen(self) -> QtGui.QScreen:
+        from ._window import main_window
+
         if self._screen is not None:
             try:
                 self._screen.refreshRate()
             except RuntimeError:
-                self._screen = current_screen()
+                self._screen = main_window().current_screen()
         else:
-            self._screen = current_screen()
+            self._screen = main_window().current_screen()
 
         return self._screen
 
@@ -95,22 +99,34 @@ class DpiAwareFont:
         # take the max since scaling can make things ugly in some cases
         pdpi = screen.physicalDotsPerInch()
         ldpi = screen.logicalDotsPerInch()
-        dpi = max(pdpi, ldpi)
+        mx_dpi = max(pdpi, ldpi)
+        mn_dpi = min(pdpi, ldpi)
+        scale = round(ldpi/pdpi)
 
-        # for low dpi scale everything down
-        if dpi <= 97:
+        if mx_dpi <= 97:  # for low dpi use larger font sizes
             inches = _font_sizes['lo'][self._font_size]
-        else:
+
+        else:  # hidpi use smaller font sizes
             inches = _font_sizes['hi'][self._font_size]
+
+        dpi = mn_dpi
+
+        # dpi is likely somewhat scaled down so use slightly larger font size
+        if scale > 1 and self._font_size:
+            # TODO: this denominator should probably be determined from
+            # relative aspect rations or something?
+            inches = inches * (1 / scale) * (1 + 6/16)
+            dpi = mx_dpi
+
+        self._font_inches = inches
 
         font_size = math.floor(inches * dpi)
         log.info(
-            f"\nscreen:{screen.name()} with DPI: {dpi}"
-            f"\nbest font size is {font_size}\n"
+            f"\nscreen:{screen.name()} with pDPI: {pdpi}, lDPI: {ldpi}"
+            f"\nOur best guess font size is {font_size}\n"
         )
-
+        # apply the size
         self._set_qfont_px_size(font_size)
-        self._physical_dpi = dpi
 
     def boundingRect(self, value: str) -> QtCore.QRectF:
 
@@ -130,11 +146,19 @@ class DpiAwareFont:
 
 # use inches size to be cross-resolution compatible?
 _font = DpiAwareFont()
+_font_small = DpiAwareFont(font_size='small')
+
+
+def _config_fonts_to_screen() -> None:
+    'configure global DPI aware font sizes'
+
+    global _font, _font_small
+    _font.configure_to_dpi()
+    _font_small.configure_to_dpi()
+
 
 # TODO: re-compute font size when main widget switches screens?
 # https://forum.qt.io/topic/54136/how-do-i-get-the-qscreen-my-widget-is-on-qapplication-desktop-screen-returns-a-qwidget-and-qobject_cast-qscreen-returns-null/3
-
-# _i3_rgba = QtGui.QColor.fromRgbF(*[0.14]*3 + [1])
 
 # splitter widget config
 _xaxis_at = 'bottom'
@@ -175,6 +199,7 @@ def hcolor(name: str) -> str:
         'gray': '#808080',  # like the kick
         'grayer': '#4c4c4c',
         'grayest': '#3f3f3f',
+        'i3': '#494D4F',
         'jet': '#343434',
         'cadet': '#91A3B0',
         'marengo': '#91A3B0',
@@ -185,9 +210,13 @@ def hcolor(name: str) -> str:
         'bracket': '#666666',  # like the logo
         'original': '#a9a9a9',
 
-        # palette
-        'default': DarkPalette.COLOR_BACKGROUND_NORMAL,
-        'default_light': DarkPalette.COLOR_BACKGROUND_LIGHT,
+        # from ``qdarkstyle`` palette
+        'default_darkest': DarkPalette.COLOR_BACKGROUND_1,
+        'default_dark': DarkPalette.COLOR_BACKGROUND_2,
+        'default': DarkPalette.COLOR_BACKGROUND_3,
+        'default_light': DarkPalette.COLOR_BACKGROUND_4,
+        'default_lightest': DarkPalette.COLOR_BACKGROUND_5,
+        'default_spotlight': DarkPalette.COLOR_BACKGROUND_6,
 
         'white': '#ffffff',  # for tinas and sunbathers
 

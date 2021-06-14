@@ -52,7 +52,6 @@ from ._l1 import L1Labels
 from ._graphics._ohlc import BarItems
 from ._graphics._curve import FastAppendCurve
 from ._style import (
-    _font,
     hcolor,
     CHART_MARGINS,
     _xaxis_at,
@@ -68,7 +67,7 @@ from ..data import maybe_open_shm_array
 from .. import brokers
 from .. import data
 from ..log import get_logger
-from ._exec import run_qtractor, current_screen
+from ._exec import run_qtractor
 from ._interaction import ChartView
 from .order_mode import start_order_mode
 from .. import fsp
@@ -79,10 +78,11 @@ log = get_logger(__name__)
 
 
 class ChartSpace(QtGui.QWidget):
-    """High level widget which contains layouts for organizing
-    lower level charts as well as other widgets used to control
-    or modify them.
-    """
+    '''Highest level composed widget which contains layouts for
+    organizing lower level charts as well as other widgets used to
+    control or modify them.
+
+    '''
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -430,6 +430,8 @@ class ChartPlotWidget(pg.PlotWidget):
     sig_mouse_enter = QtCore.Signal(object)
 
     _l1_labels: L1Labels = None
+
+    mode_name: str = 'mode: view'
 
     # TODO: can take a ``background`` color setting - maybe there's
     # a better one?
@@ -1000,7 +1002,7 @@ async def test_bed(
 
 
 _clear_throttle_rate: int = 60  # Hz
-_book_throttle_rate: int = 20  # Hz
+_book_throttle_rate: int = 16  # Hz
 
 
 async def chart_from_quotes(
@@ -1078,7 +1080,14 @@ async def chart_from_quotes(
     tick_margin = 2 * tick_size
 
     last_ask = last_bid = last_clear = time.time()
+    chart.show()
+
     async for quotes in stream:
+
+        # chart isn't actively shown so just skip render cycle
+        if chart._lc.isHidden():
+            continue
+
         for sym, quote in quotes.items():
 
             now = time.time()
@@ -1291,6 +1300,9 @@ async def run_fsp(
     This is called once for each entry in the fsp
     config map.
     """
+    done = linked_charts.window().status_bar.open_status(
+        f'loading FSP: {display_name}..')
+
     async with portal.open_stream_from(
 
         # subactor entrypoint
@@ -1384,13 +1396,20 @@ async def run_fsp(
 
         last = time.time()
 
+        done()
+
         # update chart graphics
         async for value in stream:
 
+            # chart isn't actively shown so just skip render cycle
+            if chart._lc.isHidden():
+                continue
+
             now = time.time()
             period = now - last
+
             # if period <= 1/30:
-            if period <= 1/_clear_throttle_rate - 0.001:
+            if period <= 1/_clear_throttle_rate:
                 # faster then display refresh rate
                 # print(f'quote too fast: {1/period}')
                 continue
@@ -1479,7 +1498,7 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
 
 async def chart_symbol(
     chart_app: ChartSpace,
-    brokername: str,
+    provider: str,
     sym: str,
     loglevel: str,
 ) -> None:
@@ -1489,11 +1508,14 @@ async def chart_symbol(
     can be viewed and switched between extremely fast.
 
     """
+    sbar = chart_app.window.status_bar
+    loading_sym_done = sbar.open_status(f'loading {sym}.{provider}..')
+
     # historical data fetch
-    brokermod = brokers.get_brokermod(brokername)
+    brokermod = brokers.get_brokermod(provider)
 
     async with data.open_feed(
-        brokername,
+        provider,
         [sym],
         loglevel=loglevel,
     ) as feed:
@@ -1525,6 +1547,8 @@ async def chart_symbol(
                     data=bars,
                     add_label=False,
                 )
+
+        loading_sym_done()
 
         # size view to data once at outset
         chart._set_yrange()
@@ -1604,7 +1628,7 @@ async def chart_symbol(
             #     linked_charts,
             # )
 
-            await start_order_mode(chart, symbol, brokername)
+            await start_order_mode(chart, symbol, provider)
 
 
 async def load_providers(
@@ -1621,7 +1645,7 @@ async def load_providers(
         # search engines.
         for broker in brokernames:
 
-            log.info(f'Loading brokerd for {broker}')
+            log.info(f'loading brokerd for {broker}..')
             # spin up broker daemons for each provider
             portal = await stack.enter_async_context(
                 maybe_spawn_brokerd(
@@ -1645,7 +1669,7 @@ async def load_providers(
 
 async def _async_main(
     # implicit required argument provided by ``qtractor_run()``
-    widgets: Dict[str, Any],
+    main_widget: ChartSpace,
 
     sym: str,
     brokernames: str,
@@ -1659,10 +1683,10 @@ async def _async_main(
 
     """
 
-    chart_app = widgets['main']
+    chart_app = main_widget
 
     # attempt to configure DPI aware font size
-    screen = current_screen()
+    screen = chart_app.window.current_screen()
 
     # configure graphics update throttling based on display refresh rate
     global _clear_throttle_rate
@@ -1672,8 +1696,11 @@ async def _async_main(
     )
     log.info(f'Set graphics update rate to {_clear_throttle_rate} Hz')
 
-    # configure global DPI aware font size
-    _font.configure_to_dpi(screen)
+    # TODO: do styling / themeing setup
+    # _style.style_ze_sheets(chart_app)
+
+    sbar = chart_app.window.status_bar
+    starting_done = sbar.open_status('starting ze chartz...')
 
     async with trio.open_nursery() as root_n:
 
@@ -1702,8 +1729,6 @@ async def _async_main(
         # this internally starts a ``chart_symbol()`` task above
         chart_app.load_symbol(provider, symbol, loglevel)
 
-        root_n.start_soon(load_providers, brokernames, loglevel)
-
         # spin up a search engine for the local cached symbol set
         async with _search.register_symbol_search(
 
@@ -1712,8 +1737,14 @@ async def _async_main(
                 _search.search_simple_dict,
                 source=chart_app._chart_cache,
             ),
+            # cache is super fast so debounce on super short period
+            pause_period=0.01,
 
         ):
+            # load other providers into search **after**
+            # the chart's select cache
+            root_n.start_soon(load_providers, brokernames, loglevel)
+
             # start handling search bar kb inputs
             async with open_key_stream(
                 search.bar,
@@ -1727,6 +1758,7 @@ async def _async_main(
                     key_stream,
                 )
 
+                starting_done()
                 await trio.sleep_forever()
 
 

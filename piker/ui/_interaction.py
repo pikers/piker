@@ -467,6 +467,9 @@ class ChartView(ViewBox):
         - zoom on right-click-n-drag to cursor position
 
     """
+
+    mode_name: str = 'mode: view'
+
     def __init__(
         self,
         parent: pg.PlotItem = None,
