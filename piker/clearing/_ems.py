@@ -724,7 +724,7 @@ async def _emsd_main(
             _router.feeds[(broker, symbol)] = feed
 
         # XXX: this should be initial price quote from target provider
-        first_quote = await feed.receive()
+        first_quote = feed.first_quote
 
         # open a stream with the brokerd backend for order
         # flow dialogue

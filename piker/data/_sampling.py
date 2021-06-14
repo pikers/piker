@@ -229,10 +229,10 @@ async def sample_and_broadcast(
             # thus other consumers still attached.
             subs = bus._subscribers[sym.lower()]
 
-            for ctx in subs:
+            for stream in subs:
                 # print(f'sub is {ctx.chan.uid}')
                 try:
-                    await ctx.send_yield({sym: quote})
+                    await stream.send({sym: quote})
                 except (
                     trio.BrokenResourceError,
                     trio.ClosedResourceError
@@ -241,4 +241,4 @@ async def sample_and_broadcast(
                     # if it's done in the fee bus code?
                     # so far seems like no since this should all
                     # be single-threaded.
-                    log.error(f'{ctx.chan.uid} dropped connection')
+                    log.error(f'{stream._ctx.chan.uid} dropped connection')
