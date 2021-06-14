@@ -21,10 +21,7 @@ Run ``trio`` in guest mode on top of the Qt event loop.
 All global Qt runtime settings are mostly defined here.
 """
 from typing import Tuple, Callable, Dict, Any
-import os
 import platform
-import signal
-import time
 import traceback
 
 # Qt specific
@@ -32,7 +29,7 @@ import PyQt5  # noqa
 import pyqtgraph as pg
 from pyqtgraph import QtGui
 from PyQt5 import QtCore
-from PyQt5.QtGui import QLabel, QStatusBar
+# from PyQt5.QtGui import QLabel, QStatusBar
 from PyQt5.QtCore import (
     pyqtRemoveInputHook,
     Qt,
@@ -47,6 +44,7 @@ from outcome import Error
 from .._daemon import maybe_open_pikerd, _tractor_kwargs
 from ..log import get_logger
 from ._pg_overrides import _do_overrides
+from . import _style
 
 log = get_logger(__name__)
 
@@ -58,34 +56,6 @@ pg.enableExperimental = True
 # engage core tweaks that give us better response
 # latency then the average pg user
 _do_overrides()
-
-
-# singleton app per actor
-_qt_app: QtGui.QApplication = None
-_qt_win: QtGui.QMainWindow = None
-
-
-def current_screen() -> QtGui.QScreen:
-    """Get a frickin screen (if we can, gawd).
-
-    """
-    global _qt_win, _qt_app
-
-    for _ in range(3):
-        screen = _qt_app.screenAt(_qt_win.pos())
-        print('trying to access QScreen...')
-        if screen is None:
-            time.sleep(0.5)
-            continue
-
-        break
-    else:
-        if screen is None:
-            # try for the first one we can find
-            screen = _qt_app.screens()[0]
-
-    assert screen, "Wow Qt is dumb as shit and has no screen..."
-    return screen
 
 
 # XXX: pretty sure none of this shit works on linux as per:
@@ -102,126 +72,12 @@ if platform.system() == "Windows":
         QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
 
-class MultiStatus:
-
-    bar: QStatusBar
-    statuses: list[str]
-
-    def __init__(self, bar, statuses) -> None:
-        self.bar = bar
-        self.statuses = statuses
-
-    def open_status(
-        self,
-        msg: str,
-    ) -> Callable[..., None]:
-        '''Add a status to the status bar and return a close callback which
-        when called will remove the status ``msg``.
-
-        '''
-        self.statuses.append(msg)
-
-        def remove_msg() -> None:
-            self.statuses.remove(msg)
-            self.render()
-
-        self.render()
-        return remove_msg
-
-    def render(self) -> None:
-        if self.statuses:
-            self.bar.showMessage(f'{" ".join(self.statuses)}')
-        else:
-            self.bar.clearMessage()
-
-
-class MainWindow(QtGui.QMainWindow):
-
-    size = (800, 500)
-    title = 'piker chart (ur symbol is loading bby)'
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setMinimumSize(*self.size)
-        self.setWindowTitle(self.title)
-
-        self._status_bar: QStatusBar = None
-        self._status_label: QLabel = None
-
-    @property
-    def mode_label(self) -> QtGui.QLabel:
-
-        # init mode label
-        if not self._status_label:
-            # TODO: i guess refactor stuff to avoid having to import here?
-            from ._style import _font_small, hcolor
-            self._status_label = label = QtGui.QLabel()
-            label.setStyleSheet(
-                f"QLabel {{ color : {hcolor('gunmetal')}; }}"
-            )
-            label.setTextFormat(3)  # markdown
-            label.setFont(_font_small.font)
-            label.setMargin(2)
-            label.setAlignment(
-                QtCore.Qt.AlignVCenter
-                | QtCore.Qt.AlignRight
-            )
-            self.statusBar().addPermanentWidget(label)
-            label.show()
-
-        return self._status_label
-
-    def closeEvent(
-        self,
-        event: QtGui.QCloseEvent,
-    ) -> None:
-        """Cancel the root actor asap.
-
-        """
-        # raising KBI seems to get intercepted by by Qt so just use the system.
-        os.kill(os.getpid(), signal.SIGINT)
-
-    @property
-    def status_bar(self) -> QStatusBar:
-
-        # style and cached the status bar on first access
-        if not self._status_bar:
-            # TODO: i guess refactor stuff to avoid having to import here?
-            from ._style import _font_small, hcolor
-            sb = self.statusBar()
-            sb.setStyleSheet((
-                f"color : {hcolor('gunmetal')};"
-                f"background : {hcolor('default_dark')};"
-                f"font-size : {_font_small.px_size}px;"
-                "padding : 0px;"
-                # "min-height : 19px;"
-                # "qproperty-alignment: AlignVCenter;"
-            ))
-            self.setStatusBar(sb)
-            self._status_bar = MultiStatus(sb, [])
-
-        return self._status_bar
-
-    def on_focus_change(
-        self,
-        old: QtGui.QWidget,
-        new: QtGui.QWidget,
-    ) -> None:
-
-        log.debug(f'widget focus changed from {old} -> {new}')
-
-        if new is not None:
-            # cursor left window?
-            name = getattr(new, 'mode_name', '')
-            self.mode_label.setText(name)
-
-
 def run_qtractor(
     func: Callable,
     args: Tuple,
     main_widget: QtGui.QWidget,
     tractor_kwargs: Dict[str, Any] = {},
-    window_type: QtGui.QMainWindow = MainWindow,
+    window_type: QtGui.QMainWindow = None,
 ) -> None:
     # avoids annoying message when entering debugger from qt loop
     pyqtRemoveInputHook()
@@ -238,10 +94,6 @@ def run_qtractor(
 
     # XXX: lmfao, this is how you disable text edit cursor blinking..smh
     app.setCursorFlashTime(0)
-
-    # set global app singleton
-    global _qt_app
-    _qt_app = app
 
     # This code is from Nathaniel, and I quote:
     # "This is substantially faster than using a signal... for some
@@ -286,7 +138,19 @@ def run_qtractor(
     app.setStyleSheet(stylesheet)
 
     # make window and exec
+    from . import _window
+
+    if window_type is None:
+        window_type = _window.MainWindow
+
     window = window_type()
+
+    # set global app's main window singleton
+    _window._qt_win = window
+
+    # configure global DPI aware font sizes now that a screen
+    # should be active from which we can read a DPI.
+    _style._config_fonts_to_screen()
 
     # hook into app focus change events
     app.focusChanged.connect(window.on_focus_change)
@@ -315,11 +179,6 @@ def run_qtractor(
 
     window.main_widget = main_widget
     window.setCentralWidget(instance)
-
-    # store global ref
-    # set global app singleton
-    global _qt_win
-    _qt_win = window
 
     # actually render to screen
     window.show()

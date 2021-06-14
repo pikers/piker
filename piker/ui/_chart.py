@@ -52,7 +52,6 @@ from ._l1 import L1Labels
 from ._graphics._ohlc import BarItems
 from ._graphics._curve import FastAppendCurve
 from ._style import (
-    _config_fonts_to_screen,
     hcolor,
     CHART_MARGINS,
     _xaxis_at,
@@ -68,7 +67,7 @@ from ..data import maybe_open_shm_array
 from .. import brokers
 from .. import data
 from ..log import get_logger
-from ._exec import run_qtractor, current_screen
+from ._exec import run_qtractor
 from ._interaction import ChartView
 from .order_mode import start_order_mode
 from .. import fsp
@@ -1687,7 +1686,7 @@ async def _async_main(
     chart_app = main_widget
 
     # attempt to configure DPI aware font size
-    screen = current_screen()
+    screen = chart_app.window.current_screen()
 
     # configure graphics update throttling based on display refresh rate
     global _clear_throttle_rate
@@ -1696,9 +1695,6 @@ async def _async_main(
         _clear_throttle_rate,
     )
     log.info(f'Set graphics update rate to {_clear_throttle_rate} Hz')
-
-    # configure global DPI aware font size
-    _config_fonts_to_screen()
 
     # TODO: do styling / themeing setup
     # _style.style_ze_sheets(chart_app)

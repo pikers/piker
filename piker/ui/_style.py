@@ -25,7 +25,6 @@ from PyQt5 import QtCore, QtGui
 from qdarkstyle import DarkPalette
 
 from ..log import get_logger
-from ._exec import current_screen
 
 log = get_logger(__name__)
 
@@ -69,13 +68,15 @@ class DpiAwareFont:
 
     @property
     def screen(self) -> QtGui.QScreen:
+        from ._window import main_window
+
         if self._screen is not None:
             try:
                 self._screen.refreshRate()
             except RuntimeError:
-                self._screen = current_screen()
+                self._screen = main_window().current_screen()
         else:
-            self._screen = current_screen()
+            self._screen = main_window().current_screen()
 
         return self._screen
 
@@ -151,6 +152,8 @@ _font_small = DpiAwareFont(font_size='small')
 
 
 def _config_fonts_to_screen() -> None:
+    'configure global DPI aware font sizes'
+
     global _font, _font_small
     _font.configure_to_dpi()
     _font_small.configure_to_dpi()
