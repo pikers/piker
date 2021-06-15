@@ -1515,9 +1515,14 @@ async def chart_symbol(
     brokermod = brokers.get_brokermod(provider)
 
     async with data.open_feed(
+
         provider,
         [sym],
         loglevel=loglevel,
+
+        # 60 FPS to limit context switches
+        tick_throttle=_clear_throttle_rate,
+
     ) as feed:
 
         ohlcv: ShmArray = feed.shm
