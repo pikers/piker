@@ -22,6 +22,10 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import pyqtgraph as pg
+from pyqtgraph import ViewBox, Point, QtCore, QtGui
+from pyqtgraph import functions as fn
+from PyQt5.QtCore import QPointF
+import numpy as np
 
 from ._style import hcolor, _font
 from ._graphics._lines import order_line, LevelLine
@@ -289,3 +293,166 @@ class LineEditor:
 
             line.delete()
             return line
+
+
+class SelectRect(QtGui.QGraphicsRectItem):
+
+    def __init__(
+        self,
+        viewbox: ViewBox,
+        color: str = 'dad_blue',
+    ) -> None:
+        super().__init__(0, 0, 1, 1)
+
+        # self.rbScaleBox = QtGui.QGraphicsRectItem(0, 0, 1, 1)
+        self.vb = viewbox
+        self._chart: 'ChartPlotWidget' = None  # noqa
+
+        # override selection box color
+        color = QtGui.QColor(hcolor(color))
+        self.setPen(fn.mkPen(color, width=1))
+        color.setAlpha(66)
+        self.setBrush(fn.mkBrush(color))
+        self.setZValue(1e9)
+        self.hide()
+        self._label = None
+
+        label = self._label = QtGui.QLabel()
+        label.setTextFormat(0)  # markdown
+        label.setFont(_font.font)
+        label.setMargin(0)
+        label.setAlignment(
+            QtCore.Qt.AlignLeft
+            # | QtCore.Qt.AlignVCenter
+        )
+
+        # proxy is created after containing scene is initialized
+        self._label_proxy = None
+        self._abs_top_right = None
+
+        # TODO: "swing %" might be handy here (data's max/min # % change)
+        self._contents = [
+            'change: {pchng:.2f} %',
+            'range: {rng:.2f}',
+            'bars: {nbars}',
+            'max: {dmx}',
+            'min: {dmn}',
+            # 'time: {nbars}m',  # TODO: compute this per bar size
+            'sigma: {std:.2f}',
+        ]
+
+    @property
+    def chart(self) -> 'ChartPlotWidget':  # noqa
+        return self._chart
+
+    @chart.setter
+    def chart(self, chart: 'ChartPlotWidget') -> None:  # noqa
+        self._chart = chart
+        chart.sigRangeChanged.connect(self.update_on_resize)
+        palette = self._label.palette()
+
+        # TODO: get bg color working
+        palette.setColor(
+            self._label.backgroundRole(),
+            # QtGui.QColor(chart.backgroundBrush()),
+            QtGui.QColor(hcolor('papas_special')),
+        )
+
+    def update_on_resize(self, vr, r):
+        """Re-position measure label on view range change.
+
+        """
+        if self._abs_top_right:
+            self._label_proxy.setPos(
+                self.vb.mapFromView(self._abs_top_right)
+            )
+
+    def mouse_drag_released(
+        self,
+        p1: QPointF,
+        p2: QPointF
+    ) -> None:
+        """Called on final button release for mouse drag with start and
+        end positions.
+
+        """
+        self.set_pos(p1, p2)
+
+    def set_pos(
+        self,
+        p1: QPointF,
+        p2: QPointF
+    ) -> None:
+        """Set position of selection rect and accompanying label, move
+        label to match.
+
+        """
+        if self._label_proxy is None:
+            # https://doc.qt.io/qt-5/qgraphicsproxywidget.html
+            self._label_proxy = self.vb.scene().addWidget(self._label)
+
+        start_pos = self.vb.mapToView(p1)
+        end_pos = self.vb.mapToView(p2)
+
+        # map to view coords and update area
+        r = QtCore.QRectF(start_pos, end_pos)
+
+        # old way; don't need right?
+        # lr = QtCore.QRectF(p1, p2)
+        # r = self.vb.childGroup.mapRectFromParent(lr)
+
+        self.setPos(r.topLeft())
+        self.resetTransform()
+        self.scale(r.width(), r.height())
+        self.show()
+
+        y1, y2 = start_pos.y(), end_pos.y()
+        x1, x2 = start_pos.x(), end_pos.x()
+
+        # TODO: heh, could probably use a max-min streamin algo here too
+        _, xmn = min(y1, y2), min(x1, x2)
+        ymx, xmx = max(y1, y2), max(x1, x2)
+
+        pchng = (y2 - y1) / y1 * 100
+        rng = abs(y1 - y2)
+
+        ixmn, ixmx = round(xmn), round(xmx)
+        nbars = ixmx - ixmn + 1
+
+        data = self._chart._ohlc[ixmn:ixmx]
+
+        if len(data):
+            std = data['close'].std()
+            dmx = data['high'].max()
+            dmn = data['low'].min()
+        else:
+            dmn = dmx = std = np.nan
+
+        # update label info
+        self._label.setText('\n'.join(self._contents).format(
+            pchng=pchng, rng=rng, nbars=nbars,
+            std=std, dmx=dmx, dmn=dmn,
+        ))
+
+        # print(f'x2, y2: {(x2, y2)}')
+        # print(f'xmn, ymn: {(xmn, ymx)}')
+
+        label_anchor = Point(xmx + 2, ymx)
+
+        # XXX: in the drag bottom-right -> top-left case we don't
+        # want the label to overlay the box.
+        # if (x2, y2) == (xmn, ymx):
+        #     # could do this too but needs to be added after coords transform
+        #     # label_anchor = Point(x2, y2 + self._label.height())
+        #     label_anchor = Point(xmn, ymn)
+
+        self._abs_top_right = label_anchor
+        self._label_proxy.setPos(self.vb.mapFromView(label_anchor))
+        # self._label.show()
+
+    def clear(self):
+        """Clear the selection box from view.
+
+        """
+        self._label.hide()
+        self.hide()
