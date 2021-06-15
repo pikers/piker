@@ -45,10 +45,6 @@ from ._graphics._cursor import (
     Cursor,
     ContentsLabel,
 )
-from ._graphics._lines import (
-    level_line,
-    order_line,
-)
 from ._l1 import L1Labels
 from ._graphics._ohlc import BarItems
 from ._graphics._curve import FastAppendCurve
@@ -951,6 +947,8 @@ async def test_bed(
     chart,
     lc,
 ):
+    from ._graphics._lines import order_line
+
     sleep = 6
 
     # from PyQt5.QtCore import QPointF
@@ -1410,6 +1408,7 @@ async def run_fsp(
         # graphics.curve.setFillLevel(50)
 
         if fsp_func_name == 'rsi':
+            from ._graphics._lines import level_line
             # add moveable over-[sold/bought] lines
             # and labels only for the 70/30 lines
             level_line(chart, 20)

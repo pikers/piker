@@ -30,7 +30,7 @@ import trio
 from pydantic import BaseModel
 
 from ._graphics._lines import LevelLine, position_line
-from ._interaction import LineEditor, ArrowEditor, _order_lines
+from ._editors import LineEditor, ArrowEditor, _order_lines
 from ..clearing._client import open_ems, OrderBook
 from ..data._source import Symbol
 from ..log import get_logger
@@ -275,7 +275,7 @@ async def open_order_mode(
     book: OrderBook,
 ):
     view = chart._vb
-    lines = LineEditor(view=view, chart=chart, _order_lines=_order_lines)
+    lines = LineEditor(chart=chart, _order_lines=_order_lines)
     arrows = ArrowEditor(chart, {})
 
     log.info("Opening order mode")
