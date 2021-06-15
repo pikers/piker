@@ -38,7 +38,7 @@ class Axis(pg.AxisItem):
     """
     def __init__(
         self,
-        linked_charts,
+        linkedsplits,
         typical_max_str: str = '100 000.000',
         min_tick: int = 2,
         **kwargs
@@ -49,7 +49,7 @@ class Axis(pg.AxisItem):
         # XXX: pretty sure this makes things slower
         # self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
 
-        self.linked_charts = linked_charts
+        self.linkedsplits = linkedsplits
         self._min_tick = min_tick
         self._dpi_font = _font
 
@@ -132,9 +132,9 @@ class DynamicDateAxis(Axis):
     ) -> List[str]:
 
         # try:
-        chart = self.linked_charts.chart
+        chart = self.linkedsplits.chart
         bars = chart._ohlc
-        shm = self.linked_charts.chart._shm
+        shm = self.linkedsplits.chart._shm
         first = shm._first.value
 
         bars_len = len(bars)

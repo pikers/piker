@@ -203,7 +203,7 @@ class Cursor(pg.GraphicsObject):
 
     def __init__(
         self,
-        linkedsplitcharts: 'LinkedSplitCharts',  # noqa
+        linkedsplits: 'LinkedSplits',  # noqa
         digits: int = 0
     ) -> None:
         super().__init__()
@@ -217,7 +217,7 @@ class Cursor(pg.GraphicsObject):
             color=hcolor('davies'),
             style=QtCore.Qt.DashLine,
         )
-        self.lsc = linkedsplitcharts
+        self.lsc = linkedsplits
         self.graphics: Dict[str, pg.GraphicsObject] = {}
         self.plots: List['PlotChartWidget'] = []  # type: ignore # noqa
         self.active_plot = None
