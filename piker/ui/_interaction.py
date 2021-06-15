@@ -18,14 +18,17 @@
 Chart view box primitives
 
 """
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Optional, Dict
 
 import pyqtgraph as pg
-from PyQt5.QtCore import QPointF
+from PyQt5.QtCore import QPointF, Qt
+from PyQt5.QtCore import QEvent
 from pyqtgraph import ViewBox, Point, QtCore, QtGui
 from pyqtgraph import functions as fn
 import numpy as np
+import trio
 
 from ..log import get_logger
 from ._style import _min_points_to_show, hcolor, _font
@@ -457,8 +460,28 @@ class ArrowEditor:
         self.chart.plotItem.removeItem(arrow)
 
 
+async def handle_viewmode_inputs(
+
+    view: 'ChartView',
+    recv_chan: trio.abc.ReceiveChannel,
+
+) -> None:
+
+    async for event, etype, key, mods, text in recv_chan:
+        log.debug(f'key: {key}, mods: {mods}, text: {text}')
+
+        if etype in {QEvent.KeyPress}:
+
+            await view.on_key_press(text, key, mods)
+
+        elif etype in {QEvent.KeyRelease}:
+
+            await view.on_key_release(text, key, mods)
+
+
 class ChartView(ViewBox):
-    """Price chart view box with interaction behaviors you'd expect from
+    '''
+    Price chart view box with interaction behaviors you'd expect from
     any interactive platform:
 
         - zoom on mouse scroll that auto fits y-axis
@@ -466,23 +489,30 @@ class ChartView(ViewBox):
         - zoom on x to most recent in view datum
         - zoom on right-click-n-drag to cursor position
 
-    """
-
+    '''
     mode_name: str = 'mode: view'
 
     def __init__(
+
         self,
+        name: str,
         parent: pg.PlotItem = None,
         **kwargs,
+
     ):
         super().__init__(parent=parent, **kwargs)
+
         # disable vertical scrolling
         self.setMouseEnabled(x=True, y=False)
-        self.linked_charts = None
-        self.select_box = SelectRect(self)
-        self.addItem(self.select_box, ignoreBounds=True)
+
+        self.linkedsplits = None
         self._chart: 'ChartPlotWidget' = None  # noqa
 
+        # add our selection box annotator
+        self.select_box = SelectRect(self)
+        self.addItem(self.select_box, ignoreBounds=True)
+
+        self.name = name
         self.mode = None
 
         # kb ctrls processing
@@ -490,6 +520,19 @@ class ChartView(ViewBox):
         self._key_active: bool = False
 
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
+
+    @asynccontextmanager
+    async def open_async_input_handler(
+        self,
+    ) -> 'ChartView':
+        from . import _event
+
+        async with _event.open_handler(
+            self,
+            event_types={QEvent.KeyPress, QEvent.KeyRelease},
+            async_handler=handle_viewmode_inputs,
+        ):
+            yield self
 
     @property
     def chart(self) -> 'ChartPlotWidget':  # type: ignore # noqa
@@ -501,21 +544,21 @@ class ChartView(ViewBox):
         self.select_box.chart = chart
 
     def wheelEvent(self, ev, axis=None):
-        """Override "center-point" location for scrolling.
+        '''Override "center-point" location for scrolling.
 
         This is an override of the ``ViewBox`` method simply changing
         the center of the zoom to be the y-axis.
 
         TODO: PR a method into ``pyqtgraph`` to make this configurable
-        """
 
+        '''
         if axis in (0, 1):
             mask = [False, False]
             mask[axis] = self.state['mouseEnabled'][axis]
         else:
             mask = self.state['mouseEnabled'][:]
 
-        chart = self.linked_charts.chart
+        chart = self.linkedsplits.chart
 
         # don't zoom more then the min points setting
         l, lbar, rbar, r = chart.bars_range()
@@ -573,7 +616,6 @@ class ChartView(ViewBox):
             end_of_l1,
             key=lambda p: p.x()
         )
-        # breakpoint()
         # focal = pg.Point(last_bar.x() + end_of_l1)
 
         self._resetTarget()
@@ -697,22 +739,26 @@ class ChartView(ViewBox):
                 ev.accept()
                 self.mode.submit_exec()
 
-    def keyReleaseEvent(self, ev: QtCore.QEvent):
+    # def keyReleaseEvent(self, ev: QtCore.QEvent):
+    def keyReleaseEvent(self, event: QtCore.QEvent) -> None:
+        '''This routine is rerouted to an async handler.
+        '''
+        pass
+
+    async def on_key_release(
+
+        self,
+
+        text: str,
+        key: int,  # 3-digit
+        mods: int,  # 7-digit
+
+    ) -> None:
         """
         Key release to normally to trigger release of input mode
 
         """
-        # TODO: is there a global setting for this?
-        if ev.isAutoRepeat():
-            ev.ignore()
-            return
-
-        ev.accept()
-        # text = ev.text()
-        key = ev.key()
-        mods = ev.modifiers()
-
-        if key == QtCore.Qt.Key_Shift:
+        if key == Qt.Key_Shift:
             # if self.state['mouseMode'] == ViewBox.RectMode:
             self.setMouseMode(ViewBox.PanMode)
 
@@ -722,39 +768,37 @@ class ChartView(ViewBox):
 
         # if self.state['mouseMode'] == ViewBox.RectMode:
         # if key == QtCore.Qt.Key_Space:
-        if mods == QtCore.Qt.ControlModifier or key == QtCore.Qt.Key_Control:
+        if mods == Qt.ControlModifier or key == QtCore.Qt.Key_Control:
             self.mode._exec_mode = 'dark'
 
-        if key in {QtCore.Qt.Key_A, QtCore.Qt.Key_F, QtCore.Qt.Key_D}:
+        if key in {Qt.Key_A, Qt.Key_F, Qt.Key_D}:
             # remove "staged" level line under cursor position
             self.mode.lines.unstage_line()
 
         self._key_active = False
 
-    def keyPressEvent(self, ev: QtCore.QEvent) -> None:
-        """
-        This routine should capture key presses in the current view box.
+    def keyPressEvent(self, event: QtCore.QEvent) -> None:
+        '''This routine is rerouted to an async handler.
+        '''
+        pass
 
-        """
-        # TODO: is there a global setting for this?
-        if ev.isAutoRepeat():
-            ev.ignore()
-            return
+    async def on_key_press(
 
-        ev.accept()
-        text = ev.text()
-        key = ev.key()
-        mods = ev.modifiers()
+        self,
 
-        print(f'text: {text}, key: {key}')
+        text: str,
+        key: int,  # 3-digit
+        mods: int,  # 7-digit
 
-        if mods == QtCore.Qt.ShiftModifier:
+    ) -> None:
+
+        if mods == Qt.ShiftModifier:
             if self.state['mouseMode'] == ViewBox.PanMode:
                 self.setMouseMode(ViewBox.RectMode)
 
         # ctrl
         ctrl = False
-        if mods == QtCore.Qt.ControlModifier:
+        if mods == Qt.ControlModifier:
             ctrl = True
             self.mode._exec_mode = 'live'
 
@@ -767,20 +811,20 @@ class ChartView(ViewBox):
 
         # ctlr-<space>/<l> for "lookup", "search" -> open search tree
         if ctrl and key in {
-            QtCore.Qt.Key_L,
-            QtCore.Qt.Key_Space,
+            Qt.Key_L,
+            Qt.Key_Space,
         }:
-            search = self._chart._lc.chart_space.search
+            search = self._chart._lc.godwidget.search
             search.focus()
 
         # esc
-        if key == QtCore.Qt.Key_Escape or (ctrl and key == QtCore.Qt.Key_C):
+        if key == Qt.Key_Escape or (ctrl and key == Qt.Key_C):
             # ctrl-c as cancel
             # https://forum.qt.io/topic/532/how-to-catch-ctrl-c-on-a-widget/9
             self.select_box.clear()
 
         # cancel order or clear graphics
-        if key == QtCore.Qt.Key_C or key == QtCore.Qt.Key_Delete:
+        if key == Qt.Key_C or key == Qt.Key_Delete:
             # delete any lines under the cursor
             mode = self.mode
             for line in mode.lines.lines_under_cursor():
@@ -789,18 +833,18 @@ class ChartView(ViewBox):
         self._key_buffer.append(text)
 
         # View modes
-        if key == QtCore.Qt.Key_R:
+        if key == Qt.Key_R:
             self.chart.default_view()
 
         # Order modes: stage orders at the current cursor level
 
-        elif key == QtCore.Qt.Key_D:  # for "damp eet"
+        elif key == Qt.Key_D:  # for "damp eet"
             self.mode.set_exec('sell')
 
-        elif key == QtCore.Qt.Key_F:  # for "fillz eet"
+        elif key == Qt.Key_F:  # for "fillz eet"
             self.mode.set_exec('buy')
 
-        elif key == QtCore.Qt.Key_A:
+        elif key == Qt.Key_A:
             self.mode.set_exec('alert')
 
         # XXX: Leaving this for light reference purposes, there
@@ -808,7 +852,7 @@ class ChartView(ViewBox):
 
         # Key presses are used only when mouse mode is RectMode
         # The following events are implemented:
-        # ctrl-A : zooms out to the default "full" view of the plot
+        # ctrl-A : zooms out to the default "full" self of the plot
         # ctrl-+ : moves forward in the zooming stack (if it exists)
         # ctrl-- : moves backward in the zooming stack (if it exists)
 
@@ -819,5 +863,5 @@ class ChartView(ViewBox):
         #     self.scaleHistory(len(self.axHistory))
         else:
             # maybe propagate to parent widget
-            ev.ignore()
+            # event.ignore()
             self._key_active = False
