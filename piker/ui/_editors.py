@@ -122,6 +122,8 @@ class LineEditor:
 
         """
         # chart.setCursor(QtCore.Qt.PointingHandCursor)
+        if not self.chart._cursor:
+            return None
 
         chart = self.chart._cursor.active_plot
         cursor = chart._cursor
