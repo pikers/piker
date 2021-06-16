@@ -116,7 +116,6 @@ class GodWidget(QtGui.QWidget):
 
         # assigned in the startup func `_async_main()`
         self._root_n: trio.Nursery = None
-        self._task_stack: AsyncExitStack = None
 
     def set_chart_symbol(
         self,
@@ -1748,13 +1747,11 @@ async def _async_main(
 
     async with (
         trio.open_nursery() as root_n,
-        AsyncExitStack() as chart_task_stack,
     ):
 
         # set root nursery and task stack for spawning other charts/feeds
         # that run cached in the bg
         godwidget._root_n = root_n
-        godwidget._task_stack = chart_task_stack
 
         # setup search widget and focus main chart view at startup
         search = _search.SearchWidget(godwidget=godwidget)
