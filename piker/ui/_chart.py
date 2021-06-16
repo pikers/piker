@@ -158,18 +158,20 @@ class GodWidget(QtGui.QWidget):
     #     self.toolbar_layout.addWidget(self.strategy_box)
 
     def load_symbol(
+
         self,
         providername: str,
         symbol_key: str,
         loglevel: str,
         ohlc: bool = True,
         reset: bool = False,
-    ) -> None:
-        """Load a new contract into the charting app.
+
+    ) -> trio.Event:
+        '''Load a new contract into the charting app.
 
         Expects a ``numpy`` structured array containing all the ohlcv fields.
 
-        """
+        '''
         # our symbol key style is always lower case
         symbol_key = symbol_key.lower()
 
@@ -177,6 +179,8 @@ class GodWidget(QtGui.QWidget):
         fqsn = '.'.join([symbol_key, providername])
 
         linkedsplits = self.get_chart_symbol(fqsn)
+
+        order_mode_started = trio.Event()
 
         if not self.vbox.isEmpty():
             # XXX: this is CRITICAL especially with pixel buffer caching
@@ -200,9 +204,14 @@ class GodWidget(QtGui.QWidget):
                 providername,
                 symbol_key,
                 loglevel,
+                order_mode_started,
             )
 
             self.set_chart_symbol(fqsn, linkedsplits)
+
+        else:
+            # symbol is already loaded and ems ready
+            order_mode_started.set()
 
         self.vbox.addWidget(linkedsplits)
 
@@ -222,6 +231,8 @@ class GodWidget(QtGui.QWidget):
                 f'{symbol.key}@{symbol.brokers} '
                 f'tick:{symbol.tick_size}'
             )
+
+        return order_mode_started
 
 
 class LinkedSplits(QtGui.QWidget):
@@ -1527,6 +1538,8 @@ async def display_symbol_data(
     sym: str,
     loglevel: str,
 
+    order_mode_started: trio.Event,
+
 ) -> None:
     '''Spawn a real-time displayed and updated chart for provider symbol.
 
@@ -1623,7 +1636,6 @@ async def display_symbol_data(
                 },
             })
 
-
         # load initial fsp chain (otherwise known as "indicators")
         n.start_soon(
             spawn_fsps,
@@ -1644,6 +1656,7 @@ async def display_symbol_data(
             wap_in_history,
         )
 
+        # TODO: instead we should start based on instrument trading hours?
         # wait for a first quote before we start any update tasks
         # quote = await feed.receive()
         # log.info(f'Received first quote {quote}')
@@ -1651,24 +1664,11 @@ async def display_symbol_data(
         n.start_soon(
             check_for_new_bars,
             feed,
-            # delay,
             ohlcv,
             linkedsplits
         )
 
-        # interactive testing
-        # n.start_soon(
-        #     test_bed,
-        #     ohlcv,
-        #     chart,
-        #     linkedsplits,
-        # )
-
-        # start async input handling for chart's view
-        # await godwidget._task_stack.enter_async_context(
-        async with chart._vb.open_async_input_handler():
-
-            await start_order_mode(chart, symbol, provider)
+        await start_order_mode(chart, symbol, provider, order_mode_started)
 
 
 async def load_providers(
@@ -1773,7 +1773,7 @@ async def _async_main(
         symbol, _, provider = sym.rpartition('.')
 
         # this internally starts a ``display_symbol_data()`` task above
-        godwidget.load_symbol(provider, symbol, loglevel)
+        order_mode_ready = godwidget.load_symbol(provider, symbol, loglevel)
 
         # spin up a search engine for the local cached symbol set
         async with _search.register_symbol_search(
@@ -1790,6 +1790,8 @@ async def _async_main(
             # load other providers into search **after**
             # the chart's select cache
             root_n.start_soon(load_providers, brokernames, loglevel)
+
+            await order_mode_ready.wait()
 
             # start handling search bar kb inputs
             async with (
