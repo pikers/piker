@@ -105,20 +105,6 @@ async def handle_viewmode_inputs(
             elif key == Qt.Key_A:
                 view.mode.set_exec('alert')
 
-            # XXX: Leaving this for light reference purposes, there
-            # seems to be some work to at least gawk at for history mgmt.
-
-            # Key presses are used only when mouse mode is RectMode
-            # The following events are implemented:
-            # ctrl-A : zooms out to the default "full" view of the plot
-            # ctrl-+ : moves forward in the zooming stack (if it exists)
-            # ctrl-- : moves backward in the zooming stack (if it exists)
-
-            #     view.scaleHistory(-1)
-            # elif ev.text() in ['+', '=']:
-            #     view.scaleHistory(1)
-            # elif ev.key() == QtCore.Qt.Key_Backspace:
-            #     view.scaleHistory(len(view.axHistory))
             else:
                 # maybe propagate to parent widget
                 # event.ignore()
