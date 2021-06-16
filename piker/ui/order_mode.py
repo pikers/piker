@@ -118,7 +118,9 @@ class OrderMode:
 
             color=self._colors[action],
             # hl_on_hover=True if self._exec_mode == 'live' else False,
-            dotted=True if self._exec_mode == 'dark' else False,
+            dotted=True if (
+                self._exec_mode == 'dark' and action != 'alert'
+            ) else False,
             size=size or self._size,
             action=action,
         )
