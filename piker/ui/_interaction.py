@@ -43,39 +43,44 @@ async def handle_viewmode_inputs(
 
 ) -> None:
 
+    # track edge triggered keys
+    # (https://en.wikipedia.org/wiki/Interrupt#Triggering_methods)
+    pressed: set[str] = set()
+
     async for event, etype, key, mods, text in recv_chan:
         log.debug(f'key: {key}, mods: {mods}, text: {text}')
 
+        # reset mods
+        ctrl: bool = False
+        alt: bool = False
+        shift: bool = False
+
+        # press branch
         if etype in {QEvent.KeyPress}:
 
-            # await view.on_key_press(text, key, mods)
+            pressed.add(key)
 
+            # mods run through
             if mods == Qt.ShiftModifier:
-                if view.state['mouseMode'] == ViewBox.PanMode:
-                    view.setMouseMode(ViewBox.RectMode)
+                shift = True
 
-            # ctrl
-            ctrl = False
             if mods == Qt.ControlModifier:
                 ctrl = True
-                view.mode._exec_mode = 'live'
 
-            view._key_active = True
-
-            # ctrl + alt
-            # ctlalt = False
-            # if (QtCore.Qt.AltModifier | QtCore.Qt.ControlModifier) == mods:
-            #     ctlalt = True
+            if QtCore.Qt.AltModifier == mods:
+                alt = True
 
             # ctlr-<space>/<l> for "lookup", "search" -> open search tree
-            if ctrl and key in {
-                Qt.Key_L,
-                Qt.Key_Space,
-            }:
+            if (
+                ctrl and key in {
+                    Qt.Key_L,
+                    Qt.Key_Space,
+                }
+            ):
                 search = view._chart._lc.godwidget.search
                 search.focus()
 
-            # esc
+            # esc and ctrl-c
             if key == Qt.Key_Escape or (ctrl and key == Qt.Key_C):
                 # ctrl-c as cancel
                 # https://forum.qt.io/topic/532/how-to-catch-ctrl-c-on-a-widget/9
@@ -83,53 +88,65 @@ async def handle_viewmode_inputs(
 
             # cancel order or clear graphics
             if key == Qt.Key_C or key == Qt.Key_Delete:
+
                 # delete any lines under the cursor
                 mode = view.mode
                 for line in mode.lines.lines_under_cursor():
                     mode.book.cancel(uuid=line.oid)
 
-            view._key_buffer.append(text)
-
             # View modes
             if key == Qt.Key_R:
+
+                # edge triggered default view activation
                 view.chart.default_view()
 
-            # Order modes: stage orders at the current cursor level
-
-            elif key == Qt.Key_D:  # for "damp eet"
-                view.mode.set_exec('sell')
-
-            elif key == Qt.Key_F:  # for "fillz eet"
-                view.mode.set_exec('buy')
-
-            elif key == Qt.Key_A:
-                view.mode.set_exec('alert')
-
-            else:
-                # maybe propagate to parent widget
-                # event.ignore()
-                view._key_active = False
-
+        # release branch
         elif etype in {QEvent.KeyRelease}:
 
-            # await view.on_key_release(text, key, mods)
-            if key == Qt.Key_Shift:
-                # if view.state['mouseMode'] == ViewBox.RectMode:
-                view.setMouseMode(ViewBox.PanMode)
+            if key in pressed:
+                pressed.remove(key)
 
-            # ctlalt = False
-            # if (QtCore.Qt.AltModifier | QtCore.Qt.ControlModifier) == mods:
-            #     ctlalt = True
+        # selection mode
 
+        if shift:
+            if view.state['mouseMode'] == ViewBox.PanMode:
+                view.setMouseMode(ViewBox.RectMode)
+        else:
             # if view.state['mouseMode'] == ViewBox.RectMode:
-            # if key == QtCore.Qt.Key_Space:
-            if mods == Qt.ControlModifier or key == QtCore.Qt.Key_Control:
-                view.mode._exec_mode = 'dark'
+            view.setMouseMode(ViewBox.PanMode)
 
-            if key in {Qt.Key_A, Qt.Key_F, Qt.Key_D}:
-                # remove "staged" level line under cursor position
-                view.mode.lines.unstage_line()
+        # order mode live vs. dark trigger
 
+        # 's' or ctrl to activate "live" submissions
+        if (
+            Qt.Key_S in pressed or
+            ctrl
+        ):
+            view.mode._exec_mode = 'live'
+        else:
+            view.mode._exec_mode = 'dark'
+
+        order_keys_pressed = {Qt.Key_A, Qt.Key_F, Qt.Key_D}.intersection(pressed)
+
+        # order mode "action"
+
+        if order_keys_pressed:
+            view._key_active = True
+
+            # order mode trigger "actions"
+            if Qt.Key_D in pressed:  # for "damp eet"
+                view.mode.set_exec('sell')
+
+            elif Qt.Key_F in pressed:  # for "fillz eet"
+                view.mode.set_exec('buy')
+
+            elif Qt.Key_A in pressed:
+                view.mode.set_exec('alert')
+
+        else:  # none active
+            # if none are pressed, remove "staged" level
+            # line under cursor position
+            view.mode.lines.unstage_line()
             view._key_active = False
 
 
@@ -168,10 +185,6 @@ class ChartView(ViewBox):
 
         self.name = name
         self.mode = None
-
-        # kb ctrls processing
-        self._key_buffer = []
-        self._key_active: bool = False
 
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
 
