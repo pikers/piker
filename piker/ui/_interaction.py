@@ -19,7 +19,8 @@ Chart view box primitives
 
 """
 from contextlib import asynccontextmanager
-from typing import Optional
+import time
+from typing import Optional, Callable
 
 import pyqtgraph as pg
 from PyQt5.QtCore import Qt, QEvent
@@ -31,6 +32,7 @@ import trio
 from ..log import get_logger
 from ._style import _min_points_to_show
 from ._editors import SelectRect
+from ._window import main_window
 
 
 log = get_logger(__name__)
@@ -43,22 +45,61 @@ async def handle_viewmode_inputs(
 
 ) -> None:
 
+    mode = view.mode
+    status_bar = main_window().status_bar
+
     # track edge triggered keys
     # (https://en.wikipedia.org/wiki/Interrupt#Triggering_methods)
     pressed: set[str] = set()
 
+    last = time.time()
+    trigger_mode: str
+    action: str
+
+    # for quick key sequence-combo pattern matching
+    # we have a min_tap period and these should not
+    # ever be auto-repeats since we filter those at the
+    # event filter level prior to the above mem chan.
+    min_tap = 1/6
+    fast_key_seq: list[str] = []
+    fast_taps: dict[str, Callable] = {
+        'cc': mode.cancel_all_orders,
+    }
+
     async for event, etype, key, mods, text in recv_chan:
         log.debug(f'key: {key}, mods: {mods}, text: {text}')
+        now = time.time()
+        period = now - last
 
         # reset mods
         ctrl: bool = False
-        alt: bool = False
         shift: bool = False
 
         # press branch
         if etype in {QEvent.KeyPress}:
 
             pressed.add(key)
+
+            if (
+                # clear any old values not part of a "fast" tap sequence:
+                # presumes the period since last tap is longer then our
+                # min_tap period
+                fast_key_seq and period >= min_tap or
+
+                # don't support more then 2 key sequences for now
+                len(fast_key_seq) > 2
+            ):
+                fast_key_seq.clear()
+
+            # capture key to fast tap sequence if we either
+            # have no previous keys or we do and the min_tap period is
+            # met
+            if (
+                not fast_key_seq or
+                period <= min_tap and fast_key_seq
+            ):
+                fast_key_seq.append(text)
+                log.debug(f'fast keys seqs {fast_key_seq}')
 
             # mods run through
             if mods == Qt.ShiftModifier:
@@ -67,9 +108,7 @@ async def handle_viewmode_inputs(
             if mods == Qt.ControlModifier:
                 ctrl = True
 
-            if QtCore.Qt.AltModifier == mods:
-                alt = True
-
+            # SEARCH MODE #
             # ctlr-<space>/<l> for "lookup", "search" -> open search tree
             if (
                 ctrl and key in {
@@ -77,8 +116,7 @@ async def handle_viewmode_inputs(
                     Qt.Key_Space,
                 }
             ):
-                search = view._chart._lc.godwidget.search
-                search.focus()
+                view._chart._lc.godwidget.search.focus()
 
             # esc and ctrl-c
             if key == Qt.Key_Escape or (ctrl and key == Qt.Key_C):
@@ -89,10 +127,7 @@ async def handle_viewmode_inputs(
             # cancel order or clear graphics
             if key == Qt.Key_C or key == Qt.Key_Delete:
 
-                # delete any lines under the cursor
-                mode = view.mode
-                for line in mode.lines.lines_under_cursor():
-                    mode.book.cancel(uuid=line.oid)
+                mode.cancel_orders_under_cursor()
 
             # View modes
             if key == Qt.Key_R:
@@ -100,54 +135,80 @@ async def handle_viewmode_inputs(
                 # edge triggered default view activation
                 view.chart.default_view()
 
+            if len(fast_key_seq) > 1:
+                # begin matches against sequences
+                func: Callable = fast_taps.get(''.join(fast_key_seq))
+                if func:
+                    func()
+                    fast_key_seq.clear()
+
         # release branch
         elif etype in {QEvent.KeyRelease}:
 
             if key in pressed:
                 pressed.remove(key)
 
-        # selection mode
+        # SELECTION MODE #
 
         if shift:
             if view.state['mouseMode'] == ViewBox.PanMode:
                 view.setMouseMode(ViewBox.RectMode)
         else:
-            # if view.state['mouseMode'] == ViewBox.RectMode:
             view.setMouseMode(ViewBox.PanMode)
 
-        # order mode live vs. dark trigger
+        # ORDER MODE #
+        # live vs. dark trigger + an action {buy, sell, alert}
 
-        # 's' or ctrl to activate "live" submissions
-        if (
-            Qt.Key_S in pressed or
-            ctrl
-        ):
-            view.mode._exec_mode = 'live'
-        else:
-            view.mode._exec_mode = 'dark'
-
-        order_keys_pressed = {Qt.Key_A, Qt.Key_F, Qt.Key_D}.intersection(pressed)
-
-        # order mode "action"
+        order_keys_pressed = {
+            Qt.Key_A,
+            Qt.Key_F,
+            Qt.Key_D
+        }.intersection(pressed)
 
         if order_keys_pressed:
-            view._key_active = True
+            if (
+                # 's' for "submit" to activate "live" order
+                Qt.Key_S in pressed or
+                ctrl
+            ):
+                trigger_mode: str = 'live'
+
+            else:
+                trigger_mode: str = 'dark'
 
             # order mode trigger "actions"
             if Qt.Key_D in pressed:  # for "damp eet"
-                view.mode.set_exec('sell')
+                action = 'sell'
 
             elif Qt.Key_F in pressed:  # for "fillz eet"
-                view.mode.set_exec('buy')
+                action = 'buy'
 
             elif Qt.Key_A in pressed:
-                view.mode.set_exec('alert')
+                action = 'alert'
+                trigger_mode = 'live'
+
+            view.order_mode = True
+
+            # XXX: order matters here for line style!
+            view.mode._exec_mode = trigger_mode
+            view.mode.set_exec(action)
+
+            prefix = trigger_mode + '-' if action != 'alert' else ''
+            view._chart.window().mode_label.setText(
+                f'mode: {prefix}{action}')
 
         else:  # none active
             # if none are pressed, remove "staged" level
             # line under cursor position
             view.mode.lines.unstage_line()
-            view._key_active = False
+
+            if view.hasFocus():
+                # update mode label
+                view._chart.window().mode_label.setText('mode: view')
+
+            view.order_mode = False
+
+        last = time.time()
 
 
 class ChartView(ViewBox):
@@ -185,6 +246,7 @@ class ChartView(ViewBox):
 
         self.name = name
         self.mode = None
+        self.order_mode: bool = False
 
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
 
@@ -402,7 +464,7 @@ class ChartView(ViewBox):
 
         elif button == QtCore.Qt.LeftButton:
             # when in order mode, submit execution
-            if self._key_active:
+            if self.order_mode:
                 ev.accept()
                 self.mode.submit_exec()
 
