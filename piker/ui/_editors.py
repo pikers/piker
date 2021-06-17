@@ -95,12 +95,9 @@ _order_lines: dict[str, LevelLine] = {}
 
 @dataclass
 class LineEditor:
-    """The great editor of linez..
+    '''The great editor of linez.
 
-    """
-    # TODO: drop this?
-    # view: 'ChartView'
-
+    '''
     _order_lines: field(default_factory=_order_lines)
     chart: 'ChartPlotWidget' = None  # type: ignore # noqa
     _active_staged_line: LevelLine = None
@@ -259,12 +256,15 @@ class LineEditor:
 
             return line
 
-    def lines_under_cursor(self):
+    def lines_under_cursor(self) -> list[LevelLine]:
         """Get the line(s) under the cursor position.
 
         """
         # Delete any hoverable under the cursor
         return self.chart._cursor._hovered
+
+    def all_lines(self) -> tuple[LevelLine]:
+        return tuple(self._order_lines.values())
 
     def remove_line(
         self,
