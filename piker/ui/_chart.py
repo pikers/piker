@@ -1245,10 +1245,11 @@ async def spawn_fsps(
 
     linkedsplits: LinkedSplits,
     fsps: Dict[str, str],
-    sym,
-    src_shm,
-    brokermod,
-    loglevel,
+    sym: str,
+    src_shm: list,
+    brokermod: ModuleType,
+    group_status_key: str,
+    loglevel: str,
 
 ) -> None:
     """Start financial signal processing in subactor.
@@ -1311,6 +1312,7 @@ async def spawn_fsps(
                     fsp_func_name,
                     display_name,
                     conf,
+                    group_status_key,
                 )
 
         # blocks here until all fsp actors complete
@@ -1326,6 +1328,7 @@ async def run_fsp(
     fsp_func_name: str,
     display_name: str,
     conf: Dict[str, Any],
+    group_status_key: str,
 
 ) -> None:
     """FSP stream chart update loop.
@@ -1334,7 +1337,9 @@ async def run_fsp(
     config map.
     """
     done = linkedsplits.window().status_bar.open_status(
-        f'loading FSP: {display_name}..')
+        f'loading {display_name}..',
+        group_key=group_status_key,
+    )
 
     async with portal.open_stream_from(
 
@@ -1548,7 +1553,10 @@ async def display_symbol_data(
 
     '''
     sbar = godwidget.window.status_bar
-    loading_sym_done = sbar.open_status(f'loading {sym}.{provider}..')
+    loading_sym_key = sbar.open_status(
+        f'loading {sym}.{provider} -> ',
+        group_key=True
+    )
 
     # historical data fetch
     brokermod = brokers.get_brokermod(provider)
@@ -1597,8 +1605,6 @@ async def display_symbol_data(
                     add_label=False,
                 )
 
-        loading_sym_done()
-
         # size view to data once at outset
         chart._set_yrange()
 
@@ -1643,6 +1649,7 @@ async def display_symbol_data(
             sym,
             ohlcv,
             brokermod,
+            loading_sym_key,
             loglevel,
         )
 
@@ -1743,7 +1750,7 @@ async def _async_main(
     # _style.style_ze_sheets(godwidget)
 
     sbar = godwidget.window.status_bar
-    starting_done = sbar.open_status('starting ze chartz...')
+    starting_done = sbar.open_status('starting ze sexy chartz')
 
     async with (
         trio.open_nursery() as root_n,
