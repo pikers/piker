@@ -30,7 +30,7 @@ from pydantic import BaseModel
 import trio
 
 from ._graphics._lines import LevelLine, position_line
-from ._editors import LineEditor, ArrowEditor, _order_lines
+from ._editors import LineEditor, ArrowEditor
 from ._window import MultiStatus, main_window
 from ..clearing._client import open_ems, OrderBook
 from ..data._source import Symbol
@@ -54,6 +54,8 @@ class OrderMode:
     This is the default mode that pairs with "follow mode"
     (when wathing the rt price update at the current time step)
     and allows entering orders using mouse and keyboard.
+    This object is chart oriented, so there is an instance per
+    chart / view currently.
 
     Current manual:
         a -> alert
@@ -70,6 +72,7 @@ class OrderMode:
     lines: LineEditor
     arrows: ArrowEditor
     status_bar: MultiStatus
+    name: str = 'order'
 
     _colors = {
         'alert': 'alert_yellow',
@@ -290,6 +293,9 @@ class OrderMode:
         )
 
     def cancel_all_orders(self) -> list[str]:
+        '''Cancel all orders for the current chart.
+
+        '''
         return self.cancel_orders_from_lines(
             self.lines.all_lines()
         )
@@ -355,7 +361,7 @@ async def open_order_mode(
 ):
     status_bar: MultiStatus = main_window().status_bar
     view = chart._vb
-    lines = LineEditor(chart=chart, _order_lines=_order_lines)
+    lines = LineEditor(chart=chart)
     arrows = ArrowEditor(chart, {})
 
     log.info("Opening order mode")
@@ -400,7 +406,7 @@ async def start_order_mode(
       - begin order handling loop
 
     '''
-    done = chart.window().status_bar.open_status('Starting order mode...')
+    done = chart.window().status_bar.open_status('starting order mode..')
 
     # spawn EMS actor-service
     async with (

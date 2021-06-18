@@ -1554,12 +1554,18 @@ async def display_symbol_data(
     '''
     sbar = godwidget.window.status_bar
     loading_sym_key = sbar.open_status(
-        f'loading {sym}.{provider} -> ',
+        f'loading {sym}.{provider} ->',
         group_key=True
     )
 
     # historical data fetch
     brokermod = brokers.get_brokermod(provider)
+
+    # ohlc_status_done = sbar.open_status(
+    #     'retreiving OHLC history.. ',
+    #     clear_on_next=True,
+    #     group_key=loading_sym_key,
+    # )
 
     async with(
 

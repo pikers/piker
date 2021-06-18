@@ -86,22 +86,14 @@ class ArrowEditor:
         self.chart.plotItem.removeItem(arrow)
 
 
-# global store of order-lines graphics
-# keyed by uuid4 strs - used to sync draw
-# order lines **after** the order is 100%
-# active in emsd
-_order_lines: dict[str, LevelLine] = {}
-
-
 @dataclass
 class LineEditor:
     '''The great editor of linez.
 
     '''
-    _order_lines: field(default_factory=_order_lines)
     chart: 'ChartPlotWidget' = None  # type: ignore # noqa
+    _order_lines: dict[str, LevelLine] = field(default_factory=dict)
     _active_staged_line: LevelLine = None
-    _stage_line: LevelLine = None
 
     def stage_line(
         self,
@@ -128,8 +120,6 @@ class LineEditor:
 
         symbol = chart._lc.symbol
 
-        # line = self._stage_line
-        # if not line:
         # add a "staged" cursor-tracking line to view
         # and cash it in a a var
         if self._active_staged_line:
