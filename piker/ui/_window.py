@@ -43,7 +43,6 @@ class MultiStatus:
     def __init__(self, bar, statuses) -> None:
         self.bar = bar
         self.statuses = statuses
-        # self._clear_last: Optional[Callable[..., None]] = None
         self._to_clear: set = set()
         self._status_groups: dict[str, (set, Callable)] = {}
 
@@ -60,9 +59,9 @@ class MultiStatus:
         when called will remove the status ``msg``.
 
         '''
-        for msg in self._to_clear:
+        for old_msg in self._to_clear:
             try:
-                self.statuses.remove(msg)
+                self.statuses.remove(old_msg)
             except ValueError:
                 pass
 
@@ -71,15 +70,15 @@ class MultiStatus:
         def remove_msg() -> None:
             try:
                 self.statuses.remove(msg)
-                self.render()
             except ValueError:
                 pass
+
+            self.render()
 
             if final_msg is not None:
                 self.statuses.append(final_msg)
                 self.render()
                 self._to_clear.add(final_msg)
-
 
         ret = remove_msg
 
@@ -128,14 +127,17 @@ class MultiStatus:
             self._status_groups[group_key][0].add(msg)
             ret = pop_from_group_and_maybe_clear_group
 
+        self.render()
+
         if clear_on_next:
             self._to_clear.add(msg)
-
-        self.render()
 
         return ret
 
     def render(self) -> None:
+        '''Display all open statuses to bar.
+
+        '''
         if self.statuses:
             self.bar.showMessage(f'{" ".join(self.statuses)}')
         else:
