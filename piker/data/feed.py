@@ -25,9 +25,9 @@ from contextlib import asynccontextmanager
 from functools import partial
 from types import ModuleType
 from typing import (
-    Dict, Any, Sequence,
+    Any, Sequence,
     AsyncIterator, Optional,
-    List, Awaitable, Callable,
+    Awaitable, Callable,
 )
 
 import trio
@@ -54,6 +54,7 @@ from ._sampling import (
     increment_ohlc_buffer,
     iter_ohlc_periods,
     sample_and_broadcast,
+    uniform_rate_send,
 )
 
 
@@ -69,7 +70,7 @@ class _FeedsBus(BaseModel):
     """
     brokername: str
     nursery: trio.Nursery
-    feeds: Dict[str, trio.CancelScope] = {}
+    feeds: dict[str, trio.CancelScope] = {}
 
     task_lock: trio.StrictFIFOLock = trio.StrictFIFOLock()
 
@@ -78,7 +79,10 @@ class _FeedsBus(BaseModel):
     # vars (namely `._portal` and `._cancel_scope`) at import time.
     # Reported this bug:
     # https://github.com/samuelcolvin/pydantic/issues/2816
-    _subscribers: Dict[str, List[tractor.Context]] = {}
+    _subscribers: dict[
+        str,
+        list[tuple[tractor.MsgStream, Optional[float]]]
+    ] = {}
 
     class Config:
         arbitrary_types_allowed = True
@@ -149,7 +153,6 @@ async def _setup_persistent_brokerd(
 
 async def allocate_persistent_feed(
 
-    ctx: tractor.Context,
     bus: _FeedsBus,
     brokername: str,
     symbol: str,
@@ -240,13 +243,14 @@ async def allocate_persistent_feed(
     await sample_and_broadcast(bus, shm, quote_stream, sum_tick_vlm)
 
 
-@tractor.stream
+@tractor.context
 async def attach_feed_bus(
 
     ctx: tractor.Context,
     brokername: str,
     symbol: str,
     loglevel: str,
+    tick_throttle:  Optional[float] = None,
 
 ) -> None:
 
@@ -260,9 +264,10 @@ async def attach_feed_bus(
     assert 'brokerd' in tractor.current_actor().name
 
     bus = get_feed_bus(brokername)
-    sub_only: bool = False
 
     entry = bus.feeds.get(symbol)
+
+    bus._subscribers.setdefault(symbol, [])
 
     # if no cached feed for this symbol has been created for this
     # brokerd yet, start persistent stream and shm writer task in
@@ -272,7 +277,7 @@ async def attach_feed_bus(
             init_msg, first_quote = await bus.nursery.start(
                 partial(
                     allocate_persistent_feed,
-                    ctx=ctx,
+
                     bus=bus,
                     brokername=brokername,
 
@@ -284,29 +289,40 @@ async def attach_feed_bus(
                     loglevel=loglevel,
                 )
             )
-            bus._subscribers.setdefault(symbol, []).append(ctx)
             assert isinstance(bus.feeds[symbol], tuple)
-
-        else:
-            sub_only = True
 
     # XXX: ``first_quote`` may be outdated here if this is secondary
     # subscriber
     cs, init_msg, first_quote = bus.feeds[symbol]
 
     # send this even to subscribers to existing feed?
-    await ctx.send_yield(init_msg)
+    # deliver initial info message a first quote asap
+    await ctx.started((init_msg, first_quote))
 
-    # deliver a first quote asap
-    await ctx.send_yield(first_quote)
+    async with (
+        ctx.open_stream() as stream,
+        trio.open_nursery() as n,
+    ):
 
-    if sub_only:
-        bus._subscribers[symbol].append(ctx)
+        if tick_throttle:
+            send, recv = trio.open_memory_channel(2**10)
+            n.start_soon(
+                uniform_rate_send,
+                tick_throttle,
+                recv,
+                stream,
+            )
+            sub = (send, tick_throttle)
 
-    try:
-        await trio.sleep_forever()
-    finally:
-        bus._subscribers[symbol].remove(ctx)
+        else:
+            sub = (stream, tick_throttle)
+
+        bus._subscribers[symbol].append(sub)
+
+        try:
+            await trio.sleep_forever()
+        finally:
+            bus._subscribers[symbol].remove(sub)
 
 
 @dataclass
@@ -319,20 +335,21 @@ class Feed:
     memory buffer orchestration.
     """
     name: str
-    stream: AsyncIterator[Dict[str, Any]]
+    stream: AsyncIterator[dict[str, Any]]
     shm: ShmArray
     mod: ModuleType
+    first_quote: dict
 
     _brokerd_portal: tractor._portal.Portal
     _index_stream: Optional[AsyncIterator[int]] = None
-    _trade_stream: Optional[AsyncIterator[Dict[str, Any]]] = None
+    _trade_stream: Optional[AsyncIterator[dict[str, Any]]] = None
     _max_sample_rate: int = 0
 
     search: Callable[..., Awaitable] = None
 
     # cache of symbol info messages received as first message when
     # a stream startsc.
-    symbols: Dict[str, Symbol] = field(default_factory=dict)
+    symbols: dict[str, Symbol] = field(default_factory=dict)
 
     async def receive(self) -> dict:
         return await self.stream.__anext__()
@@ -356,36 +373,6 @@ class Feed:
                 yield self._index_stream
         else:
             yield self._index_stream
-
-    @asynccontextmanager
-    async def receive_trades_data(self) -> AsyncIterator[dict]:
-
-        if not getattr(self.mod, 'stream_trades', False):
-            log.warning(
-                f"{self.mod.name} doesn't have trade data support yet :(")
-
-            if not self._trade_stream:
-                raise RuntimeError(
-                    f'Can not stream trade data from {self.mod.name}')
-
-        # NOTE: this can be faked by setting a rx chan
-        # using the ``_.set_fake_trades_stream()`` method
-        if self._trade_stream is None:
-
-            async with self._brokerd_portal.open_stream_from(
-
-                self.mod.stream_trades,
-
-                # do we need this? -> yes
-                # the broker side must declare this key
-                # in messages, though we could probably use
-                # more then one?
-                topics=['local_trades'],
-            ) as self._trade_stream:
-
-                yield self._trade_stream
-        else:
-            yield self._trade_stream
 
 
 def sym_to_shm_key(
@@ -411,7 +398,7 @@ async def install_brokerd_search(
         # cancellable by the user as they see fit.
         async with ctx.open_stream() as stream:
 
-            async def search(text: str) -> Dict[str, Any]:
+            async def search(text: str) -> dict[str, Any]:
                 await stream.send(text)
                 return await stream.receive()
 
@@ -436,7 +423,9 @@ async def open_feed(
     symbols: Sequence[str],
     loglevel: Optional[str] = None,
 
-) -> AsyncIterator[Dict[str, Any]]:
+    tick_throttle: Optional[float] = None,  # Hz
+
+) -> AsyncIterator[dict[str, Any]]:
     '''
     Open a "data feed" which provides streamed real-time quotes.
 
@@ -463,63 +452,72 @@ async def open_feed(
 
     # no feed for broker exists so maybe spawn a data brokerd
 
-    async with maybe_spawn_brokerd(
-        brokername,
-        loglevel=loglevel
-    ) as portal:
+    async with (
 
-        async with portal.open_stream_from(
+        maybe_spawn_brokerd(
+            brokername,
+            loglevel=loglevel
+        ) as portal,
+
+        portal.open_context(
 
             attach_feed_bus,
             brokername=brokername,
             symbol=sym,
-            loglevel=loglevel
+            loglevel=loglevel,
 
-        ) as stream:
+            tick_throttle=tick_throttle,
 
-            # TODO: can we make this work better with the proposed
-            # context based bidirectional streaming style api proposed in:
-            # https://github.com/goodboy/tractor/issues/53
-            init_msg = await stream.receive()
+        ) as (ctx, (init_msg, first_quote)),
 
-            # we can only read from shm
-            shm = attach_shm_array(
-                token=init_msg[sym]['shm_token'],
-                readonly=True,
+        ctx.open_stream() as stream,
+    ):
+
+        # TODO: can we make this work better with the proposed
+        # context based bidirectional streaming style api proposed in:
+        # https://github.com/goodboy/tractor/issues/53
+        # init_msg = await stream.receive()
+
+        # we can only read from shm
+        shm = attach_shm_array(
+            token=init_msg[sym]['shm_token'],
+            readonly=True,
+        )
+
+        feed = Feed(
+            name=brokername,
+            stream=stream,
+            shm=shm,
+            mod=mod,
+            first_quote=first_quote,
+            _brokerd_portal=portal,
+        )
+        ohlc_sample_rates = []
+
+        for sym, data in init_msg.items():
+
+            si = data['symbol_info']
+            ohlc_sample_rates.append(data['sample_rate'])
+
+            symbol = Symbol(
+                key=sym,
+                type_key=si.get('asset_type', 'forex'),
+                tick_size=si.get('price_tick_size', 0.01),
+                lot_tick_size=si.get('lot_tick_size', 0.0),
             )
+            symbol.broker_info[brokername] = si
 
-            feed = Feed(
-                name=brokername,
-                stream=stream,
-                shm=shm,
-                mod=mod,
-                _brokerd_portal=portal,
-            )
-            ohlc_sample_rates = []
+            feed.symbols[sym] = symbol
 
-            for sym, data in init_msg.items():
+            # cast shm dtype to list... can't member why we need this
+            shm_token = data['shm_token']
 
-                si = data['symbol_info']
-                ohlc_sample_rates.append(data['sample_rate'])
+            # XXX: msgspec won't relay through the tuples XD
+            shm_token['dtype_descr'] = list(
+                map(tuple, shm_token['dtype_descr']))
 
-                symbol = Symbol(
-                    key=sym,
-                    type_key=si.get('asset_type', 'forex'),
-                    tick_size=si.get('price_tick_size', 0.01),
-                    lot_tick_size=si.get('lot_tick_size', 0.0),
-                )
-                symbol.broker_info[brokername] = si
+            assert shm_token == shm.token  # sanity
 
-                feed.symbols[sym] = symbol
+        feed._max_sample_rate = max(ohlc_sample_rates)
 
-                # cast shm dtype to list... can't member why we need this
-                shm_token = data['shm_token']
-
-                # XXX: msgspec won't relay through the tuples XD
-                shm_token['dtype_descr'] = list(map(tuple, shm_token['dtype_descr']))
-
-                assert shm_token == shm.token  # sanity
-
-            feed._max_sample_rate = max(ohlc_sample_rates)
-
-            yield feed
+        yield feed
