@@ -20,7 +20,7 @@ High level Qt chart widgets.
 """
 import time
 from contextlib import AsyncExitStack
-from typing import Tuple, Dict, Any, Optional, Callable
+from typing import Tuple, Dict, Any, Optional
 from types import ModuleType
 from functools import partial
 
@@ -261,7 +261,7 @@ class LinkedSplits(QtGui.QWidget):
         super().__init__()
 
         # self.signals_visible: bool = False
-        self._cursor: Cursor = None  # crosshair graphics
+        self.cursor: Cursor = None  # crosshair graphics
 
         self.godwidget = godwidget
         self.chart: ChartPlotWidget = None  # main (ohlc) chart
@@ -326,7 +326,7 @@ class LinkedSplits(QtGui.QWidget):
         The data input struct array must include OHLC fields.
         """
         # add crosshairs
-        self._cursor = Cursor(
+        self.cursor = Cursor(
             linkedsplits=self,
             digits=symbol.digits(),
         )
@@ -338,7 +338,7 @@ class LinkedSplits(QtGui.QWidget):
             _is_main=True,
         )
         # add crosshair graphic
-        self.chart.addItem(self._cursor)
+        self.chart.addItem(self.cursor)
 
         # axis placement
         if _xaxis_at == 'bottom':
@@ -392,7 +392,7 @@ class LinkedSplits(QtGui.QWidget):
                 'left': PriceAxis(linkedsplits=self, orientation='left'),
             },
             viewBox=cv,
-            cursor=self._cursor,
+            # cursor=self.cursor,
             **cpw_kwargs,
         )
         print(f'xaxis ps: {xaxis.pos()}')
@@ -412,7 +412,7 @@ class LinkedSplits(QtGui.QWidget):
         cpw.setXLink(self.chart)
 
         # add to cross-hair's known plots
-        self._cursor.add_plot(cpw)
+        self.cursor.add_plot(cpw)
 
         # draw curve graphics
         if style == 'bar':
@@ -493,15 +493,19 @@ class ChartPlotWidget(pg.PlotWidget):
         )
         self.name = name
         self._lc = linkedsplits
+        self.linked = linkedsplits
 
         # scene-local placeholder for book graphics
         # sizing to avoid overlap with data contents
         self._max_l1_line_len: float = 0
 
         # self.setViewportMargins(0, 0, 0, 0)
-        self._ohlc = array  # readonly view of ohlc data
+        # self._ohlc = array  # readonly view of ohlc data
 
-        self._arrays = {}  # readonly view of overlays
+        # readonly view of data arrays
+        self._arrays = {
+            'ohlc': array,
+        }
         self._graphics = {}  # registry of underlying graphics
         self._overlays = set()  # registry of overlay curve names
 
@@ -510,9 +514,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         self._vb = self.plotItem.vb
         self._static_yrange = static_yrange  # for "known y-range style"
-
         self._view_mode: str = 'follow'
-        self._cursor = cursor  # placehold for mouse
 
         # show only right side axes
         self.hideAxis('left')
@@ -539,25 +541,10 @@ class ChartPlotWidget(pg.PlotWidget):
         self._vb.setFocus()
 
     def last_bar_in_view(self) -> int:
-        self._ohlc[-1]['index']
+        self._arrays['ohlc'][-1]['index']
 
-    def update_contents_labels(
-        self,
-        index: int,
-        # array_name: str,
-    ) -> None:
-        if index >= 0 and index < self._ohlc[-1]['index']:
-            for name, (label, update) in self._labels.items():
-
-                if name is self.name:
-                    array = self._ohlc
-                else:
-                    array = self._arrays[name]
-
-                try:
-                    update(index, array)
-                except IndexError:
-                    log.exception(f"Failed to update label: {name}")
+    def is_valid_index(self, index: int) -> bool:
+        return index >= 0 and index < self._arrays['ohlc'][-1]['index']
 
     def _set_xlimits(
         self,
@@ -581,11 +568,11 @@ class ChartPlotWidget(pg.PlotWidget):
         """Return a range tuple for the bars present in view.
         """
         l, r = self.view_range()
-        a = self._ohlc
+        a = self._arrays['ohlc']
         lbar = max(l, a[0]['index'])
         rbar = min(r, a[-1]['index'])
         # lbar = max(l, 0)
-        # rbar = min(r, len(self._ohlc))
+        # rbar = min(r, len(self._arrays['ohlc']))
         return l, lbar, rbar, r
 
     def default_view(
@@ -595,7 +582,7 @@ class ChartPlotWidget(pg.PlotWidget):
         """Set the view box to the "default" startup view of the scene.
 
         """
-        xlast = self._ohlc[index]['index']
+        xlast = self._arrays['ohlc'][index]['index']
         begin = xlast - _bars_to_left_in_follow_mode
         end = xlast + _bars_from_right_in_follow_mode
 
@@ -650,12 +637,12 @@ class ChartPlotWidget(pg.PlotWidget):
 
         self._graphics[name] = graphics
 
-        self.add_contents_label(
-            name,
+        self.linked.cursor.contents_labels.add_label(
+            self,
+            'ohlc',
             anchor_at=('top', 'left'),
             update_func=ContentsLabel.update_from_ohlc,
         )
-        self.update_contents_labels(len(data) - 1)
 
         self._add_sticky(name)
 
@@ -727,31 +714,17 @@ class ChartPlotWidget(pg.PlotWidget):
             # (we need something that avoids clutter on x-axis).
             self._add_sticky(name, bg_color='default_light')
 
-        if add_label:
-            self.add_contents_label(name, anchor_at=anchor_at)
-            self.update_contents_labels(len(data) - 1)
+        if self.linked.cursor:
+            self.linked.cursor.add_curve_cursor(self, curve)
 
-        if self._cursor:
-            self._cursor.add_curve_cursor(self, curve)
+            if add_label:
+                self.linked.cursor.contents_labels.add_label(
+                    self,
+                    name,
+                    anchor_at=anchor_at
+                )
 
         return curve
-
-    def add_contents_label(
-        self,
-        name: str,
-        anchor_at: Tuple[str, str] = ('top', 'left'),
-        update_func: Callable = ContentsLabel.update_from_value,
-    ) -> ContentsLabel:
-
-        label = ContentsLabel(chart=self, anchor_at=anchor_at)
-        self._labels[name] = (
-            # calls class method on instance
-            label,
-            partial(update_func, label, name)
-        )
-        label.show()
-
-        return label
 
     def _add_sticky(
         self,
@@ -787,7 +760,7 @@ class ChartPlotWidget(pg.PlotWidget):
         """Update the named internal graphics from ``array``.
 
         """
-        self._ohlc = array
+        self._arrays['ohlc'] = array
         graphics = self._graphics[name]
         graphics.update_from_array(array, **kwargs)
         return graphics
@@ -803,7 +776,7 @@ class ChartPlotWidget(pg.PlotWidget):
         """
 
         if name not in self._overlays:
-            self._ohlc = array
+            self._arrays['ohlc'] = array
         else:
             self._arrays[name] = array
 
@@ -857,10 +830,10 @@ class ChartPlotWidget(pg.PlotWidget):
             # TODO: logic to check if end of bars in view
             # extra = view_len - _min_points_to_show
 
-            # begin = self._ohlc[0]['index'] - extra
+            # begin = self._arrays['ohlc'][0]['index'] - extra
 
-            # # end = len(self._ohlc) - 1 + extra
-            # end = self._ohlc[-1]['index'] - 1 + extra
+            # # end = len(self._arrays['ohlc']) - 1 + extra
+            # end = self._arrays['ohlc'][-1]['index'] - 1 + extra
 
             # XXX: test code for only rendering lines for the bars in view.
             # This turns out to be very very poor perf when scaling out to
@@ -879,9 +852,9 @@ class ChartPlotWidget(pg.PlotWidget):
             # self._set_xlimits(begin, end)
 
             # TODO: this should be some kind of numpy view api
-            # bars = self._ohlc[lbar:rbar]
+            # bars = self._arrays['ohlc'][lbar:rbar]
 
-            a = self._ohlc
+            a = self._arrays['ohlc']
             ifirst = a[0]['index']
             bars = a[lbar - ifirst:rbar - ifirst + 1]
 
@@ -952,84 +925,6 @@ class ChartPlotWidget(pg.PlotWidget):
         self.scene().leaveEvent(ev)
 
 
-async def test_bed(
-    ohlcv,
-    chart,
-    lc,
-):
-    from ._graphics._lines import order_line
-
-    sleep = 6
-
-    # from PyQt5.QtCore import QPointF
-    vb = chart._vb
-    # scene = vb.scene()
-
-    # raxis = chart.getAxis('right')
-    # vb_right = vb.boundingRect().right()
-
-    last, i_end = ohlcv.array[-1][['close', 'index']]
-
-    line = order_line(
-        chart,
-        level=last,
-        level_digits=2
-    )
-    # eps = line.getEndpoints()
-
-    # llabel = line._labels[1][1]
-
-    line.update_labels({'level': last})
-    return
-
-    # rl = eps[1]
-    # rlabel.setPos(rl)
-
-    # ti = pg.TextItem(text='Fuck you')
-    # ti.setPos(pg.Point(i_end, last))
-    # ti.setParentItem(line)
-    # ti.setAnchor(pg.Point(1, 1))
-    # vb.addItem(ti)
-    # chart.plotItem.addItem(ti)
-
-    from ._label import Label
-
-    txt = Label(
-        vb,
-        fmt_str='fuck {it}',
-    )
-    txt.format(it='boy')
-    txt.place_on_scene('left')
-    txt.set_view_y(last)
-
-    # txt = QtGui.QGraphicsTextItem()
-    # txt.setPlainText("FUCK YOU")
-    # txt.setFont(_font.font)
-    # txt.setDefaultTextColor(pg.mkColor(hcolor('bracket')))
-    # # txt.setParentItem(vb)
-    # w = txt.boundingRect().width()
-    # scene.addItem(txt)
-
-    # txt.setParentItem(line)
-    # d_coords = vb.mapFromView(QPointF(i_end, last))
-    # txt.setPos(vb_right - w, d_coords.y())
-    # txt.show()
-    # txt.update()
-
-    # rlabel.setPos(vb_right - 2*w, d_coords.y())
-    # rlabel.show()
-
-    i = 0
-    while True:
-        await trio.sleep(sleep)
-        await tractor.breakpoint()
-        txt.format(it=f'dog_{i}')
-        # d_coords = vb.mapFromView(QPointF(i_end, last))
-        # txt.setPos(vb_right - w, d_coords.y())
-        # txt.setPlainText(f"FUCK YOU {i}")
-        i += 1
-
-
 _clear_throttle_rate: int = 60  # Hz
 _book_throttle_rate: int = 16  # Hz
 
@@ -1065,7 +960,7 @@ async def chart_from_quotes(
         # https://arxiv.org/abs/cs/0610046
         # https://github.com/lemire/pythonmaxmin
 
-        array = chart._ohlc
+        array = chart._arrays['ohlc']
         ifirst = array[0]['index']
 
         last_bars_range = chart.bars_range()
@@ -1385,7 +1280,7 @@ async def run_fsp(
             )
 
             # display contents labels asap
-            chart.update_contents_labels(
+            chart.linked.cursor.contents_labels.update_labels(
                 len(shm.array) - 1,
                 # fsp_func_name
             )

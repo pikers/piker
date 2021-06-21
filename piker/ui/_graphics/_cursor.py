@@ -18,8 +18,8 @@
 Mouse interaction graphics
 
 """
-import math
-from typing import Optional, Tuple, Set, Dict
+from functools import partial
+from typing import Optional, Callable
 
 import inspect
 import numpy as np
@@ -30,7 +30,6 @@ from PyQt5.QtCore import QPointF, QRectF
 from .._style import (
     _xaxis_at,
     hcolor,
-    _font,
     _font_small,
 )
 from .._axes import YAxisLabel, XAxisLabel
@@ -98,7 +97,7 @@ class LineDot(pg.CurvePoint):
 
         (x, y) = self.curve().getData()
         index = self.property('index')
-        # first = self._plot._ohlc[0]['index']
+        # first = self._plot._arrays['ohlc'][0]['index']
         # first = x[0]
         # i = index - first
         i = index - x[0]
@@ -133,11 +132,15 @@ class ContentsLabel(pg.LabelItem):
     }
 
     def __init__(
+
         self,
-        chart: 'ChartPlotWidget',  # noqa
+        # chart: 'ChartPlotWidget',  # noqa
+        view: pg.ViewBox,
+
         anchor_at: str = ('top', 'right'),
         justify_text: str = 'left',
         font_size: Optional[int] = None,
+
     ) -> None:
 
         font_size = font_size or _font_small.px_size
@@ -148,9 +151,10 @@ class ContentsLabel(pg.LabelItem):
         )
 
         # anchor to viewbox
-        self.setParentItem(chart._vb)
-        chart.scene().addItem(self)
-        self.chart = chart
+        self.setParentItem(view)
+
+        self.vb = view
+        view.scene().addItem(self)
 
         v, h = anchor_at
         index = (self._corner_anchors[h], self._corner_anchors[v])
@@ -163,10 +167,12 @@ class ContentsLabel(pg.LabelItem):
         self.anchor(itemPos=index, parentPos=index, offset=margins)
 
     def update_from_ohlc(
+
         self,
         name: str,
         index: int,
         array: np.ndarray,
+
     ) -> None:
         # this being "html" is the dumbest shit :eyeroll:
         first = array[0]['index']
@@ -188,25 +194,111 @@ class ContentsLabel(pg.LabelItem):
         )
 
     def update_from_value(
+
         self,
         name: str,
         index: int,
         array: np.ndarray,
+
     ) -> None:
+
         first = array[0]['index']
         if index < array[-1]['index'] and index > first:
             data = array[index - first][name]
             self.setText(f"{name}: {data:.2f}")
 
 
+class ContentsLabels:
+    '''Collection of labels that span a ``LinkedSplits`` set of chart plots
+    and can be updated from the underlying data from an x-index value sent
+    as input from a cursor or other query mechanism.
+
+    '''
+    def __init__(
+        self,
+        linkedsplits: 'LinkedSplits',  # type: ignore # noqa
+
+    ) -> None:
+
+        self.linkedsplits = linkedsplits
+        self._labels: list[(
+            'CharPlotWidget',  # type: ignore # noqa
+            str,
+            ContentsLabel,
+            Callable
+        )] = []
+
+    def update_labels(
+        self,
+        index: int,
+        # array_name: str,
+
+    ) -> None:
+        # for name, (label, update) in self._labels.items():
+        for chart, name, label, update in self._labels:
+
+            if not (index >= 0 and index < chart._arrays['ohlc'][-1]['index']):
+                # out of range
+                continue
+
+            array = chart._arrays[name]
+
+            # call provided update func with data point
+            try:
+                label.show()
+                update(index, array)
+
+            except IndexError:
+                log.exception(f"Failed to update label: {name}")
+
+    def hide(self) -> None:
+        for chart, name, label, update in self._labels:
+            label.hide()
+
+    def add_label(
+
+        self,
+        chart: 'ChartPlotWidget',  # type: ignore # noqa
+        name: str,
+        anchor_at: tuple[str, str] = ('top', 'left'),
+        update_func: Callable = ContentsLabel.update_from_value,
+
+    ) -> ContentsLabel:
+
+        label = ContentsLabel(
+            view=chart._vb,
+            anchor_at=anchor_at,
+        )
+        self._labels.append(
+            (chart, name, label, partial(update_func, label, name))
+        )
+        # label.hide()
+
+        return label
+
+
 class Cursor(pg.GraphicsObject):
 
     def __init__(
+
         self,
         linkedsplits: 'LinkedSplits',  # noqa
         digits: int = 0
+
     ) -> None:
+
         super().__init__()
+
+        self.linked = linkedsplits
+        self.graphics: dict[str, pg.GraphicsObject] = {}
+        self.plots: List['PlotChartWidget'] = []  # type: ignore # noqa
+        self.active_plot = None
+        self.digits: int = digits
+        self._datum_xy: tuple[int, float] = (0, 0)
+
+        self._hovered: set[pg.GraphicsObject] = set()
+        self._trackers: set[pg.GraphicsObject] = set()
+
         # XXX: not sure why these are instance variables?
         # It's not like we can change them on the fly..?
         self.pen = pg.mkPen(
@@ -217,19 +309,10 @@ class Cursor(pg.GraphicsObject):
             color=hcolor('davies'),
             style=QtCore.Qt.DashLine,
         )
-        self.lsc = linkedsplits
-        self.graphics: Dict[str, pg.GraphicsObject] = {}
-        self.plots: List['PlotChartWidget'] = []  # type: ignore # noqa
-        self.active_plot = None
-        self.digits: int = digits
-        self._datum_xy: Tuple[int, float] = (0, 0)
-
-        self._hovered: Set[pg.GraphicsObject] = set()
-        self._trackers: Set[pg.GraphicsObject] = set()
 
         # value used for rounding y-axis discreet tick steps
         # computing once, up front, here cuz why not
-        self._y_incr_mult = 1 / self.lsc._symbol.tick_size
+        self._y_incr_mult = 1 / self.linked._symbol.tick_size
 
         # line width in view coordinates
         self._lw = self.pixelWidth() * self.lines_pen.width()
@@ -238,6 +321,22 @@ class Cursor(pg.GraphicsObject):
         self.label_color: str = 'default'
 
         self._y_label_update: bool = True
+
+        self.contents_labels = ContentsLabels(self.linked)
+        self._in_query_mode: bool = False
+
+    @property
+    def in_query_mode(self) -> bool:
+        return self._in_query_mode
+
+    @in_query_mode.setter
+    def in_query_mode(self, value: bool) -> None:
+        if self._in_query_mode and not value:
+
+            # edge trigger hide all labels
+            self.contents_labels.hide()
+
+        self._in_query_mode = value
 
     def add_hovered(
         self,
@@ -320,7 +419,7 @@ class Cursor(pg.GraphicsObject):
         # the current sample under the mouse
         cursor = LineDot(
             curve,
-            index=plot._ohlc[-1]['index'],
+            index=plot._arrays['ohlc'][-1]['index'],
             plot=plot
         )
         plot.addItem(cursor)
@@ -344,7 +443,7 @@ class Cursor(pg.GraphicsObject):
 
     def mouseMoved(
         self,
-        evt: 'Tuple[QMouseEvent]',  # noqa
+        evt: 'tuple[QMouseEvent]',  # noqa
     ) -> None:  # noqa
         """Update horizonal and vertical lines when mouse moves inside
         either the main chart or any indicator subplot.
@@ -392,10 +491,16 @@ class Cursor(pg.GraphicsObject):
                 item.on_tracked_source(ix, iy)
 
         if ix != last_ix:
+
+            if self.in_query_mode:
+                # show contents labels on all linked charts and update
+                # with cursor movement
+                self.contents_labels.update_labels(ix)
+
             for plot, opts in self.graphics.items():
 
                 # update the chart's "contents" label
-                plot.update_contents_labels(ix)
+                # plot.update_contents_labels(ix)
 
                 # move the vertical line to the current "center of bar"
                 opts['vl'].setX(ix + line_offset)
