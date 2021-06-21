@@ -173,6 +173,10 @@ _context_defaults = dict(
 )
 
 
+class NoSignature(Exception):
+    'No credentials setup for broker backend!'
+
+
 def _override_config_dir(
     path: str
 ) -> None:
