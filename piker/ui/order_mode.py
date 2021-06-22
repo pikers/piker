@@ -124,7 +124,7 @@ class OrderMode:
 
         """
         # not initialized yet
-        if not self.chart._cursor:
+        if not self.chart.linked.cursor:
             return
 
         self._action = action
@@ -210,7 +210,7 @@ class OrderMode:
 
         if msg is not None:
             self.lines.remove_line(uuid=uuid)
-            self.chart._cursor.show_xhair()
+            self.chart.linked.cursor.show_xhair()
 
             pending = self._pending_submissions.pop(uuid, None)
             if pending:
@@ -238,8 +238,9 @@ class OrderMode:
 
         size = size or self._size
 
-        chart = self.chart._cursor.active_plot
-        y = chart._cursor._datum_xy[1]
+        cursor = self.chart.linked.cursor
+        chart = cursor.active_plot
+        y = cursor._datum_xy[1]
 
         symbol = self.chart._lc._symbol
 

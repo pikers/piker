@@ -259,10 +259,10 @@ class LevelLine(pg.InfiniteLine):
         detailed control and start end signalling.
 
         """
-        chart = self._chart
+        cursor = self._chart.linked.cursor
 
         # hide y-crosshair
-        chart._cursor.hide_xhair()
+        cursor.hide_xhair()
 
         # highlight
         self.currentPen = self.hoverPen
@@ -308,7 +308,7 @@ class LevelLine(pg.InfiniteLine):
         # This is the final position in the drag
         if ev.isFinish():
             # show y-crosshair again
-            chart._cursor.show_xhair()
+            cursor.show_xhair()
 
     def delete(self) -> None:
         """Remove this line from containing chart/view/scene.
@@ -326,7 +326,7 @@ class LevelLine(pg.InfiniteLine):
 
         # remove from chart/cursor states
         chart = self._chart
-        cur = chart._cursor
+        cur = chart.linked.cursor
 
         if self in cur._hovered:
             cur._hovered.remove(self)
@@ -457,8 +457,7 @@ class LevelLine(pg.InfiniteLine):
         """Mouse hover callback.
 
         """
-        chart = self._chart
-        cur = chart._cursor
+        cur = self._chart.linked.cursor
 
         # hovered
         if (not ev.isExit()) and ev.acceptDrags(QtCore.Qt.LeftButton):
@@ -648,7 +647,10 @@ def order_line(
         # use ``QPathGraphicsItem``s to draw markers in scene coords
         # instead of the old way that was doing the same but by
         # resetting the graphics item transform intermittently
+
+        # XXX: this is our new approach but seems slower?
         # line.add_marker(mk_marker(marker_style, marker_size))
+
         assert not line.markers
 
         # the old way which is still somehow faster?
@@ -659,7 +661,10 @@ def order_line(
             marker_size,
             use_qgpath=False,
         )
-        # manually append for later ``.pain()`` drawing
+        # manually append for later ``InfiniteLine.paint()`` drawing
+        # XXX: this was manually tested as faster then using the
+        # QGraphicsItem around a painter path.. probably needs further
+        # testing to figure out why tf that's true.
         line.markers.append((path, 0, marker_size))
 
     orient_v = 'top' if action == 'sell' else 'bottom'
@@ -754,9 +759,29 @@ def position_line(
         ymn, ymx = vr[1]
         level = line.value()
 
-        if level > ymx or level < ymn:
-            line._marker.hide()
+        if gt := level > ymx or (lt := level < ymn):
+
+            if chartview.mode.name == 'order':
+
+                # provide "nav hub" like indicator for where
+                # the position is on the y-dimension
+                if gt:
+                    # pin to top of view since position is above current
+                    # y-range
+                    pass
+
+                elif lt:
+                    # pin to bottom of view since position is above
+                    # below y-range
+                    pass
+
+            else:
+                # order mode is not active
+                # so hide the pp market
+                line._marker.hide()
+
         else:
+            # pp line is viewable so show marker
             line._marker.show()
 
     vb.sigYRangeChanged.connect(update_pp_nav)
@@ -787,6 +812,7 @@ def position_line(
         style = '>|'
 
     arrow_path = mk_marker(style, size=arrow_size)
+    # XXX: uses new marker drawing approach
     line.add_marker(arrow_path)
     line.set_level(level)
 

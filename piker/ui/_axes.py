@@ -133,7 +133,7 @@ class DynamicDateAxis(Axis):
 
         # try:
         chart = self.linkedsplits.chart
-        bars = chart._ohlc
+        bars = chart._arrays['ohlc']
         shm = self.linkedsplits.chart._shm
         first = shm._first.value
 
@@ -232,7 +232,6 @@ class AxisLabel(pg.GraphicsObject):
             p.setPen(self.fg_color)
             p.drawText(self.rect, self.text_flags, self.label_str)
 
-
     def draw(
         self,
         p: QtGui.QPainter,
@@ -250,9 +249,9 @@ class AxisLabel(pg.GraphicsObject):
         # reason; ok by us
         p.setOpacity(self.opacity)
 
-        # this cause the L1 labels to glitch out if used 
-        # in the subtype and it will leave a small black strip
-        # with the arrow path if done before the above
+        # this cause the L1 labels to glitch out if used in the subtype
+        # and it will leave a small black strip with the arrow path if
+        # done before the above
         p.fillRect(self.rect, self.bg_color)
 
 
@@ -295,8 +294,8 @@ class AxisLabel(pg.GraphicsObject):
 
         self.rect = QtCore.QRectF(
             0, 0,
-            (w or txt_w) + self._x_margin /2,
-            (h or txt_h) + self._y_margin /2,
+            (w or txt_w) + self._x_margin / 2,
+            (h or txt_h) + self._y_margin / 2,
         )
         # print(self.rect)
         # hb = self.path.controlPointRect()

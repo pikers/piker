@@ -46,7 +46,6 @@ async def handle_viewmode_inputs(
 ) -> None:
 
     mode = view.mode
-    status_bar = main_window().status_bar
 
     # track edge triggered keys
     # (https://en.wikipedia.org/wiki/Interrupt#Triggering_methods)
@@ -147,6 +146,14 @@ async def handle_viewmode_inputs(
 
             if key in pressed:
                 pressed.remove(key)
+
+        # QUERY MODE #
+        if {Qt.Key_Q}.intersection(pressed):
+
+            view.linkedsplits.cursor.in_query_mode = True
+
+        else:
+            view.linkedsplits.cursor.in_query_mode = False
 
         # SELECTION MODE #
 
@@ -297,7 +304,7 @@ class ChartView(ViewBox):
             log.debug("Max zoom bruh...")
             return
 
-        if ev.delta() < 0 and vl >= len(chart._ohlc) + 666:
+        if ev.delta() < 0 and vl >= len(chart._arrays['ohlc']) + 666:
             log.debug("Min zoom bruh...")
             return
 

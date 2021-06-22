@@ -111,12 +111,12 @@ class LineEditor:
 
         """
         # chart.setCursor(QtCore.Qt.PointingHandCursor)
-        if not self.chart._cursor:
+        cursor = self.chart.linked.cursor
+        if not cursor:
             return None
 
-        chart = self.chart._cursor.active_plot
-        cursor = chart._cursor
-        y = chart._cursor._datum_xy[1]
+        chart = cursor.active_plot
+        y = cursor._datum_xy[1]
 
         symbol = chart._lc.symbol
 
@@ -168,7 +168,7 @@ class LineEditor:
         """
         # chart = self.chart._cursor.active_plot
         # # chart.setCursor(QtCore.Qt.ArrowCursor)
-        cursor = self.chart._cursor
+        cursor = self.chart.linked.cursor
 
         # delete "staged" cursor tracking line from view
         line = self._active_staged_line
@@ -251,7 +251,7 @@ class LineEditor:
 
         """
         # Delete any hoverable under the cursor
-        return self.chart._cursor._hovered
+        return self.chart.linked.cursor._hovered
 
     def all_lines(self) -> tuple[LevelLine]:
         return tuple(self._order_lines.values())
@@ -275,13 +275,14 @@ class LineEditor:
         if line:
 
             # if hovered remove from cursor set
-            hovered = self.chart._cursor._hovered
+            cursor = self.chart.linked.cursor
+            hovered = cursor._hovered
             if line in hovered:
                 hovered.remove(line)
 
                 # make sure the xhair doesn't get left off
                 # just because we never got a un-hover event
-                self.chart._cursor.show_xhair()
+                cursor.show_xhair()
 
             line.delete()
             return line
@@ -411,7 +412,7 @@ class SelectRect(QtGui.QGraphicsRectItem):
         ixmn, ixmx = round(xmn), round(xmx)
         nbars = ixmx - ixmn + 1
 
-        data = self._chart._ohlc[ixmn:ixmx]
+        data = self._chart._arrays['ohlc'][ixmn:ixmx]
 
         if len(data):
             std = data['close'].std()
