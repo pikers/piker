@@ -514,8 +514,11 @@ async def translate_and_relay_brokerd_events(
             ).dict()
         )
 
-        if client_flow_complete:
-            router.dialogues.pop(oid)
+        # TODO: do we want this to keep things cleaned up?
+        # it might require a special status from brokerd to affirm the
+        # flow is complete?
+        # if client_flow_complete:
+        #     router.dialogues.pop(oid)
 
 
 async def process_client_order_cmds(
@@ -810,7 +813,12 @@ async def maybe_open_brokerd_trades_dialogue(
 
         _router.relays[broker] = (positions, brokerd_trades_stream)
 
-        yield positions, brokerd_trades_stream
+        try:
+            yield positions, brokerd_trades_stream
+
+        finally:
+            # remove from cache so next client will respawn if needed
+            _router.relays.pop(broker)
 
 
 @tractor.context
