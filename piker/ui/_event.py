@@ -117,10 +117,9 @@ async def open_event_stream(
     source_widget.installEventFilter(kc)
 
     try:
-        yield recv
-
+        async with (send, recv):
+            yield recv
     finally:
-        await send.aclose()
         source_widget.removeEventFilter(kc)
 
 
@@ -140,4 +139,3 @@ async def open_handler(
     ):
         n.start_soon(async_handler, source_widget, event_recv_stream)
         yield
-        n.cancel_scope.cancel()
