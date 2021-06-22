@@ -333,8 +333,12 @@ class Cursor(pg.GraphicsObject):
     def in_query_mode(self, value: bool) -> None:
         if self._in_query_mode and not value:
 
-            # edge trigger hide all labels
+            # edge trigger "off" hide all labels
             self.contents_labels.hide()
+
+        elif not self._in_query_mode and value:
+            # edge trigger "on" hide all labels
+            self.contents_labels.update_labels(self._datum_xy[0])
 
         self._in_query_mode = value
 
