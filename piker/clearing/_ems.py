@@ -556,9 +556,7 @@ async def process_client_order_cmds(
 
             # check for live-broker order
             if live_entry:
-
-                reqid = reqid or live_entry.reqid
-                assert reqid
+                reqid = live_entry.reqid
 
                 msg = BrokerdCancel(
                     oid=oid,
@@ -566,21 +564,24 @@ async def process_client_order_cmds(
                     time_ns=time.time_ns(),
                 )
 
-                # send cancel to brokerd immediately!
-                log.info("Submitting cancel for live order {reqid}")
-
                 # NOTE: cancel response will be relayed back in messages
                 # from corresponding broker
-                await brokerd_order_stream.send(msg.dict())
+                if reqid:
 
+                    # send cancel to brokerd immediately!
+                    log.info("Submitting cancel for live order {reqid}")
+
+                    await brokerd_order_stream.send(msg.dict())
+
+                else:
+                    # this might be a cancel for an order that hasn't been
+                    # acked yet by a brokerd, so register a cancel for when
+                    # the order ack does show up later such that the brokerd
+                    # order request can be cancelled at that time.
+                    dark_book._ems_entries[oid] = msg
+
+            # dark trigger cancel
             else:
-                # this might be a cancel for an order that hasn't been
-                # acked yet by a brokerd, so register a cancel for when
-                # the order ack does show up later such that the brokerd
-                # order request can be cancelled at that time.
-                dark_book._ems_entries[oid] = msg
-
-                # check for EMS active exec
                 try:
                     # remove from dark book clearing
                     dark_book.orders[symbol].pop(oid, None)
