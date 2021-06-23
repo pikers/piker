@@ -117,7 +117,7 @@ async def open_event_stream(
     source_widget.installEventFilter(kc)
 
     try:
-        async with (send, recv):
+        async with send:
             yield recv
     finally:
         source_widget.removeEventFilter(kc)
