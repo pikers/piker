@@ -352,6 +352,21 @@ class LevelLine(pg.InfiniteLine):
 
         return up_to_l1_sc
 
+    def marker_right_points(self) -> (float, float, float):
+
+        chart = self._chart
+        l1_len = chart._max_l1_line_len
+        ryaxis = chart.getAxis('right')
+
+        r_axis_x = ryaxis.pos().x()
+        up_to_l1_sc = r_axis_x - l1_len
+
+        size = self._default_mkr_size
+        marker_right = up_to_l1_sc - (1.375 * 2*size)
+        line_end = marker_right - (6/16 * size)
+
+        return line_end, marker_right, r_axis_x
+
     def paint(
         self,
         p: QtGui.QPainter,
@@ -366,26 +381,14 @@ class LevelLine(pg.InfiniteLine):
 
         # these are in viewbox coords
         vb_left, vb_right = self._endPoints
-
-        chart = self._chart
-        l1_len = chart._max_l1_line_len
-        ryaxis = chart.getAxis('right')
-
-        r_axis_x = ryaxis.pos().x()
-        up_to_l1_sc = r_axis_x - l1_len
-
         vb = self.getViewBox()
 
-        size = self._default_mkr_size
-        marker_right = up_to_l1_sc - (1.375 * 2*size)
-        line_end = marker_right - (6/16 * size)
+        line_end, marker_right, r_axis_x = self.marker_right_points()
 
         if self.show_markers and self.markers:
 
-            size = self.markers[0][2]
-
             p.setPen(self.pen)
-            size = qgo_draw_markers(
+            qgo_draw_markers(
                 self.markers,
                 self.pen.color(),
                 p,
@@ -438,9 +441,8 @@ class LevelLine(pg.InfiniteLine):
         path: QtWidgets.QGraphicsPathItem,
     ) -> None:
 
-        # chart = self._chart
-        vb = self.getViewBox()
-        vb.scene().addItem(path)
+        # add path to scene
+        self.getViewBox().scene().addItem(path)
 
         self._marker = path
 
@@ -758,27 +760,31 @@ def position_line(
         vr = vb.state['viewRange']
         ymn, ymx = vr[1]
         level = line.value()
+        path = line._marker
 
-        if gt := level > ymx or (lt := level < ymn):
+        # provide "nav hub" like indicator for where
+        # the position is on the y-dimension
+        # print(path._height)
+        # print(vb.shape())
+        # print(vb.boundingRect())
+        # print(vb.height())
+        _, marker_right, _ = line.marker_right_points()
 
-            if chartview.mode.name == 'order':
+        if level > ymx:  # pin to top of view
+            path.setPos(
+                QPointF(
+                    marker_right,
+                    2 + path._height,
+                )
+            )
 
-                # provide "nav hub" like indicator for where
-                # the position is on the y-dimension
-                if gt:
-                    # pin to top of view since position is above current
-                    # y-range
-                    pass
-
-                elif lt:
-                    # pin to bottom of view since position is above
-                    # below y-range
-                    pass
-
-            else:
-                # order mode is not active
-                # so hide the pp market
-                line._marker.hide()
+        elif level < ymn:  # pin to bottom of view
+            path.setPos(
+                QPointF(
+                    marker_right,
+                    vb.height() - 16 + path._height,
+                )
+            )
 
         else:
             # pp line is viewable so show marker
@@ -812,6 +818,10 @@ def position_line(
         style = '>|'
 
     arrow_path = mk_marker(style, size=arrow_size)
+
+    # monkey-cache height for sizing on pp nav-hub
+    arrow_path._height = arrow_path.boundingRect().height()
+
     # XXX: uses new marker drawing approach
     line.add_marker(arrow_path)
     line.set_level(level)
