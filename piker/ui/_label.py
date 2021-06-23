@@ -89,11 +89,16 @@ def right_axis(
 
 class Label:
     """
+    A plain ol' "scene label" using an underlying ``QGraphicsTextItem``.
+
     After hacking for many days on multiple "label" systems inside
     ``pyqtgraph`` yet again we're left writing our own since it seems
-    all of those are over complicated, ad-hoc, pieces of garbage that
-    can't accomplish the simplest things, such as pinning to the left
-    hand side of a view box.
+    all of those are over complicated, ad-hoc, transform-mangling,
+    messes which can't accomplish the simplest things via their inputs
+    (such as pinning to the left hand side of a view box).
+
+    Here we do the simple thing where the label uses callables to figure
+    out the (x, y) coordinate "pin point": nice and simple.
 
     This type is another effort (see our graphics) to start making
     small, re-usable label components that can actually be used to build
@@ -104,6 +109,7 @@ class Label:
 
         self,
         view: pg.ViewBox,
+
         fmt_str: str,
         color: str = 'bracket',
         x_offset: float = 0,
