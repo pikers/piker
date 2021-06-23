@@ -26,9 +26,11 @@ import numpy as np
 
 
 def mk_marker(
+
     style,
     size: float = 20.0,
     use_qgpath: bool = True,
+
 ) -> QGraphicsPathItem:
     """Add a marker to be displayed on the line wrapped in a ``QGraphicsPathItem``
     ready to be placed using scene coordinates (not view).

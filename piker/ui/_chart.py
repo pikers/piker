@@ -296,7 +296,7 @@ class LinkedSplits(QtWidgets.QWidget):
 
     def set_split_sizes(
         self,
-        prop: float = 0.28  # proportion allocated to consumer subcharts
+        prop: float = 0.375  # proportion allocated to consumer subcharts
     ) -> None:
         """Set the proportion of space allocated for linked subcharts.
         """
