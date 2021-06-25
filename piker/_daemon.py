@@ -45,6 +45,7 @@ _root_modules = [
 
 
 class Services(BaseModel):
+
     actor_n: tractor._trionics.ActorNursery
     service_n: trio.Nursery
     debug_mode: bool  # tractor sub-actor debug mode flag
@@ -68,13 +69,20 @@ class Services(BaseModel):
         daemon and explicitly controlling their lifetimes.
 
         '''
-        ctx, first = await self.ctx_stack.enter_async_context(
-            portal.open_context(
+        async def open_context_in_task():
+
+            async with portal.open_context(
                 target,
                 **kwargs,
-            )
-        )
-        return ctx
+            ) as (ctx, first):
+
+                await ctx.result()
+
+            await portal.result()
+
+        self.service_n.start_soon(open_context_in_task)
+
+        return 'yo, dis a daemon yo.'
 
 
 _services: Optional[Services] = None
