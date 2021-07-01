@@ -559,6 +559,7 @@ class Client:
         async with trio.open_nursery() as n:
             n.start_soon(periodic_keep_alive, key)
             yield key
+            n.cancel_scope.cancel()
 
         await self.close_listen_key(key)
 
@@ -913,10 +914,9 @@ async def handle_order_requests(
                 )
 
             elif action == 'cancel':
-                # msg = BrokerdCancel(**request_msg)
-                # 
-                # await client.submit_cancel(symbol, msg.reqid)
-                ...
+                msg = BrokerdCancel(**request_msg) 
+
+                await client.submit_cancel(msg.symbol, msg.reqid)
 
             else:
                 log.error(f'Unknown order command: {request_msg}')
@@ -950,10 +950,69 @@ async def trades_dialogue(
     ):
         n.start_soon(handle_order_requests, ems_stream)
         await trio.sleep_forever()
-        # async with open_autorecon_ws(
-        #     f'wss://stream.binance.com:9443/ws/{listen_key}',
-        # ) as ws:
-        #     ...
+        
+        async with open_autorecon_ws(
+            f'wss://stream.binance.com:9443/ws/{listen_key}',
+        ) as ws:
+            event = await ws.recv_msg()
+
+            if event.get('e') == 'executionReport':
+                """
+                https://binance-docs.github.io/apidocs/spot/en/#payload-balance-update
+                """
+
+                oid = event.get('c')
+                side = event.get('S').lower()
+                status = event.get('X')
+                order_qty = float(event.get('q'))
+                filled_qty = float(event.get('z'))
+                cumm_transacted_qty = float(event.get('Z'))
+                price_avg = cum_transacted_qty / filled_qty
+
+                broker_time = float(event.get('T'))
+
+                commission_amount = float(event.get('n'))
+                commission_asset = event.get('N')
+
+                if status == 'TRADE': 
+                    if order_qty == filled_qty:
+                        msg = BrokerdFill(
+                            reqid=oid,
+                            time_ns=time.time_ns(),
+                            action=side,
+                            price=price_avg,
+                            broker_details={
+                                'name': 'binance',
+                                'commissions': {
+                                    'amount': commission_amount,
+                                    'asset': commission_asset
+                                },
+                                'broker_time': broker_time
+                            },
+                            broker_time=broker_time
+                        )
+
+                else:
+                    if status == 'NEW': 
+                        status = 'submitted'
+
+                    elif status == 'CANCELED':
+                        status = 'cancelled'
+
+                    msg = BrokerdStatus(
+                        reqid=oid,
+                        time_ns=time.time_ns(),
+                        status=status,
+                        filled=filled_qty,
+                        remaining=order_qty - filled_qty,
+                        broker_details={'name': 'binance'}
+                    )
+
+            else:
+                # XXX: temporary, to catch unhandled msgs
+                breakpoint()
+
+            await ems_stream.send(msg.dict())
 
 
 @tractor.context
