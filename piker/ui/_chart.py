@@ -19,7 +19,6 @@ High level Qt chart widgets.
 
 """
 import time
-from contextlib import AsyncExitStack
 from typing import Tuple, Dict, Any, Optional
 from types import ModuleType
 from functools import partial
@@ -844,7 +843,7 @@ class ChartPlotWidget(pg.PlotWidget):
             #   istart=max(lbar, l), iend=min(rbar, r), just_history=True)
 
             # bars_len = rbar - lbar
-            # log.trace(
+            # log.debug(
             #     f"\nl: {l}, lbar: {lbar}, rbar: {rbar}, r: {r}\n"
             #     f"view_len: {view_len}, bars_len: {bars_len}\n"
             #     f"begin: {begin}, end: {end}, extra: {extra}"
@@ -1474,7 +1473,6 @@ async def display_symbol_data(
 
         ) as feed,
 
-        trio.open_nursery() as n,
     ):
 
         ohlcv: ShmArray = feed.shm
@@ -1542,77 +1540,66 @@ async def display_symbol_data(
                 },
             })
 
-        # load initial fsp chain (otherwise known as "indicators")
-        n.start_soon(
-            spawn_fsps,
-            linkedsplits,
-            fsp_conf,
-            sym,
-            ohlcv,
-            brokermod,
-            loading_sym_key,
-            loglevel,
-        )
+        async with trio.open_nursery() as n:
+            # load initial fsp chain (otherwise known as "indicators")
+            n.start_soon(
+                spawn_fsps,
+                linkedsplits,
+                fsp_conf,
+                sym,
+                ohlcv,
+                brokermod,
+                loading_sym_key,
+                loglevel,
+            )
 
-        # start graphics update loop(s)after receiving first live quote
-        n.start_soon(
-            chart_from_quotes,
-            chart,
-            feed.stream,
-            ohlcv,
-            wap_in_history,
-        )
+            # start graphics update loop(s)after receiving first live quote
+            n.start_soon(
+                chart_from_quotes,
+                chart,
+                feed.stream,
+                ohlcv,
+                wap_in_history,
+            )
 
-        # TODO: instead we should start based on instrument trading hours?
-        # wait for a first quote before we start any update tasks
-        # quote = await feed.receive()
-        # log.info(f'Received first quote {quote}')
+            # TODO: instead we should start based on instrument trading hours?
+            # wait for a first quote before we start any update tasks
+            # quote = await feed.receive()
+            # log.info(f'Received first quote {quote}')
 
-        n.start_soon(
-            check_for_new_bars,
-            feed,
-            ohlcv,
-            linkedsplits
-        )
+            n.start_soon(
+                check_for_new_bars,
+                feed,
+                ohlcv,
+                linkedsplits
+            )
 
-        await start_order_mode(chart, symbol, provider, order_mode_started)
+            await start_order_mode(chart, symbol, provider, order_mode_started)
 
 
-async def load_providers(
+async def load_provider_search(
 
-    brokernames: list[str],
+    broker: str,
     loglevel: str,
 
 ) -> None:
 
-    # TODO: seems like our incentive for brokerd caching lelel
-    backends = {}
+    log.info(f'loading brokerd for {broker}..')
 
-    async with AsyncExitStack() as stack:
-        # TODO: spawn these async in nursery.
-        # load all requested brokerd's at startup and load their
-        # search engines.
-        for broker in brokernames:
+    async with (
 
-            log.info(f'loading brokerd for {broker}..')
-            # spin up broker daemons for each provider
-            portal = await stack.enter_async_context(
-                maybe_spawn_brokerd(
-                    broker,
-                    loglevel=loglevel
-                )
-            )
+        maybe_spawn_brokerd(
+            broker,
+            loglevel=loglevel
+        ) as portal,
 
-            backends[broker] = portal
+        feed.install_brokerd_search(
+            portal,
+            get_brokermod(broker),
+        ),
+    ):
 
-            await stack.enter_async_context(
-                feed.install_brokerd_search(
-                    portal,
-                    get_brokermod(broker),
-                )
-            )
-
-        # keep search engines up until cancelled
+        # keep search engine stream up until cancelled
         await trio.sleep_forever()
 
 
@@ -1653,9 +1640,7 @@ async def _async_main(
     sbar = godwidget.window.status_bar
     starting_done = sbar.open_status('starting ze sexy chartz')
 
-    async with (
-        trio.open_nursery() as root_n,
-    ):
+    async with trio.open_nursery() as root_n:
 
         # set root nursery and task stack for spawning other charts/feeds
         # that run cached in the bg
@@ -1694,7 +1679,8 @@ async def _async_main(
         ):
             # load other providers into search **after**
             # the chart's select cache
-            root_n.start_soon(load_providers, brokernames, loglevel)
+            for broker in brokernames:
+                root_n.start_soon(load_provider_search, broker, loglevel)
 
             await order_mode_ready.wait()
 
