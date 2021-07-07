@@ -53,6 +53,6 @@ def resproc(
         log.exception(f"Failed to process {resp}:\n{resp.text}")
         raise BrokerError(resp.text)
     else:
-        log.trace(f"Received json contents:\n{colorize_json(json)}")
+        log.debug(f"Received json contents:\n{colorize_json(json)}")
 
     return json if return_json else resp
