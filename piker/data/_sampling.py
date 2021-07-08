@@ -233,27 +233,34 @@ async def sample_and_broadcast(
 
             for (stream, tick_throttle) in subs:
 
-                if tick_throttle:
-                    await stream.send(quote)
+                try:
+                    if tick_throttle:
+                        await stream.send(quote)
 
-                else:
-                    try:
+                    else:
                         await stream.send({sym: quote})
-                    except (
-                        trio.BrokenResourceError,
-                        trio.ClosedResourceError
-                    ):
-                        # XXX: do we need to deregister here
-                        # if it's done in the fee bus code?
-                        # so far seems like no since this should all
-                        # be single-threaded.
-                        log.error(f'{stream._ctx.chan.uid} dropped connection')
+
+                except (
+                    trio.BrokenResourceError,
+                    trio.ClosedResourceError
+                ):
+                    # XXX: do we need to deregister here
+                    # if it's done in the fee bus code?
+                    # so far seems like no since this should all
+                    # be single-threaded.
+                    log.warning(
+                        f'{stream._ctx.chan.uid} dropped  '
+                        '`brokerd`-quotes-feed connection'
+                    )
+                    subs.remove((stream, tick_throttle))
 
 
 async def uniform_rate_send(
+
     rate: float,
     quote_stream: trio.abc.ReceiveChannel,
     stream: tractor.MsgStream,
+
 ) -> None:
 
     sleep_period = 1/rate - 0.000616
@@ -289,8 +296,14 @@ async def uniform_rate_send(
 
                 # TODO: now if only we could sync this to the display
                 # rate timing exactly lul
-                await stream.send({first_quote['symbol']: first_quote})
-                break
+                try:
+                    await stream.send({first_quote['symbol']: first_quote})
+                    break
+                except trio.ClosedResourceError:
+                    # if the feed consumer goes down then drop
+                    # out of this rate limiter
+                    log.warning(f'{stream} closed')
+                    return
 
         end = time.time()
         diff = end - start

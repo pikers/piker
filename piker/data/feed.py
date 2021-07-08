@@ -305,6 +305,11 @@ async def attach_feed_bus(
     ):
 
         if tick_throttle:
+
+            # open a bg task which receives quotes over a mem chan
+            # and only pushes them to the target actor-consumer at
+            # a max ``tick_throttle`` instantaneous rate.
+
             send, recv = trio.open_memory_channel(2**10)
             n.start_soon(
                 uniform_rate_send,
@@ -321,7 +326,12 @@ async def attach_feed_bus(
 
         try:
             await trio.sleep_forever()
+
         finally:
+            log.info(
+                f'Stopping {symbol}.{brokername} feed for {ctx.chan.uid}')
+            if tick_throttle:
+                n.cancel_scope.cancel()
             bus._subscribers[symbol].remove(sub)
 
 
@@ -473,11 +483,6 @@ async def open_feed(
         ctx.open_stream() as stream,
     ):
 
-        # TODO: can we make this work better with the proposed
-        # context based bidirectional streaming style api proposed in:
-        # https://github.com/goodboy/tractor/issues/53
-        # init_msg = await stream.receive()
-
         # we can only read from shm
         shm = attach_shm_array(
             token=init_msg[sym]['shm_token'],
@@ -520,4 +525,8 @@ async def open_feed(
 
         feed._max_sample_rate = max(ohlc_sample_rates)
 
-        yield feed
+        try:
+            yield feed
+        finally:
+            # drop the infinite stream connection
+            await ctx.cancel()
