@@ -91,7 +91,7 @@ class _DarkBook:
     privacy focussed "client side" orders which are submitted in real-time
     based on specified trigger conditions.
 
-    A an instance per `brokerd` is created per EMS actor (for now).
+    An instance per `brokerd` is created per EMS actor (for now).
 
     '''
     broker: str
@@ -365,11 +365,11 @@ async def open_brokerd_trades_dialogue(
 
     broker = feed.mod.name
 
-    # TODO: make a `tractor` bug about this!
+    # TODO: make a `tractor` bug/test for this!
     # portal = feed._brokerd_portal
 
     # XXX: we must have our own portal + channel otherwise
-    # when the data feed closes it may result in a half-closed/fucked
+    # when the data feed closes it may result in a half-closed
     # channel that the brokerd side thinks is still open somehow!?
     async with maybe_spawn_brokerd(
 
@@ -600,7 +600,6 @@ async def translate_and_relay_brokerd_events(
 
         resp = None
         broker_details = {}
-        # client_flow_complete: bool = False
 
         if name in (
             'error',
@@ -635,7 +634,6 @@ async def translate_and_relay_brokerd_events(
 
             if msg.status == 'cancelled':
 
-                # client_flow_complete = True
                 log.info(f'Cancellation for {oid} is complete!')
 
             if msg.status == 'filled':
@@ -648,7 +646,6 @@ async def translate_and_relay_brokerd_events(
 
                     # be sure to pop this stream from our dialogue set
                     # since the order dialogue should be done.
-                    # client_flow_complete = True
                     log.info(f'Execution for {oid} is complete!')
 
                 # just log it
@@ -696,8 +693,7 @@ async def translate_and_relay_brokerd_events(
     # TODO: do we want this to keep things cleaned up?
     # it might require a special status from brokerd to affirm the
     # flow is complete?
-    # if client_flow_complete:
-    #     router.dialogues.pop(oid)
+    # router.dialogues.pop(oid)
 
 
 async def process_client_order_cmds(
@@ -1067,4 +1063,4 @@ async def _emsd_main(
                             # system to take over management. Likely we
                             # want to allow the user to choose what kind
                             # of policy to use (eg. cancel all orders
-                            # from client, run some algo, etc.).
+                            # from client, run some algo, etc.)
