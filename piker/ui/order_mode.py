@@ -26,11 +26,12 @@ from typing import Optional, Dict, Callable, Any
 import uuid
 
 import pyqtgraph as pg
-import trio
 from pydantic import BaseModel
+import trio
 
 from ._graphics._lines import LevelLine, position_line
-from ._interaction import LineEditor, ArrowEditor, _order_lines
+from ._editors import LineEditor, ArrowEditor
+from ._window import MultiStatus, main_window
 from ..clearing._client import open_ems, OrderBook
 from ..data._source import Symbol
 from ..log import get_logger
@@ -48,18 +49,31 @@ class Position(BaseModel):
 
 @dataclass
 class OrderMode:
-    """Major mode for placing orders on a chart view.
+    '''Major mode for placing orders on a chart view.
 
     This is the default mode that pairs with "follow mode"
     (when wathing the rt price update at the current time step)
-    and allows entering orders using the ``a, d, f`` keys and
-    cancelling moused-over orders with the ``c`` key.
+    and allows entering orders using mouse and keyboard.
+    This object is chart oriented, so there is an instance per
+    chart / view currently.
 
-    """
+    Current manual:
+        a -> alert
+        s/ctrl -> submission type modifier {on: live, off: dark}
+        f (fill) -> buy limit order
+        d (dump) -> sell limit order
+        c (cancel) -> cancel order under cursor
+        cc -> cancel all submitted orders on chart
+        mouse click and drag -> modify current order under cursor
+
+    '''
     chart: 'ChartPlotWidget'  #  type: ignore # noqa
     book: OrderBook
     lines: LineEditor
     arrows: ArrowEditor
+    status_bar: MultiStatus
+    name: str = 'order'
+
     _colors = {
         'alert': 'alert_yellow',
         'buy': 'buy_green',
@@ -71,7 +85,8 @@ class OrderMode:
     _position: Dict[str, Any] = field(default_factory=dict)
     _position_line: dict = None
 
-    key_map: Dict[str, Callable] = field(default_factory=dict)
+    _pending_submissions: dict[str, (LevelLine, Callable)] = field(
+        default_factory=dict)
 
     def on_position_update(
         self,
@@ -108,12 +123,18 @@ class OrderMode:
         """Set execution mode.
 
         """
+        # not initialized yet
+        if not self.chart.linked.cursor:
+            return
+
         self._action = action
         self.lines.stage_line(
 
             color=self._colors[action],
             # hl_on_hover=True if self._exec_mode == 'live' else False,
-            dotted=True if self._exec_mode == 'dark' else False,
+            dotted=True if (
+                self._exec_mode == 'dark' and action != 'alert'
+            ) else False,
             size=size or self._size,
             action=action,
         )
@@ -127,6 +148,13 @@ class OrderMode:
 
         """
         line = self.lines.commit_line(uuid)
+
+        pending = self._pending_submissions.get(uuid)
+        if pending:
+            order_line, func = pending
+            assert order_line is line
+            func()
+
         return line
 
     def on_fill(
@@ -182,8 +210,12 @@ class OrderMode:
 
         if msg is not None:
             self.lines.remove_line(uuid=uuid)
-            self.chart._cursor.show_xhair()
+            self.chart.linked.cursor.show_xhair()
 
+            pending = self._pending_submissions.pop(uuid, None)
+            if pending:
+                order_line, func = pending
+                func()
         else:
             log.warning(
                 f'Received cancel for unsubmitted order {pformat(msg)}'
@@ -206,8 +238,9 @@ class OrderMode:
 
         size = size or self._size
 
-        chart = self.chart._cursor.active_plot
-        y = chart._cursor._datum_xy[1]
+        cursor = self.chart.linked.cursor
+        chart = cursor.active_plot
+        y = cursor._datum_xy[1]
 
         symbol = self.chart._lc._symbol
 
@@ -238,17 +271,70 @@ class OrderMode:
         )
         line.oid = uid
 
+        # enter submission which will be popped once a response
+        # from the EMS is received to move the order to a different# status
+        self._pending_submissions[uid] = (
+            line,
+            self.status_bar.open_status(
+                f'submitting {self._exec_mode}-{action}',
+                final_msg=f'submitted {self._exec_mode}-{action}',
+                clear_on_next=True,
+            )
+        )
+
         # hook up mouse drag handlers
         line._on_drag_start = self.order_line_modify_start
         line._on_drag_end = self.order_line_modify_complete
 
         return line
 
-    def cancel_order_under_cursor(self) -> None:
-        for line in self.lines.lines_under_cursor():
-            self.book.cancel(uuid=line.oid)
+    def cancel_orders_under_cursor(self) -> list[str]:
+        return self.cancel_orders_from_lines(
+            self.lines.lines_under_cursor()
+        )
+
+    def cancel_all_orders(self) -> list[str]:
+        '''Cancel all orders for the current chart.
+
+        '''
+        return self.cancel_orders_from_lines(
+            self.lines.all_lines()
+        )
+
+    def cancel_orders_from_lines(
+        self,
+        lines: list[LevelLine],
+
+    ) -> list[str]:
+
+        ids: list = []
+        if lines:
+            key = self.status_bar.open_status(
+                f'cancelling {len(lines)} orders',
+                final_msg=f'cancelled {len(lines)} orders',
+                group_key=True
+            )
+
+            # cancel all active orders and triggers
+            for line in lines:
+                oid = getattr(line, 'oid', None)
+
+                if oid:
+                    self._pending_submissions[oid] = (
+                        line,
+                        self.status_bar.open_status(
+                            f'cancelling order {oid[:6]}',
+                            group_key=key,
+                        ),
+                    )
+
+                    ids.append(oid)
+                    self.book.cancel(uuid=oid)
+
+        return ids
 
     # order-line modify handlers
+
     def order_line_modify_start(
         self,
         line: LevelLine,
@@ -274,13 +360,14 @@ async def open_order_mode(
     chart: pg.PlotWidget,
     book: OrderBook,
 ):
+    status_bar: MultiStatus = main_window().status_bar
     view = chart._vb
-    lines = LineEditor(view=view, chart=chart, _order_lines=_order_lines)
+    lines = LineEditor(chart=chart)
     arrows = ArrowEditor(chart, {})
 
     log.info("Opening order mode")
 
-    mode = OrderMode(chart, book, lines, arrows)
+    mode = OrderMode(chart, book, lines, arrows, status_bar)
     view.mode = mode
 
     asset_type = symbol.type_key
@@ -306,9 +393,12 @@ async def open_order_mode(
 
 
 async def start_order_mode(
+
     chart: 'ChartPlotWidget',  # noqa
     symbol: Symbol,
     brokername: str,
+
+    started: trio.Event,
 
 ) -> None:
     '''Activate chart-trader order mode loop:
@@ -317,12 +407,16 @@ async def start_order_mode(
       - begin order handling loop
 
     '''
-    done = chart.window().status_bar.open_status('Starting order mode...')
+    done = chart.window().status_bar.open_status('starting order mode..')
 
     # spawn EMS actor-service
     async with (
         open_ems(brokername, symbol) as (book, trades_stream, positions),
-        open_order_mode(symbol, chart, book) as order_mode
+        open_order_mode(symbol, chart, book) as order_mode,
+
+        # # start async input handling for chart's view
+        # # await godwidget._task_stack.enter_async_context(
+        # chart._vb.open_async_input_handler(),
     ):
 
         # update any exising positions
@@ -345,83 +439,90 @@ async def start_order_mode(
         # Begin order-response streaming
         done()
 
-        # this is where we receive **back** messages
-        # about executions **from** the EMS actor
-        async for msg in trades_stream:
+        # start async input handling for chart's view
+        async with chart._vb.open_async_input_handler():
 
-            fmsg = pformat(msg)
-            log.info(f'Received order msg:\n{fmsg}')
+            # signal to top level symbol loading task we're ready
+            # to handle input since the ems connection is ready
+            started.set()
 
-            name = msg['name']
-            if name in (
-                'position',
-            ):
-                # show line label once order is live
-                order_mode.on_position_update(msg)
-                continue
+            # this is where we receive **back** messages
+            # about executions **from** the EMS actor
+            async for msg in trades_stream:
 
-            resp = msg['resp']
-            oid = msg['oid']
+                fmsg = pformat(msg)
+                log.info(f'Received order msg:\n{fmsg}')
 
-            # response to 'action' request (buy/sell)
-            if resp in (
-                'dark_submitted',
-                'broker_submitted'
-            ):
-
-                # show line label once order is live
-                order_mode.on_submit(oid)
-
-            # resp to 'cancel' request or error condition
-            # for action request
-            elif resp in (
-                'broker_cancelled',
-                'broker_inactive',
-                'dark_cancelled'
-            ):
-                # delete level line from view
-                order_mode.on_cancel(oid)
-
-            elif resp in (
-                'dark_triggered'
-            ):
-                log.info(f'Dark order triggered for {fmsg}')
-
-            elif resp in (
-                'alert_triggered'
-            ):
-                # should only be one "fill" for an alert
-                # add a triangle and remove the level line
-                order_mode.on_fill(
-                    oid,
-                    price=msg['trigger_price'],
-                    arrow_index=get_index(time.time())
-                )
-                await order_mode.on_exec(oid, msg)
-
-            # response to completed 'action' request for buy/sell
-            elif resp in (
-                'broker_executed',
-            ):
-                await order_mode.on_exec(oid, msg)
-
-            # each clearing tick is responded individually
-            elif resp in ('broker_filled',):
-
-                known_order = book._sent_orders.get(oid)
-                if not known_order:
-                    log.warning(f'order {oid} is unknown')
+                name = msg['name']
+                if name in (
+                    'position',
+                ):
+                    # show line label once order is live
+                    order_mode.on_position_update(msg)
                     continue
 
-                action = known_order.action
-                details = msg['brokerd_msg']
+                resp = msg['resp']
+                oid = msg['oid']
 
-                # TODO: some kinda progress system
-                order_mode.on_fill(
-                    oid,
-                    price=details['price'],
-                    pointing='up' if action == 'buy' else 'down',
+                # response to 'action' request (buy/sell)
+                if resp in (
+                    'dark_submitted',
+                    'broker_submitted'
+                ):
 
-                    # TODO: put the actual exchange timestamp
-                    arrow_index=get_index(details['broker_time']),
-                )
+                    # show line label once order is live
+                    order_mode.on_submit(oid)
+
+                # resp to 'cancel' request or error condition
+                # for action request
+                elif resp in (
+                    'broker_cancelled',
+                    'broker_inactive',
+                    'dark_cancelled'
+                ):
+                    # delete level line from view
+                    order_mode.on_cancel(oid)
+
+                elif resp in (
+                    'dark_triggered'
+                ):
+                    log.info(f'Dark order triggered for {fmsg}')
+
+                elif resp in (
+                    'alert_triggered'
+                ):
+                    # should only be one "fill" for an alert
+                    # add a triangle and remove the level line
+                    order_mode.on_fill(
+                        oid,
+                        price=msg['trigger_price'],
+                        arrow_index=get_index(time.time())
+                    )
+                    await order_mode.on_exec(oid, msg)
+
+                # response to completed 'action' request for buy/sell
+                elif resp in (
+                    'broker_executed',
+                ):
+                    await order_mode.on_exec(oid, msg)
+
+                # each clearing tick is responded individually
+                elif resp in ('broker_filled',):
+
+                    known_order = book._sent_orders.get(oid)
+                    if not known_order:
+                        log.warning(f'order {oid} is unknown')
+                        continue
+
+                    action = known_order.action
+                    details = msg['brokerd_msg']
+
+                    # TODO: some kinda progress system
+                    order_mode.on_fill(
+                        oid,
+                        price=details['price'],
+                        pointing='up' if action == 'buy' else 'down',
+
+                        # TODO: put the actual exchange timestamp
+                        arrow_index=get_index(details['broker_time']),
+                    )

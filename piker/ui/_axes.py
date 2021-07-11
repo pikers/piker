@@ -38,7 +38,7 @@ class Axis(pg.AxisItem):
     """
     def __init__(
         self,
-        linked_charts,
+        linkedsplits,
         typical_max_str: str = '100 000.000',
         min_tick: int = 2,
         **kwargs
@@ -49,7 +49,7 @@ class Axis(pg.AxisItem):
         # XXX: pretty sure this makes things slower
         # self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
 
-        self.linked_charts = linked_charts
+        self.linkedsplits = linkedsplits
         self._min_tick = min_tick
         self._dpi_font = _font
 
@@ -132,9 +132,9 @@ class DynamicDateAxis(Axis):
     ) -> List[str]:
 
         # try:
-        chart = self.linked_charts.chart
-        bars = chart._ohlc
-        shm = self.linked_charts.chart._shm
+        chart = self.linkedsplits.chart
+        bars = chart._arrays['ohlc']
+        shm = self.linkedsplits.chart._shm
         first = shm._first.value
 
         bars_len = len(bars)
@@ -232,7 +232,6 @@ class AxisLabel(pg.GraphicsObject):
             p.setPen(self.fg_color)
             p.drawText(self.rect, self.text_flags, self.label_str)
 
-
     def draw(
         self,
         p: QtGui.QPainter,
@@ -250,9 +249,9 @@ class AxisLabel(pg.GraphicsObject):
         # reason; ok by us
         p.setOpacity(self.opacity)
 
-        # this cause the L1 labels to glitch out if used 
-        # in the subtype and it will leave a small black strip
-        # with the arrow path if done before the above
+        # this cause the L1 labels to glitch out if used in the subtype
+        # and it will leave a small black strip with the arrow path if
+        # done before the above
         p.fillRect(self.rect, self.bg_color)
 
 
@@ -295,8 +294,8 @@ class AxisLabel(pg.GraphicsObject):
 
         self.rect = QtCore.QRectF(
             0, 0,
-            (w or txt_w) + self._x_margin /2,
-            (h or txt_h) + self._y_margin /2,
+            (w or txt_w) + self._x_margin / 2,
+            (h or txt_h) + self._y_margin / 2,
         )
         # print(self.rect)
         # hb = self.path.controlPointRect()

@@ -125,7 +125,9 @@ def get_orders(
     if _orders is None:
         # setup local ui event streaming channels for request/resp
         # streamging with EMS daemon
-        _orders = OrderBook(*trio.open_memory_channel(1))
+        _orders = OrderBook(
+            *trio.open_memory_channel(100),
+        )
 
     return _orders
 

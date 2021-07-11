@@ -19,13 +19,13 @@ High level Qt chart widgets.
 
 """
 import time
-from contextlib import AsyncExitStack
-from typing import Tuple, Dict, Any, Optional, Callable
+from typing import Tuple, Dict, Any, Optional
 from types import ModuleType
 from functools import partial
 
 from PyQt5 import QtCore, QtGui
 from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QEvent
 import numpy as np
 import pyqtgraph as pg
 import tractor
@@ -44,10 +44,6 @@ from ._graphics._cursor import (
     Cursor,
     ContentsLabel,
 )
-from ._graphics._lines import (
-    level_line,
-    order_line,
-)
 from ._l1 import L1Labels
 from ._graphics._ohlc import BarItems
 from ._graphics._curve import FastAppendCurve
@@ -60,7 +56,7 @@ from ._style import (
     _bars_to_left_in_follow_mode,
 )
 from . import _search
-from ._event import open_key_stream
+from . import _event
 from ..data._source import Symbol
 from ..data._sharedmem import ShmArray
 from ..data import maybe_open_shm_array
@@ -77,13 +73,23 @@ from ..data import feed
 log = get_logger(__name__)
 
 
-class ChartSpace(QtGui.QWidget):
-    '''Highest level composed widget which contains layouts for
+class GodWidget(QtGui.QWidget):
+    '''
+    "Our lord and savior, the holy child of window-shua, there is no
+    widget above thee." - 6|6
+
+    The highest level composed widget which contains layouts for
     organizing lower level charts as well as other widgets used to
     control or modify them.
 
     '''
-    def __init__(self, parent=None):
+    def __init__(
+
+        self,
+        parent=None,
+
+    ) -> None:
+
         super().__init__(parent)
 
         self.hbox = QtGui.QHBoxLayout(self)
@@ -96,51 +102,53 @@ class ChartSpace(QtGui.QWidget):
 
         self.hbox.addLayout(self.vbox)
 
-        self.toolbar_layout = QtGui.QHBoxLayout()
-        self.toolbar_layout.setContentsMargins(0, 0, 0, 0)
+        # self.toolbar_layout = QtGui.QHBoxLayout()
+        # self.toolbar_layout.setContentsMargins(0, 0, 0, 0)
+        # self.vbox.addLayout(self.toolbar_layout)
 
         # self.init_timeframes_ui()
         # self.init_strategy_ui()
-        self.vbox.addLayout(self.toolbar_layout)
         # self.vbox.addLayout(self.hbox)
 
         self._chart_cache = {}
-        self.linkedcharts: 'LinkedSplitCharts' = None
-        self._root_n: Optional[trio.Nursery] = None
+        self.linkedsplits: 'LinkedSplits' = None
+
+        # assigned in the startup func `_async_main()`
+        self._root_n: trio.Nursery = None
 
     def set_chart_symbol(
         self,
         symbol_key: str,  # of form <fqsn>.<providername>
-        linked_charts: 'LinkedSplitCharts',  # type: ignore
+        linkedsplits: 'LinkedSplits',  # type: ignore
 
     ) -> None:
         # re-sort org cache symbol list in LIFO order
         cache = self._chart_cache
         cache.pop(symbol_key, None)
-        cache[symbol_key] = linked_charts
+        cache[symbol_key] = linkedsplits
 
     def get_chart_symbol(
         self,
         symbol_key: str,
-    ) -> 'LinkedSplitCharts':  # type: ignore
+    ) -> 'LinkedSplits':  # type: ignore
         return self._chart_cache.get(symbol_key)
 
-    def init_timeframes_ui(self):
-        self.tf_layout = QtGui.QHBoxLayout()
-        self.tf_layout.setSpacing(0)
-        self.tf_layout.setContentsMargins(0, 12, 0, 0)
-        time_frames = ('1M', '5M', '15M', '30M', '1H', '1D', '1W', 'MN')
-        btn_prefix = 'TF'
+    # def init_timeframes_ui(self):
+    #     self.tf_layout = QtGui.QHBoxLayout()
+    #     self.tf_layout.setSpacing(0)
+    #     self.tf_layout.setContentsMargins(0, 12, 0, 0)
+    #     time_frames = ('1M', '5M', '15M', '30M', '1H', '1D', '1W', 'MN')
+    #     btn_prefix = 'TF'
 
-        for tf in time_frames:
-            btn_name = ''.join([btn_prefix, tf])
-            btn = QtGui.QPushButton(tf)
-            # TODO:
-            btn.setEnabled(False)
-            setattr(self, btn_name, btn)
-            self.tf_layout.addWidget(btn)
+    #     for tf in time_frames:
+    #         btn_name = ''.join([btn_prefix, tf])
+    #         btn = QtGui.QPushButton(tf)
+    #         # TODO:
+    #         btn.setEnabled(False)
+    #         setattr(self, btn_name, btn)
+    #         self.tf_layout.addWidget(btn)
 
-        self.toolbar_layout.addLayout(self.tf_layout)
+    #     self.toolbar_layout.addLayout(self.tf_layout)
 
     # XXX: strat loader/saver that we don't need yet.
     # def init_strategy_ui(self):
@@ -148,64 +156,73 @@ class ChartSpace(QtGui.QWidget):
     #     self.toolbar_layout.addWidget(self.strategy_box)
 
     def load_symbol(
+
         self,
         providername: str,
         symbol_key: str,
         loglevel: str,
         ohlc: bool = True,
         reset: bool = False,
-    ) -> None:
-        """Load a new contract into the charting app.
+
+    ) -> trio.Event:
+        '''Load a new contract into the charting app.
 
         Expects a ``numpy`` structured array containing all the ohlcv fields.
 
-        """
+        '''
         # our symbol key style is always lower case
         symbol_key = symbol_key.lower()
 
         # fully qualified symbol name (SNS i guess is what we're making?)
         fqsn = '.'.join([symbol_key, providername])
 
-        linkedcharts = self.get_chart_symbol(fqsn)
+        linkedsplits = self.get_chart_symbol(fqsn)
+
+        order_mode_started = trio.Event()
 
         if not self.vbox.isEmpty():
             # XXX: this is CRITICAL especially with pixel buffer caching
-            self.linkedcharts.hide()
+            self.linkedsplits.hide()
 
             # XXX: pretty sure we don't need this
             # remove any existing plots?
             # XXX: ahh we might want to support cache unloading..
-            self.vbox.removeWidget(self.linkedcharts)
+            self.vbox.removeWidget(self.linkedsplits)
 
         # switching to a new viewable chart
-        if linkedcharts is None or reset:
+        if linkedsplits is None or reset:
 
             # we must load a fresh linked charts set
-            linkedcharts = LinkedSplitCharts(self)
+            linkedsplits = LinkedSplits(self)
 
             # spawn new task to start up and update new sub-chart instances
             self._root_n.start_soon(
-                chart_symbol,
+                display_symbol_data,
                 self,
                 providername,
                 symbol_key,
                 loglevel,
+                order_mode_started,
             )
 
-            self.set_chart_symbol(fqsn, linkedcharts)
+            self.set_chart_symbol(fqsn, linkedsplits)
 
-        self.vbox.addWidget(linkedcharts)
+        else:
+            # symbol is already loaded and ems ready
+            order_mode_started.set()
+
+        self.vbox.addWidget(linkedsplits)
 
         # chart is already in memory so just focus it
-        if self.linkedcharts:
-            self.linkedcharts.unfocus()
+        if self.linkedsplits:
+            self.linkedsplits.unfocus()
 
-        # self.vbox.addWidget(linkedcharts)
-        linkedcharts.show()
-        linkedcharts.focus()
-        self.linkedcharts = linkedcharts
+        # self.vbox.addWidget(linkedsplits)
+        linkedsplits.show()
+        linkedsplits.focus()
+        self.linkedsplits = linkedsplits
 
-        symbol = linkedcharts.symbol
+        symbol = linkedsplits.symbol
 
         if symbol is not None:
             self.window.setWindowTitle(
@@ -213,15 +230,19 @@ class ChartSpace(QtGui.QWidget):
                 f'tick:{symbol.tick_size}'
             )
 
+        return order_mode_started
 
-class LinkedSplitCharts(QtGui.QWidget):
-    """Widget that holds a central chart plus derived
+
+class LinkedSplits(QtGui.QWidget):
+    '''
+    Widget that holds a central chart plus derived
     subcharts computed from the original data set apart
     by splitters for resizing.
 
     A single internal references to the data is maintained
     for each chart and can be updated externally.
-    """
+
+    '''
     long_pen = pg.mkPen('#006000')
     long_brush = pg.mkBrush('#00ff00')
     short_pen = pg.mkPen('#600000')
@@ -232,21 +253,24 @@ class LinkedSplitCharts(QtGui.QWidget):
     def __init__(
 
         self,
-        chart_space: ChartSpace,
+        godwidget: GodWidget,
 
     ) -> None:
+
         super().__init__()
-        self.signals_visible: bool = False
-        self._cursor: Cursor = None  # crosshair graphics
+
+        # self.signals_visible: bool = False
+        self.cursor: Cursor = None  # crosshair graphics
+
+        self.godwidget = godwidget
         self.chart: ChartPlotWidget = None  # main (ohlc) chart
         self.subplots: Dict[Tuple[str, ...], ChartPlotWidget] = {}
-        self.chart_space = chart_space
 
-        self.chart_space = chart_space
+        self.godwidget = godwidget
 
         self.xaxis = DynamicDateAxis(
             orientation='bottom',
-            linked_charts=self
+            linkedsplits=self
         )
         # if _xaxis_at == 'bottom':
         #     self.xaxis.setStyle(showValues=False)
@@ -301,8 +325,8 @@ class LinkedSplitCharts(QtGui.QWidget):
         The data input struct array must include OHLC fields.
         """
         # add crosshairs
-        self._cursor = Cursor(
-            linkedsplitcharts=self,
+        self.cursor = Cursor(
+            linkedsplits=self,
             digits=symbol.digits(),
         )
         self.chart = self.add_plot(
@@ -313,7 +337,7 @@ class LinkedSplitCharts(QtGui.QWidget):
             _is_main=True,
         )
         # add crosshair graphic
-        self.chart.addItem(self._cursor)
+        self.chart.addItem(self.cursor)
 
         # axis placement
         if _xaxis_at == 'bottom':
@@ -342,14 +366,14 @@ class LinkedSplitCharts(QtGui.QWidget):
                 "A main plot must be created first with `.plot_ohlc_main()`")
 
         # source of our custom interactions
-        cv = ChartView()
-        cv.linked_charts = self
+        cv = ChartView(name)
+        cv.linkedsplits = self
 
         # use "indicator axis" by default
         if xaxis is None:
             xaxis = DynamicDateAxis(
                 orientation='bottom',
-                linked_charts=self
+                linkedsplits=self
             )
 
         cpw = ChartPlotWidget(
@@ -360,14 +384,14 @@ class LinkedSplitCharts(QtGui.QWidget):
 
             array=array,
             parent=self.splitter,
-            linked_charts=self,
+            linkedsplits=self,
             axisItems={
                 'bottom': xaxis,
-                'right': PriceAxis(linked_charts=self, orientation='right'),
-                'left': PriceAxis(linked_charts=self, orientation='left'),
+                'right': PriceAxis(linkedsplits=self, orientation='right'),
+                'left': PriceAxis(linkedsplits=self, orientation='left'),
             },
             viewBox=cv,
-            cursor=self._cursor,
+            # cursor=self.cursor,
             **cpw_kwargs,
         )
         print(f'xaxis ps: {xaxis.pos()}')
@@ -377,7 +401,7 @@ class LinkedSplitCharts(QtGui.QWidget):
         # (see our custom view mode in `._interactions.py`)
         cv.chart = cpw
 
-        cpw.plotItem.vb.linked_charts = self
+        cpw.plotItem.vb.linkedsplits = self
         cpw.setFrameStyle(QtGui.QFrame.StyledPanel)  # | QtGui.QFrame.Plain)
         cpw.hideButtons()
         # XXX: gives us outline on backside of y-axis
@@ -387,7 +411,7 @@ class LinkedSplitCharts(QtGui.QWidget):
         cpw.setXLink(self.chart)
 
         # add to cross-hair's known plots
-        self._cursor.add_plot(cpw)
+        self.cursor.add_plot(cpw)
 
         # draw curve graphics
         if style == 'bar':
@@ -415,7 +439,8 @@ class LinkedSplitCharts(QtGui.QWidget):
 
 
 class ChartPlotWidget(pg.PlotWidget):
-    """``GraphicsView`` subtype containing a single ``PlotItem``.
+    '''
+    ``GraphicsView`` subtype containing a single ``PlotItem``.
 
     - The added methods allow for plotting OHLC sequences from
       ``np.ndarray``s with appropriate field names.
@@ -425,7 +450,8 @@ class ChartPlotWidget(pg.PlotWidget):
 
     (Could be replaced with a ``pg.GraphicsLayoutWidget`` if we
     eventually want multiple plots managed together?)
-    """
+
+    '''
     sig_mouse_leave = QtCore.Signal(object)
     sig_mouse_enter = QtCore.Signal(object)
 
@@ -441,7 +467,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # the data view we generate graphics from
         name: str,
         array: np.ndarray,
-        linked_charts: LinkedSplitCharts,
+        linkedsplits: LinkedSplits,
 
         view_color: str = 'papas_special',
         pen_color: str = 'bracket',
@@ -465,16 +491,20 @@ class ChartPlotWidget(pg.PlotWidget):
             **kwargs
         )
         self.name = name
-        self._lc = linked_charts
+        self._lc = linkedsplits
+        self.linked = linkedsplits
 
         # scene-local placeholder for book graphics
         # sizing to avoid overlap with data contents
         self._max_l1_line_len: float = 0
 
         # self.setViewportMargins(0, 0, 0, 0)
-        self._ohlc = array  # readonly view of ohlc data
+        # self._ohlc = array  # readonly view of ohlc data
 
-        self._arrays = {}  # readonly view of overlays
+        # readonly view of data arrays
+        self._arrays = {
+            'ohlc': array,
+        }
         self._graphics = {}  # registry of underlying graphics
         self._overlays = set()  # registry of overlay curve names
 
@@ -483,9 +513,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         self._vb = self.plotItem.vb
         self._static_yrange = static_yrange  # for "known y-range style"
-
         self._view_mode: str = 'follow'
-        self._cursor = cursor  # placehold for mouse
 
         # show only right side axes
         self.hideAxis('left')
@@ -512,25 +540,10 @@ class ChartPlotWidget(pg.PlotWidget):
         self._vb.setFocus()
 
     def last_bar_in_view(self) -> int:
-        self._ohlc[-1]['index']
+        self._arrays['ohlc'][-1]['index']
 
-    def update_contents_labels(
-        self,
-        index: int,
-        # array_name: str,
-    ) -> None:
-        if index >= 0 and index < self._ohlc[-1]['index']:
-            for name, (label, update) in self._labels.items():
-
-                if name is self.name:
-                    array = self._ohlc
-                else:
-                    array = self._arrays[name]
-
-                try:
-                    update(index, array)
-                except IndexError:
-                    log.exception(f"Failed to update label: {name}")
+    def is_valid_index(self, index: int) -> bool:
+        return index >= 0 and index < self._arrays['ohlc'][-1]['index']
 
     def _set_xlimits(
         self,
@@ -554,11 +567,11 @@ class ChartPlotWidget(pg.PlotWidget):
         """Return a range tuple for the bars present in view.
         """
         l, r = self.view_range()
-        a = self._ohlc
+        a = self._arrays['ohlc']
         lbar = max(l, a[0]['index'])
         rbar = min(r, a[-1]['index'])
         # lbar = max(l, 0)
-        # rbar = min(r, len(self._ohlc))
+        # rbar = min(r, len(self._arrays['ohlc']))
         return l, lbar, rbar, r
 
     def default_view(
@@ -568,7 +581,7 @@ class ChartPlotWidget(pg.PlotWidget):
         """Set the view box to the "default" startup view of the scene.
 
         """
-        xlast = self._ohlc[index]['index']
+        xlast = self._arrays['ohlc'][index]['index']
         begin = xlast - _bars_to_left_in_follow_mode
         end = xlast + _bars_from_right_in_follow_mode
 
@@ -623,12 +636,12 @@ class ChartPlotWidget(pg.PlotWidget):
 
         self._graphics[name] = graphics
 
-        self.add_contents_label(
-            name,
+        self.linked.cursor.contents_labels.add_label(
+            self,
+            'ohlc',
             anchor_at=('top', 'left'),
             update_func=ContentsLabel.update_from_ohlc,
         )
-        self.update_contents_labels(len(data) - 1)
 
         self._add_sticky(name)
 
@@ -700,31 +713,17 @@ class ChartPlotWidget(pg.PlotWidget):
             # (we need something that avoids clutter on x-axis).
             self._add_sticky(name, bg_color='default_light')
 
-        if add_label:
-            self.add_contents_label(name, anchor_at=anchor_at)
-            self.update_contents_labels(len(data) - 1)
+        if self.linked.cursor:
+            self.linked.cursor.add_curve_cursor(self, curve)
 
-        if self._cursor:
-            self._cursor.add_curve_cursor(self, curve)
+            if add_label:
+                self.linked.cursor.contents_labels.add_label(
+                    self,
+                    name,
+                    anchor_at=anchor_at
+                )
 
         return curve
-
-    def add_contents_label(
-        self,
-        name: str,
-        anchor_at: Tuple[str, str] = ('top', 'left'),
-        update_func: Callable = ContentsLabel.update_from_value,
-    ) -> ContentsLabel:
-
-        label = ContentsLabel(chart=self, anchor_at=anchor_at)
-        self._labels[name] = (
-            # calls class method on instance
-            label,
-            partial(update_func, label, name)
-        )
-        label.show()
-
-        return label
 
     def _add_sticky(
         self,
@@ -760,7 +759,7 @@ class ChartPlotWidget(pg.PlotWidget):
         """Update the named internal graphics from ``array``.
 
         """
-        self._ohlc = array
+        self._arrays['ohlc'] = array
         graphics = self._graphics[name]
         graphics.update_from_array(array, **kwargs)
         return graphics
@@ -776,7 +775,7 @@ class ChartPlotWidget(pg.PlotWidget):
         """
 
         if name not in self._overlays:
-            self._ohlc = array
+            self._arrays['ohlc'] = array
         else:
             self._arrays[name] = array
 
@@ -830,10 +829,10 @@ class ChartPlotWidget(pg.PlotWidget):
             # TODO: logic to check if end of bars in view
             # extra = view_len - _min_points_to_show
 
-            # begin = self._ohlc[0]['index'] - extra
+            # begin = self._arrays['ohlc'][0]['index'] - extra
 
-            # # end = len(self._ohlc) - 1 + extra
-            # end = self._ohlc[-1]['index'] - 1 + extra
+            # # end = len(self._arrays['ohlc']) - 1 + extra
+            # end = self._arrays['ohlc'][-1]['index'] - 1 + extra
 
             # XXX: test code for only rendering lines for the bars in view.
             # This turns out to be very very poor perf when scaling out to
@@ -844,7 +843,7 @@ class ChartPlotWidget(pg.PlotWidget):
             #   istart=max(lbar, l), iend=min(rbar, r), just_history=True)
 
             # bars_len = rbar - lbar
-            # log.trace(
+            # log.debug(
             #     f"\nl: {l}, lbar: {lbar}, rbar: {rbar}, r: {r}\n"
             #     f"view_len: {view_len}, bars_len: {bars_len}\n"
             #     f"begin: {begin}, end: {end}, extra: {extra}"
@@ -852,9 +851,9 @@ class ChartPlotWidget(pg.PlotWidget):
             # self._set_xlimits(begin, end)
 
             # TODO: this should be some kind of numpy view api
-            # bars = self._ohlc[lbar:rbar]
+            # bars = self._arrays['ohlc'][lbar:rbar]
 
-            a = self._ohlc
+            a = self._arrays['ohlc']
             ifirst = a[0]['index']
             bars = a[lbar - ifirst:rbar - ifirst + 1]
 
@@ -925,91 +924,17 @@ class ChartPlotWidget(pg.PlotWidget):
         self.scene().leaveEvent(ev)
 
 
-async def test_bed(
-    ohlcv,
-    chart,
-    lc,
-):
-    sleep = 6
-
-    # from PyQt5.QtCore import QPointF
-    vb = chart._vb
-    # scene = vb.scene()
-
-    # raxis = chart.getAxis('right')
-    # vb_right = vb.boundingRect().right()
-
-    last, i_end = ohlcv.array[-1][['close', 'index']]
-
-    line = order_line(
-        chart,
-        level=last,
-        level_digits=2
-    )
-    # eps = line.getEndpoints()
-
-    # llabel = line._labels[1][1]
-
-    line.update_labels({'level': last})
-    return
-
-    # rl = eps[1]
-    # rlabel.setPos(rl)
-
-    # ti = pg.TextItem(text='Fuck you')
-    # ti.setPos(pg.Point(i_end, last))
-    # ti.setParentItem(line)
-    # ti.setAnchor(pg.Point(1, 1))
-    # vb.addItem(ti)
-    # chart.plotItem.addItem(ti)
-
-    from ._label import Label
-
-    txt = Label(
-        vb,
-        fmt_str='fuck {it}',
-    )
-    txt.format(it='boy')
-    txt.place_on_scene('left')
-    txt.set_view_y(last)
-
-    # txt = QtGui.QGraphicsTextItem()
-    # txt.setPlainText("FUCK YOU")
-    # txt.setFont(_font.font)
-    # txt.setDefaultTextColor(pg.mkColor(hcolor('bracket')))
-    # # txt.setParentItem(vb)
-    # w = txt.boundingRect().width()
-    # scene.addItem(txt)
-
-    # txt.setParentItem(line)
-    # d_coords = vb.mapFromView(QPointF(i_end, last))
-    # txt.setPos(vb_right - w, d_coords.y())
-    # txt.show()
-    # txt.update()
-
-    # rlabel.setPos(vb_right - 2*w, d_coords.y())
-    # rlabel.show()
-
-    i = 0
-    while True:
-        await trio.sleep(sleep)
-        await tractor.breakpoint()
-        txt.format(it=f'dog_{i}')
-        # d_coords = vb.mapFromView(QPointF(i_end, last))
-        # txt.setPos(vb_right - w, d_coords.y())
-        # txt.setPlainText(f"FUCK YOU {i}")
-        i += 1
-
-
 _clear_throttle_rate: int = 60  # Hz
 _book_throttle_rate: int = 16  # Hz
 
 
 async def chart_from_quotes(
+
     chart: ChartPlotWidget,
-    stream,
+    stream: tractor.MsgStream,
     ohlcv: np.ndarray,
     wap_in_history: bool = False,
+
 ) -> None:
     """The 'main' (price) chart real-time update loop.
 
@@ -1034,7 +959,7 @@ async def chart_from_quotes(
         # https://arxiv.org/abs/cs/0610046
         # https://github.com/lemire/pythonmaxmin
 
-        array = chart._ohlc
+        array = chart._arrays['ohlc']
         ifirst = array[0]['index']
 
         last_bars_range = chart.bars_range()
@@ -1211,12 +1136,15 @@ async def chart_from_quotes(
 
 
 async def spawn_fsps(
-    linked_charts: LinkedSplitCharts,
+
+    linkedsplits: LinkedSplits,
     fsps: Dict[str, str],
-    sym,
-    src_shm,
-    brokermod,
-    loglevel,
+    sym: str,
+    src_shm: list,
+    brokermod: ModuleType,
+    group_status_key: str,
+    loglevel: str,
+
 ) -> None:
     """Start financial signal processing in subactor.
 
@@ -1224,7 +1152,7 @@ async def spawn_fsps(
 
     """
 
-    linked_charts.focus()
+    linkedsplits.focus()
 
     # spawns sub-processes which execute cpu bound FSP code
     async with tractor.open_nursery(loglevel=loglevel) as n:
@@ -1271,13 +1199,14 @@ async def spawn_fsps(
                 ln.start_soon(
                     run_fsp,
                     portal,
-                    linked_charts,
+                    linkedsplits,
                     brokermod,
                     sym,
                     src_shm,
                     fsp_func_name,
                     display_name,
                     conf,
+                    group_status_key,
                 )
 
         # blocks here until all fsp actors complete
@@ -1286,13 +1215,14 @@ async def spawn_fsps(
 async def run_fsp(
 
     portal: tractor._portal.Portal,
-    linked_charts: LinkedSplitCharts,
+    linkedsplits: LinkedSplits,
     brokermod: ModuleType,
     sym: str,
     src_shm: ShmArray,
     fsp_func_name: str,
     display_name: str,
     conf: Dict[str, Any],
+    group_status_key: str,
 
 ) -> None:
     """FSP stream chart update loop.
@@ -1300,8 +1230,10 @@ async def run_fsp(
     This is called once for each entry in the fsp
     config map.
     """
-    done = linked_charts.window().status_bar.open_status(
-        f'loading FSP: {display_name}..')
+    done = linkedsplits.window().status_bar.open_status(
+        f'loading {display_name}..',
+        group_key=group_status_key,
+    )
 
     async with portal.open_stream_from(
 
@@ -1324,7 +1256,7 @@ async def run_fsp(
         shm = conf['shm']
 
         if conf.get('overlay'):
-            chart = linked_charts.chart
+            chart = linkedsplits.chart
             chart.draw_curve(
                 name='vwap',
                 data=shm.array,
@@ -1334,7 +1266,7 @@ async def run_fsp(
 
         else:
 
-            chart = linked_charts.add_plot(
+            chart = linkedsplits.add_plot(
                 name=fsp_func_name,
                 array=shm.array,
 
@@ -1347,7 +1279,7 @@ async def run_fsp(
             )
 
             # display contents labels asap
-            chart.update_contents_labels(
+            chart.linked.cursor.contents_labels.update_labels(
                 len(shm.array) - 1,
                 # fsp_func_name
             )
@@ -1358,7 +1290,7 @@ async def run_fsp(
             chart._shm = shm
 
             # should **not** be the same sub-chart widget
-            assert chart.name != linked_charts.chart.name
+            assert chart.name != linkedsplits.chart.name
 
             # sticky only on sub-charts atm
             last_val_sticky = chart._ysticks[chart.name]
@@ -1385,6 +1317,7 @@ async def run_fsp(
         # graphics.curve.setFillLevel(50)
 
         if fsp_func_name == 'rsi':
+            from ._graphics._lines import level_line
             # add moveable over-[sold/bought] lines
             # and labels only for the 70/30 lines
             level_line(chart, 20)
@@ -1441,7 +1374,7 @@ async def run_fsp(
             last = now
 
 
-async def check_for_new_bars(feed, ohlcv, linked_charts):
+async def check_for_new_bars(feed, ohlcv, linkedsplits):
     """Task which updates from new bars in the shared ohlcv buffer every
     ``delay_s`` seconds.
 
@@ -1451,7 +1384,7 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
     # Likely the best way to solve this is to make this task
     # aware of the instrument's tradable hours?
 
-    price_chart = linked_charts.chart
+    price_chart = linkedsplits.chart
     price_chart.default_view()
 
     async with feed.index_stream() as stream:
@@ -1489,55 +1422,73 @@ async def check_for_new_bars(feed, ohlcv, linked_charts):
                     price_chart._arrays[name]
                 )
 
-            for name, chart in linked_charts.subplots.items():
+            for name, chart in linkedsplits.subplots.items():
                 chart.update_curve_from_array(chart.name, chart._shm.array)
 
             # shift the view if in follow mode
             price_chart.increment_view()
 
 
-async def chart_symbol(
-    chart_app: ChartSpace,
+async def display_symbol_data(
+
+    godwidget: GodWidget,
     provider: str,
     sym: str,
     loglevel: str,
+
+    order_mode_started: trio.Event,
+
 ) -> None:
-    """Spawn a real-time chart widget for this symbol and app session.
+    '''Spawn a real-time displayed and updated chart for provider symbol.
 
-    These widgets can remain up but hidden so that multiple symbols
-    can be viewed and switched between extremely fast.
+    Spawned ``LinkedSplits`` chart widgets can remain up but hidden so
+    that multiple symbols can be viewed and switched between extremely
+    fast from a cached watch-list.
 
-    """
-    sbar = chart_app.window.status_bar
-    loading_sym_done = sbar.open_status(f'loading {sym}.{provider}..')
+    '''
+    sbar = godwidget.window.status_bar
+    loading_sym_key = sbar.open_status(
+        f'loading {sym}.{provider} ->',
+        group_key=True
+    )
 
     # historical data fetch
     brokermod = brokers.get_brokermod(provider)
 
-    async with data.open_feed(
+    # ohlc_status_done = sbar.open_status(
+    #     'retreiving OHLC history.. ',
+    #     clear_on_next=True,
+    #     group_key=loading_sym_key,
+    # )
 
-        provider,
-        [sym],
-        loglevel=loglevel,
+    async with(
 
-        # 60 FPS to limit context switches
-        tick_throttle=_clear_throttle_rate,
+        data.open_feed(
+            provider,
+            [sym],
+            loglevel=loglevel,
 
-    ) as feed:
+            # 60 FPS to limit context switches
+            tick_throttle=_clear_throttle_rate,
+
+        ) as feed,
+
+    ):
 
         ohlcv: ShmArray = feed.shm
         bars = ohlcv.array
         symbol = feed.symbols[sym]
 
         # load in symbol's ohlc data
-        chart_app.window.setWindowTitle(
+        godwidget.window.setWindowTitle(
             f'{symbol.key}@{symbol.brokers} '
             f'tick:{symbol.tick_size}'
         )
 
-        linked_charts = chart_app.linkedcharts
-        linked_charts._symbol = symbol
-        chart = linked_charts.plot_ohlc_main(symbol, bars)
+        linkedsplits = godwidget.linkedsplits
+        linkedsplits._symbol = symbol
+
+        chart = linkedsplits.plot_ohlc_main(symbol, bars)
         chart.setFocus()
 
         # plot historical vwap if available
@@ -1552,8 +1503,6 @@ async def chart_symbol(
                     data=bars,
                     add_label=False,
                 )
-
-        loading_sym_done()
 
         # size view to data once at outset
         chart._set_yrange()
@@ -1592,15 +1541,15 @@ async def chart_symbol(
             })
 
         async with trio.open_nursery() as n:
-
             # load initial fsp chain (otherwise known as "indicators")
             n.start_soon(
                 spawn_fsps,
-                linked_charts,
+                linkedsplits,
                 fsp_conf,
                 sym,
                 ohlcv,
                 brokermod,
+                loading_sym_key,
                 loglevel,
             )
 
@@ -1613,6 +1562,7 @@ async def chart_symbol(
                 wap_in_history,
             )
 
+            # TODO: instead we should start based on instrument trading hours?
             # wait for a first quote before we start any update tasks
             # quote = await feed.receive()
             # log.info(f'Received first quote {quote}')
@@ -1620,61 +1570,43 @@ async def chart_symbol(
             n.start_soon(
                 check_for_new_bars,
                 feed,
-                # delay,
                 ohlcv,
-                linked_charts
+                linkedsplits
             )
 
-            # interactive testing
-            # n.start_soon(
-            #     test_bed,
-            #     ohlcv,
-            #     chart,
-            #     linked_charts,
-            # )
-
-            await start_order_mode(chart, symbol, provider)
+            await start_order_mode(chart, symbol, provider, order_mode_started)
 
 
-async def load_providers(
-    brokernames: list[str],
+async def load_provider_search(
+
+    broker: str,
     loglevel: str,
+
 ) -> None:
 
-    # TODO: seems like our incentive for brokerd caching lelel
-    backends = {}
+    log.info(f'loading brokerd for {broker}..')
 
-    async with AsyncExitStack() as stack:
-        # TODO: spawn these async in nursery.
-        # load all requested brokerd's at startup and load their
-        # search engines.
-        for broker in brokernames:
+    async with (
 
-            log.info(f'loading brokerd for {broker}..')
-            # spin up broker daemons for each provider
-            portal = await stack.enter_async_context(
-                maybe_spawn_brokerd(
-                    broker,
-                    loglevel=loglevel
-                )
-            )
+        maybe_spawn_brokerd(
+            broker,
+            loglevel=loglevel
+        ) as portal,
 
-            backends[broker] = portal
+        feed.install_brokerd_search(
+            portal,
+            get_brokermod(broker),
+        ),
+    ):
 
-            await stack.enter_async_context(
-                feed.install_brokerd_search(
-                    portal,
-                    get_brokermod(broker),
-                )
-            )
-
-        # keep search engines up until cancelled
+        # keep search engine stream up until cancelled
         await trio.sleep_forever()
 
 
 async def _async_main(
+
     # implicit required argument provided by ``qtractor_run()``
-    main_widget: ChartSpace,
+    main_widget: GodWidget,
 
     sym: str,
     brokernames: str,
@@ -1688,13 +1620,14 @@ async def _async_main(
 
     """
 
-    chart_app = main_widget
+    godwidget = main_widget
 
     # attempt to configure DPI aware font size
-    screen = chart_app.window.current_screen()
+    screen = godwidget.window.current_screen()
 
     # configure graphics update throttling based on display refresh rate
     global _clear_throttle_rate
+
     _clear_throttle_rate = min(
         round(screen.refreshRate()),
         _clear_throttle_rate,
@@ -1702,37 +1635,35 @@ async def _async_main(
     log.info(f'Set graphics update rate to {_clear_throttle_rate} Hz')
 
     # TODO: do styling / themeing setup
-    # _style.style_ze_sheets(chart_app)
+    # _style.style_ze_sheets(godwidget)
 
-    sbar = chart_app.window.status_bar
-    starting_done = sbar.open_status('starting ze chartz...')
+    sbar = godwidget.window.status_bar
+    starting_done = sbar.open_status('starting ze sexy chartz')
 
     async with trio.open_nursery() as root_n:
 
-        # set root nursery for spawning other charts/feeds
+        # set root nursery and task stack for spawning other charts/feeds
         # that run cached in the bg
-        chart_app._root_n = root_n
+        godwidget._root_n = root_n
 
-        # setup search widget
-        search = _search.SearchWidget(chart_space=chart_app)
-
-        # the main chart's view is given focus at startup
+        # setup search widget and focus main chart view at startup
+        search = _search.SearchWidget(godwidget=godwidget)
         search.bar.unfocus()
 
         # add search singleton to global chart-space widget
-        chart_app.hbox.addWidget(
+        godwidget.hbox.addWidget(
             search,
 
             # alights to top and uses minmial space based on
             # search bar size hint (i think?)
             alignment=Qt.AlignTop
         )
-        chart_app.search = search
+        godwidget.search = search
 
         symbol, _, provider = sym.rpartition('.')
 
-        # this internally starts a ``chart_symbol()`` task above
-        chart_app.load_symbol(provider, symbol, loglevel)
+        # this internally starts a ``display_symbol_data()`` task above
+        order_mode_ready = godwidget.load_symbol(provider, symbol, loglevel)
 
         # spin up a search engine for the local cached symbol set
         async with _search.register_symbol_search(
@@ -1740,7 +1671,7 @@ async def _async_main(
             provider_name='cache',
             search_routine=partial(
                 _search.search_simple_dict,
-                source=chart_app._chart_cache,
+                source=godwidget._chart_cache,
             ),
             # cache is super fast so debounce on super short period
             pause_period=0.01,
@@ -1748,21 +1679,23 @@ async def _async_main(
         ):
             # load other providers into search **after**
             # the chart's select cache
-            root_n.start_soon(load_providers, brokernames, loglevel)
+            for broker in brokernames:
+                root_n.start_soon(load_provider_search, broker, loglevel)
+
+            await order_mode_ready.wait()
 
             # start handling search bar kb inputs
-            async with open_key_stream(
-                search.bar,
-            ) as key_stream:
+            async with (
 
-                # start kb handling task for searcher
-                root_n.start_soon(
-                    _search.handle_keyboard_input,
-                    # chart_app,
-                    search,
-                    key_stream,
+                _event.open_handler(
+                    search.bar,
+                    event_types={QEvent.KeyPress},
+                    async_handler=_search.handle_keyboard_input,
+                    # let key repeats pass through for search
+                    filter_auto_repeats=False,
                 )
-
+            ):
+                # remove startup status text
                 starting_done()
                 await trio.sleep_forever()
 
@@ -1780,6 +1713,6 @@ def _main(
     run_qtractor(
         func=_async_main,
         args=(sym, brokernames, piker_loglevel),
-        main_widget=ChartSpace,
+        main_widget=GodWidget,
         tractor_kwargs=tractor_kwargs,
     )

@@ -18,447 +18,209 @@
 Chart view box primitives
 
 """
-from dataclasses import dataclass, field
-from typing import Optional, Dict
+from contextlib import asynccontextmanager
+import time
+from typing import Optional, Callable
 
 import pyqtgraph as pg
-from PyQt5.QtCore import QPointF
-from pyqtgraph import ViewBox, Point, QtCore, QtGui
+from PyQt5.QtCore import Qt, QEvent
+from pyqtgraph import ViewBox, Point, QtCore
 from pyqtgraph import functions as fn
 import numpy as np
+import trio
 
 from ..log import get_logger
-from ._style import _min_points_to_show, hcolor, _font
-from ._graphics._lines import order_line, LevelLine
+from ._style import _min_points_to_show
+from ._editors import SelectRect
+from ._window import main_window
 
 
 log = get_logger(__name__)
 
 
-class SelectRect(QtGui.QGraphicsRectItem):
+async def handle_viewmode_inputs(
 
-    def __init__(
-        self,
-        viewbox: ViewBox,
-        color: str = 'dad_blue',
-    ) -> None:
-        super().__init__(0, 0, 1, 1)
+    view: 'ChartView',
+    recv_chan: trio.abc.ReceiveChannel,
 
-        # self.rbScaleBox = QtGui.QGraphicsRectItem(0, 0, 1, 1)
-        self.vb = viewbox
-        self._chart: 'ChartPlotWidget' = None  # noqa
+) -> None:
 
-        # override selection box color
-        color = QtGui.QColor(hcolor(color))
-        self.setPen(fn.mkPen(color, width=1))
-        color.setAlpha(66)
-        self.setBrush(fn.mkBrush(color))
-        self.setZValue(1e9)
-        self.hide()
-        self._label = None
+    mode = view.mode
 
-        label = self._label = QtGui.QLabel()
-        label.setTextFormat(0)  # markdown
-        label.setFont(_font.font)
-        label.setMargin(0)
-        label.setAlignment(
-            QtCore.Qt.AlignLeft
-            # | QtCore.Qt.AlignVCenter
-        )
+    # track edge triggered keys
+    # (https://en.wikipedia.org/wiki/Interrupt#Triggering_methods)
+    pressed: set[str] = set()
 
-        # proxy is created after containing scene is initialized
-        self._label_proxy = None
-        self._abs_top_right = None
+    last = time.time()
+    trigger_mode: str
+    action: str
 
-        # TODO: "swing %" might be handy here (data's max/min # % change)
-        self._contents = [
-            'change: {pchng:.2f} %',
-            'range: {rng:.2f}',
-            'bars: {nbars}',
-            'max: {dmx}',
-            'min: {dmn}',
-            # 'time: {nbars}m',  # TODO: compute this per bar size
-            'sigma: {std:.2f}',
-        ]
+    # for quick key sequence-combo pattern matching
+    # we have a min_tap period and these should not
+    # ever be auto-repeats since we filter those at the
+    # event filter level prior to the above mem chan.
+    min_tap = 1/6
+    fast_key_seq: list[str] = []
+    fast_taps: dict[str, Callable] = {
+        'cc': mode.cancel_all_orders,
+    }
 
-    @property
-    def chart(self) -> 'ChartPlotWidget':  # noqa
-        return self._chart
+    async for event, etype, key, mods, text in recv_chan:
+        log.debug(f'key: {key}, mods: {mods}, text: {text}')
+        now = time.time()
+        period = now - last
 
-    @chart.setter
-    def chart(self, chart: 'ChartPlotWidget') -> None:  # noqa
-        self._chart = chart
-        chart.sigRangeChanged.connect(self.update_on_resize)
-        palette = self._label.palette()
+        # reset mods
+        ctrl: bool = False
+        shift: bool = False
 
-        # TODO: get bg color working
-        palette.setColor(
-            self._label.backgroundRole(),
-            # QtGui.QColor(chart.backgroundBrush()),
-            QtGui.QColor(hcolor('papas_special')),
-        )
+        # press branch
+        if etype in {QEvent.KeyPress}:
 
-    def update_on_resize(self, vr, r):
-        """Re-position measure label on view range change.
+            pressed.add(key)
 
-        """
-        if self._abs_top_right:
-            self._label_proxy.setPos(
-                self.vb.mapFromView(self._abs_top_right)
-            )
+            if (
+                # clear any old values not part of a "fast" tap sequence:
+                # presumes the period since last tap is longer then our
+                # min_tap period
+                fast_key_seq and period >= min_tap or
 
-    def mouse_drag_released(
-        self,
-        p1: QPointF,
-        p2: QPointF
-    ) -> None:
-        """Called on final button release for mouse drag with start and
-        end positions.
+                # don't support more then 2 key sequences for now
+                len(fast_key_seq) > 2
+            ):
+                fast_key_seq.clear()
 
-        """
-        self.set_pos(p1, p2)
+            # capture key to fast tap sequence if we either
+            # have no previous keys or we do and the min_tap period is
+            # met
+            if (
+                not fast_key_seq or
+                period <= min_tap and fast_key_seq
+            ):
+                fast_key_seq.append(text)
+                log.debug(f'fast keys seqs {fast_key_seq}')
 
-    def set_pos(
-        self,
-        p1: QPointF,
-        p2: QPointF
-    ) -> None:
-        """Set position of selection rect and accompanying label, move
-        label to match.
+            # mods run through
+            if mods == Qt.ShiftModifier:
+                shift = True
 
-        """
-        if self._label_proxy is None:
-            # https://doc.qt.io/qt-5/qgraphicsproxywidget.html
-            self._label_proxy = self.vb.scene().addWidget(self._label)
+            if mods == Qt.ControlModifier:
+                ctrl = True
 
-        start_pos = self.vb.mapToView(p1)
-        end_pos = self.vb.mapToView(p2)
+            # SEARCH MODE #
+            # ctlr-<space>/<l> for "lookup", "search" -> open search tree
+            if (
+                ctrl and key in {
+                    Qt.Key_L,
+                    Qt.Key_Space,
+                }
+            ):
+                view._chart._lc.godwidget.search.focus()
 
-        # map to view coords and update area
-        r = QtCore.QRectF(start_pos, end_pos)
+            # esc and ctrl-c
+            if key == Qt.Key_Escape or (ctrl and key == Qt.Key_C):
+                # ctrl-c as cancel
+                # https://forum.qt.io/topic/532/how-to-catch-ctrl-c-on-a-widget/9
+                view.select_box.clear()
 
-        # old way; don't need right?
-        # lr = QtCore.QRectF(p1, p2)
-        # r = self.vb.childGroup.mapRectFromParent(lr)
+            # cancel order or clear graphics
+            if key == Qt.Key_C or key == Qt.Key_Delete:
 
-        self.setPos(r.topLeft())
-        self.resetTransform()
-        self.scale(r.width(), r.height())
-        self.show()
+                mode.cancel_orders_under_cursor()
 
-        y1, y2 = start_pos.y(), end_pos.y()
-        x1, x2 = start_pos.x(), end_pos.x()
+            # View modes
+            if key == Qt.Key_R:
 
-        # TODO: heh, could probably use a max-min streamin algo here too
-        _, xmn = min(y1, y2), min(x1, x2)
-        ymx, xmx = max(y1, y2), max(x1, x2)
+                # edge triggered default view activation
+                view.chart.default_view()
 
-        pchng = (y2 - y1) / y1 * 100
-        rng = abs(y1 - y2)
+            if len(fast_key_seq) > 1:
+                # begin matches against sequences
+                func: Callable = fast_taps.get(''.join(fast_key_seq))
+                if func:
+                    func()
+                    fast_key_seq.clear()
 
-        ixmn, ixmx = round(xmn), round(xmx)
-        nbars = ixmx - ixmn + 1
+        # release branch
+        elif etype in {QEvent.KeyRelease}:
 
-        data = self._chart._ohlc[ixmn:ixmx]
+            if key in pressed:
+                pressed.remove(key)
 
-        if len(data):
-            std = data['close'].std()
-            dmx = data['high'].max()
-            dmn = data['low'].min()
+        # QUERY MODE #
+        if {Qt.Key_Q}.intersection(pressed):
+
+            view.linkedsplits.cursor.in_query_mode = True
+
         else:
-            dmn = dmx = std = np.nan
+            view.linkedsplits.cursor.in_query_mode = False
 
-        # update label info
-        self._label.setText('\n'.join(self._contents).format(
-            pchng=pchng, rng=rng, nbars=nbars,
-            std=std, dmx=dmx, dmn=dmn,
-        ))
+        # SELECTION MODE #
 
-        # print(f'x2, y2: {(x2, y2)}')
-        # print(f'xmn, ymn: {(xmn, ymx)}')
-
-        label_anchor = Point(xmx + 2, ymx)
-
-        # XXX: in the drag bottom-right -> top-left case we don't
-        # want the label to overlay the box.
-        # if (x2, y2) == (xmn, ymx):
-        #     # could do this too but needs to be added after coords transform
-        #     # label_anchor = Point(x2, y2 + self._label.height())
-        #     label_anchor = Point(xmn, ymn)
-
-        self._abs_top_right = label_anchor
-        self._label_proxy.setPos(self.vb.mapFromView(label_anchor))
-        # self._label.show()
-
-    def clear(self):
-        """Clear the selection box from view.
-
-        """
-        self._label.hide()
-        self.hide()
-
-
-# global store of order-lines graphics
-# keyed by uuid4 strs - used to sync draw
-# order lines **after** the order is 100%
-# active in emsd
-_order_lines: Dict[str, LevelLine] = {}
-
-
-@dataclass
-class LineEditor:
-    """The great editor of linez..
-
-    """
-    view: 'ChartView'
-
-    _order_lines: field(default_factory=_order_lines)
-    chart: 'ChartPlotWidget' = None  # type: ignore # noqa
-    _active_staged_line: LevelLine = None
-    _stage_line: LevelLine = None
-
-    def stage_line(
-        self,
-        action: str,
-
-        color: str = 'alert_yellow',
-        hl_on_hover: bool = False,
-        dotted: bool = False,
-
-        # fields settings
-        size: Optional[int] = None,
-    ) -> LevelLine:
-        """Stage a line at the current chart's cursor position
-        and return it.
-
-        """
-        # chart.setCursor(QtCore.Qt.PointingHandCursor)
-
-        chart = self.chart._cursor.active_plot
-        cursor = chart._cursor
-        y = chart._cursor._datum_xy[1]
-
-        symbol = chart._lc.symbol
-
-        # line = self._stage_line
-        # if not line:
-        # add a "staged" cursor-tracking line to view
-        # and cash it in a a var
-        if self._active_staged_line:
-            self.unstage_line()
-
-        line = order_line(
-            chart,
-
-            level=y,
-            level_digits=symbol.digits(),
-            size=size,
-            size_digits=symbol.lot_digits(),
-
-            # just for the stage line to avoid
-            # flickering while moving the cursor
-            # around where it might trigger highlight
-            # then non-highlight depending on sensitivity
-            always_show_labels=True,
-
-            # kwargs
-            color=color,
-            # don't highlight the "staging" line
-            hl_on_hover=hl_on_hover,
-            dotted=dotted,
-            exec_type='dark' if dotted else 'live',
-            action=action,
-            show_markers=True,
-
-            # prevent flickering of marker while moving/tracking cursor
-            only_show_markers_on_hover=False,
-        )
-
-        self._active_staged_line = line
-
-        # hide crosshair y-line and label
-        cursor.hide_xhair()
-
-        # add line to cursor trackers
-        cursor._trackers.add(line)
-
-        return line
-
-    def unstage_line(self) -> LevelLine:
-        """Inverse of ``.stage_line()``.
-
-        """
-        # chart = self.chart._cursor.active_plot
-        # # chart.setCursor(QtCore.Qt.ArrowCursor)
-        cursor = self.chart._cursor
-
-        # delete "staged" cursor tracking line from view
-        line = self._active_staged_line
-        if line:
-            cursor._trackers.remove(line)
-            line.delete()
-
-        self._active_staged_line = None
-
-        # show the crosshair y line and label
-        cursor.show_xhair()
-
-    def create_order_line(
-        self,
-        uuid: str,
-        level: float,
-        chart: 'ChartPlotWidget',  # noqa
-        size: float,
-        action: str,
-    ) -> LevelLine:
-
-        line = self._active_staged_line
-        if not line:
-            raise RuntimeError("No line is currently staged!?")
-
-        sym = chart._lc.symbol
-
-        line = order_line(
-            chart,
-
-            # label fields default values
-            level=level,
-            level_digits=sym.digits(),
-
-            size=size,
-            size_digits=sym.lot_digits(),
-
-            # LevelLine kwargs
-            color=line.color,
-            dotted=line._dotted,
-
-            show_markers=True,
-            only_show_markers_on_hover=True,
-
-            action=action,
-        )
-
-        # for now, until submission reponse arrives
-        line.hide_labels()
-
-        # register for later lookup/deletion
-        self._order_lines[uuid] = line
-
-        return line
-
-    def commit_line(self, uuid: str) -> LevelLine:
-        """Commit a "staged line" to view.
-
-        Submits the line graphic under the cursor as a (new) permanent
-        graphic in view.
-
-        """
-        try:
-            line = self._order_lines[uuid]
-        except KeyError:
-            log.warning(f'No line for {uuid} could be found?')
-            return
+        if shift:
+            if view.state['mouseMode'] == ViewBox.PanMode:
+                view.setMouseMode(ViewBox.RectMode)
         else:
-            assert line.oid == uuid
-            line.show_labels()
+            view.setMouseMode(ViewBox.PanMode)
 
-            # TODO: other flashy things to indicate the order is active
+        # ORDER MODE #
+        # live vs. dark trigger + an action {buy, sell, alert}
 
-            log.debug(f'Level active for level: {line.value()}')
+        order_keys_pressed = {
+            Qt.Key_A,
+            Qt.Key_F,
+            Qt.Key_D
+        }.intersection(pressed)
 
-            return line
+        if order_keys_pressed:
+            if (
+                # 's' for "submit" to activate "live" order
+                Qt.Key_S in pressed or
+                ctrl
+            ):
+                trigger_mode: str = 'live'
 
-    def lines_under_cursor(self):
-        """Get the line(s) under the cursor position.
+            else:
+                trigger_mode: str = 'dark'
 
-        """
-        # Delete any hoverable under the cursor
-        return self.chart._cursor._hovered
+            # order mode trigger "actions"
+            if Qt.Key_D in pressed:  # for "damp eet"
+                action = 'sell'
 
-    def remove_line(
-        self,
-        line: LevelLine = None,
-        uuid: str = None,
-    ) -> LevelLine:
-        """Remove a line by refernce or uuid.
+            elif Qt.Key_F in pressed:  # for "fillz eet"
+                action = 'buy'
 
-        If no lines or ids are provided remove all lines under the
-        cursor position.
+            elif Qt.Key_A in pressed:
+                action = 'alert'
+                trigger_mode = 'live'
 
-        """
-        if line:
-            uuid = line.oid
+            view.order_mode = True
 
-        # try to look up line from our registry
-        line = self._order_lines.pop(uuid, None)
-        if line:
+            # XXX: order matters here for line style!
+            view.mode._exec_mode = trigger_mode
+            view.mode.set_exec(action)
 
-            # if hovered remove from cursor set
-            hovered = self.chart._cursor._hovered
-            if line in hovered:
-                hovered.remove(line)
+            prefix = trigger_mode + '-' if action != 'alert' else ''
+            view._chart.window().mode_label.setText(
+                f'mode: {prefix}{action}')
 
-                # make sure the xhair doesn't get left off
-                # just because we never got a un-hover event
-                self.chart._cursor.show_xhair()
+        else:  # none active
+            # if none are pressed, remove "staged" level
+            # line under cursor position
+            view.mode.lines.unstage_line()
 
-            line.delete()
-            return line
+            if view.hasFocus():
+                # update mode label
+                view._chart.window().mode_label.setText('mode: view')
 
+            view.order_mode = False
 
-@dataclass
-class ArrowEditor:
-
-    chart: 'ChartPlotWidget'  # noqa
-    _arrows: field(default_factory=dict)
-
-    def add(
-        self,
-        uid: str,
-        x: float,
-        y: float,
-        color='default',
-        pointing: Optional[str] = None,
-    ) -> pg.ArrowItem:
-        """Add an arrow graphic to view at given (x, y).
-
-        """
-        angle = {
-            'up': 90,
-            'down': -90,
-            None: 180,  # pointing to right (as in an alert)
-        }[pointing]
-
-        # scale arrow sizing to dpi-aware font
-        size = _font.font.pixelSize() * 0.8
-
-        arrow = pg.ArrowItem(
-            angle=angle,
-            baseAngle=0,
-            headLen=size,
-            headWidth=size/2,
-            tailLen=None,
-            pxMode=True,
-
-            # coloring
-            pen=pg.mkPen(hcolor('papas_special')),
-            brush=pg.mkBrush(hcolor(color)),
-        )
-        arrow.setPos(x, y)
-
-        self._arrows[uid] = arrow
-
-        # render to view
-        self.chart.plotItem.addItem(arrow)
-
-        return arrow
-
-    def remove(self, arrow) -> bool:
-        self.chart.plotItem.removeItem(arrow)
+        last = time.time()
 
 
 class ChartView(ViewBox):
-    """Price chart view box with interaction behaviors you'd expect from
+    '''
+    Price chart view box with interaction behaviors you'd expect from
     any interactive platform:
 
         - zoom on mouse scroll that auto fits y-axis
@@ -466,30 +228,47 @@ class ChartView(ViewBox):
         - zoom on x to most recent in view datum
         - zoom on right-click-n-drag to cursor position
 
-    """
-
+    '''
     mode_name: str = 'mode: view'
 
     def __init__(
+
         self,
+        name: str,
         parent: pg.PlotItem = None,
         **kwargs,
+
     ):
         super().__init__(parent=parent, **kwargs)
+
         # disable vertical scrolling
         self.setMouseEnabled(x=True, y=False)
-        self.linked_charts = None
-        self.select_box = SelectRect(self)
-        self.addItem(self.select_box, ignoreBounds=True)
+
+        self.linkedsplits = None
         self._chart: 'ChartPlotWidget' = None  # noqa
 
-        self.mode = None
+        # add our selection box annotator
+        self.select_box = SelectRect(self)
+        self.addItem(self.select_box, ignoreBounds=True)
 
-        # kb ctrls processing
-        self._key_buffer = []
-        self._key_active: bool = False
+        self.name = name
+        self.mode = None
+        self.order_mode: bool = False
 
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
+
+    @asynccontextmanager
+    async def open_async_input_handler(
+        self,
+    ) -> 'ChartView':
+        from . import _event
+
+        async with _event.open_handler(
+            self,
+            event_types={QEvent.KeyPress, QEvent.KeyRelease},
+            async_handler=handle_viewmode_inputs,
+        ):
+            yield self
 
     @property
     def chart(self) -> 'ChartPlotWidget':  # type: ignore # noqa
@@ -501,21 +280,21 @@ class ChartView(ViewBox):
         self.select_box.chart = chart
 
     def wheelEvent(self, ev, axis=None):
-        """Override "center-point" location for scrolling.
+        '''Override "center-point" location for scrolling.
 
         This is an override of the ``ViewBox`` method simply changing
         the center of the zoom to be the y-axis.
 
         TODO: PR a method into ``pyqtgraph`` to make this configurable
-        """
 
+        '''
         if axis in (0, 1):
             mask = [False, False]
             mask[axis] = self.state['mouseEnabled'][axis]
         else:
             mask = self.state['mouseEnabled'][:]
 
-        chart = self.linked_charts.chart
+        chart = self.linkedsplits.chart
 
         # don't zoom more then the min points setting
         l, lbar, rbar, r = chart.bars_range()
@@ -525,7 +304,7 @@ class ChartView(ViewBox):
             log.debug("Max zoom bruh...")
             return
 
-        if ev.delta() < 0 and vl >= len(chart._ohlc) + 666:
+        if ev.delta() < 0 and vl >= len(chart._arrays['ohlc']) + 666:
             log.debug("Min zoom bruh...")
             return
 
@@ -573,7 +352,6 @@ class ChartView(ViewBox):
             end_of_l1,
             key=lambda p: p.x()
         )
-        # breakpoint()
         # focal = pg.Point(last_bar.x() + end_of_l1)
 
         self._resetTarget()
@@ -693,131 +471,16 @@ class ChartView(ViewBox):
 
         elif button == QtCore.Qt.LeftButton:
             # when in order mode, submit execution
-            if self._key_active:
+            if self.order_mode:
                 ev.accept()
                 self.mode.submit_exec()
 
-    def keyReleaseEvent(self, ev: QtCore.QEvent):
-        """
-        Key release to normally to trigger release of input mode
+    def keyReleaseEvent(self, event: QtCore.QEvent) -> None:
+        '''This routine is rerouted to an async handler.
+        '''
+        pass
 
-        """
-        # TODO: is there a global setting for this?
-        if ev.isAutoRepeat():
-            ev.ignore()
-            return
-
-        ev.accept()
-        # text = ev.text()
-        key = ev.key()
-        mods = ev.modifiers()
-
-        if key == QtCore.Qt.Key_Shift:
-            # if self.state['mouseMode'] == ViewBox.RectMode:
-            self.setMouseMode(ViewBox.PanMode)
-
-        # ctlalt = False
-        # if (QtCore.Qt.AltModifier | QtCore.Qt.ControlModifier) == mods:
-        #     ctlalt = True
-
-        # if self.state['mouseMode'] == ViewBox.RectMode:
-        # if key == QtCore.Qt.Key_Space:
-        if mods == QtCore.Qt.ControlModifier or key == QtCore.Qt.Key_Control:
-            self.mode._exec_mode = 'dark'
-
-        if key in {QtCore.Qt.Key_A, QtCore.Qt.Key_F, QtCore.Qt.Key_D}:
-            # remove "staged" level line under cursor position
-            self.mode.lines.unstage_line()
-
-        self._key_active = False
-
-    def keyPressEvent(self, ev: QtCore.QEvent) -> None:
-        """
-        This routine should capture key presses in the current view box.
-
-        """
-        # TODO: is there a global setting for this?
-        if ev.isAutoRepeat():
-            ev.ignore()
-            return
-
-        ev.accept()
-        text = ev.text()
-        key = ev.key()
-        mods = ev.modifiers()
-
-        print(f'text: {text}, key: {key}')
-
-        if mods == QtCore.Qt.ShiftModifier:
-            if self.state['mouseMode'] == ViewBox.PanMode:
-                self.setMouseMode(ViewBox.RectMode)
-
-        # ctrl
-        ctrl = False
-        if mods == QtCore.Qt.ControlModifier:
-            ctrl = True
-            self.mode._exec_mode = 'live'
-
-        self._key_active = True
-
-        # ctrl + alt
-        # ctlalt = False
-        # if (QtCore.Qt.AltModifier | QtCore.Qt.ControlModifier) == mods:
-        #     ctlalt = True
-
-        # ctlr-<space>/<l> for "lookup", "search" -> open search tree
-        if ctrl and key in {
-            QtCore.Qt.Key_L,
-            QtCore.Qt.Key_Space,
-        }:
-            search = self._chart._lc.chart_space.search
-            search.focus()
-
-        # esc
-        if key == QtCore.Qt.Key_Escape or (ctrl and key == QtCore.Qt.Key_C):
-            # ctrl-c as cancel
-            # https://forum.qt.io/topic/532/how-to-catch-ctrl-c-on-a-widget/9
-            self.select_box.clear()
-
-        # cancel order or clear graphics
-        if key == QtCore.Qt.Key_C or key == QtCore.Qt.Key_Delete:
-            # delete any lines under the cursor
-            mode = self.mode
-            for line in mode.lines.lines_under_cursor():
-                mode.book.cancel(uuid=line.oid)
-
-        self._key_buffer.append(text)
-
-        # View modes
-        if key == QtCore.Qt.Key_R:
-            self.chart.default_view()
-
-        # Order modes: stage orders at the current cursor level
-
-        elif key == QtCore.Qt.Key_D:  # for "damp eet"
-            self.mode.set_exec('sell')
-
-        elif key == QtCore.Qt.Key_F:  # for "fillz eet"
-            self.mode.set_exec('buy')
-
-        elif key == QtCore.Qt.Key_A:
-            self.mode.set_exec('alert')
-
-        # XXX: Leaving this for light reference purposes, there
-        # seems to be some work to at least gawk at for history mgmt.
-
-        # Key presses are used only when mouse mode is RectMode
-        # The following events are implemented:
-        # ctrl-A : zooms out to the default "full" view of the plot
-        # ctrl-+ : moves forward in the zooming stack (if it exists)
-        # ctrl-- : moves backward in the zooming stack (if it exists)
-
-        #     self.scaleHistory(-1)
-        # elif ev.text() in ['+', '=']:
-        #     self.scaleHistory(1)
-        # elif ev.key() == QtCore.Qt.Key_Backspace:
-        #     self.scaleHistory(len(self.axHistory))
-        else:
-            # maybe propagate to parent widget
-            ev.ignore()
-            self._key_active = False
+    def keyPressEvent(self, event: QtCore.QEvent) -> None:
+        '''This routine is rerouted to an async handler.
+        '''
+        pass

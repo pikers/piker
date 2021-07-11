@@ -447,7 +447,7 @@ class SearchBar(QtWidgets.QLineEdit):
 
         self.view: CompleterView = view
         self.dpi_font = font
-        self.chart_app = parent_chart
+        self.godwidget = parent_chart
 
         # size it as we specify
         # https://doc.qt.io/qt-5/qsizepolicy.html#Policy-enum
@@ -496,12 +496,12 @@ class SearchWidget(QtGui.QWidget):
 
     def __init__(
         self,
-        chart_space: 'ChartSpace',  # type: ignore # noqa
+        godwidget: 'GodWidget',  # type: ignore # noqa
         columns: List[str] = ['src', 'symbol'],
         parent=None,
 
     ) -> None:
-        super().__init__(parent or chart_space)
+        super().__init__(parent or godwidget)
 
         # size it as we specify
         self.setSizePolicy(
@@ -509,7 +509,7 @@ class SearchWidget(QtGui.QWidget):
             QtWidgets.QSizePolicy.Fixed,
         )
 
-        self.chart_app = chart_space
+        self.godwidget = godwidget
 
         self.vbox = QtGui.QVBoxLayout(self)
         self.vbox.setContentsMargins(0, 0, 0, 0)
@@ -540,7 +540,7 @@ class SearchWidget(QtGui.QWidget):
         )
         self.bar = SearchBar(
             parent=self,
-            parent_chart=chart_space,
+            parent_chart=godwidget,
             view=self.view,
         )
         self.bar_hbox.addWidget(self.bar)
@@ -557,7 +557,7 @@ class SearchWidget(QtGui.QWidget):
             # fill cache list if nothing existing
             self.view.set_section_entries(
                 'cache',
-                list(reversed(self.chart_app._chart_cache)),
+                list(reversed(self.godwidget._chart_cache)),
                 clear_all=True,
             )
 
@@ -611,7 +611,7 @@ class SearchWidget(QtGui.QWidget):
             return None
 
         provider, symbol = value
-        chart = self.chart_app
+        chart = self.godwidget
 
         log.info(f'Requesting symbol: {symbol}.{provider}')
 
@@ -632,7 +632,7 @@ class SearchWidget(QtGui.QWidget):
             # Re-order the symbol cache on the chart to display in
             # LIFO order. this is normally only done internally by
             # the chart on new symbols being loaded into memory
-            chart.set_chart_symbol(fqsn, chart.linkedcharts)
+            chart.set_chart_symbol(fqsn, chart.linkedsplits)
 
             self.view.set_section_entries(
                 'cache',
@@ -650,6 +650,7 @@ _search_enabled: bool = False
 
 
 async def pack_matches(
+
     view: CompleterView,
     has_results: dict[str, set[str]],
     matches: dict[(str, str), [str]],
@@ -823,7 +824,7 @@ async def fill_results(
 
 async def handle_keyboard_input(
 
-    search: SearchWidget,
+    searchbar: SearchBar,
     recv_chan: trio.abc.ReceiveChannel,
 
 ) -> None:
@@ -831,8 +832,9 @@ async def handle_keyboard_input(
     global _search_active, _search_enabled
 
     # startup
-    chart = search.chart_app
-    bar = search.bar
+    bar = searchbar
+    search = searchbar.parent()
+    chart = search.godwidget
     view = bar.view
     view.set_font_size(bar.dpi_font.px_size)
 
@@ -851,7 +853,7 @@ async def handle_keyboard_input(
             )
         )
 
-        async for event, key, mods, txt in recv_chan:
+        async for event, etype, key, mods, txt in recv_chan:
 
             log.debug(f'key: {key}, mods: {mods}, txt: {txt}')
 
@@ -889,7 +891,7 @@ async def handle_keyboard_input(
 
                 # kill the search and focus back on main chart
                 if chart:
-                    chart.linkedcharts.focus()
+                    chart.linkedsplits.focus()
 
                 continue
 
