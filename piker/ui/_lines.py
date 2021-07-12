@@ -26,9 +26,9 @@ from pyqtgraph import Point, functions as fn
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
 
-from .._annotate import mk_marker, qgo_draw_markers
-from .._label import Label, vbr_left, right_axis
-from .._style import hcolor, _font
+from ._annotate import mk_marker, qgo_draw_markers
+from ._label import Label, vbr_left, right_axis
+from ._style import hcolor, _font
 
 
 # TODO: probably worth investigating if we can
