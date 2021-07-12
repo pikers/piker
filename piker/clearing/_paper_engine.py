@@ -187,6 +187,7 @@ class PaperBoi:
         # remaining lots to fill
         order_complete: bool = True,
         remaining: float = 0,
+
     ) -> None:
         """Pretend to fill a broker order @ price and size.
 
@@ -259,13 +260,23 @@ class PaperBoi:
         # TODO: eventually it'd be nice to have a small set of routines
         # to do this stuff from a sequence of cleared orders to enable
         # so called "contextual positions".
-
         new_size = size + pp_msg.size
 
-        if new_size != 0:
-            pp_msg.avg_price = (size*price + pp_msg.avg_price) / new_size
-        else:
+        # old size minus the new size gives us size differential with
+        # +ve -> increase in pp size
+        # -ve -> decrease in pp size
+        size_diff = abs(new_size) - abs(pp_msg.size)
+
+        if new_size == 0:
             pp_msg.avg_price = 0
+
+        elif size_diff > 0:
+            # only update the "average position price" when the position
+            # size increases not when it decreases (i.e. the position is
+            # being made smaller)
+            pp_msg.avg_price = (
+                abs(size) * price + pp_msg.avg_price * abs(pp_msg.size)
+            ) / abs(new_size)
 
         pp_msg.size = new_size
 
