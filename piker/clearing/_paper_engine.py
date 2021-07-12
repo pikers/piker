@@ -35,7 +35,7 @@ from ..data._normalize import iterticks
 from ..log import get_logger
 from ._messages import (
     BrokerdCancel, BrokerdOrder, BrokerdOrderAck, BrokerdStatus,
-    BrokerdFill,
+    BrokerdFill, BrokerdPosition,
 )
 
 
@@ -60,6 +60,7 @@ class PaperBoi:
     _buys: bidict
     _sells: bidict
     _reqids: bidict
+    _positions: dict[str, BrokerdPosition]
 
     # init edge case L1 spread
     last_ask: Tuple[float, float] = (float('inf'), 0)  # price, size
@@ -101,6 +102,9 @@ class PaperBoi:
         # in the broker trades event processing loop
         await trio.sleep(0.05)
 
+        if action == 'sell':
+            size = -size
+
         msg = BrokerdStatus(
             status='submitted',
             reqid=reqid,
@@ -118,7 +122,7 @@ class PaperBoi:
             ) or (
             action == 'sell' and (clear_price := self.last_bid[0]) >= price
         ):
-            await self.fake_fill(clear_price, size, action, reqid, oid)
+            await self.fake_fill(symbol, clear_price, size, action, reqid, oid)
 
         else:
             # register this submissions as a paper live order
@@ -170,6 +174,8 @@ class PaperBoi:
 
     async def fake_fill(
         self,
+
+        symbol: str,
         price: float,
         size: float,
         action: str,  # one of {'buy', 'sell'}
@@ -232,6 +238,39 @@ class PaperBoi:
             )
             await self.ems_trades_stream.send(msg.dict())
 
+        # lookup any existing position
+        token = f'{symbol}.{self.broker}'
+        pp_msg = self._positions.setdefault(
+            token,
+            BrokerdPosition(
+                broker=self.broker,
+                account='paper',
+                symbol=symbol,
+                # TODO: we need to look up the asset currency from
+                # broker info. i guess for crypto this can be
+                # inferred from the pair?
+                currency='',
+                size=0.0,
+                avg_price=0,
+            )
+        )
+
+        # "avg position price" calcs
+        # TODO: eventually it'd be nice to have a small set of routines
+        # to do this stuff from a sequence of cleared orders to enable
+        # so called "contextual positions".
+
+        new_size = size + pp_msg.size
+
+        if new_size != 0:
+            pp_msg.avg_price = (size*price + pp_msg.avg_price) / new_size
+        else:
+            pp_msg.avg_price = 0
+
+        pp_msg.size = new_size
+
+        await self.ems_trades_stream.send(pp_msg.dict())
+
 
 async def simulate_fills(
     quote_stream: 'tractor.ReceiveStream',  # noqa
@@ -255,6 +294,7 @@ async def simulate_fills(
 
     # this stream may eventually contain multiple symbols
     async for quotes in quote_stream:
+
         for sym, quote in quotes.items():
 
             for tick in iterticks(
@@ -274,6 +314,7 @@ async def simulate_fills(
                     )
 
                     orders = client._buys.get(sym, {})
+
                     book_sequence = reversed(
                         sorted(orders.keys(), key=itemgetter(1)))
 
@@ -307,6 +348,7 @@ async def simulate_fills(
 
                         # clearing price would have filled entirely
                         await client.fake_fill(
+                            symbol=sym,
                             # todo slippage to determine fill price
                             price=tick_price,
                             size=size,
@@ -411,6 +453,9 @@ async def trades_dialogue(
                 _sells={},
 
                 _reqids={},
+
+                # TODO: load paper positions from ``positions.toml``
+                _positions={},
             )
 
             n.start_soon(handle_order_requests, client, ems_stream)
@@ -452,10 +497,5 @@ async def open_paperboi(
                 loglevel=loglevel,
 
         ) as (ctx, first):
-            try:
-                yield ctx, first
 
-            finally:
-                # be sure to tear down the paper service on exit
-                with trio.CancelScope(shield=True):
-                    await portal.cancel_actor()
+            yield ctx, first
