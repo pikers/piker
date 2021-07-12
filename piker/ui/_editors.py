@@ -28,7 +28,7 @@ from PyQt5.QtCore import QPointF
 import numpy as np
 
 from ._style import hcolor, _font
-from ._graphics._lines import order_line, LevelLine
+from ._lines import order_line, LevelLine
 from ..log import get_logger
 
 

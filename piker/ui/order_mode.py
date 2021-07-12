@@ -29,7 +29,7 @@ import pyqtgraph as pg
 from pydantic import BaseModel
 import trio
 
-from ._graphics._lines import LevelLine, position_line
+from ._lines import LevelLine, position_line
 from ._editors import LineEditor, ArrowEditor
 from ._window import MultiStatus, main_window
 from ..clearing._client import open_ems, OrderBook

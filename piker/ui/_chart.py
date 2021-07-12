@@ -40,13 +40,13 @@ from ._axes import (
     PriceAxis,
     YAxisLabel,
 )
-from ._graphics._cursor import (
+from ._cursor import (
     Cursor,
     ContentsLabel,
 )
 from ._l1 import L1Labels
-from ._graphics._ohlc import BarItems
-from ._graphics._curve import FastAppendCurve
+from ._ohlc import BarItems
+from ._curve import FastAppendCurve
 from ._style import (
     hcolor,
     CHART_MARGINS,
@@ -1317,7 +1317,7 @@ async def run_fsp(
         # graphics.curve.setFillLevel(50)
 
         if fsp_func_name == 'rsi':
-            from ._graphics._lines import level_line
+            from ._lines import level_line
             # add moveable over-[sold/bought] lines
             # and labels only for the 70/30 lines
             level_line(chart, 20)

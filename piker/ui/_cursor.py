@@ -27,13 +27,13 @@ import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF, QRectF
 
-from .._style import (
+from ._style import (
     _xaxis_at,
     hcolor,
     _font_small,
 )
-from .._axes import YAxisLabel, XAxisLabel
-from ...log import get_logger
+from ._axes import YAxisLabel, XAxisLabel
+from ..log import get_logger
 
 
 log = get_logger(__name__)
