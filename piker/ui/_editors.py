@@ -237,7 +237,6 @@ class LineEditor:
             log.warning(f'No line for {uuid} could be found?')
             return
         else:
-            assert line.oid == uuid
             line.show_labels()
 
             # TODO: other flashy things to indicate the order is active
@@ -260,18 +259,16 @@ class LineEditor:
         self,
         line: LevelLine = None,
         uuid: str = None,
-    ) -> LevelLine:
-        """Remove a line by refernce or uuid.
+
+    ) -> Optional[LevelLine]:
+        '''Remove a line by refernce or uuid.
 
         If no lines or ids are provided remove all lines under the
         cursor position.
 
-        """
-        if line:
-            uuid = line.oid
-
+        '''
         # try to look up line from our registry
-        line = self._order_lines.pop(uuid, None)
+        line = self._order_lines.pop(uuid, line)
         if line:
 
             # if hovered remove from cursor set
@@ -284,8 +281,13 @@ class LineEditor:
                 # just because we never got a un-hover event
                 cursor.show_xhair()
 
+            log.debug(f'deleting {line} with oid: {uuid}')
             line.delete()
-            return line
+
+        else:
+            log.warning(f'Could not find line for {line}')
+
+        return line
 
 
 class SelectRect(QtGui.QGraphicsRectItem):
