@@ -41,10 +41,29 @@ log = get_logger(__name__)
 
 
 class Position(BaseModel):
+    '''Basic pp representation with attached fills history.
+
+    '''
     symbol: Symbol
     size: float
-    avg_price: float
+    avg_price: float  # TODO: contextual pricing
     fills: Dict[str, Any] = {}
+
+
+class OrderDialog(BaseModel):
+    '''Trade dialogue meta-data describing the lifetime
+    of an order submission to ``emsd`` from a chart.
+
+    '''
+    uuid: str
+    line: LevelLine
+    last_status_close: Callable = lambda: None
+    msgs: dict[str, dict] = {}
+    fills: Dict[str, Any] = {}
+
+    class Config:
+        arbitrary_types_allowed = True
+        underscore_attrs_are_private = False
 
 
 @dataclass
@@ -60,8 +79,8 @@ class OrderMode:
     Current manual:
         a -> alert
         s/ctrl -> submission type modifier {on: live, off: dark}
-        f (fill) -> buy limit order
-        d (dump) -> sell limit order
+        f (fill) -> 'buy' limit order
+        d (dump) -> 'sell' limit order
         c (cancel) -> cancel order under cursor
         cc -> cancel all submitted orders on chart
         mouse click and drag -> modify current order under cursor
@@ -85,8 +104,7 @@ class OrderMode:
     _position: Dict[str, Any] = field(default_factory=dict)
     _position_line: dict = None
 
-    _pending_submissions: dict[str, (LevelLine, Callable)] = field(
-        default_factory=dict)
+    dialogs: dict[str, OrderDialog] = field(default_factory=dict)
 
     def on_position_update(
         self,
@@ -139,33 +157,34 @@ class OrderMode:
             action=action,
         )
 
-    def on_submit(self, uuid: str) -> dict:
-        """On order submitted event, commit the order line
-        and registered order uuid, store ack time stamp.
+    def on_submit(self, uuid: str) -> OrderDialog:
+        '''Order submitted status event handler.
 
-        TODO: annotate order line with submission type ('live' vs.
-        'dark').
+        Commit the order line and registered order uuid, store ack time stamp.
 
-        """
+        '''
         line = self.lines.commit_line(uuid)
 
-        pending = self._pending_submissions.get(uuid)
-        if pending:
-            order_line, func = pending
-            assert order_line is line
-            func()
+        # a submission is the start of a new order dialog
+        dialog = self.dialogs[uuid]
+        dialog.line = line
+        dialog.last_status_close()
 
-        return line
+        return dialog
 
     def on_fill(
+
         self,
         uuid: str,
         price: float,
         arrow_index: float,
-        pointing: Optional[str] = None
+        pointing: Optional[str] = None,
+        # delete_line: bool = False,
+
     ) -> None:
 
-        line = self.lines._order_lines.get(uuid)
+        dialog = self.dialogs[uuid]
+        line = dialog.line
         if line:
             self.arrows.add(
                 uuid,
@@ -174,17 +193,14 @@ class OrderMode:
                 pointing=pointing,
                 color=line.color
             )
+        else:
+            log.warn("No line for order {uuid}!?")
 
     async def on_exec(
         self,
         uuid: str,
         msg: Dict[str, Any],
     ) -> None:
-
-        # only once all fills have cleared and the execution
-        # is complet do we remove our "order line"
-        line = self.lines.remove_line(uuid=uuid)
-        log.debug(f'deleting {line} with oid: {uuid}')
 
         # DESKTOP NOTIFICATIONS
         #
@@ -212,10 +228,9 @@ class OrderMode:
             self.lines.remove_line(uuid=uuid)
             self.chart.linked.cursor.show_xhair()
 
-            pending = self._pending_submissions.pop(uuid, None)
-            if pending:
-                order_line, func = pending
-                func()
+            dialog = self.dialogs.pop(uuid, None)
+            if dialog:
+                dialog.last_status_close()
         else:
             log.warning(
                 f'Received cancel for unsubmitted order {pformat(msg)}'
@@ -225,7 +240,7 @@ class OrderMode:
         self,
         size: Optional[float] = None,
 
-    ) -> LevelLine:
+    ) -> OrderDialog:
         """Send execution order to EMS return a level line to
         represent the order on a chart.
 
@@ -234,7 +249,7 @@ class OrderMode:
         # to be displayed when above order ack arrives
         # (means the line graphic doesn't show on screen until the
         # order is live in the emsd).
-        uid = str(uuid.uuid4())
+        oid = str(uuid.uuid4())
 
         size = size or self._size
 
@@ -246,9 +261,46 @@ class OrderMode:
 
         action = self._action
 
+        # TODO: update the line once an ack event comes back
+        # from the EMS!
+
+        # TODO: place a grey line in "submission" mode
+        # which will be updated to it's appropriate action
+        # color once the submission ack arrives.
+
+        # make line graphic if order push was sucessful
+        line = self.lines.create_order_line(
+            oid,
+            level=y,
+            chart=chart,
+            size=size,
+            action=action,
+        )
+
+        dialog = OrderDialog(
+            uuid=oid,
+            line=line,
+            last_status_close=self.status_bar.open_status(
+                f'submitting {self._exec_mode}-{action}',
+                final_msg=f'submitted {self._exec_mode}-{action}',
+                clear_on_next=True,
+            )
+        )
+
+        # TODO: create a new ``OrderLine`` with this optional var defined
+        line.dialog = dialog
+
+        # enter submission which will be popped once a response
+        # from the EMS is received to move the order to a different# status
+        self.dialogs[oid] = dialog
+
+        # hook up mouse drag handlers
+        line._on_drag_start = self.order_line_modify_start
+        line._on_drag_end = self.order_line_modify_complete
+
         # send order cmd to ems
         self.book.send(
-            uuid=uid,
+            uuid=oid,
             symbol=symbol.key,
             brokers=symbol.brokers,
             price=y,
@@ -257,36 +309,7 @@ class OrderMode:
             exec_mode=self._exec_mode,
         )
 
-        # TODO: update the line once an ack event comes back
-        # from the EMS!
-
-        # make line graphic if order push was
-        # sucessful
-        line = self.lines.create_order_line(
-            uid,
-            level=y,
-            chart=chart,
-            size=size,
-            action=action,
-        )
-        line.oid = uid
-
-        # enter submission which will be popped once a response
-        # from the EMS is received to move the order to a different# status
-        self._pending_submissions[uid] = (
-            line,
-            self.status_bar.open_status(
-                f'submitting {self._exec_mode}-{action}',
-                final_msg=f'submitted {self._exec_mode}-{action}',
-                clear_on_next=True,
-            )
-        )
-
-        # hook up mouse drag handlers
-        line._on_drag_start = self.order_line_modify_start
-        line._on_drag_end = self.order_line_modify_complete
-
-        return line
+        return dialog
 
     def cancel_orders_under_cursor(self) -> list[str]:
         return self.cancel_orders_from_lines(
@@ -317,16 +340,16 @@ class OrderMode:
 
             # cancel all active orders and triggers
             for line in lines:
-                oid = getattr(line, 'oid', None)
+                dialog = getattr(line, 'dialog', None)
 
-                if oid:
-                    self._pending_submissions[oid] = (
-                        line,
-                        self.status_bar.open_status(
-                            f'cancelling order {oid[:6]}',
-                            group_key=key,
-                        ),
+                if dialog:
+                    oid = dialog.uuid
+
+                    cancel_status_close = self.status_bar.open_status(
+                        f'cancelling order {oid[:6]}',
+                        group_key=key,
                     )
+                    dialog.last_status_close = cancel_status_close
 
                     ids.append(oid)
                     self.book.cancel(uuid=oid)
@@ -338,16 +361,20 @@ class OrderMode:
     def order_line_modify_start(
         self,
         line: LevelLine,
+
     ) -> None:
+
         print(f'Line modify: {line}')
         # cancel original order until new position is found
 
     def order_line_modify_complete(
         self,
         line: LevelLine,
+
     ) -> None:
+
         self.book.update(
-            uuid=line.oid,
+            uuid=line.dialog.uuid,
 
             # TODO: should we round this to a nearest tick here?
             price=line.value(),
@@ -464,6 +491,10 @@ async def start_order_mode(
                 resp = msg['resp']
                 oid = msg['oid']
 
+                dialog = order_mode.dialogs[oid]
+                # record message to dialog tracking
+                dialog.msgs[oid] = msg
+
                 # response to 'action' request (buy/sell)
                 if resp in (
                     'dark_submitted',
@@ -496,15 +527,20 @@ async def start_order_mode(
                     order_mode.on_fill(
                         oid,
                         price=msg['trigger_price'],
-                        arrow_index=get_index(time.time())
+                        arrow_index=get_index(time.time()),
                     )
+                    order_mode.lines.remove_line(uuid=oid)
                     await order_mode.on_exec(oid, msg)
 
                 # response to completed 'action' request for buy/sell
                 elif resp in (
                     'broker_executed',
                 ):
+                    # right now this is just triggering a system alert
                     await order_mode.on_exec(oid, msg)
+
+                    if msg['brokerd_msg']['remaining'] == 0:
+                        order_mode.lines.remove_line(uuid=oid)
 
                 # each clearing tick is responded individually
                 elif resp in ('broker_filled',):
