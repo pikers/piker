@@ -360,6 +360,8 @@ class LevelLine(pg.InfiniteLine):
             self._marker.setPos(
                 QPointF(marker_right, self.scene_y())
             )
+            # TODO: make this label update part of a scene-aware-marker
+            # composed annotation
             self._marker.label.update()
 
         elif not self.use_marker_margin:
@@ -763,9 +765,7 @@ def position_line(
 
     # monkey-cache height for sizing on pp nav-hub
     arrow_path._height = path_br.height()
-
     arrow_path._width = path_br.width()
-    # wp = QPointF(w, w)
 
     marker_label = Label(
         view=vb,
@@ -775,17 +775,18 @@ def position_line(
     )
     arrow_path.label = marker_label
 
-    # def arrow_br():
-    #     # get actual arrow graphics path
-    #     path_br = arrow_path.mapToScene(
-    #         arrow_path.path()
-    #     ).boundingRect()
+    def arrow_tr():
+        # get actual arrow graphics path
+        path_br = arrow_path.mapToScene(
+            arrow_path.path()
+        ).boundingRect()
 
-    #     # vb.locate(arrow_path)  #, children=True)
+        # vb.locate(arrow_path)  #, children=True)
 
-    #     return path_br.bottomRight() - QPointF(0, marker_label.h / 2)
+        return path_br.topRight() - QPointF(0, marker_label.h / 3)
 
-    # marker_label.scene_anchor = arrow_br
+
+    marker_label.scene_anchor = arrow_tr
 
     line._labels.append(marker_label)
 
@@ -807,13 +808,9 @@ def position_line(
         ymn, ymx = vr[1]
         level = line.value()
 
-        path = line._marker
-        label = path.label
+        marker = line._marker
+        label = marker.label
 
-        # get actual arrow-marker graphics path
-        path_br = path.mapToScene(
-            path.path()
-        ).boundingRect()
 
         # provide "nav hub" like indicator for where
         # the position is on the y-dimension
@@ -821,33 +818,28 @@ def position_line(
         _, marker_right, _ = line.marker_right_points()
 
         if level > ymx:  # pin to top of view
-            path.setPos(
+            marker.setPos(
                 QPointF(
                     marker_right,
-                    path._height/3,
+                    marker._height/3,
                 )
             )
 
         elif level < ymn:  # pin to bottom of view
 
-            path.setPos(
+            marker.setPos(
                 QPointF(
                     marker_right,
-                    vb.height() - 4/3*path._height,
+                    vb.height() - 4/3*marker._height,
                 )
             )
 
-            # adjust marker labels to be above bottom of view
-            label.txt.setPos(path_br.topRight() - QPointF(0, label.h / 2))
-
         else:
             # pp line is viewable so show marker normally
-            line._marker.show()
+            marker.update()
 
-            # place label at bottom right of pp marker
-            label.txt.setPos(path_br.bottomRight() - QPointF(0, label.h / 2))
-
-        line.show_labels()
+        # re-anchor label (i.e. trigger call of ``arrow_tr()`` from above
+        label.update()
 
     vb.sigRangeChanged.connect(update_pp_nav)
 
