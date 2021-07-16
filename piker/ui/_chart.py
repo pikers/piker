@@ -65,7 +65,7 @@ from .. import data
 from ..log import get_logger
 from ._exec import run_qtractor
 from ._interaction import ChartView
-from .order_mode import start_order_mode
+from .order_mode import run_order_mode
 from .. import fsp
 from ..data import feed
 
@@ -1574,7 +1574,7 @@ async def display_symbol_data(
                 linkedsplits
             )
 
-            await start_order_mode(chart, symbol, provider, order_mode_started)
+            await run_order_mode(chart, symbol, provider, order_mode_started)
 
 
 async def load_provider_search(
