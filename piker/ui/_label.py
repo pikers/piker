@@ -225,6 +225,8 @@ class Label:
         self.vb.scene().removeItem(self.txt)
 
 
+# anchoring helper funcs
+
 def vbr_left(label) -> Callable[..., float]:
     """Return a closure which gives the scene x-coordinate for the
     leftmost point of the containing view box.
