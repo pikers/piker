@@ -27,6 +27,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
 
 from ._annotate import mk_marker, qgo_draw_markers
+from ._anchors import marker_right_points
 from ._label import Label, vbr_left, right_axis
 from ._style import hcolor, _font
 
@@ -44,7 +45,7 @@ class LevelLine(pg.InfiniteLine):
         color: str = 'default',
         highlight_color: str = 'default_light',
         dotted: bool = False,
-        marker_size: int = 20,
+        # marker_size: int = 20,
 
         # UX look and feel opts
         always_show_labels: bool = False,
@@ -74,7 +75,7 @@ class LevelLine(pg.InfiniteLine):
         self._hide_xhair_on_hover = hide_xhair_on_hover
 
         self._marker = None
-        self._default_mkr_size = marker_size
+        # self._default_mkr_size = marker_size
         self._moh = only_show_markers_on_hover
         self.show_markers: bool = True  # presuming the line is hovered at init
 
@@ -306,21 +307,6 @@ class LevelLine(pg.InfiniteLine):
 
         return up_to_l1_sc
 
-    def marker_right_points(self) -> (float, float, float):
-
-        chart = self._chart
-        l1_len = chart._max_l1_line_len
-        ryaxis = chart.getAxis('right')
-
-        r_axis_x = ryaxis.pos().x()
-        up_to_l1_sc = r_axis_x - l1_len
-
-        size = self._default_mkr_size
-        marker_right = up_to_l1_sc - (1.375 * 2*size)
-        line_end = marker_right - (6/16 * size)
-
-        return line_end, marker_right, r_axis_x
-
     def paint(
         self,
         p: QtGui.QPainter,
@@ -337,7 +323,7 @@ class LevelLine(pg.InfiniteLine):
         vb_left, vb_right = self._endPoints
         vb = self.getViewBox()
 
-        line_end, marker_right, r_axis_x = self.marker_right_points()
+        line_end, marker_right, r_axis_x = marker_right_points(self._chart)
 
         if self.show_markers and self.markers:
 
@@ -785,7 +771,6 @@ def position_line(
 
         return path_br.topRight() - QPointF(0, marker_label.h / 3)
 
-
     marker_label.scene_anchor = arrow_tr
 
     line._labels.append(marker_label)
@@ -803,6 +788,9 @@ def position_line(
     def update_pp_nav(chartview):
         '''Show a pp off-screen indicator when order mode is activated.
 
+        This is like in fps games where you have a gps "nav" indicator
+        but your teammate is outside the range of view, except in 2D, on
+        the y-dimension.
         '''
         vr = vb.state['viewRange']
         ymn, ymx = vr[1]
@@ -811,11 +799,7 @@ def position_line(
         marker = line._marker
         label = marker.label
 
-
-        # provide "nav hub" like indicator for where
-        # the position is on the y-dimension
-
-        _, marker_right, _ = line.marker_right_points()
+        _, marker_right, _ = marker_right_points(line._chart)
 
         if level > ymx:  # pin to top of view
             marker.setPos(
