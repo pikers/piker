@@ -32,7 +32,6 @@ import trio
 from ..log import get_logger
 from ._style import _min_points_to_show
 from ._editors import SelectRect
-from ._window import main_window
 
 
 log = get_logger(__name__)
