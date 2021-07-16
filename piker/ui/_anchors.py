@@ -18,6 +18,11 @@
 Anchor funtions for UI placement of annotions.
 
 '''
+from typing import Callable
+
+from PyQt5.QtCore import QPointF
+
+from ._label import Label
 
 
 def marker_right_points(
@@ -26,8 +31,13 @@ def marker_right_points(
     marker_size: int = 20,
 
 ) -> (float, float, float):
+    '''Return x-dimension, y-axis-aware, level-line marker oriented scene values.
 
-    # chart = self._chart
+    X values correspond to set the end of a level line, end of
+    a paried level line marker, and the right most side of the "right"
+    axis respectively.
+
+    '''
     l1_len = chart._max_l1_line_len
     ryaxis = chart.getAxis('right')
 
@@ -38,3 +48,110 @@ def marker_right_points(
     line_end = marker_right - (6/16 * marker_size)
 
     return line_end, marker_right, r_axis_x
+
+
+def vbr_left(
+    label: Label,
+
+) -> Callable[..., float]:
+    """Return a closure which gives the scene x-coordinate for the
+    leftmost point of the containing view box.
+
+    """
+    return label.vbr().left
+
+
+def right_axis(
+
+    chart: 'ChartPlotWidget',  # noqa
+    label: Label,
+
+    side: str = 'left',
+    offset: float = 10,
+    avoid_book: bool = True,
+    # width: float = None,
+
+) -> Callable[..., float]:
+    '''Return a position closure which gives the scene x-coordinate for
+    the x point on the right y-axis minus the width of the label given
+    it's contents.
+
+    '''
+    ryaxis = chart.getAxis('right')
+
+    if side == 'left':
+
+        if avoid_book:
+            def right_axis_offset_by_w() -> float:
+
+                # l1 spread graphics x-size
+                l1_len = chart._max_l1_line_len
+
+                # sum of all distances "from" the y-axis
+                right_offset = l1_len + label.w + offset
+
+                return ryaxis.pos().x() - right_offset
+
+        else:
+            def right_axis_offset_by_w() -> float:
+
+                return ryaxis.pos().x() - (label.w + offset)
+
+        return right_axis_offset_by_w
+
+    elif 'right':
+
+        # axis_offset = ryaxis.style['tickTextOffset'][0]
+
+        def on_axis() -> float:
+
+            return ryaxis.pos().x()  # + axis_offset - 2
+
+        return on_axis
+
+
+def update_pp_nav(
+
+    chartview: 'ChartView',  # noqa
+    line: 'LevelLine',  # noqa
+
+) -> None:
+    '''Show a pp off-screen indicator for a level label.
+
+    This is like in fps games where you have a gps "nav" indicator
+    but your teammate is outside the range of view, except in 2D, on
+    the y-dimension.
+
+    '''
+    vr = chartview.state['viewRange']
+    ymn, ymx = vr[1]
+    level = line.value()
+
+    marker = line._marker
+    label = marker.label
+
+    _, marker_right, _ = marker_right_points(line._chart)
+
+    if level > ymx:  # pin to top of view
+        marker.setPos(
+            QPointF(
+                marker_right,
+                marker._height/3,
+            )
+        )
+
+    elif level < ymn:  # pin to bottom of view
+
+        marker.setPos(
+            QPointF(
+                marker_right,
+                chartview.height() - 4/3*marker._height,
+            )
+        )
+
+    else:
+        # pp line is viewable so show marker normally
+        marker.update()
+
+    # re-anchor label (i.e. trigger call of ``arrow_tr()`` from above
+    label.update()
