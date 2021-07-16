@@ -18,6 +18,7 @@
 Lines for orders, alerts, L2.
 
 """
+from functools import partial
 from math import floor
 from typing import Tuple, Optional, List
 
@@ -27,8 +28,13 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
 
 from ._annotate import mk_marker, qgo_draw_markers
-from ._anchors import marker_right_points
-from ._label import Label, vbr_left, right_axis
+from ._anchors import (
+    marker_right_points,
+    vbr_left,
+    right_axis,
+    update_pp_nav,
+)
+from ._label import Label
 from ._style import hcolor, _font
 
 
@@ -785,46 +791,6 @@ def position_line(
     # sanity check
     line.update_labels({'level': level})
 
-    def update_pp_nav(chartview):
-        '''Show a pp off-screen indicator when order mode is activated.
-
-        This is like in fps games where you have a gps "nav" indicator
-        but your teammate is outside the range of view, except in 2D, on
-        the y-dimension.
-        '''
-        vr = vb.state['viewRange']
-        ymn, ymx = vr[1]
-        level = line.value()
-
-        marker = line._marker
-        label = marker.label
-
-        _, marker_right, _ = marker_right_points(line._chart)
-
-        if level > ymx:  # pin to top of view
-            marker.setPos(
-                QPointF(
-                    marker_right,
-                    marker._height/3,
-                )
-            )
-
-        elif level < ymn:  # pin to bottom of view
-
-            marker.setPos(
-                QPointF(
-                    marker_right,
-                    vb.height() - 4/3*marker._height,
-                )
-            )
-
-        else:
-            # pp line is viewable so show marker normally
-            marker.update()
-
-        # re-anchor label (i.e. trigger call of ``arrow_tr()`` from above
-        label.update()
-
-    vb.sigRangeChanged.connect(update_pp_nav)
+    vb.sigRangeChanged.connect(partial(update_pp_nav, chartview=vb, line=line))
 
     return line
