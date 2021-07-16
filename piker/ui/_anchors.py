@@ -21,6 +21,7 @@ Anchor funtions for UI placement of annotions.
 from typing import Callable
 
 from PyQt5.QtCore import QPointF
+from PyQt5.QtGui import QGraphicsPathItem
 
 from ._label import Label
 
@@ -155,3 +156,18 @@ def update_pp_nav(
 
     # re-anchor label (i.e. trigger call of ``arrow_tr()`` from above
     label.update()
+
+
+def path_topright(
+    gpath: QGraphicsPathItem,
+    label: Label,  # noqa
+
+) -> QPointF:
+    # get actual arrow graphics path
+    path_br = gpath.mapToScene(
+        gpath.path()
+    ).boundingRect()
+
+    # vb.locate(arrow_path)  #, children=True)
+
+    return path_br.topRight() - QPointF(0, label.h / 3)
