@@ -18,23 +18,24 @@
 Chart trading, the only way to scalp.
 
 """
-from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pprint import pformat
 import time
 from typing import Optional, Dict, Callable, Any
 import uuid
 
-import pyqtgraph as pg
 from pydantic import BaseModel
+import tractor
 import trio
 
-from ._lines import LevelLine, position_line
-from ._editors import LineEditor, ArrowEditor
-from ._window import MultiStatus, main_window
+from ._anchors import marker_right_points
 from ..clearing._client import open_ems, OrderBook
 from ..data._source import Symbol
 from ..log import get_logger
+from ._editors import LineEditor, ArrowEditor
+from ._label import Label
+from ._lines import LevelLine, position_line
+from ._window import MultiStatus, main_window
 
 
 log = get_logger(__name__)
@@ -91,6 +92,10 @@ class OrderMode:
     lines: LineEditor
     arrows: ArrowEditor
     status_bar: MultiStatus
+
+    # pp status info
+    label: Label
+
     name: str = 'order'
 
     _colors = {
@@ -381,50 +386,11 @@ class OrderMode:
         )
 
 
-@asynccontextmanager
-async def open_order_mode(
-    symbol: Symbol,
-    chart: pg.PlotWidget,
-    book: OrderBook,
-):
-    status_bar: MultiStatus = main_window().status_bar
-    view = chart._vb
-    lines = LineEditor(chart=chart)
-    arrows = ArrowEditor(chart, {})
-
-    log.info("Opening order mode")
-
-    mode = OrderMode(chart, book, lines, arrows, status_bar)
-    view.mode = mode
-
-    asset_type = symbol.type_key
-
-    if asset_type == 'stock':
-        mode._size = 100.0
-
-    elif asset_type in ('future', 'option', 'futures_option'):
-        mode._size = 1.0
-
-    else:  # to be safe
-        mode._size = 1.0
-
-    try:
-        yield mode
-
-    finally:
-        # XXX special teardown handling like for ex.
-        # - cancelling orders if needed?
-        # - closing positions if desired?
-        # - switching special condition orders to safer/more reliable variants
-        log.info("Closing order mode")
-
-
-async def start_order_mode(
+async def run_order_mode(
 
     chart: 'ChartPlotWidget',  # noqa
     symbol: Symbol,
     brokername: str,
-
     started: trio.Event,
 
 ) -> None:
@@ -436,19 +402,90 @@ async def start_order_mode(
     '''
     done = chart.window().status_bar.open_status('starting order mode..')
 
+    book: OrderBook
+    trades_stream: tractor.MsgStream
+    positions: dict
+
     # spawn EMS actor-service
     async with (
-        open_ems(brokername, symbol) as (book, trades_stream, positions),
-        open_order_mode(symbol, chart, book) as order_mode,
+
+        open_ems(brokername, symbol) as (
+            book,
+            trades_stream,
+            positions
+        ),
 
         # # start async input handling for chart's view
         # # await godwidget._task_stack.enter_async_context(
         # chart._vb.open_async_input_handler(),
     ):
+        status_bar: MultiStatus = main_window().status_bar
+        view = chart._vb
+        lines = LineEditor(chart=chart)
+        arrows = ArrowEditor(chart, {})
+
+        log.info("Opening order mode")
+
+        pp_label = Label(
+            view=view,
+            color='default_light',
+
+            # this is "static" label
+            # update_on_range_change=False,
+
+            fmt_str='\n'.join((
+                'size: {entry_count}',
+                '% port: {percent_of_port}',
+                # '$val: {base_unit_value}',
+            )),
+            fields={
+                'entry_count': 0,
+                'percent_of_port': 0,
+                'base_unit_value': 0,
+            },
+        )
+        pp_label.render()
+
+        from PyQt5.QtCore import QPointF
+
+        # order line endpoint anchor
+        def bottom_marker_right() -> QPointF:
+
+            return QPointF(
+                marker_right_points(chart)[0] - pp_label.w,
+                view.height() - pp_label.h,
+            )
+
+        # TODO: position on botto if l1/book is on top side
+        pp_label.scene_anchor = bottom_marker_right
+        pp_label.hide()
+
+        mode = OrderMode(
+            chart,
+            book,
+            lines,
+            arrows,
+            status_bar,
+            label=pp_label,
+        )
+
+        view.mode = mode
+
+        asset_type = symbol.type_key
+
+        # default entry sizing
+        if asset_type == 'stock':
+            mode._size = 100.0
+
+        elif asset_type in ('future', 'option', 'futures_option'):
+            mode._size = 1.0
+
+        else:  # to be safe
+            mode._size = 1.0
 
         # update any exising positions
         for sym, msg in positions.items():
-            order_mode.on_position_update(msg)
+            mode.on_position_update(msg)
 
         def get_index(time: float):
 
@@ -485,13 +522,13 @@ async def start_order_mode(
                     'position',
                 ):
                     # show line label once order is live
-                    order_mode.on_position_update(msg)
+                    mode.on_position_update(msg)
                     continue
 
                 resp = msg['resp']
                 oid = msg['oid']
 
-                dialog = order_mode.dialogs[oid]
+                dialog = mode.dialogs[oid]
                 # record message to dialog tracking
                 dialog.msgs[oid] = msg
 
@@ -502,7 +539,7 @@ async def start_order_mode(
                 ):
 
                     # show line label once order is live
-                    order_mode.on_submit(oid)
+                    mode.on_submit(oid)
 
                 # resp to 'cancel' request or error condition
                 # for action request
@@ -512,7 +549,7 @@ async def start_order_mode(
                     'dark_cancelled'
                 ):
                     # delete level line from view
-                    order_mode.on_cancel(oid)
+                    mode.on_cancel(oid)
 
                 elif resp in (
                     'dark_triggered'
@@ -524,23 +561,23 @@ async def start_order_mode(
                 ):
                     # should only be one "fill" for an alert
                     # add a triangle and remove the level line
-                    order_mode.on_fill(
+                    mode.on_fill(
                         oid,
                         price=msg['trigger_price'],
                         arrow_index=get_index(time.time()),
                     )
-                    order_mode.lines.remove_line(uuid=oid)
-                    await order_mode.on_exec(oid, msg)
+                    mode.lines.remove_line(uuid=oid)
+                    await mode.on_exec(oid, msg)
 
                 # response to completed 'action' request for buy/sell
                 elif resp in (
                     'broker_executed',
                 ):
                     # right now this is just triggering a system alert
-                    await order_mode.on_exec(oid, msg)
+                    await mode.on_exec(oid, msg)
 
                     if msg['brokerd_msg']['remaining'] == 0:
-                        order_mode.lines.remove_line(uuid=oid)
+                        mode.lines.remove_line(uuid=oid)
 
                 # each clearing tick is responded individually
                 elif resp in ('broker_filled',):
@@ -554,7 +591,7 @@ async def start_order_mode(
                     details = msg['brokerd_msg']
 
                     # TODO: some kinda progress system
-                    order_mode.on_fill(
+                    mode.on_fill(
                         oid,
                         price=details['price'],
                         pointing='up' if action == 'buy' else 'down',
