@@ -26,6 +26,7 @@ import pyqtgraph as pg
 from pyqtgraph import Point, functions as fn
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
+from PyQt5.QtGui import QGraphicsPathItem
 
 from ._annotate import mk_marker, qgo_draw_markers
 from ._anchors import (
@@ -33,6 +34,7 @@ from ._anchors import (
     vbr_left,
     right_axis,
     update_pp_nav,
+    path_topright,
 )
 from ._label import Label
 from ._style import hcolor, _font
@@ -767,17 +769,11 @@ def position_line(
     )
     arrow_path.label = marker_label
 
-    def arrow_tr():
-        # get actual arrow graphics path
-        path_br = arrow_path.mapToScene(
-            arrow_path.path()
-        ).boundingRect()
-
-        # vb.locate(arrow_path)  #, children=True)
-
-        return path_br.topRight() - QPointF(0, marker_label.h / 3)
-
-    marker_label.scene_anchor = arrow_tr
+    marker_label.scene_anchor = partial(
+        path_topright,
+        gpath=arrow_path,
+        label=marker_label,
+    )
 
     line._labels.append(marker_label)
 
