@@ -158,16 +158,26 @@ def update_pp_nav(
     label.update()
 
 
-def path_topright(
+def gpath_pin(
+
     gpath: QGraphicsPathItem,
     label: Label,  # noqa
 
+    location_description: str = 'right-of-path-centered',
+    use_right_of_pp_label: bool = False,
+
 ) -> QPointF:
+
     # get actual arrow graphics path
-    path_br = gpath.mapToScene(
-        gpath.path()
-    ).boundingRect()
+    path_br = gpath.mapToScene(gpath.path()).boundingRect()
 
     # vb.locate(arrow_path)  #, children=True)
 
-    return path_br.topRight() - QPointF(0, label.h / 3)
+    if location_description == 'right-of-path-centered':
+        return path_br.topRight() - QPointF(0, label.h / 3)
+
+    elif location_description == 'below-path-left-aligned':
+        return path_br.bottomLeft() - QPointF(0, label.h / 6)
+
+    elif location_description == 'below-path-right-aligned':
+        return path_br.bottomRight() - QPointF(label.w, label.h / 6)
