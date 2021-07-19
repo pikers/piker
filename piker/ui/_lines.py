@@ -34,7 +34,7 @@ from ._anchors import (
     vbr_left,
     right_axis,
     update_pp_nav,
-    path_topright,
+    gpath_pin,
 )
 from ._label import Label
 from ._style import hcolor, _font
@@ -356,7 +356,8 @@ class LevelLine(pg.InfiniteLine):
             )
             # TODO: make this label update part of a scene-aware-marker
             # composed annotation
-            self._marker.label.update()
+            if hasattr(self._marker, 'label'):
+                self._marker.label.update()
 
         elif not self.use_marker_margin:
             # basically means **don't** shorten the line with normally
@@ -378,6 +379,13 @@ class LevelLine(pg.InfiniteLine):
         super().hide()
         if self._marker:
             self._marker.hide()
+            self._marker.label.hide()
+
+    def hide(self) -> None:
+        super().show()
+        if self._marker:
+            self._marker.show()
+            self._marker.label.show()
 
     def scene_right_xy(self) -> QPointF:
         return self.getViewBox().mapFromView(
@@ -499,7 +507,6 @@ def level_line(
     hl_on_hover: bool = True,
 
     # label fields and options
-    digits: int = 1,
     always_show_labels: bool = False,
     add_label: bool = True,
     orient_v: str = 'bottom',
@@ -578,7 +585,7 @@ def order_line(
     action: str,  # buy or sell
 
     size: Optional[int] = 1,
-    size_digits: int = 0,
+    size_digits: int = 1,
     show_markers: bool = False,
     submit_price: float = None,
     exec_type: str = 'dark',
@@ -615,18 +622,12 @@ def order_line(
             'alert': ('v', alert_size),
         }[action]
 
-        # this fixes it the artifact issue! .. of course, bouding rect stuff
+        # this fixes it the artifact issue! .. of course, bounding rect stuff
         line._maxMarkerSize = marker_size
 
         # use ``QPathGraphicsItem``s to draw markers in scene coords
         # instead of the old way that was doing the same but by
         # resetting the graphics item transform intermittently
-
-        # XXX: this is our new approach but seems slower?
-        # path = line.add_marker(mk_marker(marker_style, marker_size))
-        # assert line._marker == path
-
-        assert not line.markers
 
         # the old way which is still somehow faster?
         path = mk_marker(
@@ -634,13 +635,22 @@ def order_line(
             # the "position" here is now ignored since we modified
             # internals to pin markers to the right end of the line
             marker_size,
-            use_qgpath=False,
+
+            # uncommment for the old transform / .pain() marker method
+            # use_qgpath=False,
         )
-        # manually append for later ``InfiniteLine.paint()`` drawing
-        # XXX: this was manually tested as faster then using the
-        # QGraphicsItem around a painter path.. probably needs further
-        # testing to figure out why tf that's true.
-        line.markers.append((path, 0, marker_size))
+
+        # XXX: this is our new approach but seems slower?
+        path = line.add_marker(mk_marker(marker_style, marker_size))
+        line._marker = path
+
+        assert not line.markers
+
+        # # manually append for later ``InfiniteLine.paint()`` drawing
+        # # XXX: this was manually tested as faster then using the
+        # # QGraphicsItem around a painter path.. probably needs further
+        # # testing to figure out why tf that's true.
+        # line.markers.append((path, 0, marker_size))
 
     orient_v = 'top' if action == 'sell' else 'bottom'
 
@@ -669,34 +679,34 @@ def order_line(
         llabel.render()
         llabel.show()
 
+        path.label = llabel
+
     else:
 
         rlabel = Label(
 
             view=line.getViewBox(),
 
-            # display the order pos size
-            fmt_str=('{size:.{size_digits}f} '),
+            # display the order pos size, which is some multiple
+            # of the user defined base unit size
+            fmt_str=('x{size:.0f}'),
+            # fmt_str=('{size:.{size_digits}f}'),  # old
             color=line.color,
         )
+        path.label = rlabel
 
-        # set anchor callback
-        # right side label by default
-        rlabel.set_x_anchor_func(
-            right_axis(
-                chart,
-                rlabel,
-                side='left',  # side of axis
-                offset=4*marker_size,
-                avoid_book=True,
-            )
+        rlabel.scene_anchor = partial(
+            gpath_pin,
+            location_description='right-of-path-centered',
+            gpath=path,
+            label=rlabel,
         )
 
         line._labels.append(rlabel)
 
         rlabel.fields = {
             'size': size,
-            'size_digits': size_digits,
+            # 'size_digits': size_digits,
         }
 
         rlabel.orient_v = orient_v
@@ -710,18 +720,18 @@ def order_line(
 
 
 def position_line(
+
     chart,
     size: float,
-
     level: float,
 
     orient_v: str = 'bottom',
 
 ) -> LevelLine:
-    """Convenience routine to add a line graphic representing an order
+    '''Convenience routine to add a line graphic representing an order
     execution submitted to the EMS via the chart's "order mode".
 
-    """
+    '''
     hcolor = 'default_light'
 
     line = level_line(
@@ -767,10 +777,11 @@ def position_line(
         color=hcolor,
         update_on_range_change=False,
     )
+
     arrow_path.label = marker_label
 
     marker_label.scene_anchor = partial(
-        path_topright,
+        gpath_pin,
         gpath=arrow_path,
         label=marker_label,
     )
