@@ -113,27 +113,35 @@ class OrderMode:
 
     def on_position_update(
         self,
-        msg: dict,
+
+        size: float,
+        price: float,
+
     ) -> None:
-        print(f'Position update {msg}')
 
-        sym = self.chart._lc._symbol
-        if msg['symbol'].lower() not in sym.key:
-            return
+        line = self._position_line
 
-        size = msg['size']
+        if line is None and size:
 
-        self._position.update(msg)
-        if self._position_line:
-            self._position_line.delete()
-
-        if size != 0.0:
+            # create and show a pp line
             line = self._position_line = position_line(
                 self.chart,
-                level=msg['avg_price'],
+                level=price,
                 size=size,
             )
             line.show()
+
+        elif line:
+
+            if size != 0.0:
+                line.set_level(price)
+                line.update_labels({'size': size})
+                line.show()
+
+            else:
+                # remove pp line from view
+                line.delete()
+                self._position_line = None
 
     def uuid(self) -> str:
         return str(uuid.uuid4())
@@ -386,6 +394,35 @@ class OrderMode:
         )
 
 
+class PositionInfo:
+
+    line: LevelLine
+    pp_label: Label
+    size_label: Label
+    info_label: Label
+    info: dict
+
+    def update(
+        self,
+        avg_price,
+        size,
+
+    ) -> None:
+
+        self.info['avg_price'] = avg_price
+        self.size_label.fields['size'] = size
+        self.info_label.fields['size'] = size
+
+
+def position_info(
+
+    price: float,
+    size: float
+
+) -> PositionInfo:
+    pass
+
+
 async def run_order_mode(
 
     chart: 'ChartPlotWidget',  # noqa
@@ -434,30 +471,38 @@ async def run_order_mode(
             # update_on_range_change=False,
 
             fmt_str='\n'.join((
-                'size: {entry_count}',
-                '% port: {percent_of_port}',
-                # '$val: {base_unit_value}',
+                '{entry_size} @ {percent_pnl}% PnL',
+                '{percent_of_port}% of port = ${base_unit_value}',
             )),
+
             fields={
-                'entry_count': 0,
-                'percent_of_port': 0,
-                'base_unit_value': 0,
+                'entry_size': 0,
+                'percent_pnl': 0,
+                'percent_of_port': 2,
+                'base_unit_value': '1k',
             },
         )
         pp_label.render()
 
         from PyQt5.QtCore import QPointF
+        from . import _lines
 
         # order line endpoint anchor
-        def bottom_marker_right() -> QPointF:
+        def align_to_pp_label() -> QPointF:
+            # pp = _lines._pp_label.txt
+            # scene_rect = pp.mapToScene(pp.boundingRect()).boundingRect()
+            # br = scene_rect.bottomRight()
 
             return QPointF(
-                marker_right_points(chart)[0] - pp_label.w,
+
+                marker_right_points(chart)[2] - pp_label.w ,
                 view.height() - pp_label.h,
+                # br.x() - pp_label.w,
+                # br.y(),
             )
 
         # TODO: position on botto if l1/book is on top side
-        pp_label.scene_anchor = bottom_marker_right
+        pp_label.scene_anchor = align_to_pp_label
         pp_label.hide()
 
         mode = OrderMode(
@@ -483,9 +528,18 @@ async def run_order_mode(
         else:  # to be safe
             mode._size = 1.0
 
-        # update any exising positions
+        # update any exising position
         for sym, msg in positions.items():
-            mode.on_position_update(msg)
+
+            our_sym = mode.chart._lc._symbol.key
+            if sym.lower() in our_sym:
+
+                mode._position.update(msg)
+                size = msg['size']
+                price = msg['avg_price']
+                mode.on_position_update(size, price)
+                pp_label.fields['entry_size'] = size
+                pp_label.render()
 
         def get_index(time: float):
 
@@ -522,7 +576,19 @@ async def run_order_mode(
                     'position',
                 ):
                     # show line label once order is live
-                    mode.on_position_update(msg)
+
+                    sym = mode.chart._lc._symbol
+                    if msg['symbol'].lower() in sym.key:
+
+                        mode._position.update(msg)
+                        size = msg['size']
+                        price = msg['avg_price']
+                        mode.on_position_update(size, price)
+                        pp_label.fields['entry_size'] = size
+                        pp_label.render()
+
+                    # short circuit to next msg to avoid
+                    # uncessary msg content lookups
                     continue
 
                 resp = msg['resp']
