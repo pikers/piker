@@ -28,27 +28,16 @@ from pydantic import BaseModel
 import tractor
 import trio
 
-from ._anchors import marker_right_points
 from ..clearing._client import open_ems, OrderBook
 from ..data._source import Symbol
 from ..log import get_logger
 from ._editors import LineEditor, ArrowEditor
-from ._label import Label
-from ._lines import LevelLine, position_line
+from ._lines import LevelLine
+from ._position import PositionInfo
 from ._window import MultiStatus, main_window
 
 
 log = get_logger(__name__)
-
-
-class Position(BaseModel):
-    '''Basic pp representation with attached fills history.
-
-    '''
-    symbol: Symbol
-    size: float
-    avg_price: float  # TODO: contextual pricing
-    fills: Dict[str, Any] = {}
 
 
 class OrderDialog(BaseModel):
@@ -94,7 +83,7 @@ class OrderMode:
     status_bar: MultiStatus
 
     # pp status info
-    label: Label
+    # label: Label
 
     name: str = 'order'
 
@@ -107,41 +96,41 @@ class OrderMode:
     _exec_mode: str = 'dark'
     _size: float = 100.0
     _position: Dict[str, Any] = field(default_factory=dict)
-    _position_line: dict = None
+    # _position_line: dict = None
 
     dialogs: dict[str, OrderDialog] = field(default_factory=dict)
 
-    def on_position_update(
-        self,
+    # def on_position_update(
+    #     self,
 
-        size: float,
-        price: float,
+    #     size: float,
+    #     price: float,
 
-    ) -> None:
+    # ) -> None:
 
-        line = self._position_line
+    #     line = self._position_line
 
-        if line is None and size:
+    #     if line is None and size:
 
-            # create and show a pp line
-            line = self._position_line = position_line(
-                self.chart,
-                level=price,
-                size=size,
-            )
-            line.show()
+    #         # create and show a pp line
+    #         line = self._position_line = position_line(
+    #             self.chart,
+    #             level=price,
+    #             size=size,
+    #         )
+    #         line.show()
 
-        elif line:
+    #     elif line:
 
-            if size != 0.0:
-                line.set_level(price)
-                line.update_labels({'size': size})
-                line.show()
+    #         if size != 0.0:
+    #             line.set_level(price)
+    #             line.update_labels({'size': size})
+    #             line.show()
 
-            else:
-                # remove pp line from view
-                line.delete()
-                self._position_line = None
+    #         else:
+    #             # remove pp line from view
+    #             line.delete()
+    #             self._position_line = None
 
     def uuid(self) -> str:
         return str(uuid.uuid4())
@@ -394,35 +383,6 @@ class OrderMode:
         )
 
 
-class PositionInfo:
-
-    line: LevelLine
-    pp_label: Label
-    size_label: Label
-    info_label: Label
-    info: dict
-
-    def update(
-        self,
-        avg_price,
-        size,
-
-    ) -> None:
-
-        self.info['avg_price'] = avg_price
-        self.size_label.fields['size'] = size
-        self.info_label.fields['size'] = size
-
-
-def position_info(
-
-    price: float,
-    size: float
-
-) -> PositionInfo:
-    pass
-
-
 async def run_order_mode(
 
     chart: 'ChartPlotWidget',  # noqa
@@ -463,47 +423,7 @@ async def run_order_mode(
 
         log.info("Opening order mode")
 
-        pp_label = Label(
-            view=view,
-            color='default_light',
-
-            # this is "static" label
-            # update_on_range_change=False,
-
-            fmt_str='\n'.join((
-                '{entry_size} @ {percent_pnl}% PnL',
-                '{percent_of_port}% of port = ${base_unit_value}',
-            )),
-
-            fields={
-                'entry_size': 0,
-                'percent_pnl': 0,
-                'percent_of_port': 2,
-                'base_unit_value': '1k',
-            },
-        )
-        pp_label.render()
-
-        from PyQt5.QtCore import QPointF
-        from . import _lines
-
-        # order line endpoint anchor
-        def align_to_pp_label() -> QPointF:
-            # pp = _lines._pp_label.txt
-            # scene_rect = pp.mapToScene(pp.boundingRect()).boundingRect()
-            # br = scene_rect.bottomRight()
-
-            return QPointF(
-
-                marker_right_points(chart)[2] - pp_label.w ,
-                view.height() - pp_label.h,
-                # br.x() - pp_label.w,
-                # br.y(),
-            )
-
-        # TODO: position on botto if l1/book is on top side
-        pp_label.scene_anchor = align_to_pp_label
-        pp_label.hide()
+        pp = PositionInfo(chart)
 
         mode = OrderMode(
             chart,
@@ -511,8 +431,8 @@ async def run_order_mode(
             lines,
             arrows,
             status_bar,
-            label=pp_label,
         )
+        mode.pp = pp
 
         view.mode = mode
 
@@ -534,12 +454,16 @@ async def run_order_mode(
             our_sym = mode.chart._lc._symbol.key
             if sym.lower() in our_sym:
 
-                mode._position.update(msg)
-                size = msg['size']
-                price = msg['avg_price']
-                mode.on_position_update(size, price)
-                pp_label.fields['entry_size'] = size
-                pp_label.render()
+                pp.update(
+                    avg_price=msg['avg_price'],
+                    size=msg['size'],
+                )
+
+                # mode._position.update(msg)
+                # size = msg['size']
+                # price = msg['avg_price']
+                # pp_label.fields['entry_size'] = size
+                # pp_label.render()
 
         def get_index(time: float):
 
@@ -580,12 +504,17 @@ async def run_order_mode(
                     sym = mode.chart._lc._symbol
                     if msg['symbol'].lower() in sym.key:
 
-                        mode._position.update(msg)
-                        size = msg['size']
-                        price = msg['avg_price']
-                        mode.on_position_update(size, price)
-                        pp_label.fields['entry_size'] = size
-                        pp_label.render()
+                        pp.update(
+                            avg_price=msg['avg_price'],
+                            size=msg['size'],
+                        )
+
+                        # mode._position.update(msg)
+                        # size = msg['size']
+                        # price = msg['avg_price']
+                        # pp.update(size, price)
+                        # pp_label.fields['entry_size'] = size
+                        # pp_label.render()
 
                     # short circuit to next msg to avoid
                     # uncessary msg content lookups
