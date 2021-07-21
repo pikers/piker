@@ -486,7 +486,7 @@ class SearchBar(QtWidgets.QLineEdit):
             self.view.hide()
 
 
-class SearchWidget(QtGui.QWidget):
+class SearchWidget(QtWidgets.QWidget):
     '''Composed widget of ``SearchBar`` + ``CompleterView``.
 
     Includes helper methods for item management in the sub-widgets.
