@@ -22,6 +22,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 import pyqtgraph as pg
 from numba import njit, float64, int64  # , optional
+import PyQt5
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QLineF, QPointF
 # from numba import types as ntypes
@@ -172,7 +173,7 @@ def gen_qpath(
 class BarItems(pg.GraphicsObject):
     """Price range bars graphics rendered from a OHLC sequence.
     """
-    sigPlotChanged = QtCore.Signal(object)
+    sigPlotChanged = QtCore.pyqtSignal(object)
 
     # 0.5 is no overlap between arms, 1.0 is full overlap
     w: float = 0.43
@@ -196,7 +197,7 @@ class BarItems(pg.GraphicsObject):
         # interactions slower (such as zooming) and if so maybe if/when
         # we implement a "history" mode for the view we disable this in
         # that mode?
-        self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
+        self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
         # not sure if this is actually impoving anything but figured it
         # was worth a shot:

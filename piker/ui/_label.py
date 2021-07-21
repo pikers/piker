@@ -22,7 +22,7 @@ from inspect import isfunction
 from typing import Callable
 
 import pyqtgraph as pg
-from PyQt5 import QtGui
+from PyQt5 import QtGui, QtWidgets
 from PyQt5.QtCore import QPointF, QRectF
 
 from ._style import (
@@ -105,6 +105,7 @@ class Label:
     production grade UIs...
 
     """
+
     def __init__(
 
         self,
@@ -125,7 +126,7 @@ class Label:
 
         self._x_offset = x_offset
 
-        txt = self.txt = QtGui.QGraphicsTextItem()
+        txt = self.txt = QtWidgets.QGraphicsTextItem()
         vb.scene().addItem(txt)
 
         # configure font size based on DPI
@@ -149,7 +150,7 @@ class Label:
         self._anchor_func = self.txt.pos().x
 
         # not sure if this makes a diff
-        self.txt.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
+        self.txt.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
         # TODO: edit and selection support
         # https://doc.qt.io/qt-5/qt.html#TextInteractionFlag-enum

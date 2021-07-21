@@ -18,8 +18,9 @@
 Annotations for ur faces.
 
 """
+import PyQt5
 from PyQt5 import QtCore, QtGui
-from PyQt5.QtGui import QGraphicsPathItem
+from PyQt5.QtWidgets import QGraphicsPathItem
 from pyqtgraph import Point, functions as fn, Color
 import numpy as np
 

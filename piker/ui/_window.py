@@ -25,8 +25,8 @@ from typing import Callable, Optional, Union
 import uuid
 
 from pyqtgraph import QtGui
-from PyQt5 import QtCore
-from PyQt5.QtGui import QLabel, QStatusBar
+from PyQt5 import QtCore, QtWidgets
+from PyQt5.QtWidgets import QLabel, QStatusBar
 
 from ..log import get_logger
 from ._style import _font_small, hcolor
