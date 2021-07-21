@@ -25,11 +25,11 @@ from pyqtgraph import Point, functions as fn, Color
 import numpy as np
 
 
-def mk_marker(
+def mk_marker_path(
 
     style,
-    size: float = 20.0,
-    use_qgpath: bool = True,
+    # size: float = 20.0,
+    # use_path_type: type = QGraphicsPathItem
 
 ) -> QGraphicsPathItem:
     """Add a marker to be displayed on the line wrapped in a ``QGraphicsPathItem``
@@ -39,7 +39,7 @@ def mk_marker(
     style        String indicating the style of marker to add:
                   ``'<|'``, ``'|>'``, ``'>|'``, ``'|<'``, ``'<|>'``,
                   ``'>|<'``, ``'^'``, ``'v'``, ``'o'``
-    size          Size of the marker in pixels. Default is 10.0.
+    size          Size of the marker in pixels.
 
     """
     path = QtGui.QPainterPath()
@@ -83,9 +83,9 @@ def mk_marker(
 
     # self._maxMarkerSize = max([m[2] / 2. for m in self.markers])
 
-    if use_qgpath:
-        path = QGraphicsPathItem(path)
-        path.scale(size, size)
+    # if use_path_type:
+    #     path = use_path_type(path)
+    #     path.scale(size, size)
 
     return path
 
