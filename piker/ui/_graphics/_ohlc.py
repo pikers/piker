@@ -22,7 +22,6 @@ from typing import List, Optional, Tuple
 import numpy as np
 import pyqtgraph as pg
 from numba import njit, float64, int64  # , optional
-import PyQt5
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QLineF, QPointF
 # from numba import types as ntypes
@@ -315,7 +314,7 @@ class BarItems(pg.GraphicsObject):
 
             # trigger redraw despite caching
             self.prepareGeometryChange()
-            self.setCacheMode(QtGui.QGraphicsItem.NoCache)
+            self.setCacheMode(QtWidgets.QGraphicsItem.NoCache)
             flip_cache = True
 
         self._xrange = first_index, last_index
@@ -353,7 +352,7 @@ class BarItems(pg.GraphicsObject):
         self.update()
 
         if flip_cache:
-            self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
+            self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
     def paint(
         self,

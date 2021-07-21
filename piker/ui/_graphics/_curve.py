@@ -101,7 +101,7 @@ class FastAppendCurve(pg.PlotCurveItem):
 
             # XXX: pretty annoying but, without this there's little
             # artefacts on the append updates to the curve...
-            self.setCacheMode(QtGui.QGraphicsItem.NoCache)
+            self.setCacheMode(QtWidgets.QGraphicsItem.NoCache)
             self.prepareGeometryChange()
             flip_cache = True
 
@@ -121,7 +121,7 @@ class FastAppendCurve(pg.PlotCurveItem):
         self.update()
 
         if flip_cache:
-            self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
+            self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
     def boundingRect(self):
         if self.path is None:

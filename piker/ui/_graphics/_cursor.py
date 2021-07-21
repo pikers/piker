@@ -103,7 +103,7 @@ class LineDot(pg.CurvePoint):
         i = index - x[0]
         if i > 0 and i < len(y):
             newPos = (index, y[i])
-            QtGui.QGraphicsItem.setPos(self, *newPos)
+            QtWidgets.QGraphicsItem.setPos(self, *newPos)
             return True
 
         return False

@@ -351,7 +351,7 @@ class XAxisLabel(AxisLabel):
 
     def _draw_arrow_path(self):
         y_offset = self._parent.style['tickTextOffset'][1]
-        path = QtWidgets.QPainterPath()
+        path = QtGui.QPainterPath()
         h, w = self.rect.height(), self.rect.width()
         middle = w/2 - 0.5
         aw = h/2
@@ -453,7 +453,7 @@ class YAxisLabel(AxisLabel):
 
     def _draw_arrow_path(self):
         x_offset = self._parent.style['tickTextOffset'][0]
-        path = QtWidgets.QPainterPath()
+        path = QtGui.QPainterPath()
         h = self.rect.height()
         path.moveTo(0, 0)
         path.lineTo(-x_offset - h/4, h/2.)
