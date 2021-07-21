@@ -39,6 +39,8 @@ def marker_right_points(
     axis respectively.
 
     '''
+    # TODO: compute some sensible maximum value here
+    # and use a humanized scheme to limit to that length.
     l1_len = chart._max_l1_line_len
     ryaxis = chart.getAxis('right')
 
@@ -111,53 +113,6 @@ def right_axis(
         return on_axis
 
 
-def update_pp_nav(
-
-    chartview: 'ChartView',  # noqa
-    line: 'LevelLine',  # noqa
-
-) -> None:
-    '''Show a pp off-screen indicator for a level label.
-
-    This is like in fps games where you have a gps "nav" indicator
-    but your teammate is outside the range of view, except in 2D, on
-    the y-dimension.
-
-    '''
-    vr = chartview.state['viewRange']
-    ymn, ymx = vr[1]
-    level = line.value()
-
-    marker = line._marker
-    label = marker.label
-
-    _, marker_right, _ = marker_right_points(line._chart)
-
-    if level > ymx:  # pin to top of view
-        marker.setPos(
-            QPointF(
-                marker_right,
-                marker._height/3,
-            )
-        )
-
-    elif level < ymn:  # pin to bottom of view
-
-        marker.setPos(
-            QPointF(
-                marker_right,
-                chartview.height() - 4/3*marker._height,
-            )
-        )
-
-    else:
-        # pp line is viewable so show marker normally
-        marker.update()
-
-    # re-anchor label (i.e. trigger call of ``arrow_tr()`` from above
-    label.update()
-
-
 def gpath_pin(
 
     gpath: QGraphicsPathItem,
@@ -175,6 +130,9 @@ def gpath_pin(
 
     if location_description == 'right-of-path-centered':
         return path_br.topRight() - QPointF(0, label.h / 3)
+
+    if location_description == 'left-of-path-centered':
+        return path_br.topLeft() - QPointF(label.w, label.h / 6)
 
     elif location_description == 'below-path-left-aligned':
         return path_br.bottomLeft() - QPointF(0, label.h / 6)
