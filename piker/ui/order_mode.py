@@ -33,7 +33,7 @@ from ..data._source import Symbol
 from ..log import get_logger
 from ._editors import LineEditor, ArrowEditor
 from ._lines import LevelLine
-from ._position import PositionInfo
+from ._position import PositionTracker
 from ._window import MultiStatus, main_window
 
 
@@ -259,8 +259,7 @@ class OrderMode:
         chart = cursor.active_plot
         y = cursor._datum_xy[1]
 
-        symbol = self.chart._lc._symbol
-
+        symbol = self.chart.linked.symbol
         action = self._action
 
         # TODO: update the line once an ack event comes back
@@ -423,7 +422,7 @@ async def run_order_mode(
 
         log.info("Opening order mode")
 
-        pp = PositionInfo(chart)
+        pp = PositionTracker(chart)
 
         mode = OrderMode(
             chart,
@@ -432,6 +431,8 @@ async def run_order_mode(
             arrows,
             status_bar,
         )
+
+        # so that view handlers can access it
         mode.pp = pp
 
         view.mode = mode
@@ -451,19 +452,10 @@ async def run_order_mode(
         # update any exising position
         for sym, msg in positions.items():
 
-            our_sym = mode.chart._lc._symbol.key
+            our_sym = mode.chart.linked._symbol.key
             if sym.lower() in our_sym:
 
-                pp.update(
-                    avg_price=msg['avg_price'],
-                    size=msg['size'],
-                )
-
-                # mode._position.update(msg)
-                # size = msg['size']
-                # price = msg['avg_price']
-                # pp_label.fields['entry_size'] = size
-                # pp_label.render()
+                pp.update(msg)
 
         def get_index(time: float):
 
@@ -501,20 +493,10 @@ async def run_order_mode(
                 ):
                     # show line label once order is live
 
-                    sym = mode.chart._lc._symbol
+                    sym = mode.chart.linked.symbol
                     if msg['symbol'].lower() in sym.key:
 
-                        pp.update(
-                            avg_price=msg['avg_price'],
-                            size=msg['size'],
-                        )
-
-                        # mode._position.update(msg)
-                        # size = msg['size']
-                        # price = msg['avg_price']
-                        # pp.update(size, price)
-                        # pp_label.fields['entry_size'] = size
-                        # pp_label.render()
+                        pp.update(msg)
 
                     # short circuit to next msg to avoid
                     # uncessary msg content lookups
@@ -594,3 +576,5 @@ async def run_order_mode(
                         # TODO: put the actual exchange timestamp
                         arrow_index=get_index(details['broker_time']),
                     )
+
+                    pp.info.fills.append(msg)
