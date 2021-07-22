@@ -18,10 +18,10 @@
 Annotations for ur faces.
 
 """
-from typing import Callable
+from typing import Callable, Optional
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtCore import QPointF
+from PyQt5.QtCore import QPointF, QRectF
 from PyQt5.QtWidgets import QGraphicsPathItem
 from pyqtgraph import Point, functions as fn, Color
 import numpy as np
@@ -100,6 +100,7 @@ class LevelMarker(QGraphicsPathItem):
         get_level: Callable[..., float],
         size: float = 20,
         keep_in_view: bool = True,
+        on_paint: Optional[Callable] = None,
 
     ) -> None:
 
@@ -114,11 +115,10 @@ class LevelMarker(QGraphicsPathItem):
         self.chart = chart
 
         self.get_level = get_level
+        self._on_paint = on_paint
         self.scene_x = lambda: marker_right_points(chart)[1]
         self.level: float = 0
         self.keep_in_view = keep_in_view
-
-        assert self.path_br
 
     @property
     def style(self) -> str:
@@ -131,22 +131,25 @@ class LevelMarker(QGraphicsPathItem):
             self.setPath(polygon)
             self._style = value
 
-            # get the path for the opaque path **without** weird
-            # surrounding margin
-            self.path_br = self.mapToScene(
-                self.path()
-            ).boundingRect()
+    def path_br(self) -> QRectF:
+        '''Return the bounding rect for the opaque path part
+        of this item.
+
+        '''
+        return self.mapToScene(
+            self.path()
+        ).boundingRect()
 
     def delete(self) -> None:
         self.scene().removeItem(self)
 
     @property
     def h(self) -> float:
-        return self.path_br.height()
+        return self.path_br().height()
 
     @property
     def w(self) -> float:
-        return self.path_br.width()
+        return self.path_br().width()
 
     def position_in_view(
         self,
@@ -195,13 +198,6 @@ class LevelMarker(QGraphicsPathItem):
                 ).y()
             )
 
-        # marker = line._marker
-        if getattr(self, 'label', None):
-            label = self.label
-
-            # re-anchor label (i.e. trigger call of ``arrow_tr()`` from above
-            label.update()
-
     def paint(
         self,
 
@@ -224,7 +220,10 @@ class LevelMarker(QGraphicsPathItem):
                 self.mapToScene(QPointF(0, self.get_level())).y()
             )
 
-        return super().paint(p, opt, w)
+        super().paint(p, opt, w)
+
+        if self._on_paint:
+            self._on_paint(self)
 
 
 def qgo_draw_markers(
