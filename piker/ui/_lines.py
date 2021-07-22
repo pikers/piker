@@ -119,7 +119,7 @@ class LevelLine(pg.InfiniteLine):
         self._on_drag_start = lambda l: None
         self._on_drag_end = lambda l: None
 
-        self._y_incr_mult = 1 / chart._lc._symbol.tick_size
+        self._y_incr_mult = 1 / chart.linked.symbol.tick_size
         self._right_end_sc: float = 0
 
     def txt_offsets(self) -> Tuple[int, int]:

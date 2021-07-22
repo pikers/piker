@@ -119,7 +119,7 @@ class LineEditor:
         chart = cursor.active_plot
         y = cursor._datum_xy[1]
 
-        symbol = chart._lc.symbol
+        symbol = chart.linked.symbol
 
         # add a "staged" cursor-tracking line to view
         # and cash it in a a var
@@ -199,7 +199,7 @@ class LineEditor:
         if not line:
             raise RuntimeError("No line is currently staged!?")
 
-        sym = chart._lc.symbol
+        sym = chart.linked.symbol
 
         line = order_line(
             chart,
