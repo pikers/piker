@@ -72,25 +72,25 @@ for a development install::
     pip install -r requirements.txt -e .
 
 
-broker Support
-**************
+provider support
+****************
 for live data feeds the in-progress set of supported brokers is:
 
 - IB_ via ``ib_insync``
-- questrade_ which comes with effectively free L1
-- kraken_ for crypto over their public websocket API
+- binance_ and kraken_ for crypto over their public websocket API
+- questrade_ (ish) which comes with effectively free L1
 
 coming soon...
 
 - webull_ via the reverse engineered public API
 - yahoo via yliveticker_
-- coinbase_ through websocket feed
 
 if you want your broker supported and they have an API let us know.
 
 .. _IB: https://interactivebrokers.github.io/tws-api/index.html
 .. _questrade: https://www.questrade.com/api/documentation
 .. _kraken: https://www.kraken.com/features/api#public-market-data
+.. _binance: https://github.com/pikers/piker/pull/182
 .. _webull: https://github.com/tedchou12/webull
 .. _yliveticker: https://github.com/yahoofinancelive/yliveticker
 .. _coinbase: https://docs.pro.coinbase.com/#websocket-feed
@@ -100,22 +100,29 @@ check out our charts
 ********************
 bet you weren't expecting this from the foss bby::
 
-    piker -b kraken chart XBTUSD
+    piker -l info -b kraken -b binance chart btcusdt.binance --pdb
+
+
+this runs the main chart in in debug mode.
 
 
 run in distributed mode
 ***********************
-start the service daemon::
+start the service manager and data feed daemon in the background and
+connect to it::
 
-    pikerd -l info
+    pikerd -l info --pdb
 
 
-connect yourt chart::
+connect your chart::
 
-    piker -b kraken chart XMRXBT
+    piker -l info -b kraken -b binance chart xmrusdt.binance --pdb
 
 
 enjoy persistent real-time data feeds tied to daemon lifetime.
+
+key-bindings and mouse interaction is currently only documented in the
+doce base. help us write some docs dawg.
 
 
 if anyone asks you what this project is about
@@ -131,8 +138,3 @@ enter the matrix.
 how come there ain't that many docs
 ***********************************
 suck it up, learn the code; no one is trying to sell you on anything.
-
-
-who is `piker0`?
-****************
-who do you think?
