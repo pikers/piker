@@ -18,19 +18,18 @@
 Position info and display
 
 """
-from typing import Optional, Callable
+from typing import Optional
 from functools import partial
 from math import floor
 
 from pyqtgraph import functions as fn
 from pydantic import BaseModel
-from PyQt5 import QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
 from PyQt5.QtGui import QGraphicsPathItem
 
-from ._annotate import mk_marker_path
+from ._annotate import LevelMarker
 from ._anchors import (
-    marker_right_points,
+    # marker_right_points,
     gpath_pin,
     # keep_marker_in_view,
 )
@@ -56,146 +55,6 @@ class Position(BaseModel):
 
     # ordered record of known constituent trade messages
     fills: list[Status] = []
-
-
-class LevelMarker(QGraphicsPathItem):
-    '''An arrow marker path graphich which redraws itself
-    to the specified view coordinate level on each paint cycle.
-
-    '''
-    def __init__(
-        self,
-        chart: 'ChartPlotWidget',  # noqa
-        style: str,
-        get_level: Callable[..., float],
-        size: float = 20,
-        keep_in_view: bool = True,
-
-    ) -> None:
-
-        # get polygon and scale
-        super().__init__()
-        self.scale(size, size)
-
-        # interally generates path
-        self._style = None
-        self.style = style
-
-        self.chart = chart
-
-        self.get_level = get_level
-        self.scene_x = lambda: marker_right_points(chart)[1]
-        self.level: float = 0
-        self.keep_in_view = keep_in_view
-
-        assert self.path_br
-
-    @property
-    def style(self) -> str:
-        return self._style
-
-    @style.setter
-    def style(self, value: str) -> None:
-        if self._style != value:
-            polygon = mk_marker_path(value)
-            self.setPath(polygon)
-            self._style = value
-
-            # get the path for the opaque path **without** weird
-            # surrounding margin
-            self.path_br = self.mapToScene(
-                self.path()
-            ).boundingRect()
-
-
-    def delete(self) -> None:
-        self.scene().removeItem(self)
-
-    @property
-    def h(self) -> float:
-        return self.path_br.height()
-
-    @property
-    def w(self) -> float:
-        return self.path_br.width()
-
-    def position_in_view(
-        self,
-        # level: float,
-
-    ) -> None:
-        '''Show a pp off-screen indicator for a level label.
-
-        This is like in fps games where you have a gps "nav" indicator
-        but your teammate is outside the range of view, except in 2D, on
-        the y-dimension.
-
-        '''
-        level = self.get_level()
-
-        view = self.chart.getViewBox()
-        vr = view.state['viewRange']
-        ymn, ymx = vr[1]
-
-        # _, marker_right, _ = marker_right_points(line._chart)
-        x = self.scene_x()
-
-        if level > ymx:  # pin to top of view
-            self.setPos(
-                QPointF(
-                    x,
-                    self.h/3,
-                )
-            )
-
-        elif level < ymn:  # pin to bottom of view
-
-            self.setPos(
-                QPointF(
-                    x,
-                    view.height() - 4/3*self.h,
-                )
-            )
-
-        else:
-            # pp line is viewable so show marker normally
-            self.setPos(
-                x,
-                self.chart.view.mapFromView(
-                    QPointF(0, self.get_level())
-                ).y()
-            )
-
-        # marker = line._marker
-        if getattr(self, 'label', None):
-            label = self.label
-
-            # re-anchor label (i.e. trigger call of ``arrow_tr()`` from above
-            label.update()
-
-    def paint(
-        self,
-
-        p: QtGui.QPainter,
-        opt: QtWidgets.QStyleOptionGraphicsItem,
-        w: QtWidgets.QWidget
-
-    ) -> None:
-        '''Core paint which we override to always update
-        our marker position in scene coordinates from a
-        view cooridnate "level".
-
-        '''
-        if self.keep_in_view:
-            self.position_in_view()
-
-        else:  # just place at desired level even if not in view
-            self.setPos(
-                self.scene_x(),
-                self.mapToScene(QPointF(0, self.get_level())).y()
-            )
-
-        return super().paint(p, opt, w)
 
 
 class PositionTracker:
@@ -366,11 +225,9 @@ class PositionTracker:
 
         if size > 0:
             style = '|<'
-            direction = 'up'
 
         elif size < 0:
             style = '>|'
-            direction = 'down'
 
         arrow = LevelMarker(
             chart=self.chart,
@@ -378,13 +235,6 @@ class PositionTracker:
             get_level=self.level,
             size=arrow_size,
         )
-        # _, marker_right, _ = marker_right_points(self.chart)
-        # arrow.scene_x = marker_right
-
-        # monkey-cache height for sizing on pp nav-hub
-        # arrow._height = path_br.height()
-        # arrow._width = path_br.width()
-        arrow._direction = direction
 
         self.chart.getViewBox().scene().addItem(arrow)
         arrow.show()
