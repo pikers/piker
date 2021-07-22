@@ -135,6 +135,12 @@ class Label:
     def w(self) -> float:
         return self.txt.boundingRect().width()
 
+    def scene_br(self) -> QRectF:
+        txt = self.txt
+        return txt.mapToScene(
+            txt.boundingRect()
+        ).boundingRect()
+
     @property
     def h(self) -> float:
         return self.txt.boundingRect().height()
