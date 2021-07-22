@@ -230,7 +230,7 @@ class MainWindow(QtGui.QMainWindow):
 
         for _ in range(3):
             screen = app.screenAt(self.pos())
-            print('trying to access QScreen...')
+            log.debug('trying to access QScreen...')
             if screen is None:
                 time.sleep(0.5)
                 continue
