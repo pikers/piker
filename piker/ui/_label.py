@@ -56,10 +56,10 @@ class Label:
         view: pg.ViewBox,
         fmt_str: str,
 
-        color: str = 'bracket',
+        color: str = 'default_light',
         x_offset: float = 0,
         font_size: str = 'small',
-        opacity: float = 0.666,
+        opacity: float = 1,
         fields: dict = {},
         update_on_range_change: bool = True,
 
