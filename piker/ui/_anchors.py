@@ -126,7 +126,7 @@ def gpath_pin(
     # get actual arrow graphics path
     path_br = gpath.mapToScene(gpath.path()).boundingRect()
 
-    # vb.locate(arrow_path)  #, children=True)
+    # label.vb.locate(label.txt)  #, children=True)
 
     if location_description == 'right-of-path-centered':
         return path_br.topRight() - QPointF(0, label.h / 3)
