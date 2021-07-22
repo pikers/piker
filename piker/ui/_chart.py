@@ -535,6 +535,10 @@ class ChartPlotWidget(pg.PlotWidget):
         # for when the splitter(s) are resized
         self._vb.sigResized.connect(self._set_yrange)
 
+    @property
+    def view(self) -> ChartView:
+        return self._vb
+
     def focus(self) -> None:
         # self.setFocus()
         self._vb.setFocus()
@@ -924,7 +928,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self.scene().leaveEvent(ev)
 
 
-_clear_throttle_rate: int = 60  # Hz
+_clear_throttle_rate: int = 50  # Hz
 _book_throttle_rate: int = 16  # Hz
 
 
