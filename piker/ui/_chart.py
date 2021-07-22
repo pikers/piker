@@ -19,7 +19,7 @@ High level Qt chart widgets.
 
 """
 import time
-from typing import Tuple, Dict, Any, Optional, List
+from typing import Tuple, Dict, Any, Optional
 from types import ModuleType
 from functools import partial
 
@@ -1702,7 +1702,7 @@ async def _async_main(
 
 def _main(
     sym: str,
-    brokernames: List[str],
+    brokernames: [str],
     piker_loglevel: str,
     tractor_kwargs,
 ) -> None:
