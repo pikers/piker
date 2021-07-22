@@ -114,7 +114,7 @@ async def handle_viewmode_inputs(
                     Qt.Key_Space,
                 }
             ):
-                view._chart._lc.godwidget.search.focus()
+                view._chart.linked.godwidget.search.focus()
 
             # esc and ctrl-c
             if key == Qt.Key_Escape or (ctrl and key == Qt.Key_C):
@@ -210,7 +210,7 @@ async def handle_viewmode_inputs(
         else:  # none active
 
             # hide pp label
-            mode.pp.hide()
+            mode.pp.hide_info()
 
             # if none are pressed, remove "staged" level
             # line under cursor position
