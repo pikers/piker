@@ -287,7 +287,6 @@ class LinkedSplits(QtWidgets.QWidget):
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.addWidget(self.splitter)
 
-        # state tracker?
         self._symbol: Symbol = None
 
     @property
@@ -491,7 +490,6 @@ class ChartPlotWidget(pg.PlotWidget):
             **kwargs
         )
         self.name = name
-        self._lc = linkedsplits
         self.linked = linkedsplits
 
         # scene-local placeholder for book graphics
@@ -737,7 +735,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # if the sticky is for our symbol
         # use the tick size precision for display
-        sym = self._lc.symbol
+        sym = self.linked.symbol
         if name == sym.key:
             digits = sym.digits()
         else:
@@ -987,7 +985,7 @@ async def chart_from_quotes(
 
     last, volume = ohlcv.array[-1][['close', 'volume']]
 
-    symbol = chart._lc.symbol
+    symbol = chart.linked.symbol
 
     l1 = L1Labels(
         chart,
@@ -1005,7 +1003,7 @@ async def chart_from_quotes(
     # levels this might be dark volume we need to
     # present differently?
 
-    tick_size = chart._lc.symbol.tick_size
+    tick_size = chart.linked.symbol.tick_size
     tick_margin = 2 * tick_size
 
     last_ask = last_bid = last_clear = time.time()
@@ -1014,7 +1012,7 @@ async def chart_from_quotes(
     async for quotes in stream:
 
         # chart isn't actively shown so just skip render cycle
-        if chart._lc.isHidden():
+        if chart.linked.isHidden():
             continue
 
         for sym, quote in quotes.items():
@@ -1304,7 +1302,7 @@ async def run_fsp(
             value = array[fsp_func_name][-1]
             last_val_sticky.update_from_data(-1, value)
 
-        chart._lc.focus()
+        chart.linked.focus()
 
         # works also for overlays in which case data is looked up from
         # internal chart array set....
@@ -1339,7 +1337,7 @@ async def run_fsp(
         async for value in stream:
 
             # chart isn't actively shown so just skip render cycle
-            if chart._lc.isHidden():
+            if chart.linked.isHidden():
                 continue
 
             now = time.time()

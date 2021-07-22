@@ -175,9 +175,6 @@ class Label:
 
         assert s_xy == self.txt.pos()
 
-    # def orient_on(self, h: str, v: str) -> None:
-    #     pass
-
     @property
     def fmt_str(self) -> str:
         return self._fmt_str
