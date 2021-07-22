@@ -105,6 +105,7 @@ class LineEditor:
 
         # fields settings
         size: Optional[int] = None,
+
     ) -> LevelLine:
         """Stage a line at the current chart's cursor position
         and return it.
@@ -128,10 +129,14 @@ class LineEditor:
         line = order_line(
             chart,
 
+            # TODO: convert these values into human-readable form
+            # (i.e. with k, m, M, B) type embedded suffixes
             level=y,
             level_digits=symbol.digits(),
+
             size=size,
-            size_digits=symbol.lot_digits(),
+            # TODO: we need truncation checks in the EMS for this?
+            # size_digits=min(symbol.lot_digits(), 3),
 
             # just for the stage line to avoid
             # flickering while moving the cursor
@@ -204,7 +209,8 @@ class LineEditor:
             level_digits=sym.digits(),
 
             size=size,
-            size_digits=sym.lot_digits(),
+            # TODO: we need truncation checks in the EMS for this?
+            # size_digits=sym.lot_digits(),
 
             # LevelLine kwargs
             color=line.color,
