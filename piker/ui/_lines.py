@@ -314,9 +314,11 @@ class LevelLine(pg.InfiniteLine):
 
     def paint(
         self,
+
         p: QtGui.QPainter,
         opt: QtWidgets.QStyleOptionGraphicsItem,
         w: QtWidgets.QWidget
+
     ) -> None:
         """Core paint which we override (yet again)
         from pg..
@@ -348,6 +350,8 @@ class LevelLine(pg.InfiniteLine):
         # order lines.. not sure wtf is up with that.
         # for now we're just using it on the position line.
         elif self._marker:
+            # print('we have a marker?')
+            # self._chart.view.locate(self._marker)
 
             # TODO: make this label update part of a scene-aware-marker
             # composed annotation
