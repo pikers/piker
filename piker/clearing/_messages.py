@@ -81,8 +81,6 @@ class Status(BaseModel):
     #   'alert_submitted',
     #   'alert_triggered',
 
-    #   'position',
-
     # }
     resp: str  # "response", see above
 
