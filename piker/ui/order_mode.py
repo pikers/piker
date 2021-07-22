@@ -505,7 +505,14 @@ async def run_order_mode(
                 resp = msg['resp']
                 oid = msg['oid']
 
-                dialog = mode.dialogs[oid]
+                dialog = mode.dialogs.get(oid)
+                if dialog is None:
+                    log.warning(f'received msg for untracked dialog:\n{fmsg}')
+
+                    # TODO: enable pure tracking / mirroring of dialogs
+                    # is desired.
+                    continue
+
                 # record message to dialog tracking
                 dialog.msgs[oid] = msg
 
