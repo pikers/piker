@@ -28,12 +28,11 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
 from PyQt5.QtGui import QGraphicsPathItem
 
-from ._annotate import mk_marker, qgo_draw_markers
+from ._annotate import mk_marker_path, qgo_draw_markers
 from ._anchors import (
     marker_right_points,
     vbr_left,
     right_axis,
-    update_pp_nav,
     gpath_pin,
 )
 from ._label import Label
@@ -121,8 +120,6 @@ class LevelLine(pg.InfiniteLine):
         self._on_drag_end = lambda l: None
 
         self._y_incr_mult = 1 / chart._lc._symbol.tick_size
-        self._last_scene_y: float = 0
-
         self._right_end_sc: float = 0
 
     def txt_offsets(self) -> Tuple[int, int]:
@@ -351,11 +348,12 @@ class LevelLine(pg.InfiniteLine):
         # order lines.. not sure wtf is up with that.
         # for now we're just using it on the position line.
         elif self._marker:
+
+            # TODO: make this label update part of a scene-aware-marker
+            # composed annotation
             self._marker.setPos(
                 QPointF(marker_right, self.scene_y())
             )
-            # TODO: make this label update part of a scene-aware-marker
-            # composed annotation
             if hasattr(self._marker, 'label'):
                 self._marker.label.update()
 
@@ -379,21 +377,26 @@ class LevelLine(pg.InfiniteLine):
         super().hide()
         if self._marker:
             self._marker.hide()
-            self._marker.label.hide()
+            # self._marker.label.hide()
 
-    def hide(self) -> None:
+    def show(self) -> None:
         super().show()
         if self._marker:
             self._marker.show()
-            self._marker.label.show()
-
-    def scene_right_xy(self) -> QPointF:
-        return self.getViewBox().mapFromView(
-            QPointF(0, self.value())
-        )
+            # self._marker.label.show()
 
     def scene_y(self) -> float:
-        return self.getViewBox().mapFromView(Point(0, self.value())).y()
+        return self.getViewBox().mapFromView(
+            Point(0, self.value())
+        ).y()
+
+    def scene_endpoint(self) -> QPointF:
+
+        if not self._right_end_sc:
+            line_end, _, _ = marker_right_points(self._chart)
+            self._right_end_sc = line_end - 10
+
+        return QPointF(self._right_end_sc, self.scene_y())
 
     def add_marker(
         self,
@@ -414,7 +417,6 @@ class LevelLine(pg.InfiniteLine):
         path.setPos(QPointF(rsc, self.scene_y()))
 
         return path
-        # self.update()
 
     def hoverEvent(self, ev):
         """Mouse hover callback.
@@ -630,18 +632,25 @@ def order_line(
         # resetting the graphics item transform intermittently
 
         # the old way which is still somehow faster?
-        path = mk_marker(
-            marker_style,
-            # the "position" here is now ignored since we modified
-            # internals to pin markers to the right end of the line
-            marker_size,
+        path = QGraphicsPathItem(
+            mk_marker_path(
+                marker_style,
+                # the "position" here is now ignored since we modified
+                # internals to pin markers to the right end of the line
+                # marker_size,
 
-            # uncommment for the old transform / .pain() marker method
-            # use_qgpath=False,
+                # uncommment for the old transform / .paint() marker method
+                # use_qgpath=False,
+            )
         )
+        path.scale(marker_size, marker_size)
 
         # XXX: this is our new approach but seems slower?
-        path = line.add_marker(mk_marker(marker_style, marker_size))
+        path = line.add_marker(path)
+
+        # XXX: old
+        # path = line.add_marker(mk_marker(marker_style, marker_size))
+
         line._marker = path
 
         assert not line.markers
@@ -715,89 +724,5 @@ def order_line(
 
     # sanity check
     line.update_labels({'level': level})
-
-    return line
-
-
-def position_line(
-
-    chart,
-    size: float,
-    level: float,
-
-    orient_v: str = 'bottom',
-
-) -> LevelLine:
-    '''Convenience routine to add a line graphic representing an order
-    execution submitted to the EMS via the chart's "order mode".
-
-    '''
-    hcolor = 'default_light'
-
-    line = level_line(
-        chart,
-        level,
-        color=hcolor,
-        add_label=False,
-        hl_on_hover=False,
-        movable=False,
-        hide_xhair_on_hover=False,
-        use_marker_margin=True,
-        only_show_markers_on_hover=False,
-        always_show_labels=True,
-    )
-    #  hide position marker when out of view (for now)
-    vb = line.getViewBox()
-
-    # arrow marker
-    # scale marker size with dpi-aware font size
-    font_size = _font.font.pixelSize()
-
-    # scale marker size with dpi-aware font size
-    arrow_size = floor(1.375 * font_size)
-
-    if size > 0:
-        style = '|<'
-    elif size < 0:
-        style = '>|'
-
-    arrow_path = mk_marker(style, size=arrow_size)
-
-    path_br = arrow_path.mapToScene(
-        arrow_path.path()
-    ).boundingRect()
-
-    # monkey-cache height for sizing on pp nav-hub
-    arrow_path._height = path_br.height()
-    arrow_path._width = path_br.width()
-
-    marker_label = Label(
-        view=vb,
-        fmt_str='pp',
-        color=hcolor,
-        update_on_range_change=False,
-    )
-
-    arrow_path.label = marker_label
-
-    marker_label.scene_anchor = partial(
-        gpath_pin,
-        gpath=arrow_path,
-        label=marker_label,
-    )
-
-    line._labels.append(marker_label)
-
-    marker_label.render()
-    marker_label.show()
-
-    # XXX: uses new marker drawing approach
-    line.add_marker(arrow_path)
-    line.set_level(level)
-
-    # sanity check
-    line.update_labels({'level': level})
-
-    vb.sigRangeChanged.connect(partial(update_pp_nav, chartview=vb, line=line))
 
     return line
