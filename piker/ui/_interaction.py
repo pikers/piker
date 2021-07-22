@@ -172,6 +172,10 @@ async def handle_viewmode_inputs(
         }.intersection(pressed)
 
         if order_keys_pressed:
+
+            # show the pp label
+            mode.pp.show()
+
             if (
                 # 's' for "submit" to activate "live" order
                 Qt.Key_S in pressed or
@@ -204,6 +208,10 @@ async def handle_viewmode_inputs(
                 f'mode: {prefix}{action}')
 
         else:  # none active
+
+            # hide pp label
+            mode.pp.hide()
+
             # if none are pressed, remove "staged" level
             # line under cursor position
             view.mode.lines.unstage_line()
@@ -231,9 +239,10 @@ class ChartView(ViewBox):
     mode_name: str = 'mode: view'
 
     def __init__(
-
         self,
+
         name: str,
+
         parent: pg.PlotItem = None,
         **kwargs,
 
@@ -250,7 +259,6 @@ class ChartView(ViewBox):
         self.select_box = SelectRect(self)
         self.addItem(self.select_box, ignoreBounds=True)
 
-        self.name = name
         self.mode = None
         self.order_mode: bool = False
 
@@ -259,6 +267,7 @@ class ChartView(ViewBox):
     @asynccontextmanager
     async def open_async_input_handler(
         self,
+
     ) -> 'ChartView':
         from . import _event
 
