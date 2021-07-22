@@ -18,11 +18,11 @@
 Position info and display
 
 """
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Callable
 from functools import partial
 from math import floor
 
-from pyqtgraph import Point, functions as fn
+from pyqtgraph import functions as fn
 from pydantic import BaseModel
 from PyQt5 import QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
@@ -34,20 +34,28 @@ from ._anchors import (
     gpath_pin,
     # keep_marker_in_view,
 )
+from ..clearing._messages import BrokerdPosition, Status
+from ..data._source import Symbol
 from ._label import Label
 from ._lines import LevelLine, level_line
 from ._style import _font
-from ..data._source import Symbol
 
 
 class Position(BaseModel):
-    '''Basic pp representation with attached fills history.
+    '''Basic pp (personal position) data representation with attached
+    fills history.
+
+    This type should be IPC wire ready?
 
     '''
     symbol: Symbol
+
+    # last size and avg entry price
     size: float
     avg_price: float  # TODO: contextual pricing
-    fills: Dict[str, Any] = {}
+
+    # ordered record of known constituent trade messages
+    fills: list[Status] = []
 
 
 class LevelMarker(QGraphicsPathItem):
@@ -65,32 +73,22 @@ class LevelMarker(QGraphicsPathItem):
 
     ) -> None:
 
-        self._style = None
-        self.size = size
-
         # get polygon and scale
         super().__init__()
+        self.scale(size, size)
 
-        # interally generates and scales path
+        # interally generates path
+        self._style = None
         self.style = style
-        # path = mk_marker_path(style)
-
-        # self.scale(size, size)
 
         self.chart = chart
-        # chart.getViewBox().scene().addItem(self)
 
         self.get_level = get_level
         self.scene_x = lambda: marker_right_points(chart)[1]
         self.level: float = 0
         self.keep_in_view = keep_in_view
 
-        # get the path for the opaque path **without** weird
-        # surrounding margin
-        self.path_br = self.mapToScene(
-            self.path()
-        ).boundingRect()
-
+        assert self.path_br
 
     @property
     def style(self) -> str:
@@ -102,7 +100,13 @@ class LevelMarker(QGraphicsPathItem):
             polygon = mk_marker_path(value)
             self.setPath(polygon)
             self._style = value
-            self.scale(self.size, self.size)
+
+            # get the path for the opaque path **without** weird
+            # surrounding margin
+            self.path_br = self.mapToScene(
+                self.path()
+            ).boundingRect()
+
 
     def delete(self) -> None:
         self.scene().removeItem(self)
@@ -154,8 +158,7 @@ class LevelMarker(QGraphicsPathItem):
             )
 
         else:
-        #     # pp line is viewable so show marker normally
-        #     self.update()
+            # pp line is viewable so show marker normally
             self.setPos(
                 x,
                 self.chart.view.mapFromView(
@@ -186,9 +189,7 @@ class LevelMarker(QGraphicsPathItem):
         if self.keep_in_view:
             self.position_in_view()
 
-        else:
-
-            # just place at desired level even if not in view
+        else:  # just place at desired level even if not in view
             self.setPos(
                 self.scene_x(),
                 self.mapToScene(QPointF(0, self.get_level())).y()
@@ -197,16 +198,18 @@ class LevelMarker(QGraphicsPathItem):
         return super().paint(p, opt, w)
 
 
-class PositionInfo:
+class PositionTracker:
+    '''Track and display a real-time position for a single symbol
+    on a chart.
 
+    '''
     # inputs
     chart: 'ChartPlotWidget'  # noqa
-    info: dict
 
     # allocated
+    info: Position
     pp_label: Label
     size_label: Label
-    info_label: Label
     line: Optional[LevelLine] = None
 
     _color: str = 'default_light'
@@ -217,10 +220,13 @@ class PositionInfo:
 
     ) -> None:
 
-        # from . import _lines
-
         self.chart = chart
-        self.info = {}
+        self.info = Position(
+            symbol=chart.linked.symbol,
+            size=0,
+            avg_price=0,
+        )
+
         self.pp_label = None
 
         view = chart.getViewBox()
@@ -248,14 +254,13 @@ class PositionInfo:
         pp_label.show()
 
         self.size_label = size_label = Label(
-
             view=view,
             color=self._color,
 
             # this is "static" label
             # update_on_range_change=False,
             fmt_str='\n'.join((
-                '{entry_size} x',
+                'x{entry_size}',
             )),
 
             fields={
@@ -264,22 +269,13 @@ class PositionInfo:
         )
         size_label.render()
         # size_label.scene_anchor = self.align_to_marker
-        size_label.scene_anchor = partial(
-            gpath_pin,
-            location_description='left-of-path-centered',
-            gpath=self._level_marker,
-            label=size_label,
+
+        size_label.scene_anchor = lambda: (
+            self.pp_label.txt.pos() + QPointF(self.pp_label.w, 0)
         )
         size_label.hide()
 
-        # self.info_label = info_label = Label(
-
-        #     view=view,
-        #     color=self._color,
-
-        #     # this is "static" label
-        #     # update_on_range_change=False,
-
+        # TODO: if we want to show more position-y info?
         #     fmt_str='\n'.join((
         #         # '{entry_size}x ',
         #         '{percent_pnl} % PnL',
@@ -294,10 +290,36 @@ class PositionInfo:
         #         'base_unit_value': '1k',
         #     },
         # )
-        # info_label.scene_anchor = lambda: self.size_label.txt.pos()
-        # + QPointF(0, self.size_label.h)
-        # info_label.render()
-        # info_label.hide()
+
+    def update(
+        self,
+        msg: BrokerdPosition,
+
+    ) -> None:
+        '''Update graphics and data from average price and size.
+
+        '''
+        avg_price, size = msg['avg_price'], msg['size']
+        # info updates
+        self.info.avg_price = avg_price
+        self.info.size = size
+
+        self.update_line(avg_price, size)
+
+        # label updates
+        self.size_label.fields['entry_size'] = size
+        self.size_label.render()
+
+        if size == 0:
+            self.hide()
+
+        else:
+            self._level_marker.level = avg_price
+            self._level_marker.update()  # trigger paint
+            self.show()
+
+            # self.pp_label.show()
+            # self._level_marker.show()
 
     def level(self) -> float:
         if self.line:
@@ -306,19 +328,25 @@ class PositionInfo:
             return 0
 
     def show(self) -> None:
-        self.pp_label.show()
-        self.size_label.show()
-        # self.info_label.show()
-        if self.line:
+        if self.info.size:
             self.line.show()
+            self._level_marker.show()
+            self.pp_label.show()
+            self.size_label.show()
 
     def hide(self) -> None:
-        # self.pp_label.hide()
+        self.pp_label.hide()
+        self._level_marker.hide()
         self.size_label.hide()
-        # self.info_label.hide()
+        if self.line:
+            self.line.hide()
 
-        # if self.line:
-        #     self.line.hide()
+    def hide_info(self) -> None:
+        '''Hide details of position.
+
+        '''
+        # TODO: add remove status bar widgets here
+        self.size_label.hide()
 
     def level_marker(
         self,
@@ -402,17 +430,8 @@ class PositionInfo:
         elif size < 0:
             style = '>|'
 
-        self._level_marker.style = style
-
-        # last_direction = self._level_marker._direction
-        # if (
-        #     size < 0 and last_direction == 'up'
-        # ):
-        #     self._level_marker = self.level_marker(size)
         marker = self._level_marker
-
-        # add path to scene
-        # line.getViewBox().scene().addItem(marker)
+        marker.style = style
 
         # set marker color to same as line
         marker.setPen(line.currentPen)
@@ -421,22 +440,11 @@ class PositionInfo:
         marker.update()
         marker.show()
 
-        #  hide position marker when out of view (for now)
+        # show position marker on view "edge" when out of view
         vb = line.getViewBox()
         vb.sigRangeChanged.connect(marker.position_in_view)
 
-        line._labels.append(self.pp_label)
-
-        # XXX: uses new marker drawing approach
-        # line.add_marker(self._level_marker)
         line.set_level(level)
-
-        # sanity check
-        line.update_labels({'level': level})
-
-        # vb.sigRangeChanged.connect(
-        #     partial(keep_marker_in_view, chartview=vb, line=line)
-        # )
 
         return line
 
@@ -446,10 +454,10 @@ class PositionInfo:
         pp_line = self.line
         if pp_line:
 
-            line_ep = pp_line.scene_endpoint()
+            # line_ep = pp_line.scene_endpoint()
             # print(line_ep)
 
-            y_level_scene = line_ep.y()
+            # y_level_scene = line_ep.y()
             # pp_y = pp_label.txt.pos().y()
 
             # if y_level_scene > pp_y:
@@ -494,7 +502,6 @@ class PositionInfo:
     ) -> None:
         '''Update personal position level line.
 
-
         '''
         # do line update
         line = self.line
@@ -512,38 +519,12 @@ class PositionInfo:
 
             if size != 0.0:
                 line.set_level(price)
-                self._level_marker.lelvel = price
+                self._level_marker.level = price
                 self._level_marker.update()
-                line.update_labels({'size': size})
+                # line.update_labels({'size': size})
                 line.show()
 
             else:
                 # remove pp line from view
                 line.delete()
                 self.line = None
-
-    def update(
-        self,
-
-        avg_price: float,
-        size: float,
-
-    ) -> None:
-        '''Update graphics and data from average price and size.
-
-        '''
-        self.update_line(avg_price, size)
-
-        self._level_marker.level = avg_price
-        self._level_marker.update()  # trigger paint
-
-        # info updates
-        self.info['avg_price'] = avg_price
-        self.info['size'] = size
-
-        # label updates
-        self.size_label.fields['entry_size'] = size
-        self.size_label.render()
-
-        # self.info_label.fields['size'] = size
-        # self.info_label.render()
