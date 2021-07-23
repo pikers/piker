@@ -45,7 +45,7 @@ def marker_right_points(
     ryaxis = chart.getAxis('right')
 
     r_axis_x = ryaxis.pos().x()
-    up_to_l1_sc = r_axis_x - l1_len
+    up_to_l1_sc = r_axis_x - l1_len - 10
 
     marker_right = up_to_l1_sc - (1.375 * 2 * marker_size)
     line_end = marker_right - (6/16 * marker_size)
@@ -129,7 +129,7 @@ def gpath_pin(
     # label.vb.locate(label.txt)  #, children=True)
 
     if location_description == 'right-of-path-centered':
-        return path_br.topRight() - QPointF(0, label.h / 3)
+        return path_br.topRight() - QPointF(label.h/16, label.h / 3)
 
     if location_description == 'left-of-path-centered':
         return path_br.topLeft() - QPointF(label.w, label.h / 6)
@@ -139,3 +139,15 @@ def gpath_pin(
 
     elif location_description == 'below-path-right-aligned':
         return path_br.bottomRight() - QPointF(label.w, label.h / 6)
+
+
+
+def pp_tight_and_right(
+    label: Label
+
+) -> QPointF:
+    '''Place *just* right of the pp label.
+
+    '''
+    txt = label.txt
+    return label.txt.pos() + QPointF(label.w - label.h/3, 0)
