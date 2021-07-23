@@ -111,6 +111,10 @@ class LineEditor:
         and return it.
 
         """
+        if self.chart is None:
+            log.error('No chart interaction yet available')
+            return None
+
         # chart.setCursor(QtCore.Qt.PointingHandCursor)
         cursor = self.chart.linked.cursor
         if not cursor:
