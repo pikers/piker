@@ -71,7 +71,6 @@ from ..log import get_logger
 from ._style import (
     _font,
     DpiAwareFont,
-    # hcolor,
 )
 
 
@@ -425,27 +424,22 @@ class CompleterView(QTreeView):
         self.resize()
 
 
-class SearchBar(QtWidgets.QLineEdit):
-
-    mode_name: str = 'mode: search'
+class FontAndChartAwareLineEdit(QtWidgets.QLineEdit):
 
     def __init__(
 
         self,
         parent: QWidget,
         parent_chart: QWidget,  # noqa
-        view: Optional[CompleterView] = None,
         font: DpiAwareFont = _font,
 
     ) -> None:
-
         super().__init__(parent)
 
         # self.setContextMenuPolicy(Qt.CustomContextMenu)
         # self.customContextMenuRequested.connect(self.show_menu)
         # self.setStyleSheet(f"font: 18px")
 
-        self.view: CompleterView = view
         self.dpi_font = font
         self.godwidget = parent_chart
 
@@ -460,14 +454,9 @@ class SearchBar(QtWidgets.QLineEdit):
         # witty bit of margin
         self.setTextMargins(2, 2, 2, 2)
 
-    def focus(self) -> None:
-        self.selectAll()
-        self.show()
-        self.setFocus()
-
-    def show(self) -> None:
-        super().show()
-        self.view.show_matches()
+        # chart count which will be used to calculate
+        # width of input field.
+        self._chars: int = 9
 
     def sizeHint(self) -> QtCore.QSize:
         """
@@ -475,8 +464,51 @@ class SearchBar(QtWidgets.QLineEdit):
 
         """
         psh = super().sizeHint()
-        psh.setHeight(self.dpi_font.px_size + 2)
+
+        dpi_font = self.dpi_font
+        char_w_pxs = dpi_font.boundingRect('A').width()
+
+        # space for ``._chars: int``
+        chars_w = self._chars * char_w_pxs * dpi_font.scale()
+
+        psh.setHeight(dpi_font.px_size + 2)
+        psh.setWidth(chars_w)
         return psh
+
+    def set_width_in_chars(
+        self,
+        chars: int,
+
+    ) -> None:
+        self._chars = chars
+        self.sizeHint()
+        self.update()
+
+    def focus(self) -> None:
+        self.selectAll()
+        self.show()
+        self.setFocus()
+
+
+class SearchBar(FontAndChartAwareLineEdit):
+
+    mode_name: str = 'mode: search'
+
+    def __init__(
+
+        self,
+        parent: QWidget,
+        view: Optional[CompleterView] = None,
+        **kwargs,
+
+    ) -> None:
+
+        super().__init__(parent, **kwargs)
+        self.view: CompleterView = view
+
+    def show(self) -> None:
+        super().show()
+        self.view.show_matches()
 
     def unfocus(self) -> None:
         self.parent().hide()
@@ -540,8 +572,8 @@ class SearchWidget(QtWidgets.QWidget):
         )
         self.bar = SearchBar(
             parent=self,
-            parent_chart=godwidget,
             view=self.view,
+            parent_chart=godwidget,
         )
         self.bar_hbox.addWidget(self.bar)
 
@@ -599,11 +631,12 @@ class SearchWidget(QtWidgets.QWidget):
     def chart_current_item(
         self,
         clear_to_cache: bool = True,
+
     ) -> Optional[str]:
         '''Attempt to load and switch the current selected
         completion result to the affiliated chart app.
 
-        Return any loaded symbol
+        Return any loaded symbol.
 
         '''
         value = self.get_current_item()
