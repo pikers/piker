@@ -24,7 +24,7 @@ from typing import Optional, Callable
 import inspect
 import numpy as np
 import pyqtgraph as pg
-from PyQt5 import QtCore, QtGui
+from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF, QRectF
 
 from .._style import (
@@ -74,7 +74,7 @@ class LineDot(pg.CurvePoint):
         brush = pg.mkBrush(cdefault)
 
         # presuming this is fast since it's built in?
-        dot = self.dot = QtGui.QGraphicsEllipseItem(
+        dot = self.dot = QtWidgets.QGraphicsEllipseItem(
             QtCore.QRectF(-size / 2, -size / 2, size, size)
         )
         # if we needed transformable dot?
@@ -103,7 +103,7 @@ class LineDot(pg.CurvePoint):
         i = index - x[0]
         if i > 0 and i < len(y):
             newPos = (index, y[i])
-            QtGui.QGraphicsItem.setPos(self, *newPos)
+            QtWidgets.QGraphicsItem.setPos(self, *newPos)
             return True
 
         return False
@@ -358,10 +358,10 @@ class Cursor(pg.GraphicsObject):
         # vertical and horizonal lines and a y-axis label
 
         vl = plot.addLine(x=0, pen=self.lines_pen, movable=False)
-        vl.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
+        vl.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
         hl = plot.addLine(y=0, pen=self.lines_pen, movable=False)
-        hl.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
+        hl.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
         hl.hide()
 
         yl = YAxisLabel(

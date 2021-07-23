@@ -23,7 +23,7 @@ WARNING: this code likely doesn't work at all (yet)
 """
 import numpy as np
 import pyqtgraph as pg
-from PyQt5 import QtCore, QtGui
+from PyQt5 import QtCore, QtGui, QtWidgets
 
 from .quantdom.charts import CenteredTextItem
 from .quantdom.base import Quotes
@@ -57,8 +57,8 @@ class SignallingApi(object):
         self.signals_visible = False
 
     def add_signals(self):
-        self.signals_group_text = QtGui.QGraphicsItemGroup()
-        self.signals_group_arrow = QtGui.QGraphicsItemGroup()
+        self.signals_group_text = QtWidgets.QGraphicsItemGroup()
+        self.signals_group_arrow = QtWidgets.QGraphicsItemGroup()
         self.signals_text_items = np.empty(len(Quotes), dtype=object)
 
         for p in Portfolio.positions:

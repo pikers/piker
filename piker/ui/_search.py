@@ -511,17 +511,17 @@ class SearchWidget(QtWidgets.QWidget):
 
         self.godwidget = godwidget
 
-        self.vbox = QtGui.QVBoxLayout(self)
+        self.vbox = QtWidgets.QVBoxLayout(self)
         self.vbox.setContentsMargins(0, 0, 0, 0)
         self.vbox.setSpacing(4)
 
         # split layout for the (label:| search bar entry)
-        self.bar_hbox = QtGui.QHBoxLayout()
+        self.bar_hbox = QtWidgets.QHBoxLayout()
         self.bar_hbox.setContentsMargins(0, 0, 0, 0)
         self.bar_hbox.setSpacing(4)
 
         # add label to left of search bar
-        self.label = label = QtGui.QLabel(parent=self)
+        self.label = label = QtWidgets.QLabel(parent=self)
         label.setTextFormat(3)  # markdown
         label.setFont(_font.font)
         label.setMargin(4)
@@ -653,7 +653,7 @@ async def pack_matches(
 
     view: CompleterView,
     has_results: dict[str, set[str]],
-    matches: dict[(str, str), [str]],
+    matches: dict[(str, str), List[str]],
     provider: str,
     pattern: str,
     search: Callable[..., Awaitable[dict]],

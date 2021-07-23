@@ -23,7 +23,7 @@ from typing import Callable
 
 from PyQt5 import QtCore
 from PyQt5.QtCore import QEvent
-from PyQt5.QtGui import QWidget
+from PyQt5.QtWidgets import QWidget
 import trio
 
 

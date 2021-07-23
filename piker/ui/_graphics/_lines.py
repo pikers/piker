@@ -435,7 +435,7 @@ class LevelLine(pg.InfiniteLine):
 
     def add_marker(
         self,
-        path: QtGui.QGraphicsPathItem,
+        path: QtWidgets.QGraphicsPathItem,
     ) -> None:
 
         # chart = self._chart
@@ -527,7 +527,7 @@ class LevelLine(pg.InfiniteLine):
 
 
 def level_line(
-    chart: 'ChartPlogWidget',  # noqa
+    chart: 'ChartPlotWidget',  # noqa
     level: float,
     color: str = 'default',
 

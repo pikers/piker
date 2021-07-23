@@ -23,7 +23,7 @@ from typing import Tuple, Dict, Any, Optional
 from types import ModuleType
 from functools import partial
 
-from PyQt5 import QtCore, QtGui
+from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtCore import QEvent
 import numpy as np
@@ -73,7 +73,7 @@ from ..data import feed
 log = get_logger(__name__)
 
 
-class GodWidget(QtGui.QWidget):
+class GodWidget(QtWidgets.QWidget):
     '''
     "Our lord and savior, the holy child of window-shua, there is no
     widget above thee." - 6|6
@@ -92,17 +92,17 @@ class GodWidget(QtGui.QWidget):
 
         super().__init__(parent)
 
-        self.hbox = QtGui.QHBoxLayout(self)
+        self.hbox = QtWidgets.QHBoxLayout(self)
         self.hbox.setContentsMargins(0, 0, 0, 0)
         self.hbox.setSpacing(2)
 
-        self.vbox = QtGui.QVBoxLayout()
+        self.vbox = QtWidgets.QVBoxLayout()
         self.vbox.setContentsMargins(0, 0, 0, 0)
         self.vbox.setSpacing(2)
 
         self.hbox.addLayout(self.vbox)
 
-        # self.toolbar_layout = QtGui.QHBoxLayout()
+        # self.toolbar_layout = QtWidgets.QHBoxLayout()
         # self.toolbar_layout.setContentsMargins(0, 0, 0, 0)
         # self.vbox.addLayout(self.toolbar_layout)
 
@@ -134,7 +134,7 @@ class GodWidget(QtGui.QWidget):
         return self._chart_cache.get(symbol_key)
 
     # def init_timeframes_ui(self):
-    #     self.tf_layout = QtGui.QHBoxLayout()
+    #     self.tf_layout = QtWidgets.QHBoxLayout()
     #     self.tf_layout.setSpacing(0)
     #     self.tf_layout.setContentsMargins(0, 12, 0, 0)
     #     time_frames = ('1M', '5M', '15M', '30M', '1H', '1D', '1W', 'MN')
@@ -142,7 +142,7 @@ class GodWidget(QtGui.QWidget):
 
     #     for tf in time_frames:
     #         btn_name = ''.join([btn_prefix, tf])
-    #         btn = QtGui.QPushButton(tf)
+    #         btn = QtWidgets.QPushButton(tf)
     #         # TODO:
     #         btn.setEnabled(False)
     #         setattr(self, btn_name, btn)
@@ -233,7 +233,7 @@ class GodWidget(QtGui.QWidget):
         return order_mode_started
 
 
-class LinkedSplits(QtGui.QWidget):
+class LinkedSplits(QtWidgets.QWidget):
     '''
     Widget that holds a central chart plus derived
     subcharts computed from the original data set apart
@@ -279,11 +279,11 @@ class LinkedSplits(QtGui.QWidget):
         #     self.xaxis_ind.setStyle(showValues=False)
         #     self.xaxis.hide()
 
-        self.splitter = QtGui.QSplitter(QtCore.Qt.Vertical)
+        self.splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
         self.splitter.setMidLineWidth(2)
         self.splitter.setHandleWidth(0)
 
-        self.layout = QtGui.QVBoxLayout(self)
+        self.layout = QtWidgets.QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.addWidget(self.splitter)
 
@@ -344,7 +344,7 @@ class LinkedSplits(QtGui.QWidget):
             self.chart.hideAxis('bottom')
 
         # style?
-        self.chart.setFrameStyle(QtGui.QFrame.StyledPanel | QtGui.QFrame.Plain)
+        self.chart.setFrameStyle(QtWidgets.QFrame.StyledPanel | QtWidgets.QFrame.Plain)
 
         return self.chart
 
@@ -402,7 +402,7 @@ class LinkedSplits(QtGui.QWidget):
         cv.chart = cpw
 
         cpw.plotItem.vb.linkedsplits = self
-        cpw.setFrameStyle(QtGui.QFrame.StyledPanel)  # | QtGui.QFrame.Plain)
+        cpw.setFrameStyle(QtWidgets.QFrame.StyledPanel)  # | QtWidgets.QFrame.Plain)
         cpw.hideButtons()
         # XXX: gives us outline on backside of y-axis
         cpw.getPlotItem().setContentsMargins(*CHART_MARGINS)
@@ -452,8 +452,8 @@ class ChartPlotWidget(pg.PlotWidget):
     eventually want multiple plots managed together?)
 
     '''
-    sig_mouse_leave = QtCore.Signal(object)
-    sig_mouse_enter = QtCore.Signal(object)
+    sig_mouse_leave = QtCore.pyqtSignal(object)
+    sig_mouse_enter = QtCore.pyqtSignal(object)
 
     _l1_labels: L1Labels = None
 
@@ -690,11 +690,11 @@ class ChartPlotWidget(pg.PlotWidget):
         # https://stackoverflow.com/a/39410081
         # seems to only be useful if we don't re-generate the entire
         # QPainterPath every time
-        # curve.curve.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
+        # curve.curve.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
         # don't ever use this - it's a colossal nightmare of artefacts
         # and is disastrous for performance.
-        # curve.setCacheMode(QtGui.QGraphicsItem.ItemCoordinateCache)
+        # curve.setCacheMode(QtWidgets.QGraphicsItem.ItemCoordinateCache)
 
         self.addItem(curve)
 

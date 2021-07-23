@@ -47,7 +47,7 @@ class Axis(pg.AxisItem):
         super().__init__(**kwargs)
 
         # XXX: pretty sure this makes things slower
-        # self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
+        # self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
         self.linkedsplits = linkedsplits
         self._min_tick = min_tick
@@ -185,7 +185,7 @@ class AxisLabel(pg.GraphicsObject):
         self.setFlag(self.ItemIgnoresTransformations)
 
         # XXX: pretty sure this is faster
-        self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
+        self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
         self._parent = parent
 
@@ -218,7 +218,7 @@ class AxisLabel(pg.GraphicsObject):
         Subtypes can customize further by overloading ``.draw()``.
 
         """
-        # p.setCompositionMode(QtGui.QPainter.CompositionMode_SourceOver)
+        # p.setCompositionMode(QtWidgets.QPainter.CompositionMode_SourceOver)
 
         if self.label_str:
 

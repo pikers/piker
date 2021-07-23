@@ -172,7 +172,7 @@ def gen_qpath(
 class BarItems(pg.GraphicsObject):
     """Price range bars graphics rendered from a OHLC sequence.
     """
-    sigPlotChanged = QtCore.Signal(object)
+    sigPlotChanged = QtCore.pyqtSignal(object)
 
     # 0.5 is no overlap between arms, 1.0 is full overlap
     w: float = 0.43
@@ -196,7 +196,7 @@ class BarItems(pg.GraphicsObject):
         # interactions slower (such as zooming) and if so maybe if/when
         # we implement a "history" mode for the view we disable this in
         # that mode?
-        self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
+        self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
         # not sure if this is actually impoving anything but figured it
         # was worth a shot:
@@ -314,7 +314,7 @@ class BarItems(pg.GraphicsObject):
 
             # trigger redraw despite caching
             self.prepareGeometryChange()
-            self.setCacheMode(QtGui.QGraphicsItem.NoCache)
+            self.setCacheMode(QtWidgets.QGraphicsItem.NoCache)
             flip_cache = True
 
         self._xrange = first_index, last_index
@@ -352,7 +352,7 @@ class BarItems(pg.GraphicsObject):
         self.update()
 
         if flip_cache:
-            self.setCacheMode(QtGui.QGraphicsItem.DeviceCoordinateCache)
+            self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
     def paint(
         self,
