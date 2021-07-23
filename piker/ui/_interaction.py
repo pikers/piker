@@ -175,6 +175,8 @@ async def handle_viewmode_inputs(
 
             # show the pp label
             mode.pp.show()
+            # show pp config params in status bar widget
+            mode.pp_config.show()
 
             if (
                 # 's' for "submit" to activate "live" order
@@ -211,6 +213,7 @@ async def handle_viewmode_inputs(
 
             # hide pp label
             mode.pp.hide_info()
+            mode.pp_config.hide()
 
             # if none are pressed, remove "staged" level
             # line under cursor position
