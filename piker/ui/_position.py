@@ -24,14 +24,13 @@ from math import floor
 
 from pyqtgraph import functions as fn
 from pydantic import BaseModel
-from PyQt5.QtCore import QPointF
-from PyQt5.QtGui import QGraphicsPathItem
+# from PyQt5.QtCore import QPointF
+# from PyQt5.QtGui import QGraphicsPathItem
 
 from ._annotate import LevelMarker
 from ._anchors import (
-    # marker_right_points,
+    pp_tight_and_right,  # wanna keep it straight in the long run
     gpath_pin,
-    # keep_marker_in_view,
 )
 from ..clearing._messages import BrokerdPosition, Status
 from ..data._source import Symbol
@@ -90,10 +89,6 @@ class PositionTracker:
 
         view = chart.getViewBox()
 
-        # create placeholder 'up' level arrow
-        self._level_marker = None
-        self._level_marker = self.level_marker(size=1)
-
         # literally 'pp' label that's always in view
         self.pp_label = pp_label = Label(
             view=view,
@@ -102,7 +97,9 @@ class PositionTracker:
             update_on_range_change=False,
         )
 
-        self._level_marker.label = pp_label
+        # create placeholder 'up' level arrow
+        self._level_marker = None
+        self._level_marker = self.level_marker(size=1)
 
         pp_label.scene_anchor = partial(
             gpath_pin,
@@ -110,7 +107,6 @@ class PositionTracker:
             label=pp_label,
         )
         pp_label.render()
-        pp_label.show()
 
         self.size_label = size_label = Label(
             view=view,
@@ -119,7 +115,7 @@ class PositionTracker:
             # this is "static" label
             # update_on_range_change=False,
             fmt_str='\n'.join((
-                'x{entry_size}',
+                ':{entry_size:.0f}',
             )),
 
             fields={
@@ -127,12 +123,20 @@ class PositionTracker:
             },
         )
         size_label.render()
-        # size_label.scene_anchor = self.align_to_marker
 
-        size_label.scene_anchor = lambda: (
-            self.pp_label.txt.pos() + QPointF(self.pp_label.w, 0)
+        size_label.scene_anchor = partial(
+            pp_tight_and_right,
+            label=self.pp_label,
         )
-        size_label.hide()
+
+        # size_label.scene_anchor = self.align_to_marker
+        # size_label.scene_anchor = lambda: (
+        #     self.pp_label.txt.pos() + QPointF(self.pp_label.w, 0)
+        # )
+        # size_label.scene_anchor = lambda: (
+        #     self.pp_label.scene_br().bottomRight() - QPointF(
+        #     self.size_label.w, self.size_label.h/3)
+        # )
 
         # TODO: if we want to show more position-y info?
         #     fmt_str='\n'.join((
@@ -149,6 +153,20 @@ class PositionTracker:
         #         'base_unit_value': '1k',
         #     },
         # )
+
+    def update_graphics(
+        self,
+        marker: LevelMarker
+
+    ) -> None:
+        '''Update all labels.
+
+        Meant to be called from the maker ``.paint()``
+        for immediate, lag free label draws.
+
+        '''
+        self.pp_label.update()
+        self.size_label.update()
 
     def update(
         self,
@@ -174,11 +192,17 @@ class PositionTracker:
 
         else:
             self._level_marker.level = avg_price
+
+            # these updates are critical to avoid lag on view/scene changes
             self._level_marker.update()  # trigger paint
+            self.pp_label.update()
+            self.size_label.update()
+
             self.show()
 
-            # self.pp_label.show()
-            # self._level_marker.show()
+            # don't show side and status widgets unless
+            # order mode is "engaged" (which done via input controls)
+            self.hide_info()
 
     def level(self) -> float:
         if self.line:
@@ -201,17 +225,18 @@ class PositionTracker:
             self.line.hide()
 
     def hide_info(self) -> None:
-        '''Hide details of position.
+        '''Hide details (right now just size label?) of position.
 
         '''
         # TODO: add remove status bar widgets here
         self.size_label.hide()
 
+    # TODO: move into annoate module
     def level_marker(
         self,
         size: float,
 
-    ) -> QGraphicsPathItem:
+    ) -> LevelMarker:
 
         if self._level_marker:
             self._level_marker.delete()
@@ -234,18 +259,11 @@ class PositionTracker:
             style=style,
             get_level=self.level,
             size=arrow_size,
+            on_paint=self.update_graphics,
         )
 
         self.chart.getViewBox().scene().addItem(arrow)
         arrow.show()
-
-        # arrow.label = self.pp_label
-
-        # inside ``LevelLine.pain()`` this is updates...
-        # we need a better way to have the label updated as frequenty
-        # as every paint call? Maybe use a better slot then the range
-        # change?
-        # self._level_marker.label = self.pp_label
 
         return arrow
 
@@ -298,50 +316,51 @@ class PositionTracker:
 
         return line
 
+    # TODO: we can drop this right?
     # order line endpoint anchor
-    def align_to_marker(self) -> QPointF:
+    # def align_to_marker(self) -> QPointF:
 
-        pp_line = self.line
-        if pp_line:
+    #     pp_line = self.line
+    #     if pp_line:
 
-            # line_ep = pp_line.scene_endpoint()
-            # print(line_ep)
+    #         # line_ep = pp_line.scene_endpoint()
+    #         # print(line_ep)
 
-            # y_level_scene = line_ep.y()
-            # pp_y = pp_label.txt.pos().y()
+    #         # y_level_scene = line_ep.y()
+    #         # pp_y = pp_label.txt.pos().y()
 
-            # if y_level_scene > pp_y:
-            #     y_level_scene = pp_y
+    #         # if y_level_scene > pp_y:
+    #         #     y_level_scene = pp_y
 
-            # elif y_level_scene
-            mkr_pos = self._level_marker.pos()
+    #         # elif y_level_scene
+    #         mkr_pos = self._level_marker.pos()
 
-            left_of_mkr = QPointF(
-                # line_ep.x() - self.size_label.w,
-                mkr_pos.x() - self.size_label.w,
-                mkr_pos.y(),
-                # self._level_marker
-                # max(0, y_level_scene),
-                # min(
-                #     pp_label.txt.pos().y()
-                # ),
-            )
-            return left_of_mkr
+    #         left_of_mkr = QPointF(
+    #             # line_ep.x() - self.size_label.w,
+    #             mkr_pos.x() - self.size_label.w,
+    #             mkr_pos.y(),
+    #             # self._level_marker
+    #             # max(0, y_level_scene),
+    #             # min(
+    #             #     pp_label.txt.pos().y()
+    #             # ),
+    #         )
+    #         return left_of_mkr
 
-            # return QPointF(
+    #         # return QPointF(
 
-            #     marker_right_points(chart)[2] - pp_label.w ,
-            #     view.height() - pp_label.h,
-            #     # br.x() - pp_label.w,
-            #     # br.y(),
-            # )
+    #         #     marker_right_points(chart)[2] - pp_label.w ,
+    #         #     view.height() - pp_label.h,
+    #         #     # br.x() - pp_label.w,
+    #         #     # br.y(),
+    #         # )
 
-        else:
-            # pp = _lines._pp_label.txt
-            # scene_rect = pp.mapToScene(pp.boundingRect()).boundingRect()
-            # br = scene_rect.bottomRight()
+    #     else:
+    #         # pp = _lines._pp_label.txt
+    #         # scene_rect = pp.mapToScene(pp.boundingRect()).boundingRect()
+    #         # br = scene_rect.bottomRight()
 
-            return QPointF(0, 0)
+    #         return QPointF(0, 0)
 
     def update_line(
         self,
