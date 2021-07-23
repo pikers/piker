@@ -350,8 +350,6 @@ class LevelLine(pg.InfiniteLine):
         # order lines.. not sure wtf is up with that.
         # for now we're just using it on the position line.
         elif self._marker:
-            # print('we have a marker?')
-            # self._chart.view.locate(self._marker)
 
             # TODO: make this label update part of a scene-aware-marker
             # composed annotation
@@ -702,7 +700,7 @@ def order_line(
 
             # display the order pos size, which is some multiple
             # of the user defined base unit size
-            fmt_str=('x{size:.0f}'),
+            fmt_str=(':{size:.0f}'),
             # fmt_str=('{size:.{size_digits}f}'),  # old
             color=line.color,
         )
