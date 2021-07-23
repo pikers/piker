@@ -56,7 +56,6 @@ class DpiAwareFont:
         self._qfont = QtGui.QFont(name)
         self._font_size: str = font_size
         self._qfm = QtGui.QFontMetrics(self._qfont)
-        self._physical_dpi = None
         self._font_inches: float = None
         self._screen = None
 
@@ -81,6 +80,10 @@ class DpiAwareFont:
     @property
     def font(self):
         return self._qfont
+
+    def scale(self) -> float:
+        screen = self.screen
+        return screen.logicalDotsPerInch() / screen.physicalDotsPerInch()
 
     @property
     def px_size(self) -> int:
@@ -114,7 +117,7 @@ class DpiAwareFont:
         # dpi is likely somewhat scaled down so use slightly larger font size
         if scale > 1 and self._font_size:
             # TODO: this denominator should probably be determined from
-            # relative aspect rations or something?
+            # relative aspect ratios or something?
             inches = inches * (1 / scale) * (1 + 6/16)
             dpi = mx_dpi
 
