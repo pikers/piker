@@ -34,7 +34,8 @@ from ..log import get_logger
 from ._editors import LineEditor, ArrowEditor
 from ._lines import LevelLine
 from ._position import PositionTracker
-from ._window import MultiStatus, main_window
+from ._window import MultiStatus
+from ._text_entry import LabeledTextInput
 
 
 log = get_logger(__name__)
@@ -80,10 +81,9 @@ class OrderMode:
     book: OrderBook
     lines: LineEditor
     arrows: ArrowEditor
-    status_bar: MultiStatus
-
-    # pp status info
-    # label: Label
+    multistatus: MultiStatus
+    pp: PositionTracker
+    pp_config: LabeledTextInput
 
     name: str = 'order'
 
@@ -281,7 +281,7 @@ class OrderMode:
         dialog = OrderDialog(
             uuid=oid,
             line=line,
-            last_status_close=self.status_bar.open_status(
+            last_status_close=self.multistatus.open_status(
                 f'submitting {self._exec_mode}-{action}',
                 final_msg=f'submitted {self._exec_mode}-{action}',
                 clear_on_next=True,
@@ -333,7 +333,7 @@ class OrderMode:
 
         ids: list = []
         if lines:
-            key = self.status_bar.open_status(
+            key = self.multistatus.open_status(
                 f'cancelling {len(lines)} orders',
                 final_msg=f'cancelled {len(lines)} orders',
                 group_key=True
@@ -346,7 +346,7 @@ class OrderMode:
                 if dialog:
                     oid = dialog.uuid
 
-                    cancel_status_close = self.status_bar.open_status(
+                    cancel_status_close = self.multistatus.open_status(
                         f'cancelling order {oid[:6]}',
                         group_key=key,
                     )
@@ -396,7 +396,8 @@ async def run_order_mode(
       - begin order handling loop
 
     '''
-    done = chart.window().status_bar.open_status('starting order mode..')
+    multistatus = chart.window().status_bar
+    done = multistatus.open_status('starting order mode..')
 
     book: OrderBook
     trades_stream: tractor.MsgStream
@@ -411,11 +412,7 @@ async def run_order_mode(
             positions
         ),
 
-        # # start async input handling for chart's view
-        # # await godwidget._task_stack.enter_async_context(
-        # chart._vb.open_async_input_handler(),
     ):
-        status_bar: MultiStatus = main_window().status_bar
         view = chart._vb
         lines = LineEditor(chart=chart)
         arrows = ArrowEditor(chart, {})
@@ -423,18 +420,26 @@ async def run_order_mode(
         log.info("Opening order mode")
 
         pp = PositionTracker(chart)
+        pp.hide()
+
+        # insert order mode config to left of mode label
+        pp_config = LabeledTextInput(chart.linked.godwidget)
+        sb = chart.window().statusBar()
+        sb.insertPermanentWidget(0, pp_config)
+        pp_config.hide()
 
         mode = OrderMode(
             chart,
             book,
             lines,
             arrows,
-            status_bar,
+            multistatus,
+            pp,
+            pp_config,
         )
 
         # so that view handlers can access it
         mode.pp = pp
-
         view.mode = mode
 
         asset_type = symbol.type_key
