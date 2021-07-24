@@ -35,7 +35,7 @@ from ._editors import LineEditor, ArrowEditor
 from ._lines import LevelLine
 from ._position import PositionTracker
 from ._window import MultiStatus
-from ._text_entry import LabeledTextInput
+from ._text_entry import FieldsForm, mk_form
 
 
 log = get_logger(__name__)
@@ -83,7 +83,7 @@ class OrderMode:
     arrows: ArrowEditor
     multistatus: MultiStatus
     pp: PositionTracker
-    pp_config: LabeledTextInput
+    pp_config: FieldsForm
 
     name: str = 'order'
 
@@ -95,42 +95,8 @@ class OrderMode:
     _action: str = 'alert'
     _exec_mode: str = 'dark'
     _size: float = 100.0
-    _position: Dict[str, Any] = field(default_factory=dict)
-    # _position_line: dict = None
 
     dialogs: dict[str, OrderDialog] = field(default_factory=dict)
-
-    # def on_position_update(
-    #     self,
-
-    #     size: float,
-    #     price: float,
-
-    # ) -> None:
-
-    #     line = self._position_line
-
-    #     if line is None and size:
-
-    #         # create and show a pp line
-    #         line = self._position_line = position_line(
-    #             self.chart,
-    #             level=price,
-    #             size=size,
-    #         )
-    #         line.show()
-
-    #     elif line:
-
-    #         if size != 0.0:
-    #             line.set_level(price)
-    #             line.update_labels({'size': size})
-    #             line.show()
-
-    #         else:
-    #             # remove pp line from view
-    #             line.delete()
-    #             self._position_line = None
 
     def uuid(self) -> str:
         return str(uuid.uuid4())
@@ -423,7 +389,15 @@ async def run_order_mode(
         pp.hide()
 
         # insert order mode config to left of mode label
-        pp_config = LabeledTextInput(chart.linked.godwidget)
+        pp_config = mk_form(
+            parent=chart.linked.godwidget,
+            fields={
+                '**$size**:': 5000,
+                '**divisor**:': 4,
+                # '**policy**:': 'uniform',
+                # '**type**:': 'live-buy',
+            },
+        )
         sb = chart.window().statusBar()
         sb.insertPermanentWidget(0, pp_config)
         pp_config.hide()
@@ -479,7 +453,12 @@ async def run_order_mode(
         done()
 
         # start async input handling for chart's view
-        async with chart._vb.open_async_input_handler():
+        async with (
+            chart._vb.open_async_input_handler(),
+
+            # TODO: config form handler nursery
+
+        ):
 
             # signal to top level symbol loading task we're ready
             # to handle input since the ems connection is ready
