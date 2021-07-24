@@ -456,7 +456,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
     _l1_labels: L1Labels = None
 
-    mode_name: str = 'mode: view'
+    mode_name: str = 'view'
 
     # TODO: can take a ``background`` color setting - maybe there's
     # a better one?

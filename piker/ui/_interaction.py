@@ -206,8 +206,7 @@ async def handle_viewmode_inputs(
             view.mode.set_exec(action)
 
             prefix = trigger_mode + '-' if action != 'alert' else ''
-            view._chart.window().mode_label.setText(
-                f'mode: {prefix}{action}')
+            view._chart.window().set_mode_name(f'{prefix}{action}')
 
         else:  # none active
 
@@ -221,7 +220,7 @@ async def handle_viewmode_inputs(
 
             if view.hasFocus():
                 # update mode label
-                view._chart.window().mode_label.setText('mode: view')
+                view._chart.window().set_mode_name('view')
 
             view.order_mode = False
 
@@ -239,7 +238,7 @@ class ChartView(ViewBox):
         - zoom on right-click-n-drag to cursor position
 
     '''
-    mode_name: str = 'mode: view'
+    mode_name: str = 'view'
 
     def __init__(
         self,
