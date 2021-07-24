@@ -165,7 +165,7 @@ class MainWindow(QtGui.QMainWindow):
 
             self._status_label = label = QtGui.QLabel()
             label.setStyleSheet(
-                f"QLabel {{ color : {hcolor('gunmetal')}; }}"
+                f"QLabel {{ color : {hcolor('papas_special')}; }}"
             )
             label.setTextFormat(3)  # markdown
             label.setFont(_font_small.font)
@@ -186,6 +186,8 @@ class MainWindow(QtGui.QMainWindow):
         """Cancel the root actor asap.
 
         """
+        # TODO: instead kill the root tractor nursery?
+
         # raising KBI seems to get intercepted by by Qt so just use the system.
         os.kill(os.getpid(), signal.SIGINT)
 
@@ -209,10 +211,20 @@ class MainWindow(QtGui.QMainWindow):
 
         return self._status_bar
 
+    def set_mode_name(
+        self,
+        name: str,
+
+    ) -> None:
+
+        self.mode_label.setText(f'mode:{name}')
+
     def on_focus_change(
         self,
+
         old: QtGui.QWidget,
         new: QtGui.QWidget,
+
     ) -> None:
 
         log.debug(f'widget focus changed from {old} -> {new}')
@@ -220,7 +232,7 @@ class MainWindow(QtGui.QMainWindow):
         if new is not None:
             # cursor left window?
             name = getattr(new, 'mode_name', '')
-            self.mode_label.setText(name)
+            self.set_mode_name(name)
 
     def current_screen(self) -> QtGui.QScreen:
         """Get a frickin screen (if we can, gawd).
