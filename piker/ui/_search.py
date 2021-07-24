@@ -72,6 +72,7 @@ from ._style import (
     _font,
     DpiAwareFont,
 )
+from ._text_entry import FontAndChartAwareLineEdit
 
 
 log = get_logger(__name__)
@@ -95,7 +96,7 @@ class SimpleDelegate(QStyledItemDelegate):
 
 class CompleterView(QTreeView):
 
-    mode_name: str = 'mode: search-nav'
+    mode_name: str = 'search-nav'
 
     # XXX: relevant docs links:
     # - simple widget version of this:
@@ -424,85 +425,21 @@ class CompleterView(QTreeView):
         self.resize()
 
 
-class FontAndChartAwareLineEdit(QtWidgets.QLineEdit):
-
-    def __init__(
-
-        self,
-        parent: QWidget,
-        parent_chart: QWidget,  # noqa
-        font: DpiAwareFont = _font,
-
-    ) -> None:
-        super().__init__(parent)
-
-        # self.setContextMenuPolicy(Qt.CustomContextMenu)
-        # self.customContextMenuRequested.connect(self.show_menu)
-        # self.setStyleSheet(f"font: 18px")
-
-        self.dpi_font = font
-        self.godwidget = parent_chart
-
-        # size it as we specify
-        # https://doc.qt.io/qt-5/qsizepolicy.html#Policy-enum
-        self.setSizePolicy(
-            QtWidgets.QSizePolicy.Expanding,
-            QtWidgets.QSizePolicy.Fixed,
-        )
-        self.setFont(font.font)
-
-        # witty bit of margin
-        self.setTextMargins(2, 2, 2, 2)
-
-        # chart count which will be used to calculate
-        # width of input field.
-        self._chars: int = 9
-
-    def sizeHint(self) -> QtCore.QSize:
-        """
-        Scale edit box to size of dpi aware font.
-
-        """
-        psh = super().sizeHint()
-
-        dpi_font = self.dpi_font
-        char_w_pxs = dpi_font.boundingRect('A').width()
-
-        # space for ``._chars: int``
-        chars_w = self._chars * char_w_pxs * dpi_font.scale()
-
-        psh.setHeight(dpi_font.px_size + 2)
-        psh.setWidth(chars_w)
-        return psh
-
-    def set_width_in_chars(
-        self,
-        chars: int,
-
-    ) -> None:
-        self._chars = chars
-        self.sizeHint()
-        self.update()
-
-    def focus(self) -> None:
-        self.selectAll()
-        self.show()
-        self.setFocus()
-
-
 class SearchBar(FontAndChartAwareLineEdit):
 
-    mode_name: str = 'mode: search'
+    mode_name: str = 'search'
 
     def __init__(
 
         self,
         parent: QWidget,
+        godwidget: QWidget,
         view: Optional[CompleterView] = None,
         **kwargs,
 
     ) -> None:
 
+        self.godwidget = godwidget
         super().__init__(parent, **kwargs)
         self.view: CompleterView = view
 
@@ -524,7 +461,7 @@ class SearchWidget(QtWidgets.QWidget):
     Includes helper methods for item management in the sub-widgets.
 
     '''
-    mode_name: str = 'mode: search'
+    mode_name: str = 'search'
 
     def __init__(
         self,
@@ -573,7 +510,7 @@ class SearchWidget(QtWidgets.QWidget):
         self.bar = SearchBar(
             parent=self,
             view=self.view,
-            parent_chart=godwidget,
+            godwidget=godwidget,
         )
         self.bar_hbox.addWidget(self.bar)
 
