@@ -35,7 +35,7 @@ from ._editors import LineEditor, ArrowEditor
 from ._lines import LevelLine
 from ._position import PositionTracker
 from ._window import MultiStatus
-from ._text_entry import FieldsForm, mk_form
+from ._forms import FieldsForm, mk_form
 
 
 log = get_logger(__name__)
