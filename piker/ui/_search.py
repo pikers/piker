@@ -72,7 +72,7 @@ from ._style import (
     _font,
     DpiAwareFont,
 )
-from ._text_entry import FontAndChartAwareLineEdit
+from ._forms import FontAndChartAwareLineEdit
 
 
 log = get_logger(__name__)
