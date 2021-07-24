@@ -129,7 +129,6 @@ class PositionTracker:
             label=self.pp_label,
         )
 
-        # size_label.scene_anchor = self.align_to_marker
         # size_label.scene_anchor = lambda: (
         #     self.pp_label.txt.pos() + QPointF(self.pp_label.w, 0)
         # )
@@ -315,52 +314,6 @@ class PositionTracker:
         line.set_level(level)
 
         return line
-
-    # TODO: we can drop this right?
-    # order line endpoint anchor
-    # def align_to_marker(self) -> QPointF:
-
-    #     pp_line = self.line
-    #     if pp_line:
-
-    #         # line_ep = pp_line.scene_endpoint()
-    #         # print(line_ep)
-
-    #         # y_level_scene = line_ep.y()
-    #         # pp_y = pp_label.txt.pos().y()
-
-    #         # if y_level_scene > pp_y:
-    #         #     y_level_scene = pp_y
-
-    #         # elif y_level_scene
-    #         mkr_pos = self._level_marker.pos()
-
-    #         left_of_mkr = QPointF(
-    #             # line_ep.x() - self.size_label.w,
-    #             mkr_pos.x() - self.size_label.w,
-    #             mkr_pos.y(),
-    #             # self._level_marker
-    #             # max(0, y_level_scene),
-    #             # min(
-    #             #     pp_label.txt.pos().y()
-    #             # ),
-    #         )
-    #         return left_of_mkr
-
-    #         # return QPointF(
-
-    #         #     marker_right_points(chart)[2] - pp_label.w ,
-    #         #     view.height() - pp_label.h,
-    #         #     # br.x() - pp_label.w,
-    #         #     # br.y(),
-    #         # )
-
-    #     else:
-    #         # pp = _lines._pp_label.txt
-    #         # scene_rect = pp.mapToScene(pp.boundingRect()).boundingRect()
-    #         # br = scene_rect.bottomRight()
-
-    #         return QPointF(0, 0)
 
     def update_line(
         self,
