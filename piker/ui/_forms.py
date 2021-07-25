@@ -15,20 +15,25 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 '''
-Text entry widgets (mostly for configuration).
+Text entry "forms" widgets (mostly for configuration and UI user input).
 
 '''
 from typing import Optional
 
 # import trio
 from PyQt5 import QtCore, QtGui
-from PyQt5 import QtWidgets
-from PyQt5.QtWidgets import QWidget
+from PyQt5.QtWidgets import (
+    QWidget,
+    QComboBox,
+    QLineEdit,
+    QProgressBar,
+    QSizePolicy,
+)
 
 from ._style import hcolor, _font, DpiAwareFont
 
 
-class FontAndChartAwareLineEdit(QtWidgets.QLineEdit):
+class FontAndChartAwareLineEdit(QLineEdit):
 
     def __init__(
 
@@ -59,8 +64,8 @@ class FontAndChartAwareLineEdit(QtWidgets.QLineEdit):
         # size it as we specify
         # https://doc.qt.io/qt-5/qsizepolicy.html#Policy-enum
         self.setSizePolicy(
-            QtWidgets.QSizePolicy.Expanding,
-            QtWidgets.QSizePolicy.Fixed,
+            QSizePolicy.Expanding,
+            QSizePolicy.Fixed,
         )
         self.setFont(font.font)
 
@@ -112,8 +117,8 @@ class FieldsForm(QtGui.QWidget):
 
         # size it as we specify
         self.setSizePolicy(
-            QtWidgets.QSizePolicy.Fixed,
-            QtWidgets.QSizePolicy.Fixed,
+            QSizePolicy.Fixed,
+            QSizePolicy.Fixed,
         )
 
         # split layout for the (label:| text bar entry)
@@ -121,15 +126,11 @@ class FieldsForm(QtGui.QWidget):
         self.hbox.setContentsMargins(16, 0, 16, 0)
         self.hbox.setSpacing(3)
 
-    def add_field(
+    def add_field_label(
         self,
-
         name: str,
-        value: str,
 
-        widget: Optional[QWidget] = None,
-
-    ) -> None:
+    ) -> QtGui.QLabel:
 
         # add label to left of search bar
         self.label = label = QtGui.QLabel(parent=self)
@@ -140,7 +141,6 @@ class FieldsForm(QtGui.QWidget):
         )
         label.setMargin(4)
 
-        # name = "share cap:"
         label.setText(name)
 
         label.setAlignment(
@@ -150,6 +150,20 @@ class FieldsForm(QtGui.QWidget):
         label.show()
 
         self.hbox.addWidget(label)
+        return label
+
+    def add_edit_field(
+        self,
+
+        name: str,
+        value: str,
+
+        widget: Optional[QWidget] = None,
+
+    ) -> None:
+
+        # TODO: maybe a distint layout per "field" item?
+        self.add_field_label(name)
 
         self.edit = FontAndChartAwareLineEdit(
             parent=self,
@@ -161,6 +175,31 @@ class FieldsForm(QtGui.QWidget):
         )
         self.edit.setText(str(value))
         self.hbox.addWidget(self.edit)
+
+    def add_select_field(
+        self,
+
+        name: str,
+        values: list[str],
+
+    ) -> QComboBox:
+
+        # TODO: maybe a distint layout per "field" item?
+        self.add_field_label(name)
+
+        select = QComboBox(self)
+
+        for i, value in enumerate(values):
+            select.insertItem(0, str(value))
+
+        select.setStyleSheet(
+            f"QComboBox {{ color : {hcolor('gunmetal')}; }}"
+        )
+        select.show()
+
+        self.hbox.addWidget(select)
+
+        return select
 
 
 # async def handle_form_input(
@@ -204,6 +243,16 @@ def mk_form(
     form = FieldsForm(parent)
 
     for name, value in fields.items():
-        form.add_field(name, value)
+        form.add_edit_field(name, value)
+
+    form.add_select_field('policy:', ['uniform', 'halfs'])
+
+    form.add_field_label('fills:')
+    fill_bar = QProgressBar(form)
+    fill_bar.setMinimum(0)
+    fill_bar.setMaximum(4)
+    fill_bar.setValue(3)
+
+    form.hbox.addWidget(fill_bar)
 
     return form
