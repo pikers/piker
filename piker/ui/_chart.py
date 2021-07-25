@@ -1689,8 +1689,8 @@ async def _async_main(
             # start handling search bar kb inputs
             async with (
 
-                _event.open_handler(
-                    search.bar,
+                _event.open_handlers(
+                    [search.bar],
                     event_types={QEvent.KeyPress},
                     async_handler=_search.handle_keyboard_input,
                     # let key repeats pass through for search
