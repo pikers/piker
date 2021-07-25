@@ -63,35 +63,19 @@ from PyQt5.QtWidgets import (
     QTreeView,
     # QListWidgetItem,
     # QAbstractScrollArea,
-    QStyledItemDelegate,
+    # QStyledItemDelegate,
 )
 
 
 from ..log import get_logger
 from ._style import (
     _font,
-    DpiAwareFont,
+    # DpiAwareFont,
 )
-from ._forms import FontAndChartAwareLineEdit
+from ._forms import FontAndChartAwareLineEdit, FontScaledDelegate
 
 
 log = get_logger(__name__)
-
-
-class SimpleDelegate(QStyledItemDelegate):
-    """
-    Super simple view delegate to render text in the same
-    font size as the search widget.
-
-    """
-
-    def __init__(
-        self,
-        parent=None,
-        font: DpiAwareFont = _font,
-    ) -> None:
-        super().__init__(parent)
-        self.dpi_font = font
 
 
 class CompleterView(QTreeView):
@@ -130,7 +114,7 @@ class CompleterView(QTreeView):
         self.labels = labels
 
         # a std "tabular" config
-        self.setItemDelegate(SimpleDelegate())
+        self.setItemDelegate(FontScaledDelegate(self))
         self.setModel(model)
         self.setAlternatingRowColors(True)
         # TODO: size this based on DPI font
