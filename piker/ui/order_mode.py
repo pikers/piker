@@ -393,7 +393,7 @@ async def run_order_mode(
             parent=chart.linked.godwidget,
             fields={
                 '**$size**:': 5000,
-                '**divisor**:': 4,
+                '**slots**:': 4,
                 # '**policy**:': 'uniform',
                 # '**type**:': 'live-buy',
             },
