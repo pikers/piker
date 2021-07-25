@@ -18,13 +18,16 @@
 Text entry "forms" widgets (mostly for configuration and UI user input).
 
 '''
+from functools import partial
 from typing import Optional
+from contextlib import asynccontextmanager
 
-# import trio
+import trio
 from PyQt5 import QtCore, QtGui
-from PyQt5.QtCore import QSize, QModelIndex
+from PyQt5.QtCore import QSize, QModelIndex, Qt, QEvent
 from PyQt5.QtWidgets import (
     QWidget,
+    QLabel,
     QComboBox,
     QLineEdit,
     QProgressBar,
@@ -33,6 +36,7 @@ from PyQt5.QtWidgets import (
     QStyleOptionViewItem,
 )
 
+from ._event import open_handlers
 from ._style import hcolor, _font, DpiAwareFont
 
 
@@ -144,7 +148,7 @@ class FontScaledDelegate(QStyledItemDelegate):
             return super().sizeHint(option, index)
 
 
-class FieldsForm(QtGui.QWidget):
+class FieldsForm(QWidget):
 
     def __init__(
         self,
@@ -165,6 +169,9 @@ class FieldsForm(QtGui.QWidget):
         self.hbox = QtGui.QHBoxLayout(self)
         self.hbox.setContentsMargins(16, 0, 16, 0)
         self.hbox.setSpacing(3)
+
+        self.labels: dict[str, QLabel] = {}
+        self.fields: dict[str, QWidget] = {}
 
     def add_field_label(
         self,
@@ -190,6 +197,8 @@ class FieldsForm(QtGui.QWidget):
         label.show()
 
         self.hbox.addWidget(label)
+        self.labels[name] = label
+
         return label
 
     def add_edit_field(
@@ -200,21 +209,25 @@ class FieldsForm(QtGui.QWidget):
 
         widget: Optional[QWidget] = None,
 
-    ) -> None:
+    ) -> FontAndChartAwareLineEdit:
 
         # TODO: maybe a distint layout per "field" item?
         self.add_field_label(name)
 
-        self.edit = FontAndChartAwareLineEdit(
+        edit = FontAndChartAwareLineEdit(
             parent=self,
             # parent_chart=self.godwidget,
             # width_in_chars=6,
         )
-        self.edit.setStyleSheet(
+        edit.setStyleSheet(
             f"QLineEdit {{ color : {hcolor('gunmetal')}; }}"
         )
-        self.edit.setText(str(value))
-        self.hbox.addWidget(self.edit)
+        edit.setText(str(value))
+        self.hbox.addWidget(edit)
+
+        self.fields[name] = edit
+
+        return edit
 
     def add_select_field(
         self,
@@ -264,37 +277,39 @@ class FieldsForm(QtGui.QWidget):
         return select
 
 
-# async def handle_form_input(
+async def handle_field_input(
 
-#     chart: 'ChartPlotWidget',  # noqa
-#     form: FieldsForm,
-#     recv_chan: trio.abc.ReceiveChannel,
+    # chart: 'ChartPlotWidget',  # noqa
+    widget: QWidget,
+    recv_chan: trio.abc.ReceiveChannel,
+    form: FieldsForm,
 
-# ) -> None:
+) -> None:
 
-#     async for event, etype, key, mods, txt in recv_chan:
-#         print(f'key: {key}, mods: {mods}, txt: {txt}')
+    async for event, etype, key, mods, txt in recv_chan:
+        print(f'key: {key}, mods: {mods}, txt: {txt}')
 
-#         ctl = False
-#         if mods == Qt.ControlModifier:
-#             ctl = True
+        ctl = False
+        if mods == Qt.ControlModifier:
+            ctl = True
 
-#         # cancel and close
-#         if ctl and key in {
-#             Qt.Key_C,
-#             Qt.Key_Space,   # i feel like this is the "native" one
-#             Qt.Key_Alt,
-#         }:
-#             # search.bar.unfocus()
+        # cancel and close
+        if ctl and key in {
+            Qt.Key_C,
+            Qt.Key_Space,   # i feel like this is the "native" one
+            Qt.Key_Alt,
+        }:
+            # search.bar.unfocus()
 
-#             # kill the search and focus back on main chart
-#             if chart:
-#                 chart.linkedsplits.focus()
+            # kill the search and focus back on main chart
+            if chart:
+                chart.linkedsplits.focus()
 
-#             continue
+            continue
 
 
-def mk_form(
+@asynccontextmanager
+async def mk_form(
 
     parent: QWidget,
     fields: dict,
@@ -307,7 +322,7 @@ def mk_form(
     for name, value in fields.items():
         form.add_edit_field(name, value)
 
-    form.add_select_field('policy:', ['uniform', 'halfs'])
+    form.add_select_field('policy:', ['uniform'])
 
     form.add_field_label('fills:')
     fill_bar = QProgressBar(form)
@@ -317,4 +332,17 @@ def mk_form(
 
     form.hbox.addWidget(fill_bar)
 
-    return form
+    async with open_handlers(
+
+        list(form.fields.values()),
+        event_types={QEvent.KeyPress},
+
+        async_handler=partial(
+            handle_field_input,
+            form=form,
+        ),
+
+        # block key repeats?
+        filter_auto_repeats=True,
+    ):
+        yield form
