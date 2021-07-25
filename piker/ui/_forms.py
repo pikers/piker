@@ -22,12 +22,15 @@ from typing import Optional
 
 # import trio
 from PyQt5 import QtCore, QtGui
+from PyQt5.QtCore import QSize, QModelIndex
 from PyQt5.QtWidgets import (
     QWidget,
     QComboBox,
     QLineEdit,
     QProgressBar,
     QSizePolicy,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
 )
 
 from ._style import hcolor, _font, DpiAwareFont
@@ -72,7 +75,7 @@ class FontAndChartAwareLineEdit(QLineEdit):
         # witty bit of margin
         self.setTextMargins(2, 2, 2, 2)
 
-    def sizeHint(self) -> QtCore.QSize:
+    def sizeHint(self) -> QSize:
         """
         Scale edit box to size of dpi aware font.
 
@@ -102,6 +105,39 @@ class FontAndChartAwareLineEdit(QLineEdit):
         self.selectAll()
         self.show()
         self.setFocus()
+
+
+class FontScaledDelegate(QStyledItemDelegate):
+    """
+    Super simple view delegate to render text in the same
+    font size as the search widget.
+
+    """
+
+    def __init__(
+        self,
+
+        parent=None,
+        font: DpiAwareFont = _font,
+
+    ) -> None:
+
+        super().__init__(parent)
+        self.dpi_font = font
+
+    def sizeHint(
+        self,
+
+        option: QStyleOptionViewItem,
+        index: QModelIndex,
+
+    ) -> QSize:
+
+        # value = index.data()
+        # br = self.dpi_font.boundingRect(value)
+        # w, h = br.width(), br.height()
+        w, h  = self.parent()._max_item_size
+        return QSize(w, h)
 
 
 class FieldsForm(QtGui.QWidget):
@@ -190,13 +226,32 @@ class FieldsForm(QtGui.QWidget):
         select = QComboBox(self)
 
         for i, value in enumerate(values):
-            select.insertItem(0, str(value))
+            select.insertItem(i, str(value))
 
         select.setStyleSheet(
             f"QComboBox {{ color : {hcolor('gunmetal')}; }}"
         )
-        select.show()
+        select.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        select.setIconSize(QSize(0, 0))
+        self.setSizePolicy(
+            QSizePolicy.Fixed,
+            QSizePolicy.Fixed,
+        )
+        view = select.view()
+        view.setItemDelegate(FontScaledDelegate(view))
 
+        # compute maximum item size so that the weird
+        # "style item delegate" thing can then specify
+        # that size on each item...
+        values.sort()
+        br = _font.boundingRect(str(values[-1]))
+        w, h = br.width(), br.height()
+        view._max_item_size = w, h
+        view.setUniformItemSizes(True)
+
+        # limit to 6 items?
+        view.setMaximumHeight(6*h)
+        select.show()
         self.hbox.addWidget(select)
 
         return select
