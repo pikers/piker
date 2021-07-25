@@ -108,12 +108,11 @@ class FontAndChartAwareLineEdit(QLineEdit):
 
 
 class FontScaledDelegate(QStyledItemDelegate):
-    """
+    '''
     Super simple view delegate to render text in the same
     font size as the search widget.
 
-    """
-
+    '''
     def __init__(
         self,
 
@@ -136,8 +135,13 @@ class FontScaledDelegate(QStyledItemDelegate):
         # value = index.data()
         # br = self.dpi_font.boundingRect(value)
         # w, h = br.width(), br.height()
-        w, h  = self.parent()._max_item_size
-        return QSize(w, h)
+        parent = self.parent()
+
+        if getattr(parent, '_max_item_size', None):
+            return QSize(*self.parent()._max_item_size)
+
+        else:
+            return super().sizeHint(option, index)
 
 
 class FieldsForm(QtGui.QWidget):
@@ -238,6 +242,7 @@ class FieldsForm(QtGui.QWidget):
             QSizePolicy.Fixed,
         )
         view = select.view()
+        view.setUniformItemSizes(True)
         view.setItemDelegate(FontScaledDelegate(view))
 
         # compute maximum item size so that the weird
@@ -246,12 +251,14 @@ class FieldsForm(QtGui.QWidget):
         values.sort()
         br = _font.boundingRect(str(values[-1]))
         w, h = br.width(), br.height()
+
+        # TODO: something better then this monkey patch
         view._max_item_size = w, h
-        view.setUniformItemSizes(True)
 
         # limit to 6 items?
         view.setMaximumHeight(6*h)
         select.show()
+
         self.hbox.addWidget(select)
 
         return select
