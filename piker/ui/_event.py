@@ -18,7 +18,7 @@
 Qt event proxying and processing using ``trio`` mem chans.
 
 """
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, AsyncExitStack
 from typing import Callable
 
 from PyQt5 import QtCore
@@ -124,9 +124,9 @@ async def open_event_stream(
 
 
 @asynccontextmanager
-async def open_handler(
+async def open_handlers(
 
-    source_widget: QWidget,
+    source_widgets: list[QWidget],
     event_types: set[QEvent],
     async_handler: Callable[[QWidget, trio.abc.ReceiveChannel], None],
     **kwargs,
@@ -135,7 +135,13 @@ async def open_handler(
 
     async with (
         trio.open_nursery() as n,
-        open_event_stream(source_widget, event_types, **kwargs) as event_recv_stream,
+        AsyncExitStack() as stack,
     ):
-        n.start_soon(async_handler, source_widget, event_recv_stream)
+        for widget in source_widgets:
+
+            event_recv_stream = await stack.enter_async_context(
+                open_event_stream(widget, event_types, **kwargs)
+            )
+            n.start_soon(async_handler, widget, event_recv_stream)
+
         yield

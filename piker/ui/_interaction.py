@@ -273,8 +273,8 @@ class ChartView(ViewBox):
     ) -> 'ChartView':
         from . import _event
 
-        async with _event.open_handler(
-            self,
+        async with _event.open_handlers(
+            [self],
             event_types={QEvent.KeyPress, QEvent.KeyRelease},
             async_handler=handle_viewmode_inputs,
         ):
