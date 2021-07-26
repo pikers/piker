@@ -35,7 +35,7 @@ from ._editors import LineEditor, ArrowEditor
 from ._lines import LevelLine
 from ._position import PositionTracker
 from ._window import MultiStatus
-from ._forms import FieldsForm, mk_form
+from ._forms import FieldsForm, open_form
 
 
 log = get_logger(__name__)
@@ -378,6 +378,27 @@ async def run_order_mode(
             positions
         ),
 
+        open_form(
+            parent=chart.linked.godwidget,
+            fields={
+                'dollar_size': {
+                    'key': '**$size**:',
+                    'type': 'edit',
+                    'default_value': 5000,
+                },
+                'slots': {
+                    'key': '**slots**:',
+                    'type': 'edit',
+                    'default_value': 4,
+                },
+                'disti_policy': {
+                    'key': '**policy**:',
+                    'type': 'select',
+                    'default_value': ['uniform'],
+                },
+            },
+        ) as pp_config,
+
     ):
         view = chart._vb
         lines = LineEditor(chart=chart)
@@ -389,15 +410,6 @@ async def run_order_mode(
         pp.hide()
 
         # insert order mode config to left of mode label
-        pp_config = mk_form(
-            parent=chart.linked.godwidget,
-            fields={
-                '**$size**:': 5000,
-                '**slots**:': 4,
-                # '**policy**:': 'uniform',
-                # '**type**:': 'live-buy',
-            },
-        )
         sb = chart.window().statusBar()
         sb.insertPermanentWidget(0, pp_config)
         pp_config.hide()

@@ -309,7 +309,7 @@ async def handle_field_input(
 
 
 @asynccontextmanager
-async def mk_form(
+async def open_form(
 
     parent: QWidget,
     fields: dict,
@@ -319,10 +319,18 @@ async def mk_form(
 
     form = FieldsForm(parent)
 
-    for name, value in fields.items():
-        form.add_edit_field(name, value)
+    for name, config in fields.items():
+        wtype = config['type']
+        key = str(config['key'])
 
-    form.add_select_field('policy:', ['uniform'])
+        # plain (line) edit field
+        if wtype == 'edit':
+            form.add_edit_field(key, config['default_value'])
+
+        # drop-down selection
+        elif wtype == 'select':
+            values = list(config['default_value'])
+            form.add_select_field(key, values)
 
     form.add_field_label('fills:')
     fill_bar = QProgressBar(form)
