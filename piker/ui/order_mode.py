@@ -35,7 +35,7 @@ from ._editors import LineEditor, ArrowEditor
 from ._lines import LevelLine
 from ._position import PositionTracker
 from ._window import MultiStatus
-from ._forms import FieldsForm, open_form
+from ._forms import FieldsForm
 
 
 log = get_logger(__name__)
@@ -83,7 +83,6 @@ class OrderMode:
     arrows: ArrowEditor
     multistatus: MultiStatus
     pp: PositionTracker
-    pp_config: FieldsForm
 
     name: str = 'order'
 
@@ -100,6 +99,10 @@ class OrderMode:
 
     def uuid(self) -> str:
         return str(uuid.uuid4())
+
+    @property
+    def pp_config(self) -> FieldsForm:
+        return self.chart.linked.godwidget.pp_config
 
     def set_exec(
         self,
@@ -378,27 +381,6 @@ async def run_order_mode(
             positions
         ),
 
-        open_form(
-            parent=chart.linked.godwidget,
-            fields={
-                'dollar_size': {
-                    'key': '**$size**:',
-                    'type': 'edit',
-                    'default_value': 5000,
-                },
-                'slots': {
-                    'key': '**slots**:',
-                    'type': 'edit',
-                    'default_value': 4,
-                },
-                'disti_policy': {
-                    'key': '**policy**:',
-                    'type': 'select',
-                    'default_value': ['uniform'],
-                },
-            },
-        ) as pp_config,
-
     ):
         view = chart._vb
         lines = LineEditor(chart=chart)
@@ -409,11 +391,6 @@ async def run_order_mode(
         pp = PositionTracker(chart)
         pp.hide()
 
-        # insert order mode config to left of mode label
-        sb = chart.window().statusBar()
-        sb.insertPermanentWidget(0, pp_config)
-        pp_config.hide()
-
         mode = OrderMode(
             chart,
             book,
@@ -421,7 +398,6 @@ async def run_order_mode(
             arrows,
             multistatus,
             pp,
-            pp_config,
         )
 
         # so that view handlers can access it

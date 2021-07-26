@@ -68,6 +68,7 @@ from ._interaction import ChartView
 from .order_mode import run_order_mode
 from .. import fsp
 from ..data import feed
+from ._forms import FieldsForm, open_form
 
 
 log = get_logger(__name__)
@@ -94,11 +95,13 @@ class GodWidget(QtWidgets.QWidget):
 
         self.hbox = QtWidgets.QHBoxLayout(self)
         self.hbox.setContentsMargins(0, 0, 0, 0)
-        self.hbox.setSpacing(2)
+        self.hbox.setSpacing(6)
+        self.hbox.setAlignment(Qt.AlignTop)
 
         self.vbox = QtWidgets.QVBoxLayout()
         self.vbox.setContentsMargins(0, 0, 0, 0)
         self.vbox.setSpacing(2)
+        self.vbox.setAlignment(Qt.AlignTop)
 
         self.hbox.addLayout(self.vbox)
 
@@ -390,7 +393,6 @@ class LinkedSplits(QtWidgets.QWidget):
                 'left': PriceAxis(linkedsplits=self, orientation='left'),
             },
             viewBox=cv,
-            # cursor=self.cursor,
             **cpw_kwargs,
         )
         print(f'xaxis ps: {xaxis.pos()}')
@@ -472,7 +474,6 @@ class ChartPlotWidget(pg.PlotWidget):
         pen_color: str = 'bracket',
 
         static_yrange: Optional[Tuple[float, float]] = None,
-        cursor: Optional[Cursor] = None,
 
         **kwargs,
     ):
@@ -1576,7 +1577,12 @@ async def display_symbol_data(
                 linkedsplits
             )
 
-            await run_order_mode(chart, symbol, provider, order_mode_started)
+            await run_order_mode(
+                chart,
+                symbol,
+                provider,
+                order_mode_started
+            )
 
 
 async def load_provider_search(
@@ -1658,7 +1664,7 @@ async def _async_main(
 
             # alights to top and uses minmial space based on
             # search bar size hint (i think?)
-            alignment=Qt.AlignTop
+            # alignment=Qt.AlignTop
         )
         godwidget.search = search
 
@@ -1695,8 +1701,60 @@ async def _async_main(
                     async_handler=_search.handle_keyboard_input,
                     # let key repeats pass through for search
                     filter_auto_repeats=False,
-                )
+                ),
+
+                open_form(
+                    godwidget=godwidget,
+                    parent=godwidget,
+                    fields={
+                        'account': {
+                            'key': '**account**:',
+                            'type': 'select',
+                            'default_value': ['margin'],
+                        },
+                        'disti_policy': {
+                            'key': '**policy**:',
+                            'type': 'select',
+                            'default_value': ['uniform'],
+                        },
+                        'slots': {
+                            'key': '**slots**:',
+                            'type': 'edit',
+                            'default_value': 4,
+                        },
+                        'allocator': {
+                            'key': '**allocator**:',
+                            'type': 'select',
+                            'default_value': ['$ size', '% of port',],
+                        },
+                        'dollar_size': {
+                            'key': '**$size**:',
+                            'type': 'edit',
+                            'default_value': '5k',
+                        },
+                    },
+                ) as pp_config,
             ):
+                pp_config: FieldsForm
+                pp_config.show()
+
+                # add as next-to-y-axis pane
+                godwidget.pp_config = pp_config
+
+                godwidget.hbox.insertWidget(
+                    1,
+                    pp_config,
+
+                    # alights to top and uses minmial space based on
+                    # search bar size hint (i think?)
+                    alignment=Qt.AlignTop
+                )
+
+                godwidget.hbox.setAlignment(Qt.AlignTop)
+                # sb = god_widget.window.statusBar()
+                # sb.insertPermanentWidget(0, pp_config)
+                # pp_config.show()
+
                 # remove startup status text
                 starting_done()
                 await trio.sleep_forever()
