@@ -162,9 +162,20 @@ async def handle_viewmode_inputs(
         else:
             view.setMouseMode(ViewBox.PanMode)
 
+        # Toggle position config pane
+        if (
+            ctrl and key in {
+                Qt.Key_P,
+            }
+        ):
+            pp_conf = mode.pp_config
+            if pp_conf.isHidden():
+                pp_conf.show()
+            else:
+                pp_conf.hide()
+
         # ORDER MODE #
         # live vs. dark trigger + an action {buy, sell, alert}
-
         order_keys_pressed = {
             Qt.Key_A,
             Qt.Key_F,
@@ -175,8 +186,9 @@ async def handle_viewmode_inputs(
 
             # show the pp label
             mode.pp.show()
-            # show pp config params in status bar widget
-            mode.pp_config.show()
+
+            # TODO: show pp config mini-params in status bar widget
+            # mode.pp_config.show()
 
             if (
                 # 's' for "submit" to activate "live" order
@@ -212,7 +224,7 @@ async def handle_viewmode_inputs(
 
             # hide pp label
             mode.pp.hide_info()
-            mode.pp_config.hide()
+            # mode.pp_config.hide()
 
             # if none are pressed, remove "staged" level
             # line under cursor position
