@@ -278,7 +278,7 @@ class ContentsLabels:
         self._labels.append(
             (chart, name, label, partial(update_func, label, name))
         )
-        # label.hide()
+        label.hide()
 
         return label
 

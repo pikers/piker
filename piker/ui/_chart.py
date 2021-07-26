@@ -1281,12 +1281,6 @@ async def run_fsp(
                 # static_yrange=(0, 100),
             )
 
-            # display contents labels asap
-            chart.linked.cursor.contents_labels.update_labels(
-                len(shm.array) - 1,
-                # fsp_func_name
-            )
-
             # XXX: ONLY for sub-chart fsps, overlays have their
             # data looked up from the chart's internal array set.
             # TODO: we must get a data view api going STAT!!
@@ -1710,10 +1704,14 @@ async def _async_main(
                         'account': {
                             'key': '**account**:',
                             'type': 'select',
-                            'default_value': ['margin'],
+                            'default_value': [
+                                'piker.paper',
+                                # 'ib.margin',
+                                # 'ib.paper',
+                            ],
                         },
                         'disti_policy': {
-                            'key': '**policy**:',
+                            'key': '**entry policy**:',
                             'type': 'select',
                             'default_value': ['uniform'],
                         },
