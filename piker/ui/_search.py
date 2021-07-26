@@ -45,7 +45,7 @@ import time
 from fuzzywuzzy import process as fuzzy
 import trio
 from trio_typing import TaskStatus
-from PyQt5 import QtCore, QtGui
+from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import (
     Qt,
@@ -70,7 +70,7 @@ from PyQt5.QtWidgets import (
 from ..log import get_logger
 from ._style import (
     _font,
-    # DpiAwareFont,
+    hcolor,
 )
 from ._forms import FontAndChartAwareLineEdit, FontScaledDelegate
 
@@ -475,10 +475,17 @@ class SearchWidget(QtWidgets.QWidget):
 
         # add label to left of search bar
         self.label = label = QtWidgets.QLabel(parent=self)
+        label.setStyleSheet(
+            f"""QLabel {{
+                color : {hcolor('default_lightest')};
+                font-size : {_font.px_size - 2}px;
+            }}
+            """
+        )
         label.setTextFormat(3)  # markdown
         label.setFont(_font.font)
         label.setMargin(4)
-        label.setText("`search`:")
+        label.setText("search:")
         label.show()
         label.setAlignment(
             QtCore.Qt.AlignVCenter
@@ -845,6 +852,7 @@ async def handle_keyboard_input(
 
                 # kill the search and focus back on main chart
                 if chart:
+                    print('focussing view')
                     chart.linkedsplits.focus()
 
                 continue
