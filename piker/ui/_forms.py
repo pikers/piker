@@ -167,11 +167,11 @@ class FieldsForm(QWidget):
             QSizePolicy.Fixed,
         )
         # self.setMaximumHeight(30)
-        self.setMaximumWidth(120)
+        self.setMaximumWidth(166)
 
         # split layout for the (label:| text bar entry)
         self.vbox = QtGui.QVBoxLayout(self)
-        self.vbox.setAlignment(Qt.AlignBottom)
+        self.vbox.setAlignment(Qt.AlignTop)
         self.vbox.setContentsMargins(0, 0, 4, 0)
         self.vbox.setSpacing(3)
         # self.vbox.addStretch()
@@ -179,14 +179,14 @@ class FieldsForm(QWidget):
         self.labels: dict[str, QLabel] = {}
         self.fields: dict[str, QWidget] = {}
 
-        self._font_size = _font_small.px_size - 1
+        self._font_size = _font_small.px_size - 2
         self._max_item_width: (float, float) = 0, 0
 
     def add_field_label(
         self,
         name: str,
         font_size: Optional[int] = None,
-        font_color: str = 'default_light',
+        font_color: str = 'default_lightest',
 
     ) -> QtGui.QLabel:
 
@@ -347,12 +347,6 @@ async def open_form(
 
     form = FieldsForm(parent)
 
-    # form.add_field_label(
-    #     '### **pp conf**\n---',
-    #     font_size=_font.px_size - 2,
-    #     font_color='default_lightest',
-    # )
-
     for name, config in fields.items():
         wtype = config['type']
         key = str(config['key'])
@@ -366,23 +360,75 @@ async def open_form(
             values = list(config['default_value'])
             form.add_select_field(key, values)
 
-    # form.add_field_label('fills:')
+    form.vbox.addSpacing(6)
+    form.add_field_label('fill status')
+    form.vbox.addSpacing(6)
+
     fill_bar = QProgressBar(form)
-    fill_bar.setMinimum(0)
-    fill_bar.setMaximum(4)
-    fill_bar.setValue(3)
+    import math
+    slots = 4
+    border_size_px = 2
+    slot_margin_px = 2  #1.375
+    h = 150  #+ (2*2 + slot_margin_px*slots*2)
+    # multiples, r = divmod(h, slots)
+    slot_height_px = math.floor((h - 2*border_size_px)/slots) - slot_margin_px*1
+
     fill_bar.setOrientation(Qt.Vertical)
     fill_bar.setStyleSheet(
-        f"""QProgressBar {{
-            color : {hcolor('gunmetal')};
-            font-size : {form._font_size}px;
-            background-color: {hcolor('papas_special')};
-            color: {hcolor('bracket')};
-        }}
-        """
-    )
+        f"""
+        QProgressBar {{
 
-    form.vbox.addWidget(fill_bar)
+            text-align: center;
+
+            font-size : {form._font_size - 2}px;
+
+            background-color: {hcolor('papas_special')};
+            color : {hcolor('papas_special')};
+
+            border: {border_size_px}px solid {hcolor('default_light')};
+            border-radius: 2px;
+        }}
+
+        QProgressBar::chunk {{
+
+            background-color: {hcolor('default_lightest')};
+            color: {hcolor('papas_special')};
+
+            border-radius: 2px;
+
+            margin: {slot_margin_px}px;
+            height: {slot_height_px}px;
+
+        }}
+
+        """
+            # margin-bottom: {slot_margin_px*2}px;
+            # margin-top: {slot_margin_px*2}px;
+            # color: #19232D;
+        # QProgressBar::chunk:disabled {{
+        #     background-color: #26486B;
+        #     color: #9DA9B5;
+        #     border-radius: 4px;
+        #     height: 20px;
+        # }}
+            # margin-top: 3px;
+            # margin-bottom: 3px;
+           # width: 10px;
+           # color: #E0E1E3;
+           # background-color: #19232D;
+
+           # color : {hcolor('gunmetal')};
+           # background-color: {hcolor('bracket')};
+           # color: {hcolor('bracket')};
+    )
+    fill_bar.setRange(0, slots)
+    fill_bar.setValue(slots)
+    fill_bar.setFormat('')
+    fill_bar.setMinimumHeight(h)
+    fill_bar.setMaximumHeight(h + slots*slot_margin_px)
+    fill_bar.setMinimumWidth(36)
+
+    form.vbox.addWidget(fill_bar, alignment=Qt.AlignCenter)
 
     # form.vbox.addStretch()
 
