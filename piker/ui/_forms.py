@@ -37,7 +37,7 @@ from PyQt5.QtWidgets import (
 )
 
 from ._event import open_handlers
-from ._style import hcolor, _font, DpiAwareFont
+from ._style import hcolor, _font, _font_small, DpiAwareFont
 
 
 class FontAndChartAwareLineEdit(QLineEdit):
@@ -153,38 +153,54 @@ class FieldsForm(QWidget):
     def __init__(
         self,
 
-        # godwidget: 'GodWidget',  # type: ignore # noqa
+        godwidget: 'GodWidget',  # type: ignore # noqa
         parent=None,
 
     ) -> None:
-        super().__init__(parent)
+
+        super().__init__(parent or godwidget)
+        self.godwidget = godwidget
 
         # size it as we specify
         self.setSizePolicy(
             QSizePolicy.Fixed,
             QSizePolicy.Fixed,
         )
+        # self.setMaximumHeight(30)
+        self.setMaximumWidth(120)
 
         # split layout for the (label:| text bar entry)
-        self.hbox = QtGui.QHBoxLayout(self)
-        self.hbox.setContentsMargins(16, 0, 16, 0)
-        self.hbox.setSpacing(3)
+        self.vbox = QtGui.QVBoxLayout(self)
+        self.vbox.setAlignment(Qt.AlignBottom)
+        self.vbox.setContentsMargins(0, 0, 4, 0)
+        self.vbox.setSpacing(3)
+        # self.vbox.addStretch()
 
         self.labels: dict[str, QLabel] = {}
         self.fields: dict[str, QWidget] = {}
 
+        self._font_size = _font_small.px_size - 1
+        self._max_item_width: (float, float) = 0, 0
+
     def add_field_label(
         self,
         name: str,
+        font_size: Optional[int] = None,
+        font_color: str = 'default_light',
 
     ) -> QtGui.QLabel:
 
         # add label to left of search bar
         self.label = label = QtGui.QLabel(parent=self)
-        label.setTextFormat(3)  # markdown
+        label.setTextFormat(Qt.MarkdownText)  # markdown
         label.setFont(_font.font)
+        font_size = font_size or self._font_size - 3
         label.setStyleSheet(
-            f"QLabel {{ color : {hcolor('papas_special')}; }}"
+            f"""QLabel {{
+                color : {hcolor(font_color)};
+                font-size : {font_size}px;
+            }}
+            """
         )
         label.setMargin(4)
 
@@ -196,7 +212,7 @@ class FieldsForm(QWidget):
         )
         label.show()
 
-        self.hbox.addWidget(label)
+        self.vbox.addWidget(label)
         self.labels[name] = label
 
         return label
@@ -220,10 +236,14 @@ class FieldsForm(QWidget):
             # width_in_chars=6,
         )
         edit.setStyleSheet(
-            f"QLineEdit {{ color : {hcolor('gunmetal')}; }}"
+            f"""QLineEdit {{
+                color : {hcolor('gunmetal')};
+                font-size : {self._font_size}px;
+            }}
+            """
         )
         edit.setText(str(value))
-        self.hbox.addWidget(edit)
+        self.vbox.addWidget(edit)
 
         self.fields[name] = edit
 
@@ -246,7 +266,11 @@ class FieldsForm(QWidget):
             select.insertItem(i, str(value))
 
         select.setStyleSheet(
-            f"QComboBox {{ color : {hcolor('gunmetal')}; }}"
+            f"""QComboBox {{
+                color : {hcolor('gunmetal')};
+                font-size : {self._font_size}px;
+            }}
+            """
         )
         select.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         select.setIconSize(QSize(0, 0))
@@ -270,9 +294,12 @@ class FieldsForm(QWidget):
 
         # limit to 6 items?
         view.setMaximumHeight(6*h)
+        # one entry in view
+        select.setMinimumHeight(h)
+
         select.show()
 
-        self.hbox.addWidget(select)
+        self.vbox.addWidget(select)
 
         return select
 
@@ -302,8 +329,8 @@ async def handle_field_input(
             # search.bar.unfocus()
 
             # kill the search and focus back on main chart
-            if chart:
-                chart.linkedsplits.focus()
+            widget.clearFocus()
+            form.godwidget.linkedsplits.focus()
 
             continue
 
@@ -311,6 +338,7 @@ async def handle_field_input(
 @asynccontextmanager
 async def open_form(
 
+    godwidget: QWidget,
     parent: QWidget,
     fields: dict,
     # orientation: str = 'horizontal',
@@ -318,6 +346,12 @@ async def open_form(
 ) -> FieldsForm:
 
     form = FieldsForm(parent)
+
+    # form.add_field_label(
+    #     '### **pp conf**\n---',
+    #     font_size=_font.px_size - 2,
+    #     font_color='default_lightest',
+    # )
 
     for name, config in fields.items():
         wtype = config['type']
@@ -332,13 +366,25 @@ async def open_form(
             values = list(config['default_value'])
             form.add_select_field(key, values)
 
-    form.add_field_label('fills:')
+    # form.add_field_label('fills:')
     fill_bar = QProgressBar(form)
     fill_bar.setMinimum(0)
     fill_bar.setMaximum(4)
     fill_bar.setValue(3)
+    fill_bar.setOrientation(Qt.Vertical)
+    fill_bar.setStyleSheet(
+        f"""QProgressBar {{
+            color : {hcolor('gunmetal')};
+            font-size : {form._font_size}px;
+            background-color: {hcolor('papas_special')};
+            color: {hcolor('bracket')};
+        }}
+        """
+    )
 
-    form.hbox.addWidget(fill_bar)
+    form.vbox.addWidget(fill_bar)
+
+    # form.vbox.addStretch()
 
     async with open_handlers(
 
