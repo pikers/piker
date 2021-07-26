@@ -299,13 +299,17 @@ class LinkedSplits(QtWidgets.QWidget):
     def set_split_sizes(
         self,
         prop: float = 0.375  # proportion allocated to consumer subcharts
+
     ) -> None:
-        """Set the proportion of space allocated for linked subcharts.
-        """
+        '''Set the proportion of space allocated for linked subcharts.
+
+        '''
         major = 1 - prop
         min_h_ind = int((self.height() * prop) / len(self.subplots))
+
         sizes = [int(self.height() * major)]
         sizes.extend([min_h_ind] * len(self.subplots))
+
         self.splitter.setSizes(sizes)  # , int(self.height()*0.2)
 
     def focus(self) -> None:
@@ -318,9 +322,12 @@ class LinkedSplits(QtWidgets.QWidget):
 
     def plot_ohlc_main(
         self,
+
         symbol: Symbol,
         array: np.ndarray,
+
         style: str = 'bar',
+
     ) -> 'ChartPlotWidget':
         """Start up and show main (price) chart and all linked subcharts.
 
@@ -352,17 +359,23 @@ class LinkedSplits(QtWidgets.QWidget):
 
     def add_plot(
         self,
+
         name: str,
         array: np.ndarray,
-        xaxis: DynamicDateAxis = None,
+
+        array_key: Optional[str] = None,
+        # xaxis: Optional[DynamicDateAxis] = None,
         style: str = 'line',
         _is_main: bool = False,
+
         **cpw_kwargs,
+
     ) -> 'ChartPlotWidget':
-        """Add (sub)plots to chart widget by name.
+        '''Add (sub)plots to chart widget by name.
 
         If ``name`` == ``"main"`` the chart will be the the primary view.
-        """
+
+        '''
         if self.chart is None and not _is_main:
             raise RuntimeError(
                 "A main plot must be created first with `.plot_ohlc_main()`")
@@ -372,17 +385,25 @@ class LinkedSplits(QtWidgets.QWidget):
         cv.linkedsplits = self
 
         # use "indicator axis" by default
-        if xaxis is None:
-            xaxis = DynamicDateAxis(
-                orientation='bottom',
-                linkedsplits=self
-            )
+
+        # TODO: we gotta possibly assign this back
+        # to the last subplot on removal of some last subplot
+
+        xaxis = DynamicDateAxis(
+            orientation='bottom',
+            linkedsplits=self
+        )
+
+        if self.xaxis:
+            self.xaxis.hide()
+            self.xaxis = xaxis
 
         cpw = ChartPlotWidget(
 
             # this name will be used to register the primary
             # graphics curve managed by the subchart
             name=name,
+            data_key=array_key or name,
 
             array=array,
             parent=self.splitter,
@@ -395,7 +416,6 @@ class LinkedSplits(QtWidgets.QWidget):
             viewBox=cv,
             **cpw_kwargs,
         )
-        print(f'xaxis ps: {xaxis.pos()}')
 
         # give viewbox as reference to chart
         # allowing for kb controls and interactions on **this** widget
@@ -416,10 +436,10 @@ class LinkedSplits(QtWidgets.QWidget):
 
         # draw curve graphics
         if style == 'bar':
-            cpw.draw_ohlc(name, array)
+            cpw.draw_ohlc(name, array, array_key=array_key)
 
         elif style == 'line':
-            cpw.draw_curve(name, array)
+            cpw.draw_curve(name, array, array_key=array_key)
 
         else:
             raise ValueError(f"Chart style {style} is currently unsupported")
@@ -428,11 +448,12 @@ class LinkedSplits(QtWidgets.QWidget):
             # track by name
             self.subplots[name] = cpw
 
+            # XXX: we need this right?
+            self.splitter.addWidget(cpw)
+
             # scale split regions
             self.set_split_sizes()
 
-            # XXX: we need this right?
-            # self.splitter.addWidget(cpw)
         else:
             assert style == 'bar', 'main chart must be OHLC'
 
@@ -465,9 +486,11 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def __init__(
         self,
-        # the data view we generate graphics from
+
+        # the "data view" we generate graphics from
         name: str,
         array: np.ndarray,
+        data_key: str,
         linkedsplits: LinkedSplits,
 
         view_color: str = 'papas_special',
@@ -491,6 +514,7 @@ class ChartPlotWidget(pg.PlotWidget):
             **kwargs
         )
         self.name = name
+        self.data_key = data_key
         self.linked = linkedsplits
 
         # scene-local placeholder for book graphics
@@ -618,8 +642,12 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def draw_ohlc(
         self,
+
         name: str,
         data: np.ndarray,
+
+        array_key: Optional[str] = None,
+
     ) -> pg.GraphicsObject:
         """
         Draw OHLC datums to chart.
@@ -637,7 +665,8 @@ class ChartPlotWidget(pg.PlotWidget):
         # draw after to allow self.scene() to work...
         graphics.draw_from_data(data)
 
-        self._graphics[name] = graphics
+        data_key = array_key or name
+        self._graphics[data_key] = graphics
 
         self.linked.cursor.contents_labels.add_label(
             self,
@@ -652,12 +681,17 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def draw_curve(
         self,
+
         name: str,
         data: np.ndarray,
+
+        array_key: Optional[str] = None,
         overlay: bool = False,
         color: str = 'default_light',
         add_label: bool = True,
+
         **pdi_kwargs,
+
     ) -> pg.PlotDataItem:
         """Draw a "curve" (line plot graphics) for the provided data in
         the input array ``data``.
@@ -668,10 +702,11 @@ class ChartPlotWidget(pg.PlotWidget):
         }
         pdi_kwargs.update(_pdi_defaults)
 
+        data_key = array_key or name
         # curve = pg.PlotDataItem(
         # curve = pg.PlotCurveItem(
         curve = FastAppendCurve(
-            y=data[name],
+            y=data[data_key],
             x=data['index'],
             # antialias=True,
             name=name,
@@ -730,8 +765,10 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def _add_sticky(
         self,
+
         name: str,
         bg_color='bracket',
+
     ) -> YAxisLabel:
 
         # if the sticky is for our symbol
@@ -769,18 +806,23 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def update_curve_from_array(
         self,
+
         name: str,
         array: np.ndarray,
+        array_key: Optional[str] = None,
+
         **kwargs,
+
     ) -> pg.GraphicsObject:
         """Update the named internal graphics from ``array``.
 
         """
 
+        data_key = array_key or name
         if name not in self._overlays:
             self._arrays['ohlc'] = array
         else:
-            self._arrays[name] = array
+            self._arrays[data_key] = array
 
         curve = self._graphics[name]
 
@@ -790,7 +832,7 @@ class ChartPlotWidget(pg.PlotWidget):
             # one place to dig around this might be the `QBackingStore`
             # https://doc.qt.io/qt-5/qbackingstore.html
             # curve.setData(y=array[name], x=array['index'], **kwargs)
-            curve.update_from_array(x=array['index'], y=array[name], **kwargs)
+            curve.update_from_array(x=array['index'], y=array[data_key], **kwargs)
 
         return curve
 
@@ -1061,8 +1103,7 @@ async def chart_from_quotes(
 
                     if wap_in_history:
                         # update vwap overlay line
-                        chart.update_curve_from_array(
-                            'bar_wap', ohlcv.array)
+                        chart.update_curve_from_array('bar_wap', ohlcv.array)
 
                 # l1 book events
                 # throttle the book graphics updates at a lower rate
@@ -1167,9 +1208,9 @@ async def spawn_fsps(
             # Currently we spawn an actor per fsp chain but
             # likely we'll want to pool them eventually to
             # scale horizonatlly once cores are used up.
-            for fsp_func_name, conf in fsps.items():
+            for display_name, conf in fsps.items():
 
-                display_name = f'fsp.{fsp_func_name}'
+                fsp_func_name = conf['fsp_func_name']
 
                 # TODO: load function here and introspect
                 # return stream type(s)
@@ -1177,7 +1218,7 @@ async def spawn_fsps(
                 # TODO: should `index` be a required internal field?
                 fsp_dtype = np.dtype([('index', int), (fsp_func_name, float)])
 
-                key = f'{sym}.' + display_name
+                key = f'{sym}.fsp.' + display_name
 
                 # this is all sync currently
                 shm, opened = maybe_open_shm_array(
@@ -1195,7 +1236,7 @@ async def spawn_fsps(
 
                 portal = await n.start_actor(
                     enable_modules=['piker.fsp'],
-                    name=display_name,
+                    name='fsp.' + display_name,
                 )
 
                 # init async
@@ -1234,7 +1275,7 @@ async def run_fsp(
     config map.
     """
     done = linkedsplits.window().status_bar.open_status(
-        f'loading {display_name}..',
+        f'loading fsp, {display_name}..',
         group_key=group_status_key,
     )
 
@@ -1270,8 +1311,10 @@ async def run_fsp(
         else:
 
             chart = linkedsplits.add_plot(
-                name=fsp_func_name,
+                name=display_name,
                 array=shm.array,
+
+                array_key=conf['fsp_func_name'],
 
                 # curve by default
                 ohlc=False,
@@ -1294,14 +1337,19 @@ async def run_fsp(
 
             # read from last calculated value
             array = shm.array
+
+            # XXX: fsp func names are unique meaning we don't have
+            # duplicates of the underlying data even if multiple
+            # sub-charts reference it under different 'named charts'.
             value = array[fsp_func_name][-1]
+
             last_val_sticky.update_from_data(-1, value)
 
         chart.linked.focus()
 
         # works also for overlays in which case data is looked up from
         # internal chart array set....
-        chart.update_curve_from_array(fsp_func_name, shm.array)
+        chart.update_curve_from_array(display_name, shm.array, array_key=fsp_func_name)
 
         # TODO: figure out if we can roll our own `FillToThreshold` to
         # get brush filled polygons for OS/OB conditions.
@@ -1365,7 +1413,11 @@ async def run_fsp(
                 last_val_sticky.update_from_data(-1, value)
 
             # update graphics
-            chart.update_curve_from_array(fsp_func_name, array)
+            chart.update_curve_from_array(
+                display_name,
+                array,
+                array_key=fsp_func_name,
+            )
 
             # set time of last graphics update
             last = now
@@ -1420,7 +1472,11 @@ async def check_for_new_bars(feed, ohlcv, linkedsplits):
                 )
 
             for name, chart in linkedsplits.subplots.items():
-                chart.update_curve_from_array(chart.name, chart._shm.array)
+                chart.update_curve_from_array(
+                    chart.name,
+                    chart._shm.array,
+                    array_key=chart.data_key
+                )
 
             # shift the view if in follow mode
             price_chart.increment_view()
@@ -1510,6 +1566,14 @@ async def display_symbol_data(
         # TODO: eventually we'll support some kind of n-compose syntax
         fsp_conf = {
             'rsi': {
+                'fsp_func_name': 'rsi',
+                'period': 14,
+                'chart_kwargs': {
+                    'static_yrange': (0, 100),
+                },
+            },
+            'rsi2': {
+                'fsp_func_name': 'rsi',
                 'period': 14,
                 'chart_kwargs': {
                     'static_yrange': (0, 100),
@@ -1532,6 +1596,7 @@ async def display_symbol_data(
         else:
             fsp_conf.update({
                 'vwap': {
+                    'fsp_func_name': 'vwap',
                     'overlay': True,
                     'anchor': 'session',
                 },
@@ -1723,7 +1788,7 @@ async def _async_main(
                         'allocator': {
                             'key': '**allocator**:',
                             'type': 'select',
-                            'default_value': ['$ size', '% of port',],
+                            'default_value': ['$ size', '% of port', '# shares'],
                         },
                         'dollar_size': {
                             'key': '**$size**:',
