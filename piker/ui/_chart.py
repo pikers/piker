@@ -412,52 +412,31 @@ class LinkedSplits(QWidget):
             self.xaxis.hide()
             self.xaxis = xaxis
 
-        if sidepane:
+        class LambdaQFrame(QFrame):
+            '''One-off ``QFrame`` which composes a layout
+            of a chart + sidepane ``FieldsForm`` (if provided).
 
-            class ChartandPane(QFrame):
+            '''
+            sidepane: FieldsForm
+            hbox: QtGui.QHBoxLayout
+            chart: Optional['ChartPlotWidget'] = None
 
-                def __init__(
-                    self,
-                    parent=None,
+            def __init__(
+                self,
+                parent=None,
 
-                ) -> None:
+            ) -> None:
 
-                    super().__init__(parent)
+                super().__init__(parent)
 
-                    # self.chart = cpw
-                    self.sidepane = sidepane
-                    # cpw.chart_and_pane = self
-                    # self.setStyleSheet(
-                    #     f"""QFrame {{
-                    #         color : {hcolor('default_darkest')};
-                    #         background-color : {hcolor('default_darkest')};
-                    #     }}
-                    #     """
-                    # )
+                self.sidepane = sidepane
 
-                    hbox = self.hbox = QtGui.QHBoxLayout(self)
-                    hbox.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-                    hbox.setContentsMargins(0, 0, 0, 0)
-                    hbox.setSpacing(3)
+                hbox = self.hbox = QtGui.QHBoxLayout(self)
+                hbox.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+                hbox.setContentsMargins(0, 0, 0, 0)
+                hbox.setSpacing(3)
 
-                def sizeHint(self) -> QtCore.QSize:
-                    return self.chart.sizeHint() + sidepane.sizeHint()
-
-            paned_chart = ChartandPane(parent=self.splitter)
-
-        #     splitter_widget = QWidget(self)
-        #     splitter_widget.setSizePolicy(
-        #         QSizePolicy.Expanding,
-        #         QSizePolicy.Expanding,
-        #     )
-
-        #     hbox = QtGui.QHBoxLayout(splitter_widget)
-        #     hbox.setAlignment(Qt.AlignTop | Qt.AlignRight)
-        #     hbox.setContentsMargins(0, 0, 0, 0)
-        #     hbox.setSpacing(3)
-
-        # else:
-        #     splitter_widget = cpw
+        qframe = LambdaQFrame(self.splitter)
 
         cpw = ChartPlotWidget(
 
@@ -467,8 +446,7 @@ class LinkedSplits(QWidget):
             data_key=array_key or name,
 
             array=array,
-            # parent=self.splitter,
-            parent=paned_chart if sidepane else self.splitter,
+            parent=qframe,
             linkedsplits=self,
             axisItems={
                 'bottom': xaxis,
@@ -479,25 +457,16 @@ class LinkedSplits(QWidget):
             **cpw_kwargs,
         )
 
+        qframe.chart = cpw
+        qframe.hbox.addWidget(cpw)
+
+        # add sidepane **after** chart; place it on axis side
         if sidepane:
-            paned_chart.chart = cpw
-            paned_chart.hbox.addWidget(cpw)
-            # hbox.addWidget(cpw)
-            paned_chart.hbox.addWidget(
+            qframe.hbox.addWidget(
                 sidepane,
                 alignment=Qt.AlignTop
             )
             cpw.sidepane = sidepane
-
-        # splitter_widget.setMinimumHeight(cpw.height())
-        # splitter_widget.setMinimumWidth(cpw.width())
-        # splitter_widget.show()
-
-        # hbox.addWidget(cpw)
-        # hbox.addWidget(sidepane)
-
-        # cpw.sidepane = sidepane
-        # cpw.hbox = hbox
 
         # give viewbox as reference to chart
         # allowing for kb controls and interactions on **this** widget
@@ -534,8 +503,11 @@ class LinkedSplits(QWidget):
             # track by name
             self.subplots[name] = cpw
 
-            sidepane.setMinimumWidth(self.chart.sidepane.width())
-            self.splitter.addWidget(paned_chart if sidepane else cpw)
+            if sidepane:
+                # TODO: use a "panes" collection to manage this?
+                sidepane.setMinimumWidth(self.chart.sidepane.width())
+
+            self.splitter.addWidget(qframe)
 
             # scale split regions
             self.set_split_sizes()
@@ -683,8 +655,6 @@ class ChartPlotWidget(pg.PlotWidget):
         a = self._arrays['ohlc']
         lbar = max(l, a[0]['index'])
         rbar = min(r, a[-1]['index'])
-        # lbar = max(l, 0)
-        # rbar = min(r, len(self._arrays['ohlc']))
         return l, lbar, rbar, r
 
     def default_view(
@@ -789,6 +759,7 @@ class ChartPlotWidget(pg.PlotWidget):
         pdi_kwargs.update(_pdi_defaults)
 
         data_key = array_key or name
+
         # curve = pg.PlotDataItem(
         # curve = pg.PlotCurveItem(
         curve = FastAppendCurve(
@@ -824,7 +795,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # register curve graphics and backing array for name
         self._graphics[name] = curve
-        self._arrays[name] = data
+        self._arrays[data_key or name] = data
 
         if overlay:
             anchor_at = ('bottom', 'left')
@@ -843,7 +814,7 @@ class ChartPlotWidget(pg.PlotWidget):
             if add_label:
                 self.linked.cursor.contents_labels.add_label(
                     self,
-                    name,
+                    data_key or name,
                     anchor_at=anchor_at
                 )
 
