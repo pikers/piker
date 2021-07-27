@@ -188,6 +188,8 @@ class FieldsForm(QWidget):
         font_size: Optional[int] = None,
         font_color: str = 'default_lightest',
 
+        **vbox_kwargs,
+
     ) -> QtGui.QLabel:
 
         # add label to left of search bar
@@ -212,7 +214,7 @@ class FieldsForm(QWidget):
         )
         label.show()
 
-        self.vbox.addWidget(label)
+        self.vbox.addWidget(label, **vbox_kwargs)
         self.labels[name] = label
 
         return label
@@ -360,15 +362,36 @@ async def open_form(
             values = list(config['default_value'])
             form.add_select_field(key, values)
 
+    async with open_handlers(
+
+        list(form.fields.values()),
+        event_types={QEvent.KeyPress},
+
+        async_handler=partial(
+            handle_field_input,
+            form=form,
+        ),
+
+        # block key repeats?
+        filter_auto_repeats=True,
+    ):
+        yield form
+
+
+def mk_health_bar(
+    form: FieldsForm,
+
+) -> FieldsForm:
+
     form.vbox.addSpacing(6)
-    form.add_field_label('fill status')
+    form.add_field_label('fill status', alignment=Qt.AlignCenter)
     form.vbox.addSpacing(6)
 
     fill_bar = QProgressBar(form)
     import math
     slots = 4
     border_size_px = 2
-    slot_margin_px = 2  #1.375
+    slot_margin_px = 2  # 1.375
     h = 150  #+ (2*2 + slot_margin_px*slots*2)
     # multiples, r = divmod(h, slots)
     slot_height_px = math.floor((h - 2*border_size_px)/slots) - slot_margin_px*1
@@ -431,18 +454,4 @@ async def open_form(
     form.vbox.addWidget(fill_bar, alignment=Qt.AlignCenter)
 
     # form.vbox.addStretch()
-
-    async with open_handlers(
-
-        list(form.fields.values()),
-        event_types={QEvent.KeyPress},
-
-        async_handler=partial(
-            handle_field_input,
-            form=form,
-        ),
-
-        # block key repeats?
-        filter_auto_repeats=True,
-    ):
-        yield form
+    return form
