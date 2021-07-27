@@ -26,6 +26,11 @@ from functools import partial
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtCore import QEvent
+from PyQt5.QtWidgets import (
+    QFrame,
+    QWidget,
+    # QSizePolicy,
+)
 import numpy as np
 import pyqtgraph as pg
 import tractor
@@ -68,13 +73,13 @@ from ._interaction import ChartView
 from .order_mode import run_order_mode
 from .. import fsp
 from ..data import feed
-from ._forms import FieldsForm, open_form
+from ._forms import FieldsForm, open_form, mk_health_bar
 
 
 log = get_logger(__name__)
 
 
-class GodWidget(QtWidgets.QWidget):
+class GodWidget(QWidget):
     '''
     "Our lord and savior, the holy child of window-shua, there is no
     widget above thee." - 6|6
@@ -236,7 +241,7 @@ class GodWidget(QtWidgets.QWidget):
         return order_mode_started
 
 
-class LinkedSplits(QtWidgets.QWidget):
+class LinkedSplits(QWidget):
     '''
     Widget that holds a central chart plus derived
     subcharts computed from the original data set apart
@@ -338,12 +343,16 @@ class LinkedSplits(QtWidgets.QWidget):
             linkedsplits=self,
             digits=symbol.digits(),
         )
+
         self.chart = self.add_plot(
+
             name=symbol.key,
             array=array,
             # xaxis=self.xaxis,
             style=style,
             _is_main=True,
+
+            sidepane=self.godwidget.pp_config,
         )
         # add crosshair graphic
         self.chart.addItem(self.cursor)
@@ -353,7 +362,10 @@ class LinkedSplits(QtWidgets.QWidget):
             self.chart.hideAxis('bottom')
 
         # style?
-        self.chart.setFrameStyle(QtWidgets.QFrame.StyledPanel | QtWidgets.QFrame.Plain)
+        self.chart.setFrameStyle(
+            QtWidgets.QFrame.StyledPanel |
+            QtWidgets.QFrame.Plain
+        )
 
         return self.chart
 
@@ -367,6 +379,8 @@ class LinkedSplits(QtWidgets.QWidget):
         # xaxis: Optional[DynamicDateAxis] = None,
         style: str = 'line',
         _is_main: bool = False,
+
+        sidepane: Optional[QWidget] = None,
 
         **cpw_kwargs,
 
@@ -398,6 +412,53 @@ class LinkedSplits(QtWidgets.QWidget):
             self.xaxis.hide()
             self.xaxis = xaxis
 
+        if sidepane:
+
+            class ChartandPane(QFrame):
+
+                def __init__(
+                    self,
+                    parent=None,
+
+                ) -> None:
+
+                    super().__init__(parent)
+
+                    # self.chart = cpw
+                    self.sidepane = sidepane
+                    # cpw.chart_and_pane = self
+                    # self.setStyleSheet(
+                    #     f"""QFrame {{
+                    #         color : {hcolor('default_darkest')};
+                    #         background-color : {hcolor('default_darkest')};
+                    #     }}
+                    #     """
+                    # )
+
+                    hbox = self.hbox = QtGui.QHBoxLayout(self)
+                    hbox.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+                    hbox.setContentsMargins(0, 0, 0, 0)
+                    hbox.setSpacing(3)
+
+                def sizeHint(self) -> QtCore.QSize:
+                    return self.chart.sizeHint() + sidepane.sizeHint()
+
+            paned_chart = ChartandPane(parent=self.splitter)
+
+        #     splitter_widget = QWidget(self)
+        #     splitter_widget.setSizePolicy(
+        #         QSizePolicy.Expanding,
+        #         QSizePolicy.Expanding,
+        #     )
+
+        #     hbox = QtGui.QHBoxLayout(splitter_widget)
+        #     hbox.setAlignment(Qt.AlignTop | Qt.AlignRight)
+        #     hbox.setContentsMargins(0, 0, 0, 0)
+        #     hbox.setSpacing(3)
+
+        # else:
+        #     splitter_widget = cpw
+
         cpw = ChartPlotWidget(
 
             # this name will be used to register the primary
@@ -406,7 +467,8 @@ class LinkedSplits(QtWidgets.QWidget):
             data_key=array_key or name,
 
             array=array,
-            parent=self.splitter,
+            # parent=self.splitter,
+            parent=paned_chart if sidepane else self.splitter,
             linkedsplits=self,
             axisItems={
                 'bottom': xaxis,
@@ -417,14 +479,38 @@ class LinkedSplits(QtWidgets.QWidget):
             **cpw_kwargs,
         )
 
+        if sidepane:
+            paned_chart.chart = cpw
+            paned_chart.hbox.addWidget(cpw)
+            # hbox.addWidget(cpw)
+            paned_chart.hbox.addWidget(
+                sidepane,
+                alignment=Qt.AlignTop
+            )
+            cpw.sidepane = sidepane
+
+        # splitter_widget.setMinimumHeight(cpw.height())
+        # splitter_widget.setMinimumWidth(cpw.width())
+        # splitter_widget.show()
+
+        # hbox.addWidget(cpw)
+        # hbox.addWidget(sidepane)
+
+        # cpw.sidepane = sidepane
+        # cpw.hbox = hbox
+
         # give viewbox as reference to chart
         # allowing for kb controls and interactions on **this** widget
         # (see our custom view mode in `._interactions.py`)
         cv.chart = cpw
 
         cpw.plotItem.vb.linkedsplits = self
-        cpw.setFrameStyle(QtWidgets.QFrame.StyledPanel)  # | QtWidgets.QFrame.Plain)
+        cpw.setFrameStyle(
+            QtWidgets.QFrame.StyledPanel
+            # | QtWidgets.QFrame.Plain)
+        )
         cpw.hideButtons()
+
         # XXX: gives us outline on backside of y-axis
         cpw.getPlotItem().setContentsMargins(*CHART_MARGINS)
 
@@ -448,8 +534,8 @@ class LinkedSplits(QtWidgets.QWidget):
             # track by name
             self.subplots[name] = cpw
 
-            # XXX: we need this right?
-            self.splitter.addWidget(cpw)
+            sidepane.setMinimumWidth(self.chart.sidepane.width())
+            self.splitter.addWidget(paned_chart if sidepane else cpw)
 
             # scale split regions
             self.set_split_sizes()
@@ -832,7 +918,11 @@ class ChartPlotWidget(pg.PlotWidget):
             # one place to dig around this might be the `QBackingStore`
             # https://doc.qt.io/qt-5/qbackingstore.html
             # curve.setData(y=array[name], x=array['index'], **kwargs)
-            curve.update_from_array(x=array['index'], y=array[data_key], **kwargs)
+            curve.update_from_array(
+                x=array['index'],
+                y=array[data_key],
+                **kwargs
+            )
 
         return curve
 
@@ -969,7 +1059,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self.scene().leaveEvent(ev)
 
 
-_clear_throttle_rate: int = 50  # Hz
+_clear_throttle_rate: int = 35  # Hz
 _book_throttle_rate: int = 16  # Hz
 
 
@@ -1279,19 +1369,41 @@ async def run_fsp(
         group_key=group_status_key,
     )
 
-    async with portal.open_stream_from(
+    async with (
+        portal.open_stream_from(
 
-        # subactor entrypoint
-        fsp.cascade,
+            # subactor entrypoint
+            fsp.cascade,
 
-        # name as title of sub-chart
-        brokername=brokermod.name,
-        src_shm_token=src_shm.token,
-        dst_shm_token=conf['shm'].token,
-        symbol=sym,
-        fsp_func_name=fsp_func_name,
+            # name as title of sub-chart
+            brokername=brokermod.name,
+            src_shm_token=src_shm.token,
+            dst_shm_token=conf['shm'].token,
+            symbol=sym,
+            fsp_func_name=fsp_func_name,
 
-    ) as stream:
+        ) as stream,
+
+        open_form(
+            godwidget=linkedsplits.godwidget,
+            parent=linkedsplits.godwidget,
+            fields={
+                'name': {
+                    'key': '**fsp**:',
+                    'type': 'select',
+                    'default_value': [
+                        f'{display_name}'
+                    ],
+                },
+                'period': {
+                    'key': '**period (bars)**:',
+                    'type': 'edit',
+                    'default_value': 14,
+                },
+            },
+        ) as sidepane,
+
+    ):
 
         # receive last index for processed historical
         # data-array as first msg
@@ -1315,6 +1427,7 @@ async def run_fsp(
                 array=shm.array,
 
                 array_key=conf['fsp_func_name'],
+                sidepane=sidepane,
 
                 # curve by default
                 ohlc=False,
@@ -1349,7 +1462,11 @@ async def run_fsp(
 
         # works also for overlays in which case data is looked up from
         # internal chart array set....
-        chart.update_curve_from_array(display_name, shm.array, array_key=fsp_func_name)
+        chart.update_curve_from_array(
+            display_name,
+            shm.array,
+            array_key=fsp_func_name
+        )
 
         # TODO: figure out if we can roll our own `FillToThreshold` to
         # get brush filled polygons for OS/OB conditions.
@@ -1707,10 +1824,68 @@ async def _async_main(
     sbar = godwidget.window.status_bar
     starting_done = sbar.open_status('starting ze sexy chartz')
 
-    async with trio.open_nursery() as root_n:
+    async with (
+        trio.open_nursery() as root_n,
+        open_form(
+            godwidget=godwidget,
+            parent=godwidget,
+            fields={
+                'account': {
+                    'key': '**account**:',
+                    'type': 'select',
+                    'default_value': [
+                        'piker.paper',
+                        # 'ib.margin',
+                        # 'ib.paper',
+                    ],
+                },
+                'disti_policy': {
+                    'key': '**entry policy**:',
+                    'type': 'select',
+                    'default_value': ['uniform'],
+                },
+                'slots': {
+                    'key': '**slots**:',
+                    'type': 'edit',
+                    'default_value': 4,
+                },
+                'allocator': {
+                    'key': '**allocator**:',
+                    'type': 'select',
+                    'default_value': ['$ size', '% of port', '# shares'],
+                },
+                'dollar_size': {
+                    'key': '**$size**:',
+                    'type': 'edit',
+                    'default_value': '5k',
+                },
+            },
+        ) as pp_config,
+    ):
+        pp_config: FieldsForm
+        mk_health_bar(pp_config)
+        pp_config.show()
 
+        # add as next-to-y-axis pane
+        godwidget.pp_config = pp_config
+
+        # godwidget.hbox.insertWidget(
+        #     1,
+        #     pp_config,
+
+        #     # alights to top and uses minmial space based on
+        #     # search bar size hint (i think?)
+        #     alignment=Qt.AlignTop
+        # )
+
+        godwidget.hbox.setAlignment(Qt.AlignTop)
+
+        # sb = god_widget.window.statusBar()
+        # sb.insertPermanentWidget(0, pp_config)
+        # pp_config.show()
         # set root nursery and task stack for spawning other charts/feeds
         # that run cached in the bg
+
         godwidget._root_n = root_n
 
         # setup search widget and focus main chart view at startup
@@ -1761,63 +1936,7 @@ async def _async_main(
                     # let key repeats pass through for search
                     filter_auto_repeats=False,
                 ),
-
-                open_form(
-                    godwidget=godwidget,
-                    parent=godwidget,
-                    fields={
-                        'account': {
-                            'key': '**account**:',
-                            'type': 'select',
-                            'default_value': [
-                                'piker.paper',
-                                # 'ib.margin',
-                                # 'ib.paper',
-                            ],
-                        },
-                        'disti_policy': {
-                            'key': '**entry policy**:',
-                            'type': 'select',
-                            'default_value': ['uniform'],
-                        },
-                        'slots': {
-                            'key': '**slots**:',
-                            'type': 'edit',
-                            'default_value': 4,
-                        },
-                        'allocator': {
-                            'key': '**allocator**:',
-                            'type': 'select',
-                            'default_value': ['$ size', '% of port', '# shares'],
-                        },
-                        'dollar_size': {
-                            'key': '**$size**:',
-                            'type': 'edit',
-                            'default_value': '5k',
-                        },
-                    },
-                ) as pp_config,
             ):
-                pp_config: FieldsForm
-                pp_config.show()
-
-                # add as next-to-y-axis pane
-                godwidget.pp_config = pp_config
-
-                godwidget.hbox.insertWidget(
-                    1,
-                    pp_config,
-
-                    # alights to top and uses minmial space based on
-                    # search bar size hint (i think?)
-                    alignment=Qt.AlignTop
-                )
-
-                godwidget.hbox.setAlignment(Qt.AlignTop)
-                # sb = god_widget.window.statusBar()
-                # sb.insertPermanentWidget(0, pp_config)
-                # pp_config.show()
-
                 # remove startup status text
                 starting_done()
                 await trio.sleep_forever()
