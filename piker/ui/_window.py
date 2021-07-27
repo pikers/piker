@@ -165,7 +165,11 @@ class MainWindow(QtGui.QMainWindow):
 
             self._status_label = label = QtGui.QLabel()
             label.setStyleSheet(
-                f"QLabel {{ color : {hcolor('papas_special')}; }}"
+                f"""QLabel {{
+                    color : {hcolor('gunmetal')};
+                }}
+                """
+                # font-size : {font_size}px;
             )
             label.setTextFormat(3)  # markdown
             label.setFont(_font_small.font)
