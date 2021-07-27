@@ -656,25 +656,28 @@ def get_config() -> dict[str, Any]:
 
     section = conf.get('ib')
 
-    if not section:
+    if section is None:
         log.warning(f'No config section found for ib in {path}')
-        return
+        return {}
 
     return section
 
 
 @asynccontextmanager
 async def _aio_get_client(
+
     host: str = '127.0.0.1',
     port: int = None,
+
     client_id: Optional[int] = None,
+
 ) -> Client:
-    """Return an ``ib_insync.IB`` instance wrapped in our client API.
+    '''Return an ``ib_insync.IB`` instance wrapped in our client API.
 
     Client instances are cached for later use.
 
     TODO: consider doing this with a ctx mngr eventually?
-    """
+    '''
     conf = get_config()
 
     # first check cache for existing client
@@ -699,17 +702,21 @@ async def _aio_get_client(
 
         ib = NonShittyIB()
 
-        # attempt to get connection info from config
-        ports = conf['api'].get(
+        # attempt to get connection info from config; if no .toml entry
+        # exists, we try to load from a default localhost connection.
+        host = conf.get('host', '127.0.0.1')
+        ports = conf.get(
             'ports',
+
+            # default order is to check for gw first
             {
-                # default order is to check for gw first
                 'gw': 4002,
                 'tws': 7497,
                 'order': ['gw', 'tws']
             }
         )
         order = ports['order']
+
         try_ports = [ports[key] for key in order]
         ports = try_ports if port is None else [port]
 

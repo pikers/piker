@@ -11,15 +11,15 @@ key_descr = "api_0"
 public_key = ""
 private_key = ""
 
-[ib.api]
-ipaddr = "127.0.0.1"
+[ib]
+host = "127.0.0.1"
 
 [ib.accounts]
 margin = ""
 registered = ""
 paper = ""
 
-[ib.api.ports]
+[ib.ports]
 gw = 4002
 tws = 7497
 order = [ "gw", "tws",]
