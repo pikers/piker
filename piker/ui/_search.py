@@ -465,7 +465,7 @@ class SearchWidget(QtWidgets.QWidget):
         self.godwidget = godwidget
 
         self.vbox = QtWidgets.QVBoxLayout(self)
-        self.vbox.setContentsMargins(0, 0, 0, 0)
+        self.vbox.setContentsMargins(0, 4, 4, 0)
         self.vbox.setSpacing(4)
 
         # split layout for the (label:| search bar entry)
