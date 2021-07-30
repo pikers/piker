@@ -32,6 +32,9 @@ from PyQt5.QtWidgets import (
     QLabel,
     QComboBox,
     QLineEdit,
+    QHBoxLayout,
+    QVBoxLayout,
+    QFormLayout,
     QProgressBar,
     QSizePolicy,
     QStyledItemDelegate,
@@ -168,23 +171,21 @@ class FieldsForm(QWidget):
             QSizePolicy.Expanding,
             QSizePolicy.Expanding,
         )
-        # self.setMaximumHeight(30)
-        # self.setMaximumWidth(166)
 
-        self.vbox = QtGui.QVBoxLayout(self)
+        self.vbox = QVBoxLayout(self)
         self.vbox.setAlignment(Qt.AlignTop)
-        self.vbox.setContentsMargins(0, 4, 4, 0)
+        self.vbox.setContentsMargins(0, 4, 4, 4)
         self.vbox.setSpacing(0)
 
         # split layout for the (<label>: |<widget>|) parameters entry
-        self.form = QtGui.QFormLayout(self)
+        self.form = QFormLayout(self)
         self.form.setAlignment(Qt.AlignCenter | Qt.AlignLeft)
         self.form.setContentsMargins(0, 0, 0, 0)
         self.form.setSpacing(4)
         self.form.setHorizontalSpacing(0)
         # self.vbox.addStretch()
 
-        self.vbox.addLayout(self.form)
+        self.vbox.addLayout(self.form, stretch=3/8)
 
         self.labels: dict[str, QLabel] = {}
         self.fields: dict[str, QWidget] = {}
@@ -224,7 +225,7 @@ class FieldsForm(QWidget):
             | QtCore.Qt.AlignLeft
         )
 
-        # self.vbox.addWidget(label, **vbox_kwargs)
+        # for later lookup
         self.labels[name] = label
 
         return label
@@ -253,7 +254,6 @@ class FieldsForm(QWidget):
             """
         )
         edit.setText(str(value))
-        # self.vbox.addWidget(edit)
         self.form.addRow(label, edit)
 
         self.fields[name] = edit
@@ -310,7 +310,6 @@ class FieldsForm(QWidget):
 
         select.show()
 
-        # self.vbox.addWidget(select)
         self.form.addRow(label, select)
 
         return select
@@ -321,7 +320,7 @@ async def handle_field_input(
     widget: QWidget,
     # last_widget: QWidget,  # had focus prior
     recv_chan: trio.abc.ReceiveChannel,
-    form: FieldsForm,
+    fields: FieldsForm,
 
 ) -> None:
 
@@ -339,9 +338,16 @@ async def handle_field_input(
             Qt.Key_Space,  # i feel like this is the "native" one
             Qt.Key_Alt,
         }:
-            # kill the widget focus and go back to main chart
+            fields.godwidget.setFocus() #linkedsplits.chart._vb.setFocus()
+            fields.godwidget.linkedsplits.focus()
+
             widget.clearFocus()
-            form.godwidget.linkedsplits.focus()
+            # fields.clearFocus()
+
+            # kill the widget focus and go back to main chart
+            # fields.godwidget.linkedsplits.focus()
+            # import tractor
+            # await tractor.breakpoint()
             continue
 
 
@@ -350,55 +356,53 @@ async def open_form(
 
     godwidget: QWidget,
     parent: QWidget,
-    fields: dict,
+    fields_schema: dict,
     # orientation: str = 'horizontal',
 
 ) -> FieldsForm:
 
-    form = FieldsForm(parent)
+    fields = FieldsForm(godwidget, parent=parent)
 
-    for name, config in fields.items():
+    for name, config in fields_schema.items():
         wtype = config['type']
         key = str(config['key'])
 
         # plain (line) edit field
         if wtype == 'edit':
-            form.add_edit_field(key, config['default_value'])
+            fields.add_edit_field(key, config['default_value'])
 
         # drop-down selection
         elif wtype == 'select':
             values = list(config['default_value'])
-            form.add_select_field(key, values)
+            fields.add_select_field(key, values)
 
     async with open_handlers(
 
-        list(form.fields.values()),
+        list(fields.fields.values()),
         event_types={QEvent.KeyPress},
 
         async_handler=partial(
             handle_field_input,
-            form=form,
+            fields=fields,
         ),
 
         # block key repeats?
         filter_auto_repeats=True,
     ):
-        yield form
+        yield fields
 
 
 def mk_health_bar(
+
     fields: FieldsForm,
+    h: int = 200,
 
-) -> FieldsForm:
+) -> (QHBoxLayout, QProgressBar):
 
-    # fh = form.form.sizeHint().height()
-
-    w, h = fields.width(), fields.height()
-    print(f'w, h: {w, h}')
-
-    # TODO: spec this based on remaining space?
-    # fields.vbox.addSpacing(36)
-    fields.vbox.addSpacing((5/8) * h)
+    w = fields.width()
+    # indent = 18
+    bracket_val = 0.375 * w
+    indent = bracket_val / 1.625
 
     # title label
     pps_label = fields.add_field_label(
@@ -406,27 +410,19 @@ def mk_health_bar(
         font_size=_font_small.px_size,
     )
 
-    # indent = 18
-    bracket_val = 0.375 * w
-    indent = bracket_val / 1.625
-
-    section_hbox = QtGui.QHBoxLayout(fields)
+    section_hbox = QHBoxLayout(fields)
     section_hbox.addSpacing(indent - 2)  # pair with bar indent
     section_hbox.addWidget(
         pps_label,
         alignment=Qt.AlignLeft | Qt.AlignTop,
     )
 
-    # fields.vbox.addWidget(
-    #     label,
-    #     alignment=Qt.AlignLeft | Qt.AlignTop
-    # )
     fields.vbox.addLayout(section_hbox)
 
     # TODO: spec this based on remaining space?
     fields.vbox.addSpacing(6)
 
-    hbox = QtGui.QHBoxLayout(fields)
+    hbox = QHBoxLayout(fields)
 
     hbox.addSpacing(indent)  # push to right a bit
 
@@ -435,11 +431,8 @@ def mk_health_bar(
     hbox.setAlignment(Qt.AlignTop | Qt.AlignLeft)
     hbox.setContentsMargins(0, 0, 0, 0)
 
-    # info label on RHS
-        # {30}% PnL\n
-
     # TODO: use percentage str formatter:
-    #https://docs.python.org/3/library/string.html#grammar-token-precision
+    # https://docs.python.org/3/library/string.html#grammar-token-precision
 
     top_label = fields.add_field_label(
         dedent(f"""
@@ -456,40 +449,20 @@ def mk_health_bar(
     )
 
     bar = QProgressBar(fields)
+
     hbox.addWidget(bar, alignment=Qt.AlignLeft | Qt.AlignTop)
 
-    bar_label_vbox = QtGui.QVBoxLayout(fields)
-    bar_label_vbox.addWidget(
+    bar_labels_rhs_vbox = QVBoxLayout(fields)
+    bar_labels_rhs_vbox.addWidget(
         top_label,
         alignment=Qt.AlignLeft | Qt.AlignTop
     )
-    bar_label_vbox.addWidget(
+    bar_labels_rhs_vbox.addWidget(
         bottom_label,
         alignment=Qt.AlignLeft | Qt.AlignBottom
     )
 
-    hbox.addLayout(bar_label_vbox)
-
-    fields.vbox.addLayout(hbox)  # add status bar to form
-
-    fields.vbox.addSpacing(36)  # add status bar to form
-
-    feed_label = fields.add_field_label(
-        dedent("""
-        brokerd.ib\n
-        |_@localhost:8509\n
-        |_consumers: 4\n
-        |_streams: 9\n
-        """),
-        font_size=_font.px_size - 5,
-    )
-    fields.vbox.addSpacing(3/8 * h)
-
-    # add feed info label
-    fields.vbox.addWidget(
-        feed_label,
-        alignment=Qt.AlignBottom,
-    )
+    hbox.addLayout(bar_labels_rhs_vbox)
 
     # compute "chunk" sizes for fill-status-bar based on some static height
     slots = 4
@@ -544,5 +517,53 @@ def mk_health_bar(
     bar.setMaximumHeight(h + slots*slot_margin_px)
     bar.setMinimumWidth(bracket_val)
     bar.setMaximumWidth(bracket_val)
+
+    return hbox, bar
+
+
+def mk_order_pane_layout(
+
+    fields: FieldsForm,
+
+) -> FieldsForm:
+
+    # fh = form.form.sizeHint().height()
+
+    w, h = fields.width(), fields.height()
+    print(f'w, h: {w, h}')
+
+    # TODO: spec this based on remaining space?
+    # fields.vbox.addSpacing(36)
+    fields.vbox.addSpacing((5/8) * h)
+
+    # info label on RHS
+    # {30}% PnL\n
+
+    hbox, bar = mk_health_bar(fields)
+
+    # TODO: move the ``.vbox`` from fields obj to top of routine
+
+    # add pp fill bar + spacing
+    fields.vbox.addLayout(hbox, stretch=5/8)
+    fields.vbox.addSpacing(36)
+
+    feed_label = fields.add_field_label(
+        dedent("""
+        brokerd.ib\n
+        |_@localhost:8509\n
+        |_consumers: 4\n
+        |_streams: 9\n
+        """),
+        font_size=_font.px_size - 5,
+    )
+
+    feed_label.setMaximumHeight(feed_label.height())
+    fields.vbox.addSpacing(3/8 * h)
+
+    # add feed info label
+    fields.vbox.addWidget(
+        feed_label,
+        alignment=Qt.AlignBottom, # | Qt.AlignVCenter,
+    )
 
     return fields
