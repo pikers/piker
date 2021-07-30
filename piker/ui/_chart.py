@@ -73,7 +73,11 @@ from ._interaction import ChartView
 from .order_mode import run_order_mode
 from .. import fsp
 from ..data import feed
-from ._forms import FieldsForm, open_form, mk_health_bar
+from ._forms import (
+    FieldsForm,
+    open_form,
+    mk_health_bar,
+)
 
 
 log = get_logger(__name__)
@@ -189,6 +193,7 @@ class GodWidget(QWidget):
         order_mode_started = trio.Event()
 
         if not self.vbox.isEmpty():
+
             # XXX: this is CRITICAL especially with pixel buffer caching
             self.linkedsplits.hide()
 
@@ -219,11 +224,18 @@ class GodWidget(QWidget):
             # symbol is already loaded and ems ready
             order_mode_started.set()
 
-        self.vbox.addWidget(linkedsplits)
+            # TODO: we'll probably want per-instrument/provider state here?
+            # change the order config form over to the new chart
+            # XXX: since the pp config is a singleton widget we have to
+            # also switch it over to the new chart's interal-layout
+            self.linkedsplits.chart.qframe.hbox.removeWidget(self.pp_config)
+            linkedsplits.chart.qframe.hbox.addWidget(self.pp_config, alignment=Qt.AlignTop)
 
         # chart is already in memory so just focus it
         if self.linkedsplits:
             self.linkedsplits.unfocus()
+
+        self.vbox.addWidget(linkedsplits)
 
         # self.vbox.addWidget(linkedsplits)
         linkedsplits.show()
@@ -320,6 +332,7 @@ class LinkedSplits(QWidget):
     def focus(self) -> None:
         if self.chart is not None:
             self.chart.focus()
+            self.chart.parent().show()
 
     def unfocus(self) -> None:
         if self.chart is not None:
@@ -459,6 +472,10 @@ class LinkedSplits(QWidget):
 
         qframe.chart = cpw
         qframe.hbox.addWidget(cpw)
+
+        # so we can look this up and add back to the splitter
+        # on a symbol switch
+        cpw.qframe = qframe
 
         # add sidepane **after** chart; place it on axis side
         if sidepane:
@@ -1367,7 +1384,7 @@ async def run_fsp(
                     ],
                 },
                 'period': {
-                    'key': '**period (bars)**:',
+                    'key': '**period**:',
                     'type': 'edit',
                     'default_value': 14,
                 },
@@ -1805,13 +1822,22 @@ async def _async_main(
                     'key': '**account**:',
                     'type': 'select',
                     'default_value': [
-                        'piker.paper',
+                        'paper',
                         # 'ib.margin',
                         # 'ib.paper',
                     ],
                 },
+                'allocator': {
+                    'key': '**allocate**:',
+                    'type': 'select',
+                    'default_value': [
+                        '$ size',
+                        '% of port',
+                        '# shares'
+                    ],
+                },
                 'disti_policy': {
-                    'key': '**entry policy**:',
+                    'key': '**policy**:',
                     'type': 'select',
                     'default_value': ['uniform'],
                 },
@@ -1819,11 +1845,6 @@ async def _async_main(
                     'key': '**slots**:',
                     'type': 'edit',
                     'default_value': 4,
-                },
-                'allocator': {
-                    'key': '**allocator**:',
-                    'type': 'select',
-                    'default_value': ['$ size', '% of port', '# shares'],
                 },
                 'dollar_size': {
                     'key': '**$size**:',
@@ -1840,6 +1861,7 @@ async def _async_main(
         # add as next-to-y-axis pane
         godwidget.pp_config = pp_config
 
+        # XXX: code for adding to god widget directly
         # godwidget.hbox.insertWidget(
         #     1,
         #     pp_config,
@@ -1849,14 +1871,13 @@ async def _async_main(
         #     alignment=Qt.AlignTop
         # )
 
-        godwidget.hbox.setAlignment(Qt.AlignTop)
-
+        # XXX: code for adding to status bar
         # sb = god_widget.window.statusBar()
         # sb.insertPermanentWidget(0, pp_config)
         # pp_config.show()
+
         # set root nursery and task stack for spawning other charts/feeds
         # that run cached in the bg
-
         godwidget._root_n = root_n
 
         # setup search widget and focus main chart view at startup
@@ -1869,7 +1890,7 @@ async def _async_main(
 
             # alights to top and uses minmial space based on
             # search bar size hint (i think?)
-            # alignment=Qt.AlignTop
+            alignment=Qt.AlignTop
         )
         godwidget.search = search
 
