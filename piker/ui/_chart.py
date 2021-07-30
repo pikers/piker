@@ -76,7 +76,7 @@ from ..data import feed
 from ._forms import (
     FieldsForm,
     open_form,
-    mk_health_bar,
+    mk_order_pane_layout,
 )
 
 
@@ -240,6 +240,7 @@ class GodWidget(QWidget):
         # self.vbox.addWidget(linkedsplits)
         linkedsplits.show()
         linkedsplits.focus()
+
         self.linkedsplits = linkedsplits
 
         symbol = linkedsplits.symbol
@@ -331,8 +332,9 @@ class LinkedSplits(QWidget):
 
     def focus(self) -> None:
         if self.chart is not None:
+            print("FOCUSSING CHART")
             self.chart.focus()
-            self.chart.parent().show()
+            # self.chart.parent().show()
 
     def unfocus(self) -> None:
         if self.chart is not None:
@@ -638,7 +640,6 @@ class ChartPlotWidget(pg.PlotWidget):
         return self._vb
 
     def focus(self) -> None:
-        # self.setFocus()
         self._vb.setFocus()
 
     def last_bar_in_view(self) -> int:
@@ -1375,7 +1376,7 @@ async def run_fsp(
         open_form(
             godwidget=linkedsplits.godwidget,
             parent=linkedsplits.godwidget,
-            fields={
+            fields_schema={
                 'name': {
                     'key': '**fsp**:',
                     'type': 'select',
@@ -1814,10 +1815,12 @@ async def _async_main(
 
     async with (
         trio.open_nursery() as root_n,
+
+        # fields form to configure order entry
         open_form(
             godwidget=godwidget,
             parent=godwidget,
-            fields={
+            fields_schema={
                 'account': {
                     'key': '**account**:',
                     'type': 'select',
@@ -1837,7 +1840,7 @@ async def _async_main(
                     ],
                 },
                 'disti_policy': {
-                    'key': '**policy**:',
+                    'key': '**weight**:',
                     'type': 'select',
                     'default_value': ['uniform'],
                 },
@@ -1855,26 +1858,11 @@ async def _async_main(
         ) as pp_config,
     ):
         pp_config: FieldsForm
-        mk_health_bar(pp_config)
+        mk_order_pane_layout(pp_config)
         pp_config.show()
 
         # add as next-to-y-axis pane
         godwidget.pp_config = pp_config
-
-        # XXX: code for adding to god widget directly
-        # godwidget.hbox.insertWidget(
-        #     1,
-        #     pp_config,
-
-        #     # alights to top and uses minmial space based on
-        #     # search bar size hint (i think?)
-        #     alignment=Qt.AlignTop
-        # )
-
-        # XXX: code for adding to status bar
-        # sb = god_widget.window.statusBar()
-        # sb.insertPermanentWidget(0, pp_config)
-        # pp_config.show()
 
         # set root nursery and task stack for spawning other charts/feeds
         # that run cached in the bg
