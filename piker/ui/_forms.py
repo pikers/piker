@@ -18,9 +18,11 @@
 Text entry "forms" widgets (mostly for configuration and UI user input).
 
 '''
-from functools import partial
-from typing import Optional
 from contextlib import asynccontextmanager
+from functools import partial
+from textwrap import dedent
+import math
+from typing import Optional
 
 import trio
 from PyQt5 import QtCore, QtGui
@@ -163,23 +165,32 @@ class FieldsForm(QWidget):
 
         # size it as we specify
         self.setSizePolicy(
-            QSizePolicy.Fixed,
-            QSizePolicy.Fixed,
+            QSizePolicy.Expanding,
+            QSizePolicy.Expanding,
         )
         # self.setMaximumHeight(30)
-        self.setMaximumWidth(166)
+        # self.setMaximumWidth(166)
 
-        # split layout for the (label:| text bar entry)
         self.vbox = QtGui.QVBoxLayout(self)
         self.vbox.setAlignment(Qt.AlignTop)
-        self.vbox.setContentsMargins(0, 0, 4, 0)
-        self.vbox.setSpacing(3)
+        self.vbox.setContentsMargins(0, 4, 4, 0)
+        self.vbox.setSpacing(0)
+
+        # split layout for the (<label>: |<widget>|) parameters entry
+        self.form = QtGui.QFormLayout(self)
+        self.form.setAlignment(Qt.AlignCenter | Qt.AlignLeft)
+        self.form.setContentsMargins(0, 0, 0, 0)
+        self.form.setSpacing(4)
+        self.form.setHorizontalSpacing(0)
         # self.vbox.addStretch()
+
+        self.vbox.addLayout(self.form)
 
         self.labels: dict[str, QLabel] = {}
         self.fields: dict[str, QWidget] = {}
 
         self._font_size = _font_small.px_size - 2
+        self.vbox.addSpacing(0.375 * self._font_size)
         self._max_item_width: (float, float) = 0, 0
 
     def add_field_label(
@@ -193,9 +204,7 @@ class FieldsForm(QWidget):
     ) -> QtGui.QLabel:
 
         # add label to left of search bar
-        self.label = label = QtGui.QLabel(parent=self)
-        label.setTextFormat(Qt.MarkdownText)  # markdown
-        label.setFont(_font.font)
+        self.label = label = QtGui.QLabel()
         font_size = font_size or self._font_size - 3
         label.setStyleSheet(
             f"""QLabel {{
@@ -204,7 +213,9 @@ class FieldsForm(QWidget):
             }}
             """
         )
-        label.setMargin(4)
+        label.setFont(_font.font)
+        label.setTextFormat(Qt.MarkdownText)  # markdown
+        label.setMargin(0)
 
         label.setText(name)
 
@@ -212,9 +223,8 @@ class FieldsForm(QWidget):
             QtCore.Qt.AlignVCenter
             | QtCore.Qt.AlignLeft
         )
-        label.show()
 
-        self.vbox.addWidget(label, **vbox_kwargs)
+        # self.vbox.addWidget(label, **vbox_kwargs)
         self.labels[name] = label
 
         return label
@@ -230,12 +240,10 @@ class FieldsForm(QWidget):
     ) -> FontAndChartAwareLineEdit:
 
         # TODO: maybe a distint layout per "field" item?
-        self.add_field_label(name)
+        label = self.add_field_label(name)
 
         edit = FontAndChartAwareLineEdit(
             parent=self,
-            # parent_chart=self.godwidget,
-            # width_in_chars=6,
         )
         edit.setStyleSheet(
             f"""QLineEdit {{
@@ -245,7 +253,8 @@ class FieldsForm(QWidget):
             """
         )
         edit.setText(str(value))
-        self.vbox.addWidget(edit)
+        # self.vbox.addWidget(edit)
+        self.form.addRow(label, edit)
 
         self.fields[name] = edit
 
@@ -260,7 +269,7 @@ class FieldsForm(QWidget):
     ) -> QComboBox:
 
         # TODO: maybe a distint layout per "field" item?
-        self.add_field_label(name)
+        label = self.add_field_label(name)
 
         select = QComboBox(self)
 
@@ -301,15 +310,16 @@ class FieldsForm(QWidget):
 
         select.show()
 
-        self.vbox.addWidget(select)
+        # self.vbox.addWidget(select)
+        self.form.addRow(label, select)
 
         return select
 
 
 async def handle_field_input(
 
-    # chart: 'ChartPlotWidget',  # noqa
     widget: QWidget,
+    # last_widget: QWidget,  # had focus prior
     recv_chan: trio.abc.ReceiveChannel,
     form: FieldsForm,
 
@@ -318,22 +328,20 @@ async def handle_field_input(
     async for event, etype, key, mods, txt in recv_chan:
         print(f'key: {key}, mods: {mods}, txt: {txt}')
 
+        # default controls set
         ctl = False
         if mods == Qt.ControlModifier:
             ctl = True
 
-        # cancel and close
-        if ctl and key in {
+        if ctl and key in {  # cancel and refocus
+
             Qt.Key_C,
-            Qt.Key_Space,   # i feel like this is the "native" one
+            Qt.Key_Space,  # i feel like this is the "native" one
             Qt.Key_Alt,
         }:
-            # search.bar.unfocus()
-
-            # kill the search and focus back on main chart
+            # kill the widget focus and go back to main chart
             widget.clearFocus()
             form.godwidget.linkedsplits.focus()
-
             continue
 
 
@@ -379,31 +387,129 @@ async def open_form(
 
 
 def mk_health_bar(
-    form: FieldsForm,
+    fields: FieldsForm,
 
 ) -> FieldsForm:
 
-    form.vbox.addSpacing(6)
-    form.add_field_label('fill status', alignment=Qt.AlignCenter)
-    form.vbox.addSpacing(6)
+    # fh = form.form.sizeHint().height()
 
-    fill_bar = QProgressBar(form)
-    import math
+    w, h = fields.width(), fields.height()
+    print(f'w, h: {w, h}')
+
+    # TODO: spec this based on remaining space?
+    # fields.vbox.addSpacing(36)
+    fields.vbox.addSpacing((5/8) * h)
+
+    # title label
+    pps_label = fields.add_field_label(
+        'pps',
+        font_size=_font_small.px_size,
+    )
+
+    # indent = 18
+    bracket_val = 0.375 * w
+    indent = bracket_val / 1.625
+
+    section_hbox = QtGui.QHBoxLayout(fields)
+    section_hbox.addSpacing(indent - 2)  # pair with bar indent
+    section_hbox.addWidget(
+        pps_label,
+        alignment=Qt.AlignLeft | Qt.AlignTop,
+    )
+
+    # fields.vbox.addWidget(
+    #     label,
+    #     alignment=Qt.AlignLeft | Qt.AlignTop
+    # )
+    fields.vbox.addLayout(section_hbox)
+
+    # TODO: spec this based on remaining space?
+    fields.vbox.addSpacing(6)
+
+    hbox = QtGui.QHBoxLayout(fields)
+
+    hbox.addSpacing(indent)  # push to right a bit
+
+    # config
+    hbox.setSpacing(indent * 0.375)
+    hbox.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+    hbox.setContentsMargins(0, 0, 0, 0)
+
+    # info label on RHS
+        # {30}% PnL\n
+
+    # TODO: use percentage str formatter:
+    #https://docs.python.org/3/library/string.html#grammar-token-precision
+
+    top_label = fields.add_field_label(
+        dedent(f"""
+        {3.32:.1f}% port
+        """),
+        font_size=_font.px_size - 5,
+    )
+
+    bottom_label = fields.add_field_label(
+        dedent(f"""
+        {5e3/4/1e3:.1f}k step\n
+        """),
+        font_size=_font.px_size - 5,
+    )
+
+    bar = QProgressBar(fields)
+    hbox.addWidget(bar, alignment=Qt.AlignLeft | Qt.AlignTop)
+
+    bar_label_vbox = QtGui.QVBoxLayout(fields)
+    bar_label_vbox.addWidget(
+        top_label,
+        alignment=Qt.AlignLeft | Qt.AlignTop
+    )
+    bar_label_vbox.addWidget(
+        bottom_label,
+        alignment=Qt.AlignLeft | Qt.AlignBottom
+    )
+
+    hbox.addLayout(bar_label_vbox)
+
+    fields.vbox.addLayout(hbox)  # add status bar to form
+
+    fields.vbox.addSpacing(36)  # add status bar to form
+
+    feed_label = fields.add_field_label(
+        dedent("""
+        brokerd.ib\n
+        |_@localhost:8509\n
+        |_consumers: 4\n
+        |_streams: 9\n
+        """),
+        font_size=_font.px_size - 5,
+    )
+    fields.vbox.addSpacing(3/8 * h)
+
+    # add feed info label
+    fields.vbox.addWidget(
+        feed_label,
+        alignment=Qt.AlignBottom,
+    )
+
+    # compute "chunk" sizes for fill-status-bar based on some static height
     slots = 4
     border_size_px = 2
-    slot_margin_px = 2  # 1.375
-    h = 150  #+ (2*2 + slot_margin_px*slots*2)
-    # multiples, r = divmod(h, slots)
-    slot_height_px = math.floor((h - 2*border_size_px)/slots) - slot_margin_px*1
+    slot_margin_px = 2
 
-    fill_bar.setOrientation(Qt.Vertical)
-    fill_bar.setStyleSheet(
+    # TODO: compute "used height" thus far and mostly fill the rest
+    h = 200
+    slot_height_px = math.floor(
+        (h - 2*border_size_px)/slots
+    ) - slot_margin_px*1
+
+    bar.setOrientation(Qt.Vertical)
+    bar.setStyleSheet(
         f"""
         QProgressBar {{
 
             text-align: center;
 
-            font-size : {form._font_size - 2}px;
+            font-size : {fields._font_size - 2}px;
 
             background-color: {hcolor('papas_special')};
             color : {hcolor('papas_special')};
@@ -423,35 +529,20 @@ def mk_health_bar(
             height: {slot_height_px}px;
 
         }}
-
         """
-            # margin-bottom: {slot_margin_px*2}px;
-            # margin-top: {slot_margin_px*2}px;
-            # color: #19232D;
-        # QProgressBar::chunk:disabled {{
-        #     background-color: #26486B;
-        #     color: #9DA9B5;
-        #     border-radius: 4px;
-        #     height: 20px;
-        # }}
-            # margin-top: 3px;
-            # margin-bottom: 3px;
-           # width: 10px;
-           # color: #E0E1E3;
-           # background-color: #19232D;
-
-           # color : {hcolor('gunmetal')};
-           # background-color: {hcolor('bracket')};
-           # color: {hcolor('bracket')};
     )
-    fill_bar.setRange(0, slots)
-    fill_bar.setValue(slots)
-    fill_bar.setFormat('')
-    fill_bar.setMinimumHeight(h)
-    fill_bar.setMaximumHeight(h + slots*slot_margin_px)
-    fill_bar.setMinimumWidth(36)
 
-    form.vbox.addWidget(fill_bar, alignment=Qt.AlignCenter)
+    # margin-bottom: {slot_margin_px*2}px;
+    # margin-top: {slot_margin_px*2}px;
+    # color: #19232D;
+    # width: 10px;
 
-    # form.vbox.addStretch()
-    return form
+    bar.setRange(0, slots)
+    bar.setValue(slots)
+    bar.setFormat('')
+    bar.setMinimumHeight(h)
+    bar.setMaximumHeight(h + slots*slot_margin_px)
+    bar.setMinimumWidth(bracket_val)
+    bar.setMaximumWidth(bracket_val)
+
+    return fields
