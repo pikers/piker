@@ -155,6 +155,10 @@ class FontScaledDelegate(QStyledItemDelegate):
 
 class FieldsForm(QWidget):
 
+    godwidget: 'GodWidget'  # noqa
+    vbox: QVBoxLayout
+    form: QFormLayout
+
     def __init__(
         self,
 
@@ -172,41 +176,46 @@ class FieldsForm(QWidget):
             QSizePolicy.Expanding,
         )
 
+        # XXX: not sure why we have to create this here exactly
+        # (instead of in the pane creation routine) but it's
+        # here and is managed by downstream layout routines.
+        # best guess is that you have to create layouts in order
+        # of hierarchy in order for things to display correctly?
+        # TODO: we may want to hand this *down* from some "pane manager"
+        # thing eventually?
         self.vbox = QVBoxLayout(self)
-        self.vbox.setAlignment(Qt.AlignTop)
-        self.vbox.setContentsMargins(0, 4, 4, 4)
+        self.vbox.setAlignment(Qt.AlignVCenter)
+        self.vbox.setContentsMargins(0, 4, 3, 6)
         self.vbox.setSpacing(0)
 
         # split layout for the (<label>: |<widget>|) parameters entry
         self.form = QFormLayout(self)
-        self.form.setAlignment(Qt.AlignCenter | Qt.AlignLeft)
+        self.form.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.form.setContentsMargins(0, 0, 0, 0)
-        self.form.setSpacing(4)
+        self.form.setSpacing(3)
         self.form.setHorizontalSpacing(0)
-        # self.vbox.addStretch()
 
-        self.vbox.addLayout(self.form, stretch=3/8)
+        self.vbox.addLayout(self.form, stretch=1/3)
 
         self.labels: dict[str, QLabel] = {}
         self.fields: dict[str, QWidget] = {}
 
         self._font_size = _font_small.px_size - 2
-        self.vbox.addSpacing(0.375 * self._font_size)
         self._max_item_width: (float, float) = 0, 0
 
     def add_field_label(
         self,
+
         name: str,
+
         font_size: Optional[int] = None,
         font_color: str = 'default_lightest',
-
-        **vbox_kwargs,
 
     ) -> QtGui.QLabel:
 
         # add label to left of search bar
         self.label = label = QtGui.QLabel()
-        font_size = font_size or self._font_size - 3
+        font_size = font_size or self._font_size - 2
         label.setStyleSheet(
             f"""QLabel {{
                 color : {hcolor(font_color)};
@@ -338,7 +347,7 @@ async def handle_field_input(
             Qt.Key_Space,  # i feel like this is the "native" one
             Qt.Key_Alt,
         }:
-            fields.godwidget.setFocus() #linkedsplits.chart._vb.setFocus()
+            fields.godwidget.setFocus()  # linkedsplits.chart._vb.setFocus()
             fields.godwidget.linkedsplits.focus()
 
             widget.clearFocus()
@@ -395,39 +404,47 @@ async def open_form(
 def mk_health_bar(
 
     fields: FieldsForm,
-    h: int = 200,
+    pane_vbox: QVBoxLayout,
+    bar_h: int = 250,
 
 ) -> (QHBoxLayout, QProgressBar):
 
     w = fields.width()
     # indent = 18
-    bracket_val = 0.375 * w
-    indent = bracket_val / 1.625
+    # bracket_val = 0.375 * 0.666 * w
+    # indent = bracket_val / (1 + 5/8)
 
-    # title label
-    pps_label = fields.add_field_label(
-        'pps',
-        font_size=_font_small.px_size,
+    # TODO: once things are sized to screen
+    label_font = DpiAwareFont()
+    label_font._set_qfont_px_size(_font.px_size - 6)
+    br = label_font.boundingRect(f'{3.32:.1f}% port')
+    w, h = br.width(), br.height()
+    bar_h = 8/3 * w
+
+    # PnL on lhs
+    bar_labels_lhs = QVBoxLayout(fields)
+    left_label = fields.add_field_label(
+        dedent(f"""
+        -{30}% PnL
+        """),
+        font_size=_font.px_size - 6,
+        font_color='gunmetal',
     )
 
-    section_hbox = QHBoxLayout(fields)
-    section_hbox.addSpacing(indent - 2)  # pair with bar indent
-    section_hbox.addWidget(
-        pps_label,
+    bar_labels_lhs.addSpacing(5/8 * bar_h)
+    bar_labels_lhs.addWidget(
+        left_label,
         alignment=Qt.AlignLeft | Qt.AlignTop,
     )
 
-    fields.vbox.addLayout(section_hbox)
-
-    # TODO: spec this based on remaining space?
-    fields.vbox.addSpacing(6)
-
     hbox = QHBoxLayout(fields)
 
-    hbox.addSpacing(indent)  # push to right a bit
+    hbox.addLayout(bar_labels_lhs)
+    # hbox.addSpacing(indent)  # push to right a bit
 
     # config
-    hbox.setSpacing(indent * 0.375)
+    # hbox.setSpacing(indent * 0.375)
+    hbox.setSpacing(0)
     hbox.setAlignment(Qt.AlignTop | Qt.AlignLeft)
     hbox.setContentsMargins(0, 0, 0, 0)
 
@@ -438,14 +455,18 @@ def mk_health_bar(
         dedent(f"""
         {3.32:.1f}% port
         """),
-        font_size=_font.px_size - 5,
+        font_size=_font.px_size - 6,
+        # font_color='default_spotlight',
+        font_color='gunmetal',
     )
 
     bottom_label = fields.add_field_label(
         dedent(f"""
-        {5e3/4/1e3:.1f}k step\n
+        {5e3/4/1e3:.2f}k $fill\n
         """),
-        font_size=_font.px_size - 5,
+        font_size=_font.px_size - 6,
+        # font_color='default_spotlight',
+        font_color='gunmetal',
     )
 
     bar = QProgressBar(fields)
@@ -470,9 +491,8 @@ def mk_health_bar(
     slot_margin_px = 2
 
     # TODO: compute "used height" thus far and mostly fill the rest
-    h = 200
     slot_height_px = math.floor(
-        (h - 2*border_size_px)/slots
+        (bar_h - 2*border_size_px)/slots
     ) - slot_margin_px*1
 
     bar.setOrientation(Qt.Vertical)
@@ -493,7 +513,7 @@ def mk_health_bar(
 
         QProgressBar::chunk {{
 
-            background-color: {hcolor('default_lightest')};
+            background-color: {hcolor('default_spotlight')};
             color: {hcolor('papas_special')};
 
             border-radius: 2px;
@@ -511,12 +531,12 @@ def mk_health_bar(
     # width: 10px;
 
     bar.setRange(0, slots)
-    bar.setValue(slots)
+    bar.setValue(1)
     bar.setFormat('')
-    bar.setMinimumHeight(h)
-    bar.setMaximumHeight(h + slots*slot_margin_px)
-    bar.setMinimumWidth(bracket_val)
-    bar.setMaximumWidth(bracket_val)
+    bar.setMinimumHeight(bar_h)
+    bar.setMaximumHeight(bar_h + slots*slot_margin_px)
+    bar.setMinimumWidth(h * 1.375)
+    bar.setMaximumWidth(h * 1.375)
 
     return hbox, bar
 
@@ -524,28 +544,27 @@ def mk_health_bar(
 def mk_order_pane_layout(
 
     fields: FieldsForm,
+    font_size: int = _font_small.px_size - 2
 
 ) -> FieldsForm:
 
-    # fh = form.form.sizeHint().height()
+    # TODO: maybe just allocate the whole fields form here
+    # and expect an async ctx entry?
 
-    w, h = fields.width(), fields.height()
-    print(f'w, h: {w, h}')
+    fields._font_size = font_size
 
-    # TODO: spec this based on remaining space?
-    # fields.vbox.addSpacing(36)
-    fields.vbox.addSpacing((5/8) * h)
+    # top level pane layout
+    # XXX: see ``FieldsForm.__init__()`` for why we can't do basic
+    # config of the vbox here
+    vbox = fields.vbox
 
-    # info label on RHS
-    # {30}% PnL\n
+    # _, h = fields.width(), fields.height()
+    # print(f'w, h: {w, h}')
 
-    hbox, bar = mk_health_bar(fields)
-
-    # TODO: move the ``.vbox`` from fields obj to top of routine
+    hbox, bar = mk_health_bar(fields, pane_vbox=vbox)
 
     # add pp fill bar + spacing
-    fields.vbox.addLayout(hbox, stretch=5/8)
-    fields.vbox.addSpacing(36)
+    vbox.addLayout(hbox, stretch=1/3)
 
     feed_label = fields.add_field_label(
         dedent("""
@@ -557,13 +576,16 @@ def mk_order_pane_layout(
         font_size=_font.px_size - 5,
     )
 
-    feed_label.setMaximumHeight(feed_label.height())
-    fields.vbox.addSpacing(3/8 * h)
-
     # add feed info label
-    fields.vbox.addWidget(
+    vbox.addWidget(
         feed_label,
-        alignment=Qt.AlignBottom, # | Qt.AlignVCenter,
+        alignment=Qt.AlignBottom,
+        stretch=1/3,
     )
+
+    # TODO: handle resize events and appropriately scale this
+    # to the sidepane height?
+    # https://doc.qt.io/qt-5/layout.html#adding-widgets-to-a-layout
+    vbox.setSpacing(36)
 
     return fields
