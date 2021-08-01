@@ -795,7 +795,7 @@ async def handle_keyboard_input(
     # startup
     bar = searchbar
     search = searchbar.parent()
-    chart = search.godwidget
+    godwidget = search.godwidget
     view = bar.view
     view.set_font_size(bar.dpi_font.px_size)
 
@@ -837,7 +837,7 @@ async def handle_keyboard_input(
                 # if nothing in search text show the cache
                 view.set_section_entries(
                     'cache',
-                    list(reversed(chart._chart_cache)),
+                    list(reversed(godwidget._chart_cache)),
                     clear_all=True,
                 )
                 continue
@@ -851,9 +851,9 @@ async def handle_keyboard_input(
                 search.bar.unfocus()
 
                 # kill the search and focus back on main chart
-                if chart:
+                if godwidget:
                     print('focussing view')
-                    chart.linkedsplits.focus()
+                    godwidget.linkedsplits.focus()
 
                 continue
 
