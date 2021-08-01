@@ -229,7 +229,10 @@ class GodWidget(QWidget):
             # XXX: since the pp config is a singleton widget we have to
             # also switch it over to the new chart's interal-layout
             self.linkedsplits.chart.qframe.hbox.removeWidget(self.pp_config)
-            linkedsplits.chart.qframe.hbox.addWidget(self.pp_config, alignment=Qt.AlignTop)
+            linkedsplits.chart.qframe.hbox.addWidget(
+                self.pp_config,
+                alignment=Qt.AlignTop
+            )
 
         # chart is already in memory so just focus it
         if self.linkedsplits:
@@ -316,7 +319,7 @@ class LinkedSplits(QWidget):
 
     def set_split_sizes(
         self,
-        prop: float = 0.375  # proportion allocated to consumer subcharts
+        prop: float = 0.625  # proportion allocated to consumer subcharts
 
     ) -> None:
         '''Set the proportion of space allocated for linked subcharts.
@@ -427,9 +430,13 @@ class LinkedSplits(QWidget):
             self.xaxis.hide()
             self.xaxis = xaxis
 
+        # TODO: probably should formalize and call this something else?
         class LambdaQFrame(QFrame):
-            '''One-off ``QFrame`` which composes a layout
-            of a chart + sidepane ``FieldsForm`` (if provided).
+            '''One-off ``QFrame`` composite which pairs a chart + sidepane
+            ``FieldsForm`` (if provided).
+
+            See composite widgets docs for deats:
+            https://doc.qt.io/qt-5/qwidget.html#composite-widgets
 
             '''
             sidepane: FieldsForm
@@ -1844,15 +1851,15 @@ async def _async_main(
                     'type': 'select',
                     'default_value': ['uniform'],
                 },
-                'slots': {
-                    'key': '**slots**:',
-                    'type': 'edit',
-                    'default_value': 4,
-                },
                 'dollar_size': {
                     'key': '**$size**:',
                     'type': 'edit',
                     'default_value': '5k',
+                },
+                'slots': {
+                    'key': '**slots**:',
+                    'type': 'edit',
+                    'default_value': 4,
                 },
             },
         ) as pp_config,
