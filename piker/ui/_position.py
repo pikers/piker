@@ -70,7 +70,7 @@ class PositionTracker:
     size_label: Label
     line: Optional[LevelLine] = None
 
-    _color: str = 'default_light'
+    _color: str = 'default_lightest'
 
     def __init__(
         self,
