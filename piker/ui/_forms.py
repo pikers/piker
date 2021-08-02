@@ -347,16 +347,10 @@ async def handle_field_input(
             Qt.Key_Space,  # i feel like this is the "native" one
             Qt.Key_Alt,
         }:
-            fields.godwidget.setFocus()  # linkedsplits.chart._vb.setFocus()
-            fields.godwidget.linkedsplits.focus()
 
             widget.clearFocus()
-            # fields.clearFocus()
+            fields.godwidget.focus()
 
-            # kill the widget focus and go back to main chart
-            # fields.godwidget.linkedsplits.focus()
-            # import tractor
-            # await tractor.breakpoint()
             continue
 
 
@@ -456,7 +450,6 @@ def mk_health_bar(
         {3.32:.1f}% port
         """),
         font_size=_font.px_size - 6,
-        # font_color='default_spotlight',
         font_color='gunmetal',
     )
 
@@ -465,7 +458,6 @@ def mk_health_bar(
         {5e3/4/1e3:.2f}k $fill\n
         """),
         font_size=_font.px_size - 6,
-        # font_color='default_spotlight',
         font_color='gunmetal',
     )
 
