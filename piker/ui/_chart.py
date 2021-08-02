@@ -256,6 +256,15 @@ class GodWidget(QWidget):
 
         return order_mode_started
 
+    def focus(self) -> None:
+        '''Focus the top level widget which in turn focusses the chart
+        ala "view mode".
+
+        '''
+        # go back to view-mode focus (aka chart focus)
+        self.clearFocus()
+        self.linkedsplits.chart.setFocus()
+
 
 class LinkedSplits(QWidget):
     '''
