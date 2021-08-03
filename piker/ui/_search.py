@@ -35,9 +35,9 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from functools import partial
 from typing import (
-    List, Optional, Callable,
-    Awaitable, Sequence, Dict,
-    Any, AsyncIterator, Tuple,
+    Optional, Callable,
+    Awaitable, Sequence,
+    Any, AsyncIterator
 )
 import time
 # from pprint import pformat
@@ -105,7 +105,7 @@ class CompleterView(QTreeView):
     def __init__(
         self,
         parent=None,
-        labels: List[str] = [],
+        labels: list[str] = [],
     ) -> None:
 
         super().__init__(parent)
@@ -450,7 +450,7 @@ class SearchWidget(QtWidgets.QWidget):
     def __init__(
         self,
         godwidget: 'GodWidget',  # type: ignore # noqa
-        columns: List[str] = ['src', 'symbol'],
+        columns: list[str] = ['src', 'symbol'],
         parent=None,
 
     ) -> None:
@@ -524,7 +524,7 @@ class SearchWidget(QtWidgets.QWidget):
         self.bar.focus()
         self.show()
 
-    def get_current_item(self) -> Optional[Tuple[str, str]]:
+    def get_current_item(self) -> Optional[tuple[str, str]]:
         '''Return the current completer tree selection as
         a tuple ``(parent: str, child: str)`` if valid, else ``None``.
 
@@ -614,10 +614,11 @@ async def pack_matches(
 
     view: CompleterView,
     has_results: dict[str, set[str]],
-    matches: dict[(str, str), List[str]],
+    matches: dict[(str, str), list[str]],
     provider: str,
     pattern: str,
     search: Callable[..., Awaitable[dict]],
+
     task_status: TaskStatus[
         trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
@@ -852,8 +853,7 @@ async def handle_keyboard_input(
 
                 # kill the search and focus back on main chart
                 if godwidget:
-                    print('focussing view')
-                    godwidget.linkedsplits.focus()
+                    godwidget.focus()
 
                 continue
 
@@ -912,7 +912,7 @@ async def handle_keyboard_input(
 async def search_simple_dict(
     text: str,
     source: dict,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
 
     # search routine can be specified as a function such
     # as in the case of the current app's local symbol cache
@@ -926,7 +926,7 @@ async def search_simple_dict(
 
 
 # cache of provider names to async search routines
-_searcher_cache: Dict[str, Callable[..., Awaitable]] = {}
+_searcher_cache: dict[str, Callable[..., Awaitable]] = {}
 
 
 @asynccontextmanager
