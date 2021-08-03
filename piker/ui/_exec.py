@@ -39,7 +39,7 @@ import qdarkstyle
 from qdarkstyle import DarkPalette
 # import qdarkgraystyle
 import trio
-from outcome import Error
+from outcome import Error, Outcome
 
 from .._daemon import maybe_open_pikerd, _tractor_kwargs
 from ..log import get_logger
@@ -73,12 +73,16 @@ if platform.system() == "Windows":
 
 
 def run_qtractor(
+
     func: Callable,
     args: Tuple,
     main_widget: QtGui.QWidget,
+
     tractor_kwargs: Dict[str, Any] = {},
     window_type: QtGui.QMainWindow = None,
-) -> None:
+
+) -> int:
+
     # avoids annoying message when entering debugger from qt loop
     pyqtRemoveInputHook()
 
@@ -119,7 +123,7 @@ def run_qtractor(
         event.fn = fn
         app.postEvent(reenter, event)
 
-    def done_callback(outcome):
+    def done_callback(outcome: Outcome) -> Outcome:
 
         if isinstance(outcome, Error):
             exc = outcome.error
@@ -131,7 +135,10 @@ def run_qtractor(
             else:
                 traceback.print_exception(type(exc), exc, exc.__traceback__)
 
+        # tear down Qt when ``trio`` completes
         app.quit()
+
+        return outcome
 
     # load dark theme
     stylesheet = qdarkstyle.load_stylesheet(
@@ -164,13 +171,25 @@ def run_qtractor(
     # override tractor's defaults
     tractor_kwargs.update(_tractor_kwargs)
 
+    # setup a root scope to be cancelled on Qt exit
+    root_trio_cs = trio.CancelScope()
+    app.lastWindowClosed.connect(root_trio_cs.cancel)
+
     # define tractor entrypoint
     async def main():
 
-        async with maybe_open_pikerd(
-            **tractor_kwargs,
-        ):
-            await func(*((instance,) + args))
+        nonlocal root_trio_cs
+
+        with root_trio_cs as rcs:
+
+            async with maybe_open_pikerd(
+                **tractor_kwargs,
+            ):
+                return await func(*((instance,) + args))
+
+        if rcs.cancelled_caught:
+            print('Terminated')
+            return
 
     # guest mode entry
     trio.lowlevel.start_guest_run(
@@ -185,4 +204,6 @@ def run_qtractor(
 
     # actually render to screen
     window.show()
-    app.exec_()
+
+    return_code: int = app.exec_()
+    return return_code
