@@ -185,13 +185,13 @@ class MainWindow(QtGui.QMainWindow):
 
     def closeEvent(
         self,
+
         event: QtGui.QCloseEvent,
+
     ) -> None:
-        """Cancel the root actor asap.
+        '''Cancel the root actor asap.
 
-        """
-        # TODO: instead kill the root tractor nursery?
-
+        '''
         # raising KBI seems to get intercepted by by Qt so just use the system.
         os.kill(os.getpid(), signal.SIGINT)
 
@@ -226,16 +226,16 @@ class MainWindow(QtGui.QMainWindow):
     def on_focus_change(
         self,
 
-        old: QtGui.QWidget,
-        new: QtGui.QWidget,
+        last: QtGui.QWidget,
+        current: QtGui.QWidget,
 
     ) -> None:
 
-        log.debug(f'widget focus changed from {old} -> {new}')
+        log.info(f'widget focus changed from {last} -> {current}')
 
-        if new is not None:
+        if current is not None:
             # cursor left window?
-            name = getattr(new, 'mode_name', '')
+            name = getattr(current, 'mode_name', '')
             self.set_mode_name(name)
 
     def current_screen(self) -> QtGui.QScreen:
