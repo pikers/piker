@@ -18,12 +18,17 @@
 Position info and display
 
 """
-from typing import Optional
+from __future__ import annotations
+import enum
 from functools import partial
 from math import floor
+import sys
+from typing import Optional
 
+from bidict import bidict
 from pyqtgraph import functions as fn
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
+# from pydantic.generics import GenericModel
 # from PyQt5.QtCore import QPointF
 # from PyQt5.QtGui import QGraphicsPathItem
 
@@ -54,6 +59,70 @@ class Position(BaseModel):
 
     # ordered record of known constituent trade messages
     fills: list[Status] = []
+
+
+def mk_pp_alloc(
+
+    accounts: dict[str, Optional[str]] = {
+        'paper': None,
+        'ib.paper': 'DU1435481',
+        'ib.margin': 'U10983%',
+    },
+
+) -> Allocator:  # noqa
+
+    # lol we have to do this module patching bc ``pydantic``
+    # needs types to exist at module level:
+    # https://pydantic-docs.helpmanual.io/usage/postponed_annotations/
+    mod = sys.modules[__name__]
+
+    accounts = bidict(accounts)
+    Account = mod.Account = enum.Enum('Account', accounts)
+
+    size_units = bidict({
+        '$ size': 'currency',
+        '% of port': 'percent_of_port',
+        '# shares': 'shares',
+    })
+    SizeUnit = mod.SizeUnit = enum.Enum(
+        'SizeUnit',
+        size_units.inverse
+    )
+
+    class Allocator(BaseModel):
+
+        account: Account = None
+        _accounts: dict[str, Optional[str]] = accounts
+
+        size_unit: SizeUnit = 'currency'
+        _size_units: dict[str, Optional[str]] = size_units
+
+        disti_weight: str = 'uniform'
+
+        size: float
+        slots: int
+
+        _position: Position = None
+
+        def get_order_info(
+            self,
+            price: float,
+
+        ) -> dict:
+            units, r = divmod(
+                round((self.size / self.slots)),
+                price,
+            )
+            print(f'# shares: {units}, r: {r}')
+
+    # Allocator.update_forward_refs()
+
+    return Allocator(
+        account=None,
+        size_unit=size_units.inverse['currency'],
+        size=2000,
+        slots=4,
+    )
 
 
 class PositionTracker:
