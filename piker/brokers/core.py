@@ -29,7 +29,7 @@ import trio
 from ..log import get_logger
 from . import get_brokermod
 from .._daemon import maybe_spawn_brokerd
-from .api import open_cached_client
+from .._cacheables import open_cached_client
 
 
 log = get_logger(__name__)

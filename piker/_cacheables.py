@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-Actor-aware broker agnostic interface.
+Cacheing apis and toolz.
 
 """
 from typing import Dict
@@ -23,8 +23,8 @@ from contextlib import asynccontextmanager, AsyncExitStack
 
 import trio
 
-from . import get_brokermod
-from ..log import get_logger
+from .brokers import get_brokermod
+from .log import get_logger
 
 
 log = get_logger(__name__)
