@@ -46,6 +46,7 @@ class OrderDialog(BaseModel):
     of an order submission to ``emsd`` from a chart.
 
     '''
+    # TODO: use ``pydantic.UUID4`` field
     uuid: str
     line: LevelLine
     last_status_close: Callable = lambda: None
@@ -59,13 +60,13 @@ class OrderDialog(BaseModel):
 
 @dataclass
 class OrderMode:
-    '''Major mode for placing orders on a chart view.
+    '''Major UX mode for placing orders on a chart view providing so
+    called, "chart trading".
 
-    This is the default mode that pairs with "follow mode"
-    (when wathing the rt price update at the current time step)
-    and allows entering orders using mouse and keyboard.
-    This object is chart oriented, so there is an instance per
-    chart / view currently.
+    This is the other "main" mode that pairs with "view mode" (when
+    wathing the rt price update at the current time step) and allows
+    entering orders using mouse and keyboard.  This object is chart
+    oriented, so there is an instance per chart / view currently.
 
     Current manual:
         a -> alert
@@ -106,12 +107,15 @@ class OrderMode:
 
     def set_exec(
         self,
+
         action: str,
         size: Optional[int] = None,
-    ) -> None:
-        """Set execution mode.
 
-        """
+    ) -> None:
+        '''
+        Set execution mode.
+
+        '''
         # not initialized yet
         if not self.chart.linked.cursor:
             return
@@ -128,8 +132,13 @@ class OrderMode:
             action=action,
         )
 
-    def on_submit(self, uuid: str) -> OrderDialog:
-        '''Order submitted status event handler.
+    def on_submit(
+        self,
+        uuid: str
+
+    ) -> OrderDialog:
+        '''
+        Order submitted status event handler.
 
         Commit the order line and registered order uuid, store ack time stamp.
 
@@ -144,16 +153,27 @@ class OrderMode:
         return dialog
 
     def on_fill(
-
         self,
+
         uuid: str,
         price: float,
         arrow_index: float,
+
         pointing: Optional[str] = None,
-        # delete_line: bool = False,
 
     ) -> None:
+        '''
+        Fill msg handler.
 
+        Triggered on reception of a `filled` message from the
+        EMS.
+
+        Update relevant UIs:
+
+        - add arrow annotation on bar
+        - update fill bar size
+
+        '''
         dialog = self.dialogs[uuid]
         line = dialog.line
         if line:
@@ -169,8 +189,10 @@ class OrderMode:
 
     async def on_exec(
         self,
+
         uuid: str,
         msg: Dict[str, Any],
+
     ) -> None:
 
         # DESKTOP NOTIFICATIONS
@@ -179,6 +201,7 @@ class OrderMode:
         # not sure if this will ever be a bottleneck,
         # we probably could do graphics stuff first tho?
 
+        # TODO: make this not trash.
         # XXX: linux only for now
         result = await trio.run_process(
             [
@@ -191,7 +214,11 @@ class OrderMode:
         )
         log.runtime(result)
 
-    def on_cancel(self, uuid: str) -> None:
+    def on_cancel(
+        self,
+        uuid: str
+
+    ) -> None:
 
         msg = self.book._sent_orders.pop(uuid, None)
 
@@ -346,7 +373,9 @@ class OrderMode:
         self.book.update(
             uuid=line.dialog.uuid,
 
-            # TODO: should we round this to a nearest tick here?
+            # TODO: must adjust sizing
+            # - should we round this to a nearest tick here and how?
+            # - need to recompute the size from the pp allocator
             price=line.value(),
         )
 
@@ -360,9 +389,11 @@ async def run_order_mode(
 
 ) -> None:
     '''Activate chart-trader order mode loop:
+
       - connect to emsd
       - load existing positions
-      - begin order handling loop
+      - begin EMS response handling loop which updates local
+        state, mostly graphics / UI.
 
     '''
     multistatus = chart.window().status_bar
@@ -421,9 +452,10 @@ async def run_order_mode(
 
             our_sym = mode.chart.linked._symbol.key
             if sym.lower() in our_sym:
-
                 pp.update(msg)
 
+        # TODO: this should go onto some sort of
+        # data-view strimg thinger..right?
         def get_index(time: float):
 
             # XXX: not sure why the time is so off here
@@ -467,7 +499,6 @@ async def run_order_mode(
 
                     sym = mode.chart.linked.symbol
                     if msg['symbol'].lower() in sym.key:
-
                         pp.update(msg)
 
                     # short circuit to next msg to avoid
