@@ -33,7 +33,7 @@ from pydantic.dataclasses import dataclass
 from pydantic import BaseModel
 import wsproto
 
-from .api import open_cached_client
+from .._cacheables import open_cached_client
 from ._util import resproc, SymbolNotFound
 from ..log import get_logger, get_console_log
 from ..data import ShmArray

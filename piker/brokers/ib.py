@@ -1371,6 +1371,9 @@ async def trades_dialogue(
         # start order request handler **before** local trades event loop
         n.start_soon(handle_order_requests, ems_stream)
 
+        # TODO: for some reason we can receive a ``None`` here when the
+        # ib-gw goes down? Not sure exactly how that's happening looking
+        # at the eventkit code above but we should probably handle it...
         async for event_name, item in ib_trade_events_stream:
             print(f' ib sending {item}')
 
@@ -1509,9 +1512,8 @@ async def trades_dialogue(
 @tractor.context
 async def open_symbol_search(
     ctx: tractor.Context,
-) -> None:
-    # async with open_cached_client('ib') as client:
 
+) -> None:
     # load all symbols locally for fast search
     await ctx.started({})
 
