@@ -22,7 +22,13 @@ Cacheing apis and toolz.
 # https://gist.github.com/njsmith/cf6fc0a97f53865f2c671659c88c1798#file-cache-py-L8
 
 from collections import OrderedDict
-from typing import Optional, Hashable, TypeVar, AsyncContextManager
+from typing import (
+    Optional,
+    Hashable,
+    TypeVar,
+    AsyncContextManager,
+    AsyncIterable,
+)
 from contextlib import (
     asynccontextmanager,
     AsyncExitStack,
@@ -33,7 +39,6 @@ import trio
 
 from .brokers import get_brokermod
 from .log import get_logger
-from .data.feed import Feed
 
 
 T = TypeVar('T')
@@ -132,7 +137,7 @@ class cache:
     '''
     lock = trio.Lock()
     users: int = 0
-    ctxs: dict[tuple[str, str], Feed] = {}
+    ctxs: dict[tuple[str, str], AsyncIterable] = {}
     no_more_users: Optional[trio.Event] = None
 
 
@@ -150,7 +155,7 @@ async def maybe_open_ctx(
 
     '''
     @contextmanager
-    def get_and_use() -> Feed:
+    def get_and_use() -> AsyncIterable[T]:
         # key error must bubble here
         feed = cache.ctxs[key]
         log.info(f'Reusing cached feed for {key}')
