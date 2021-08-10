@@ -413,7 +413,7 @@ async def run_order_mode(
         ),
 
     ):
-        view = chart._vb
+        view = chart.view
         lines = LineEditor(chart=chart)
         arrows = ArrowEditor(chart, {})
 
@@ -431,8 +431,9 @@ async def run_order_mode(
             pp,
         )
 
+        # TODO: create a mode "manager" of sorts?
+        # -> probably just call it "UxModes" err sumthin?
         # so that view handlers can access it
-        mode.pp = pp
         view.mode = mode
 
         asset_type = symbol.type_key
