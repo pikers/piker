@@ -45,8 +45,7 @@ from ._style import _font
 
 
 class Position(BaseModel):
-    '''Basic pp (personal position) data representation with attached
-    fills history.
+    '''Basic pp (personal position) model with attached fills history.
 
     This type should be IPC wire ready?
 
@@ -90,6 +89,9 @@ def mk_pp_alloc(
     )
 
     class Allocator(BaseModel):
+
+        class Config:
+            validate_assignment = True
 
         account: Account = None
         _accounts: dict[str, Optional[str]] = accounts
@@ -154,11 +156,9 @@ class PositionTracker:
             avg_price=0,
         )
 
-        self.pp_label = None
-
         view = chart.getViewBox()
 
-        # literally 'pp' label that's always in view
+        # literally the 'pp' (pee pee) label that's always in view
         self.pp_label = pp_label = Label(
             view=view,
             fmt_str='pp',
