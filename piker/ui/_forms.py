@@ -18,6 +18,7 @@
 Text entry "forms" widgets (mostly for configuration and UI user input).
 
 '''
+from __future__ import annotations
 from contextlib import asynccontextmanager
 from functools import partial
 from textwrap import dedent
@@ -153,6 +154,13 @@ class FontScaledDelegate(QStyledItemDelegate):
             return super().sizeHint(option, index)
 
 
+# slew of resources which helped get this where it is:
+# https://stackoverflow.com/questions/20648210/qcombobox-adjusttocontents-changing-height
+# https://stackoverflow.com/questions/3151798/how-do-i-set-the-qcombobox-width-to-fit-the-largest-item
+# https://stackoverflow.com/questions/6337589/qlistwidget-adjust-size-to-content#6370892
+# https://stackoverflow.com/questions/25304267/qt-resize-of-qlistview
+# https://stackoverflow.com/questions/28227406/how-to-set-qlistview-rows-height-permanently
+
 class FieldsForm(QWidget):
 
     godwidget: 'GodWidget'  # noqa
@@ -245,8 +253,6 @@ class FieldsForm(QWidget):
         name: str,
         value: str,
 
-        widget: Optional[QWidget] = None,
-
     ) -> FontAndChartAwareLineEdit:
 
         # TODO: maybe a distint layout per "field" item?
@@ -281,6 +287,7 @@ class FieldsForm(QWidget):
         label = self.add_field_label(name)
 
         select = QComboBox(self)
+        select._key = name
 
         for i, value in enumerate(values):
             select.insertItem(i, str(value))
@@ -330,28 +337,38 @@ async def handle_field_input(
     # last_widget: QWidget,  # had focus prior
     recv_chan: trio.abc.ReceiveChannel,
     fields: FieldsForm,
+    allocator: Allocator,  # noqa
 
 ) -> None:
 
-    async for event, etype, key, mods, txt in recv_chan:
-        print(f'key: {key}, mods: {mods}, txt: {txt}')
+    async for kbmsg in recv_chan:
 
-        # default controls set
-        ctl = False
-        if mods == Qt.ControlModifier:
-            ctl = True
+        if kbmsg.etype in {QEvent.KeyPress, QEvent.KeyRelease}:
+            event, etype, key, mods, txt = kbmsg.to_tuple()
+            print(f'key: {kbmsg.key}, mods: {kbmsg.mods}, txt: {kbmsg.txt}')
 
-        if ctl and key in {  # cancel and refocus
+            # default controls set
+            ctl = False
+            if kbmsg.mods == Qt.ControlModifier:
+                ctl = True
 
-            Qt.Key_C,
-            Qt.Key_Space,  # i feel like this is the "native" one
-            Qt.Key_Alt,
-        }:
+            if ctl and key in {  # cancel and refocus
 
-            widget.clearFocus()
-            fields.godwidget.focus()
+                Qt.Key_C,
+                Qt.Key_Space,  # i feel like this is the "native" one
+                Qt.Key_Alt,
+            }:
 
-            continue
+                widget.clearFocus()
+                fields.godwidget.focus()
+                continue
+
+            # process field input
+            if key in (Qt.Key_Enter, Qt.Key_Return):
+                value = widget.text()
+                key = widget._key
+                setattr(allocator, key, value)
+                print(allocator.dict())
 
 
 @asynccontextmanager
@@ -360,33 +377,54 @@ async def open_form(
     godwidget: QWidget,
     parent: QWidget,
     fields_schema: dict,
+    # alloc: Allocator,
     # orientation: str = 'horizontal',
 
 ) -> FieldsForm:
 
     fields = FieldsForm(godwidget, parent=parent)
+    from ._position import mk_pp_alloc
+    alloc = mk_pp_alloc()
+    fields.model = alloc
 
     for name, config in fields_schema.items():
         wtype = config['type']
-        key = str(config['key'])
+        label = str(config.get('label', name))
 
         # plain (line) edit field
         if wtype == 'edit':
-            fields.add_edit_field(key, config['default_value'])
+            w = fields.add_edit_field(
+                label,
+                config['default_value']
+            )
 
         # drop-down selection
         elif wtype == 'select':
             values = list(config['default_value'])
-            fields.add_select_field(key, values)
+            w = fields.add_select_field(
+                label,
+                values
+            )
+
+            def write_model(text: str):
+                print(f'{text}')
+                setattr(alloc, name, text)
+
+            w.currentTextChanged.connect(write_model)
+
+        w._key = name
 
     async with open_handlers(
 
         list(fields.fields.values()),
-        event_types={QEvent.KeyPress},
+        event_types={
+            QEvent.KeyPress,
+        },
 
         async_handler=partial(
             handle_field_input,
             fields=fields,
+            allocator=alloc,
         ),
 
         # block key repeats?
@@ -395,7 +433,7 @@ async def open_form(
         yield fields
 
 
-def mk_health_bar(
+def mk_fill_status_bar(
 
     fields: FieldsForm,
     pane_vbox: QVBoxLayout,
@@ -553,7 +591,7 @@ def mk_order_pane_layout(
     # _, h = fields.width(), fields.height()
     # print(f'w, h: {w, h}')
 
-    hbox, bar = mk_health_bar(fields, pane_vbox=vbox)
+    hbox, bar = mk_fill_status_bar(fields, pane_vbox=vbox)
 
     # add pp fill bar + spacing
     vbox.addLayout(hbox, stretch=1/3)
