@@ -204,14 +204,23 @@ class LevelLine(pg.InfiniteLine):
 
     def on_tracked_source(
         self,
+
         x: int,
         y: float
+
     ) -> None:
-        # XXX: this is called by our ``Cursor`` type once this
-        # line is set to track the cursor: for every movement
-        # this callback is invoked to reposition the line
+        '''Chart coordinates cursor tracking callback.
+
+        this is called by our ``Cursor`` type once this line is set to
+        track the cursor: for every movement this callback is invoked to
+        reposition the line
+        '''
         self.movable = True
         self.set_level(y)  # implictly calls reposition handler
+
+        self._chart.linked.godwidget.pp_config.model.get_order_info(
+            price=y
+        )
 
     def mouseDragEvent(self, ev):
         """Override the ``InfiniteLine`` handler since we need more
