@@ -18,6 +18,9 @@
 Cacheing apis and toolz.
 
 """
+# further examples of interest:
+# https://gist.github.com/njsmith/cf6fc0a97f53865f2c671659c88c1798#file-cache-py-L8
+
 from collections import OrderedDict
 from typing import Optional, Hashable, TypeVar, AsyncContextManager
 from contextlib import (
