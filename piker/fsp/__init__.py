@@ -69,6 +69,7 @@ async def fsp_compute(
     ctx: tractor.Context,
     symbol: str,
     feed: Feed,
+    stream: trio.abc.ReceiveChannel,
 
     src: ShmArray,
     dst: ShmArray,
@@ -93,14 +94,14 @@ async def fsp_compute(
         yield {}
 
         # task cancellation won't kill the channel
-        with stream.shield():
-            async for quotes in stream:
-                for symbol, quotes in quotes.items():
-                    if symbol == sym:
-                        yield quotes
+        # since we shielded at the `open_feed()` call
+        async for quotes in stream:
+            for symbol, quotes in quotes.items():
+                if symbol == sym:
+                    yield quotes
 
     out_stream = func(
-        filter_by_sym(symbol, feed.stream),
+        filter_by_sym(symbol, stream),
         feed.shm,
     )
 
@@ -164,7 +165,8 @@ async def cascade(
     dst_shm_token: Tuple[str, np.dtype],
     symbol: str,
     fsp_func_name: str,
-) -> AsyncIterator[dict]:
+
+) -> None:
     """Chain streaming signal processors and deliver output to
     destination mem buf.
 
@@ -175,7 +177,11 @@ async def cascade(
     func: Callable = _fsps[fsp_func_name]
 
     # open a data feed stream with requested broker
-    async with data.open_feed(brokername, [symbol]) as feed:
+    async with data.feed.maybe_open_feed(
+        brokername,
+        [symbol],
+        shielded_stream=True,
+    ) as (feed, stream):
 
         assert src.token == feed.shm.token
 
@@ -186,6 +192,7 @@ async def cascade(
             ctx=ctx,
             symbol=symbol,
             feed=feed,
+            stream=stream,
 
             src=src,
             dst=dst,

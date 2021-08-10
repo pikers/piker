@@ -32,9 +32,8 @@ import tractor
 
 from ..log import get_logger
 from ..data._normalize import iterticks
-from ..data.feed import Feed, open_feed
+from ..data.feed import Feed, maybe_open_feed
 from .._daemon import maybe_spawn_brokerd
-from .._cacheables import maybe_open_ctx
 from . import _paper_engine as paper
 from ._messages import (
     Status, Order,
@@ -959,15 +958,11 @@ async def _emsd_main(
 
     # spawn one task per broker feed
     async with (
-        maybe_open_ctx(
-            key=(broker, symbol),
-            mngr=open_feed(
-                broker,
-                [symbol],
-                loglevel=loglevel,
-            ),
+        maybe_open_feed(
+            broker,
+            [symbol],
             loglevel=loglevel,
-        ) as feed,
+        ) as (feed, stream),
     ):
 
         # XXX: this should be initial price quote from target provider
@@ -1011,7 +1006,7 @@ async def _emsd_main(
 
                     brokerd_stream,
                     ems_client_order_stream,
-                    feed.stream,
+                    stream,
                     broker,
                     symbol,
                     book
