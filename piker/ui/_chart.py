@@ -344,9 +344,7 @@ class LinkedSplits(QWidget):
 
     def focus(self) -> None:
         if self.chart is not None:
-            print("FOCUSSING CHART")
             self.chart.focus()
-            # self.chart.parent().show()
 
     def unfocus(self) -> None:
         if self.chart is not None:
@@ -390,8 +388,8 @@ class LinkedSplits(QWidget):
 
         # style?
         self.chart.setFrameStyle(
-            QtWidgets.QFrame.StyledPanel |
-            QtWidgets.QFrame.Plain
+            QFrame.StyledPanel |
+            QFrame.Plain
         )
 
         return self.chart
@@ -1064,7 +1062,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self.scene().leaveEvent(ev)
 
 
-_clear_throttle_rate: int = 35  # Hz
+_clear_throttle_rate: int = 60  # Hz
 _book_throttle_rate: int = 16  # Hz
 
 
@@ -1394,14 +1392,14 @@ async def run_fsp(
             parent=linkedsplits.godwidget,
             fields_schema={
                 'name': {
-                    'key': '**fsp**:',
+                    'label': '**fsp**:',
                     'type': 'select',
                     'default_value': [
                         f'{display_name}'
                     ],
                 },
                 'period': {
-                    'key': '**period**:',
+                    'label': '**period**:',
                     'type': 'edit',
                     'default_value': 14,
                 },
@@ -1637,8 +1635,7 @@ async def display_symbol_data(
     # )
 
     async with(
-
-        data.open_feed(
+        data.feed.open_feed(
             provider,
             [sym],
             loglevel=loglevel,
@@ -1647,8 +1644,21 @@ async def display_symbol_data(
             tick_throttle=_clear_throttle_rate,
 
         ) as feed,
-
+        trio.open_nursery() as n,
     ):
+        async def print_quotes():
+            async with feed.stream.subscribe() as bstream:
+                last_tick = time.time()
+                async for quotes in bstream:
+                    now = time.time()
+                    period = now - last_tick
+                    for sym, quote in quotes.items():
+                        ticks = quote.get('ticks', ())
+                        if ticks:
+                            print(f'{1/period} Hz')
+                            last_tick = time.time()
+
+        n.start_soon(print_quotes)
 
         ohlcv: ShmArray = feed.shm
         bars = ohlcv.array
@@ -1829,6 +1839,8 @@ async def _async_main(
     sbar = godwidget.window.status_bar
     starting_done = sbar.open_status('starting ze sexy chartz')
 
+    # generate order mode side-pane UI
+
     async with (
         trio.open_nursery() as root_n,
 
@@ -1838,7 +1850,6 @@ async def _async_main(
             parent=godwidget,
             fields_schema={
                 'account': {
-                    'key': '**account**:',
                     'type': 'select',
                     'default_value': [
                         'paper',
@@ -1846,8 +1857,8 @@ async def _async_main(
                         # 'ib.paper',
                     ],
                 },
-                'allocator': {
-                    'key': '**allocate**:',
+                'size_unit': {
+                    'label': '**allocate**:',
                     'type': 'select',
                     'default_value': [
                         '$ size',
@@ -1855,18 +1866,17 @@ async def _async_main(
                         '# shares'
                     ],
                 },
-                'disti_policy': {
-                    'key': '**weight**:',
+                'disti_weight': {
+                    'label': '**weight**:',
                     'type': 'select',
                     'default_value': ['uniform'],
                 },
-                'dollar_size': {
-                    'key': '**$size**:',
+                'size': {
+                    'label': '**size**:',
                     'type': 'edit',
-                    'default_value': '5k',
+                    'default_value': 5000,
                 },
                 'slots': {
-                    'key': '**slots**:',
                     'type': 'edit',
                     'default_value': 4,
                 },
