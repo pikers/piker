@@ -38,7 +38,7 @@ log = get_logger(__name__)
 
 @dataclass
 class OrderBook:
-    """Buy-side (client-side ?) order book ctl and tracking.
+    '''EMS-client-side order book ctl and tracking.
 
     A style similar to "model-view" is used here where this api is
     provided as a supervised control for an EMS actor which does all the
@@ -48,7 +48,7 @@ class OrderBook:
     Currently, this is mostly for keeping local state to match the EMS
     and use received events to trigger graphics updates.
 
-    """
+    '''
     # mem channels used to relay order requests to the EMS daemon
     _to_ems: trio.abc.SendChannel
     _from_order_book: trio.abc.ReceiveChannel

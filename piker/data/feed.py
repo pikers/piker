@@ -441,7 +441,7 @@ async def open_feed(
     tick_throttle: Optional[float] = None,  # Hz
     shielded_stream: bool = False,
 
-) -> ReceiveChannel[dict[str, Any]]:
+) -> Feed:
     '''
     Open a "data feed" which provides streamed real-time quotes.
 
@@ -522,7 +522,7 @@ async def open_feed(
         feed._max_sample_rate = max(ohlc_sample_rates)
 
         try:
-            yield feed, bstream
+            yield feed
         finally:
             # drop the infinite stream connection
             await ctx.cancel()
@@ -538,7 +538,7 @@ async def maybe_open_feed(
     tick_throttle: Optional[float] = None,  # Hz
     shielded_stream: bool = False,
 
-) -> ReceiveChannel[dict[str, Any]]:
+) -> (Feed, ReceiveChannel[dict[str, Any]]):
     '''Maybe open a data to a ``brokerd`` daemon only if there is no
     local one for the broker-symbol pair, if one is cached use it wrapped
     in a tractor broadcast receiver.
@@ -553,12 +553,12 @@ async def maybe_open_feed(
             [sym],
             loglevel=loglevel,
         ),
-    ) as (cache_hit, (feed, stream)):
+    ) as (cache_hit, feed):
 
         if cache_hit:
             # add a new broadcast subscription for the quote stream
             # if this feed is likely already in use
-            async with stream.subscribe() as bstream:
+            async with feed.stream.subscribe() as bstream:
                 yield feed, bstream
         else:
             yield feed, stream
