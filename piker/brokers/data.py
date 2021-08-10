@@ -14,9 +14,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""
-Real-time data feed machinery
-"""
+'''
+NB: this is the old original implementation that was used way way back
+when the project started with ``kivy``.
+
+This code is left for reference but will likely be merged in
+appropriately and removed.
+
+'''
 import time
 from functools import partial
 from dataclasses import dataclass, field
