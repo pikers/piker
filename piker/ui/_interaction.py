@@ -64,7 +64,8 @@ async def handle_viewmode_inputs(
         'cc': mode.cancel_all_orders,
     }
 
-    async for event, etype, key, mods, text in recv_chan:
+    async for kbmsg in recv_chan:
+        event, etype, key, mods, text = kbmsg.to_tuple()
         log.debug(f'key: {key}, mods: {mods}, text: {text}')
         now = time.time()
         period = now - last
