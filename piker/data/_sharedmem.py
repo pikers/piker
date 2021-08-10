@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-NumPy compatible shared memory buffers for real-time FSP.
+NumPy compatible shared memory buffers for real-time IPC streaming.
 
 """
 from dataclasses import dataclass, asdict
@@ -207,11 +207,16 @@ class ShmArray:
     def push(
         self,
         data: np.ndarray,
+
         prepend: bool = False,
+
     ) -> int:
-        """Ring buffer like "push" to append data
+        '''Ring buffer like "push" to append data
         into the buffer and return updated "last" index.
-        """
+
+        NB: no actual ring logic yet to give a "loop around" on overflow
+        condition, lel.
+        '''
         length = len(data)
 
         if prepend:
