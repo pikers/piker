@@ -815,18 +815,14 @@ async def handle_keyboard_input(
             )
         )
 
-        async for event, etype, key, mods, txt in recv_chan:
+        async for kbmsg in recv_chan:
+            event, etype, key, mods, txt = kbmsg.to_tuple()
 
             log.debug(f'key: {key}, mods: {mods}, txt: {txt}')
 
             ctl = False
             if mods == Qt.ControlModifier:
                 ctl = True
-
-            # # ctl + alt as combo
-            # ctlalt = False
-            # if (QtCore.Qt.AltModifier | QtCore.Qt.ControlModifier) == mods:
-            #     ctlalt = True
 
             if key in (Qt.Key_Enter, Qt.Key_Return):
 

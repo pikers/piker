@@ -25,6 +25,35 @@ from PyQt5 import QtCore
 from PyQt5.QtCore import QEvent
 from PyQt5.QtWidgets import QWidget
 import trio
+from pydantic import BaseModel
+
+
+# TODO: maybe consider some constrained ints down the road?
+# https://pydantic-docs.helpmanual.io/usage/types/#constrained-types
+
+class KeyboardMsg(BaseModel):
+    '''Unpacked Qt keyboard event data.
+
+    '''
+    event: QEvent
+    etype: int
+    key: int
+    mods: int
+    txt: str
+
+    class Config:
+        arbitrary_types_allowed = True
+
+    def to_tuple(self) -> tuple:
+        return tuple(self.dict().values())
+
+
+# TODO: maybe add some methods to detect key combos? Or is that gonna be
+# better with pattern matching?
+# # ctl + alt as combo
+# ctlalt = False
+# if (QtCore.Qt.AltModifier | QtCore.Qt.ControlModifier) == mods:
+#     ctlalt = True
 
 
 class EventRelay(QtCore.QObject):
@@ -67,22 +96,26 @@ class EventRelay(QtCore.QObject):
 
             if etype in {QEvent.KeyPress, QEvent.KeyRelease}:
 
+                msg = KeyboardMsg(
+                    event=ev,
+                    etype=ev.type(),
+                    key=ev.key(),
+                    mods=ev.modifiers(),
+                    txt=ev.text(),
+                )
+
                 # TODO: is there a global setting for this?
                 if ev.isAutoRepeat() and self._filter_auto_repeats:
                     ev.ignore()
                     return True
-
-                key = ev.key()
-                mods = ev.modifiers()
-                txt = ev.text()
 
                 # NOTE: the event object instance coming out
                 # the other side is mutated since Qt resumes event
                 # processing **before** running a ``trio`` guest mode
                 # tick, thus special handling or copying must be done.
 
-                # send elements to async handler
-                self._send_chan.send_nowait((ev, etype, key, mods, txt))
+                # send keyboard msg to async handler
+                self._send_chan.send_nowait(msg)
 
             else:
                 # send event to async handler
