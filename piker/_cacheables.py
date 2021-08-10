@@ -146,9 +146,8 @@ async def maybe_open_ctx(
 
     key: Hashable,
     mngr: AsyncContextManager[T],
-    loglevel: str,
 
-) -> T:
+) -> (bool, T):
     '''Maybe open a context manager if there is not already a cached
     version for the provided ``key``. Return the cached instance on
     a cache hit.
@@ -161,7 +160,7 @@ async def maybe_open_ctx(
         log.info(f'Reusing cached feed for {key}')
         try:
             cache.users += 1
-            yield feed
+            yield True, feed
         finally:
             cache.users -= 1
             if cache.users == 0:
@@ -170,7 +169,7 @@ async def maybe_open_ctx(
 
     try:
         with get_and_use() as feed:
-            yield feed
+            yield True, feed
     except KeyError:
         # lock feed acquisition around task racing  / ``trio``'s
         # scheduler protocol
@@ -193,7 +192,7 @@ async def maybe_open_ctx(
                 cache.ctxs[key] = value
                 cache.lock.release()
                 try:
-                    yield value
+                    yield True, value
                 finally:
                     # don't tear down the feed until there are zero
                     # users of it left.
