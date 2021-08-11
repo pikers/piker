@@ -492,6 +492,7 @@ class LinkedSplits(QWidget):
         # so we can look this up and add back to the splitter
         # on a symbol switch
         cpw.qframe = qframe
+        assert cpw.parent() == qframe
 
         # add sidepane **after** chart; place it on axis side
         if sidepane:
@@ -1062,7 +1063,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self.scene().leaveEvent(ev)
 
 
-_clear_throttle_rate: int = 60  # Hz
+_clear_throttle_rate: int = 50  # Hz
 _book_throttle_rate: int = 16  # Hz
 
 
@@ -1388,7 +1389,6 @@ async def run_fsp(
         ) as stream,
 
         open_form(
-            godwidget=linkedsplits.godwidget,
             parent=linkedsplits.godwidget,
             fields_schema={
                 'name': {
@@ -1655,7 +1655,7 @@ async def display_symbol_data(
                     for sym, quote in quotes.items():
                         ticks = quote.get('ticks', ())
                         if ticks:
-                            print(f'{1/period} Hz')
+                            # print(f'{1/period} Hz')
                             last_tick = time.time()
 
         n.start_soon(print_quotes)
@@ -1841,12 +1841,12 @@ async def _async_main(
 
     # generate order mode side-pane UI
 
+
     async with (
         trio.open_nursery() as root_n,
 
         # fields form to configure order entry
         open_form(
-            godwidget=godwidget,
             parent=godwidget,
             fields_schema={
                 'account': {

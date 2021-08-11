@@ -163,20 +163,16 @@ class FontScaledDelegate(QStyledItemDelegate):
 
 class FieldsForm(QWidget):
 
-    godwidget: 'GodWidget'  # noqa
     vbox: QVBoxLayout
     form: QFormLayout
 
     def __init__(
         self,
-
-        godwidget: 'GodWidget',  # type: ignore # noqa
         parent=None,
 
     ) -> None:
 
-        super().__init__(parent or godwidget)
-        self.godwidget = godwidget
+        super().__init__(parent)
 
         # size it as we specify
         self.setSizePolicy(
@@ -374,7 +370,6 @@ async def handle_field_input(
 @asynccontextmanager
 async def open_form(
 
-    godwidget: QWidget,
     parent: QWidget,
     fields_schema: dict,
     # alloc: Allocator,
@@ -382,7 +377,7 @@ async def open_form(
 
 ) -> FieldsForm:
 
-    fields = FieldsForm(godwidget, parent=parent)
+    fields = FieldsForm(parent=parent)
     from ._position import mk_pp_alloc
     alloc = mk_pp_alloc()
     fields.model = alloc
