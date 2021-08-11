@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
 )
 import numpy as np
 import pyqtgraph as pg
+from pydantic import BaseModel
 import tractor
 import trio
 
@@ -75,8 +76,9 @@ from .. import fsp
 from ..data import feed
 from ._forms import (
     FieldsForm,
-    open_form,
+    mk_form,
     mk_order_pane_layout,
+    open_form_input_handling,
 )
 
 
@@ -228,9 +230,9 @@ class GodWidget(QWidget):
             # change the order config form over to the new chart
             # XXX: since the pp config is a singleton widget we have to
             # also switch it over to the new chart's interal-layout
-            self.linkedsplits.chart.qframe.hbox.removeWidget(self.pp_config)
+            self.linkedsplits.chart.qframe.hbox.removeWidget(self.pp_pane)
             linkedsplits.chart.qframe.hbox.addWidget(
-                self.pp_config,
+                self.pp_pane,
                 alignment=Qt.AlignTop
             )
 
@@ -377,7 +379,7 @@ class LinkedSplits(QWidget):
             style=style,
             _is_main=True,
 
-            sidepane=self.godwidget.pp_config,
+            sidepane=self.godwidget.pp_pane,
         )
         # add crosshair graphic
         self.chart.addItem(self.cursor)
@@ -438,7 +440,7 @@ class LinkedSplits(QWidget):
             self.xaxis = xaxis
 
         # TODO: probably should formalize and call this something else?
-        class LambdaQFrame(QFrame):
+        class ChartnPane(QFrame):
             '''One-off ``QFrame`` composite which pairs a chart + sidepane
             ``FieldsForm`` (if provided).
 
@@ -465,7 +467,7 @@ class LinkedSplits(QWidget):
                 hbox.setContentsMargins(0, 0, 0, 0)
                 hbox.setSpacing(3)
 
-        qframe = LambdaQFrame(self.splitter)
+        qframe = ChartnPane(self.splitter)
 
         cpw = ChartPlotWidget(
 
@@ -517,7 +519,9 @@ class LinkedSplits(QWidget):
         # XXX: gives us outline on backside of y-axis
         cpw.getPlotItem().setContentsMargins(*CHART_MARGINS)
 
-        # link chart x-axis to main quotes chart
+        # link chart x-axis to main chart
+        # this is 1/2 of where the `Link` in ``LinkedSplit``
+        # comes from ;)
         cpw.setXLink(self.chart)
 
         # add to cross-hair's known plots
@@ -1373,6 +1377,36 @@ async def run_fsp(
         group_key=group_status_key,
     )
 
+    class FspConfig(BaseModel):
+
+        class Config:
+            validate_assignment = True
+
+        name: str
+        period: int
+
+    sidepane: FieldsForm = mk_form(
+        model=FspConfig(
+            name=display_name,
+            period=14,
+        ),
+        parent=linkedsplits.godwidget,
+        fields_schema={
+            'name': {
+                'label': '**fsp**:',
+                'type': 'select',
+                'default_value': [
+                    f'{display_name}'
+                ],
+            },
+            'period': {
+                'label': '**period**:',
+                'type': 'edit',
+                'default_value': 14,
+            },
+        },
+    )
+
     async with (
         portal.open_stream_from(
 
@@ -1388,23 +1422,8 @@ async def run_fsp(
 
         ) as stream,
 
-        open_form(
-            parent=linkedsplits.godwidget,
-            fields_schema={
-                'name': {
-                    'label': '**fsp**:',
-                    'type': 'select',
-                    'default_value': [
-                        f'{display_name}'
-                    ],
-                },
-                'period': {
-                    'label': '**period**:',
-                    'type': 'edit',
-                    'default_value': 14,
-                },
-            },
-        ) as sidepane,
+        # TODO:
+        # open_form_input_handling(sidepane),
 
     ):
 
@@ -1840,56 +1859,14 @@ async def _async_main(
     starting_done = sbar.open_status('starting ze sexy chartz')
 
     # generate order mode side-pane UI
-
+    # A ``FieldsForm`` form to configure order entry
+    pp_pane: FieldsForm = mk_order_pane_layout(godwidget)
+    # add as next-to-y-axis singleton pane
+    godwidget.pp_pane = pp_pane
 
     async with (
         trio.open_nursery() as root_n,
-
-        # fields form to configure order entry
-        open_form(
-            parent=godwidget,
-            fields_schema={
-                'account': {
-                    'type': 'select',
-                    'default_value': [
-                        'paper',
-                        # 'ib.margin',
-                        # 'ib.paper',
-                    ],
-                },
-                'size_unit': {
-                    'label': '**allocate**:',
-                    'type': 'select',
-                    'default_value': [
-                        '$ size',
-                        '% of port',
-                        '# shares'
-                    ],
-                },
-                'disti_weight': {
-                    'label': '**weight**:',
-                    'type': 'select',
-                    'default_value': ['uniform'],
-                },
-                'size': {
-                    'label': '**size**:',
-                    'type': 'edit',
-                    'default_value': 5000,
-                },
-                'slots': {
-                    'type': 'edit',
-                    'default_value': 4,
-                },
-            },
-        ) as pp_config,
     ):
-        pp_config: FieldsForm
-        mk_order_pane_layout(pp_config)
-        pp_config.show()
-
-        # add as next-to-y-axis pane
-        godwidget.pp_config = pp_config
-
         # set root nursery and task stack for spawning other charts/feeds
         # that run cached in the bg
         godwidget._root_n = root_n
@@ -1932,9 +1909,10 @@ async def _async_main(
 
             await order_mode_ready.wait()
 
-            # start handling search bar kb inputs
+            # start handling peripherals input for top level widgets
             async with (
 
+                # search bar kb inputs
                 _event.open_handlers(
                     [search.bar],
                     event_types={QEvent.KeyPress},
@@ -1942,6 +1920,9 @@ async def _async_main(
                     # let key repeats pass through for search
                     filter_auto_repeats=False,
                 ),
+
+                # pp pane kb inputs
+                open_form_input_handling(pp_pane),
             ):
                 # remove startup status text
                 starting_done()

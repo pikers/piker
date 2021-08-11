@@ -105,12 +105,15 @@ def mk_pp_alloc(
         slots: int
 
         _position: Position = None
+        _widget: QWidget = None
 
         def get_order_info(
             self,
             price: float,
 
         ) -> dict:
+            size = self.size / self.slots
+
             units, r = divmod(
                 round((self.size / self.slots)),
                 price,

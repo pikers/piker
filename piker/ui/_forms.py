@@ -41,6 +41,7 @@ from PyQt5.QtWidgets import (
     QStyledItemDelegate,
     QStyleOptionViewItem,
 )
+import pydantic
 
 from ._event import open_handlers
 from ._style import hcolor, _font, _font_small, DpiAwareFont
@@ -330,10 +331,9 @@ class FieldsForm(QWidget):
 async def handle_field_input(
 
     widget: QWidget,
-    # last_widget: QWidget,  # had focus prior
     recv_chan: trio.abc.ReceiveChannel,
-    fields: FieldsForm,
-    allocator: Allocator,  # noqa
+    form: FieldsForm,
+    model: pydantic.BaseModel,  # noqa
 
 ) -> None:
 
@@ -356,39 +356,38 @@ async def handle_field_input(
             }:
 
                 widget.clearFocus()
-                fields.godwidget.focus()
+                form.godwidget.focus()
                 continue
 
             # process field input
             if key in (Qt.Key_Enter, Qt.Key_Return):
                 value = widget.text()
                 key = widget._key
-                setattr(allocator, key, value)
-                print(allocator.dict())
+                setattr(model, key, value)
+                print(model.dict())
 
 
-@asynccontextmanager
-async def open_form(
+def mk_form(
 
+    model: pydantic.BaseModel,
     parent: QWidget,
     fields_schema: dict,
-    # alloc: Allocator,
-    # orientation: str = 'horizontal',
 
 ) -> FieldsForm:
 
-    fields = FieldsForm(parent=parent)
-    from ._position import mk_pp_alloc
-    alloc = mk_pp_alloc()
-    fields.model = alloc
+    form = FieldsForm(parent=parent)
+    # TODO: generate components from model
+    # instead of schema dict (aka use an ORM)
+    form.model = model
 
+    # generate sub-components from schema dict
     for name, config in fields_schema.items():
         wtype = config['type']
         label = str(config.get('label', name))
 
         # plain (line) edit field
         if wtype == 'edit':
-            w = fields.add_edit_field(
+            w = form.add_edit_field(
                 label,
                 config['default_value']
             )
@@ -396,36 +395,48 @@ async def open_form(
         # drop-down selection
         elif wtype == 'select':
             values = list(config['default_value'])
-            w = fields.add_select_field(
+            w = form.add_select_field(
                 label,
                 values
             )
 
             def write_model(text: str):
                 print(f'{text}')
-                setattr(alloc, name, text)
+                setattr(form.model, name, text)
 
             w.currentTextChanged.connect(write_model)
 
         w._key = name
 
+    return form
+
+
+@asynccontextmanager
+async def open_form_input_handling(
+
+    form: FieldsForm
+
+) -> FieldsForm:
+
+    assert form.model, f'{form} must define a `.model`'
+
     async with open_handlers(
 
-        list(fields.fields.values()),
+        list(form.fields.values()),
         event_types={
             QEvent.KeyPress,
         },
 
         async_handler=partial(
             handle_field_input,
-            fields=fields,
-            allocator=alloc,
+            form=form,
+            model=form.model,
         ),
 
         # block key repeats?
         filter_auto_repeats=True,
     ):
-        yield fields
+        yield form
 
 
 def mk_fill_status_bar(
@@ -568,30 +579,73 @@ def mk_fill_status_bar(
 
 def mk_order_pane_layout(
 
-    fields: FieldsForm,
+    parent: QWidget,
     font_size: int = _font_small.px_size - 2
 
 ) -> FieldsForm:
 
+    from ._position import mk_pp_alloc
+    # TODO: some kinda pydantic sub-type
+    # that enforces a composite widget attr er sumthin..
+    # as part of our ORM thingers.
+    allocator = mk_pp_alloc()
+
     # TODO: maybe just allocate the whole fields form here
     # and expect an async ctx entry?
-
-    fields._font_size = font_size
+    form = mk_form(
+        parent=parent,
+        model=allocator,
+        fields_schema={
+            'account': {
+                'type': 'select',
+                'default_value': [
+                    'paper',
+                    # 'ib.margin',
+                    # 'ib.paper',
+                ],
+            },
+            'size_unit': {
+                'label': '**allocate**:',
+                'type': 'select',
+                'default_value': [
+                    '$ size',
+                    '% of port',
+                    '# shares'
+                ],
+            },
+            'disti_weight': {
+                'label': '**weight**:',
+                'type': 'select',
+                'default_value': ['uniform'],
+            },
+            'size': {
+                'label': '**size**:',
+                'type': 'edit',
+                'default_value': 5000,
+            },
+            'slots': {
+                'type': 'edit',
+                'default_value': 4,
+            },
+        },
+    )
+    form._font_size = font_size
+    allocator._widget = form
 
     # top level pane layout
     # XXX: see ``FieldsForm.__init__()`` for why we can't do basic
     # config of the vbox here
-    vbox = fields.vbox
+    vbox = form.vbox
 
-    # _, h = fields.width(), fields.height()
+    # _, h = form.width(), form.height()
     # print(f'w, h: {w, h}')
 
-    hbox, bar = mk_fill_status_bar(fields, pane_vbox=vbox)
+    hbox, bar = mk_fill_status_bar(form, pane_vbox=vbox)
 
     # add pp fill bar + spacing
     vbox.addLayout(hbox, stretch=1/3)
 
-    feed_label = fields.add_field_label(
+    feed_label = form.add_field_label(
         dedent("""
         brokerd.ib\n
         |_@localhost:8509\n
@@ -613,4 +667,6 @@ def mk_order_pane_layout(
     # https://doc.qt.io/qt-5/layout.html#adding-widgets-to-a-layout
     vbox.setSpacing(36)
 
-    return fields
+    form.show()
+
+    return form
