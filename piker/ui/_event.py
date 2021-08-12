@@ -21,8 +21,8 @@ Qt event proxying and processing using ``trio`` mem chans.
 from contextlib import asynccontextmanager, AsyncExitStack
 from typing import Callable
 
-from PyQt5 import QtCore
-from PyQt5.QtCore import QEvent
+from PyQt5 import QtCore, QtGui
+from PyQt5.QtCore import QEvent, pyqtBoundSignal
 from PyQt5.QtWidgets import QWidget
 import trio
 from pydantic import BaseModel
@@ -35,18 +35,29 @@ class KeyboardMsg(BaseModel):
     '''Unpacked Qt keyboard event data.
 
     '''
+    class Config:
+        arbitrary_types_allowed = True
+
     event: QEvent
     etype: int
     key: int
     mods: int
     txt: str
 
-    class Config:
-        arbitrary_types_allowed = True
-
     def to_tuple(self) -> tuple:
         return tuple(self.dict().values())
 
+
+class MouseMsg(BaseModel):
+    '''Unpacked Qt keyboard event data.
+
+    '''
+    class Config:
+        arbitrary_types_allowed = True
+
+    event: QEvent
+    etype: int
+    button: int
 
 # TODO: maybe add some methods to detect key combos? Or is that gonna be
 # better with pattern matching?
@@ -79,7 +90,7 @@ class EventRelay(QtCore.QObject):
 
         '''
         etype = ev.type()
-        # print(f'etype: {etype}')
+        # print(f'ev: {ev}')
 
         if etype in self._event_types:
             # ev.accept()
@@ -98,7 +109,7 @@ class EventRelay(QtCore.QObject):
 
                 msg = KeyboardMsg(
                     event=ev,
-                    etype=ev.type(),
+                    etype=etype,
                     key=ev.key(),
                     mods=ev.modifiers(),
                     txt=ev.text(),
@@ -114,12 +125,23 @@ class EventRelay(QtCore.QObject):
                 # processing **before** running a ``trio`` guest mode
                 # tick, thus special handling or copying must be done.
 
-                # send keyboard msg to async handler
-                self._send_chan.send_nowait(msg)
+            elif etype in {
+                QEvent.MouseButtonPress,
+                QEvent.MouseButtonRelease,
+                QtGui.QMouseEvent,
+            }:
+                print('mouse')
+                msg = MouseMsg(
+                    event=ev,
+                    etype=etype,
+                    button=ev.button(),
+                )
 
             else:
-                # send event to async handler
-                self._send_chan.send_nowait(ev)
+                msg = ev
+
+            # send event-msg to async handler
+            self._send_chan.send_nowait(msg)
 
             # **do not** filter out this event
             # and instead forward to the source widget
@@ -154,6 +176,31 @@ async def open_event_stream(
             yield recv
     finally:
         source_widget.removeEventFilter(kc)
+
+
+@asynccontextmanager
+async def open_signal_handler(
+
+    signal: pyqtBoundSignal,
+    async_handler: Callable,
+
+) -> trio.abc.ReceiveChannel:
+
+    send, recv = trio.open_memory_channel(0)
+
+    def proxy_args_to_chan(*args):
+        send.send_nowait(args)
+
+    signal.connect(proxy_args_to_chan)
+
+    async def proxy_to_handler():
+        async for args in recv:
+            await async_handler(*args)
+
+    async with trio.open_nursery() as n:
+        n.start_soon(proxy_to_handler)
+        async with send:
+            yield
 
 
 @asynccontextmanager
