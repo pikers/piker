@@ -156,11 +156,11 @@ async def maybe_open_ctx(
     @contextmanager
     def get_and_use() -> AsyncIterable[T]:
         # key error must bubble here
-        feed = cache.ctxs[key]
+        value = cache.ctxs[key]
         log.info(f'Reusing cached feed for {key}')
         try:
             cache.users += 1
-            yield True, feed
+            yield True, value
         finally:
             cache.users -= 1
             if cache.users == 0:
@@ -168,16 +168,16 @@ async def maybe_open_ctx(
                 cache.no_more_users.set()
 
     try:
-        with get_and_use() as feed:
-            yield True, feed
+        with get_and_use() as value:
+            yield True, value
     except KeyError:
         # lock feed acquisition around task racing  / ``trio``'s
         # scheduler protocol
         await cache.lock.acquire()
         try:
-            with get_and_use() as feed:
+            with get_and_use() as value:
                 cache.lock.release()
-                yield feed
+                yield True, value
                 return
 
         except KeyError:
