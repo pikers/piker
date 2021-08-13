@@ -120,8 +120,6 @@ class CompleterView(QTreeView):
         # TODO: size this based on DPI font
         self.setIndentation(20)
 
-        self.pressed.connect(self.on_pressed)
-
         # self.setUniformRowHeights(True)
         # self.setColumnWidth(0, 3)
         # self.setVerticalBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -138,12 +136,12 @@ class CompleterView(QTreeView):
 
         self._font_size: int = 0  # pixels
 
-    def on_pressed(self, idx: QModelIndex) -> None:
+    async def on_pressed(self, idx: QModelIndex) -> None:
         '''Mouse pressed on view handler.
 
         '''
         search = self.parent()
-        search.chart_current_item(clear_to_cache=False)
+        await search.chart_current_item(clear_to_cache=False)
         search.focus()
 
     def set_font_size(self, size: int = 18):
@@ -556,7 +554,7 @@ class SearchWidget(QtWidgets.QWidget):
         else:
             return None
 
-    def chart_current_item(
+    async def chart_current_item(
         self,
         clear_to_cache: bool = True,
 
@@ -576,7 +574,7 @@ class SearchWidget(QtWidgets.QWidget):
 
         log.info(f'Requesting symbol: {symbol}.{provider}')
 
-        chart.load_symbol(
+        await chart.load_symbol(
             provider,
             symbol,
             'info',
@@ -826,7 +824,7 @@ async def handle_keyboard_input(
 
             if key in (Qt.Key_Enter, Qt.Key_Return):
 
-                search.chart_current_item(clear_to_cache=True)
+                await search.chart_current_item(clear_to_cache=True)
                 _search_enabled = False
                 continue
 
@@ -896,7 +894,7 @@ async def handle_keyboard_input(
                     if parent_item and parent_item.text() == 'cache':
 
                         # if it's a cache item, switch and show it immediately
-                        search.chart_current_item(clear_to_cache=False)
+                        await search.chart_current_item(clear_to_cache=False)
 
             elif not ctl:
                 # relay to completer task
