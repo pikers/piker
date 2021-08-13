@@ -23,6 +23,7 @@ import time
 from typing import Optional, Callable
 
 import pyqtgraph as pg
+from PyQt5.QtWidgets import QGraphicsSceneMouseEvent as gs_mouse
 from PyQt5.QtCore import Qt, QEvent
 from pyqtgraph import ViewBox, Point, QtCore
 from pyqtgraph import functions as fn
@@ -32,12 +33,13 @@ import trio
 from ..log import get_logger
 from ._style import _min_points_to_show
 from ._editors import SelectRect
+from . import _event
 
 
 log = get_logger(__name__)
 
 
-async def handle_viewmode_inputs(
+async def handle_viewmode_kb_inputs(
 
     view: 'ChartView',
     recv_chan: trio.abc.ReceiveChannel,
@@ -185,7 +187,7 @@ async def handle_viewmode_inputs(
 
         if order_keys_pressed:
 
-            # show the pp label
+            # show the pp size label
             mode.pp.show()
 
             # TODO: show pp config mini-params in status bar widget
@@ -196,10 +198,10 @@ async def handle_viewmode_inputs(
                 Qt.Key_S in pressed or
                 ctrl
             ):
-                trigger_mode: str = 'live'
+                trigger_type: str = 'live'
 
             else:
-                trigger_mode: str = 'dark'
+                trigger_type: str = 'dark'
 
             # order mode trigger "actions"
             if Qt.Key_D in pressed:  # for "damp eet"
@@ -210,22 +212,21 @@ async def handle_viewmode_inputs(
 
             elif Qt.Key_A in pressed:
                 action = 'alert'
-                trigger_mode = 'live'
+                trigger_type = 'live'
 
             view.order_mode = True
 
             # XXX: order matters here for line style!
-            view.mode._exec_mode = trigger_mode
-            view.mode.set_exec(action)
+            view.mode._trigger_type = trigger_type
+            view.mode.stage_order(action, trigger_type=trigger_type)
 
-            prefix = trigger_mode + '-' if action != 'alert' else ''
+            prefix = trigger_type + '-' if action != 'alert' else ''
             view._chart.window().set_mode_name(f'{prefix}{action}')
 
         else:  # none active
 
             # hide pp label
             mode.pp.hide_info()
-            # mode.pp_config.hide()
 
             # if none are pressed, remove "staged" level
             # line under cursor position
@@ -238,6 +239,28 @@ async def handle_viewmode_inputs(
             view.order_mode = False
 
         last = time.time()
+
+
+async def handle_viewmode_mouse(
+
+    view: 'ChartView',
+    recv_chan: trio.abc.ReceiveChannel,
+
+) -> None:
+
+    async for msg in recv_chan:
+        button = msg.button
+        # pos = ev.pos()
+
+        if button == QtCore.Qt.RightButton and view.menuEnabled():
+            # ev.accept()
+            view.raiseContextMenu(msg.event)
+
+        elif button == QtCore.Qt.LeftButton:
+            # when in order mode, submit execution
+            if view.order_mode:
+                # ev.accept()
+                view.mode.submit_order()
 
 
 class ChartView(ViewBox):
@@ -284,12 +307,23 @@ class ChartView(ViewBox):
         self,
 
     ) -> 'ChartView':
-        from . import _event
 
-        async with _event.open_handlers(
-            [self],
-            event_types={QEvent.KeyPress, QEvent.KeyRelease},
-            async_handler=handle_viewmode_inputs,
+        async with (
+            _event.open_handlers(
+                [self],
+                event_types={
+                    QEvent.KeyPress,
+                    QEvent.KeyRelease,
+                },
+                async_handler=handle_viewmode_kb_inputs,
+            ),
+            _event.open_handlers(
+                [self],
+                event_types={
+                    gs_mouse.GraphicsSceneMousePress,
+                },
+                async_handler=handle_viewmode_mouse,
+            ),
         ):
             yield self
 
@@ -481,22 +515,10 @@ class ChartView(ViewBox):
             self.scaleBy(x=x, y=y, center=center)
             self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
 
-    def mouseClickEvent(self, ev):
-        """Full-click callback.
-
-        """
-        button = ev.button()
-        # pos = ev.pos()
-
-        if button == QtCore.Qt.RightButton and self.menuEnabled():
-            ev.accept()
-            self.raiseContextMenu(ev)
-
-        elif button == QtCore.Qt.LeftButton:
-            # when in order mode, submit execution
-            if self.order_mode:
-                ev.accept()
-                self.mode.submit_exec()
+    def mouseClickEvent(self, event: QtCore.QEvent) -> None:
+        '''This routine is rerouted to an async handler.
+        '''
+        pass
 
     def keyReleaseEvent(self, event: QtCore.QEvent) -> None:
         '''This routine is rerouted to an async handler.
