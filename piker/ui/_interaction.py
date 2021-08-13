@@ -23,6 +23,7 @@ import time
 from typing import Optional, Callable
 
 import pyqtgraph as pg
+from pyqtgraph.GraphicsScene import mouseEvents
 from PyQt5.QtWidgets import QGraphicsSceneMouseEvent as gs_mouse
 from PyQt5.QtCore import Qt, QEvent
 from pyqtgraph import ViewBox, Point, QtCore
@@ -250,17 +251,24 @@ async def handle_viewmode_mouse(
 
     async for msg in recv_chan:
         button = msg.button
-        # pos = ev.pos()
 
-        if button == QtCore.Qt.RightButton and view.menuEnabled():
-            # ev.accept()
-            view.raiseContextMenu(msg.event)
+        # XXX: ugggh ``pyqtgraph`` has its own mouse events..
+        # so we can't overried this easily.
+        # it's going to take probably some decent
+        # reworking of the mouseClickEvent() handler.
 
-        elif button == QtCore.Qt.LeftButton:
+        # if button == QtCore.Qt.RightButton and view.menuEnabled():
+        #     event = mouseEvents.MouseClickEvent(msg.event)
+        #     # event.accept()
+        #     view.raiseContextMenu(event)
+
+        if (
+            view.order_mode and
+            button == QtCore.Qt.LeftButton
+        ):
             # when in order mode, submit execution
-            if view.order_mode:
-                # ev.accept()
-                view.mode.submit_order()
+            # msg.event.accept()
+            view.mode.submit_order()
 
 
 class ChartView(ViewBox):
@@ -515,10 +523,10 @@ class ChartView(ViewBox):
             self.scaleBy(x=x, y=y, center=center)
             self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
 
-    def mouseClickEvent(self, event: QtCore.QEvent) -> None:
-        '''This routine is rerouted to an async handler.
-        '''
-        pass
+    # def mouseClickEvent(self, event: QtCore.QEvent) -> None:
+    #      '''This routine is rerouted to an async handler.
+    #      '''
+    #     pass
 
     def keyReleaseEvent(self, event: QtCore.QEvent) -> None:
         '''This routine is rerouted to an async handler.
