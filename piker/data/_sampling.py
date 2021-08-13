@@ -235,6 +235,8 @@ async def sample_and_broadcast(
 
                 try:
                     if tick_throttle:
+                        # this is a send mem chan that likely
+                        # pushes to the ``uniform_rate_send()`` below.
                         await stream.send(quote)
 
                     else:
@@ -254,6 +256,10 @@ async def sample_and_broadcast(
                     )
                     subs.remove((stream, tick_throttle))
 
+
+# TODO: a less naive throttler, here's some snippets:
+# token bucket by njs:
+# https://gist.github.com/njsmith/7ea44ec07e901cb78ebe1dd8dd846cb9
 
 async def uniform_rate_send(
 
@@ -292,7 +298,7 @@ async def uniform_rate_send(
                 rate = 1 / (now - last_send)
                 last_send = now
 
-                # print(f'{rate} Hz sending quotes\n{first_quote}')
+                # print(f'{rate} Hz sending quotes')  # \n{first_quote}')
 
                 # TODO: now if only we could sync this to the display
                 # rate timing exactly lul
