@@ -334,6 +334,7 @@ async def handle_field_input(
     recv_chan: trio.abc.ReceiveChannel,
     form: FieldsForm,
     model: pydantic.BaseModel,  # noqa
+    focus_next: QWidget,
 
 ) -> None:
 
@@ -356,7 +357,8 @@ async def handle_field_input(
             }:
 
                 widget.clearFocus()
-                form.godwidget.focus()
+                # normally the godwidget
+                focus_next.focus()
                 continue
 
             # process field input
@@ -414,7 +416,8 @@ def mk_form(
 @asynccontextmanager
 async def open_form_input_handling(
 
-    form: FieldsForm
+    form: FieldsForm,
+    focus_next: QWidget,
 
 ) -> FieldsForm:
 
@@ -431,6 +434,7 @@ async def open_form_input_handling(
             handle_field_input,
             form=form,
             model=form.model,
+            focus_next=focus_next,
         ),
 
         # block key repeats?
