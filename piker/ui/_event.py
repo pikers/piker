@@ -21,11 +21,21 @@ Qt event proxying and processing using ``trio`` mem chans.
 from contextlib import asynccontextmanager, AsyncExitStack
 from typing import Callable
 
-from PyQt5 import QtCore, QtGui
+from pydantic import BaseModel
+import trio
+from PyQt5 import QtCore
 from PyQt5.QtCore import QEvent, pyqtBoundSignal
 from PyQt5.QtWidgets import QWidget
-import trio
-from pydantic import BaseModel
+from PyQt5.QtWidgets import QGraphicsSceneMouseEvent as gs_mouse
+
+
+MOUSE_EVENTS = {
+    gs_mouse.GraphicsSceneMousePress,
+    gs_mouse.GraphicsSceneMouseRelease,
+    QEvent.MouseButtonPress,
+    QEvent.MouseButtonRelease,
+    # QtGui.QMouseEvent,
+}
 
 
 # TODO: maybe consider some constrained ints down the road?
@@ -59,6 +69,7 @@ class MouseMsg(BaseModel):
     etype: int
     button: int
 
+
 # TODO: maybe add some methods to detect key combos? Or is that gonna be
 # better with pattern matching?
 # # ctl + alt as combo
@@ -78,8 +89,10 @@ class EventRelay(QtCore.QObject):
 
     def eventFilter(
         self,
+
         source: QWidget,
         ev: QEvent,
+
     ) -> None:
         '''
         Qt global event filter: return `False` to pass through and `True`
@@ -90,6 +103,8 @@ class EventRelay(QtCore.QObject):
 
         '''
         etype = ev.type()
+        # TODO: turn this on and see what we can filter by default (such
+        # as mouseWheelEvent).
         # print(f'ev: {ev}')
 
         if etype in self._event_types:
@@ -125,12 +140,7 @@ class EventRelay(QtCore.QObject):
                 # processing **before** running a ``trio`` guest mode
                 # tick, thus special handling or copying must be done.
 
-            elif etype in {
-                QEvent.MouseButtonPress,
-                QEvent.MouseButtonRelease,
-                QtGui.QMouseEvent,
-            }:
-                print('mouse')
+            elif etype in MOUSE_EVENTS:
                 msg = MouseMsg(
                     event=ev,
                     etype=etype,
