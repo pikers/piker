@@ -81,8 +81,11 @@ class LevelLine(pg.InfiniteLine):
         self._dotted = dotted
         self._hide_xhair_on_hover = hide_xhair_on_hover
 
+        # callback that can be assigned by user code
+        # to get updates from each level change
+        self._on_level_change: Callable[[float], None] = lambda y: None
+
         self._marker = None
-        # self._default_mkr_size = marker_size
         self._moh = only_show_markers_on_hover
         self.show_markers: bool = True  # presuming the line is hovered at init
 
@@ -187,6 +190,7 @@ class LevelLine(pg.InfiniteLine):
     def set_level(
         self,
         level: float,
+
     ) -> None:
         last = self.value()
 
@@ -202,6 +206,9 @@ class LevelLine(pg.InfiniteLine):
         self.level = self.value()
         self.update()
 
+        # invoke any user code
+        self._on_level_change(level)
+
     def on_tracked_source(
         self,
 
@@ -213,14 +220,10 @@ class LevelLine(pg.InfiniteLine):
 
         this is called by our ``Cursor`` type once this line is set to
         track the cursor: for every movement this callback is invoked to
-        reposition the line
+        reposition the line with the current view coordinates.
         '''
         self.movable = True
         self.set_level(y)  # implictly calls reposition handler
-
-        self._chart.linked.godwidget.pp_config.model.get_order_info(
-            price=y
-        )
 
     def mouseDragEvent(self, ev):
         """Override the ``InfiniteLine`` handler since we need more
@@ -388,7 +391,8 @@ class LevelLine(pg.InfiniteLine):
         super().hide()
         if self._marker:
             self._marker.hide()
-            # self._marker.label.hide()
+            # needed for ``order_line()`` lines currently
+            self._marker.label.hide()
 
     def show(self) -> None:
         super().show()
@@ -493,6 +497,7 @@ class LevelLine(pg.InfiniteLine):
 
                 if self._marker:
                     self._marker.hide()
+                    self._marker.label.hide()
 
             if self not in cur._trackers:
                 cur.show_xhair(y_label_level=self.value())
@@ -643,7 +648,7 @@ def order_line(
         # resetting the graphics item transform intermittently
 
         # the old way which is still somehow faster?
-        path = QGraphicsPathItem(
+        marker = QGraphicsPathItem(
             mk_marker_path(
                 marker_style,
                 # the "position" here is now ignored since we modified
@@ -654,15 +659,15 @@ def order_line(
                 # use_qgpath=False,
             )
         )
-        path.scale(marker_size, marker_size)
+        marker.scale(marker_size, marker_size)
 
         # XXX: this is our new approach but seems slower?
-        path = line.add_marker(path)
+        marker = line.add_marker(marker)
 
         # XXX: old
-        # path = line.add_marker(mk_marker(marker_style, marker_size))
+        # marker = line.add_marker(mk_marker(marker_style, marker_size))
 
-        line._marker = path
+        line._marker = marker
 
         assert not line.markers
 
@@ -670,7 +675,7 @@ def order_line(
         # # XXX: this was manually tested as faster then using the
         # # QGraphicsItem around a painter path.. probably needs further
         # # testing to figure out why tf that's true.
-        # line.markers.append((path, 0, marker_size))
+        # line.markers.append((marker, 0, marker_size))
 
     orient_v = 'top' if action == 'sell' else 'bottom'
 
@@ -699,7 +704,7 @@ def order_line(
         llabel.render()
         llabel.show()
 
-        path.label = llabel
+        marker.label = llabel
 
     else:
 
@@ -709,16 +714,15 @@ def order_line(
 
             # display the order pos size, which is some multiple
             # of the user defined base unit size
-            fmt_str=(':{size:.0f}'),
-            # fmt_str=('{size:.{size_digits}f}'),  # old
+            fmt_str=('{size:.{size_digits}f}'),  # old
             color=line.color,
         )
-        path.label = rlabel
+        marker.label = rlabel
 
         rlabel.scene_anchor = partial(
             gpath_pin,
             location_description='right-of-path-centered',
-            gpath=path,
+            gpath=marker,
             label=rlabel,
         )
 
@@ -726,7 +730,7 @@ def order_line(
 
         rlabel.fields = {
             'size': size,
-            # 'size_digits': size_digits,
+            'size_digits': 0,
         }
 
         rlabel.orient_v = orient_v
