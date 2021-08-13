@@ -160,7 +160,7 @@ async def maybe_open_ctx(
         log.info(f'Reusing cached feed for {key}')
         try:
             cache.users += 1
-            yield True, value
+            yield value
         finally:
             cache.users -= 1
             if cache.users == 0:
