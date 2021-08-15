@@ -214,12 +214,6 @@ class LevelMarker(QGraphicsPathItem):
         if self.keep_in_view:
             self.position_in_view()
 
-        else:  # just place at desired level even if not in view
-            self.setPos(
-                self.scene_x(),
-                self.mapToScene(QPointF(0, self.get_level())).y()
-            )
-
         super().paint(p, opt, w)
 
         if self._on_paint:
