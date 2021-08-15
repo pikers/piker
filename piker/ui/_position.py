@@ -22,15 +22,15 @@ from __future__ import annotations
 import enum
 from functools import partial
 from math import floor
+from pprint import pprint
 import sys
 from typing import Optional
 
+
+from PyQt5.QtWidgets import QWidget
 from bidict import bidict
 from pyqtgraph import functions as fn
 from pydantic import BaseModel, validator
-# from pydantic.generics import GenericModel
-# from PyQt5.QtCore import QPointF
-# from PyQt5.QtGui import QGraphicsPathItem
 
 from ._annotate import LevelMarker
 from ._anchors import (
@@ -92,6 +92,7 @@ def mk_pp_alloc(
 
         class Config:
             validate_assignment = True
+            extra = 'allow'
 
         account: Account = None
         _accounts: dict[str, Optional[str]] = accounts
@@ -109,18 +110,24 @@ def mk_pp_alloc(
 
         def get_order_info(
             self,
+
+            # TODO: apply the symbol when the chart it is selected
+            symbol: Symbol,
             price: float,
 
         ) -> dict:
-            size = self.size / self.slots
 
-            units, r = divmod(
-                round((self.size / self.slots)),
-                price,
-            )
-            print(f'# shares: {units}, r: {r}')
+            # pprint(self._position.info.dict())
 
-    # Allocator.update_forward_refs()
+            fiat_size = self.size / self.slots
+            ld = symbol.lot_digits()
+            units = round(fiat_size / price, ndigits=ld)
+
+            return {'size': units, 'size_digits': ld}
+
+        def pp_update(self) -> None:
+            # update fill bar and labels
+            ...
 
     return Allocator(
         account=None,
@@ -137,6 +144,7 @@ class PositionTracker:
     '''
     # inputs
     chart: 'ChartPlotWidget'  # noqa
+    alloc: 'Allocator'
 
     # allocated
     info: Position
@@ -180,6 +188,8 @@ class PositionTracker:
         )
         pp_label.render()
 
+        nsize = self.chart.linked.symbol.lot_digits()
+
         self.size_label = size_label = Label(
             view=view,
             color=self._color,
@@ -187,11 +197,12 @@ class PositionTracker:
             # this is "static" label
             # update_on_range_change=False,
             fmt_str='\n'.join((
-                ':{entry_size:.0f}',
+                ':{entry_size:.{size_digits}f}',
             )),
 
             fields={
                 'entry_size': 0,
+                'size_digits': nsize
             },
         )
         size_label.render()
@@ -356,7 +367,7 @@ class PositionTracker:
             level,
             color=self._color,
             add_label=False,
-            hl_on_hover=False,
+            highlight_on_hover=False,
             movable=False,
             hide_xhair_on_hover=False,
             use_marker_margin=True,
