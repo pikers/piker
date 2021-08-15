@@ -82,7 +82,7 @@ class LevelLine(pg.InfiniteLine):
         self._on_level_change: Callable[[float], None] = lambda y: None
 
         self._marker = None
-        self._moh = only_show_markers_on_hover
+        self.only_show_markers_on_hover = only_show_markers_on_hover
         self.show_markers: bool = True  # presuming the line is hovered at init
 
         # should line go all the way to far end or leave a "margin"
@@ -430,7 +430,6 @@ class LevelLine(pg.InfiniteLine):
 
         self._marker.setPen(self.currentPen)
         self._marker.setBrush(fn.mkBrush(self.currentPen.color()))
-        # y_in_sc = chart._vb.mapFromView(Point(0, self.value())).y()
         path.setPos(QPointF(rsc, self.scene_y()))
 
         return path
@@ -448,7 +447,7 @@ class LevelLine(pg.InfiniteLine):
             if self.mouseHovering is True:
                 return
 
-            if self._moh:
+            if self.only_show_markers_on_hover:
                 self.show_markers = True
 
                 if self._marker:
@@ -494,7 +493,7 @@ class LevelLine(pg.InfiniteLine):
 
             cur._hovered.remove(self)
 
-            if self._moh:
+            if self.only_show_markers_on_hover:
                 self.show_markers = False
 
                 if self._marker:
@@ -615,16 +614,15 @@ def order_line(
     **line_kwargs,
 
 ) -> LevelLine:
-    """Convenience routine to add a line graphic representing an order
+    '''Convenience routine to add a line graphic representing an order
     execution submitted to the EMS via the chart's "order mode".
 
-    """
+    '''
     line = level_line(
         chart,
         level,
         add_label=False,
         use_marker_margin=True,
-        # only_show_markers_on_hover=True,
         **line_kwargs
     )
 
@@ -696,13 +694,6 @@ def order_line(
             'alert': 'v',
         }[action]
 
-        # this fixes it the artifact issue! .. of course, bounding rect stuff
-        line._maxMarkerSize = marker_size
-
-        # use ``QPathGraphicsItem``s to draw markers in scene coords
-        # instead of the old way that was doing the same but by
-        # resetting the graphics item transform intermittently
-
         # the old way which is still somehow faster?
         marker = LevelMarker(
             chart=chart,
@@ -710,37 +701,29 @@ def order_line(
             get_level=line.value,
             size=marker_size,
             keep_in_view=False,
-            # on_paint=self.update_graphics,
         )
-
-        # marker = QGraphicsPathItem(
-        #     mk_marker_path(
-        #         marker_style,
-        #         # the "position" here is now ignored since we modified
-        #         # internals to pin markers to the right end of the line
-        #         # marker_size,
-
-        #         # uncommment for the old transform / .paint() marker method
-        #         # use_qgpath=False,
-        #     )
-        # )
-        # marker.scale(marker_size, marker_size)
 
         # XXX: this is our new approach but seems slower?
         marker = line.add_marker(marker)
 
-        # XXX: old
-        # marker = line.add_marker(mk_marker(marker_style, marker_size))
-
-        line._marker = marker
-
+        assert line._marker is marker
         assert not line.markers
 
-        # # manually append for later ``InfiniteLine.paint()`` drawing
-        # # XXX: this was manually tested as faster then using the
-        # # QGraphicsItem around a painter path.. probably needs further
-        # # testing to figure out why tf that's true.
+        # above we use ``QPathGraphicsItem``s directly to draw markers
+        # in scene coords instead of the way ``InfiniteLine`` does it
+        # internally: by resetting the graphics item transform
+        # intermittently inside ``.paint()`` which we've copied and
+        # seperated as ``qgo_draw_markers()`` if we ever want to go back
+        # to it; likely we can remove this.
+
+        # manually append for later ``InfiniteLine.paint()`` drawing
+        # XXX: this was manually tested as faster then using the
+        # QGraphicsItem around a painter path.. probably needs further
+        # testing to figure out why tf that's true.
         # line.markers.append((marker, 0, marker_size))
+
+        # this fixes it the artifact issue! .. of course, bounding rect stuff
+        # line._maxMarkerSize = marker_size
 
     marker.label = label
 
@@ -748,3 +731,29 @@ def order_line(
     line.update_labels({'level': level})
 
     return line
+
+
+# TODO: should probably consider making this a more general
+# purpose class method on the type?
+def copy_from_order_line(
+
+    chart: 'ChartPlotWidget',  # noqa
+    line: LevelLine
+
+) -> LevelLine:
+
+    return order_line(
+
+        chart,
+
+        # label fields default values
+        level=line.value(),
+        marker_style=line._marker.style,
+
+        # LevelLine kwargs
+        color=line.color,
+        dotted=line._dotted,
+
+        show_markers=line.show_markers,
+        only_show_markers_on_hover=line.only_show_markers_on_hover,
+    )
