@@ -32,10 +32,11 @@ from ..clearing._client import open_ems, OrderBook
 from ..data._source import Symbol
 from ..log import get_logger
 from ._editors import LineEditor, ArrowEditor
-from ._lines import LevelLine
+from ._lines import order_line, LevelLine
 from ._position import PositionTracker
 from ._window import MultiStatus
-from ._forms import FieldsForm
+from ..clearing._messages import Order
+# from ._forms import FieldsForm
 
 
 log = get_logger(__name__)
@@ -48,6 +49,8 @@ class OrderDialog(BaseModel):
     '''
     # TODO: use ``pydantic.UUID4`` field
     uuid: str
+    order: Order
+    symbol: Symbol
     line: LevelLine
     last_status_close: Callable = lambda: None
     msgs: dict[str, dict] = {}
@@ -84,53 +87,231 @@ class OrderMode:
     arrows: ArrowEditor
     multistatus: MultiStatus
     pp: PositionTracker
+    allocator: 'Allocator'  # noqa
 
     name: str = 'order'
+    dialogs: dict[str, OrderDialog] = field(default_factory=dict)
 
     _colors = {
         'alert': 'alert_yellow',
         'buy': 'buy_green',
         'sell': 'sell_red',
     }
-    _action: str = 'alert'
-    _exec_mode: str = 'dark'
-    _size: float = 100.0
+    _staged_order: Optional[Order] = None
 
-    dialogs: dict[str, OrderDialog] = field(default_factory=dict)
+    def line_from_order(
+        self,
 
-    def uuid(self) -> str:
-        return str(uuid.uuid4())
+        order: Order,
+        symbol: Symbol,
 
-    @property
-    def pp_config(self) -> FieldsForm:
-        return self.chart.linked.godwidget.pp_config
+        **line_kwargs,
 
-    def set_exec(
+    ) -> LevelLine:
+
+        line = order_line(
+
+            self.chart,
+            # TODO: convert these values into human-readable form
+            # (i.e. with k, m, M, B) type embedded suffixes
+            level=order.price,
+            # level_digits=symbol.digits(),
+            action=order.action,
+
+            size=order.size,
+            # TODO: we need truncation checks in the EMS for this?
+            # size_digits=min(symbol.lot_digits(), 3),
+            color=self._colors[order.action],
+
+            dotted=True if (
+                order.exec_mode == 'dark' and
+                order.action != 'alert'
+            ) else False,
+
+            **line_kwargs,
+
+        )
+
+        # define a callback applied for each level change to the line
+        # which will recompute the order size based on allocator
+        # settings:
+        def update_from_size_calc(y: float) -> None:
+
+            order_info = self.allocator.get_order_info(
+                symbol=symbol,
+                price=y,
+            )
+            line.update_labels(order_info)
+            order.price = y
+            order.size = order_info['size']
+
+            # return is used to update labels implicitly
+            return order_info
+
+        update_from_size_calc(order.price)
+
+        # set level update cb
+        # line._on_level_change = partial(update_from_size_calc, order=order)
+        line._on_level_change = update_from_size_calc
+
+        return line
+
+    def stage_order(
         self,
 
         action: str,
-        size: Optional[int] = None,
+        trigger_type: str,
 
     ) -> None:
-        '''
-        Set execution mode.
+        '''Stage an order for submission.
 
         '''
         # not initialized yet
-        if not self.chart.linked.cursor:
+        chart = self.chart
+        cursor = chart.linked.cursor
+        if not (chart and cursor and cursor.active_plot):
             return
 
-        self._action = action
-        self.lines.stage_line(
+        chart = cursor.active_plot
+        price = cursor._datum_xy[1]
+        symbol = self.chart.linked.symbol
 
-            color=self._colors[action],
-            # hl_on_hover=True if self._exec_mode == 'live' else False,
-            dotted=True if (
-                self._exec_mode == 'dark' and action != 'alert'
-            ) else False,
-            size=size or self._size,
+        order = self._staged_order = Order(
             action=action,
+            price=price,
+            size=0,
+            symbol=symbol,
+            brokers=symbol.brokers,
+            oid='',  # filled in on submit
+            exec_mode=trigger_type,  # dark or live
         )
+
+        line = self.line_from_order(
+            order,
+            symbol,
+
+            show_markers=True,
+            # just for the stage line to avoid
+            # flickering while moving the cursor
+            # around where it might trigger highlight
+            # then non-highlight depending on sensitivity
+            always_show_labels=True,
+            # don't highlight the "staging" line
+            highlight_on_hover=False,
+            # prevent flickering of marker while moving/tracking cursor
+            only_show_markers_on_hover=False,
+        )
+
+        line = self.lines.stage_line(line)
+
+        # hide crosshair y-line and label
+        cursor.hide_xhair()
+
+        # add line to cursor trackers
+        cursor._trackers.add(line)
+
+        return line
+
+    def submit_order(
+        self,
+
+    ) -> OrderDialog:
+        '''Send execution order to EMS return a level line to
+        represent the order on a chart.
+
+        '''
+        staged = self._staged_order
+        symbol = staged.symbol
+        oid = str(uuid.uuid4())
+
+        # format order data for ems
+        order = staged.copy(
+            update={
+                'symbol': symbol.key,
+                'oid': oid,
+            }
+        )
+
+        line = self.line_from_order(
+            order,
+            symbol,
+
+            show_markers=True,
+            only_show_markers_on_hover=True,
+        )
+
+        # register the "submitted" line under the cursor
+        # to be displayed when above order ack arrives
+        # (means the marker graphic doesn't show on screen until the
+        # order is live in the emsd).
+
+        # TODO: update the line once an ack event comes back
+        # from the EMS!
+        # maybe place a grey line in "submission" mode
+        # which will be updated to it's appropriate action
+        # color once the submission ack arrives.
+        self.lines.submit_line(
+            line=line,
+            uuid=oid,
+        )
+
+        dialog = OrderDialog(
+            uuid=oid,
+            order=order,
+            symbol=symbol,
+            line=line,
+            last_status_close=self.multistatus.open_status(
+                f'submitting {self._trigger_type}-{order.action}',
+                final_msg=f'submitted {self._trigger_type}-{order.action}',
+                clear_on_next=True,
+            )
+        )
+
+        # TODO: create a new ``OrderLine`` with this optional var defined
+        line.dialog = dialog
+
+        # enter submission which will be popped once a response
+        # from the EMS is received to move the order to a different# status
+        self.dialogs[oid] = dialog
+
+        # hook up mouse drag handlers
+        line._on_drag_start = self.order_line_modify_start
+        line._on_drag_end = self.order_line_modify_complete
+
+        # send order cmd to ems
+        self.book.send(order)
+
+        return dialog
+
+    # order-line modify handlers
+
+    def order_line_modify_start(
+        self,
+        line: LevelLine,
+
+    ) -> None:
+
+        print(f'Line modify: {line}')
+        # cancel original order until new position is found?
+        # TODO: make a config option for this behaviour..
+
+    def order_line_modify_complete(
+        self,
+        line: LevelLine,
+
+    ) -> None:
+
+        level = line.value()
+        # updateb by level change callback set in ``.line_from_order()``
+        size = line.dialog.order.size
+
+        self.book.update(
+            uuid=line.dialog.uuid,
+            price=level,
+            size=size,
+        )
+
+    # ems response loop handlers
 
     def on_submit(
         self,
@@ -234,80 +415,6 @@ class OrderMode:
                 f'Received cancel for unsubmitted order {pformat(msg)}'
             )
 
-    def submit_exec(
-        self,
-        size: Optional[float] = None,
-
-    ) -> OrderDialog:
-        """Send execution order to EMS return a level line to
-        represent the order on a chart.
-
-        """
-        # register the "staged" line under the cursor
-        # to be displayed when above order ack arrives
-        # (means the line graphic doesn't show on screen until the
-        # order is live in the emsd).
-        oid = str(uuid.uuid4())
-
-        size = size or self._size
-
-        cursor = self.chart.linked.cursor
-        chart = cursor.active_plot
-        y = cursor._datum_xy[1]
-
-        symbol = self.chart.linked.symbol
-        action = self._action
-
-        # TODO: update the line once an ack event comes back
-        # from the EMS!
-
-        # TODO: place a grey line in "submission" mode
-        # which will be updated to it's appropriate action
-        # color once the submission ack arrives.
-
-        # make line graphic if order push was sucessful
-        line = self.lines.create_order_line(
-            oid,
-            level=y,
-            chart=chart,
-            size=size,
-            action=action,
-        )
-
-        dialog = OrderDialog(
-            uuid=oid,
-            line=line,
-            last_status_close=self.multistatus.open_status(
-                f'submitting {self._exec_mode}-{action}',
-                final_msg=f'submitted {self._exec_mode}-{action}',
-                clear_on_next=True,
-            )
-        )
-
-        # TODO: create a new ``OrderLine`` with this optional var defined
-        line.dialog = dialog
-
-        # enter submission which will be popped once a response
-        # from the EMS is received to move the order to a different# status
-        self.dialogs[oid] = dialog
-
-        # hook up mouse drag handlers
-        line._on_drag_start = self.order_line_modify_start
-        line._on_drag_end = self.order_line_modify_complete
-
-        # send order cmd to ems
-        self.book.send(
-            uuid=oid,
-            symbol=symbol.key,
-            brokers=symbol.brokers,
-            price=y,
-            size=size,
-            action=action,
-            exec_mode=self._exec_mode,
-        )
-
-        return dialog
-
     def cancel_orders_under_cursor(self) -> list[str]:
         return self.cancel_orders_from_lines(
             self.lines.lines_under_cursor()
@@ -353,32 +460,6 @@ class OrderMode:
 
         return ids
 
-    # order-line modify handlers
-
-    def order_line_modify_start(
-        self,
-        line: LevelLine,
-
-    ) -> None:
-
-        print(f'Line modify: {line}')
-        # cancel original order until new position is found
-
-    def order_line_modify_complete(
-        self,
-        line: LevelLine,
-
-    ) -> None:
-
-        self.book.update(
-            uuid=line.dialog.uuid,
-
-            # TODO: must adjust sizing
-            # - should we round this to a nearest tick here and how?
-            # - need to recompute the size from the pp allocator
-            price=line.value(),
-        )
-
 
 async def run_order_mode(
 
@@ -419,8 +500,10 @@ async def run_order_mode(
 
         log.info("Opening order mode")
 
+        alloc = chart.linked.godwidget.pp_pane.model
         pp = PositionTracker(chart)
         pp.hide()
+        alloc._position = pp
 
         mode = OrderMode(
             chart,
@@ -429,6 +512,7 @@ async def run_order_mode(
             arrows,
             multistatus,
             pp,
+            allocator=alloc,
         )
 
         # TODO: create a mode "manager" of sorts?
@@ -475,7 +559,7 @@ async def run_order_mode(
 
         # start async input handling for chart's view
         async with (
-            chart._vb.open_async_input_handler(),
+            chart.view.open_async_input_handler(),
 
             # TODO: config form handler nursery
 

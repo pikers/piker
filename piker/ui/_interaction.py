@@ -219,7 +219,10 @@ async def handle_viewmode_kb_inputs(
 
             # XXX: order matters here for line style!
             view.mode._trigger_type = trigger_type
-            view.mode.stage_order(action, trigger_type=trigger_type)
+            view.mode.stage_order(
+                action,
+                trigger_type=trigger_type,
+            )
 
             prefix = trigger_type + '-' if action != 'alert' else ''
             view._chart.window().set_mode_name(f'{prefix}{action}')
