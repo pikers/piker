@@ -706,6 +706,10 @@ def order_line(
         # XXX: this is our new approach but seems slower?
         marker = line.add_marker(marker)
 
+        # XXX: DON'T COMMENT THIS!
+        # this fixes it the artifact issue! .. of course, bounding rect stuff
+        line._maxMarkerSize = marker_size
+
         assert line._marker is marker
         assert not line.markers
 
@@ -721,9 +725,6 @@ def order_line(
         # QGraphicsItem around a painter path.. probably needs further
         # testing to figure out why tf that's true.
         # line.markers.append((marker, 0, marker_size))
-
-        # this fixes it the artifact issue! .. of course, bounding rect stuff
-        # line._maxMarkerSize = marker_size
 
     marker.label = label
 
