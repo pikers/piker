@@ -63,17 +63,16 @@ from ._style import (
 )
 from . import _search
 from . import _event
+from ..data import maybe_open_shm_array
+from ..data.feed import open_feed, Feed, install_brokerd_search
 from ..data._source import Symbol
 from ..data._sharedmem import ShmArray
-from ..data import maybe_open_shm_array
 from .. import brokers
-from .. import data
 from ..log import get_logger
 from ._exec import run_qtractor
 from ._interaction import ChartView
 from .order_mode import run_order_mode
 from .. import fsp
-from ..data import feed
 from ._forms import (
     FieldsForm,
     mk_form,
@@ -169,13 +168,13 @@ class GodWidget(QWidget):
     #     self.strategy_box = StrategyBoxWidget(self)
     #     self.toolbar_layout.addWidget(self.strategy_box)
 
-    def load_symbol(
-
+    async def load_symbol(
         self,
+
         providername: str,
         symbol_key: str,
         loglevel: str,
-        ohlc: bool = True,
+
         reset: bool = False,
 
     ) -> trio.Event:
@@ -226,12 +225,16 @@ class GodWidget(QWidget):
             # symbol is already loaded and ems ready
             order_mode_started.set()
 
-            # TODO: we'll probably want per-instrument/provider state here?
-            # change the order config form over to the new chart
+            # TODO:
+            # - we'll probably want per-instrument/provider state here?
+            #   change the order config form over to the new chart
+
             # XXX: since the pp config is a singleton widget we have to
             # also switch it over to the new chart's interal-layout
             self.linkedsplits.chart.qframe.hbox.removeWidget(self.pp_pane)
-            linkedsplits.chart.qframe.hbox.addWidget(
+            chart = linkedsplits.chart
+            await chart.resume_all_feeds()
+            chart.qframe.hbox.addWidget(
                 self.pp_pane,
                 alignment=Qt.AlignTop
             )
@@ -627,6 +630,8 @@ class ChartPlotWidget(pg.PlotWidget):
         self._graphics = {}  # registry of underlying graphics
         self._overlays = set()  # registry of overlay curve names
 
+        self._feeds: dict[Symbol, Feed] = {}
+
         self._labels = {}  # registry of underlying graphics
         self._ysticks = {}  # registry of underlying graphics
 
@@ -653,6 +658,14 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # for when the splitter(s) are resized
         self._vb.sigResized.connect(self._set_yrange)
+
+    async def resume_all_feeds(self):
+        for feed in self._feeds.values():
+            await feed.resume()
+
+    async def pause_all_feeds(self):
+        for feed in self._feeds.values():
+            await feed.pause()
 
     @property
     def view(self) -> ChartView:
@@ -1067,7 +1080,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self.scene().leaveEvent(ev)
 
 
-_clear_throttle_rate: int = 50  # Hz
+_clear_throttle_rate: int = 60  # Hz
 _book_throttle_rate: int = 16  # Hz
 
 
@@ -1154,6 +1167,7 @@ async def chart_from_quotes(
 
         # chart isn't actively shown so just skip render cycle
         if chart.linked.isHidden():
+            await chart.pause_all_feeds()
             continue
 
         for sym, quote in quotes.items():
@@ -1377,6 +1391,7 @@ async def run_fsp(
         group_key=group_status_key,
     )
 
+    # make sidepane config widget
     class FspConfig(BaseModel):
 
         class Config:
@@ -1423,7 +1438,10 @@ async def run_fsp(
         ) as stream,
 
         # TODO:
-        # open_form_input_handling(sidepane),
+        open_form_input_handling(
+            sidepane,
+            focus_next=linkedsplits.godwidget
+        ),
 
     ):
 
@@ -1577,7 +1595,6 @@ async def check_for_new_bars(feed, ohlcv, linkedsplits):
 
     async with feed.index_stream() as stream:
         async for index in stream:
-
             # update chart historical bars graphics by incrementing
             # a time step and drawing the history and new bar
 
@@ -1654,7 +1671,7 @@ async def display_symbol_data(
     # )
 
     async with(
-        data.feed.open_feed(
+        open_feed(
             provider,
             [sym],
             loglevel=loglevel,
@@ -1665,19 +1682,19 @@ async def display_symbol_data(
         ) as feed,
         trio.open_nursery() as n,
     ):
-        async def print_quotes():
-            async with feed.stream.subscribe() as bstream:
-                last_tick = time.time()
-                async for quotes in bstream:
-                    now = time.time()
-                    period = now - last_tick
-                    for sym, quote in quotes.items():
-                        ticks = quote.get('ticks', ())
-                        if ticks:
-                            # print(f'{1/period} Hz')
-                            last_tick = time.time()
+        # async def print_quotes():
+        #     async with feed.stream.subscribe() as bstream:
+        #         last_tick = time.time()
+        #         async for quotes in bstream:
+        #             now = time.time()
+        #             period = now - last_tick
+        #             for sym, quote in quotes.items():
+        #                 ticks = quote.get('ticks', ())
+        #                 if ticks:
+        #                     # print(f'{1/period} Hz')
+        #                     last_tick = time.time()
 
-        n.start_soon(print_quotes)
+        # n.start_soon(print_quotes)
 
         ohlcv: ShmArray = feed.shm
         bars = ohlcv.array
@@ -1693,6 +1710,7 @@ async def display_symbol_data(
         linkedsplits._symbol = symbol
 
         chart = linkedsplits.plot_ohlc_main(symbol, bars)
+        chart._feeds[symbol.key] = feed
         chart.setFocus()
 
         # plot historical vwap if available
@@ -1723,13 +1741,13 @@ async def display_symbol_data(
                     'static_yrange': (0, 100),
                 },
             },
-            'rsi2': {
-                'fsp_func_name': 'rsi',
-                'period': 14,
-                'chart_kwargs': {
-                    'static_yrange': (0, 100),
-                },
-            },
+            # 'rsi2': {
+            #     'fsp_func_name': 'rsi',
+            #     'period': 14,
+            #     'chart_kwargs': {
+            #         'static_yrange': (0, 100),
+            #     },
+            # },
 
         }
 
@@ -1811,7 +1829,7 @@ async def load_provider_search(
             loglevel=loglevel
         ) as portal,
 
-        feed.install_brokerd_search(
+        install_brokerd_search(
             portal,
             get_brokermod(broker),
         ),
@@ -1872,23 +1890,21 @@ async def _async_main(
         godwidget._root_n = root_n
 
         # setup search widget and focus main chart view at startup
+        # search widget is a singleton alongside the godwidget
         search = _search.SearchWidget(godwidget=godwidget)
         search.bar.unfocus()
 
-        # add search singleton to global chart-space widget
-        godwidget.hbox.addWidget(
-            search,
-
-            # alights to top and uses minmial space based on
-            # search bar size hint (i think?)
-            alignment=Qt.AlignTop
-        )
+        godwidget.hbox.addWidget(search)
         godwidget.search = search
 
         symbol, _, provider = sym.rpartition('.')
 
         # this internally starts a ``display_symbol_data()`` task above
-        order_mode_ready = godwidget.load_symbol(provider, symbol, loglevel)
+        order_mode_ready = await godwidget.load_symbol(
+            provider,
+            symbol,
+            loglevel
+        )
 
         # spin up a search engine for the local cached symbol set
         async with _search.register_symbol_search(
@@ -1912,17 +1928,27 @@ async def _async_main(
             # start handling peripherals input for top level widgets
             async with (
 
-                # search bar kb inputs
+                # search bar kb input handling
                 _event.open_handlers(
                     [search.bar],
-                    event_types={QEvent.KeyPress},
+                    event_types={
+                        QEvent.KeyPress,
+                    },
                     async_handler=_search.handle_keyboard_input,
-                    # let key repeats pass through for search
-                    filter_auto_repeats=False,
+                    filter_auto_repeats=False,  # let repeats passthrough
+                ),
+
+                # completer view mouse click signal handling
+                _event.open_signal_handler(
+                    search.view.pressed,
+                    search.view.on_pressed,
                 ),
 
                 # pp pane kb inputs
-                open_form_input_handling(pp_pane),
+                open_form_input_handling(
+                    pp_pane,
+                    focus_next=godwidget,
+                )
             ):
                 # remove startup status text
                 starting_done()
