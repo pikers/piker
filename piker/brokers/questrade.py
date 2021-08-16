@@ -47,7 +47,6 @@ from . import config
 from ._util import resproc, BrokerError, SymbolNotFound
 from ..log import get_logger, colorize_json, get_console_log
 from . import get_brokermod
-from . import api
 
 
 log = get_logger(__name__)
