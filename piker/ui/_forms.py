@@ -22,7 +22,6 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from functools import partial
 from textwrap import dedent
-import math
 from typing import Optional
 
 import trio
@@ -247,13 +246,14 @@ class FieldsForm(QWidget):
     def add_edit_field(
         self,
 
-        name: str,
+        key: str,
+        label_name: str,
         value: str,
 
     ) -> FontAndChartAwareLineEdit:
 
         # TODO: maybe a distint layout per "field" item?
-        label = self.add_field_label(name)
+        label = self.add_field_label(label_name)
 
         edit = FontAndChartAwareLineEdit(
             parent=self,
@@ -268,23 +268,24 @@ class FieldsForm(QWidget):
         edit.setText(str(value))
         self.form.addRow(label, edit)
 
-        self.fields[name] = edit
+        self.fields[key] = edit
 
         return edit
 
     def add_select_field(
         self,
 
-        name: str,
+        key: str,
+        label_name: str,
         values: list[str],
 
     ) -> QComboBox:
 
         # TODO: maybe a distint layout per "field" item?
-        label = self.add_field_label(name)
+        label = self.add_field_label(label_name)
 
         select = QComboBox(self)
-        select._key = name
+        select._key = key
 
         for i, value in enumerate(values):
             select.insertItem(i, str(value))
@@ -365,7 +366,13 @@ async def handle_field_input(
             if key in (Qt.Key_Enter, Qt.Key_Return):
                 value = widget.text()
                 key = widget._key
-                setattr(model, key, value)
+                old = getattr(model, key)
+                try:
+                    setattr(model, key, value)
+                except pydantic.error_wrappers.ValidationError:
+                    setattr(model, key, old)
+                    widget.setText(str(old))
+
                 print(model.dict())
 
 
@@ -383,13 +390,14 @@ def mk_form(
     form.model = model
 
     # generate sub-components from schema dict
-    for name, config in fields_schema.items():
+    for key, config in fields_schema.items():
         wtype = config['type']
-        label = str(config.get('label', name))
+        label = str(config.get('label', key))
 
         # plain (line) edit field
         if wtype == 'edit':
             w = form.add_edit_field(
+                key,
                 label,
                 config['default_value']
             )
@@ -398,17 +406,24 @@ def mk_form(
         elif wtype == 'select':
             values = list(config['default_value'])
             w = form.add_select_field(
+                key,
                 label,
                 values
             )
 
-            def write_model(text: str):
+            def write_model(text: str, key: str):
                 print(f'{text}')
-                setattr(form.model, name, text)
+                setattr(form.model, key, text)
+                print(form.model)
 
-            w.currentTextChanged.connect(write_model)
+            w.currentTextChanged.connect(
+                partial(
+                    write_model,
+                    key=key,
+                )
+            )
 
-        w._key = name
+        w._key = key
 
     return form
 
@@ -509,7 +524,71 @@ def mk_fill_status_bar(
         font_color='gunmetal',
     )
 
-    bar = QProgressBar(fields)
+    class FillStatusBar(QProgressBar):
+        # slots: int = 4
+        approx_h = 8/3 * w
+        border_size_px: int = 2
+        slot_margin_px: int = 2
+
+        def set_slots(
+            self,
+            slots: int,
+            value: float,
+
+        ) -> None:
+
+            # TODO: compute "used height" thus far and mostly fill the rest
+            approx_h = self.approx_h
+            tot_slot_h, r = divmod(
+                approx_h,
+                slots,
+            )
+            clipped = slots * tot_slot_h + 2*self.border_size_px
+            self.setMaximumHeight(clipped)
+            slot_height_px = tot_slot_h - 2*self.slot_margin_px
+
+            self.setOrientation(Qt.Vertical)
+            self.setStyleSheet(
+                f"""
+                QProgressBar {{
+
+                    text-align: center;
+
+                    font-size : {fields._font_size - 2}px;
+
+                    background-color: {hcolor('papas_special')};
+                    color : {hcolor('papas_special')};
+
+                    border: {border_size_px}px solid {hcolor('default_light')};
+                    border-radius: 2px;
+                }}
+
+                QProgressBar::chunk {{
+
+                    background-color: {hcolor('default_spotlight')};
+                    color: {hcolor('papas_special')};
+
+                    border-radius: 2px;
+
+                    margin: {slot_margin_px}px;
+                    height: {slot_height_px}px;
+
+                }}
+                """
+            )
+
+            # margin-bottom: {slot_margin_px*2}px;
+            # margin-top: {slot_margin_px*2}px;
+            # color: #19232D;
+            # width: 10px;
+
+            self.setRange(0, slots)
+            self.setValue(value)
+            self.setFormat('')  # label format
+            self.setMinimumWidth(h * 1.375)
+            self.setMaximumWidth(h * 1.375)
+
+    bar = FillStatusBar(fields)
 
     hbox.addWidget(bar, alignment=Qt.AlignLeft | Qt.AlignTop)
 
@@ -530,53 +609,7 @@ def mk_fill_status_bar(
     border_size_px = 2
     slot_margin_px = 2
 
-    # TODO: compute "used height" thus far and mostly fill the rest
-    slot_height_px = math.floor(
-        (bar_h - 2*border_size_px)/slots
-    ) - slot_margin_px*1
-
-    bar.setOrientation(Qt.Vertical)
-    bar.setStyleSheet(
-        f"""
-        QProgressBar {{
-
-            text-align: center;
-
-            font-size : {fields._font_size - 2}px;
-
-            background-color: {hcolor('papas_special')};
-            color : {hcolor('papas_special')};
-
-            border: {border_size_px}px solid {hcolor('default_light')};
-            border-radius: 2px;
-        }}
-
-        QProgressBar::chunk {{
-
-            background-color: {hcolor('default_spotlight')};
-            color: {hcolor('papas_special')};
-
-            border-radius: 2px;
-
-            margin: {slot_margin_px}px;
-            height: {slot_height_px}px;
-
-        }}
-        """
-    )
-
-    # margin-bottom: {slot_margin_px*2}px;
-    # margin-top: {slot_margin_px*2}px;
-    # color: #19232D;
-    # width: 10px;
-
-    bar.setRange(0, slots)
-    bar.setValue(1)
-    bar.setFormat('')
-    bar.setMinimumHeight(bar_h)
-    bar.setMaximumHeight(bar_h + slots*slot_margin_px)
-    bar.setMinimumWidth(h * 1.375)
-    bar.setMaximumWidth(h * 1.375)
+    bar.set_slots(slots, value=0)
 
     return hbox, bar
 
@@ -592,29 +625,25 @@ def mk_order_pane_layout(
     # TODO: some kinda pydantic sub-type
     # that enforces a composite widget attr er sumthin..
     # as part of our ORM thingers.
-    allocator = mk_pp_alloc()
+    alloc = mk_pp_alloc()
 
     # TODO: maybe just allocate the whole fields form here
     # and expect an async ctx entry?
     form = mk_form(
         parent=parent,
-        model=allocator,
+        model=alloc,
         fields_schema={
             'account': {
                 'type': 'select',
-                'default_value': [
-                    'paper',
-                    # 'ib.margin',
-                    # 'ib.paper',
-                ],
+                'default_value': alloc._accounts.keys()
             },
             'size_unit': {
                 'label': '**allocate**:',
                 'type': 'select',
                 'default_value': [
                     '$ size',
+                    '# units',
                     '% of port',
-                    '# shares'
                 ],
             },
             'disti_weight': {
@@ -628,13 +657,14 @@ def mk_order_pane_layout(
                 'default_value': 5000,
             },
             'slots': {
+                'label': '**slots**:',
                 'type': 'edit',
                 'default_value': 4,
             },
         },
     )
     form._font_size = font_size
-    allocator._widget = form
+    alloc._widget = form
 
     # top level pane layout
     # XXX: see ``FieldsForm.__init__()`` for why we can't do basic
@@ -644,7 +674,8 @@ def mk_order_pane_layout(
     # _, h = form.width(), form.height()
     # print(f'w, h: {w, h}')
 
-    hbox, bar = mk_fill_status_bar(form, pane_vbox=vbox)
+    hbox, fill_bar = mk_fill_status_bar(form, pane_vbox=vbox)
+    form.fill_bar = fill_bar
 
     # add pp fill bar + spacing
     vbox.addLayout(hbox, stretch=1/3)
