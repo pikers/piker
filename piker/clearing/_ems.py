@@ -796,11 +796,10 @@ async def process_client_order_cmds(
 
                     # sanity check on emsd id
                     assert live_entry.oid == oid
-
+                    reqid = live_entry.reqid
                     # if we already had a broker order id then
                     # this is likely an order update commmand.
-                    log.info(
-                        f"Modifying live {broker} order: {live_entry.reqid}")
+                    log.info(f"Modifying live {broker} order: {reqid}")
 
                 msg = BrokerdOrder(
                     oid=oid,  # no ib support for oids...
