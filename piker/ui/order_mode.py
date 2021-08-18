@@ -88,6 +88,7 @@ class OrderMode:
     multistatus: MultiStatus
     pp: PositionTracker
     allocator: 'Allocator'  # noqa
+    active: bool = False
 
     name: str = 'order'
     dialogs: dict[str, OrderDialog] = field(default_factory=dict)
@@ -140,6 +141,7 @@ class OrderMode:
             order_info = self.allocator.get_order_info(
                 symbol=symbol,
                 price=y,
+                action=order.action,
             )
             line.update_labels(order_info)
             order.price = y
@@ -501,9 +503,9 @@ async def run_order_mode(
         log.info("Opening order mode")
 
         alloc = chart.linked.godwidget.pp_pane.model
-        pp = PositionTracker(chart)
-        pp.hide()
-        alloc._position = pp
+        pp_tracker = PositionTracker(chart, alloc=alloc)
+        pp_tracker.hide()
+        alloc._position = pp_tracker
 
         mode = OrderMode(
             chart,
@@ -511,33 +513,45 @@ async def run_order_mode(
             lines,
             arrows,
             multistatus,
-            pp,
+            pp_tracker,
             allocator=alloc,
         )
 
         # TODO: create a mode "manager" of sorts?
         # -> probably just call it "UxModes" err sumthin?
         # so that view handlers can access it
-        view.mode = mode
+        view.order_mode = mode
 
         asset_type = symbol.type_key
-
-        # default entry sizing
-        if asset_type == 'stock':
-            mode._size = 100.0
-
-        elif asset_type in ('future', 'option', 'futures_option'):
-            mode._size = 1.0
-
-        else:  # to be safe
-            mode._size = 1.0
 
         # update any exising position
         for sym, msg in positions.items():
 
             our_sym = mode.chart.linked._symbol.key
             if sym.lower() in our_sym:
-                pp.update(msg)
+                pp_tracker.update(msg, position=pp_tracker.startup_pp)
+                pp_tracker.update(msg)
+
+
+        # default entry sizing
+        if asset_type in ('stock', 'crypto', 'forex'):
+            alloc.size_unit = '$ size'
+            pp_tracker.pane.fields['size_unit'].setCurrentText(alloc.size_unit)
+
+        elif asset_type in ('future', 'option', 'futures_option'):
+
+            alloc.size_unit = '# units'
+            pp_tracker.pane.fields['size_unit'].setCurrentText(alloc.size_unit)
+
+            slots = alloc.slots = pp_tracker.startup_pp.size
+            pp_tracker.pane.fields['slots'].setText(str(alloc.slots))
+
+            # make entry step 1.0
+            alloc.size = slots
+            pp_tracker.pane.fields['size'].setText(str(alloc.size))
+
+        # make fill bar and positioning snapshot
+        pp_tracker.init_status_ui()
 
         # TODO: this should go onto some sort of
         # data-view strimg thinger..right?
@@ -584,7 +598,7 @@ async def run_order_mode(
 
                     sym = mode.chart.linked.symbol
                     if msg['symbol'].lower() in sym.key:
-                        pp.update(msg)
+                        pp_tracker.update(msg)
 
                     # short circuit to next msg to avoid
                     # uncessary msg content lookups
@@ -672,4 +686,4 @@ async def run_order_mode(
                         arrow_index=get_index(details['broker_time']),
                     )
 
-                    pp.info.fills.append(msg)
+                    pp_tracker.live_pp.fills.append(msg)
