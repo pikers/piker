@@ -496,6 +496,7 @@ class Client:
         price: float,
         action: str,
         size: int,
+        account: str = '',  # if blank the "default" tws account is used
 
         # XXX: by default 0 tells ``ib_insync`` methods that there is no
         # existing order so ask the client to create a new one (which it
@@ -518,6 +519,7 @@ class Client:
             Order(
                 orderId=reqid or 0,  # stupid api devs..
                 action=action.upper(),  # BUY/SELL
+                account=account,
                 orderType='LMT',
                 lmtPrice=price,
                 totalQuantity=size,
