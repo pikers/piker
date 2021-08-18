@@ -326,6 +326,8 @@ class FieldsForm(QWidget):
 
         self.form.addRow(label, select)
 
+        self.fields[key] = select
+
         return select
 
 
@@ -458,6 +460,85 @@ async def open_form_input_handling(
         yield form
 
 
+class FillStatusBar(QProgressBar):
+    '''A status bar for fills up to a position limit.
+
+    '''
+    border_px: int = 2
+    slot_margin_px: int = 2
+
+    def __init__(
+        self,
+        approx_height_px: float,
+        width_px: float,
+        font_size: int,
+        parent=None
+
+    ) -> None:
+        super().__init__(parent=parent)
+        self.approx_h = approx_height_px
+        self.font_size = font_size
+
+        self.setFormat('')  # label format
+        self.setMinimumWidth(width_px)
+        self.setMaximumWidth(width_px)
+
+    def set_slots(
+        self,
+        slots: int,
+        value: float,
+
+    ) -> None:
+
+        approx_h = self.approx_h
+        # TODO: compute "used height" thus far and mostly fill the rest
+        tot_slot_h, r = divmod(
+            approx_h,
+            slots,
+        )
+        clipped = slots * tot_slot_h + 2*self.border_px
+        self.setMaximumHeight(clipped)
+        slot_height_px = tot_slot_h - 2*self.slot_margin_px
+
+        self.setOrientation(Qt.Vertical)
+        self.setStyleSheet(
+            f"""
+            QProgressBar {{
+
+                text-align: center;
+
+                font-size : {self.font_size - 2}px;
+
+                background-color: {hcolor('papas_special')};
+                color : {hcolor('papas_special')};
+
+                border: {self.border_px}px solid {hcolor('default_light')};
+                border-radius: 2px;
+            }}
+
+            QProgressBar::chunk {{
+
+                background-color: {hcolor('default_spotlight')};
+                color: {hcolor('bracket')};
+
+                border-radius: 2px;
+
+                margin: {self.slot_margin_px}px;
+                height: {slot_height_px}px;
+
+            }}
+            """
+        )
+
+        # margin-bottom: {slot_margin_px*2}px;
+        # margin-top: {slot_margin_px*2}px;
+        # color: #19232D;
+        # width: 10px;
+
+        self.setRange(0, slots)
+        self.setValue(value)
+
+
 def mk_fill_status_bar(
 
     fields: FieldsForm,
@@ -524,71 +605,12 @@ def mk_fill_status_bar(
         font_color='gunmetal',
     )
 
-    class FillStatusBar(QProgressBar):
-        # slots: int = 4
-        approx_h = 8/3 * w
-        border_size_px: int = 2
-        slot_margin_px: int = 2
-
-        def set_slots(
-            self,
-            slots: int,
-            value: float,
-
-        ) -> None:
-
-            # TODO: compute "used height" thus far and mostly fill the rest
-            approx_h = self.approx_h
-            tot_slot_h, r = divmod(
-                approx_h,
-                slots,
-            )
-            clipped = slots * tot_slot_h + 2*self.border_size_px
-            self.setMaximumHeight(clipped)
-            slot_height_px = tot_slot_h - 2*self.slot_margin_px
-
-            self.setOrientation(Qt.Vertical)
-            self.setStyleSheet(
-                f"""
-                QProgressBar {{
-
-                    text-align: center;
-
-                    font-size : {fields._font_size - 2}px;
-
-                    background-color: {hcolor('papas_special')};
-                    color : {hcolor('papas_special')};
-
-                    border: {border_size_px}px solid {hcolor('default_light')};
-                    border-radius: 2px;
-                }}
-
-                QProgressBar::chunk {{
-
-                    background-color: {hcolor('default_spotlight')};
-                    color: {hcolor('papas_special')};
-
-                    border-radius: 2px;
-
-                    margin: {slot_margin_px}px;
-                    height: {slot_height_px}px;
-
-                }}
-                """
-            )
-
-            # margin-bottom: {slot_margin_px*2}px;
-            # margin-top: {slot_margin_px*2}px;
-            # color: #19232D;
-            # width: 10px;
-
-            self.setRange(0, slots)
-            self.setValue(value)
-            self.setFormat('')  # label format
-            self.setMinimumWidth(h * 1.375)
-            self.setMaximumWidth(h * 1.375)
-
-    bar = FillStatusBar(fields)
+    bar = FillStatusBar(
+        approx_height_px=8/3 * w,
+        width_px=h * 1.375,
+        font_size=fields._font_size,
+        parent=fields
+    )
 
     hbox.addWidget(bar, alignment=Qt.AlignLeft | Qt.AlignTop)
 
@@ -606,12 +628,32 @@ def mk_fill_status_bar(
 
     # compute "chunk" sizes for fill-status-bar based on some static height
     slots = 4
-    border_size_px = 2
-    slot_margin_px = 2
-
     bar.set_slots(slots, value=0)
 
     return hbox, bar
+
+
+class OrderPane(pydantic.BaseModel):
+    '''Set of widgets plus an allocator model
+    for configuring order entry sizes.
+
+    '''
+    class Config:
+        arbitrary_types_allowed = True
+        underscore_attrs_are_private = False
+
+    # config for and underlying validation model
+    form: FieldsForm
+    model: pydantic.BaseModel
+
+    # fill status + labels
+    fill_status_bar: FillStatusBar
+    step_label: QLabel
+    pnl_label: QLabel
+    limit_label: QLabel
+
+    def config_ui_from_model(self) -> None:
+        ...
 
 
 def mk_order_pane_layout(
@@ -621,11 +663,11 @@ def mk_order_pane_layout(
 
 ) -> FieldsForm:
 
-    from ._position import mk_pp_alloc
+    from ._position import mk_alloc
     # TODO: some kinda pydantic sub-type
     # that enforces a composite widget attr er sumthin..
     # as part of our ORM thingers.
-    alloc = mk_pp_alloc()
+    alloc = mk_alloc()
 
     # TODO: maybe just allocate the whole fields form here
     # and expect an async ctx entry?
