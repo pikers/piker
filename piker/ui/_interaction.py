@@ -23,7 +23,7 @@ import time
 from typing import Optional, Callable
 
 import pyqtgraph as pg
-from pyqtgraph.GraphicsScene import mouseEvents
+# from pyqtgraph.GraphicsScene import mouseEvents
 from PyQt5.QtWidgets import QGraphicsSceneMouseEvent as gs_mouse
 from PyQt5.QtCore import Qt, QEvent
 from pyqtgraph import ViewBox, Point, QtCore
@@ -39,6 +39,25 @@ from . import _event
 
 log = get_logger(__name__)
 
+NUMBER_LINE = {
+    Qt.Key_1,
+    Qt.Key_2,
+    Qt.Key_3,
+    Qt.Key_4,
+    Qt.Key_5,
+    Qt.Key_6,
+    Qt.Key_7,
+    Qt.Key_8,
+    Qt.Key_9,
+    Qt.Key_0,
+}
+
+ORDER_MODE = {
+    Qt.Key_A,
+    Qt.Key_F,
+    Qt.Key_D,
+}
+
 
 async def handle_viewmode_kb_inputs(
 
@@ -47,7 +66,7 @@ async def handle_viewmode_kb_inputs(
 
 ) -> None:
 
-    mode = view.mode
+    order_mode = view.order_mode
 
     # track edge triggered keys
     # (https://en.wikipedia.org/wiki/Interrupt#Triggering_methods)
@@ -57,6 +76,8 @@ async def handle_viewmode_kb_inputs(
     trigger_mode: str
     action: str
 
+    on_next_release: Optional[Callable] = None
+
     # for quick key sequence-combo pattern matching
     # we have a min_tap period and these should not
     # ever be auto-repeats since we filter those at the
@@ -64,7 +85,7 @@ async def handle_viewmode_kb_inputs(
     min_tap = 1/6
     fast_key_seq: list[str] = []
     fast_taps: dict[str, Callable] = {
-        'cc': mode.cancel_all_orders,
+        'cc': order_mode.cancel_all_orders,
     }
 
     async for kbmsg in recv_chan:
@@ -129,7 +150,7 @@ async def handle_viewmode_kb_inputs(
             # cancel order or clear graphics
             if key == Qt.Key_C or key == Qt.Key_Delete:
 
-                mode.cancel_orders_under_cursor()
+                order_mode.cancel_orders_under_cursor()
 
             # View modes
             if key == Qt.Key_R:
@@ -147,10 +168,14 @@ async def handle_viewmode_kb_inputs(
         # release branch
         elif etype in {QEvent.KeyRelease}:
 
+            if on_next_release:
+                on_next_release()
+                on_next_release = None
+
             if key in pressed:
                 pressed.remove(key)
 
-        # QUERY MODE #
+        # QUERY/QUOTE MODE #
         if {Qt.Key_Q}.intersection(pressed):
 
             view.linkedsplits.cursor.in_query_mode = True
@@ -158,7 +183,8 @@ async def handle_viewmode_kb_inputs(
         else:
             view.linkedsplits.cursor.in_query_mode = False
 
-        # SELECTION MODE #
+        # SELECTION MODE
+        # --------------
 
         if shift:
             if view.state['mouseMode'] == ViewBox.PanMode:
@@ -172,24 +198,22 @@ async def handle_viewmode_kb_inputs(
                 Qt.Key_P,
             }
         ):
-            pp_conf = mode.pp_config
-            if pp_conf.isHidden():
-                pp_conf.show()
+            pp_pane = order_mode.pp.pane
+            if pp_pane.isHidden():
+                pp_pane.show()
             else:
-                pp_conf.hide()
+                pp_pane.hide()
 
-        # ORDER MODE #
+        # ORDER MODE
+        # ----------
+
         # live vs. dark trigger + an action {buy, sell, alert}
-        order_keys_pressed = {
-            Qt.Key_A,
-            Qt.Key_F,
-            Qt.Key_D
-        }.intersection(pressed)
+        order_keys_pressed = ORDER_MODE.intersection(pressed)
 
         if order_keys_pressed:
 
             # show the pp size label
-            mode.pp.show()
+            order_mode.pp.show()
 
             # TODO: show pp config mini-params in status bar widget
             # mode.pp_config.show()
@@ -215,11 +239,11 @@ async def handle_viewmode_kb_inputs(
                 action = 'alert'
                 trigger_type = 'live'
 
-            view.order_mode = True
+            order_mode.active = True
 
             # XXX: order matters here for line style!
-            view.mode._trigger_type = trigger_type
-            view.mode.stage_order(
+            order_mode._trigger_type = trigger_type
+            order_mode.stage_order(
                 action,
                 trigger_type=trigger_type,
             )
@@ -227,20 +251,39 @@ async def handle_viewmode_kb_inputs(
             prefix = trigger_type + '-' if action != 'alert' else ''
             view._chart.window().set_mode_name(f'{prefix}{action}')
 
+        elif (
+            (
+                Qt.Key_S in pressed or
+                order_keys_pressed or
+                Qt.Key_O in pressed
+            ) and
+            key in NUMBER_LINE
+        ):
+            # hot key to set order slots size
+            num = int(text)
+            pp = order_mode.pp
+            pp_pane = pp.pane
+            pp_pane.model.slots = num
+            edit = pp_pane.fields['slots']
+            edit.setText(text)
+            edit.selectAll()
+            on_next_release = edit.deselect
+            pp.init_status_ui()
+
         else:  # none active
 
             # hide pp label
-            mode.pp.hide_info()
+            order_mode.pp.hide_info()
 
             # if none are pressed, remove "staged" level
             # line under cursor position
-            view.mode.lines.unstage_line()
+            order_mode.lines.unstage_line()
 
             if view.hasFocus():
                 # update mode label
                 view._chart.window().set_mode_name('view')
 
-            view.order_mode = False
+            order_mode.active = False
 
         last = time.time()
 
@@ -266,12 +309,12 @@ async def handle_viewmode_mouse(
         #     view.raiseContextMenu(event)
 
         if (
-            view.order_mode and
+            view.order_mode.active and
             button == QtCore.Qt.LeftButton
         ):
             # when in order mode, submit execution
             # msg.event.accept()
-            view.mode.submit_order()
+            view.order_mode.submit_order()
 
 
 class ChartView(ViewBox):
