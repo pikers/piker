@@ -701,6 +701,10 @@ async def _aio_get_client(
             # grab first cached client
             client = list(_client_cache.values())[0]
 
+        if not client.ib.isConnected():
+            # we have a stale client to re-allocate
+            raise KeyError
+
         yield client
 
     except (KeyError, IndexError):
@@ -780,7 +784,6 @@ async def _aio_run_client_method(
             kwargs['to_trio'] = to_trio
 
         log.runtime(f'Running {meth}({kwargs})')
-
         return await async_meth(**kwargs)
 
 
