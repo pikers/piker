@@ -371,7 +371,7 @@ class LinkedSplits(QWidget):
         # add crosshairs
         self.cursor = Cursor(
             linkedsplits=self,
-            digits=symbol.digits(),
+            digits=symbol.tick_size_digits,
         )
 
         self.chart = self.add_plot(
@@ -882,7 +882,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # use the tick size precision for display
         sym = self.linked.symbol
         if name == sym.key:
-            digits = sym.digits()
+            digits = sym.tick_size_digits
         else:
             digits = 2
 
@@ -1144,8 +1144,8 @@ async def chart_from_quotes(
     l1 = L1Labels(
         chart,
         # determine precision/decimal lengths
-        digits=symbol.digits(),
-        size_digits=symbol.lot_digits(),
+        digits=symbol.tick_size_digits,
+        size_digits=symbol.lot_size_digits,
     )
     chart._l1_labels = l1
 

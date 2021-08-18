@@ -169,7 +169,7 @@ def mk_alloc(
             '''
             tracker = self._position
             pp_size = tracker.live_pp.size
-            ld = symbol.lot_digits()
+            ld = symbol.lot_size_digits
 
             if (
                 action == 'buy' and pp_size > 0 or
@@ -289,7 +289,7 @@ class PositionTracker:
         )
         pp_label.render()
 
-        nsize = self.chart.linked.symbol.lot_digits()
+        nsize = self.chart.linked.symbol.lot_size_digits
 
         self.size_label = size_label = Label(
             view=view,

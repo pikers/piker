@@ -49,7 +49,7 @@ from ._sharedmem import (
     ShmArray,
 )
 from .ingest import get_ingestormod
-from ._source import base_iohlc_dtype, Symbol
+from ._source import base_iohlc_dtype, mk_symbol, Symbol
 from ..ui import _search
 from ._sampling import (
     _shms,
@@ -535,7 +535,7 @@ async def open_feed(
             si = data['symbol_info']
             ohlc_sample_rates.append(data['sample_rate'])
 
-            symbol = Symbol(
+            symbol = mk_symbol(
                 key=sym,
                 type_key=si.get('asset_type', 'forex'),
                 tick_size=si.get('price_tick_size', 0.01),

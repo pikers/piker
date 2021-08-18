@@ -116,12 +116,9 @@ class OrderMode:
             # TODO: convert these values into human-readable form
             # (i.e. with k, m, M, B) type embedded suffixes
             level=order.price,
-            # level_digits=symbol.digits(),
             action=order.action,
 
             size=order.size,
-            # TODO: we need truncation checks in the EMS for this?
-            # size_digits=min(symbol.lot_digits(), 3),
             color=self._colors[order.action],
 
             dotted=True if (
