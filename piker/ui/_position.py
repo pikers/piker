@@ -19,10 +19,10 @@ Position info and display
 
 """
 from __future__ import annotations
-import enum
+from enum import Enum
 from functools import partial
 from math import floor
-from pprint import pprint
+# from pprint import pprint
 import sys
 from typing import Optional
 
@@ -42,6 +42,11 @@ from ..data._source import Symbol
 from ._label import Label
 from ._lines import LevelLine, level_line
 from ._style import _font
+from ._forms import FieldsForm
+from ..log import get_logger
+
+
+log = get_logger(__name__)
 
 
 class Position(BaseModel):
@@ -60,15 +65,23 @@ class Position(BaseModel):
     fills: list[Status] = []
 
 
-def mk_pp_alloc(
+def mk_alloc(
 
     accounts: dict[str, Optional[str]] = {
         'paper': None,
-        'ib.paper': 'DU1435481',
-        'ib.margin': 'U10983%',
     },
 
 ) -> Allocator:  # noqa
+
+    from ..brokers import config
+    conf, path = config.load()
+    section = conf.get('accounts')
+    if section is None:
+        log.warning('No accounts config found?')
+
+    for brokername, account_labels in section.items():
+        for name, value in account_labels.items():
+            accounts[f'{brokername}.{name}'] = value
 
     # lol we have to do this module patching bc ``pydantic``
     # needs types to exist at module level:
@@ -76,29 +89,40 @@ def mk_pp_alloc(
     mod = sys.modules[__name__]
 
     accounts = bidict(accounts)
-    Account = mod.Account = enum.Enum('Account', accounts)
+    Account = mod.Account = Enum('Account', accounts)
 
     size_units = bidict({
-        '$ size': 'currency',
-        '% of port': 'percent_of_port',
-        '# shares': 'shares',
+        'currency': '$ size',
+        'units': '# units',
+        # 'percent_of_port': '% of port',  # TODO:
     })
-    SizeUnit = mod.SizeUnit = enum.Enum(
+    SizeUnit = mod.SizeUnit = Enum(
         'SizeUnit',
-        size_units.inverse
+        size_units,
     )
 
     class Allocator(BaseModel):
 
         class Config:
             validate_assignment = True
+            copy_on_model_validation = False
             extra = 'allow'
 
         account: Account = None
         _accounts: dict[str, Optional[str]] = accounts
 
+        @validator('account', pre=True)
+        def set_account(cls, v):
+            if v:
+                return cls._accounts[v]
+
         size_unit: SizeUnit = 'currency'
         _size_units: dict[str, Optional[str]] = size_units
+
+        @validator('size_unit')
+        def lookup_key(cls, v):
+            # apply the corresponding enum key for the text "description" value
+            return v.name
 
         disti_weight: str = 'uniform'
 
@@ -108,31 +132,104 @@ def mk_pp_alloc(
         _position: Position = None
         _widget: QWidget = None
 
+        def slotted_units(
+            self,
+            symbol: Symbol,
+            size: float,
+            price: float,
+        ) -> float:
+            return size / self.slots
+
+        def size_from_currency_limit(
+            self,
+            symbol: Symbol,
+            size: float,
+            price: float,
+        ) -> float:
+            return size / self.slots / price
+
+        _sizers = {
+            'currency': size_from_currency_limit,
+            'units': slotted_units,
+            # 'percent_of_port': lambda: 0,
+        }
+
         def get_order_info(
             self,
 
             # TODO: apply the symbol when the chart it is selected
             symbol: Symbol,
             price: float,
+            action: str,
 
         ) -> dict:
+            '''Generate order request info for the "next" submittable order
+            depending on position / order entry config.
 
-            # pprint(self._position.info.dict())
-
-            fiat_size = self.size / self.slots
+            '''
+            tracker = self._position
+            pp_size = tracker.live_pp.size
             ld = symbol.lot_digits()
-            units = round(fiat_size / price, ndigits=ld)
 
-            return {'size': units, 'size_digits': ld}
+            if (
+                action == 'buy' and pp_size > 0 or
+                action == 'sell' and pp_size < 0 or
+                pp_size == 0
+            ):  # an entry
 
-        def pp_update(self) -> None:
-            # update fill bar and labels
-            ...
+                # try to read existing position and compute
+                # next entry/exit size from distribution weight policy
+                # (and possibly TODO: commissions info).
+                entry_size = self._sizers[self.size_unit](
+                    self, symbol, self.size, price
+                )
+
+                if ld == 0:
+                    # in discrete units case (eg. stocks, futures, opts)
+                    # we always round down
+                    units = floor(entry_size)
+                else:
+                    # we can return a float lot size rounded to nearest tick
+                    units = round(entry_size, ndigits=ld)
+
+                return {
+                    'size': units,
+                    'size_digits': ld
+                }
+
+            elif action != 'alert':  # an exit
+
+                pp_size = tracker.startup_pp.size
+                if ld == 0:
+                    # exit at the slot size worth of units or the remaining
+                    # units left for the position to be net-zero, whichever
+                    # is smaller
+                    evenly, r = divmod(pp_size,  self.slots)
+                    exit_size = min(evenly, pp_size)
+
+                    # "front" weight the exit order sizes
+                    # TODO: make this configurable?
+                    if r:
+                        exit_size += 1
+
+                else:  # we can return a float lot size rounded to nearest tick
+                    exit_size = min(
+                        round(pp_size / self.slots, ndigits=ld),
+                        pp_size
+                    )
+
+                return {
+                    'size': exit_size,
+                    'size_digits': ld
+                }
+
+            else:  # likely an alert
+                return {'size': 0}
 
     return Allocator(
         account=None,
-        size_unit=size_units.inverse['currency'],
-        size=2000,
+        size_unit=size_units['currency'],
+        size=5e3,
         slots=4,
     )
 
@@ -144,10 +241,11 @@ class PositionTracker:
     '''
     # inputs
     chart: 'ChartPlotWidget'  # noqa
-    alloc: 'Allocator'
+    # alloc: 'Allocator'
 
     # allocated
-    info: Position
+    startup_pp: Position
+    live_pp: Position
     pp_label: Label
     size_label: Label
     line: Optional[LevelLine] = None
@@ -157,15 +255,18 @@ class PositionTracker:
     def __init__(
         self,
         chart: 'ChartPlotWidget',  # noqa
+        alloc: 'Allocator',  # noqa
 
     ) -> None:
 
         self.chart = chart
-        self.info = Position(
+        self.alloc = alloc
+        self.live_pp = Position(
             symbol=chart.linked.symbol,
             size=0,
             avg_price=0,
         )
+        self.startup_pp = self.live_pp.copy()
 
         view = chart.getViewBox()
 
@@ -197,7 +298,7 @@ class PositionTracker:
             # this is "static" label
             # update_on_range_change=False,
             fmt_str='\n'.join((
-                ':{entry_size:.{size_digits}f}',
+                ':{entry_size:.{size_digits}f}x',
             )),
 
             fields={
@@ -236,6 +337,13 @@ class PositionTracker:
         #     },
         # )
 
+    @property
+    def pane(self) -> FieldsForm:
+        '''Return handle to pp side pane form.
+
+        '''
+        return self.chart.linked.godwidget.pp_pane
+
     def update_graphics(
         self,
         marker: LevelMarker
@@ -253,15 +361,18 @@ class PositionTracker:
     def update(
         self,
         msg: BrokerdPosition,
+        position: Optional[Position] = None,
 
     ) -> None:
         '''Update graphics and data from average price and size.
 
         '''
         avg_price, size = msg['avg_price'], msg['size']
-        # info updates
-        self.info.avg_price = avg_price
-        self.info.size = size
+
+        # live pp updates
+        pp = position or self.live_pp
+        pp.avg_price = avg_price
+        pp.size = size
 
         self.update_line(avg_price, size)
 
@@ -293,7 +404,7 @@ class PositionTracker:
             return 0
 
     def show(self) -> None:
-        if self.info.size:
+        if self.live_pp.size:
             self.line.show()
             self._level_marker.show()
             self.pp_label.show()
@@ -433,3 +544,29 @@ class PositionTracker:
                 # remove pp line from view
                 line.delete()
                 self.line = None
+
+    def init_status_ui(
+        self,
+    ):
+        pp = self.startup_pp
+
+        # calculate proportion of position size limit
+        # that exists and display in fill bar
+        size = pp.size
+
+        if self.alloc.size_unit == 'currency':
+            size = size * pp.avg_price
+
+        self.update_status_ui(size)
+
+    def update_status_ui(
+        self,
+        size: float,
+
+    ) -> None:
+        alloc = self.alloc
+        prop = size / alloc.size
+        slots = alloc.slots
+
+        pane = self.pane
+        pane.fill_bar.set_slots(slots, min(floor(prop * slots), slots))
