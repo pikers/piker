@@ -32,7 +32,7 @@ import tractor
 
 from ..log import get_logger
 from ..data._normalize import iterticks
-from ..data.feed import Feed, maybe_open_feed
+from ..data.feed import Feed, maybe_open_feed, open_feed
 from .._daemon import maybe_spawn_brokerd
 from . import _paper_engine as paper
 from ._messages import (
@@ -958,12 +958,16 @@ async def _emsd_main(
 
     # spawn one task per broker feed
     async with (
-        maybe_open_feed(
+        open_feed(
+        # maybe_open_feed(
             broker,
             [symbol],
             loglevel=loglevel,
-        ) as (feed, stream),
+        # ) as (feed, stream),
+        ) as feed,
     ):
+
+        stream = feed.stream
 
         # XXX: this should be initial price quote from target provider
         first_quote = feed.first_quote

@@ -177,11 +177,15 @@ async def cascade(
     func: Callable = _fsps[fsp_func_name]
 
     # open a data feed stream with requested broker
-    async with data.feed.maybe_open_feed(
+    # async with data.feed.maybe_open_feed(
+    async with data.feed.open_feed(
         brokername,
         [symbol],
         shielded_stream=True,
-    ) as (feed, stream):
+    # ) as (feed, stream):
+    ) as feed:
+
+        stream = feed.stream
 
         assert src.token == feed.shm.token
 
