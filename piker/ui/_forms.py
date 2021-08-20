@@ -633,29 +633,6 @@ def mk_fill_status_bar(
     return hbox, bar
 
 
-class OrderPane(pydantic.BaseModel):
-    '''Set of widgets plus an allocator model
-    for configuring order entry sizes.
-
-    '''
-    class Config:
-        arbitrary_types_allowed = True
-        underscore_attrs_are_private = False
-
-    # config for and underlying validation model
-    form: FieldsForm
-    model: pydantic.BaseModel
-
-    # fill status + labels
-    fill_status_bar: FillStatusBar
-    step_label: QLabel
-    pnl_label: QLabel
-    limit_label: QLabel
-
-    def config_ui_from_model(self) -> None:
-        ...
-
-
 def mk_order_pane_layout(
 
     parent: QWidget,

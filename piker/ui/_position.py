@@ -23,7 +23,6 @@ from enum import Enum
 from functools import partial
 from math import floor
 # from pprint import pprint
-import sys
 from typing import Optional
 
 
@@ -42,7 +41,7 @@ from ..data._source import Symbol
 from ._label import Label
 from ._lines import LevelLine, level_line
 from ._style import _font
-from ._forms import FieldsForm
+from ._forms import FieldsForm, FillStatusBar, QLabel
 from ..log import get_logger
 
 
@@ -65,6 +64,145 @@ class Position(BaseModel):
     fills: list[Status] = []
 
 
+_size_units = bidict({
+    'currency': '$ size',
+    'units': '# units',
+    # TODO: but we'll need a `<brokermod>.get_accounts()` or something
+    # 'percent_of_port': '% of port',
+})
+SizeUnit = Enum(
+    'SizeUnit',
+    _size_units,
+)
+
+
+class Allocator(BaseModel):
+
+    class Config:
+        validate_assignment = True
+        copy_on_model_validation = False
+        extra = 'allow'
+        # underscore_attrs_are_private = False
+
+    account: Optional[str] = 'paper'
+    _accounts: bidict[str, Optional[str]]
+
+    @validator('account', pre=True)
+    def set_account(cls, v, values):
+        if v:
+            return values['_accounts'][v]
+
+    size_unit: SizeUnit = 'currency'
+    _size_units: dict[str, Optional[str]] = _size_units
+
+    @validator('size_unit')
+    def lookup_key(cls, v):
+        # apply the corresponding enum key for the text "description" value
+        return v.name
+
+    disti_weight: str = 'uniform'
+
+    size: float
+    slots: int
+
+    _position: Position = None
+    _widget: QWidget = None
+
+    def slotted_units(
+        self,
+        symbol: Symbol,
+        size: float,
+        price: float,
+    ) -> float:
+        return size / self.slots
+
+    def size_from_currency_limit(
+        self,
+        symbol: Symbol,
+        size: float,
+        price: float,
+    ) -> float:
+        return size / self.slots / price
+
+    _sizers = {
+        'currency': size_from_currency_limit,
+        'units': slotted_units,
+        # 'percent_of_port': lambda: 0,
+    }
+
+    def get_order_info(
+        self,
+
+        # TODO: apply the symbol when the chart it is selected
+        symbol: Symbol,
+        price: float,
+        action: str,
+
+    ) -> dict:
+        '''Generate order request info for the "next" submittable order
+        depending on position / order entry config.
+
+        '''
+        tracker = self._position
+        pp_size = tracker.live_pp.size
+        ld = symbol.lot_size_digits
+
+        if (
+            action == 'buy' and pp_size > 0 or
+            action == 'sell' and pp_size < 0 or
+            pp_size == 0
+        ):  # an entry
+
+            # try to read existing position and compute
+            # next entry/exit size from distribution weight policy
+            # (and possibly TODO: commissions info).
+            entry_size = self._sizers[self.size_unit](
+                self, symbol, self.size, price
+            )
+
+            if ld == 0:
+                # in discrete units case (eg. stocks, futures, opts)
+                # we always round down
+                units = floor(entry_size)
+            else:
+                # we can return a float lot size rounded to nearest tick
+                units = round(entry_size, ndigits=ld)
+
+            return {
+                'size': units,
+                'size_digits': ld
+            }
+
+        elif action != 'alert':  # an exit
+
+            pp_size = tracker.startup_pp.size
+            if ld == 0:
+                # exit at the slot size worth of units or the remaining
+                # units left for the position to be net-zero, whichever
+                # is smaller
+                evenly, r = divmod(pp_size,  self.slots)
+                exit_size = min(evenly, pp_size)
+
+                # "front" weight the exit order sizes
+                # TODO: make this configurable?
+                if r:
+                    exit_size += 1
+
+            else:  # we can return a float lot size rounded to nearest tick
+                exit_size = min(
+                    round(pp_size / self.slots, ndigits=ld),
+                    pp_size
+                )
+
+            return {
+                'size': exit_size,
+                'size_digits': ld
+            }
+
+        else:  # likely an alert
+            return {'size': 0}
+
+
 def mk_alloc(
 
     accounts: dict[str, Optional[str]] = {
@@ -83,155 +221,39 @@ def mk_alloc(
         for name, value in account_labels.items():
             accounts[f'{brokername}.{name}'] = value
 
-    # lol we have to do this module patching bc ``pydantic``
-    # needs types to exist at module level:
-    # https://pydantic-docs.helpmanual.io/usage/postponed_annotations/
-    mod = sys.modules[__name__]
-
-    accounts = bidict(accounts)
-    Account = mod.Account = Enum('Account', accounts)
-
-    size_units = bidict({
-        'currency': '$ size',
-        'units': '# units',
-        # 'percent_of_port': '% of port',  # TODO:
-    })
-    SizeUnit = mod.SizeUnit = Enum(
-        'SizeUnit',
-        size_units,
-    )
-
-    class Allocator(BaseModel):
-
-        class Config:
-            validate_assignment = True
-            copy_on_model_validation = False
-            extra = 'allow'
-
-        account: Account = None
-        _accounts: dict[str, Optional[str]] = accounts
-
-        @validator('account', pre=True)
-        def set_account(cls, v):
-            if v:
-                return cls._accounts[v]
-
-        size_unit: SizeUnit = 'currency'
-        _size_units: dict[str, Optional[str]] = size_units
-
-        @validator('size_unit')
-        def lookup_key(cls, v):
-            # apply the corresponding enum key for the text "description" value
-            return v.name
-
-        disti_weight: str = 'uniform'
-
-        size: float
-        slots: int
-
-        _position: Position = None
-        _widget: QWidget = None
-
-        def slotted_units(
-            self,
-            symbol: Symbol,
-            size: float,
-            price: float,
-        ) -> float:
-            return size / self.slots
-
-        def size_from_currency_limit(
-            self,
-            symbol: Symbol,
-            size: float,
-            price: float,
-        ) -> float:
-            return size / self.slots / price
-
-        _sizers = {
-            'currency': size_from_currency_limit,
-            'units': slotted_units,
-            # 'percent_of_port': lambda: 0,
-        }
-
-        def get_order_info(
-            self,
-
-            # TODO: apply the symbol when the chart it is selected
-            symbol: Symbol,
-            price: float,
-            action: str,
-
-        ) -> dict:
-            '''Generate order request info for the "next" submittable order
-            depending on position / order entry config.
-
-            '''
-            tracker = self._position
-            pp_size = tracker.live_pp.size
-            ld = symbol.lot_size_digits
-
-            if (
-                action == 'buy' and pp_size > 0 or
-                action == 'sell' and pp_size < 0 or
-                pp_size == 0
-            ):  # an entry
-
-                # try to read existing position and compute
-                # next entry/exit size from distribution weight policy
-                # (and possibly TODO: commissions info).
-                entry_size = self._sizers[self.size_unit](
-                    self, symbol, self.size, price
-                )
-
-                if ld == 0:
-                    # in discrete units case (eg. stocks, futures, opts)
-                    # we always round down
-                    units = floor(entry_size)
-                else:
-                    # we can return a float lot size rounded to nearest tick
-                    units = round(entry_size, ndigits=ld)
-
-                return {
-                    'size': units,
-                    'size_digits': ld
-                }
-
-            elif action != 'alert':  # an exit
-
-                pp_size = tracker.startup_pp.size
-                if ld == 0:
-                    # exit at the slot size worth of units or the remaining
-                    # units left for the position to be net-zero, whichever
-                    # is smaller
-                    evenly, r = divmod(pp_size,  self.slots)
-                    exit_size = min(evenly, pp_size)
-
-                    # "front" weight the exit order sizes
-                    # TODO: make this configurable?
-                    if r:
-                        exit_size += 1
-
-                else:  # we can return a float lot size rounded to nearest tick
-                    exit_size = min(
-                        round(pp_size / self.slots, ndigits=ld),
-                        pp_size
-                    )
-
-                return {
-                    'size': exit_size,
-                    'size_digits': ld
-                }
-
-            else:  # likely an alert
-                return {'size': 0}
-
     return Allocator(
         account=None,
-        size_unit=size_units['currency'],
+        _accounts=bidict(accounts),
+        size_unit=_size_units['currency'],
         size=5e3,
         slots=4,
     )
+
+
+class OrderPane(BaseModel):
+    '''Set of widgets plus an allocator model
+    for configuring order entry sizes.
+
+    '''
+    class Config:
+        arbitrary_types_allowed = True
+        # underscore_attrs_are_private = False
+
+    # config for and underlying validation model
+    form: FieldsForm
+    model: BaseModel
+
+    # fill status + labels
+    fill_status_bar: FillStatusBar
+    step_label: QLabel
+    pnl_label: QLabel
+    limit_label: QLabel
+
+    def config_ui_from_model(self) -> None:
+        ...
+
+    def transform_to(self, size_unit: str) -> None:
+        ...
 
 
 class PositionTracker:
@@ -509,6 +531,7 @@ class PositionTracker:
 
         return line
 
+    # TODO: per account lines on a single (or very related) symbol
     def update_line(
         self,
 
