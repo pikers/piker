@@ -105,57 +105,54 @@ class EventRelay(QtCore.QObject):
         etype = ev.type()
         # TODO: turn this on and see what we can filter by default (such
         # as mouseWheelEvent).
-        # print(f'ev: {ev}')
+        print(f'ev: {ev}')
 
-        if etype in self._event_types:
-            # ev.accept()
-
-            # TODO: what's the right way to allow this?
-            # if ev.isAutoRepeat():
-            #     ev.ignore()
-
-            # XXX: we unpack here because apparently doing it
-            # after pop from the mem chan isn't showing the same
-            # event object? no clue wtf is going on there, likely
-            # something to do with Qt internals and calling the
-            # parent handler?
-
-            if etype in {QEvent.KeyPress, QEvent.KeyRelease}:
-
-                msg = KeyboardMsg(
-                    event=ev,
-                    etype=etype,
-                    key=ev.key(),
-                    mods=ev.modifiers(),
-                    txt=ev.text(),
-                )
-
-                # TODO: is there a global setting for this?
-                if ev.isAutoRepeat() and self._filter_auto_repeats:
-                    ev.ignore()
-                    return True
-
-                # NOTE: the event object instance coming out
-                # the other side is mutated since Qt resumes event
-                # processing **before** running a ``trio`` guest mode
-                # tick, thus special handling or copying must be done.
-
-            elif etype in MOUSE_EVENTS:
-                msg = MouseMsg(
-                    event=ev,
-                    etype=etype,
-                    button=ev.button(),
-                )
-
-            else:
-                msg = ev
-
-            # send event-msg to async handler
-            self._send_chan.send_nowait(msg)
-
-            # **do not** filter out this event
-            # and instead forward to the source widget
+        if etype not in self._event_types:
             return False
+
+        # XXX: we unpack here because apparently doing it
+        # after pop from the mem chan isn't showing the same
+        # event object? no clue wtf is going on there, likely
+        # something to do with Qt internals and calling the
+        # parent handler?
+
+        if etype in {QEvent.KeyPress, QEvent.KeyRelease}:
+
+            msg = KeyboardMsg(
+                event=ev,
+                etype=etype,
+                key=ev.key(),
+                mods=ev.modifiers(),
+                txt=ev.text(),
+            )
+
+            # TODO: is there a global setting for this?
+            if ev.isAutoRepeat() and self._filter_auto_repeats:
+                ev.ignore()
+                return True
+
+            # NOTE: the event object instance coming out
+            # the other side is mutated since Qt resumes event
+            # processing **before** running a ``trio`` guest mode
+            # tick, thus special handling or copying must be done.
+
+        elif etype in MOUSE_EVENTS:
+            # print('f mouse event: {ev}')
+            msg = MouseMsg(
+                event=ev,
+                etype=etype,
+                button=ev.button(),
+            )
+
+        else:
+            msg = ev
+
+        # send event-msg to async handler
+        self._send_chan.send_nowait(msg)
+
+        # **do not** filter out this event
+        # and instead forward to the source widget
+        return False
 
         # filter out this event
         # https://doc.qt.io/qt-5/qobject.html#installEventFilter
