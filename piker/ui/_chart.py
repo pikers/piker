@@ -201,7 +201,7 @@ class GodWidget(QWidget):
             # XXX: pretty sure we don't need this
             # remove any existing plots?
             # XXX: ahh we might want to support cache unloading..
-            self.vbox.removeWidget(self.linkedsplits)
+            # self.vbox.removeWidget(self.linkedsplits)
 
         # switching to a new viewable chart
         if linkedsplits is None or reset:
@@ -231,13 +231,13 @@ class GodWidget(QWidget):
 
             # XXX: since the pp config is a singleton widget we have to
             # also switch it over to the new chart's interal-layout
-            self.linkedsplits.chart.qframe.hbox.removeWidget(self.pp_pane)
+            # self.linkedsplits.chart.qframe.hbox.removeWidget(self.pp_pane)
             chart = linkedsplits.chart
             await chart.resume_all_feeds()
-            chart.qframe.hbox.addWidget(
-                self.pp_pane,
-                alignment=Qt.AlignTop
-            )
+            # chart.qframe.hbox.addWidget(
+            #     self.pp_pane,
+            #     alignment=Qt.AlignTop
+            # )
 
         # chart is already in memory so just focus it
         if self.linkedsplits:
@@ -269,6 +269,39 @@ class GodWidget(QWidget):
         # go back to view-mode focus (aka chart focus)
         self.clearFocus()
         self.linkedsplits.chart.setFocus()
+
+
+class ChartnPane(QFrame):
+    '''One-off ``QFrame`` composite which pairs a chart
+    + sidepane (often a ``FieldsForm`` + other widgets if
+    provided) forming a, sort of, "chart row" with a side panel
+    for configuration and display of off-chart data.
+
+    See composite widgets docs for deats:
+    https://doc.qt.io/qt-5/qwidget.html#composite-widgets
+
+    '''
+    sidepane: FieldsForm
+    hbox: QtGui.QHBoxLayout
+    chart: Optional['ChartPlotWidget'] = None
+
+    def __init__(
+        self,
+
+        sidepane: FieldsForm,
+        parent=None,
+
+    ) -> None:
+
+        super().__init__(parent)
+
+        self.sidepane = sidepane
+        self.chart = None
+
+        hbox = self.hbox = QtGui.QHBoxLayout(self)
+        hbox.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        hbox.setContentsMargins(0, 0, 0, 0)
+        hbox.setSpacing(3)
 
 
 class LinkedSplits(QWidget):
@@ -333,7 +366,7 @@ class LinkedSplits(QWidget):
 
     def set_split_sizes(
         self,
-        prop: float = 0.625  # proportion allocated to consumer subcharts
+        prop: float = 0.375  # proportion allocated to consumer subcharts
 
     ) -> None:
         '''Set the proportion of space allocated for linked subcharts.
@@ -360,6 +393,7 @@ class LinkedSplits(QWidget):
 
         symbol: Symbol,
         array: np.ndarray,
+        sidepane: FieldsForm,
 
         style: str = 'bar',
 
@@ -382,7 +416,7 @@ class LinkedSplits(QWidget):
             style=style,
             _is_main=True,
 
-            sidepane=self.godwidget.pp_pane,
+            sidepane=sidepane,
         )
         # add crosshair graphic
         self.chart.addItem(self.cursor)
@@ -442,35 +476,7 @@ class LinkedSplits(QWidget):
             self.xaxis.hide()
             self.xaxis = xaxis
 
-        # TODO: probably should formalize and call this something else?
-        class ChartnPane(QFrame):
-            '''One-off ``QFrame`` composite which pairs a chart + sidepane
-            ``FieldsForm`` (if provided).
-
-            See composite widgets docs for deats:
-            https://doc.qt.io/qt-5/qwidget.html#composite-widgets
-
-            '''
-            sidepane: FieldsForm
-            hbox: QtGui.QHBoxLayout
-            chart: Optional['ChartPlotWidget'] = None
-
-            def __init__(
-                self,
-                parent=None,
-
-            ) -> None:
-
-                super().__init__(parent)
-
-                self.sidepane = sidepane
-
-                hbox = self.hbox = QtGui.QHBoxLayout(self)
-                hbox.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-                hbox.setContentsMargins(0, 0, 0, 0)
-                hbox.setSpacing(3)
-
-        qframe = ChartnPane(self.splitter)
+        qframe = ChartnPane(sidepane=sidepane, parent=self.splitter)
 
         cpw = ChartPlotWidget(
 
@@ -500,12 +506,11 @@ class LinkedSplits(QWidget):
         assert cpw.parent() == qframe
 
         # add sidepane **after** chart; place it on axis side
-        if sidepane:
-            qframe.hbox.addWidget(
-                sidepane,
-                alignment=Qt.AlignTop
-            )
-            cpw.sidepane = sidepane
+        qframe.hbox.addWidget(
+            sidepane,
+            alignment=Qt.AlignTop
+        )
+        cpw.sidepane = sidepane
 
         # give viewbox as reference to chart
         # allowing for kb controls and interactions on **this** widget
@@ -1401,10 +1406,6 @@ async def run_fsp(
         period: int
 
     sidepane: FieldsForm = mk_form(
-        model=FspConfig(
-            name=display_name,
-            period=14,
-        ),
         parent=linkedsplits.godwidget,
         fields_schema={
             'name': {
@@ -1420,6 +1421,10 @@ async def run_fsp(
                 'default_value': 14,
             },
         },
+    )
+    sidepane.model = FspConfig(
+        name=display_name,
+        period=14,
     )
 
     async with (
@@ -1533,11 +1538,14 @@ async def run_fsp(
 
         done()
 
+        i = 0
         # update chart graphics
         async for value in stream:
 
             # chart isn't actively shown so just skip render cycle
             if chart.linked.isHidden():
+                print(f'{i} unseen fsp cyclce')
+                i += 1
                 continue
 
             now = time.time()
@@ -1709,7 +1717,18 @@ async def display_symbol_data(
         linkedsplits = godwidget.linkedsplits
         linkedsplits._symbol = symbol
 
-        chart = linkedsplits.plot_ohlc_main(symbol, bars)
+        # generate order mode side-pane UI
+        # A ``FieldsForm`` form to configure order entry
+        pp_pane: FieldsForm = mk_order_pane_layout(godwidget)
+
+        # add as next-to-y-axis singleton pane
+        godwidget.pp_pane = pp_pane
+
+        chart = linkedsplits.plot_ohlc_main(
+            symbol,
+            bars,
+            sidepane=pp_pane,
+        )
         chart._feeds[symbol.key] = feed
         chart.setFocus()
 
@@ -1771,7 +1790,11 @@ async def display_symbol_data(
                 },
             })
 
-        async with trio.open_nursery() as n:
+        async with (
+
+            trio.open_nursery() as n,
+
+        ):
             # load initial fsp chain (otherwise known as "indicators")
             n.start_soon(
                 spawn_fsps,
@@ -1876,12 +1899,6 @@ async def _async_main(
     sbar = godwidget.window.status_bar
     starting_done = sbar.open_status('starting ze sexy chartz')
 
-    # generate order mode side-pane UI
-    # A ``FieldsForm`` form to configure order entry
-    pp_pane: FieldsForm = mk_order_pane_layout(godwidget)
-    # add as next-to-y-axis singleton pane
-    godwidget.pp_pane = pp_pane
-
     async with (
         trio.open_nursery() as root_n,
     ):
@@ -1925,6 +1942,9 @@ async def _async_main(
 
             await order_mode_ready.wait()
 
+            # load account names from ``brokers.toml``
+            # accounts = brokers.config.load_accounts()
+
             # start handling peripherals input for top level widgets
             async with (
 
@@ -1945,10 +1965,10 @@ async def _async_main(
                 ),
 
                 # pp pane kb inputs
-                open_form_input_handling(
-                    pp_pane,
-                    focus_next=godwidget,
-                )
+                # open_form_input_handling(
+                #     pp_pane,
+                #     focus_next=godwidget,
+                # )
             ):
                 # remove startup status text
                 starting_done()
