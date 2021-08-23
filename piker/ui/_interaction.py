@@ -261,14 +261,16 @@ async def handle_viewmode_kb_inputs(
         ):
             # hot key to set order slots size
             num = int(text)
-            pp = order_mode.pp
-            pp_pane = pp.pane
-            pp_pane.model.slots = num
-            edit = pp_pane.fields['slots']
+            pp_pane = order_mode.pane
+            pp_pane.alloc.slots = num
+
+            edit = pp_pane.form.fields['slots']
             edit.setText(text)
             edit.selectAll()
+
             on_next_release = edit.deselect
-            pp.init_status_ui()
+
+            pp_pane.init_status_ui()
 
         else:  # none active
 

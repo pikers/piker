@@ -44,6 +44,7 @@ import pydantic
 
 from ._event import open_handlers
 from ._style import hcolor, _font, _font_small, DpiAwareFont
+from .. import brokers
 
 
 class FontAndChartAwareLineEdit(QLineEdit):
@@ -366,11 +367,15 @@ async def handle_field_input(
 
             # process field input
             if key in (Qt.Key_Enter, Qt.Key_Return):
+
                 value = widget.text()
                 key = widget._key
+
                 old = getattr(model, key)
+
                 try:
                     setattr(model, key, value)
+
                 except pydantic.error_wrappers.ValidationError:
                     setattr(model, key, old)
                     widget.setText(str(old))
@@ -380,16 +385,14 @@ async def handle_field_input(
 
 def mk_form(
 
-    model: pydantic.BaseModel,
     parent: QWidget,
     fields_schema: dict,
 
 ) -> FieldsForm:
 
-    form = FieldsForm(parent=parent)
     # TODO: generate components from model
     # instead of schema dict (aka use an ORM)
-    form.model = model
+    form = FieldsForm(parent=parent)
 
     # generate sub-components from schema dict
     for key, config in fields_schema.items():
@@ -413,18 +416,6 @@ def mk_form(
                 values
             )
 
-            def write_model(text: str, key: str):
-                print(f'{text}')
-                setattr(form.model, key, text)
-                print(form.model)
-
-            w.currentTextChanged.connect(
-                partial(
-                    write_model,
-                    key=key,
-                )
-            )
-
         w._key = key
 
     return form
@@ -438,7 +429,7 @@ async def open_form_input_handling(
 
 ) -> FieldsForm:
 
-    assert form.model, f'{form} must define a `.model`'
+    # assert form.model, f'{form} must define a `.model`'
 
     async with open_handlers(
 
@@ -630,31 +621,27 @@ def mk_fill_status_bar(
     slots = 4
     bar.set_slots(slots, value=0)
 
-    return hbox, bar
+    return hbox, bar, left_label, top_label, bottom_label
 
 
 def mk_order_pane_layout(
 
     parent: QWidget,
+    # accounts: dict[str, Optional[str]],
     font_size: int = _font_small.px_size - 2
 
 ) -> FieldsForm:
 
-    from ._position import mk_alloc
-    # TODO: some kinda pydantic sub-type
-    # that enforces a composite widget attr er sumthin..
-    # as part of our ORM thingers.
-    alloc = mk_alloc()
+    accounts = brokers.config.load_accounts()
 
     # TODO: maybe just allocate the whole fields form here
     # and expect an async ctx entry?
     form = mk_form(
         parent=parent,
-        model=alloc,
         fields_schema={
             'account': {
                 'type': 'select',
-                'default_value': alloc._accounts.keys()
+                'default_value': accounts.keys(),
             },
             'size_unit': {
                 'label': '**allocate**:',
@@ -670,8 +657,8 @@ def mk_order_pane_layout(
                 'type': 'select',
                 'default_value': ['uniform'],
             },
-            'size': {
-                'label': '**size**:',
+            'limit': {
+                'label': '**limit**:',
                 'type': 'edit',
                 'default_value': 5000,
             },
@@ -683,7 +670,6 @@ def mk_order_pane_layout(
         },
     )
     form._font_size = font_size
-    alloc._widget = form
 
     # top level pane layout
     # XXX: see ``FieldsForm.__init__()`` for why we can't do basic
@@ -693,8 +679,15 @@ def mk_order_pane_layout(
     # _, h = form.width(), form.height()
     # print(f'w, h: {w, h}')
 
-    hbox, fill_bar = mk_fill_status_bar(form, pane_vbox=vbox)
+    hbox, fill_bar, left_label, bottom_label, top_label = mk_fill_status_bar(
+        form, pane_vbox=vbox
+    )
+    # TODO: would be nice to have some better way of reffing these over
+    # monkey patching...
     form.fill_bar = fill_bar
+    form.left_label = left_label
+    form.bottom_label = bottom_label
+    form.top_label = top_label
 
     # add pp fill bar + spacing
     vbox.addLayout(hbox, stretch=1/3)
@@ -702,9 +695,9 @@ def mk_order_pane_layout(
     feed_label = form.add_field_label(
         dedent("""
         brokerd.ib\n
-        |_@localhost:8509\n
-        |_consumers: 4\n
-        |_streams: 9\n
+        |_@{host}:{port}\n
+        |_consumers: {cons}\n
+        |_streams: {streams}\n
         """),
         font_size=_font.px_size - 5,
     )
@@ -722,5 +715,4 @@ def mk_order_pane_layout(
     vbox.setSpacing(36)
 
     form.show()
-
     return form

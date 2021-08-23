@@ -19,6 +19,7 @@ Chart trading, the only way to scalp.
 
 """
 from dataclasses import dataclass, field
+from functools import partial
 from pprint import pformat
 import time
 from typing import Optional, Dict, Callable, Any
@@ -28,15 +29,16 @@ from pydantic import BaseModel
 import tractor
 import trio
 
+from .. import brokers
 from ..clearing._client import open_ems, OrderBook
 from ..data._source import Symbol
 from ..log import get_logger
 from ._editors import LineEditor, ArrowEditor
 from ._lines import order_line, LevelLine
-from ._position import PositionTracker
+from ._position import PositionTracker, OrderModePane, mk_alloc
 from ._window import MultiStatus
 from ..clearing._messages import Order
-# from ._forms import FieldsForm
+from ._forms import open_form_input_handling
 
 
 log = get_logger(__name__)
@@ -88,6 +90,8 @@ class OrderMode:
     multistatus: MultiStatus
     pp: PositionTracker
     allocator: 'Allocator'  # noqa
+    pane: OrderModePane
+
     active: bool = False
 
     name: str = 'order'
@@ -127,31 +131,16 @@ class OrderMode:
             ) else False,
 
             **line_kwargs,
-
         )
 
-        # define a callback applied for each level change to the line
-        # which will recompute the order size based on allocator
-        # settings:
-        def update_from_size_calc(y: float) -> None:
-
-            order_info = self.allocator.get_order_info(
-                symbol=symbol,
-                price=y,
-                action=order.action,
-            )
-            line.update_labels(order_info)
-            order.price = y
-            order.size = order_info['size']
-
-            # return is used to update labels implicitly
-            return order_info
-
-        update_from_size_calc(order.price)
-
-        # set level update cb
-        # line._on_level_change = partial(update_from_size_calc, order=order)
-        line._on_level_change = update_from_size_calc
+        # set level update callback to order pane method and update once
+        # immediately
+        line._on_level_change = partial(
+            self.pane.on_level_change_update_next_order_info,
+            line=line,
+            order=order,
+        )
+        line._on_level_change(order.price)
 
         return line
 
@@ -493,16 +482,52 @@ async def run_order_mode(
         ),
 
     ):
+        log.info(f'Opening order mode for {brokername}.{symbol.key}')
+
         view = chart.view
+
+        # annotations editors
         lines = LineEditor(chart=chart)
         arrows = ArrowEditor(chart, {})
 
-        log.info("Opening order mode")
+        # allocator
+        alloc = mk_alloc(
+            symbol=symbol,
+            accounts=brokers.config.load_accounts()
+        )
 
-        alloc = chart.linked.godwidget.pp_pane.model
+        # form = chart.linked.godwidget.pp_pane.model
+        form = chart.sidepane
+        form.model = alloc
+
         pp_tracker = PositionTracker(chart, alloc=alloc)
         pp_tracker.hide()
-        alloc._position = pp_tracker
+
+        # order pane widgets and allocation model
+        order_pane = OrderModePane(
+            tracker=pp_tracker,
+            form=form,
+            alloc=alloc,
+            fill_bar=form.fill_bar,
+            pnl_label=form.left_label,
+            step_label=form.bottom_label,
+            limit_label=form.top_label,
+        )
+
+        for key in ('account', 'size_unit', 'disti_weight'):
+            w = form.fields[key]
+
+            def write_model(text: str, key: str):
+                print(f'{text}')
+                setattr(alloc, key, text)
+                print(alloc)
+
+            w.currentTextChanged.connect(
+                partial(
+                    write_model,
+                    key=key,
+                )
+            )
 
         mode = OrderMode(
             chart,
@@ -512,6 +537,7 @@ async def run_order_mode(
             multistatus,
             pp_tracker,
             allocator=alloc,
+            pane=order_pane,
         )
 
         # TODO: create a mode "manager" of sorts?
@@ -529,7 +555,6 @@ async def run_order_mode(
                 pp_tracker.update(msg, position=pp_tracker.startup_pp)
                 pp_tracker.update(msg)
 
-
         # default entry sizing
         if asset_type in ('stock', 'crypto', 'forex'):
             alloc.size_unit = '$ size'
@@ -544,11 +569,11 @@ async def run_order_mode(
             pp_tracker.pane.fields['slots'].setText(str(alloc.slots))
 
             # make entry step 1.0
-            alloc.size = slots
-            pp_tracker.pane.fields['size'].setText(str(alloc.size))
+            alloc.units_size = slots
+            pp_tracker.pane.fields['size'].setText(str(alloc.units_size))
 
         # make fill bar and positioning snapshot
-        pp_tracker.init_status_ui()
+        order_pane.init_status_ui()
 
         # TODO: this should go onto some sort of
         # data-view strimg thinger..right?
@@ -572,7 +597,11 @@ async def run_order_mode(
         async with (
             chart.view.open_async_input_handler(),
 
-            # TODO: config form handler nursery
+            # pp pane kb inputs
+            open_form_input_handling(
+                form,
+                focus_next=chart.linked.godwidget,
+            ),
 
         ):
 
