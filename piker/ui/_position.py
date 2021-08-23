@@ -19,6 +19,7 @@ Position info and display
 
 """
 from __future__ import annotations
+from dataclasses import dataclass
 from enum import Enum
 from functools import partial
 from math import floor
@@ -26,7 +27,7 @@ from math import floor
 from typing import Optional
 
 
-from PyQt5.QtWidgets import QWidget
+# from PyQt5.QtWidgets import QWidget
 from bidict import bidict
 from pyqtgraph import functions as fn
 from pydantic import BaseModel, validator
@@ -43,7 +44,7 @@ from ._lines import LevelLine, level_line
 from ._style import _font
 from ._forms import FieldsForm, FillStatusBar, QLabel
 from ..log import get_logger
-
+from ..clearing._messages import Order
 
 log = get_logger(__name__)
 
@@ -78,11 +79,12 @@ SizeUnit = Enum(
 
 class Allocator(BaseModel):
 
+    symbol: Symbol
+
     class Config:
         validate_assignment = True
         copy_on_model_validation = False
-        extra = 'allow'
-        # underscore_attrs_are_private = False
+        arbitrary_types_allowed = True
 
     account: Optional[str] = 'paper'
     _accounts: bidict[str, Optional[str]]
@@ -102,39 +104,15 @@ class Allocator(BaseModel):
 
     disti_weight: str = 'uniform'
 
-    size: float
+    units_size: float
+    currency_size: float
     slots: int
 
-    _position: Position = None
-    _widget: QWidget = None
-
-    def slotted_units(
-        self,
-        symbol: Symbol,
-        size: float,
-        price: float,
-    ) -> float:
-        return size / self.slots
-
-    def size_from_currency_limit(
-        self,
-        symbol: Symbol,
-        size: float,
-        price: float,
-    ) -> float:
-        return size / self.slots / price
-
-    _sizers = {
-        'currency': size_from_currency_limit,
-        'units': slotted_units,
-        # 'percent_of_port': lambda: 0,
-    }
-
-    def get_order_info(
+    def next_order_info(
         self,
 
-        # TODO: apply the symbol when the chart it is selected
-        symbol: Symbol,
+        startup_pp: Position,
+        live_pp: Position,
         price: float,
         action: str,
 
@@ -143,30 +121,30 @@ class Allocator(BaseModel):
         depending on position / order entry config.
 
         '''
-        tracker = self._position
-        pp_size = tracker.live_pp.size
-        ld = symbol.lot_size_digits
+        sym = self.symbol
+        ld = sym.lot_size_digits
+
+        startup_size = startup_pp.size
+        live_size = live_pp.size
 
         if (
-            action == 'buy' and pp_size > 0 or
-            action == 'sell' and pp_size < 0 or
-            pp_size == 0
+            action == 'buy' and startup_size > 0 or
+            action == 'sell' and startup_size < 0 or
+            live_size == 0
         ):  # an entry
 
-            # try to read existing position and compute
-            # next entry/exit size from distribution weight policy
-            # (and possibly TODO: commissions info).
-            entry_size = self._sizers[self.size_unit](
-                self, symbol, self.size, price
-            )
+            size_step = self.units_size / self.slots
+
+            if self.size_unit == 'currency':
+                size_step = self.currency_size / self.slots / price
 
             if ld == 0:
                 # in discrete units case (eg. stocks, futures, opts)
                 # we always round down
-                units = floor(entry_size)
+                units = floor(size_step)
             else:
                 # we can return a float lot size rounded to nearest tick
-                units = round(entry_size, ndigits=ld)
+                units = round(size_step, ndigits=ld)
 
             return {
                 'size': units,
@@ -175,13 +153,12 @@ class Allocator(BaseModel):
 
         elif action != 'alert':  # an exit
 
-            pp_size = tracker.startup_pp.size
             if ld == 0:
                 # exit at the slot size worth of units or the remaining
                 # units left for the position to be net-zero, whichever
                 # is smaller
-                evenly, r = divmod(pp_size,  self.slots)
-                exit_size = min(evenly, pp_size)
+                evenly, r = divmod(startup_size,  self.slots)
+                exit_size = min(evenly, startup_size)
 
                 # "front" weight the exit order sizes
                 # TODO: make this configurable?
@@ -190,8 +167,8 @@ class Allocator(BaseModel):
 
             else:  # we can return a float lot size rounded to nearest tick
                 exit_size = min(
-                    round(pp_size / self.slots, ndigits=ld),
-                    pp_size
+                    round(startup_size / self.slots, ndigits=ld),
+                    startup_size
                 )
 
             return {
@@ -205,55 +182,107 @@ class Allocator(BaseModel):
 
 def mk_alloc(
 
-    accounts: dict[str, Optional[str]] = {
-        'paper': None,
-    },
+    symbol: Symbol,
+    accounts: dict[str, Optional[str]],
 
 ) -> Allocator:  # noqa
 
-    from ..brokers import config
-    conf, path = config.load()
-    section = conf.get('accounts')
-    if section is None:
-        log.warning('No accounts config found?')
-
-    for brokername, account_labels in section.items():
-        for name, value in account_labels.items():
-            accounts[f'{brokername}.{name}'] = value
-
     return Allocator(
+        symbol=symbol,
         account=None,
         _accounts=bidict(accounts),
         size_unit=_size_units['currency'],
-        size=5e3,
+        units_size=400,
+        currency_size=5e3,
         slots=4,
     )
 
 
-class OrderPane(BaseModel):
-    '''Set of widgets plus an allocator model
-    for configuring order entry sizes.
+@dataclass
+class OrderModePane:
+    '''Composite set of widgets plus an allocator model for configuring
+    order entry sizes and position limits per tradable instrument.
 
     '''
-    class Config:
-        arbitrary_types_allowed = True
-        # underscore_attrs_are_private = False
-
     # config for and underlying validation model
-    form: FieldsForm
-    model: BaseModel
+    tracker: PositionTracker
+    alloc: Allocator
 
-    # fill status + labels
-    fill_status_bar: FillStatusBar
+    # input fields
+    form: FieldsForm
+
+    # output fill status and labels
+    fill_bar: FillStatusBar
+
     step_label: QLabel
     pnl_label: QLabel
     limit_label: QLabel
 
-    def config_ui_from_model(self) -> None:
+    def update_ui_from_alloc(self) -> None:
         ...
 
     def transform_to(self, size_unit: str) -> None:
         ...
+
+    def init_status_ui(
+        self,
+    ):
+        pp = self.tracker.startup_pp
+
+        # calculate proportion of position size limit
+        # that exists and display in fill bar
+        size = pp.size
+
+        if self.alloc.size_unit == 'currency':
+            size = size * pp.avg_price
+
+        self.update_status_ui(size)
+
+    def update_status_ui(
+        self,
+        size: float = None,
+
+    ) -> None:
+        alloc = self.alloc
+
+        prop = size / alloc.units_size
+        slots = alloc.slots
+
+        if alloc.size_unit == 'currency':
+            used = floor(prop * slots)
+        else:
+            used = alloc.units_size
+
+        self.fill_bar.set_slots(
+            slots,
+            min(used, slots)
+        )
+
+    def on_level_change_update_next_order_info(
+        self,
+
+        level: float,
+        line: LevelLine,
+        order: Order,
+
+    ) -> None:
+        '''A callback applied for each level change to the line
+        which will recompute the order size based on allocator
+        settings. this is assigned inside
+        ``OrderMode.line_from_order()``
+
+        '''
+        order_info = self.alloc.next_order_info(
+            startup_pp=self.tracker.startup_pp,
+            live_pp=self.tracker.live_pp,
+            price=level,
+            action=order.action,
+        )
+        line.update_labels(order_info)
+
+        # update bound-in staged order
+        order.price = level
+        order.size = order_info['size']
 
 
 class PositionTracker:
@@ -567,29 +596,3 @@ class PositionTracker:
                 # remove pp line from view
                 line.delete()
                 self.line = None
-
-    def init_status_ui(
-        self,
-    ):
-        pp = self.startup_pp
-
-        # calculate proportion of position size limit
-        # that exists and display in fill bar
-        size = pp.size
-
-        if self.alloc.size_unit == 'currency':
-            size = size * pp.avg_price
-
-        self.update_status_ui(size)
-
-    def update_status_ui(
-        self,
-        size: float,
-
-    ) -> None:
-        alloc = self.alloc
-        prop = size / alloc.size
-        slots = alloc.slots
-
-        pane = self.pane
-        pane.fill_bar.set_slots(slots, min(floor(prop * slots), slots))
