@@ -105,7 +105,7 @@ class EventRelay(QtCore.QObject):
         etype = ev.type()
         # TODO: turn this on and see what we can filter by default (such
         # as mouseWheelEvent).
-        print(f'ev: {ev}')
+        # print(f'ev: {ev}')
 
         if etype not in self._event_types:
             return False
