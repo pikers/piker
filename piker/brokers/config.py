@@ -40,6 +40,16 @@ def _override_config_dir(
 
 
 def get_broker_conf_path():
+    """Return the default config path normally under
+    ``~/.config/piker`` on linux.
+
+    Contains files such as:
+    - brokers.toml
+    - watchlists.toml
+    - signals.toml
+    - strats.toml
+
+    """
     return os.path.join(_config_dir, _file_name)
 
 
