@@ -22,7 +22,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from functools import partial
 from textwrap import dedent
-from typing import Optional
+from typing import Optional, Any
 
 import trio
 from PyQt5 import QtCore, QtGui
@@ -219,24 +219,14 @@ class FieldsForm(QWidget):
     ) -> QtGui.QLabel:
 
         # add label to left of search bar
-        self.label = label = QtGui.QLabel()
+        # self.label = label = QtGui.QLabel()
         font_size = font_size or self._font_size - 2
-        label.setStyleSheet(
-            f"""QLabel {{
-                color : {hcolor(font_color)};
-                font-size : {font_size}px;
-            }}
-            """
-        )
-        label.setFont(_font.font)
-        label.setTextFormat(Qt.MarkdownText)  # markdown
-        label.setMargin(0)
 
-        label.setText(name)
-
-        label.setAlignment(
-            QtCore.Qt.AlignVCenter
-            | QtCore.Qt.AlignLeft
+        self.label = label = FormatLabel(
+            fmt_str=name,
+            font=_font.font,
+            font_size=font_size,
+            font_color=font_color,
         )
 
         # for later lookup
@@ -530,6 +520,56 @@ class FillStatusBar(QProgressBar):
         self.setValue(value)
 
 
+class FormatLabel(QLabel):
+
+    def __init__(
+        self,
+
+        fmt_str: str,
+        font: QtGui.QFont,
+        font_size: int,
+        font_color: str,
+
+        parent=None,
+
+    ) -> None:
+
+        super().__init__(parent)
+
+        # by default set the format string verbatim and expect user to
+        # call ``.format()`` later (presumably they'll notice the
+        # unformatted content if ``fmt_str`` isn't meant to be
+        # unformatted).
+        self.fmt_str = fmt_str
+        self.setText(fmt_str)
+
+        self.setStyleSheet(
+            f"""QLabel {{
+                color : {hcolor(font_color)};
+                font-size : {font_size}px;
+            }}
+            """
+        )
+        self.setFont(_font.font)
+        self.setTextFormat(Qt.MarkdownText)  # markdown
+        self.setMargin(0)
+
+        self.setAlignment(
+            QtCore.Qt.AlignVCenter
+            | QtCore.Qt.AlignLeft
+        )
+        self.setText(self.fmt_str)
+
+    def format(
+        self,
+        fields: dict[str, Any],
+
+    ) -> str:
+        out = self.fmt_str.format(**fields)
+        self.setText(out)
+        return out
+
+
 def mk_fill_status_bar(
 
     fields: FieldsForm,
@@ -544,8 +584,10 @@ def mk_fill_status_bar(
     # indent = bracket_val / (1 + 5/8)
 
     # TODO: once things are sized to screen
+    bar_label_font_size = _font.px_size - 3
+
     label_font = DpiAwareFont()
-    label_font._set_qfont_px_size(_font.px_size - 6)
+    label_font._set_qfont_px_size(bar_label_font_size)
     br = label_font.boundingRect(f'{3.32:.1f}% port')
     w, h = br.width(), br.height()
     bar_h = 8/3 * w
@@ -556,7 +598,7 @@ def mk_fill_status_bar(
         dedent(f"""
         -{30}% PnL
         """),
-        font_size=_font.px_size - 6,
+        font_size=bar_label_font_size,
         font_color='gunmetal',
     )
 
@@ -584,15 +626,15 @@ def mk_fill_status_bar(
         dedent(f"""
         {3.32:.1f}% port
         """),
-        font_size=_font.px_size - 6,
+        font_size=bar_label_font_size,
         font_color='gunmetal',
     )
 
     bottom_label = fields.add_field_label(
         dedent(f"""
-        {5e3/4/1e3:.2f}k $fill\n
+        {5e3/4/1e3:.2f}k step\n
         """),
-        font_size=_font.px_size - 6,
+        font_size=bar_label_font_size,
         font_color='gunmetal',
     )
 
@@ -649,7 +691,7 @@ def mk_order_pane_layout(
                 'default_value': [
                     '$ size',
                     '# units',
-                    '% of port',
+                    # '% of port',
                 ],
             },
             'disti_weight': {
