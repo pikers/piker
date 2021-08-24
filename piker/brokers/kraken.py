@@ -34,11 +34,18 @@ from pydantic.dataclasses import dataclass
 from pydantic import BaseModel
 import wsproto
 
+from . import config
 from .._cacheables import open_cached_client
 from ._util import resproc, SymbolNotFound, BrokerError
 from ..log import get_logger, get_console_log
 from ..data import ShmArray
 from ..data._web_bs import open_autorecon_ws
+
+import urllib.parse
+import hashlib
+import hmac
+import base64
+
 
 log = get_logger(__name__)
 
@@ -129,6 +136,28 @@ class OHLC:
     ticks: List[Any] = field(default_factory=list)
 
 
+def get_kraken_signature(
+    urlpath: str,
+    data: Dict[str, Any], 
+    secret: str
+) -> str:
+    postdata = urllib.parse.urlencode(data)
+    encoded = (str(data['nonce']) + postdata).encode()
+    message = urlpath.encode() + hashlib.sha256(encoded).digest()
+
+    mac = hmac.new(base64.b64decode(secret), message, hashlib.sha512)
+    sigdigest = base64.b64encode(mac.digest())
+    return sigdigest.decode()
+
+
+class InvalidKey(ValueError):
+    """EAPI:Invalid key
+        This error is returned when the API key used for the call is 
+        either expired or disabled, please review the API key in your 
+        Settings -> API tab of account management or generate a new one 
+        and update your application."""
+
+
 class Client:
 
     def __init__(self) -> None:
@@ -139,6 +168,8 @@ class Client:
                 'krakenex/2.1.0 (+https://github.com/veox/python3-krakenex)'
         })
         self._pairs: list[str] = []
+        self._api_key = ''
+        self._secret = ''
 
     @property
     def pairs(self) -> Dict[str, Any]:
@@ -161,6 +192,41 @@ class Client:
             timeout=float('inf')
         )
         return resproc(resp, log)
+
+    async def _private(
+        self,
+        method: str,
+        data: dict,
+        uri_path: str,
+    ) -> Dict[str, Any]:
+        headers = {
+            'Content-Type': 
+                'application/x-www-form-urlencoded',
+            'API-Key':
+                self._api_key,
+            'API-Sign':
+                get_kraken_signature(uri_path, data, self._secret)
+        }
+        resp = await self._sesh.post(
+            path=f'/private/{method}',
+            data=data,
+            headers=headers,
+            timeout=float('inf')
+        )
+        return resproc(resp, log)
+
+    async def get_balances(
+        self,
+    ) -> Dict[str, str]:
+        data = {
+            'nonce' : str(int(1000*time.time()))
+        }
+        resp = await self._private('Balance', data, '/0/private/Balance')
+        err = resp['error']
+        if err:
+            print(err)
+
+        return resp['result']
 
     async def symbol_info(
         self,
@@ -274,6 +340,15 @@ class Client:
 @asynccontextmanager
 async def get_client() -> Client:
     client = Client()
+
+    conf, path = config.load()
+    section = conf.get('kraken')
+    client._api_key = section['api_key']
+    client._secret = section['secret']
+
+    balances = await client.get_balances()
+
+    await tractor.breakpoint()
 
     # at startup, load all symbols locally for fast search
     await client.cache_symbols()
