@@ -199,7 +199,7 @@ class LevelLine(pg.InfiniteLine):
             # will not be called by a non-triggered `.on_pos_change()`,
             # so we need to call it manually to avoid mismatching
             # label-to-line color when the line is updated but not
-            # "moved".
+            # from a "moved" event.
             if level == last:
                 self.update_labels({'level': level})
 
