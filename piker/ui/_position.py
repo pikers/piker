@@ -23,11 +23,9 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import partial
 from math import floor
-# from pprint import pprint
 from typing import Optional
 
 
-# from PyQt5.QtWidgets import QWidget
 from bidict import bidict
 from pyqtgraph import functions as fn
 from pydantic import BaseModel, validator
@@ -102,10 +100,12 @@ class Allocator(BaseModel):
         # apply the corresponding enum key for the text "description" value
         return v.name
 
-    disti_weight: str = 'uniform'
+    # TODO: if we ever want ot support non-uniform entry-slot-proportion
+    # "sizes"
+    # disti_weight: str = 'uniform'
 
-    units_size: float
-    currency_size: float
+    units_limit: float
+    currency_limit: float
     slots: int
 
     def next_order_info(
@@ -124,8 +124,18 @@ class Allocator(BaseModel):
         sym = self.symbol
         ld = sym.lot_size_digits
 
-        startup_size = startup_pp.size
         live_size = live_pp.size
+        startup_size = startup_pp.size
+
+        step_size = self.units_limit / self.slots
+        l_sub_pp = self.units_limit - live_size
+
+        if self.size_unit == 'currency':
+            startup_size = startup_pp.size * startup_pp.avg_price / price
+            step_size = self.currency_limit / self.slots / price
+            l_sub_pp = (
+                self.currency_limit - live_size * live_pp.avg_price
+            ) / price
 
         if (
             action == 'buy' and startup_size > 0 or
@@ -133,69 +143,19 @@ class Allocator(BaseModel):
             live_size == 0
         ):  # an entry
 
-            size_step = self.units_size / self.slots
+            units_size = min(step_size, l_sub_pp)
 
-            if self.size_unit == 'currency':
-                size_step = self.currency_size / self.slots / price
+        else:
+            # exit at the slot size worth of units or the remaining
+            # units left for the position to be net-zero, whichever
+            # is smaller
+            units_size = min(step_size, live_size)
 
-            if ld == 0:
-                # in discrete units case (eg. stocks, futures, opts)
-                # we always round down
-                units = floor(size_step)
-            else:
-                # we can return a float lot size rounded to nearest tick
-                units = round(size_step, ndigits=ld)
-
-            return {
-                'size': units,
-                'size_digits': ld
-            }
-
-        elif action != 'alert':  # an exit
-
-            if ld == 0:
-                # exit at the slot size worth of units or the remaining
-                # units left for the position to be net-zero, whichever
-                # is smaller
-                evenly, r = divmod(startup_size,  self.slots)
-                exit_size = min(evenly, startup_size)
-
-                # "front" weight the exit order sizes
-                # TODO: make this configurable?
-                if r:
-                    exit_size += 1
-
-            else:  # we can return a float lot size rounded to nearest tick
-                exit_size = min(
-                    round(startup_size / self.slots, ndigits=ld),
-                    startup_size
-                )
-
-            return {
-                'size': exit_size,
-                'size_digits': ld
-            }
-
-        else:  # likely an alert
-            return {'size': 0}
-
-
-def mk_alloc(
-
-    symbol: Symbol,
-    accounts: dict[str, Optional[str]],
-
-) -> Allocator:  # noqa
-
-    return Allocator(
-        symbol=symbol,
-        account=None,
-        _accounts=bidict(accounts),
-        size_unit=_size_units['currency'],
-        units_size=400,
-        currency_size=5e3,
-        slots=4,
-    )
+        units = round(units_size, ndigits=ld)
+        return {
+            'size': units,
+            'size_digits': ld
+        }
 
 
 @dataclass
@@ -218,44 +178,125 @@ class OrderModePane:
     pnl_label: QLabel
     limit_label: QLabel
 
-    def update_ui_from_alloc(self) -> None:
-        ...
-
     def transform_to(self, size_unit: str) -> None:
-        ...
+        if self.alloc.size_unit == size_unit:
+            return
+
+    def on_selection_change(
+        self,
+        key: str,
+        text: str,
+
+    ) -> None:
+        '''Called on any order pane drop down selection change.
+
+        '''
+        print(f'{text}')
+        setattr(self.alloc, key, text)
+        print(self.alloc.dict())
+
+    async def on_ui_settings_change(
+        self,
+
+        key: str,
+        value: str,
+
+    ) -> bool:
+        '''Called on any order pane edit field value change.
+
+        '''
+        print(f'settings change: {key}:{value}')
+        # TODO: maybe return a diff of settings so if we can an error we
+        # can have general input handling code to report it through the
+        # UI in some way?
+        return True
 
     def init_status_ui(
         self,
     ):
-        pp = self.tracker.startup_pp
+        alloc = self.alloc
+        asset_type = alloc.symbol.type_key
+        form = self.form
 
-        # calculate proportion of position size limit
-        # that exists and display in fill bar
-        size = pp.size
+        # TODO: pull from piker.toml
+        # default config
+        slots = 4
+        currency_limit = 5e3
 
-        if self.alloc.size_unit == 'currency':
-            size = size * pp.avg_price
+        startup_pp = self.tracker.startup_pp
 
-        self.update_status_ui(size)
+        alloc.slots = slots
+        alloc.currency_limit = currency_limit
+
+        # default entry sizing
+        if asset_type in ('stock', 'crypto', 'forex'):
+
+            alloc.size_unit = '$ size'
+
+        elif asset_type in ('future', 'option', 'futures_option'):
+
+            # since it's harder to know how currency "applies" in this case
+            # given leverage properties
+            alloc.size_unit = '# units'
+
+            # set units limit to slots size thus making make the next
+            # entry step 1.0
+            alloc.units_limit = slots
+
+        # if the current position is already greater then the limit
+        # settings, increase the limit to the current position
+        if alloc.size_unit == 'currency':
+            startup_size = startup_pp.size * startup_pp.avg_price
+
+            if startup_size > alloc.currency_limit:
+                alloc.currency_limit = round(startup_size, ndigits=2)
+
+            limit_text = alloc.currency_limit
+
+        else:
+            startup_size = startup_pp.size
+
+            if startup_size > alloc.units_limit:
+                alloc.units_limit = startup_size
+
+            limit_text = alloc.units_limit
+
+        # update size unit in UI
+        form.fields['size_unit'].setCurrentText(
+            alloc._size_units[alloc.size_unit]
+        )
+        form.fields['slots'].setText(str(alloc.slots))
+
+        form.fields['limit'].setText(str(limit_text))
+
+        # TODO: a reverse look up from the position to the equivalent
+        # account(s), if none then look to user config for default?
+
+        self.update_status_ui(size=startup_size)
 
     def update_status_ui(
         self,
         size: float = None,
 
     ) -> None:
-        alloc = self.alloc
 
-        prop = size / alloc.units_size
+        alloc = self.alloc
+        live_pp = self.tracker.live_pp
         slots = alloc.slots
 
         if alloc.size_unit == 'currency':
-            used = floor(prop * slots)
-        else:
-            used = alloc.units_size
+            live_currency_size = size or (live_pp.size * live_pp.avg_price)
+            prop = live_currency_size / alloc.currency_limit
 
+        else:
+            prop = size or live_pp.size / alloc.units_limit
+
+        # calculate proportion of position size limit
+        # that exists and display in fill bar
+        # TODO: what should we do for fractional slot pps?
         self.fill_bar.set_slots(
             slots,
-            min(used, slots)
+            min(round(prop * slots), slots)
         )
 
     def on_level_change_update_next_order_info(
@@ -284,6 +325,14 @@ class OrderModePane:
         order.price = level
         order.size = order_info['size']
 
+    def on_settings_change_update_ui(
+        self,
+    ) -> None:
+        # TODO:
+        # - recompute both units_limit and currency_limit
+        # - update fill bar slotting if necessary (only on slots?)
+        ...
+
 
 class PositionTracker:
     '''Track and display a real-time position for a single symbol
@@ -292,7 +341,6 @@ class PositionTracker:
     '''
     # inputs
     chart: 'ChartPlotWidget'  # noqa
-    # alloc: 'Allocator'
 
     # allocated
     startup_pp: Position
@@ -306,12 +354,10 @@ class PositionTracker:
     def __init__(
         self,
         chart: 'ChartPlotWidget',  # noqa
-        alloc: 'Allocator',  # noqa
 
     ) -> None:
 
         self.chart = chart
-        self.alloc = alloc
         self.live_pp = Position(
             symbol=chart.linked.symbol,
             size=0,
@@ -418,7 +464,12 @@ class PositionTracker:
         '''Update graphics and data from average price and size.
 
         '''
-        avg_price, size = msg['avg_price'], msg['size']
+        # XXX: better place to do this?
+        symbol = self.chart.linked.symbol
+        avg_price, size = (
+            round(msg['avg_price'], ndigits=symbol.tick_size_digits),
+            round(msg['size'], ndigits=symbol.lot_size_digits),
+        )
 
         # live pp updates
         pp = position or self.live_pp
