@@ -25,6 +25,7 @@ import time
 from typing import Optional, Dict, Callable, Any
 import uuid
 
+from bidict import bidict
 from pydantic import BaseModel
 import tractor
 import trio
@@ -35,7 +36,7 @@ from ..data._source import Symbol
 from ..log import get_logger
 from ._editors import LineEditor, ArrowEditor
 from ._lines import order_line, LevelLine
-from ._position import PositionTracker, OrderModePane, mk_alloc
+from ._position import PositionTracker, OrderModePane, Allocator, _size_units
 from ._window import MultiStatus
 from ..clearing._messages import Order
 from ._forms import open_form_input_handling
@@ -135,12 +136,21 @@ class OrderMode:
 
         # set level update callback to order pane method and update once
         # immediately
-        line._on_level_change = partial(
-            self.pane.on_level_change_update_next_order_info,
-            line=line,
-            order=order,
-        )
-        line._on_level_change(order.price)
+        if order.action != 'alert':
+            line._on_level_change = partial(
+                self.pane.on_level_change_update_next_order_info,
+                line=line,
+                order=order,
+            )
+
+        else:
+            # for alerts we don't need to compute per price sizing via
+            # the order mode allocator but we still need to update the
+            # "staged" order message we'll send to the ems
+            def update_order_price(y: float) -> None:
+                order.price = y
+
+            line._on_level_change = update_order_price
 
         return line
 
@@ -491,16 +501,20 @@ async def run_order_mode(
         arrows = ArrowEditor(chart, {})
 
         # allocator
-        alloc = mk_alloc(
+        alloc = Allocator(
             symbol=symbol,
-            accounts=brokers.config.load_accounts()
+            account=None,
+            _accounts=bidict(brokers.config.load_accounts()),
+            size_unit=_size_units['currency'],
+            units_limit=400,
+            currency_limit=5e3,
+            slots=4,
         )
 
-        # form = chart.linked.godwidget.pp_pane.model
         form = chart.sidepane
         form.model = alloc
 
-        pp_tracker = PositionTracker(chart, alloc=alloc)
+        pp_tracker = PositionTracker(chart)
         pp_tracker.hide()
 
         # order pane widgets and allocation model
@@ -514,21 +528,22 @@ async def run_order_mode(
             limit_label=form.top_label,
         )
 
-        for key in ('account', 'size_unit', 'disti_weight'):
+        # XXX: would love to not have to do this separate from edit
+        # fields (which are done in an async loop - see below)
+        # connect selection signals (from drop down widgets)
+        # to order sync pane handler
+        for key in ('account', 'size_unit',):
             w = form.fields[key]
-
-            def write_model(text: str, key: str):
-                print(f'{text}')
-                setattr(alloc, key, text)
-                print(alloc)
 
             w.currentTextChanged.connect(
                 partial(
-                    write_model,
+                    order_pane.on_selection_change,
                     key=key,
                 )
             )
 
+        # top level abstraction which wraps all this crazyness into
+        # a namespace..
         mode = OrderMode(
             chart,
             book,
@@ -545,8 +560,6 @@ async def run_order_mode(
         # so that view handlers can access it
         view.order_mode = mode
 
-        asset_type = symbol.type_key
-
         # update any exising position
         for sym, msg in positions.items():
 
@@ -554,23 +567,6 @@ async def run_order_mode(
             if sym.lower() in our_sym:
                 pp_tracker.update(msg, position=pp_tracker.startup_pp)
                 pp_tracker.update(msg)
-
-        # default entry sizing
-        if asset_type in ('stock', 'crypto', 'forex'):
-            alloc.size_unit = '$ size'
-            pp_tracker.pane.fields['size_unit'].setCurrentText(alloc.size_unit)
-
-        elif asset_type in ('future', 'option', 'futures_option'):
-
-            alloc.size_unit = '# units'
-            pp_tracker.pane.fields['size_unit'].setCurrentText(alloc.size_unit)
-
-            slots = alloc.slots = pp_tracker.startup_pp.size
-            pp_tracker.pane.fields['slots'].setText(str(alloc.slots))
-
-            # make entry step 1.0
-            alloc.units_size = slots
-            pp_tracker.pane.fields['size'].setText(str(alloc.units_size))
 
         # make fill bar and positioning snapshot
         order_pane.init_status_ui()
@@ -595,12 +591,15 @@ async def run_order_mode(
 
         # start async input handling for chart's view
         async with (
+
+            # ``ChartView`` input async handler startup
             chart.view.open_async_input_handler(),
 
             # pp pane kb inputs
             open_form_input_handling(
                 form,
                 focus_next=chart.linked.godwidget,
+                on_value_change=order_pane.on_ui_settings_change,
             ),
 
         ):
@@ -625,6 +624,9 @@ async def run_order_mode(
                     sym = mode.chart.linked.symbol
                     if msg['symbol'].lower() in sym.key:
                         pp_tracker.update(msg)
+
+                        # update order pane widgets
+                        mode.pane.update_status_ui()
 
                     # short circuit to next msg to avoid
                     # uncessary msg content lookups
