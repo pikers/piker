@@ -270,7 +270,7 @@ async def handle_viewmode_kb_inputs(
 
             on_next_release = edit.deselect
 
-            pp_pane.init_status_ui()
+            pp_pane.update_status_ui()
 
         else:  # none active
 
