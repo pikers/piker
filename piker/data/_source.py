@@ -22,7 +22,7 @@ import decimal
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel
+from pydantic import BaseModel, validate_arguments
 # from numba import from_dtype
 
 
@@ -106,7 +106,7 @@ class Symbol(BaseModel):
         mult = 1 / self.tick_size
         return round(value * mult) / mult
 
-
+@validate_arguments
 def mk_symbol(
 
     key: str,
