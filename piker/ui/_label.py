@@ -19,15 +19,17 @@ Non-shitty labels that don't re-invent the wheel.
 
 """
 from inspect import isfunction
-from typing import Callable, Optional
+from typing import Callable, Optional, Any
 
 import pyqtgraph as pg
 from PyQt5 import QtGui, QtWidgets
-from PyQt5.QtCore import QPointF, QRectF
+from PyQt5.QtWidgets import QLabel
+from PyQt5.QtCore import QPointF, QRectF, Qt
 
 from ._style import (
     DpiAwareFont,
     hcolor,
+    _font,
 )
 
 
@@ -226,3 +228,55 @@ class Label:
 
     def delete(self) -> None:
         self.vb.scene().removeItem(self.txt)
+
+
+class FormatLabel(QLabel):
+    '''Kinda similar to above but using the widget apis.
+
+    '''
+    def __init__(
+        self,
+
+        fmt_str: str,
+        font: QtGui.QFont,
+        font_size: int,
+        font_color: str,
+
+        parent=None,
+
+    ) -> None:
+
+        super().__init__(parent)
+
+        # by default set the format string verbatim and expect user to
+        # call ``.format()`` later (presumably they'll notice the
+        # unformatted content if ``fmt_str`` isn't meant to be
+        # unformatted).
+        self.fmt_str = fmt_str
+        self.setText(fmt_str)
+
+        self.setStyleSheet(
+            f"""QLabel {{
+                color : {hcolor(font_color)};
+                font-size : {font_size}px;
+            }}
+            """
+        )
+        self.setFont(_font.font)
+        self.setTextFormat(Qt.MarkdownText)  # markdown
+        self.setMargin(0)
+
+        self.setAlignment(
+            Qt.AlignVCenter
+            | Qt.AlignLeft
+        )
+        self.setText(self.fmt_str)
+
+    def format(
+        self,
+        fields: dict[str, Any],
+
+    ) -> str:
+        out = self.fmt_str.format(**fields)
+        self.setText(out)
+        return out

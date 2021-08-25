@@ -22,10 +22,12 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from functools import partial
 from textwrap import dedent
-from typing import Optional, Any
+from typing import (
+    Optional, Any, Callable, Awaitable
+)
 
 import trio
-from PyQt5 import QtCore, QtGui
+from PyQt5 import QtGui
 from PyQt5.QtCore import QSize, QModelIndex, Qt, QEvent
 from PyQt5.QtWidgets import (
     QWidget,
@@ -40,10 +42,11 @@ from PyQt5.QtWidgets import (
     QStyledItemDelegate,
     QStyleOptionViewItem,
 )
-import pydantic
+# import pydantic
 
 from ._event import open_handlers
 from ._style import hcolor, _font, _font_small, DpiAwareFont
+from ._label import FormatLabel
 from .. import brokers
 
 
@@ -327,7 +330,7 @@ async def handle_field_input(
     widget: QWidget,
     recv_chan: trio.abc.ReceiveChannel,
     form: FieldsForm,
-    model: pydantic.BaseModel,  # noqa
+    on_value_change: Callable[[str, Any], Awaitable[bool]],
     focus_next: QWidget,
 
 ) -> None:
@@ -358,19 +361,9 @@ async def handle_field_input(
             # process field input
             if key in (Qt.Key_Enter, Qt.Key_Return):
 
-                value = widget.text()
                 key = widget._key
-
-                old = getattr(model, key)
-
-                try:
-                    setattr(model, key, value)
-
-                except pydantic.error_wrappers.ValidationError:
-                    setattr(model, key, old)
-                    widget.setText(str(old))
-
-                print(model.dict())
+                value = widget.text()
+                await on_value_change(key, value)
 
 
 def mk_form(
@@ -416,6 +409,7 @@ async def open_form_input_handling(
 
     form: FieldsForm,
     focus_next: QWidget,
+    on_value_change: Callable[[str, Any], Awaitable[bool]],
 
 ) -> FieldsForm:
 
@@ -431,8 +425,8 @@ async def open_form_input_handling(
         async_handler=partial(
             handle_field_input,
             form=form,
-            model=form.model,
             focus_next=focus_next,
+            on_value_change=on_value_change,
         ),
 
         # block key repeats?
@@ -518,56 +512,6 @@ class FillStatusBar(QProgressBar):
 
         self.setRange(0, slots)
         self.setValue(value)
-
-
-class FormatLabel(QLabel):
-
-    def __init__(
-        self,
-
-        fmt_str: str,
-        font: QtGui.QFont,
-        font_size: int,
-        font_color: str,
-
-        parent=None,
-
-    ) -> None:
-
-        super().__init__(parent)
-
-        # by default set the format string verbatim and expect user to
-        # call ``.format()`` later (presumably they'll notice the
-        # unformatted content if ``fmt_str`` isn't meant to be
-        # unformatted).
-        self.fmt_str = fmt_str
-        self.setText(fmt_str)
-
-        self.setStyleSheet(
-            f"""QLabel {{
-                color : {hcolor(font_color)};
-                font-size : {font_size}px;
-            }}
-            """
-        )
-        self.setFont(_font.font)
-        self.setTextFormat(Qt.MarkdownText)  # markdown
-        self.setMargin(0)
-
-        self.setAlignment(
-            QtCore.Qt.AlignVCenter
-            | QtCore.Qt.AlignLeft
-        )
-        self.setText(self.fmt_str)
-
-    def format(
-        self,
-        fields: dict[str, Any],
-
-    ) -> str:
-        out = self.fmt_str.format(**fields)
-        self.setText(out)
-        return out
 
 
 def mk_fill_status_bar(
@@ -694,11 +638,11 @@ def mk_order_pane_layout(
                     # '% of port',
                 ],
             },
-            'disti_weight': {
-                'label': '**weight**:',
-                'type': 'select',
-                'default_value': ['uniform'],
-            },
+            # 'disti_weight': {
+            #     'label': '**weighting**:',
+            #     'type': 'select',
+            #     'default_value': ['uniform'],
+            # },
             'limit': {
                 'label': '**limit**:',
                 'type': 'edit',
