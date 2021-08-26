@@ -1427,6 +1427,10 @@ async def run_fsp(
         period=14,
     )
 
+    async def settings_change(key: str, value: str) -> bool:
+        print(f'{key}: {value}')
+        return True
+
     async with (
         portal.open_stream_from(
 
@@ -1445,7 +1449,8 @@ async def run_fsp(
         # TODO:
         open_form_input_handling(
             sidepane,
-            focus_next=linkedsplits.godwidget
+            focus_next=linkedsplits.godwidget,
+            on_value_change=settings_change,
         ),
 
     ):
@@ -1538,14 +1543,14 @@ async def run_fsp(
 
         done()
 
-        i = 0
+        # i = 0
         # update chart graphics
         async for value in stream:
 
             # chart isn't actively shown so just skip render cycle
             if chart.linked.isHidden():
-                print(f'{i} unseen fsp cyclce')
-                i += 1
+                # print(f'{i} unseen fsp cyclce')
+                # i += 1
                 continue
 
             now = time.time()

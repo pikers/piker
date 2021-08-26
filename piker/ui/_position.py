@@ -35,6 +35,7 @@ from ._anchors import (
     pp_tight_and_right,  # wanna keep it straight in the long run
     gpath_pin,
 )
+from ..calc import humanize
 from ..clearing._messages import BrokerdPosition, Status
 from ..data._source import Symbol
 from ._label import Label
@@ -77,12 +78,16 @@ SizeUnit = Enum(
 
 class Allocator(BaseModel):
 
-    symbol: Symbol
-
     class Config:
         validate_assignment = True
         copy_on_model_validation = False
         arbitrary_types_allowed = True
+
+        # required to get the account validator lookup working?
+        extra = 'allow'
+        # underscore_attrs_are_private = False
+
+    symbol: Symbol
 
     account: Optional[str] = 'paper'
     _accounts: bidict[str, Optional[str]]
@@ -108,6 +113,21 @@ class Allocator(BaseModel):
     currency_limit: float
     slots: int
 
+    def step_sizes(
+        self,
+    ) -> dict[str, float]:
+        slots = self.slots
+        return {
+            'units': self.units_limit / slots,
+            'currency': self.currency_limit / slots,
+        }
+
+    def limit(self) -> float:
+        if self.size_unit == 'currency':
+            return self.currency_limit
+        else:
+            return self.units_limit
+
     def next_order_info(
         self,
 
@@ -127,12 +147,17 @@ class Allocator(BaseModel):
         live_size = live_pp.size
         startup_size = startup_pp.size
 
-        step_size = self.units_limit / self.slots
-        l_sub_pp = self.units_limit - live_size
+        steps = self.step_sizes()
 
-        if self.size_unit == 'currency':
+        if self.size_unit == 'units':
+            # step_size = self.units_limit / self.slots
+            step_size = steps['units']
+            l_sub_pp = self.units_limit - live_size
+
+        elif self.size_unit == 'currency':
             startup_size = startup_pp.size * startup_pp.avg_price / price
-            step_size = self.currency_limit / self.slots / price
+            # step_size = self.currency_limit / self.slots / price
+            step_size = steps['currency'] / price
             l_sub_pp = (
                 self.currency_limit - live_size * live_pp.avg_price
             ) / price
@@ -184,18 +209,19 @@ class OrderModePane:
 
     def on_selection_change(
         self,
-        key: str,
+
         text: str,
+        key: str,
 
     ) -> None:
         '''Called on any order pane drop down selection change.
 
         '''
-        print(f'{text}')
+        print(f'selection input: {text}')
         setattr(self.alloc, key, text)
-        print(self.alloc.dict())
+        self.on_ui_settings_change(key, text)
 
-    async def on_ui_settings_change(
+    def on_ui_settings_change(
         self,
 
         key: str,
@@ -205,7 +231,56 @@ class OrderModePane:
         '''Called on any order pane edit field value change.
 
         '''
-        print(f'settings change: {key}:{value}')
+        print(f'settings change: {key}: {value}')
+        alloc = self.alloc
+        size_unit = alloc.size_unit
+
+        # write any passed settings to allocator
+        if key == 'limit':
+            if size_unit == 'currency':
+                alloc.currency_limit = float(value)
+            else:
+                alloc.units_limit = float(value)
+
+        elif key == 'slots':
+            alloc.slots = int(value)
+
+        elif key == 'size_unit':
+            # TODO: if there's a limit size unit change re-compute
+            # the current settings in the new units
+            pass
+
+        elif key == 'account':
+            print(f'TODO: change account -> {value}')
+
+        else:
+            raise ValueError(f'Unknown setting {key}')
+
+        # read out settings and update UI
+
+        suffix = {'currency': ' $', 'units': ' u'}[size_unit]
+        limit = alloc.limit()
+
+        # TODO: a reverse look up from the position to the equivalent
+        # account(s), if none then look to user config for default?
+        self.update_status_ui()
+
+        step_size = alloc.step_sizes()[size_unit]
+
+        self.step_label.format(
+            step_size=str(humanize(step_size)) + suffix
+        )
+        self.limit_label.format(
+            limit=str(humanize(limit)) + suffix
+        )
+
+        # update size unit in UI
+        self.form.fields['size_unit'].setCurrentText(
+            alloc._size_units[alloc.size_unit]
+        )
+        self.form.fields['slots'].setText(str(alloc.slots))
+        self.form.fields['limit'].setText(str(limit))
+
         # TODO: maybe return a diff of settings so if we can an error we
         # can have general input handling code to report it through the
         # UI in some way?
@@ -216,7 +291,7 @@ class OrderModePane:
     ):
         alloc = self.alloc
         asset_type = alloc.symbol.type_key
-        form = self.form
+        # form = self.form
 
         # TODO: pull from piker.toml
         # default config
@@ -261,16 +336,7 @@ class OrderModePane:
 
             limit_text = alloc.units_limit
 
-        # update size unit in UI
-        form.fields['size_unit'].setCurrentText(
-            alloc._size_units[alloc.size_unit]
-        )
-        form.fields['slots'].setText(str(alloc.slots))
-
-        form.fields['limit'].setText(str(limit_text))
-
-        # TODO: a reverse look up from the position to the equivalent
-        # account(s), if none then look to user config for default?
+        self.on_ui_settings_change('limit', limit_text)
 
         self.update_status_ui(size=startup_size)
 
@@ -289,7 +355,7 @@ class OrderModePane:
             prop = live_currency_size / alloc.currency_limit
 
         else:
-            prop = size or live_pp.size / alloc.units_limit
+            prop = (size or live_pp.size) / alloc.units_limit
 
         # calculate proportion of position size limit
         # that exists and display in fill bar
@@ -324,14 +390,6 @@ class OrderModePane:
         # update bound-in staged order
         order.price = level
         order.size = order_info['size']
-
-    def on_settings_change_update_ui(
-        self,
-    ) -> None:
-        # TODO:
-        # - recompute both units_limit and currency_limit
-        # - update fill bar slotting if necessary (only on slots?)
-        ...
 
 
 class PositionTracker:

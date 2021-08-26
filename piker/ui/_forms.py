@@ -363,7 +363,7 @@ async def handle_field_input(
 
                 key = widget._key
                 value = widget.text()
-                await on_value_change(key, value)
+                on_value_change(key, value)
 
 
 def mk_form(
@@ -539,8 +539,8 @@ def mk_fill_status_bar(
     # PnL on lhs
     bar_labels_lhs = QVBoxLayout(fields)
     left_label = fields.add_field_label(
-        dedent(f"""
-        -{30}% PnL
+        dedent("""
+        {pnl}% PnL
         """),
         font_size=bar_label_font_size,
         font_color='gunmetal',
@@ -567,16 +567,17 @@ def mk_fill_status_bar(
     # https://docs.python.org/3/library/string.html#grammar-token-precision
 
     top_label = fields.add_field_label(
-        dedent(f"""
-        {3.32:.1f}% port
+        # {limit:.1f} limit
+        dedent("""
+        {limit}
         """),
         font_size=bar_label_font_size,
         font_color='gunmetal',
     )
 
     bottom_label = fields.add_field_label(
-        dedent(f"""
-        {5e3/4/1e3:.2f}k step\n
+        dedent("""
+        x = {step_size}\n
         """),
         font_size=bar_label_font_size,
         font_color='gunmetal',
@@ -665,7 +666,7 @@ def mk_order_pane_layout(
     # _, h = form.width(), form.height()
     # print(f'w, h: {w, h}')
 
-    hbox, fill_bar, left_label, bottom_label, top_label = mk_fill_status_bar(
+    hbox, fill_bar, left_label, top_label, bottom_label = mk_fill_status_bar(
         form, pane_vbox=vbox
     )
     # TODO: would be nice to have some better way of reffing these over
