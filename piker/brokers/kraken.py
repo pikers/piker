@@ -197,7 +197,7 @@ class Client:
         self,
         method: str,
         data: dict,
-        uri_path: str,
+        uri_path: str
     ) -> Dict[str, Any]:
         headers = {
             'Content-Type': 
@@ -215,17 +215,17 @@ class Client:
         )
         return resproc(resp, log)
 
-    async def get_balances(
+    async def get_user_data(
         self,
-    ) -> Dict[str, str]:
-        data = {
-            'nonce' : str(int(1000*time.time()))
-        }
-        resp = await self._private('Balance', data, '/0/private/Balance')
+        method: str,
+        data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        uri_path = f'/0/private/{method}'
+        data['nonce'] = str(int(1000*time.time()))
+        resp = await self._private(method, data, uri_path)
         err = resp['error']
         if err:
             print(err)
-
         return resp['result']
 
     async def symbol_info(
@@ -345,8 +345,12 @@ async def get_client() -> Client:
     section = conf.get('kraken')
     client._api_key = section['api_key']
     client._secret = section['secret']
+    data = {
+        # add non nonce vars
+    }
 
-    balances = await client.get_balances()
+    balances = await client.get_user_data('Balance', data)
+    ledgers = await client.get_user_data('Ledgers', data)
 
     await tractor.breakpoint()
 
@@ -354,6 +358,29 @@ async def get_client() -> Client:
     await client.cache_symbols()
 
     yield client
+
+
+# @tractor.context
+# async def trades_dialogue(
+#     ctx: tractor.Context,
+#     loglevel: str = None,
+# ) -> AsyncIterator[Dict[str, Any]]:
+# 
+#     # XXX: required to propagate ``tractor`` loglevel to piker logging
+#     get_console_log(loglevel or tractor.current_actor().loglevel)
+# 
+#     # deliver positions to subscriber before anything else
+#     positions = await _trio_run_client_method(method='positions')
+# 
+#     all_positions = {}
+# 
+#     for pos in positions:
+#         msg = pack_position(pos)
+#         all_positions[msg.symbol] = msg.dict()
+# 
+#     await ctx.started(all_positions)
+
+
 
 
 async def stream_messages(ws):
