@@ -172,11 +172,18 @@ class LevelMarker(QGraphicsPathItem):
         # _, marker_right, _ = marker_right_points(line._chart)
         x = self.scene_x()
 
+        if self.style == '>|':  # short style, points "down-to" line
+            top_offset = self.h
+            bottom_offset = 0
+        else:
+            top_offset = 0
+            bottom_offset = self.h
+
         if level > ymx:  # pin to top of view
             self.setPos(
                 QPointF(
                     x,
-                    self.h/3,
+                    top_offset + self.h/3,
                 )
             )
 
@@ -185,7 +192,7 @@ class LevelMarker(QGraphicsPathItem):
             self.setPos(
                 QPointF(
                     x,
-                    view.height() - 4/3*self.h,
+                    view.height() - (bottom_offset + self.h/3),
                 )
             )
 
