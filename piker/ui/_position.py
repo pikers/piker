@@ -115,12 +115,15 @@ class Allocator(BaseModel):
 
     def step_sizes(
         self,
-    ) -> dict[str, float]:
+    ) -> (float, float):
+        '''Return the units size for each unit type as a tuple.
+
+        '''
         slots = self.slots
-        return {
-            'units': self.units_limit / slots,
-            'currency': self.currency_limit / slots,
-        }
+        return (
+            self.units_limit / slots,
+            self.currency_limit / slots,
+        )
 
     def limit(self) -> float:
         if self.size_unit == 'currency':
@@ -144,41 +147,49 @@ class Allocator(BaseModel):
         sym = self.symbol
         ld = sym.lot_size_digits
 
-        live_size = live_pp.size
-        startup_size = startup_pp.size
+        live_size = abs(live_pp.size)
+        startup_size = abs(startup_pp.size)
 
-        steps = self.step_sizes()
+        u_per_slot, currency_per_slot = self.step_sizes()
 
         if self.size_unit == 'units':
-            # step_size = self.units_limit / self.slots
-            step_size = steps['units']
+            enter_step = u_per_slot
             l_sub_pp = self.units_limit - live_size
 
         elif self.size_unit == 'currency':
-            startup_size = startup_pp.size * startup_pp.avg_price / price
-            # step_size = self.currency_limit / self.slots / price
-            step_size = steps['currency'] / price
-            l_sub_pp = (
-                self.currency_limit - live_size * live_pp.avg_price
-            ) / price
+            live_cost_basis = live_size * live_pp.avg_price
+            enter_step = currency_per_slot / price
+            l_sub_pp = (self.currency_limit - live_cost_basis) / price
 
+        # an entry (adding-to or starting a pp)
         if (
             action == 'buy' and startup_size > 0 or
             action == 'sell' and startup_size < 0 or
             live_size == 0
-        ):  # an entry
+        ):
 
-            units_size = min(step_size, l_sub_pp)
+            order_size = min(enter_step, l_sub_pp)
 
+        # an exit (removing-from or going to net-zero pp)
         else:
-            # exit at the slot size worth of units or the remaining
+            # always exit "at least" a unit-limit slot's worth of units
+            # since higher-level per-slot-calcs can result in
+            # non-uniform exit sizes per price, port alloc, etc.
+            exit_step = max(
+                startup_size / self.slots,
+                enter_step,
+            )
+
+            # exit at a slot size's worth of units or the remaining
             # units left for the position to be net-zero, whichever
             # is smaller
-            units_size = min(step_size, live_size)
+            order_size = min(
+                exit_step,
+                live_size,
+            )
 
-        units = round(units_size, ndigits=ld)
         return {
-            'size': units,
+            'size': round(order_size, ndigits=ld),
             'size_digits': ld
         }
 
@@ -265,7 +276,10 @@ class OrderModePane:
         # account(s), if none then look to user config for default?
         self.update_status_ui()
 
-        step_size = alloc.step_sizes()[size_unit]
+        step_size, currency_per_slot = alloc.step_sizes()
+
+        if size_unit == 'currency':
+            step_size = currency_per_slot
 
         self.step_label.format(
             step_size=str(humanize(step_size)) + suffix
@@ -348,14 +362,17 @@ class OrderModePane:
 
         alloc = self.alloc
         live_pp = self.tracker.live_pp
+        live_pp_size = abs(live_pp.size)
         slots = alloc.slots
 
         if alloc.size_unit == 'currency':
-            live_currency_size = size or (live_pp.size * live_pp.avg_price)
+            live_currency_size = size or (
+                live_pp_size * live_pp.avg_price
+            )
             prop = live_currency_size / alloc.currency_limit
 
         else:
-            prop = (size or live_pp.size) / alloc.units_limit
+            prop = (size or live_pp_size) / alloc.units_limit
 
         # calculate proportion of position size limit
         # that exists and display in fill bar
