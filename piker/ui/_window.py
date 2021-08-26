@@ -124,8 +124,10 @@ class MultiStatus:
                     if not subs:
                         group_clear()
 
-            self._status_groups[group_key][0].add(msg)
-            ret = pop_from_group_and_maybe_clear_group
+            group = self._status_groups.get(group_key)
+            if group:
+                group[0].add(msg)
+                ret = pop_from_group_and_maybe_clear_group
 
         self.render()
 
