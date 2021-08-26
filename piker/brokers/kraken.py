@@ -45,6 +45,7 @@ import urllib.parse
 import hashlib
 import hmac
 import base64
+import pandas as pd
 
 
 log = get_logger(__name__)
@@ -228,6 +229,40 @@ class Client:
             print(err)
         return resp['result']
 
+    async def get_ledger(
+        self,
+        data: Dict[str, Any]
+        ) -> pd.DataFrame:
+        ledgers = await self.get_user_data('Ledgers', data)
+        num_entries = int(ledgers['count'])
+        crypto_transactions = np.empty((num_entries, 4), dtype=object)
+        if num_entries // 50 < 0 or num_entries == 50:
+        # NOTE: Omitting the following values from the kraken ledger:
+        #            -> 'refid', 'type', 'subtype', 'aclass', 'balance'
+            for i, entry in enumerate(ledgers['ledger'].items()):
+                crypto_transactions[i] = [
+                    entry[1]['time'],
+                    entry[1]['amount'],
+                    entry[1]['fee'],
+                    entry[1]['asset']
+                ]
+        else:
+            for n in range(num_entries // 50 + 1):
+                data['ofs'] = n * 50
+                ledgers = await self.get_user_data('Ledgers', data)
+                for i, entry in enumerate(ledgers['ledger'].items()):
+                        crypto_transactions[i + n * 50] = [
+                            entry[1]['time'],
+                            entry[1]['amount'],
+                            entry[1]['fee'],
+                            entry[1]['asset']
+                        ]
+        ledger = pd.DataFrame(
+            columns = ['time', 'amount', 'fee', 'asset'],
+            data = crypto_transactions
+        )
+        return ledger
+
     async def symbol_info(
         self,
         pair: Optional[str] = None,
@@ -346,11 +381,11 @@ async def get_client() -> Client:
     client._api_key = section['api_key']
     client._secret = section['secret']
     data = {
-        # add non nonce vars
+        # add non-nonce and non-ofs vars
     }
 
     balances = await client.get_user_data('Balance', data)
-    ledgers = await client.get_user_data('Ledgers', data)
+    ledger = await client.get_ledger(data)
 
     await tractor.breakpoint()
 
