@@ -518,17 +518,24 @@ def mk_fill_status_bar(
 
     fields: FieldsForm,
     pane_vbox: QVBoxLayout,
+    label_font_size: Optional[int] = None,
     bar_h: int = 250,
 
-) -> (QHBoxLayout, QProgressBar):
-
+) -> (
+    # TODO: turn this into a composite?
+    QHBoxLayout,
+    QProgressBar,
+    QLabel,
+    QLabel,
+    QLabel,
+):
     w = fields.width()
     # indent = 18
     # bracket_val = 0.375 * 0.666 * w
     # indent = bracket_val / (1 + 5/8)
 
     # TODO: once things are sized to screen
-    bar_label_font_size = _font.px_size - 3
+    bar_label_font_size = label_font_size or _font.px_size - 5
 
     label_font = DpiAwareFont()
     label_font._set_qfont_px_size(bar_label_font_size)
@@ -577,7 +584,7 @@ def mk_fill_status_bar(
 
     bottom_label = fields.add_field_label(
         dedent("""
-        x = {step_size}\n
+        x: {step_size}\n
         """),
         font_size=bar_label_font_size,
         font_color='gunmetal',
@@ -667,7 +674,10 @@ def mk_order_pane_layout(
     # print(f'w, h: {w, h}')
 
     hbox, fill_bar, left_label, top_label, bottom_label = mk_fill_status_bar(
-        form, pane_vbox=vbox
+        form,
+        pane_vbox=vbox,
+        # label_font_size=font_size,
+
     )
     # TODO: would be nice to have some better way of reffing these over
     # monkey patching...
@@ -686,7 +696,7 @@ def mk_order_pane_layout(
         |_consumers: {cons}\n
         |_streams: {streams}\n
         """),
-        font_size=_font.px_size - 5,
+        font_size=_font.px_size - 4,
     )
 
     # add feed info label
