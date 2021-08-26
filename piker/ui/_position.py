@@ -392,6 +392,64 @@ class OrderModePane:
         order.size = order_info['size']
 
 
+def position_line(
+
+    chart: 'ChartPlotWidget',  # noqa
+    size: float,
+    level: float,
+    color: str,
+
+    orient_v: str = 'bottom',
+    marker: Optional[LevelMarker] = None,
+
+) -> LevelLine:
+    '''Convenience routine to create a line graphic representing a "pp"
+    aka the acro for a,
+    "{piker, private, personal, puny, <place your p-word here>} position".
+
+    If ``marker`` is provided it will be configured appropriately for
+    the "direction" of the position.
+
+    '''
+    line = level_line(
+        chart,
+        level,
+        color=color,
+        add_label=False,
+        highlight_on_hover=False,
+        movable=False,
+        hide_xhair_on_hover=False,
+        use_marker_margin=True,
+        only_show_markers_on_hover=False,
+        always_show_labels=True,
+    )
+
+    if marker:
+        # configure marker to position data
+
+        if size > 0:  # long
+            style = '|<'  # point "up to" the line
+        elif size < 0:  # short
+            style = '>|'  # point "down to" the line
+
+        marker.style = style
+
+        # set marker color to same as line
+        marker.setPen(line.currentPen)
+        marker.setBrush(fn.mkBrush(line.currentPen.color()))
+        marker.level = level
+        marker.update()
+        marker.show()
+
+        # show position marker on view "edge" when out of view
+        vb = line.getViewBox()
+        vb.sigRangeChanged.connect(marker.position_in_view)
+
+    line.set_level(level)
+
+    return line
+
+
 class PositionTracker:
     '''Track and display a real-time position for a single symbol
     on a chart.
@@ -620,59 +678,9 @@ class PositionTracker:
 
         return arrow
 
-    def position_line(
-        self,
-
-        size: float,
-        level: float,
-
-        orient_v: str = 'bottom',
-
-    ) -> LevelLine:
-        '''Convenience routine to add a line graphic representing an order
-        execution submitted to the EMS via the chart's "order mode".
-
-        '''
-        self.line = line = level_line(
-            self.chart,
-            level,
-            color=self._color,
-            add_label=False,
-            highlight_on_hover=False,
-            movable=False,
-            hide_xhair_on_hover=False,
-            use_marker_margin=True,
-            only_show_markers_on_hover=False,
-            always_show_labels=True,
-        )
-
-        if size > 0:
-            style = '|<'
-        elif size < 0:
-            style = '>|'
-
-        marker = self._level_marker
-        marker.style = style
-
-        # set marker color to same as line
-        marker.setPen(line.currentPen)
-        marker.setBrush(fn.mkBrush(line.currentPen.color()))
-        marker.level = level
-        marker.update()
-        marker.show()
-
-        # show position marker on view "edge" when out of view
-        vb = line.getViewBox()
-        vb.sigRangeChanged.connect(marker.position_in_view)
-
-        line.set_level(level)
-
-        return line
-
     # TODO: per account lines on a single (or very related) symbol
     def update_line(
         self,
-
         price: float,
         size: float,
 
@@ -686,9 +694,12 @@ class PositionTracker:
         if line is None and size:
 
             # create and show a pp line
-            line = self.line = self.position_line(
+            line = self.line = position_line(
+                chart=self.chart,
                 level=price,
                 size=size,
+                color=self._color,
+                marker=self._level_marker,
             )
             line.show()
 
