@@ -274,7 +274,7 @@ class FormatLabel(QLabel):
 
     def format(
         self,
-        fields: dict[str, Any],
+        **fields: dict[str, Any],
 
     ) -> str:
         out = self.fmt_str.format(**fields)
