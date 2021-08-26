@@ -115,12 +115,13 @@ class OrderMode:
 
     ) -> LevelLine:
 
+        level = order.price
         line = order_line(
 
             self.chart,
             # TODO: convert these values into human-readable form
             # (i.e. with k, m, M, B) type embedded suffixes
-            level=order.price,
+            level=level,
             action=order.action,
 
             size=order.size,
@@ -151,6 +152,8 @@ class OrderMode:
                 order.price = y
 
             line._on_level_change = update_order_price
+
+        line.set_level(level)
 
         return line
 
