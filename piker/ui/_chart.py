@@ -71,7 +71,7 @@ from .. import brokers
 from ..log import get_logger
 from ._exec import run_qtractor
 from ._interaction import ChartView
-from .order_mode import run_order_mode
+from .order_mode import open_order_mode
 from .. import fsp
 from ._forms import (
     FieldsForm,
@@ -1084,6 +1084,22 @@ class ChartPlotWidget(pg.PlotWidget):
         self.sig_mouse_leave.emit(self)
         self.scene().leaveEvent(ev)
 
+    def get_index(self, time: float) -> int:
+
+        # TODO: this should go onto some sort of
+        # data-view strimg thinger..right?
+        ohlc = self._shm.array
+        # ohlc = chart._shm.array
+
+        # XXX: not sure why the time is so off here
+        # looks like we're gonna have to do some fixing..
+        indexes = ohlc['time'] >= time
+
+        if any(indexes):
+            return ohlc['index'][indexes][-1]
+        else:
+            return ohlc['index'][-1]
+
 
 _clear_throttle_rate: int = 60  # Hz
 _book_throttle_rate: int = 16  # Hz
@@ -1695,19 +1711,6 @@ async def display_symbol_data(
         ) as feed,
         trio.open_nursery() as n,
     ):
-        # async def print_quotes():
-        #     async with feed.stream.subscribe() as bstream:
-        #         last_tick = time.time()
-        #         async for quotes in bstream:
-        #             now = time.time()
-        #             period = now - last_tick
-        #             for sym, quote in quotes.items():
-        #                 ticks = quote.get('ticks', ())
-        #                 if ticks:
-        #                     # print(f'{1/period} Hz')
-        #                     last_tick = time.time()
-
-        # n.start_soon(print_quotes)
 
         ohlcv: ShmArray = feed.shm
         bars = ohlcv.array
@@ -1833,12 +1836,37 @@ async def display_symbol_data(
                 linkedsplits
             )
 
-            await run_order_mode(
-                chart,
-                symbol,
-                provider,
-                order_mode_started
-            )
+            async with (
+
+                open_order_mode(
+                    chart,
+                    symbol,
+                    provider,
+                    order_mode_started
+                ) as order_mode,
+            ):
+                pp = order_mode.pp
+                live = pp.live_pp
+
+                # real-time update pnl on the  order mode
+                async with feed.stream.subscribe() as bstream:
+                    last_tick = time.time()
+                    async for quotes in bstream:
+
+                        now = time.time()
+                        period = now - last_tick
+
+                        for sym, quote in quotes.items():
+
+                            ticks = quote.get('ticks', ())
+                            if ticks:
+                                print(f'{1/period} Hz')
+
+                                if live.size:
+                                    # compute and display pnl
+                                    pass
+
+                                last_tick = time.time()
 
 
 async def load_provider_search(
