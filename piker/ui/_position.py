@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from functools import partial
-from math import floor
+from math import floor, ceil
 from typing import Optional
 
 
@@ -147,24 +147,25 @@ class Allocator(BaseModel):
         sym = self.symbol
         ld = sym.lot_size_digits
 
-        live_size = abs(live_pp.size)
-        startup_size = abs(startup_pp.size)
+        live_size = live_pp.size
+        abs_live_size = abs(live_size)
+        abs_startup_size = abs(startup_pp.size)
 
         u_per_slot, currency_per_slot = self.step_sizes()
 
         if self.size_unit == 'units':
             enter_step = u_per_slot
-            l_sub_pp = self.units_limit - live_size
+            l_sub_pp = self.units_limit - abs_live_size
 
         elif self.size_unit == 'currency':
-            live_cost_basis = live_size * live_pp.avg_price
+            live_cost_basis = abs_live_size * live_pp.avg_price
             enter_step = currency_per_slot / price
             l_sub_pp = (self.currency_limit - live_cost_basis) / price
 
         # an entry (adding-to or starting a pp)
         if (
-            action == 'buy' and startup_size > 0 or
-            action == 'sell' and startup_size < 0 or
+            action == 'buy' and live_size > 0 or
+            action == 'sell' and live_size < 0 or
             live_size == 0
         ):
 
@@ -172,30 +173,36 @@ class Allocator(BaseModel):
 
         # an exit (removing-from or going to net-zero pp)
         else:
-            # always exit "at least" a unit-limit slot's worth of units
-            # since higher-level per-slot-calcs can result in
-            # non-uniform exit sizes per price, port alloc, etc.
-            exit_step = max(
-                startup_size / self.slots,
-                enter_step,
-            )
+            # when exiting a pp we always slot the position
+            # in the instrument's units, since doing so in a derived
+            # size measure (eg. currency value, percent of port) would
+            # result in a mis-mapping of slots sizes in unit terms
+            # (i.e. it would take *more* slots to exit at a profit and
+            # *less* slots to exit at a loss).
 
-            # exit at a slot size's worth of units or the remaining
-            # units left for the position to be net-zero, whichever
-            # is smaller
-            order_size = min(
-                exit_step,
-                live_size,
-            )
+            slot_size = abs_startup_size / self.slots
+
+            if (
+                live_size < slot_size or
+                slot_size < live_size > 2*slot_size
+            ):
+                # the remaining pp is in between 0-2 slots
+                # so dump the whole position in this last exit
+                # therefore conducting so called "back loading"
+                # but **without** going past a net-zero pp.
+                order_size = abs_live_size
+
+            else:
+                order_size = slot_size
 
         return {
-            'size': round(order_size, ndigits=ld),
+            'size': abs(round(order_size, ndigits=ld)),
             'size_digits': ld
         }
 
 
 @dataclass
-class OrderModePane:
+class SettingsPane:
     '''Composite set of widgets plus an allocator model for configuring
     order entry sizes and position limits per tradable instrument.
 
@@ -379,7 +386,8 @@ class OrderModePane:
         # TODO: what should we do for fractional slot pps?
         self.fill_bar.set_slots(
             slots,
-            min(round(prop * slots), slots)
+            # min(round(prop * slots), slots)
+            min(ceil(prop * slots), slots)
         )
 
     def on_level_change_update_next_order_info(
@@ -470,6 +478,10 @@ def position_line(
 class PositionTracker:
     '''Track and display a real-time position for a single symbol
     on a chart.
+
+    Graphically composed of a level line and marker as well as labels
+    for indcating current position information. Updates are made to the
+    corresponding "settings pane" for the chart's "order mode" UX.
 
     '''
     # inputs
