@@ -179,12 +179,11 @@ class Allocator(BaseModel):
             # result in a mis-mapping of slots sizes in unit terms
             # (i.e. it would take *more* slots to exit at a profit and
             # *less* slots to exit at a loss).
-
             slot_size = abs_startup_size / self.slots
 
             if (
-                live_size < slot_size or
-                slot_size < live_size > 2*slot_size
+                abs_live_size < slot_size or
+                slot_size < abs_live_size < (2*slot_size)
             ):
                 # the remaining pp is in between 0-2 slots
                 # so dump the whole position in this last exit
