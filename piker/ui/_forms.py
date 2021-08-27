@@ -547,7 +547,7 @@ def mk_fill_status_bar(
     bar_labels_lhs = QVBoxLayout(fields)
     left_label = fields.add_field_label(
         dedent("""
-        {pnl}% PnL
+        {pnl}% pnl
         """),
         font_size=bar_label_font_size,
         font_color='gunmetal',
