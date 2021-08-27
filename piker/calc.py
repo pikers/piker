@@ -21,7 +21,10 @@ import math
 import itertools
 
 
-def humanize(number, digits=1):
+def humanize(
+    number: float,
+    digits: int = 1
+) -> str:
     '''Convert large numbers to something with at most ``digits`` and
     a letter suffix (eg. k: thousand, M: million, B: billion).
 
@@ -46,10 +49,17 @@ def humanize(number, digits=1):
     )
 
 
-def percent_change(init, new):
-    """Calcuate the percentage change of some ``new`` value
+def percent_change(
+
+    init: float,
+    new: float,
+
+) -> float:
+    '''Calcuate the percentage change of some ``new`` value
     from some initial value, ``init``.
-    """
+
+    '''
     if not (init and new):
         return 0
+
     return (new - init) / init * 100.
