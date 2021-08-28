@@ -21,6 +21,7 @@ Chart trading, the only way to scalp.
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from functools import partial
+from math import copysign
 from pprint import pformat
 import time
 from typing import Optional, Dict, Callable, Any
@@ -32,8 +33,11 @@ import tractor
 import trio
 
 from .. import brokers
+from ..calc import percent_change
 from ..clearing._client import open_ems, OrderBook
 from ..data._source import Symbol
+from ..data._normalize import iterticks
+from ..data.feed import Feed
 from ..log import get_logger
 from ._editors import LineEditor, ArrowEditor
 from ._lines import order_line, LevelLine
@@ -466,6 +470,7 @@ class OrderMode:
 @asynccontextmanager
 async def open_order_mode(
 
+    feed: Feed,
     chart: 'ChartPlotWidget',  # noqa
     symbol: Symbol,
     brokername: str,
@@ -520,7 +525,7 @@ async def open_order_mode(
         form = chart.sidepane
         form.model = alloc
 
-        pp_tracker = PositionTracker(chart)
+        pp_tracker = PositionTracker(chart, alloc)
         pp_tracker.hide()
 
         # order pane widgets and allocation model
@@ -574,6 +579,35 @@ async def open_order_mode(
                 pp_tracker.update(msg, position=pp_tracker.startup_pp)
                 pp_tracker.update(msg)
 
+        live_pp = mode.pp.live_pp
+        size = live_pp.size
+        if size:
+            global _zero_pp
+            _zero_pp = False
+
+            # compute and display pnl status immediately
+            mode.pane.pnl_label.format(
+                pnl=round(
+                    copysign(1, size) * percent_change(
+                        live_pp.avg_price,
+                        # last historical close price
+                        feed.shm.array[-1][['close']][0],
+                    ),
+                    ndigits=2,
+                )
+            )
+
+            # spawn updater task
+            n.start_soon(
+                display_pnl,
+                feed,
+                mode,
+            )
+
+        else:
+            # set 0% pnl
+            mode.pane.pnl_label.format(pnl=0)
+
         # make fill bar and positioning snapshot
         order_pane.init_status_ui()
 
@@ -601,16 +635,83 @@ async def open_order_mode(
 
             n.start_soon(
                 process_trades_and_update_ui,
+                n,
+                feed,
                 mode,
                 trades_stream,
                 book,
             )
             yield mode
-            # await trio.sleep_forever()
+
+
+_zero_pp: bool = True
+
+
+async def display_pnl(
+    feed: Feed,
+    order_mode: OrderMode,
+) -> None:
+    '''Real-time display the current pp's PnL in the appropriate label.
+
+    Error if this task is spawned where there is a net-zero pp.
+
+    '''
+    global _zero_pp
+    assert not _zero_pp
+
+    pp = order_mode.pp
+    live = pp.live_pp
+
+    if live.size < 0:
+        types = ('ask', 'last', 'last', 'utrade')
+
+    elif live.size > 0:
+        types = ('bid', 'last', 'last', 'utrade')
+
+    else:
+        raise RuntimeError('No pp?!?!')
+
+    # real-time update pnl on the status pane
+    async with feed.stream.subscribe() as bstream:
+        last_tick = time.time()
+        async for quotes in bstream:
+
+            now = time.time()
+            period = now - last_tick
+
+            for sym, quote in quotes.items():
+
+                for tick in iterticks(quote, types):
+                    print(f'{1/period} Hz')
+
+                    size = live.size
+
+                    if size == 0:
+                        # terminate this update task since we're
+                        # no longer in a pp
+                        _zero_pp = True
+                        order_mode.pane.pnl_label.format(pnl=0)
+                        return
+
+                    else:
+                        # compute and display pnl status
+                        order_mode.pane.pnl_label.format(
+                            pnl=round(
+                                copysign(1, size) * percent_change(
+                                    live.avg_price,
+                                    tick['price'],
+                                ),
+                                ndigits=2,
+                            )
+                        )
+
+                    last_tick = time.time()
 
 
 async def process_trades_and_update_ui(
 
+    n: trio.Nursery,
+    feed: Feed,
     mode: OrderMode,
     trades_stream: tractor.MsgStream,
     book: OrderBook,
@@ -619,6 +720,7 @@ async def process_trades_and_update_ui(
 
     get_index = mode.chart.get_index
     tracker = mode.pp
+    global _zero_pp
 
     # this is where we receive **back** messages
     # about executions **from** the EMS actor
@@ -640,6 +742,13 @@ async def process_trades_and_update_ui(
                 # update order pane widgets
                 mode.pane.update_status_ui()
 
+            if mode.pp.live_pp.size and _zero_pp:
+                _zero_pp = False
+                n.start_soon(
+                    display_pnl,
+                    feed,
+                    mode,
+                )
             # short circuit to next msg to avoid
             # uncessary msg content lookups
             continue

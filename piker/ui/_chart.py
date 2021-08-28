@@ -41,7 +41,6 @@ from .._daemon import (
     maybe_spawn_brokerd,
 )
 from ..brokers import get_brokermod
-from ..calc import percent_change
 from ._axes import (
     DynamicDateAxis,
     PriceAxis,
@@ -68,7 +67,6 @@ from ..data import maybe_open_shm_array
 from ..data.feed import open_feed, Feed, install_brokerd_search
 from ..data._source import Symbol
 from ..data._sharedmem import ShmArray
-from ..data._normalize import iterticks
 from .. import brokers
 from ..log import get_logger
 from ._exec import run_qtractor
@@ -1841,49 +1839,14 @@ async def display_symbol_data(
             async with (
 
                 open_order_mode(
+                    feed,
                     chart,
                     symbol,
                     provider,
                     order_mode_started
                 ) as order_mode,
             ):
-                pp = order_mode.pp
-                live = pp.live_pp
-
-                if live.size < 0:
-                    types = ('ask', 'last')
-
-                elif live.size > 0:
-                    types = ('bid', 'last')
-
-                else:
-                    raise RuntimeError('No pp?!?!')
-
-                # real-time update pnl on the  order mode
-                async with feed.stream.subscribe() as bstream:
-                    last_tick = time.time()
-                    async for quotes in bstream:
-
-                        now = time.time()
-                        period = now - last_tick
-
-                        for sym, quote in quotes.items():
-
-                            for tick in iterticks(quote, types):
-                                print(f'{1/period} Hz')
-
-                                # compute and display pnl status
-                                order_mode.pane.pnl_label.format(
-                                    pnl=round(
-                                        live.size * percent_change(
-                                            live.avg_price,
-                                            tick['price'],
-                                        ),
-                                        ndigits=2,
-                                    )
-                                )
-
-                                last_tick = time.time()
+                await trio.sleep_forever()
 
 
 async def load_provider_search(
