@@ -235,16 +235,17 @@ class Client:
         ) -> pd.DataFrame:
         ledgers = await self.get_user_data('Ledgers', data)
         num_entries = int(ledgers['count'])
-        crypto_transactions = np.empty((num_entries, 4), dtype=object)
+        crypto_transactions = np.empty((num_entries, 5), dtype=object)
         if num_entries // 50 < 0 or num_entries == 50:
         # NOTE: Omitting the following values from the kraken ledger:
-        #            -> 'refid', 'type', 'subtype', 'aclass', 'balance'
+        #            -> 'refid', 'type', 'subtype', 'aclass'
             for i, entry in enumerate(ledgers['ledger'].items()):
                 crypto_transactions[i] = [
                     entry[1]['time'],
                     entry[1]['amount'],
                     entry[1]['fee'],
-                    entry[1]['asset']
+                    entry[1]['asset'],
+                    entry[1]['balance']
                 ]
         else:
             for n in range(num_entries // 50 + 1):
@@ -255,10 +256,11 @@ class Client:
                             entry[1]['time'],
                             entry[1]['amount'],
                             entry[1]['fee'],
-                            entry[1]['asset']
+                            entry[1]['asset'],
+                            entry[1]['balance']
                         ]
         ledger = pd.DataFrame(
-            columns = ['time', 'amount', 'fee', 'asset'],
+            columns = ['time', 'amount', 'fee', 'asset', 'balance'],
             data = crypto_transactions
         )
         return ledger
@@ -386,6 +388,7 @@ async def get_client() -> Client:
 
     balances = await client.get_user_data('Balance', data)
     ledger = await client.get_ledger(data)
+    # positions
 
     await tractor.breakpoint()
 
