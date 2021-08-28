@@ -215,6 +215,28 @@ class Allocator(BaseModel):
             'size_digits': ld
         }
 
+    def slots_used(
+        self,
+        pp: Position,
+
+    ) -> float:
+
+        # alloc = self.alloc
+        # live_pp = self.tracker.live_pp
+        # live_pp_size = abs(live_pp.size)
+        abs_pp_size = abs(pp.size)
+
+        if self.size_unit == 'currency':
+            # live_currency_size = size or (abs_pp_size * pp.avg_price)
+            live_currency_size = abs_pp_size * pp.avg_price
+            prop = live_currency_size / self.currency_limit
+
+        else:
+            # return (size or abs_pp_size) / alloc.units_limit
+            prop = abs_pp_size / self.units_limit
+
+        return ceil(prop * self.slots)
+
 
 @dataclass
 class SettingsPane:
@@ -383,18 +405,8 @@ class SettingsPane:
     ) -> None:
 
         alloc = self.alloc
-        live_pp = self.tracker.live_pp
-        live_pp_size = abs(live_pp.size)
         slots = alloc.slots
-
-        if alloc.size_unit == 'currency':
-            live_currency_size = size or (
-                live_pp_size * live_pp.avg_price
-            )
-            prop = live_currency_size / alloc.currency_limit
-
-        else:
-            prop = (size or live_pp_size) / alloc.units_limit
+        used = alloc.slots_used(self.tracker.live_pp)
 
         # calculate proportion of position size limit
         # that exists and display in fill bar
@@ -404,7 +416,7 @@ class SettingsPane:
 
             # TODO: how to show "partial" slots?
             # min(round(prop * slots), slots)
-            min(ceil(prop * slots), slots)
+            min(used, slots)
         )
 
     def on_level_change_update_next_order_info(
@@ -503,6 +515,7 @@ class PositionTracker:
     '''
     # inputs
     chart: 'ChartPlotWidget'  # noqa
+    alloc: Allocator
 
     # allocated
     startup_pp: Position
@@ -516,10 +529,12 @@ class PositionTracker:
     def __init__(
         self,
         chart: 'ChartPlotWidget',  # noqa
+        alloc: Allocator,
 
     ) -> None:
 
         self.chart = chart
+        self.alloc = alloc
         self.live_pp = Position(
             symbol=chart.linked.symbol,
             size=0,
@@ -557,11 +572,11 @@ class PositionTracker:
             # this is "static" label
             # update_on_range_change=False,
             fmt_str='\n'.join((
-                ':{entry_size:.{size_digits}f}x',
+                ':{slots_used:.1f}x',
             )),
 
             fields={
-                'entry_size': 0,
+                'slots_used': 0,
                 'size_digits': nsize
             },
         )
@@ -641,7 +656,9 @@ class PositionTracker:
         self.update_line(avg_price, size)
 
         # label updates
-        self.size_label.fields['entry_size'] = size
+        # self.size_label.fields['slots_used'] = size
+        self.size_label.fields['slots_used'] = round(
+            self.alloc.slots_used(pp), ndigits=1)
         self.size_label.render()
 
         if size == 0:
