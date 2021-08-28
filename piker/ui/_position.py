@@ -147,17 +147,18 @@ class Allocator(BaseModel):
         sym = self.symbol
         ld = sym.lot_size_digits
 
+        size_unit = self.size_unit
         live_size = live_pp.size
         abs_live_size = abs(live_size)
         abs_startup_size = abs(startup_pp.size)
 
         u_per_slot, currency_per_slot = self.step_sizes()
 
-        if self.size_unit == 'units':
+        if size_unit == 'units':
             enter_step = u_per_slot
             l_sub_pp = self.units_limit - abs_live_size
 
-        elif self.size_unit == 'currency':
+        elif size_unit == 'currency':
             live_cost_basis = abs_live_size * live_pp.avg_price
             enter_step = currency_per_slot / price
             l_sub_pp = (self.currency_limit - live_cost_basis) / price
@@ -173,26 +174,41 @@ class Allocator(BaseModel):
 
         # an exit (removing-from or going to net-zero pp)
         else:
-            # when exiting a pp we always slot the position
+            # when exiting a pp we always try to slot the position
             # in the instrument's units, since doing so in a derived
             # size measure (eg. currency value, percent of port) would
             # result in a mis-mapping of slots sizes in unit terms
             # (i.e. it would take *more* slots to exit at a profit and
             # *less* slots to exit at a loss).
-            slot_size = abs_startup_size / self.slots
+            pp_size = max(abs_startup_size, abs_live_size)
+            slotted_pp = pp_size / self.slots
+
+            if size_unit == 'currency':
+                # compute the "projected" limit's worth of units at the
+                # current pp (weighted) price:
+                slot_size = currency_per_slot / live_pp.avg_price
+
+            else:
+                slot_size = u_per_slot
+
+            # if our position is greater then our limit setting
+            # we'll want to use slot sizes which are larger then what
+            # the limit would normally determine
+            order_size = max(slotted_pp, slot_size)
 
             if (
                 abs_live_size < slot_size or
-                slot_size < abs_live_size < (2*slot_size)
-            ):
-                # the remaining pp is in between 0-2 slots
-                # so dump the whole position in this last exit
-                # therefore conducting so called "back loading"
-                # but **without** going past a net-zero pp.
-                order_size = abs_live_size
 
-            else:
-                order_size = slot_size
+                # NOTE: front/back "loading" heurstic:
+                # if the remaining pp is in between 0-1.5x a slot's
+                # worth, dump the whole position in this last exit
+                # therefore conducting so called "back loading" but
+                # **without** going past a net-zero pp. if the pp is
+                # > 1.5x a slot size, then front load: exit a slot's and
+                # expect net-zero to be acquired on the final exit.
+                slot_size < pp_size < round((1.5*slot_size), ndigits=ld)
+            ):
+                order_size = abs_live_size
 
         return {
             'size': abs(round(order_size, ndigits=ld)),
@@ -385,6 +401,8 @@ class SettingsPane:
         # TODO: what should we do for fractional slot pps?
         self.fill_bar.set_slots(
             slots,
+
+            # TODO: how to show "partial" slots?
             # min(round(prop * slots), slots)
             min(ceil(prop * slots), slots)
         )
