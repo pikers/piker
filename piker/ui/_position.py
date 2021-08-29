@@ -212,7 +212,8 @@ class Allocator(BaseModel):
 
         return {
             'size': abs(round(order_size, ndigits=ld)),
-            'size_digits': ld
+            'size_digits': ld,
+            'fiat_size': round(order_size * price, ndigits=2),
         }
 
     def slots_used(

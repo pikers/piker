@@ -33,6 +33,7 @@ from ._anchors import (
     right_axis,
     # gpath_pin,
 )
+from ..calc import humanize
 from ._label import Label
 from ._style import hcolor, _font
 
@@ -669,7 +670,9 @@ def order_line(
             view=line.getViewBox(),
             # display the order pos size, which is some multiple
             # of the user defined base unit size
-            fmt_str=('units: {size:.{size_digits}f}'),  # old
+            fmt_str=(
+                '{size:.{size_digits}f}u{fiat_text}'
+            ),
             color=line.color,
         )
 
@@ -677,9 +680,18 @@ def order_line(
 
         line._labels.append(label)
 
+        def maybe_show_fiat_text(fields: dict) -> str:
+            fiat_size = fields.get('fiat_size')
+            if not fiat_size:
+                return ''
+
+            return f' -> ${humanize(fiat_size)}'
+
         label.fields = {
             'size': size,
             'size_digits': 0,
+            'fiat_size': None,
+            'fiat_text': maybe_show_fiat_text,
         }
 
     label.orient_v = orient_v
