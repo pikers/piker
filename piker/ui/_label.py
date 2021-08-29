@@ -76,6 +76,8 @@ class Label:
         self._x_offset = x_offset
 
         txt = self.txt = QtWidgets.QGraphicsTextItem()
+        txt.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
+
         vb.scene().addItem(txt)
 
         # configure font size based on DPI
