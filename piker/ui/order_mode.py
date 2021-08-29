@@ -682,7 +682,7 @@ async def display_pnl(
             for sym, quote in quotes.items():
 
                 for tick in iterticks(quote, types):
-                    print(f'{1/period} Hz')
+                    # print(f'{1/period} Hz')
 
                     size = live.size
 

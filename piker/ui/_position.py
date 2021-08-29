@@ -155,12 +155,12 @@ class Allocator(BaseModel):
         u_per_slot, currency_per_slot = self.step_sizes()
 
         if size_unit == 'units':
-            enter_step = u_per_slot
+            slot_size = u_per_slot
             l_sub_pp = self.units_limit - abs_live_size
 
         elif size_unit == 'currency':
             live_cost_basis = abs_live_size * live_pp.avg_price
-            enter_step = currency_per_slot / price
+            slot_size = currency_per_slot / price
             l_sub_pp = (self.currency_limit - live_cost_basis) / price
 
         # an entry (adding-to or starting a pp)
@@ -170,7 +170,7 @@ class Allocator(BaseModel):
             live_size == 0
         ):
 
-            order_size = min(enter_step, l_sub_pp)
+            order_size = min(slot_size, l_sub_pp)
 
         # an exit (removing-from or going to net-zero pp)
         else:
@@ -210,10 +210,18 @@ class Allocator(BaseModel):
             ):
                 order_size = abs_live_size
 
+        slots_used = 1.0  # the default uniform policy
+        if order_size < slot_size:
+            # compute a fractional slots size to display
+            slots_used = self.slots_used(
+                Position(symbol=sym, size=order_size, avg_price=price)
+            )
+
         return {
             'size': abs(round(order_size, ndigits=ld)),
             'size_digits': ld,
             'fiat_size': round(order_size * price, ndigits=2),
+            'slots_used': slots_used,
         }
 
     def slots_used(
@@ -221,10 +229,9 @@ class Allocator(BaseModel):
         pp: Position,
 
     ) -> float:
+        '''Calc and return the number of slots used by this ``Position``.
 
-        # alloc = self.alloc
-        # live_pp = self.tracker.live_pp
-        # live_pp_size = abs(live_pp.size)
+        '''
         abs_pp_size = abs(pp.size)
 
         if self.size_unit == 'currency':
@@ -564,8 +571,6 @@ class PositionTracker:
         )
         pp_label.render()
 
-        nsize = self.chart.linked.symbol.lot_size_digits
-
         self.size_label = size_label = Label(
             view=view,
             color=self._color,
@@ -578,7 +583,6 @@ class PositionTracker:
 
             fields={
                 'slots_used': 0,
-                'size_digits': nsize
             },
         )
         size_label.render()
@@ -587,30 +591,6 @@ class PositionTracker:
             pp_tight_and_right,
             label=self.pp_label,
         )
-
-        # size_label.scene_anchor = lambda: (
-        #     self.pp_label.txt.pos() + QPointF(self.pp_label.w, 0)
-        # )
-        # size_label.scene_anchor = lambda: (
-        #     self.pp_label.scene_br().bottomRight() - QPointF(
-        #     self.size_label.w, self.size_label.h/3)
-        # )
-
-        # TODO: if we want to show more position-y info?
-        #     fmt_str='\n'.join((
-        #         # '{entry_size}x ',
-        #         '{percent_pnl} % PnL',
-        #         # '{percent_of_port}% of port',
-        #         '${base_unit_value}',
-        #     )),
-
-        #     fields={
-        #         # 'entry_size': 0,
-        #         'percent_pnl': 0,
-        #         'percent_of_port': 2,
-        #         'base_unit_value': '1k',
-        #     },
-        # )
 
     @property
     def pane(self) -> FieldsForm:
@@ -657,7 +637,6 @@ class PositionTracker:
         self.update_line(avg_price, size)
 
         # label updates
-        # self.size_label.fields['slots_used'] = size
         self.size_label.fields['slots_used'] = round(
             self.alloc.slots_used(pp), ndigits=1)
         self.size_label.render()

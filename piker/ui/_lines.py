@@ -18,6 +18,7 @@
 Lines for orders, alerts, L2.
 
 """
+from functools import partial
 from math import floor
 from typing import Tuple, Optional, List, Callable
 
@@ -31,7 +32,8 @@ from ._anchors import (
     marker_right_points,
     vbr_left,
     right_axis,
-    # gpath_pin,
+    # pp_tight_and_right,  # wanna keep it straight in the long run
+    gpath_pin,
 )
 from ..calc import humanize
 from ._label import Label
@@ -166,15 +168,12 @@ class LevelLine(pg.InfiniteLine):
         for label in self._labels:
 
             label.color = self.color
-            # print(f'color is {self.color}')
-
             label.fields.update(fields_data)
+            label.render()
 
             level = fields_data.get('level')
             if level:
                 label.set_view_pos(y=level)
-
-            label.render()
 
         self.update()
 
@@ -658,16 +657,30 @@ def order_line(
         marker_size = marker_size * 0.666
 
     else:
+        view = line.getViewBox()
 
-        # pp_label.scene_anchor = partial(
-        #     gpath_pin,
-        #     location_description='right-of-path-centered',
-        #     gpath=marker,
-        #     label=label,
-        # )
+        pp_size_label = Label(
+            view=view,
+            color=line.color,
 
+            # this is "static" label
+            # update_on_range_change=False,
+            fmt_str='\n'.join((
+                '{slots_used:.1f}x',
+            )),
+
+            fields={
+                'slots_used': 0,
+            },
+        )
+        pp_size_label.render()
+        pp_size_label.show()
+
+        line._labels.append(pp_size_label)
+
+        # far-side label
         label = Label(
-            view=line.getViewBox(),
+            view=view,
             # display the order pos size, which is some multiple
             # of the user defined base unit size
             fmt_str=(
@@ -738,7 +751,26 @@ def order_line(
         # testing to figure out why tf that's true.
         # line.markers.append((marker, 0, marker_size))
 
-    marker.label = label
+        if action != 'alert':
+
+            # TODO: pretty sure one of the reasons these "label
+            # updatess" are a bit "jittery" is because we aren't
+            # leveraging the "scene coordinates hierarchy" stuff:
+            # i.e. using some parent object as the coord "origin"
+            # which i presume would result in better pixel caching
+            # results? def something to dig into..
+            pp_size_label.scene_anchor = partial(
+                gpath_pin,
+                gpath=marker,
+                label=pp_size_label,
+            )
+            # XXX: without this the pp proportion label next the marker
+            # seems to lag?  this is the same issue we had with position
+            # lines which we handle with ``.update_graphcis()``.
+            # marker._on_paint=lambda marker: pp_size_label.update()
+            marker._on_paint=lambda marker: pp_size_label.update()
+
+        marker.label = label
 
     # sanity check
     line.update_labels({'level': level})
