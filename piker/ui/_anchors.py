@@ -21,7 +21,7 @@ Anchor funtions for UI placement of annotions.
 from typing import Callable
 
 from PyQt5.QtCore import QPointF
-from PyQt5.QtGui import QGraphicsPathItem
+from PyQt5.QtWidgets import QGraphicsPathItem
 
 from ._label import Label
 
