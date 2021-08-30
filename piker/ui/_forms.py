@@ -370,12 +370,15 @@ def mk_form(
 
     parent: QWidget,
     fields_schema: dict,
+    font_size: Optional[int] = None,
 
 ) -> FieldsForm:
 
     # TODO: generate components from model
     # instead of schema dict (aka use an ORM)
     form = FieldsForm(parent=parent)
+
+    form._font_size = font_size or _font.px_size
 
     # generate sub-components from schema dict
     for key, config in fields_schema.items():
@@ -535,7 +538,7 @@ def mk_fill_status_bar(
     # indent = bracket_val / (1 + 5/8)
 
     # TODO: once things are sized to screen
-    bar_label_font_size = label_font_size or _font.px_size - 5
+    bar_label_font_size = label_font_size or _font.px_size - 3
 
     label_font = DpiAwareFont()
     label_font._set_qfont_px_size(bar_label_font_size)
@@ -622,10 +625,11 @@ def mk_order_pane_layout(
 
     parent: QWidget,
     # accounts: dict[str, Optional[str]],
-    font_size: int = _font_small.px_size - 2
 
 ) -> FieldsForm:
 
+    # font_size: int = _font_small.px_size - 2
+    font_size: int = _font.px_size - 2
     accounts = brokers.config.load_accounts()
 
     # TODO: maybe just allocate the whole fields form here
@@ -663,7 +667,6 @@ def mk_order_pane_layout(
             },
         },
     )
-    form._font_size = font_size
 
     # top level pane layout
     # XXX: see ``FieldsForm.__init__()`` for why we can't do basic
@@ -676,7 +679,7 @@ def mk_order_pane_layout(
     hbox, fill_bar, left_label, top_label, bottom_label = mk_fill_status_bar(
         form,
         pane_vbox=vbox,
-        # label_font_size=font_size,
+        label_font_size=font_size,
 
     )
     # TODO: would be nice to have some better way of reffing these over
