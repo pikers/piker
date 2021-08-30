@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from functools import partial
-from math import floor, ceil
+from math import floor
 from typing import Optional
 
 
@@ -243,7 +243,9 @@ class Allocator(BaseModel):
             # return (size or abs_pp_size) / alloc.units_limit
             prop = abs_pp_size / self.units_limit
 
-        return ceil(prop * self.slots)
+        # TODO: REALLY need a way to show partial slots..
+        # for now we round at the midway point between slots
+        return round(prop * self.slots)
 
 
 @dataclass
