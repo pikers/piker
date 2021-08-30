@@ -33,7 +33,7 @@ import tractor
 import trio
 
 from .. import brokers
-from ..calc import percent_change
+from ..calc import pnl
 from ..clearing._client import open_ems, OrderBook
 from ..data._source import Symbol
 from ..data._normalize import iterticks
@@ -587,14 +587,11 @@ async def open_order_mode(
 
             # compute and display pnl status immediately
             mode.pane.pnl_label.format(
-                pnl=round(
-                    copysign(1, size) * percent_change(
-                        live_pp.avg_price,
-                        # last historical close price
-                        feed.shm.array[-1][['close']][0],
-                    ),
-                    ndigits=2,
-                )
+                pnl=copysign(1, size) * pnl(
+                    live_pp.avg_price,
+                    # last historical close price
+                    feed.shm.array[-1][['close']][0],
+                ),
             )
 
             # spawn updater task
@@ -682,7 +679,7 @@ async def display_pnl(
             for sym, quote in quotes.items():
 
                 for tick in iterticks(quote, types):
-                    # print(f'{1/period} Hz')
+                    print(f'{1/period} Hz')
 
                     size = live.size
 
@@ -696,13 +693,10 @@ async def display_pnl(
                     else:
                         # compute and display pnl status
                         order_mode.pane.pnl_label.format(
-                            pnl=round(
-                                copysign(1, size) * percent_change(
-                                    live.avg_price,
-                                    tick['price'],
-                                ),
-                                ndigits=2,
-                            )
+                            pnl=copysign(1, size) * pnl(
+                                live.avg_price,
+                                tick['price'],
+                            ),
                         )
 
                     last_tick = time.time()
