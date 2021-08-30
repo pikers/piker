@@ -377,8 +377,7 @@ def mk_form(
     # TODO: generate components from model
     # instead of schema dict (aka use an ORM)
     form = FieldsForm(parent=parent)
-
-    form._font_size = font_size or _font.px_size
+    form._font_size = font_size or _font_small.px_size
 
     # generate sub-components from schema dict
     for key, config in fields_schema.items():
@@ -550,7 +549,7 @@ def mk_fill_status_bar(
     bar_labels_lhs = QVBoxLayout(fields)
     left_label = fields.add_field_label(
         dedent("""
-        {pnl}% pnl
+        {pnl:>+.2%} pnl
         """),
         font_size=bar_label_font_size,
         font_color='gunmetal',
