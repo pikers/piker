@@ -1093,6 +1093,11 @@ async def _setup_quote_stream(
                 # decouple broadcast mem chan
                 _quote_streams.pop(symbol, None)
 
+            # except trio.WouldBlock:
+            #     # for slow debugging purposes to avoid clobbering prompt
+            #     # with log msgs
+            #     pass
+
         ticker.updateEvent.connect(push)
 
         return from_aio
