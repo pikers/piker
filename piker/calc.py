@@ -49,7 +49,7 @@ def humanize(
     )
 
 
-def percent_change(
+def pnl(
 
     init: float,
     new: float,
@@ -62,4 +62,11 @@ def percent_change(
     if not (init and new):
         return 0
 
-    return (new - init) / init * 100.
+    return (new - init) / init
+
+
+def percent_change(
+    init: float,
+    new: float,
+) -> float:
+    return pnl(init, new) * 100.
