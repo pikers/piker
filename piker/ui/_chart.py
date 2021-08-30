@@ -1844,7 +1844,7 @@ async def display_symbol_data(
                     symbol,
                     provider,
                     order_mode_started
-                ) as order_mode,
+                )
             ):
                 await trio.sleep_forever()
 
