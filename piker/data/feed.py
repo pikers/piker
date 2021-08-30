@@ -554,8 +554,7 @@ async def maybe_open_feed(
     symbols: Sequence[str],
     loglevel: Optional[str] = None,
 
-    tick_throttle: Optional[float] = None,  # Hz
-    shielded_stream: bool = False,
+    **kwargs,
 
 ) -> (Feed, ReceiveChannel[dict[str, Any]]):
     '''Maybe open a data to a ``brokerd`` daemon only if there is no
@@ -571,6 +570,7 @@ async def maybe_open_feed(
             brokername,
             [sym],
             loglevel=loglevel,
+            **kwargs,
         ),
     ) as (cache_hit, feed):
 
