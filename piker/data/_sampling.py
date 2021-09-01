@@ -118,8 +118,9 @@ async def increment_ohlc_buffer(
                     shm.push(last)
 
                 # broadcast the buffer index step
-                # yield {'index': shm._last.value}
-                for ctx in _subscribers.get(delay_s, ()):
+                subs = _subscribers.get(delay_s, ())
+
+                for ctx in subs:
                     try:
                         await ctx.send_yield({'index': shm._last.value})
                     except (
@@ -127,6 +128,7 @@ async def increment_ohlc_buffer(
                         trio.ClosedResourceError
                     ):
                         log.error(f'{ctx.chan.uid} dropped connection')
+                        subs.remove(ctx)
 
 
 @tractor.stream
@@ -235,6 +237,8 @@ async def sample_and_broadcast(
 
                 try:
                     if tick_throttle:
+                        # this is a send mem chan that likely
+                        # pushes to the ``uniform_rate_send()`` below.
                         await stream.send(quote)
 
                     else:
@@ -254,6 +258,10 @@ async def sample_and_broadcast(
                     )
                     subs.remove((stream, tick_throttle))
 
+
+# TODO: a less naive throttler, here's some snippets:
+# token bucket by njs:
+# https://gist.github.com/njsmith/7ea44ec07e901cb78ebe1dd8dd846cb9
 
 async def uniform_rate_send(
 
@@ -292,7 +300,7 @@ async def uniform_rate_send(
                 rate = 1 / (now - last_send)
                 last_send = now
 
-                # print(f'{rate} Hz sending quotes\n{first_quote}')
+                # print(f'{rate} Hz sending quotes')  # \n{first_quote}')
 
                 # TODO: now if only we could sync this to the display
                 # rate timing exactly lul

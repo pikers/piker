@@ -42,12 +42,11 @@ import wrapt
 import asks
 
 from ..calc import humanize, percent_change
+from .._cacheables import open_cached_client, async_lifo_cache
 from . import config
 from ._util import resproc, BrokerError, SymbolNotFound
 from ..log import get_logger, colorize_json, get_console_log
-from .._async_utils import async_lifo_cache
 from . import get_brokermod
-from . import api
 
 
 log = get_logger(__name__)
@@ -1197,7 +1196,7 @@ async def stream_quotes(
     # XXX: required to propagate ``tractor`` loglevel to piker logging
     get_console_log(loglevel)
 
-    async with api.open_cached_client('questrade') as client:
+    async with open_cached_client('questrade') as client:
         if feed_type == 'stock':
             formatter = format_stock_quote
             get_quotes = await stock_quoter(client, symbols)

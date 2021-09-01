@@ -31,11 +31,14 @@ from typing import (
 )
 
 import trio
+from trio.abc import ReceiveChannel
 from trio_typing import TaskStatus
 import tractor
+# from tractor import _broadcast
 from pydantic import BaseModel
 
 from ..brokers import get_brokermod
+from .._cacheables import maybe_open_ctx
 from ..log import get_logger, get_console_log
 from .._daemon import (
     maybe_spawn_brokerd,
@@ -322,17 +325,59 @@ async def attach_feed_bus(
         else:
             sub = (stream, tick_throttle)
 
-        bus._subscribers[symbol].append(sub)
+        subs = bus._subscribers[symbol]
+        subs.append(sub)
 
         try:
-            await trio.sleep_forever()
+            uid = ctx.chan.uid
+            fqsn = f'{symbol}.{brokername}'
 
+            async for msg in stream:
+
+                if msg == 'pause':
+                    if sub in subs:
+                        log.info(
+                            f'Pausing {fqsn} feed for {uid}')
+                        subs.remove(sub)
+
+                elif msg == 'resume':
+                    if sub not in subs:
+                        log.info(
+                            f'Resuming {fqsn} feed for {uid}')
+                        subs.append(sub)
+                else:
+                    raise ValueError(msg)
         finally:
             log.info(
                 f'Stopping {symbol}.{brokername} feed for {ctx.chan.uid}')
             if tick_throttle:
                 n.cancel_scope.cancel()
             bus._subscribers[symbol].remove(sub)
+
+
+@asynccontextmanager
+async def open_sample_step_stream(
+    portal: tractor.Portal,
+    delay_s: int,
+
+) -> tractor.ReceiveMsgStream:
+    # XXX: this should be singleton on a host,
+    # a lone broker-daemon per provider should be
+    # created for all practical purposes
+    async with maybe_open_ctx(
+        key=delay_s,
+        mngr=portal.open_stream_from(
+            iter_ohlc_periods,
+            delay_s=delay_s,  # must be kwarg
+        ),
+    ) as (cache_hit, istream):
+        if cache_hit:
+            # add a new broadcast subscription for the quote stream
+            # if this feed is likely already in use
+            async with istream.subscribe() as bistream:
+                yield bistream
+        else:
+            yield istream
 
 
 @dataclass
@@ -345,13 +390,12 @@ class Feed:
     memory buffer orchestration.
     """
     name: str
-    stream: AsyncIterator[dict[str, Any]]
     shm: ShmArray
     mod: ModuleType
     first_quote: dict
+    stream: trio.abc.ReceiveChannel[dict[str, Any]]
 
     _brokerd_portal: tractor._portal.Portal
-    _index_stream: Optional[AsyncIterator[int]] = None
     _trade_stream: Optional[AsyncIterator[dict[str, Any]]] = None
     _max_sample_rate: int = 0
 
@@ -362,7 +406,7 @@ class Feed:
     symbols: dict[str, Symbol] = field(default_factory=dict)
 
     async def receive(self) -> dict:
-        return await self.stream.__anext__()
+        return await self.stream.receive()
 
     @asynccontextmanager
     async def index_stream(
@@ -371,18 +415,19 @@ class Feed:
 
     ) -> AsyncIterator[int]:
 
-        if not self._index_stream:
-            # XXX: this should be singleton on a host,
-            # a lone broker-daemon per provider should be
-            # created for all practical purposes
-            async with self._brokerd_portal.open_stream_from(
-                iter_ohlc_periods,
-                delay_s=delay_s or self._max_sample_rate,
-            ) as self._index_stream:
+        delay_s = delay_s or self._max_sample_rate
 
-                yield self._index_stream
-        else:
-            yield self._index_stream
+        async with open_sample_step_stream(
+            self._brokerd_portal,
+            delay_s,
+        ) as istream:
+            yield istream
+
+    async def pause(self) -> None:
+        await self.stream.send('pause')
+
+    async def resume(self) -> None:
+        await self.stream.send('resume')
 
 
 def sym_to_shm_key(
@@ -395,7 +440,7 @@ def sym_to_shm_key(
 @asynccontextmanager
 async def install_brokerd_search(
 
-    portal: tractor._portal.Portal,
+    portal: tractor.Portal,
     brokermod: ModuleType,
 
 ) -> None:
@@ -435,25 +480,12 @@ async def open_feed(
 
     tick_throttle: Optional[float] = None,  # Hz
 
-) -> AsyncIterator[dict[str, Any]]:
+) -> Feed:
     '''
     Open a "data feed" which provides streamed real-time quotes.
 
     '''
     sym = symbols[0].lower()
-
-    # TODO: feed cache locking, right now this is causing
-    # issues when reconnecting to a long running emsd?
-    # global _searcher_cache
-
-    # async with _cache_lock:
-    #     feed = _searcher_cache.get((brokername, sym))
-
-    #     # if feed is not None and sym in feed.symbols:
-    #     if feed is not None:
-    #         yield feed
-    #         # short circuit
-    #         return
 
     try:
         mod = get_brokermod(brokername)
@@ -461,7 +493,6 @@ async def open_feed(
         mod = get_ingestormod(brokername)
 
     # no feed for broker exists so maybe spawn a data brokerd
-
     async with (
 
         maybe_spawn_brokerd(
@@ -481,8 +512,8 @@ async def open_feed(
         ) as (ctx, (init_msg, first_quote)),
 
         ctx.open_stream() as stream,
-    ):
 
+    ):
         # we can only read from shm
         shm = attach_shm_array(
             token=init_msg[sym]['shm_token'],
@@ -491,10 +522,10 @@ async def open_feed(
 
         feed = Feed(
             name=brokername,
-            stream=stream,
             shm=shm,
             mod=mod,
             first_quote=first_quote,
+            stream=stream,
             _brokerd_portal=portal,
         )
         ohlc_sample_rates = []
@@ -530,3 +561,39 @@ async def open_feed(
         finally:
             # drop the infinite stream connection
             await ctx.cancel()
+
+
+@asynccontextmanager
+async def maybe_open_feed(
+
+    brokername: str,
+    symbols: Sequence[str],
+    loglevel: Optional[str] = None,
+
+    **kwargs,
+
+) -> (Feed, ReceiveChannel[dict[str, Any]]):
+    '''Maybe open a data to a ``brokerd`` daemon only if there is no
+    local one for the broker-symbol pair, if one is cached use it wrapped
+    in a tractor broadcast receiver.
+
+    '''
+    sym = symbols[0].lower()
+
+    async with maybe_open_ctx(
+        key=(brokername, sym),
+        mngr=open_feed(
+            brokername,
+            [sym],
+            loglevel=loglevel,
+            **kwargs,
+        ),
+    ) as (cache_hit, feed):
+
+        if cache_hit:
+            # add a new broadcast subscription for the quote stream
+            # if this feed is likely already in use
+            async with feed.stream.subscribe() as bstream:
+                yield feed, bstream
+        else:
+            yield feed, feed.stream

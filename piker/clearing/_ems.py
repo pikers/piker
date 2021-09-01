@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pprint import pformat
 import time
-from typing import AsyncIterator, Callable, Any
+from typing import AsyncIterator, Callable
 
 from bidict import bidict
 from pydantic import BaseModel
@@ -30,10 +30,9 @@ import trio
 from trio_typing import TaskStatus
 import tractor
 
-from .. import data
 from ..log import get_logger
 from ..data._normalize import iterticks
-from ..data.feed import Feed
+from ..data.feed import Feed, maybe_open_feed
 from .._daemon import maybe_spawn_brokerd
 from . import _paper_engine as paper
 from ._messages import (
@@ -123,7 +122,7 @@ class _DarkBook:
 # XXX: this is in place to prevent accidental positions that are too
 # big. Now obviously this won't make sense for crypto like BTC, but
 # for most traditional brokers it should be fine unless you start
-# slinging NQ futes or something.
+# slinging NQ futes or something; check ur margin.
 _DEFAULT_SIZE: float = 1.0
 
 
@@ -132,7 +131,6 @@ async def clear_dark_triggers(
     brokerd_orders_stream: tractor.MsgStream,
     ems_client_order_stream: tractor.MsgStream,
     quote_stream: tractor.ReceiveMsgStream,  # noqa
-
     broker: str,
     symbol: str,
 
@@ -266,7 +264,7 @@ class TradesRelay:
     consumers: int = 0
 
 
-class _Router(BaseModel):
+class Router(BaseModel):
     '''Order router which manages and tracks per-broker dark book,
     alerts, clearing and related data feed management.
 
@@ -275,8 +273,6 @@ class _Router(BaseModel):
     '''
     # setup at actor spawn time
     nursery: trio.Nursery
-
-    feeds: dict[tuple[str, str], Any] = {}
 
     # broker to book map
     books: dict[str, _DarkBook] = {}
@@ -343,12 +339,12 @@ class _Router(BaseModel):
             relay.consumers -= 1
 
 
-_router: _Router = None
+_router: Router = None
 
 
 async def open_brokerd_trades_dialogue(
 
-    router: _Router,
+    router: Router,
     feed: Feed,
     symbol: str,
     _exec_mode: str,
@@ -466,7 +462,7 @@ async def _setup_persistent_emsd(
     # open a root "service nursery" for the ``emsd`` actor
     async with trio.open_nursery() as service_nursery:
 
-        _router = _Router(nursery=service_nursery)
+        _router = Router(nursery=service_nursery)
 
         # TODO: send back the full set of persistent
         # orders/execs?
@@ -480,7 +476,7 @@ async def translate_and_relay_brokerd_events(
 
     broker: str,
     brokerd_trades_stream: tractor.MsgStream,
-    router: _Router,
+    router: Router,
 
 ) -> AsyncIterator[dict]:
     '''Trades update loop - receive updates from ``brokerd`` trades
@@ -704,7 +700,7 @@ async def process_client_order_cmds(
     symbol: str,
     feed: Feed,  # noqa
     dark_book: _DarkBook,
-    router: _Router,
+    router: Router,
 
 ) -> None:
 
@@ -958,32 +954,25 @@ async def _emsd_main(
     # tractor.Context instead of strictly requiring a ctx arg.
     ems_ctx = ctx
 
-    cached_feed = _router.feeds.get((broker, symbol))
-    if cached_feed:
-        # TODO: use cached feeds per calling-actor
-        log.warning(f'Opening duplicate feed for {(broker, symbol)}')
+    feed: Feed
 
     # spawn one task per broker feed
     async with (
-        # TODO: eventually support N-brokers
-        data.open_feed(
+        maybe_open_feed(
             broker,
             [symbol],
             loglevel=loglevel,
-        ) as feed,
+        ) as (feed, stream),
     ):
-        if not cached_feed:
-            _router.feeds[(broker, symbol)] = feed
 
         # XXX: this should be initial price quote from target provider
         first_quote = feed.first_quote
 
-        # open a stream with the brokerd backend for order
-        # flow dialogue
-
         book = _router.get_dark_book(broker)
         book.lasts[(broker, symbol)] = first_quote[symbol]['last']
 
+        # open a stream with the brokerd backend for order
+        # flow dialogue
         async with (
 
             # only open if one isn't already up: we try to keep
@@ -1015,11 +1004,9 @@ async def _emsd_main(
                 n.start_soon(
                     clear_dark_triggers,
 
-                    # relay.brokerd_dialogue,
                     brokerd_stream,
                     ems_client_order_stream,
-                    feed.stream,
-
+                    stream,
                     broker,
                     symbol,
                     book
