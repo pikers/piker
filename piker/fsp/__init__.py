@@ -180,7 +180,6 @@ async def cascade(
     async with data.feed.maybe_open_feed(
         brokername,
         [symbol],
-        shielded_stream=True,
     ) as (feed, stream):
 
         assert src.token == feed.shm.token

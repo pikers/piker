@@ -479,7 +479,6 @@ async def open_feed(
     loglevel: Optional[str] = None,
 
     tick_throttle: Optional[float] = None,  # Hz
-    shielded_stream: bool = False,
 
 ) -> Feed:
     '''
@@ -512,7 +511,7 @@ async def open_feed(
 
         ) as (ctx, (init_msg, first_quote)),
 
-        ctx.open_stream(shield=shielded_stream) as stream,
+        ctx.open_stream() as stream,
 
     ):
         # we can only read from shm
