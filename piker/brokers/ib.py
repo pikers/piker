@@ -1295,10 +1295,14 @@ def pack_position(pos: Position) -> dict[str, Any]:
     else:
         symbol = con.symbol
 
+    symkey = '.'.join([
+        symbol.lower(),
+        (con.primaryExchange or con.exchange).lower(),
+    ])
     return BrokerdPosition(
         broker='ib',
         account=pos.account,
-        symbol=symbol,
+        symbol=symkey,
         currency=con.currency,
         size=float(pos.position),
         avg_price=float(pos.avgCost) / float(con.multiplier or 1.0),
