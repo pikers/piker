@@ -283,7 +283,7 @@ async def maybe_spawn_daemon(
     lock = Brokerd.locks[service_name]
     await lock.acquire()
 
-    # attach to existing brokerd if possible
+    # attach to existing daemon by name if possible
     async with tractor.find_actor(service_name) as portal:
         if portal is not None:
             lock.release()
