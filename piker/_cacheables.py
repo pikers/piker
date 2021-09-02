@@ -174,8 +174,10 @@ async def maybe_open_ctx(
                 log.warning(f'De-allocating resource for {key}')
 
                 # terminate mngr nursery
-                _, no_more_users = cache.resources[ctx_key]
-                no_more_users.set()
+                entry = cache.resources.get(ctx_key)
+                if entry:
+                    _, no_more_users = entry
+                    no_more_users.set()
 
 
 @asynccontextmanager
