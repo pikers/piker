@@ -140,7 +140,7 @@ async def maybe_open_ctx(
         yield True, value
 
     except KeyError:
-        log.info(f'Allocating new feed for {key}')
+        log.info(f'Allocating new resource for {key}')
 
         # **critical section** that should prevent other tasks from
         # checking the cache until complete otherwise the scheduler
