@@ -39,7 +39,7 @@ from ..calc import humanize
 from ..clearing._messages import BrokerdPosition, Status
 from ..data._source import Symbol
 from ._label import Label
-from ._lines import LevelLine, level_line
+from ._lines import LevelLine, order_line
 from ._style import _font
 from ._forms import FieldsForm, FillStatusBar, QLabel
 from ..log import get_logger
@@ -220,6 +220,8 @@ class Allocator(BaseModel):
         return {
             'size': abs(round(order_size, ndigits=ld)),
             'size_digits': ld,
+
+            # TODO: incorporate multipliers for relevant derivatives
             'fiat_size': round(order_size * price, ndigits=2),
             'slots_used': slots_used,
         }
@@ -405,7 +407,6 @@ class SettingsPane:
             limit_text = alloc.units_limit
 
         self.on_ui_settings_change('limit', limit_text)
-
         self.update_status_ui(size=startup_size)
 
     def update_status_ui(
@@ -475,17 +476,23 @@ def position_line(
     the "direction" of the position.
 
     '''
-    line = level_line(
+    line = order_line(
         chart,
         level,
+
+        # TODO: could we maybe add a ``action=None`` which
+        # would be a mechanism to check a marker was passed in?
+
         color=color,
-        add_label=False,
         highlight_on_hover=False,
         movable=False,
         hide_xhair_on_hover=False,
-        use_marker_margin=True,
         only_show_markers_on_hover=False,
-        always_show_labels=True,
+        always_show_labels=False,
+
+        # explicitly disable ``order_line()`` factory's creation
+        # of a level marker since we do it in this tracer thing.
+        show_markers=False,
     )
 
     if marker:
@@ -668,7 +675,10 @@ class PositionTracker:
 
     def show(self) -> None:
         if self.live_pp.size:
+
             self.line.show()
+            self.line.show_labels()
+
             self._level_marker.show()
             self.pp_label.show()
             self.size_label.show()
@@ -684,8 +694,9 @@ class PositionTracker:
         '''Hide details (right now just size label?) of position.
 
         '''
-        # TODO: add remove status bar widgets here
         self.size_label.hide()
+        if self.line:
+            self.line.hide_labels()
 
     # TODO: move into annoate module
     def level_marker(
@@ -754,7 +765,11 @@ class PositionTracker:
                 line.set_level(price)
                 self._level_marker.level = price
                 self._level_marker.update()
-                # line.update_labels({'size': size})
+                # update LHS sizing label
+                line.update_labels({
+                    'size': size,
+                    'fiat_size': round(price * size, ndigits=2)
+                })
                 line.show()
 
             else:
