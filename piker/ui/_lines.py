@@ -504,10 +504,7 @@ class LevelLine(pg.InfiniteLine):
                 cur.show_xhair(y_label_level=self.value())
 
             if not self.always_show_labels:
-                for label in self._labels:
-                    label.hide()
-                    label.txt.update()
-                    # label.unhighlight()
+                self.hide_labels()
 
             self.mouseHovering = False
 
@@ -589,6 +586,8 @@ def level_line(
         line.update_labels({'level': level, 'level_digits': 2})
         label.render()
 
+        # keep pp label details private until
+        # the user edge triggers "order mode"
         line.hide_labels()
 
     # activate/draw label
@@ -601,7 +600,7 @@ def order_line(
 
     chart,
     level: float,
-    action: str,  # buy or sell
+    action: Optional[str] = 'buy',  # buy or sell
 
     marker_style: Optional[str] = None,
     level_digits: Optional[float] = 3,
@@ -627,6 +626,7 @@ def order_line(
     )
 
     font_size = _font.font.pixelSize()
+
     # scale marker size with dpi-aware font size
     marker_size = floor(1.375 * font_size)
 
@@ -658,25 +658,6 @@ def order_line(
 
     else:
         view = line.getViewBox()
-
-        pp_size_label = Label(
-            view=view,
-            color=line.color,
-
-            # this is "static" label
-            # update_on_range_change=False,
-            fmt_str='\n'.join((
-                '{slots_used:.1f}x',
-            )),
-
-            fields={
-                'slots_used': 0,
-            },
-        )
-        pp_size_label.render()
-        pp_size_label.show()
-
-        line._labels.append(pp_size_label)
 
         # far-side label
         label = Label(
@@ -753,6 +734,26 @@ def order_line(
 
         if action != 'alert':
 
+            # add a partial position label if we also added a level marker
+            pp_size_label = Label(
+                view=view,
+                color=line.color,
+
+                # this is "static" label
+                # update_on_range_change=False,
+                fmt_str='\n'.join((
+                    '{slots_used:.1f}x',
+                )),
+
+                fields={
+                    'slots_used': 0,
+                },
+            )
+            pp_size_label.render()
+            pp_size_label.show()
+
+            line._labels.append(pp_size_label)
+
             # TODO: pretty sure one of the reasons these "label
             # updatess" are a bit "jittery" is because we aren't
             # leveraging the "scene coordinates hierarchy" stuff:
@@ -768,7 +769,7 @@ def order_line(
             # seems to lag?  this is the same issue we had with position
             # lines which we handle with ``.update_graphcis()``.
             # marker._on_paint=lambda marker: pp_size_label.update()
-            marker._on_paint=lambda marker: pp_size_label.update()
+            marker._on_paint = lambda marker: pp_size_label.update()
 
         marker.label = label
 
