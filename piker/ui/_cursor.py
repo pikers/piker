@@ -31,6 +31,7 @@ from ._style import (
     _xaxis_at,
     hcolor,
     _font_small,
+    _font,
 )
 from ._axes import YAxisLabel, XAxisLabel
 from ..log import get_logger
@@ -41,8 +42,9 @@ log = get_logger(__name__)
 # XXX: these settings seem to result in really decent mouse scroll
 # latency (in terms of perceived lag in cross hair) so really be sure
 # there's an improvement if you want to change it!
-_mouse_rate_limit = 60  # TODO; should we calc current screen refresh rate?
-_debounce_delay = 1 / 1e3
+
+_mouse_rate_limit = 120  # TODO; should we calc current screen refresh rate?
+_debounce_delay = 1 / 40
 _ch_label_opac = 1
 
 
@@ -58,10 +60,12 @@ class LineDot(pg.CurvePoint):
 
         plot: 'ChartPlotWidget',  # type: ingore # noqa
         pos=None,
-        size: int = 6,  # in pxs
         color: str = 'default_light',
 
     ) -> None:
+        # scale from dpi aware font size
+        size = int(_font.px_size  * 0.375)
+
         pg.CurvePoint.__init__(
             self,
             curve,
