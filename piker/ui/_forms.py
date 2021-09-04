@@ -97,7 +97,7 @@ class FontAndChartAwareLineEdit(QLineEdit):
         psh = super().sizeHint()
 
         dpi_font = self.dpi_font
-        psh.setHeight(dpi_font.px_size + 2)
+        psh.setHeight(dpi_font.px_size)
 
         # space for ``._chars: int``
         char_w_pxs = dpi_font.boundingRect(self.text()).width()
@@ -192,12 +192,13 @@ class FieldsForm(QWidget):
         # TODO: we may want to hand this *down* from some "pane manager"
         # thing eventually?
         self.vbox = QVBoxLayout(self)
-        self.vbox.setAlignment(Qt.AlignVCenter)
+        # self.vbox.setAlignment(Qt.AlignVCenter)
+        self.vbox.setAlignment(Qt.AlignBottom)
         self.vbox.setContentsMargins(0, 4, 3, 6)
         self.vbox.setSpacing(0)
 
         # split layout for the (<label>: |<widget>|) parameters entry
-        self.form = QFormLayout(self)
+        self.form = QFormLayout()
         self.form.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.form.setContentsMargins(0, 0, 0, 0)
         self.form.setSpacing(3)
@@ -223,7 +224,7 @@ class FieldsForm(QWidget):
 
         # add label to left of search bar
         # self.label = label = QtGui.QLabel()
-        font_size = font_size or self._font_size - 2
+        font_size = font_size or self._font_size - 1
 
         self.label = label = FormatLabel(
             fmt_str=name,
@@ -309,10 +310,11 @@ class FieldsForm(QWidget):
         w, h = br.width(), br.height()
 
         # TODO: something better then this monkey patch
-        view._max_item_size = w, h
+        # view._max_item_size = w, h
 
         # limit to 6 items?
         view.setMaximumHeight(6*h)
+
         # one entry in view
         select.setMinimumHeight(h)
 
@@ -518,10 +520,10 @@ class FillStatusBar(QProgressBar):
 
 def mk_fill_status_bar(
 
-    fields: FieldsForm,
+    parent_pane: QWidget,
+    form: FieldsForm,
     pane_vbox: QVBoxLayout,
     label_font_size: Optional[int] = None,
-    bar_h: int = 250,
 
 ) -> (
     # TODO: turn this into a composite?
@@ -531,23 +533,26 @@ def mk_fill_status_bar(
     QLabel,
     QLabel,
 ):
-    w = fields.width()
     # indent = 18
     # bracket_val = 0.375 * 0.666 * w
     # indent = bracket_val / (1 + 5/8)
 
+    chart_h = round(parent_pane.height() * 5/8)
+    bar_h = chart_h * 0.375
+
     # TODO: once things are sized to screen
-    bar_label_font_size = label_font_size or _font.px_size - 3
+    bar_label_font_size = label_font_size or _font.px_size - 2
 
     label_font = DpiAwareFont()
     label_font._set_qfont_px_size(bar_label_font_size)
     br = label_font.boundingRect(f'{3.32:.1f}% port')
     w, h = br.width(), br.height()
-    bar_h = 8/3 * w
+    text_w = 8/3 * w
+    # text_w = 8/3 * w
 
     # PnL on lhs
-    bar_labels_lhs = QVBoxLayout(fields)
-    left_label = fields.add_field_label(
+    bar_labels_lhs = QVBoxLayout()
+    left_label = form.add_field_label(
         dedent("""
         {pnl:>+.2%} pnl
         """),
@@ -555,13 +560,14 @@ def mk_fill_status_bar(
         font_color='gunmetal',
     )
 
-    bar_labels_lhs.addSpacing(5/8 * bar_h)
+    bar_labels_lhs.addSpacing(5/8 * text_w)
     bar_labels_lhs.addWidget(
         left_label,
         alignment=Qt.AlignLeft | Qt.AlignTop,
     )
 
-    hbox = QHBoxLayout(fields)
+    # this hbox is added as a layout by the paner maker/caller
+    hbox = QHBoxLayout()
 
     hbox.addLayout(bar_labels_lhs)
     # hbox.addSpacing(indent)  # push to right a bit
@@ -575,7 +581,7 @@ def mk_fill_status_bar(
     # TODO: use percentage str formatter:
     # https://docs.python.org/3/library/string.html#grammar-token-precision
 
-    top_label = fields.add_field_label(
+    top_label = form.add_field_label(
         # {limit:.1f} limit
         dedent("""
         {limit}
@@ -584,7 +590,7 @@ def mk_fill_status_bar(
         font_color='gunmetal',
     )
 
-    bottom_label = fields.add_field_label(
+    bottom_label = form.add_field_label(
         dedent("""
         x: {step_size}\n
         """),
@@ -593,15 +599,16 @@ def mk_fill_status_bar(
     )
 
     bar = FillStatusBar(
-        approx_height_px=8/3 * w,
-        width_px=h * 1.375,
-        font_size=fields._font_size,
-        parent=fields
+        approx_height_px=bar_h,
+        # approx_height_px=8/3 * w,
+        width_px=h * (1 + 1/6),
+        font_size=form._font_size,
+        parent=form
     )
 
     hbox.addWidget(bar, alignment=Qt.AlignLeft | Qt.AlignTop)
 
-    bar_labels_rhs_vbox = QVBoxLayout(fields)
+    bar_labels_rhs_vbox = QVBoxLayout()
     bar_labels_rhs_vbox.addWidget(
         top_label,
         alignment=Qt.AlignLeft | Qt.AlignTop
@@ -676,6 +683,7 @@ def mk_order_pane_layout(
     # print(f'w, h: {w, h}')
 
     hbox, fill_bar, left_label, top_label, bottom_label = mk_fill_status_bar(
+        parent,
         form,
         pane_vbox=vbox,
         label_font_size=font_size,
@@ -691,27 +699,29 @@ def mk_order_pane_layout(
     # add pp fill bar + spacing
     vbox.addLayout(hbox, stretch=1/3)
 
-    feed_label = form.add_field_label(
-        dedent("""
-        brokerd.ib\n
-        |_@{host}:{port}\n
-        |_consumers: {cons}\n
-        |_streams: {streams}\n
-        """),
-        font_size=_font.px_size - 4,
-    )
+    # TODO: status labels for brokerd real-time info
+    # feed_label = form.add_field_label(
+    #     dedent("""
+    #     brokerd.ib\n
+    #     |_@{host}:{port}\n
+    #     |_consumers: {cons}\n
+    #     |_streams: {streams}\n
+    #     |_shms: {streams}\n
+    #     """),
+    #     font_size=_font_small.px_size,
+    # )
 
-    # add feed info label
-    vbox.addWidget(
-        feed_label,
-        alignment=Qt.AlignBottom,
-        stretch=1/3,
-    )
+    # # add feed info label
+    # vbox.addWidget(
+    #     feed_label,
+    #     alignment=Qt.AlignBottom,
+    #     # stretch=1/3,
+    # )
 
     # TODO: handle resize events and appropriately scale this
     # to the sidepane height?
     # https://doc.qt.io/qt-5/layout.html#adding-widgets-to-a-layout
-    vbox.setSpacing(36)
+    vbox.setSpacing(_font.px_size * 1.375)
 
     form.show()
     return form
