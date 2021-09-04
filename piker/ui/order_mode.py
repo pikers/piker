@@ -571,13 +571,31 @@ async def open_order_mode(
         # so that view handlers can access it
         view.order_mode = mode
 
+        # make fill bar and positioning snapshot
+        # XXX: this need to be called *before* the first
+        # pp tracker update(s) below to ensure the limit size unit has
+        # been correctly set prior to updating the line's pp size label
+        # (the one on the RHS)
+        order_pane.init_status_ui()
+
         # update any exising position
         for sym, msg in positions.items():
 
             our_sym = mode.chart.linked._symbol.key
             if sym.lower() in our_sym:
+
+
+                # call this again now since we've configured
+                # the allocator from the asset type...super dumb.
+                # we should probably make the allocator config
+                # and explitict helper func call that takes in the aloc and
+                # the postion / symbol info then take that alloc ref and
+                # update the pp_tracker and pp_pane.
+                # pp_tracker.update(msg, position=pp_tracker.startup_pp)
+
                 pp_tracker.update(msg, position=pp_tracker.startup_pp)
                 pp_tracker.update(msg)
+                break
 
         live_pp = mode.pp.live_pp
         size = live_pp.size
@@ -605,8 +623,6 @@ async def open_order_mode(
             # set 0% pnl
             mode.pane.pnl_label.format(pnl=0)
 
-        # make fill bar and positioning snapshot
-        order_pane.init_status_ui()
 
         # Begin order-response streaming
         done()
@@ -670,16 +686,16 @@ async def display_pnl(
 
     # real-time update pnl on the status pane
     async with feed.stream.subscribe() as bstream:
-        last_tick = time.time()
+        # last_tick = time.time()
         async for quotes in bstream:
 
-            now = time.time()
-            period = now - last_tick
+            # now = time.time()
+            # period = now - last_tick
 
             for sym, quote in quotes.items():
 
                 for tick in iterticks(quote, types):
-                    print(f'{1/period} Hz')
+                    # print(f'{1/period} Hz')
 
                     size = live.size
 
@@ -699,7 +715,7 @@ async def display_pnl(
                             ),
                         )
 
-                    last_tick = time.time()
+                    # last_tick = time.time()
 
 
 async def process_trades_and_update_ui(
