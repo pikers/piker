@@ -196,6 +196,8 @@ _adhoc_futes_set = {
     'mgc.nymex',
 
     'xagusd.cmdty',  # silver spot
+    'ni.nymex', # silver futes
+    'qi.comex', # mini-silver futes
 }
 
 # exchanges we don't support at the moment due to not knowing
