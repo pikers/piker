@@ -234,10 +234,6 @@ class GodWidget(QWidget):
             # self.linkedsplits.chart.qframe.hbox.removeWidget(self.pp_pane)
             chart = linkedsplits.chart
             await chart.resume_all_feeds()
-            # chart.qframe.hbox.addWidget(
-            #     self.pp_pane,
-            #     alignment=Qt.AlignTop
-            # )
 
         # chart is already in memory so just focus it
         if self.linkedsplits:
@@ -245,7 +241,6 @@ class GodWidget(QWidget):
 
         self.vbox.addWidget(linkedsplits)
 
-        # self.vbox.addWidget(linkedsplits)
         linkedsplits.show()
         linkedsplits.focus()
 
@@ -1446,6 +1441,7 @@ async def run_fsp(
         period=14,
     )
 
+    # just a logger for now until we get fsp configs up and running.
     async def settings_change(key: str, value: str) -> bool:
         print(f'{key}: {value}')
         return True
@@ -1471,7 +1467,6 @@ async def run_fsp(
             focus_next=linkedsplits.godwidget,
             on_value_change=settings_change,
         ),
-
     ):
 
         # receive last index for processed historical
@@ -1771,6 +1766,7 @@ async def display_symbol_data(
                     'static_yrange': (0, 100),
                 },
             },
+            # test for duplicate fsps on same chart
             # 'rsi2': {
             #     'fsp_func_name': 'rsi',
             #     'period': 14,
@@ -1826,11 +1822,6 @@ async def display_symbol_data(
                 ohlcv,
                 wap_in_history,
             )
-
-            # TODO: instead we should start based on instrument trading hours?
-            # wait for a first quote before we start any update tasks
-            # quote = await feed.receive()
-            # log.info(f'Received first quote {quote}')
 
             n.start_soon(
                 check_for_new_bars,
@@ -1958,9 +1949,6 @@ async def _async_main(
 
             await order_mode_ready.wait()
 
-            # load account names from ``brokers.toml``
-            # accounts = brokers.config.load_accounts()
-
             # start handling peripherals input for top level widgets
             async with (
 
@@ -1979,12 +1967,6 @@ async def _async_main(
                     search.view.pressed,
                     search.view.on_pressed,
                 ),
-
-                # pp pane kb inputs
-                # open_form_input_handling(
-                #     pp_pane,
-                #     focus_next=godwidget,
-                # )
             ):
                 # remove startup status text
                 starting_done()
