@@ -514,7 +514,7 @@ async def open_order_mode(
         # allocator
         alloc = Allocator(
             symbol=symbol,
-            account=None,
+            account=None,  # select paper by default
             _accounts=bidict(brokers.config.load_accounts()),
             size_unit=_size_units['currency'],
             units_limit=400,
@@ -593,8 +593,8 @@ async def open_order_mode(
                 # update the pp_tracker and pp_pane.
                 # pp_tracker.update(msg, position=pp_tracker.startup_pp)
 
-                pp_tracker.update(msg, position=pp_tracker.startup_pp)
-                pp_tracker.update(msg)
+                pp_tracker.update_from_pp_msg(msg, position=pp_tracker.startup_pp)
+                pp_tracker.update_from_pp_msg(msg)
                 break
 
         live_pp = mode.pp.live_pp
@@ -747,7 +747,7 @@ async def process_trades_and_update_ui(
 
             sym = mode.chart.linked.symbol
             if msg['symbol'].lower() in sym.key:
-                tracker.update(msg)
+                tracker.update_from_pp_msg(msg)
 
                 # update order pane widgets
                 mode.pane.update_status_ui()
