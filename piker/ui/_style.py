@@ -102,6 +102,12 @@ class DpiAwareFont:
         # take the max since scaling can make things ugly in some cases
         pdpi = screen.physicalDotsPerInch()
         ldpi = screen.logicalDotsPerInch()
+
+        # XXX: this is needed on sway/wayland where you set
+        # ``QT_WAYLAND_FORCE_DPI=physical``
+        if ldpi == 0:
+            ldpi = pdpi
+
         mx_dpi = max(pdpi, ldpi)
         mn_dpi = min(pdpi, ldpi)
         scale = round(ldpi/pdpi)

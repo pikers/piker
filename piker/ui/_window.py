@@ -148,12 +148,17 @@ class MultiStatus:
 
 class MainWindow(QtGui.QMainWindow):
 
-    size = (800, 500)
+    # XXX: for tiling wms this should scale
+    # with the alloted window size.
+    # TODO: detect for tiling and if untrue set some size?
+    # size = (300, 500)
+    size = (0, 0)
+
     title = 'piker chart (ur symbol is loading bby)'
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(*self.size)
+        # self.setMinimumSize(*self.size)
         self.setWindowTitle(self.title)
 
         self._status_bar: QStatusBar = None
