@@ -644,6 +644,7 @@ def mk_order_pane_layout(
         parent=parent,
         fields_schema={
             'account': {
+                'label': '**account**:',
                 'type': 'select',
                 'default_value': accounts.keys(),
             },
