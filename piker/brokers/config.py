@@ -114,8 +114,9 @@ def load_accounts() -> dict[str, Optional[str]]:
     if section is None:
         log.warning('No accounts config found?')
 
-    for brokername, account_labels in section.items():
-        for name, value in account_labels.items():
-            accounts[f'{brokername}.{name}'] = value
+    else:
+        for brokername, account_labels in section.items():
+            for name, value in account_labels.items():
+                accounts[f'{brokername}.{name}'] = value
 
     return accounts
