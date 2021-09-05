@@ -151,7 +151,12 @@ async def iter_ohlc_periods(
         # stream and block until cancelled
         await trio.sleep_forever()
     finally:
-        subs.remove(ctx)
+        try:
+            subs.remove(ctx)
+        except ValueError:
+            log.error(
+                f'iOHLC step stream was already dropped for {ctx.chan.uid}?'
+            )
 
 
 async def sample_and_broadcast(
@@ -244,7 +249,7 @@ async def sample_and_broadcast(
                             await stream.send(quote)
 
                         else:
-                                await stream.send({sym: quote})
+                            await stream.send({sym: quote})
 
                     if cs.cancelled_caught:
                         lags += 1
