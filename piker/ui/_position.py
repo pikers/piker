@@ -622,20 +622,22 @@ class PositionTracker:
         self.pp_label.update()
         self.size_label.update()
 
-    def update(
+    def update_from_pp_msg(
         self,
         msg: BrokerdPosition,
         position: Optional[Position] = None,
 
     ) -> None:
-        '''Update graphics and data from average price and size.
+        '''Update graphics and data from average price and size passed in our
+        EMS ``BrokerdPosition`` msg.
 
         '''
         # XXX: better place to do this?
         symbol = self.chart.linked.symbol
+        lot_size_digits = symbol.lot_size_digits
         avg_price, size = (
             round(msg['avg_price'], ndigits=symbol.tick_size_digits),
-            round(msg['size'], ndigits=symbol.lot_size_digits),
+            round(msg['size'], ndigits=lot_size_digits),
         )
 
         # live pp updates
@@ -643,7 +645,11 @@ class PositionTracker:
         pp.avg_price = avg_price
         pp.size = size
 
-        self.update_line(avg_price, size)
+        self.update_line(
+            avg_price,
+            size,
+            lot_size_digits,
+        )
 
         # label updates
         self.size_label.fields['slots_used'] = round(
@@ -739,6 +745,7 @@ class PositionTracker:
         self,
         price: float,
         size: float,
+        size_digits: int,
 
     ) -> None:
         '''Update personal position level line.
@@ -747,32 +754,32 @@ class PositionTracker:
         # do line update
         line = self.line
 
-        if line is None and size:
+        if size:
+            if line is None:
 
-            # create and show a pp line
-            line = self.line = position_line(
-                chart=self.chart,
-                level=price,
-                size=size,
-                color=self._color,
-                marker=self._level_marker,
-            )
-            line.show()
+                # create and show a pp line
+                line = self.line = position_line(
+                    chart=self.chart,
+                    level=price,
+                    size=size,
+                    color=self._color,
+                    marker=self._level_marker,
+                )
 
-        elif line:
+            else:
 
-            if size != 0.0:
                 line.set_level(price)
                 self._level_marker.level = price
                 self._level_marker.update()
-                # update LHS sizing label
-                line.update_labels({
-                    'size': size,
-                    'fiat_size': round(price * size, ndigits=2)
-                })
-                line.show()
 
-            else:
-                # remove pp line from view
-                line.delete()
-                self.line = None
+            # update LHS sizing label
+            line.update_labels({
+                'size': size,
+                'size_digits': size_digits,
+                'fiat_size': round(price * size, ndigits=2)
+            })
+            line.show()
+
+        elif line:  # remove pp line from view if it exists on a net-zero pp
+            line.delete()
+            self.line = None
