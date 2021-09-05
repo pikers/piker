@@ -511,11 +511,14 @@ async def open_order_mode(
         lines = LineEditor(chart=chart)
         arrows = ArrowEditor(chart, {})
 
+        # load account names from ``brokers.toml``
+        accounts = bidict(brokers.config.load_accounts())
+
         # allocator
         alloc = Allocator(
             symbol=symbol,
             account=None,  # select paper by default
-            _accounts=bidict(brokers.config.load_accounts()),
+            _accounts=accounts,
             size_unit=_size_units['currency'],
             units_limit=400,
             currency_limit=5e3,
