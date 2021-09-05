@@ -351,7 +351,7 @@ class LinkedSplits(QWidget):
         #     self.xaxis.hide()
 
         self.splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
-        self.splitter.setMidLineWidth(2)
+        self.splitter.setMidLineWidth(1)
         self.splitter.setHandleWidth(0)
 
         self.layout = QtWidgets.QVBoxLayout(self)
@@ -1331,6 +1331,8 @@ async def spawn_fsps(
 
     linkedsplits.focus()
 
+    uid = tractor.current_actor().uid
+
     # spawns sub-processes which execute cpu bound FSP code
     async with tractor.open_nursery(loglevel=loglevel) as n:
 
@@ -1351,7 +1353,7 @@ async def spawn_fsps(
                 # TODO: should `index` be a required internal field?
                 fsp_dtype = np.dtype([('index', int), (fsp_func_name, float)])
 
-                key = f'{sym}.fsp.' + display_name
+                key = f'{sym}.fsp.{display_name}.{".".join(uid)}'
 
                 # this is all sync currently
                 shm, opened = maybe_open_shm_array(
@@ -1361,9 +1363,10 @@ async def spawn_fsps(
                     readonly=True,
                 )
 
-                # XXX: fsp may have been opened by a duplicate chart. Error for
-                # now until we figure out how to wrap fsps as "feeds".
-                # assert opened, f"A chart for {key} likely already exists?"
+                # XXX: fsp may have been opened by a duplicate chart.
+                # Error for now until we figure out how to wrap fsps as
+                # "feeds".  assert opened, f"A chart for {key} likely
+                # already exists?"
 
                 conf['shm'] = shm
 
