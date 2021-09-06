@@ -307,7 +307,7 @@ class FieldsForm(QWidget):
         # that size on each item...
         values.sort()
         br = _font.boundingRect(str(values[-1]))
-        w, h = br.width(), br.height()
+        _, h = br.width(), br.height()
 
         # TODO: something better then this monkey patch
         # view._max_item_size = w, h
@@ -537,6 +537,7 @@ def mk_fill_status_bar(
     # bracket_val = 0.375 * 0.666 * w
     # indent = bracket_val / (1 + 5/8)
 
+    # TODO: calc this height from the ``ChartnPane``
     chart_h = round(parent_pane.height() * 5/8)
     bar_h = chart_h * 0.375
 
@@ -546,8 +547,7 @@ def mk_fill_status_bar(
     label_font = DpiAwareFont()
     label_font._set_qfont_px_size(bar_label_font_size)
     br = label_font.boundingRect(f'{3.32:.1f}% port')
-    w, h = br.width(), br.height()
-    text_w = 8/3 * w
+    _, h = br.width(), br.height()
     # text_w = 8/3 * w
 
     # PnL on lhs
@@ -560,7 +560,7 @@ def mk_fill_status_bar(
         font_color='gunmetal',
     )
 
-    bar_labels_lhs.addSpacing(5/8 * text_w)
+    bar_labels_lhs.addSpacing(5/8 * bar_h)
     bar_labels_lhs.addWidget(
         left_label,
         alignment=Qt.AlignLeft | Qt.AlignTop,
@@ -600,7 +600,6 @@ def mk_fill_status_bar(
 
     bar = FillStatusBar(
         approx_height_px=bar_h,
-        # approx_height_px=8/3 * w,
         width_px=h * (1 + 1/6),
         font_size=form._font_size,
         parent=form
