@@ -418,6 +418,7 @@ async def stream_quotes(
             # just directly pick out the info we need
             si['price_tick_size'] = syminfo.filters[0]['tickSize']
             si['lot_tick_size'] = syminfo.filters[2]['stepSize']
+            si['asset_type'] = 'crypto'
 
         symbol = symbols[0]
 

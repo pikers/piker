@@ -20,6 +20,7 @@ Broker configuration mgmt.
 import os
 from os.path import dirname
 import shutil
+from typing import Optional
 
 import toml
 import click
@@ -101,3 +102,21 @@ def write(
     log.debug(f"Writing config file {path}")
     with open(path, 'w') as cf:
         return toml.dump(config, cf)
+
+
+def load_accounts() -> dict[str, Optional[str]]:
+
+    # our default paper engine entry
+    accounts: dict[str, Optional[str]] = {'paper': None}
+
+    conf, path = load()
+    section = conf.get('accounts')
+    if section is None:
+        log.warning('No accounts config found?')
+
+    else:
+        for brokername, account_labels in section.items():
+            for name, value in account_labels.items():
+                accounts[f'{brokername}.{name}'] = value
+
+    return accounts

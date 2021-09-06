@@ -58,35 +58,20 @@ class OrderBook:
     _ready_to_receive: trio.Event = trio.Event()
 
     def send(
-
         self,
-        uuid: str,
-        symbol: str,
-        brokers: list[str],
-        price: float,
-        size: float,
-        action: str,
-        exec_mode: str,
+        msg: Order,
 
     ) -> dict:
-        msg = Order(
-            action=action,
-            price=price,
-            size=size,
-            symbol=symbol,
-            brokers=brokers,
-            oid=uuid,
-            exec_mode=exec_mode,  # dark or live
-        )
-
-        self._sent_orders[uuid] = msg
+        self._sent_orders[msg.oid] = msg
         self._to_ems.send_nowait(msg.dict())
         return msg
 
     def update(
         self,
+
         uuid: str,
         **data: dict,
+
     ) -> dict:
         cmd = self._sent_orders[uuid]
         msg = cmd.dict()

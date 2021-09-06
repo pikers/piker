@@ -35,9 +35,9 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from functools import partial
 from typing import (
-    List, Optional, Callable,
-    Awaitable, Sequence, Dict,
-    Any, AsyncIterator, Tuple,
+    Optional, Callable,
+    Awaitable, Sequence,
+    Any, AsyncIterator
 )
 import time
 # from pprint import pformat
@@ -45,7 +45,7 @@ import time
 from fuzzywuzzy import process as fuzzy
 import trio
 from trio_typing import TaskStatus
-from PyQt5 import QtCore, QtGui
+from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import (
     Qt,
@@ -63,40 +63,24 @@ from PyQt5.QtWidgets import (
     QTreeView,
     # QListWidgetItem,
     # QAbstractScrollArea,
-    QStyledItemDelegate,
+    # QStyledItemDelegate,
 )
 
 
 from ..log import get_logger
 from ._style import (
     _font,
-    DpiAwareFont,
-    # hcolor,
+    hcolor,
 )
+from ._forms import FontAndChartAwareLineEdit, FontScaledDelegate
 
 
 log = get_logger(__name__)
 
 
-class SimpleDelegate(QStyledItemDelegate):
-    """
-    Super simple view delegate to render text in the same
-    font size as the search widget.
-
-    """
-
-    def __init__(
-        self,
-        parent=None,
-        font: DpiAwareFont = _font,
-    ) -> None:
-        super().__init__(parent)
-        self.dpi_font = font
-
-
 class CompleterView(QTreeView):
 
-    mode_name: str = 'mode: search-nav'
+    mode_name: str = 'search-nav'
 
     # XXX: relevant docs links:
     # - simple widget version of this:
@@ -121,7 +105,7 @@ class CompleterView(QTreeView):
     def __init__(
         self,
         parent=None,
-        labels: List[str] = [],
+        labels: list[str] = [],
     ) -> None:
 
         super().__init__(parent)
@@ -130,13 +114,11 @@ class CompleterView(QTreeView):
         self.labels = labels
 
         # a std "tabular" config
-        self.setItemDelegate(SimpleDelegate())
+        self.setItemDelegate(FontScaledDelegate(self))
         self.setModel(model)
         self.setAlternatingRowColors(True)
         # TODO: size this based on DPI font
         self.setIndentation(20)
-
-        self.pressed.connect(self.on_pressed)
 
         # self.setUniformRowHeights(True)
         # self.setColumnWidth(0, 3)
@@ -154,12 +136,12 @@ class CompleterView(QTreeView):
 
         self._font_size: int = 0  # pixels
 
-    def on_pressed(self, idx: QModelIndex) -> None:
+    async def on_pressed(self, idx: QModelIndex) -> None:
         '''Mouse pressed on view handler.
 
         '''
         search = self.parent()
-        search.chart_current_item(clear_to_cache=False)
+        await search.chart_current_item(clear_to_cache=False)
         search.focus()
 
     def set_font_size(self, size: int = 18):
@@ -425,58 +407,27 @@ class CompleterView(QTreeView):
         self.resize()
 
 
-class SearchBar(QtWidgets.QLineEdit):
+class SearchBar(FontAndChartAwareLineEdit):
 
-    mode_name: str = 'mode: search'
+    mode_name: str = 'search'
 
     def __init__(
 
         self,
         parent: QWidget,
-        parent_chart: QWidget,  # noqa
+        godwidget: QWidget,
         view: Optional[CompleterView] = None,
-        font: DpiAwareFont = _font,
+        **kwargs,
 
     ) -> None:
 
-        super().__init__(parent)
-
-        # self.setContextMenuPolicy(Qt.CustomContextMenu)
-        # self.customContextMenuRequested.connect(self.show_menu)
-        # self.setStyleSheet(f"font: 18px")
-
+        self.godwidget = godwidget
+        super().__init__(parent, **kwargs)
         self.view: CompleterView = view
-        self.dpi_font = font
-        self.godwidget = parent_chart
-
-        # size it as we specify
-        # https://doc.qt.io/qt-5/qsizepolicy.html#Policy-enum
-        self.setSizePolicy(
-            QtWidgets.QSizePolicy.Expanding,
-            QtWidgets.QSizePolicy.Fixed,
-        )
-        self.setFont(font.font)
-
-        # witty bit of margin
-        self.setTextMargins(2, 2, 2, 2)
-
-    def focus(self) -> None:
-        self.selectAll()
-        self.show()
-        self.setFocus()
 
     def show(self) -> None:
         super().show()
         self.view.show_matches()
-
-    def sizeHint(self) -> QtCore.QSize:
-        """
-        Scale edit box to size of dpi aware font.
-
-        """
-        psh = super().sizeHint()
-        psh.setHeight(self.dpi_font.px_size + 2)
-        return psh
 
     def unfocus(self) -> None:
         self.parent().hide()
@@ -492,12 +443,12 @@ class SearchWidget(QtWidgets.QWidget):
     Includes helper methods for item management in the sub-widgets.
 
     '''
-    mode_name: str = 'mode: search'
+    mode_name: str = 'search'
 
     def __init__(
         self,
         godwidget: 'GodWidget',  # type: ignore # noqa
-        columns: List[str] = ['src', 'symbol'],
+        columns: list[str] = ['src', 'symbol'],
         parent=None,
 
     ) -> None:
@@ -512,7 +463,7 @@ class SearchWidget(QtWidgets.QWidget):
         self.godwidget = godwidget
 
         self.vbox = QtWidgets.QVBoxLayout(self)
-        self.vbox.setContentsMargins(0, 0, 0, 0)
+        self.vbox.setContentsMargins(0, 4, 4, 0)
         self.vbox.setSpacing(4)
 
         # split layout for the (label:| search bar entry)
@@ -522,10 +473,17 @@ class SearchWidget(QtWidgets.QWidget):
 
         # add label to left of search bar
         self.label = label = QtWidgets.QLabel(parent=self)
+        label.setStyleSheet(
+            f"""QLabel {{
+                color : {hcolor('default_lightest')};
+                font-size : {_font.px_size - 2}px;
+            }}
+            """
+        )
         label.setTextFormat(3)  # markdown
         label.setFont(_font.font)
         label.setMargin(4)
-        label.setText("`search`:")
+        label.setText("search:")
         label.show()
         label.setAlignment(
             QtCore.Qt.AlignVCenter
@@ -540,8 +498,8 @@ class SearchWidget(QtWidgets.QWidget):
         )
         self.bar = SearchBar(
             parent=self,
-            parent_chart=godwidget,
             view=self.view,
+            godwidget=godwidget,
         )
         self.bar_hbox.addWidget(self.bar)
 
@@ -564,7 +522,7 @@ class SearchWidget(QtWidgets.QWidget):
         self.bar.focus()
         self.show()
 
-    def get_current_item(self) -> Optional[Tuple[str, str]]:
+    def get_current_item(self) -> Optional[tuple[str, str]]:
         '''Return the current completer tree selection as
         a tuple ``(parent: str, child: str)`` if valid, else ``None``.
 
@@ -596,14 +554,15 @@ class SearchWidget(QtWidgets.QWidget):
         else:
             return None
 
-    def chart_current_item(
+    async def chart_current_item(
         self,
         clear_to_cache: bool = True,
+
     ) -> Optional[str]:
         '''Attempt to load and switch the current selected
         completion result to the affiliated chart app.
 
-        Return any loaded symbol
+        Return any loaded symbol.
 
         '''
         value = self.get_current_item()
@@ -615,7 +574,7 @@ class SearchWidget(QtWidgets.QWidget):
 
         log.info(f'Requesting symbol: {symbol}.{provider}')
 
-        chart.load_symbol(
+        await chart.load_symbol(
             provider,
             symbol,
             'info',
@@ -653,10 +612,11 @@ async def pack_matches(
 
     view: CompleterView,
     has_results: dict[str, set[str]],
-    matches: dict[(str, str), List[str]],
+    matches: dict[(str, str), list[str]],
     provider: str,
     pattern: str,
     search: Callable[..., Awaitable[dict]],
+
     task_status: TaskStatus[
         trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
@@ -834,7 +794,7 @@ async def handle_keyboard_input(
     # startup
     bar = searchbar
     search = searchbar.parent()
-    chart = search.godwidget
+    godwidget = search.godwidget
     view = bar.view
     view.set_font_size(bar.dpi_font.px_size)
 
@@ -853,7 +813,8 @@ async def handle_keyboard_input(
             )
         )
 
-        async for event, etype, key, mods, txt in recv_chan:
+        async for kbmsg in recv_chan:
+            event, etype, key, mods, txt = kbmsg.to_tuple()
 
             log.debug(f'key: {key}, mods: {mods}, txt: {txt}')
 
@@ -861,14 +822,9 @@ async def handle_keyboard_input(
             if mods == Qt.ControlModifier:
                 ctl = True
 
-            # # ctl + alt as combo
-            # ctlalt = False
-            # if (QtCore.Qt.AltModifier | QtCore.Qt.ControlModifier) == mods:
-            #     ctlalt = True
-
             if key in (Qt.Key_Enter, Qt.Key_Return):
 
-                search.chart_current_item(clear_to_cache=True)
+                await search.chart_current_item(clear_to_cache=True)
                 _search_enabled = False
                 continue
 
@@ -876,7 +832,7 @@ async def handle_keyboard_input(
                 # if nothing in search text show the cache
                 view.set_section_entries(
                     'cache',
-                    list(reversed(chart._chart_cache)),
+                    list(reversed(godwidget._chart_cache)),
                     clear_all=True,
                 )
                 continue
@@ -890,8 +846,8 @@ async def handle_keyboard_input(
                 search.bar.unfocus()
 
                 # kill the search and focus back on main chart
-                if chart:
-                    chart.linkedsplits.focus()
+                if godwidget:
+                    godwidget.focus()
 
                 continue
 
@@ -938,7 +894,7 @@ async def handle_keyboard_input(
                     if parent_item and parent_item.text() == 'cache':
 
                         # if it's a cache item, switch and show it immediately
-                        search.chart_current_item(clear_to_cache=False)
+                        await search.chart_current_item(clear_to_cache=False)
 
             elif not ctl:
                 # relay to completer task
@@ -950,7 +906,7 @@ async def handle_keyboard_input(
 async def search_simple_dict(
     text: str,
     source: dict,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
 
     # search routine can be specified as a function such
     # as in the case of the current app's local symbol cache
@@ -964,7 +920,7 @@ async def search_simple_dict(
 
 
 # cache of provider names to async search routines
-_searcher_cache: Dict[str, Callable[..., Awaitable]] = {}
+_searcher_cache: dict[str, Callable[..., Awaitable]] = {}
 
 
 @asynccontextmanager

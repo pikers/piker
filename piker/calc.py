@@ -21,29 +21,52 @@ import math
 import itertools
 
 
-def humanize(number, digits=1):
-    """Convert large numbers to something with at most 3 digits and
+def humanize(
+    number: float,
+    digits: int = 1
+) -> str:
+    '''Convert large numbers to something with at most ``digits`` and
     a letter suffix (eg. k: thousand, M: million, B: billion).
-    """
+
+    '''
     try:
         float(number)
     except ValueError:
         return 0
     if not number or number <= 0:
-        return number
+        return round(number, ndigits=digits)
+
     mag2suffix = {3: 'k', 6: 'M', 9: 'B'}
     mag = math.floor(math.log(number, 10))
     if mag < 3:
-        return number
+        return round(number, ndigits=digits)
+
     maxmag = max(itertools.takewhile(lambda key: mag >= key, mag2suffix))
-    return "{:.{digits}f}{}".format(
-        number/10**maxmag, mag2suffix[maxmag], digits=digits)
+
+    return "{value}{suffix}".format(
+        value=round(number/10**maxmag, ndigits=digits),
+        suffix=mag2suffix[maxmag],
+    )
 
 
-def percent_change(init, new):
-    """Calcuate the percentage change of some ``new`` value
+def pnl(
+
+    init: float,
+    new: float,
+
+) -> float:
+    '''Calcuate the percentage change of some ``new`` value
     from some initial value, ``init``.
-    """
+
+    '''
     if not (init and new):
         return 0
-    return (new - init) / init * 100.
+
+    return (new - init) / init
+
+
+def percent_change(
+    init: float,
+    new: float,
+) -> float:
+    return pnl(init, new) * 100.

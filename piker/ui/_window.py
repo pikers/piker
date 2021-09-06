@@ -124,8 +124,10 @@ class MultiStatus:
                     if not subs:
                         group_clear()
 
-            self._status_groups[group_key][0].add(msg)
-            ret = pop_from_group_and_maybe_clear_group
+            group = self._status_groups.get(group_key)
+            if group:
+                group[0].add(msg)
+                ret = pop_from_group_and_maybe_clear_group
 
         self.render()
 
@@ -146,12 +148,17 @@ class MultiStatus:
 
 class MainWindow(QtGui.QMainWindow):
 
-    size = (800, 500)
+    # XXX: for tiling wms this should scale
+    # with the alloted window size.
+    # TODO: detect for tiling and if untrue set some size?
+    # size = (300, 500)
+    size = (0, 0)
+
     title = 'piker chart (ur symbol is loading bby)'
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(*self.size)
+        # self.setMinimumSize(*self.size)
         self.setWindowTitle(self.title)
 
         self._status_bar: QStatusBar = None
@@ -165,7 +172,11 @@ class MainWindow(QtGui.QMainWindow):
 
             self._status_label = label = QtGui.QLabel()
             label.setStyleSheet(
-                f"QLabel {{ color : {hcolor('gunmetal')}; }}"
+                f"""QLabel {{
+                    color : {hcolor('gunmetal')};
+                }}
+                """
+                # font-size : {font_size}px;
             )
             label.setTextFormat(3)  # markdown
             label.setFont(_font_small.font)
@@ -181,11 +192,13 @@ class MainWindow(QtGui.QMainWindow):
 
     def closeEvent(
         self,
-        event: QtGui.QCloseEvent,
-    ) -> None:
-        """Cancel the root actor asap.
 
-        """
+        event: QtGui.QCloseEvent,
+
+    ) -> None:
+        '''Cancel the root actor asap.
+
+        '''
         # raising KBI seems to get intercepted by by Qt so just use the system.
         os.kill(os.getpid(), signal.SIGINT)
 
@@ -209,18 +222,28 @@ class MainWindow(QtGui.QMainWindow):
 
         return self._status_bar
 
-    def on_focus_change(
+    def set_mode_name(
         self,
-        old: QtGui.QWidget,
-        new: QtGui.QWidget,
+        name: str,
+
     ) -> None:
 
-        log.debug(f'widget focus changed from {old} -> {new}')
+        self.mode_label.setText(f'mode:{name}')
 
-        if new is not None:
+    def on_focus_change(
+        self,
+
+        last: QtGui.QWidget,
+        current: QtGui.QWidget,
+
+    ) -> None:
+
+        log.info(f'widget focus changed from {last} -> {current}')
+
+        if current is not None:
             # cursor left window?
-            name = getattr(new, 'mode_name', '')
-            self.mode_label.setText(name)
+            name = getattr(current, 'mode_name', '')
+            self.set_mode_name(name)
 
     def current_screen(self) -> QtGui.QScreen:
         """Get a frickin screen (if we can, gawd).
@@ -230,7 +253,7 @@ class MainWindow(QtGui.QMainWindow):
 
         for _ in range(3):
             screen = app.screenAt(self.pos())
-            print('trying to access QScreen...')
+            log.debug('trying to access QScreen...')
             if screen is None:
                 time.sleep(0.5)
                 continue

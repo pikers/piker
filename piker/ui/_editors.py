@@ -28,7 +28,7 @@ from PyQt5.QtCore import QPointF
 import numpy as np
 
 from ._style import hcolor, _font
-from ._lines import order_line, LevelLine
+from ._lines import LevelLine
 from ..log import get_logger
 
 
@@ -97,68 +97,20 @@ class LineEditor:
 
     def stage_line(
         self,
-        action: str,
+        line: LevelLine,
 
-        color: str = 'alert_yellow',
-        hl_on_hover: bool = False,
-        dotted: bool = False,
-
-        # fields settings
-        size: Optional[int] = None,
     ) -> LevelLine:
         """Stage a line at the current chart's cursor position
         and return it.
 
         """
-        # chart.setCursor(QtCore.Qt.PointingHandCursor)
-        cursor = self.chart.linked.cursor
-        if not cursor:
-            return None
-
-        chart = cursor.active_plot
-        y = cursor._datum_xy[1]
-
-        symbol = chart._lc.symbol
 
         # add a "staged" cursor-tracking line to view
         # and cash it in a a var
         if self._active_staged_line:
             self.unstage_line()
 
-        line = order_line(
-            chart,
-
-            level=y,
-            level_digits=symbol.digits(),
-            size=size,
-            size_digits=symbol.lot_digits(),
-
-            # just for the stage line to avoid
-            # flickering while moving the cursor
-            # around where it might trigger highlight
-            # then non-highlight depending on sensitivity
-            always_show_labels=True,
-
-            # kwargs
-            color=color,
-            # don't highlight the "staging" line
-            hl_on_hover=hl_on_hover,
-            dotted=dotted,
-            exec_type='dark' if dotted else 'live',
-            action=action,
-            show_markers=True,
-
-            # prevent flickering of marker while moving/tracking cursor
-            only_show_markers_on_hover=False,
-        )
-
         self._active_staged_line = line
-
-        # hide crosshair y-line and label
-        cursor.hide_xhair()
-
-        # add line to cursor trackers
-        cursor._trackers.add(line)
 
         return line
 
@@ -181,40 +133,16 @@ class LineEditor:
         # show the crosshair y line and label
         cursor.show_xhair()
 
-    def create_order_line(
+    def submit_line(
         self,
+        line: LevelLine,
         uuid: str,
-        level: float,
-        chart: 'ChartPlotWidget',  # noqa
-        size: float,
-        action: str,
+
     ) -> LevelLine:
 
-        line = self._active_staged_line
-        if not line:
+        staged_line = self._active_staged_line
+        if not staged_line:
             raise RuntimeError("No line is currently staged!?")
-
-        sym = chart._lc.symbol
-
-        line = order_line(
-            chart,
-
-            # label fields default values
-            level=level,
-            level_digits=sym.digits(),
-
-            size=size,
-            size_digits=sym.lot_digits(),
-
-            # LevelLine kwargs
-            color=line.color,
-            dotted=line._dotted,
-
-            show_markers=True,
-            only_show_markers_on_hover=True,
-
-            action=action,
-        )
 
         # for now, until submission reponse arrives
         line.hide_labels()

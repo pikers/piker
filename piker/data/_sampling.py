@@ -151,7 +151,12 @@ async def iter_ohlc_periods(
         # stream and block until cancelled
         await trio.sleep_forever()
     finally:
-        subs.remove(ctx)
+        try:
+            subs.remove(ctx)
+        except ValueError:
+            log.error(
+                f'iOHLC step stream was already dropped for {ctx.chan.uid}?'
+            )
 
 
 async def sample_and_broadcast(
@@ -233,16 +238,23 @@ async def sample_and_broadcast(
             # thus other consumers still attached.
             subs = bus._subscribers[sym.lower()]
 
+            lags = 0
             for (stream, tick_throttle) in subs:
 
                 try:
-                    if tick_throttle:
-                        # this is a send mem chan that likely
-                        # pushes to the ``uniform_rate_send()`` below.
-                        await stream.send(quote)
+                    with trio.move_on_after(0.2) as cs:
+                        if tick_throttle:
+                            # this is a send mem chan that likely
+                            # pushes to the ``uniform_rate_send()`` below.
+                            await stream.send(quote)
 
-                    else:
-                        await stream.send({sym: quote})
+                        else:
+                            await stream.send({sym: quote})
+
+                    if cs.cancelled_caught:
+                        lags += 1
+                        if lags > 10:
+                            await tractor.breakpoint()
 
                 except (
                     trio.BrokenResourceError,

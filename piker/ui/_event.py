@@ -18,13 +18,64 @@
 Qt event proxying and processing using ``trio`` mem chans.
 
 """
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, AsyncExitStack
 from typing import Callable
 
-from PyQt5 import QtCore
-from PyQt5.QtCore import QEvent
-from PyQt5.QtWidgets import QWidget
+from pydantic import BaseModel
 import trio
+from PyQt5 import QtCore
+from PyQt5.QtCore import QEvent, pyqtBoundSignal
+from PyQt5.QtWidgets import QWidget
+from PyQt5.QtWidgets import QGraphicsSceneMouseEvent as gs_mouse
+
+
+MOUSE_EVENTS = {
+    gs_mouse.GraphicsSceneMousePress,
+    gs_mouse.GraphicsSceneMouseRelease,
+    QEvent.MouseButtonPress,
+    QEvent.MouseButtonRelease,
+    # QtGui.QMouseEvent,
+}
+
+
+# TODO: maybe consider some constrained ints down the road?
+# https://pydantic-docs.helpmanual.io/usage/types/#constrained-types
+
+class KeyboardMsg(BaseModel):
+    '''Unpacked Qt keyboard event data.
+
+    '''
+    class Config:
+        arbitrary_types_allowed = True
+
+    event: QEvent
+    etype: int
+    key: int
+    mods: int
+    txt: str
+
+    def to_tuple(self) -> tuple:
+        return tuple(self.dict().values())
+
+
+class MouseMsg(BaseModel):
+    '''Unpacked Qt keyboard event data.
+
+    '''
+    class Config:
+        arbitrary_types_allowed = True
+
+    event: QEvent
+    etype: int
+    button: int
+
+
+# TODO: maybe add some methods to detect key combos? Or is that gonna be
+# better with pattern matching?
+# # ctl + alt as combo
+# ctlalt = False
+# if (QtCore.Qt.AltModifier | QtCore.Qt.ControlModifier) == mods:
+#     ctlalt = True
 
 
 class EventRelay(QtCore.QObject):
@@ -38,8 +89,10 @@ class EventRelay(QtCore.QObject):
 
     def eventFilter(
         self,
+
         source: QWidget,
         ev: QEvent,
+
     ) -> None:
         '''
         Qt global event filter: return `False` to pass through and `True`
@@ -50,47 +103,56 @@ class EventRelay(QtCore.QObject):
 
         '''
         etype = ev.type()
-        # print(f'etype: {etype}')
+        # TODO: turn this on and see what we can filter by default (such
+        # as mouseWheelEvent).
+        # print(f'ev: {ev}')
 
-        if etype in self._event_types:
-            # ev.accept()
-
-            # TODO: what's the right way to allow this?
-            # if ev.isAutoRepeat():
-            #     ev.ignore()
-
-            # XXX: we unpack here because apparently doing it
-            # after pop from the mem chan isn't showing the same
-            # event object? no clue wtf is going on there, likely
-            # something to do with Qt internals and calling the
-            # parent handler?
-
-            if etype in {QEvent.KeyPress, QEvent.KeyRelease}:
-
-                # TODO: is there a global setting for this?
-                if ev.isAutoRepeat() and self._filter_auto_repeats:
-                    ev.ignore()
-                    return True
-
-                key = ev.key()
-                mods = ev.modifiers()
-                txt = ev.text()
-
-                # NOTE: the event object instance coming out
-                # the other side is mutated since Qt resumes event
-                # processing **before** running a ``trio`` guest mode
-                # tick, thus special handling or copying must be done.
-
-                # send elements to async handler
-                self._send_chan.send_nowait((ev, etype, key, mods, txt))
-
-            else:
-                # send event to async handler
-                self._send_chan.send_nowait(ev)
-
-            # **do not** filter out this event
-            # and instead forward to the source widget
+        if etype not in self._event_types:
             return False
+
+        # XXX: we unpack here because apparently doing it
+        # after pop from the mem chan isn't showing the same
+        # event object? no clue wtf is going on there, likely
+        # something to do with Qt internals and calling the
+        # parent handler?
+
+        if etype in {QEvent.KeyPress, QEvent.KeyRelease}:
+
+            msg = KeyboardMsg(
+                event=ev,
+                etype=etype,
+                key=ev.key(),
+                mods=ev.modifiers(),
+                txt=ev.text(),
+            )
+
+            # TODO: is there a global setting for this?
+            if ev.isAutoRepeat() and self._filter_auto_repeats:
+                ev.ignore()
+                return True
+
+            # NOTE: the event object instance coming out
+            # the other side is mutated since Qt resumes event
+            # processing **before** running a ``trio`` guest mode
+            # tick, thus special handling or copying must be done.
+
+        elif etype in MOUSE_EVENTS:
+            # print('f mouse event: {ev}')
+            msg = MouseMsg(
+                event=ev,
+                etype=etype,
+                button=ev.button(),
+            )
+
+        else:
+            msg = ev
+
+        # send event-msg to async handler
+        self._send_chan.send_nowait(msg)
+
+        # **do not** filter out this event
+        # and instead forward to the source widget
+        return False
 
         # filter out this event
         # https://doc.qt.io/qt-5/qobject.html#installEventFilter
@@ -124,9 +186,34 @@ async def open_event_stream(
 
 
 @asynccontextmanager
-async def open_handler(
+async def open_signal_handler(
 
-    source_widget: QWidget,
+    signal: pyqtBoundSignal,
+    async_handler: Callable,
+
+) -> trio.abc.ReceiveChannel:
+
+    send, recv = trio.open_memory_channel(0)
+
+    def proxy_args_to_chan(*args):
+        send.send_nowait(args)
+
+    signal.connect(proxy_args_to_chan)
+
+    async def proxy_to_handler():
+        async for args in recv:
+            await async_handler(*args)
+
+    async with trio.open_nursery() as n:
+        n.start_soon(proxy_to_handler)
+        async with send:
+            yield
+
+
+@asynccontextmanager
+async def open_handlers(
+
+    source_widgets: list[QWidget],
     event_types: set[QEvent],
     async_handler: Callable[[QWidget, trio.abc.ReceiveChannel], None],
     **kwargs,
@@ -135,7 +222,13 @@ async def open_handler(
 
     async with (
         trio.open_nursery() as n,
-        open_event_stream(source_widget, event_types, **kwargs) as event_recv_stream,
+        AsyncExitStack() as stack,
     ):
-        n.start_soon(async_handler, source_widget, event_recv_stream)
+        for widget in source_widgets:
+
+            event_recv_stream = await stack.enter_async_context(
+                open_event_stream(widget, event_types, **kwargs)
+            )
+            n.start_soon(async_handler, widget, event_recv_stream)
+
         yield

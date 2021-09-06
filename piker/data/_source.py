@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship for piker0)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -22,7 +22,7 @@ import decimal
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel
+from pydantic import BaseModel, validate_arguments
 # from numba import from_dtype
 
 
@@ -62,6 +62,9 @@ tf_in_1m = {
 def float_digits(
     value: float,
 ) -> int:
+    if value == 0:
+        return 0
+
     return int(-decimal.Decimal(str(value)).as_tuple().exponent)
 
 
@@ -82,27 +85,19 @@ class Symbol(BaseModel):
     Yah, i guess dats what it izz.
     """
     key: str
-    tick_size: float = 0.01
-    lot_tick_size: float = 0.01  # "volume" precision as min step value
+    type_key: str  # {'stock', 'forex', 'future', ... etc.}
+    tick_size: float
+    lot_tick_size: float  # "volume" precision as min step value
+    tick_size_digits: int
+    lot_size_digits: int
     broker_info: Dict[str, Dict[str, Any]] = {}
 
     # specifies a "class" of financial instrument
     # ex. stock, futer, option, bond etc.
-    type_key: str
 
     @property
     def brokers(self) -> List[str]:
         return list(self.broker_info.keys())
-
-    def digits(self) -> int:
-        """Return the trailing number of digits specified by the min
-        tick size for the instrument.
-
-        """
-        return float_digits(self.tick_size)
-
-    def lot_digits(self) -> int:
-        return float_digits(self.lot_tick_size)
 
     def nearest_tick(self, value: float) -> float:
         """Return the nearest tick value based on mininum increment.
@@ -110,6 +105,30 @@ class Symbol(BaseModel):
         """
         mult = 1 / self.tick_size
         return round(value * mult) / mult
+
+@validate_arguments
+def mk_symbol(
+
+    key: str,
+    type_key: str,
+    tick_size: float = 0.01,
+    lot_tick_size: float = 0,
+    broker_info: dict[str, Any] = {},
+
+) -> Symbol:
+    '''Create and return an instrument description for the
+    "symbol" named as ``key``.
+
+    '''
+    return Symbol(
+        key=key,
+        type_key=type_key,
+        tick_size=tick_size,
+        lot_tick_size=lot_tick_size,
+        tick_size_digits=float_digits(tick_size),
+        lot_size_digits=float_digits(lot_tick_size),
+        broker_info=broker_info,
+    )
 
 
 def from_df(

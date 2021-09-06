@@ -18,16 +18,25 @@
 Lines for orders, alerts, L2.
 
 """
+from functools import partial
 from math import floor
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Callable
 
 import pyqtgraph as pg
 from pyqtgraph import Point, functions as fn
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
 
-from ._annotate import mk_marker, qgo_draw_markers
-from ._label import Label, vbr_left, right_axis
+from ._annotate import qgo_draw_markers, LevelMarker
+from ._anchors import (
+    marker_right_points,
+    vbr_left,
+    right_axis,
+    # pp_tight_and_right,  # wanna keep it straight in the long run
+    gpath_pin,
+)
+from ..calc import humanize
+from ._label import Label
 from ._style import hcolor, _font
 
 
@@ -35,12 +44,6 @@ from ._style import hcolor, _font
 # make .boundingRect() faster:
 # https://stackoverflow.com/questions/26156486/determine-bounding-rect-of-line-in-qt
 class LevelLine(pg.InfiniteLine):
-
-    # TODO: fill in these slots for orders
-    # available parent signals
-    # sigDragged(self)
-    # sigPositionChangeFinished(self)
-    # sigPositionChanged(self)
 
     def __init__(
         self,
@@ -50,19 +53,20 @@ class LevelLine(pg.InfiniteLine):
         color: str = 'default',
         highlight_color: str = 'default_light',
         dotted: bool = False,
-        marker_size: int = 20,
 
         # UX look and feel opts
         always_show_labels: bool = False,
-        hl_on_hover: bool = True,
+        highlight_on_hover: bool = True,
         hide_xhair_on_hover: bool = True,
         only_show_markers_on_hover: bool = True,
         use_marker_margin: bool = False,
-
         movable: bool = True,
 
     ) -> None:
 
+        # TODO: at this point it's probably not worth the inheritance
+        # any more since  we've reimplemented ``.pain()`` among other
+        # things..
         super().__init__(
             movable=movable,
             angle=0,
@@ -72,13 +76,16 @@ class LevelLine(pg.InfiniteLine):
         )
 
         self._chart = chart
-        self._hoh = hl_on_hover
+        self.highlight_on_hover = highlight_on_hover
         self._dotted = dotted
         self._hide_xhair_on_hover = hide_xhair_on_hover
 
+        # callback that can be assigned by user code
+        # to get updates from each level change
+        self._on_level_change: Callable[[float], None] = lambda y: None
+
         self._marker = None
-        self._default_mkr_size = marker_size
-        self._moh = only_show_markers_on_hover
+        self.only_show_markers_on_hover = only_show_markers_on_hover
         self.show_markers: bool = True  # presuming the line is hovered at init
 
         # should line go all the way to far end or leave a "margin"
@@ -97,7 +104,7 @@ class LevelLine(pg.InfiniteLine):
 
         # list of labels anchored at one of the 2 line endpoints
         # inside the viewbox
-        self._labels: List[(int, Label)] = []
+        self._labels: List[Label] = []
         self._markers: List[(int, Label)] = []
 
         # whenever this line is moved trigger label updates
@@ -109,14 +116,12 @@ class LevelLine(pg.InfiniteLine):
 
         # TODO: for when we want to move groups of lines?
         self._track_cursor: bool = False
-        self._always_show_labels = always_show_labels
+        self.always_show_labels = always_show_labels
 
         self._on_drag_start = lambda l: None
         self._on_drag_end = lambda l: None
 
-        self._y_incr_mult = 1 / chart._lc._symbol.tick_size
-        self._last_scene_y: float = 0
-
+        self._y_incr_mult = 1 / chart.linked.symbol.tick_size
         self._right_end_sc: float = 0
 
     def txt_offsets(self) -> Tuple[int, int]:
@@ -143,52 +148,6 @@ class LevelLine(pg.InfiniteLine):
         hoverpen.setWidth(2)
         self.hoverPen = hoverpen
 
-    def add_label(
-        self,
-
-        # by default we only display the line's level value
-        # in the label
-        fmt_str: str = (
-            '{level:,.{level_digits}f}'
-        ),
-        side: str = 'right',
-        side_of_axis: str = 'left',
-        x_offset: float = 0,
-
-        color: str = None,
-        bg_color: str = None,
-        avoid_book: bool = True,
-
-        **label_kwargs,
-    ) -> Label:
-        """Add a ``LevelLabel`` anchored at one of the line endpoints in view.
-
-        """
-        label = Label(
-            view=self.getViewBox(),
-            fmt_str=fmt_str,
-            color=self.color,
-        )
-
-        # set anchor callback
-        if side == 'right':
-            label.set_x_anchor_func(
-                right_axis(
-                    self._chart,
-                    label,
-                    side=side_of_axis,
-                    offset=x_offset,
-                    avoid_book=avoid_book,
-                )
-            )
-
-        elif side == 'left':
-            label.set_x_anchor_func(vbr_left(label))
-
-        self._labels.append((side, label))
-
-        return label
-
     def on_pos_change(
         self,
         line: 'LevelLine',  # noqa
@@ -196,61 +155,75 @@ class LevelLine(pg.InfiniteLine):
         """Position changed handler.
 
         """
-        self.update_labels({'level': self.value()})
+        level = self.value()
+        self.update_labels({'level': level})
+        self.set_level(level, called_from_on_pos_change=True)
 
     def update_labels(
         self,
         fields_data: dict,
+
     ) -> None:
 
-        for at, label in self._labels:
-            label.color = self.color
-            # print(f'color is {self.color}')
+        for label in self._labels:
 
+            label.color = self.color
             label.fields.update(fields_data)
+            label.render()
 
             level = fields_data.get('level')
             if level:
-                label.set_view_y(level)
-
-            label.render()
+                label.set_view_pos(y=level)
 
         self.update()
 
     def hide_labels(self) -> None:
-        for at, label in self._labels:
+        for label in self._labels:
             label.hide()
 
     def show_labels(self) -> None:
-        for at, label in self._labels:
+        for label in self._labels:
             label.show()
 
     def set_level(
         self,
         level: float,
+        called_from_on_pos_change: bool = False,
+
     ) -> None:
-        last = self.value()
 
-        # if the position hasn't changed then ``.update_labels()``
-        # will not be called by a non-triggered `.on_pos_change()`,
-        # so we need to call it manually to avoid mismatching
-        # label-to-line color when the line is updated but not
-        # "moved".
-        if level == last:
-            self.update_labels({'level': level})
+        if not called_from_on_pos_change:
+            last = self.value()
 
-        self.setPos(level)
+            # if the position hasn't changed then ``.update_labels()``
+            # will not be called by a non-triggered `.on_pos_change()`,
+            # so we need to call it manually to avoid mismatching
+            # label-to-line color when the line is updated but not
+            # from a "moved" event.
+            if level == last:
+                self.update_labels({'level': level})
+
+            self.setPos(level)
+
         self.level = self.value()
         self.update()
 
+        # invoke any user code
+        self._on_level_change(level)
+
     def on_tracked_source(
         self,
+
         x: int,
         y: float
+
     ) -> None:
-        # XXX: this is called by our ``Cursor`` type once this
-        # line is set to track the cursor: for every movement
-        # this callback is invoked to reposition the line
+        '''Chart coordinates cursor tracking callback.
+
+        this is called by our ``Cursor`` type once this line is set to
+        track the cursor: for every movement this callback is invoked to
+        reposition the line with the current view coordinates.
+        '''
         self.movable = True
         self.set_level(y)  # implictly calls reposition handler
 
@@ -316,9 +289,10 @@ class LevelLine(pg.InfiniteLine):
         """
         scene = self.scene()
         if scene:
-            for at, label in self._labels:
+            for label in self._labels:
                 label.delete()
 
+            # gc managed labels?
             self._labels.clear()
 
             if self._marker:
@@ -352,26 +326,13 @@ class LevelLine(pg.InfiniteLine):
 
         return up_to_l1_sc
 
-    def marker_right_points(self) -> (float, float, float):
-
-        chart = self._chart
-        l1_len = chart._max_l1_line_len
-        ryaxis = chart.getAxis('right')
-
-        r_axis_x = ryaxis.pos().x()
-        up_to_l1_sc = r_axis_x - l1_len
-
-        size = self._default_mkr_size
-        marker_right = up_to_l1_sc - (1.375 * 2*size)
-        line_end = marker_right - (6/16 * size)
-
-        return line_end, marker_right, r_axis_x
-
     def paint(
         self,
+
         p: QtGui.QPainter,
         opt: QtWidgets.QStyleOptionGraphicsItem,
         w: QtWidgets.QWidget
+
     ) -> None:
         """Core paint which we override (yet again)
         from pg..
@@ -383,7 +344,7 @@ class LevelLine(pg.InfiniteLine):
         vb_left, vb_right = self._endPoints
         vb = self.getViewBox()
 
-        line_end, marker_right, r_axis_x = self.marker_right_points()
+        line_end, marker_right, r_axis_x = marker_right_points(self._chart)
 
         if self.show_markers and self.markers:
 
@@ -403,9 +364,14 @@ class LevelLine(pg.InfiniteLine):
         # order lines.. not sure wtf is up with that.
         # for now we're just using it on the position line.
         elif self._marker:
+
+            # TODO: make this label update part of a scene-aware-marker
+            # composed annotation
             self._marker.setPos(
                 QPointF(marker_right, self.scene_y())
             )
+            if hasattr(self._marker, 'label'):
+                self._marker.label.update()
 
         elif not self.use_marker_margin:
             # basically means **don't** shorten the line with normally
@@ -427,19 +393,33 @@ class LevelLine(pg.InfiniteLine):
         super().hide()
         if self._marker:
             self._marker.hide()
+            # needed for ``order_line()`` lines currently
+            self._marker.label.hide()
 
-    def scene_right_xy(self) -> QPointF:
-        return self.getViewBox().mapFromView(
-            QPointF(0, self.value())
-        )
+    def show(self) -> None:
+        super().show()
+        if self._marker:
+            self._marker.show()
+            # self._marker.label.show()
 
     def scene_y(self) -> float:
-        return self.getViewBox().mapFromView(Point(0, self.value())).y()
+        return self.getViewBox().mapFromView(
+            Point(0, self.value())
+        ).y()
+
+    def scene_endpoint(self) -> QPointF:
+
+        if not self._right_end_sc:
+            line_end, _, _ = marker_right_points(self._chart)
+            self._right_end_sc = line_end - 10
+
+        return QPointF(self._right_end_sc, self.scene_y())
 
     def add_marker(
         self,
         path: QtWidgets.QGraphicsPathItem,
-    ) -> None:
+
+    ) -> QtWidgets.QGraphicsPathItem:
 
         # add path to scene
         self.getViewBox().scene().addItem(path)
@@ -450,10 +430,9 @@ class LevelLine(pg.InfiniteLine):
 
         self._marker.setPen(self.currentPen)
         self._marker.setBrush(fn.mkBrush(self.currentPen.color()))
-        # y_in_sc = chart._vb.mapFromView(Point(0, self.value())).y()
         path.setPos(QPointF(rsc, self.scene_y()))
 
-        # self.update()
+        return path
 
     def hoverEvent(self, ev):
         """Mouse hover callback.
@@ -468,11 +447,14 @@ class LevelLine(pg.InfiniteLine):
             if self.mouseHovering is True:
                 return
 
-            if self._moh:
+            if self.only_show_markers_on_hover:
                 self.show_markers = True
 
+                if self._marker:
+                    self._marker.show()
+
             # highlight if so configured
-            if self._hoh:
+            if self.highlight_on_hover:
 
                 self.currentPen = self.hoverPen
 
@@ -511,17 +493,18 @@ class LevelLine(pg.InfiniteLine):
 
             cur._hovered.remove(self)
 
-            if self._moh:
+            if self.only_show_markers_on_hover:
                 self.show_markers = False
+
+                if self._marker:
+                    self._marker.hide()
+                    self._marker.label.hide()
 
             if self not in cur._trackers:
                 cur.show_xhair(y_label_level=self.value())
 
-            if not self._always_show_labels:
-                for at, label in self._labels:
-                    label.hide()
-                    label.txt.update()
-                    # label.unhighlight()
+            if not self.always_show_labels:
+                self.hide_labels()
 
             self.mouseHovering = False
 
@@ -529,33 +512,28 @@ class LevelLine(pg.InfiniteLine):
 
 
 def level_line(
+
     chart: 'ChartPlotWidget',  # noqa
     level: float,
-    color: str = 'default',
-
-    # whether or not the line placed in view should highlight
-    # when moused over (aka "hovered")
-    hl_on_hover: bool = True,
 
     # line style
     dotted: bool = False,
+    color: str = 'default',
+
+    # ux
+    highlight_on_hover: bool = True,
 
     # label fields and options
-    digits: int = 1,
-
     always_show_labels: bool = False,
-
     add_label: bool = True,
-
     orient_v: str = 'bottom',
-
     **kwargs,
 
 ) -> LevelLine:
     """Convenience routine to add a styled horizontal line to a plot.
 
     """
-    hl_color = color + '_light' if hl_on_hover else color
+    hl_color = color + '_light' if highlight_on_hover else color
 
     line = LevelLine(
         chart,
@@ -567,7 +545,7 @@ def level_line(
         dotted=dotted,
 
         # UX related options
-        hl_on_hover=hl_on_hover,
+        highlight_on_hover=highlight_on_hover,
 
         # when set to True the label is always shown instead of just on
         # highlight (which is a privacy thing for orders)
@@ -580,17 +558,36 @@ def level_line(
 
     if add_label:
 
-        label = line.add_label(
-            side='right',
-            opacity=1,
-            x_offset=0,
-            avoid_book=False,
-        )
-        label.orient_v = orient_v
+        label = Label(
 
+            view=line.getViewBox(),
+
+            # by default we only display the line's level value
+            # in the label
+            fmt_str=('{level:,.{level_digits}f}'),
+            color=color,
+        )
+
+        # anchor to right side (of view ) label
+        label.set_x_anchor_func(
+            right_axis(
+                chart,
+                label,
+                side='left',  # side of axis
+                offset=0,
+                avoid_book=False,
+            )
+        )
+
+        # add to label set which will be updated on level changes
+        line._labels.append(label)
+
+        label.orient_v = orient_v
         line.update_labels({'level': level, 'level_digits': 2})
         label.render()
 
+        # keep pp label details private until
+        # the user edge triggers "order mode"
         line.hide_labels()
 
     # activate/draw label
@@ -600,128 +597,181 @@ def level_line(
 
 
 def order_line(
+
     chart,
     level: float,
-    level_digits: float,
-    action: str,  # buy or sell
+    action: Optional[str] = 'buy',  # buy or sell
 
+    marker_style: Optional[str] = None,
+    level_digits: Optional[float] = 3,
     size: Optional[int] = 1,
-    size_digits: int = 0,
+    size_digits: int = 1,
     show_markers: bool = False,
     submit_price: float = None,
-    exec_type: str = 'dark',
-    order_type: str = 'limit',
     orient_v: str = 'bottom',
 
     **line_kwargs,
 
 ) -> LevelLine:
-    """Convenience routine to add a line graphic representing an order
+    '''Convenience routine to add a line graphic representing an order
     execution submitted to the EMS via the chart's "order mode".
 
-    """
+    '''
     line = level_line(
         chart,
         level,
         add_label=False,
         use_marker_margin=True,
-        # only_show_markers_on_hover=True,
         **line_kwargs
     )
 
-    if show_markers:
-        font_size = _font.font.pixelSize()
+    font_size = _font.font.pixelSize()
 
-        # scale marker size with dpi-aware font size
-        arrow_size = floor(1.375 * font_size)
-        alert_size = arrow_size * 0.666
-
-        # add arrow marker on end of line nearest y-axis
-        marker_style, marker_size = {
-            'buy': ('|<', arrow_size),
-            'sell': ('>|', arrow_size),
-            'alert': ('v', alert_size),
-        }[action]
-
-        # this fixes it the artifact issue! .. of course, bouding rect stuff
-        line._maxMarkerSize = marker_size
-
-        # use ``QPathGraphicsItem``s to draw markers in scene coords
-        # instead of the old way that was doing the same but by
-        # resetting the graphics item transform intermittently
-
-        # XXX: this is our new approach but seems slower?
-        # line.add_marker(mk_marker(marker_style, marker_size))
-
-        assert not line.markers
-
-        # the old way which is still somehow faster?
-        path = mk_marker(
-            marker_style,
-            # the "position" here is now ignored since we modified
-            # internals to pin markers to the right end of the line
-            marker_size,
-            use_qgpath=False,
-        )
-        # manually append for later ``InfiniteLine.paint()`` drawing
-        # XXX: this was manually tested as faster then using the
-        # QGraphicsItem around a painter path.. probably needs further
-        # testing to figure out why tf that's true.
-        line.markers.append((path, 0, marker_size))
+    # scale marker size with dpi-aware font size
+    marker_size = floor(1.375 * font_size)
 
     orient_v = 'top' if action == 'sell' else 'bottom'
 
     if action == 'alert':
-        # completely different labelling for alerts
-        fmt_str = 'alert => {level}'
+
+        label = Label(
+
+            view=line.getViewBox(),
+            color=line.color,
+
+            # completely different labelling for alerts
+            fmt_str='alert => {level}',
+        )
 
         # for now, we're just duplicating the label contents i guess..
-        llabel = line.add_label(
-            side='left',
-            fmt_str=fmt_str,
-        )
-        llabel.fields = {
+        line._labels.append(label)
+
+        # anchor to left side of view / line
+        label.set_x_anchor_func(vbr_left(label))
+
+        label.fields = {
             'level': level,
             'level_digits': level_digits,
         }
-        llabel.orient_v = orient_v
-        llabel.render()
-        llabel.show()
+
+        marker_size = marker_size * 0.666
 
     else:
-        # # left side label
-        # llabel = line.add_label(
-        #     side='left',
-        #     fmt_str=' {exec_type}-{order_type}:\n ${$value}',
-        # )
-        # llabel.fields = {
-        #     'order_type': order_type,
-        #     'level': level,
-        #     '$value': lambda f: f['level'] * f['size'],
-        #     'size': size,
-        #     'exec_type': exec_type,
-        # }
-        # llabel.orient_v = orient_v
-        # llabel.render()
-        # llabel.show()
+        view = line.getViewBox()
 
-        # right before L1 label
-        rlabel = line.add_label(
-            side='right',
-            side_of_axis='left',
-            x_offset=4*marker_size,
+        # far-side label
+        label = Label(
+            view=view,
+            # display the order pos size, which is some multiple
+            # of the user defined base unit size
             fmt_str=(
-                '{size:.{size_digits}f} '
+                '{size:.{size_digits}f}u{fiat_text}'
             ),
+            color=line.color,
         )
-        rlabel.fields = {
+
+        label.set_x_anchor_func(vbr_left(label))
+
+        line._labels.append(label)
+
+        def maybe_show_fiat_text(fields: dict) -> str:
+            fiat_size = fields.get('fiat_size')
+            if not fiat_size:
+                return ''
+
+            return f' -> ${humanize(fiat_size)}'
+
+        label.fields = {
             'size': size,
-            'size_digits': size_digits,
+            'size_digits': 0,
+            'fiat_size': None,
+            'fiat_text': maybe_show_fiat_text,
         }
 
-        rlabel.orient_v = orient_v
-        rlabel.render()
-        rlabel.show()
+    label.orient_v = orient_v
+    label.render()
+    label.show()
+
+    if show_markers:
+        # add arrow marker on end of line nearest y-axis
+        marker_style = marker_style or {
+            'buy': '|<',
+            'sell': '>|',
+            'alert': 'v',
+        }[action]
+
+        # the old way which is still somehow faster?
+        marker = LevelMarker(
+            chart=chart,
+            style=marker_style,
+            get_level=line.value,
+            size=marker_size,
+            keep_in_view=False,
+        )
+
+        # XXX: this is our new approach but seems slower?
+        marker = line.add_marker(marker)
+
+        # XXX: DON'T COMMENT THIS!
+        # this fixes it the artifact issue! .. of course, bounding rect stuff
+        line._maxMarkerSize = marker_size
+
+        assert line._marker is marker
+        assert not line.markers
+
+        # above we use ``QPathGraphicsItem``s directly to draw markers
+        # in scene coords instead of the way ``InfiniteLine`` does it
+        # internally: by resetting the graphics item transform
+        # intermittently inside ``.paint()`` which we've copied and
+        # seperated as ``qgo_draw_markers()`` if we ever want to go back
+        # to it; likely we can remove this.
+
+        # manually append for later ``InfiniteLine.paint()`` drawing
+        # XXX: this was manually tested as faster then using the
+        # QGraphicsItem around a painter path.. probably needs further
+        # testing to figure out why tf that's true.
+        # line.markers.append((marker, 0, marker_size))
+
+        if action != 'alert':
+
+            # add a partial position label if we also added a level marker
+            pp_size_label = Label(
+                view=view,
+                color=line.color,
+
+                # this is "static" label
+                # update_on_range_change=False,
+                fmt_str='\n'.join((
+                    '{slots_used:.1f}x',
+                )),
+
+                fields={
+                    'slots_used': 0,
+                },
+            )
+            pp_size_label.render()
+            pp_size_label.show()
+
+            line._labels.append(pp_size_label)
+
+            # TODO: pretty sure one of the reasons these "label
+            # updatess" are a bit "jittery" is because we aren't
+            # leveraging the "scene coordinates hierarchy" stuff:
+            # i.e. using some parent object as the coord "origin"
+            # which i presume would result in better pixel caching
+            # results? def something to dig into..
+            pp_size_label.scene_anchor = partial(
+                gpath_pin,
+                gpath=marker,
+                label=pp_size_label,
+            )
+            # XXX: without this the pp proportion label next the marker
+            # seems to lag?  this is the same issue we had with position
+            # lines which we handle with ``.update_graphcis()``.
+            # marker._on_paint=lambda marker: pp_size_label.update()
+            marker._on_paint = lambda marker: pp_size_label.update()
+
+        marker.label = label
 
     # sanity check
     line.update_labels({'level': level})
@@ -729,104 +779,27 @@ def order_line(
     return line
 
 
-def position_line(
-    chart,
-    size: float,
+# TODO: should probably consider making this a more general
+# purpose class method on the type?
+def copy_from_order_line(
 
-    level: float,
-
-    orient_v: str = 'bottom',
+    chart: 'ChartPlotWidget',  # noqa
+    line: LevelLine
 
 ) -> LevelLine:
-    """Convenience routine to add a line graphic representing an order
-    execution submitted to the EMS via the chart's "order mode".
 
-    """
-    line = level_line(
+    return order_line(
+
         chart,
-        level,
-        color='default_light',
-        add_label=False,
-        hl_on_hover=False,
-        movable=False,
-        always_show_labels=False,
-        hide_xhair_on_hover=False,
-        use_marker_margin=True,
+
+        # label fields default values
+        level=line.value(),
+        marker_style=line._marker.style,
+
+        # LevelLine kwargs
+        color=line.color,
+        dotted=line._dotted,
+
+        show_markers=line.show_markers,
+        only_show_markers_on_hover=line.only_show_markers_on_hover,
     )
-    #  hide position marker when out of view (for now)
-    vb = line.getViewBox()
-
-    def update_pp_nav(chartview):
-        vr = vb.state['viewRange']
-        ymn, ymx = vr[1]
-        level = line.value()
-        path = line._marker
-
-        # provide "nav hub" like indicator for where
-        # the position is on the y-dimension
-        # print(path._height)
-        # print(vb.shape())
-        # print(vb.boundingRect())
-        # print(vb.height())
-        _, marker_right, _ = line.marker_right_points()
-
-        if level > ymx:  # pin to top of view
-            path.setPos(
-                QPointF(
-                    marker_right,
-                    2 + path._height,
-                )
-            )
-
-        elif level < ymn:  # pin to bottom of view
-            path.setPos(
-                QPointF(
-                    marker_right,
-                    vb.height() - 16 + path._height,
-                )
-            )
-
-        else:
-            # pp line is viewable so show marker
-            line._marker.show()
-
-    vb.sigYRangeChanged.connect(update_pp_nav)
-
-    rlabel = line.add_label(
-        side='right',
-        fmt_str='{direction}: {size} -> ${$:.2f}',
-    )
-    rlabel.fields = {
-        'direction': 'long' if size > 0 else 'short',
-        '$': size * level,
-        'size': size,
-    }
-    rlabel.orient_v = orient_v
-    rlabel.render()
-    rlabel.show()
-
-    # arrow marker
-    # scale marker size with dpi-aware font size
-    font_size = _font.font.pixelSize()
-
-    # scale marker size with dpi-aware font size
-    arrow_size = floor(1.375 * font_size)
-
-    if size > 0:
-        style = '|<'
-    elif size < 0:
-        style = '>|'
-
-    arrow_path = mk_marker(style, size=arrow_size)
-
-    # monkey-cache height for sizing on pp nav-hub
-    arrow_path._height = arrow_path.boundingRect().height()
-
-    # XXX: uses new marker drawing approach
-    line.add_marker(arrow_path)
-    line.set_level(level)
-
-    # sanity check
-    line.update_labels({'level': level})
-
-    return line

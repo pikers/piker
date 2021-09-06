@@ -56,7 +56,6 @@ class DpiAwareFont:
         self._qfont = QtGui.QFont(name)
         self._font_size: str = font_size
         self._qfm = QtGui.QFontMetrics(self._qfont)
-        self._physical_dpi = None
         self._font_inches: float = None
         self._screen = None
 
@@ -82,6 +81,10 @@ class DpiAwareFont:
     def font(self):
         return self._qfont
 
+    def scale(self) -> float:
+        screen = self.screen
+        return screen.logicalDotsPerInch() / screen.physicalDotsPerInch()
+
     @property
     def px_size(self) -> int:
         return self._qfont.pixelSize()
@@ -99,6 +102,12 @@ class DpiAwareFont:
         # take the max since scaling can make things ugly in some cases
         pdpi = screen.physicalDotsPerInch()
         ldpi = screen.logicalDotsPerInch()
+
+        # XXX: this is needed on sway/wayland where you set
+        # ``QT_WAYLAND_FORCE_DPI=physical``
+        if ldpi == 0:
+            ldpi = pdpi
+
         mx_dpi = max(pdpi, ldpi)
         mn_dpi = min(pdpi, ldpi)
         scale = round(ldpi/pdpi)
@@ -114,14 +123,14 @@ class DpiAwareFont:
         # dpi is likely somewhat scaled down so use slightly larger font size
         if scale > 1 and self._font_size:
             # TODO: this denominator should probably be determined from
-            # relative aspect rations or something?
+            # relative aspect ratios or something?
             inches = inches * (1 / scale) * (1 + 6/16)
             dpi = mx_dpi
 
         self._font_inches = inches
 
         font_size = math.floor(inches * dpi)
-        log.info(
+        log.debug(
             f"\nscreen:{screen.name()} with pDPI: {pdpi}, lDPI: {ldpi}"
             f"\nOur best guess font size is {font_size}\n"
         )

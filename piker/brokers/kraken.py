@@ -439,6 +439,7 @@ async def stream_quotes(
             syminfo = si.dict()
             syminfo['price_tick_size'] = 1 / 10**si.pair_decimals
             syminfo['lot_tick_size'] = 1 / 10**si.lot_decimals
+            syminfo['asset_type'] = 'crypto'
             sym_infos[sym] = syminfo
             ws_pairs[sym] = si.wsname
 

@@ -24,6 +24,8 @@ from typing import Optional, Union
 # import msgspec
 from pydantic import BaseModel
 
+from ..data._source import Symbol
+
 # Client -> emsd
 
 
@@ -42,7 +44,7 @@ class Order(BaseModel):
     action: str  # {'buy', 'sell', 'alert'}
     # internal ``emdsd`` unique "order id"
     oid: str  # uuid4
-    symbol: str
+    symbol: Union[str, Symbol]
 
     price: float
     size: float
@@ -56,6 +58,13 @@ class Order(BaseModel):
     # the backend broker
     exec_mode: str  # {'dark', 'live', 'paper'}
 
+    class Config:
+        # just for pre-loading a ``Symbol`` when used
+        # in the order mode staging process
+        arbitrary_types_allowed = True
+        # don't copy this model instance when used in
+        # a recursive model
+        copy_on_model_validation = False
 
 # Client <- emsd
 # update msgs from ems which relay state change info
@@ -80,8 +89,6 @@ class Status(BaseModel):
 
     #   'alert_submitted',
     #   'alert_triggered',
-
-    #   'position',
 
     # }
     resp: str  # "response", see above

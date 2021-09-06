@@ -196,6 +196,8 @@ _adhoc_futes_set = {
     'mgc.nymex',
 
     'xagusd.cmdty',  # silver spot
+    'ni.nymex', # silver futes
+    'qi.comex', # mini-silver futes
 }
 
 # exchanges we don't support at the moment due to not knowing
@@ -1295,10 +1297,14 @@ def pack_position(pos: Position) -> dict[str, Any]:
     else:
         symbol = con.symbol
 
+    symkey = '.'.join([
+        symbol.lower(),
+        (con.primaryExchange or con.exchange).lower(),
+    ])
     return BrokerdPosition(
         broker='ib',
         account=pos.account,
-        symbol=symbol,
+        symbol=symkey,
         currency=con.currency,
         size=float(pos.position),
         avg_price=float(pos.avgCost) / float(con.multiplier or 1.0),

@@ -98,12 +98,38 @@ if you want your broker supported and they have an API let us know.
 
 check out our charts
 ********************
-bet you weren't expecting this from the foss bby::
+bet you weren't expecting this from the foss::
 
     piker -l info -b kraken -b binance chart btcusdt.binance --pdb
 
 
-this runs the main chart in in debug mode.
+this runs the main chart (currently with 1m sampled OHLC) in in debug
+mode and you can practice paper trading using the following
+micro-manual:
+
+``order_mode`` (
+    edge triggered activation by any of the following keys,
+    ``mouse-click`` on y-level to submit at that price
+    ):
+
+    - ``f``/ ``ctl-f`` to stage buy
+    - ``d``/ ``ctl-d`` to stage sell
+    - ``a`` to stage alert
+
+
+``search_mode`` (
+    ``ctl-l`` or ``ctl-space`` to open,
+    ``ctl-c`` or ``ctl-space`` to close
+    ) :
+
+    - begin typing to have symbol search automatically lookup
+      symbols from all loaded backend (broker) providers
+    - arrow keys and mouse click to navigate selection
+    - vi-like ``ctl-[hjkl]`` for navigation
+
+
+you can also configure your position allocation limits from the
+sidepane.
 
 
 run in distributed mode
@@ -119,10 +145,10 @@ connect your chart::
     piker -l info -b kraken -b binance chart xmrusdt.binance --pdb
 
 
-enjoy persistent real-time data feeds tied to daemon lifetime.
-
-key-bindings and mouse interaction is currently only documented in the
-doce base. help us write some docs dawg.
+enjoy persistent real-time data feeds tied to daemon lifetime. the next
+time you spawn a chart it will load much faster since the data feed has
+been cached and is now always running live in the background until you
+kill ``pikerd``.
 
 
 if anyone asks you what this project is about
@@ -138,3 +164,5 @@ enter the matrix.
 how come there ain't that many docs
 ***********************************
 suck it up, learn the code; no one is trying to sell you on anything.
+also, we need lotsa help so if you want to start somewhere and can't
+necessarily write serious code, this might be the place for you!

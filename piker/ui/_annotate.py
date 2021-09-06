@@ -18,18 +18,20 @@
 Annotations for ur faces.
 
 """
-import PyQt5
-from PyQt5 import QtCore, QtGui
+from typing import Callable, Optional
+
+from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5.QtCore import QPointF, QRectF
 from PyQt5.QtWidgets import QGraphicsPathItem
 from pyqtgraph import Point, functions as fn, Color
 import numpy as np
 
+from ._anchors import marker_right_points
 
-def mk_marker(
 
-    style,
-    size: float = 20.0,
-    use_qgpath: bool = True,
+def mk_marker_path(
+
+    style: str,
 
 ) -> QGraphicsPathItem:
     """Add a marker to be displayed on the line wrapped in a ``QGraphicsPathItem``
@@ -39,7 +41,7 @@ def mk_marker(
     style        String indicating the style of marker to add:
                   ``'<|'``, ``'|>'``, ``'>|'``, ``'|<'``, ``'<|>'``,
                   ``'>|<'``, ``'^'``, ``'v'``, ``'o'``
-    size          Size of the marker in pixels. Default is 10.0.
+    size          Size of the marker in pixels.
 
     """
     path = QtGui.QPainterPath()
@@ -83,11 +85,146 @@ def mk_marker(
 
     # self._maxMarkerSize = max([m[2] / 2. for m in self.markers])
 
-    if use_qgpath:
-        path = QGraphicsPathItem(path)
-        path.scale(size, size)
-
     return path
+
+
+class LevelMarker(QGraphicsPathItem):
+    '''An arrow marker path graphich which redraws itself
+    to the specified view coordinate level on each paint cycle.
+
+    '''
+    def __init__(
+        self,
+        chart: 'ChartPlotWidget',  # noqa
+        style: str,
+        get_level: Callable[..., float],
+        size: float = 20,
+        keep_in_view: bool = True,
+        on_paint: Optional[Callable] = None,
+
+    ) -> None:
+
+        # get polygon and scale
+        super().__init__()
+        self.scale(size, size)
+
+        # interally generates path
+        self._style = None
+        self.style = style
+
+        self.chart = chart
+
+        self.get_level = get_level
+        self._on_paint = on_paint
+        self.scene_x = lambda: marker_right_points(chart)[1]
+        self.level: float = 0
+        self.keep_in_view = keep_in_view
+
+    @property
+    def style(self) -> str:
+        return self._style
+
+    @style.setter
+    def style(self, value: str) -> None:
+        if self._style != value:
+            polygon = mk_marker_path(value)
+            self.setPath(polygon)
+            self._style = value
+
+    def path_br(self) -> QRectF:
+        '''Return the bounding rect for the opaque path part
+        of this item.
+
+        '''
+        return self.mapToScene(
+            self.path()
+        ).boundingRect()
+
+    def delete(self) -> None:
+        self.scene().removeItem(self)
+
+    @property
+    def h(self) -> float:
+        return self.path_br().height()
+
+    @property
+    def w(self) -> float:
+        return self.path_br().width()
+
+    def position_in_view(
+        self,
+        # level: float,
+
+    ) -> None:
+        '''Show a pp off-screen indicator for a level label.
+
+        This is like in fps games where you have a gps "nav" indicator
+        but your teammate is outside the range of view, except in 2D, on
+        the y-dimension.
+
+        '''
+        level = self.get_level()
+
+        view = self.chart.getViewBox()
+        vr = view.state['viewRange']
+        ymn, ymx = vr[1]
+
+        # _, marker_right, _ = marker_right_points(line._chart)
+        x = self.scene_x()
+
+        if self.style == '>|':  # short style, points "down-to" line
+            top_offset = self.h
+            bottom_offset = 0
+        else:
+            top_offset = 0
+            bottom_offset = self.h
+
+        if level > ymx:  # pin to top of view
+            self.setPos(
+                QPointF(
+                    x,
+                    top_offset + self.h/3,
+                )
+            )
+
+        elif level < ymn:  # pin to bottom of view
+
+            self.setPos(
+                QPointF(
+                    x,
+                    view.height() - (bottom_offset + self.h/3),
+                )
+            )
+
+        else:
+            # pp line is viewable so show marker normally
+            self.setPos(
+                x,
+                self.chart.view.mapFromView(
+                    QPointF(0, self.get_level())
+                ).y()
+            )
+
+    def paint(
+        self,
+
+        p: QtGui.QPainter,
+        opt: QtWidgets.QStyleOptionGraphicsItem,
+        w: QtWidgets.QWidget
+
+    ) -> None:
+        '''Core paint which we override to always update
+        our marker position in scene coordinates from a
+        view cooridnate "level".
+
+        '''
+        if self.keep_in_view:
+            self.position_in_view()
+
+        super().paint(p, opt, w)
+
+        if self._on_paint:
+            self._on_paint(self)
 
 
 def qgo_draw_markers(

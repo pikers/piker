@@ -31,6 +31,7 @@ from ._style import (
     _xaxis_at,
     hcolor,
     _font_small,
+    _font,
 )
 from ._axes import YAxisLabel, XAxisLabel
 from ..log import get_logger
@@ -41,8 +42,9 @@ log = get_logger(__name__)
 # XXX: these settings seem to result in really decent mouse scroll
 # latency (in terms of perceived lag in cross hair) so really be sure
 # there's an improvement if you want to change it!
-_mouse_rate_limit = 60  # TODO; should we calc current screen refresh rate?
-_debounce_delay = 1 / 2e3
+
+_mouse_rate_limit = 120  # TODO; should we calc current screen refresh rate?
+_debounce_delay = 1 / 40
 _ch_label_opac = 1
 
 
@@ -52,13 +54,18 @@ class LineDot(pg.CurvePoint):
 
     def __init__(
         self,
+
         curve: pg.PlotCurveItem,
         index: int,
+
         plot: 'ChartPlotWidget',  # type: ingore # noqa
         pos=None,
-        size: int = 6,  # in pxs
         color: str = 'default_light',
+
     ) -> None:
+        # scale from dpi aware font size
+        size = int(_font.px_size  * 0.375)
+
         pg.CurvePoint.__init__(
             self,
             curve,
@@ -88,7 +95,9 @@ class LineDot(pg.CurvePoint):
 
     def event(
         self,
+
         ev: QtCore.QEvent,
+
     ) -> None:
         if not isinstance(
             ev, QtCore.QDynamicPropertyChangeEvent
@@ -132,8 +141,8 @@ class ContentsLabel(pg.LabelItem):
     }
 
     def __init__(
-
         self,
+
         # chart: 'ChartPlotWidget',  # noqa
         view: pg.ViewBox,
 
@@ -167,8 +176,8 @@ class ContentsLabel(pg.LabelItem):
         self.anchor(itemPos=index, parentPos=index, offset=margins)
 
     def update_from_ohlc(
-
         self,
+
         name: str,
         index: int,
         array: np.ndarray,
@@ -194,8 +203,8 @@ class ContentsLabel(pg.LabelItem):
         )
 
     def update_from_value(
-
         self,
+
         name: str,
         index: int,
         array: np.ndarray,
@@ -239,6 +248,7 @@ class ContentsLabels:
 
             if not (index >= 0 and index < chart._arrays['ohlc'][-1]['index']):
                 # out of range
+                print('out of range?')
                 continue
 
             array = chart._arrays[name]
@@ -272,13 +282,15 @@ class ContentsLabels:
         self._labels.append(
             (chart, name, label, partial(update_func, label, name))
         )
-        # label.hide()
+        label.hide()
 
         return label
 
 
 class Cursor(pg.GraphicsObject):
+    '''Multi-plot cursor for use on a ``LinkedSplits`` chart (set).
 
+    '''
     def __init__(
 
         self,

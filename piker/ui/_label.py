@@ -19,72 +19,18 @@ Non-shitty labels that don't re-invent the wheel.
 
 """
 from inspect import isfunction
-from typing import Callable
+from typing import Callable, Optional, Any
 
 import pyqtgraph as pg
 from PyQt5 import QtGui, QtWidgets
-from PyQt5.QtCore import QPointF, QRectF
+from PyQt5.QtWidgets import QLabel
+from PyQt5.QtCore import QPointF, QRectF, Qt
 
 from ._style import (
     DpiAwareFont,
     hcolor,
+    _font,
 )
-
-
-def vbr_left(label) -> Callable[..., float]:
-    """Return a closure which gives the scene x-coordinate for the
-    leftmost point of the containing view box.
-
-    """
-    return label.vbr().left
-
-
-def right_axis(
-
-    chart: 'ChartPlotWidget',  # noqa
-    label: 'Label',  # noqa
-    side: str = 'left',
-    offset: float = 10,
-    avoid_book: bool = True,
-    width: float = None,
-
-) -> Callable[..., float]:
-    """Return a position closure which gives the scene x-coordinate for
-    the x point on the right y-axis minus the width of the label given
-    it's contents.
-
-    """
-    ryaxis = chart.getAxis('right')
-
-    if side == 'left':
-
-        if avoid_book:
-            def right_axis_offset_by_w() -> float:
-
-                # l1 spread graphics x-size
-                l1_len = chart._max_l1_line_len
-
-                # sum of all distances "from" the y-axis
-                right_offset = l1_len + label.w + offset
-
-                return ryaxis.pos().x() - right_offset
-
-        else:
-            def right_axis_offset_by_w() -> float:
-
-                return ryaxis.pos().x() - (label.w + offset)
-
-        return right_axis_offset_by_w
-
-    elif 'right':
-
-        # axis_offset = ryaxis.style['tickTextOffset'][0]
-
-        def on_axis() -> float:
-
-            return ryaxis.pos().x()  # + axis_offset - 2
-
-        return on_axis
 
 
 class Label:
@@ -110,13 +56,14 @@ class Label:
 
         self,
         view: pg.ViewBox,
-
         fmt_str: str,
-        color: str = 'bracket',
+
+        color: str = 'default_light',
         x_offset: float = 0,
         font_size: str = 'small',
-        opacity: float = 0.666,
-        fields: dict = {}
+        opacity: float = 1,
+        fields: dict = {},
+        update_on_range_change: bool = True,
 
     ) -> None:
 
@@ -124,9 +71,13 @@ class Label:
         self._fmt_str = fmt_str
         self._view_xy = QPointF(0, 0)
 
+        self.scene_anchor: Optional[Callable[..., QPointF]] = None
+
         self._x_offset = x_offset
 
         txt = self.txt = QtWidgets.QGraphicsTextItem()
+        txt.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
+
         vb.scene().addItem(txt)
 
         # configure font size based on DPI
@@ -139,7 +90,8 @@ class Label:
         txt.setOpacity(opacity)
 
         # register viewbox callbacks
-        vb.sigRangeChanged.connect(self.on_sigrange_change)
+        if update_on_range_change:
+            vb.sigRangeChanged.connect(self.on_sigrange_change)
 
         self._hcolor: str = ''
         self.color = color
@@ -165,12 +117,33 @@ class Label:
         self.txt.setDefaultTextColor(pg.mkColor(hcolor(color)))
         self._hcolor = color
 
+    def update(self) -> None:
+        '''Update this label either by invoking its
+        user defined anchoring function, or by positioning
+        to the last recorded data view coordinates.
+
+        '''
+        # move label in scene coords to desired position
+        anchor = self.scene_anchor
+        if anchor:
+            self.txt.setPos(anchor())
+
+        else:
+            # position based on last computed view coordinate
+            self.set_view_pos(self._view_xy.y())
+
     def on_sigrange_change(self, vr, r) -> None:
-        self.set_view_y(self._view_xy.y())
+        return self.update()
 
     @property
     def w(self) -> float:
         return self.txt.boundingRect().width()
+
+    def scene_br(self) -> QRectF:
+        txt = self.txt
+        return txt.mapToScene(
+            txt.boundingRect()
+        ).boundingRect()
 
     @property
     def h(self) -> float:
@@ -186,18 +159,20 @@ class Label:
         assert isinstance(func(), float)
         self._anchor_func = func
 
-    def set_view_y(
+    def set_view_pos(
         self,
+
         y: float,
+        x: Optional[float] = None,
+
     ) -> None:
 
-        scene_x = self._anchor_func() or self.txt.pos().x()
+        if x is None:
+            scene_x = self._anchor_func() or self.txt.pos().x()
+            x = self.vb.mapToView(QPointF(scene_x, scene_x)).x()
 
         # get new (inside the) view coordinates / position
-        self._view_xy = QPointF(
-            self.vb.mapToView(QPointF(scene_x, scene_x)).x(),
-            y,
-        )
+        self._view_xy = QPointF(x, y)
 
         # map back to the outer UI-land "scene" coordinates
         s_xy = self.vb.mapFromView(self._view_xy)
@@ -210,9 +185,6 @@ class Label:
 
         assert s_xy == self.txt.pos()
 
-    def orient_on(self, h: str, v: str) -> None:
-        pass
-
     @property
     def fmt_str(self) -> str:
         return self._fmt_str
@@ -221,7 +193,11 @@ class Label:
     def fmt_str(self, fmt_str: str) -> None:
         self._fmt_str = fmt_str
 
-    def format(self, **fields: dict) -> str:
+    def format(
+        self,
+        **fields: dict
+
+    ) -> str:
 
         out = {}
 
@@ -229,8 +205,10 @@ class Label:
         # calcs of field data from field data
         # ex. to calculate a $value = price * size
         for k, v in fields.items():
+
             if isfunction(v):
                 out[k] = v(fields)
+
             else:
                 out[k] = v
 
@@ -252,3 +230,55 @@ class Label:
 
     def delete(self) -> None:
         self.vb.scene().removeItem(self.txt)
+
+
+class FormatLabel(QLabel):
+    '''Kinda similar to above but using the widget apis.
+
+    '''
+    def __init__(
+        self,
+
+        fmt_str: str,
+        font: QtGui.QFont,
+        font_size: int,
+        font_color: str,
+
+        parent=None,
+
+    ) -> None:
+
+        super().__init__(parent)
+
+        # by default set the format string verbatim and expect user to
+        # call ``.format()`` later (presumably they'll notice the
+        # unformatted content if ``fmt_str`` isn't meant to be
+        # unformatted).
+        self.fmt_str = fmt_str
+        self.setText(fmt_str)
+
+        self.setStyleSheet(
+            f"""QLabel {{
+                color : {hcolor(font_color)};
+                font-size : {font_size}px;
+            }}
+            """
+        )
+        self.setFont(_font.font)
+        self.setTextFormat(Qt.MarkdownText)  # markdown
+        self.setMargin(0)
+
+        self.setAlignment(
+            Qt.AlignVCenter
+            | Qt.AlignLeft
+        )
+        self.setText(self.fmt_str)
+
+    def format(
+        self,
+        **fields: dict[str, Any],
+
+    ) -> str:
+        out = self.fmt_str.format(**fields)
+        self.setText(out)
+        return out

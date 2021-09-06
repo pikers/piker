@@ -576,7 +576,8 @@ async def translate_and_relay_brokerd_events(
                 # cancelled by the ems controlling client before we
                 # received this ack, in which case we relay that cancel
                 # signal **asap** to the backend broker
-                if entry.action == 'cancel':
+                action = getattr(entry, 'action', None)
+                if action and action == 'cancel':
                     # assign newly providerd broker backend request id
                     entry.reqid = reqid
 
@@ -796,11 +797,10 @@ async def process_client_order_cmds(
 
                     # sanity check on emsd id
                     assert live_entry.oid == oid
-
+                    reqid = live_entry.reqid
                     # if we already had a broker order id then
                     # this is likely an order update commmand.
-                    log.info(
-                        f"Modifying live {broker} order: {live_entry.reqid}")
+                    log.info(f"Modifying live {broker} order: {reqid}")
 
                 msg = BrokerdOrder(
                     oid=oid,  # no ib support for oids...
@@ -966,10 +966,10 @@ async def _emsd_main(
     ):
 
         # XXX: this should be initial price quote from target provider
-        first_quote = feed.first_quote
+        first_quote = feed.first_quotes[symbol]
 
         book = _router.get_dark_book(broker)
-        book.lasts[(broker, symbol)] = first_quote[symbol]['last']
+        book.lasts[(broker, symbol)] = first_quote['last']
 
         # open a stream with the brokerd backend for order
         # flow dialogue
