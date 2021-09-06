@@ -547,6 +547,7 @@ class LinkedSplits(QWidget):
             if sidepane:
                 # TODO: use a "panes" collection to manage this?
                 sidepane.setMinimumWidth(self.chart.sidepane.width())
+                sidepane.setMaximumWidth(self.chart.sidepane.width())
 
             self.splitter.addWidget(qframe)
 
