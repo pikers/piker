@@ -574,31 +574,32 @@ async def open_order_mode(
         # so that view handlers can access it
         view.order_mode = mode
 
+        our_sym = mode.chart.linked._symbol.key
+
+        # update any exising position
+        pp_msg = None
+        for sym, msg in positions.items():
+            if sym.lower() in our_sym:
+                pp_msg = msg
+                break
+
         # make fill bar and positioning snapshot
         # XXX: this need to be called *before* the first
         # pp tracker update(s) below to ensure the limit size unit has
         # been correctly set prior to updating the line's pp size label
-        # (the one on the RHS)
+        # (the one on the RHS).
+        # TODO: should probably split out the alloc config from the UI
+        # config startup steps..
         order_pane.init_status_ui()
 
-        # update any exising position
-        for sym, msg in positions.items():
+        # we should probably make the allocator config
+        # and explitict helper func call that takes in the aloc and
+        # the postion / symbol info then take that alloc ref and
+        # update the pp_tracker and pp_pane?
+        if pp_msg:
+            pp_tracker.update_from_pp_msg(msg)
 
-            our_sym = mode.chart.linked._symbol.key
-            if sym.lower() in our_sym:
-
-
-                # call this again now since we've configured
-                # the allocator from the asset type...super dumb.
-                # we should probably make the allocator config
-                # and explitict helper func call that takes in the aloc and
-                # the postion / symbol info then take that alloc ref and
-                # update the pp_tracker and pp_pane.
-                # pp_tracker.update(msg, position=pp_tracker.startup_pp)
-
-                pp_tracker.update_from_pp_msg(msg, position=pp_tracker.startup_pp)
-                pp_tracker.update_from_pp_msg(msg)
-                break
+        order_pane.update_status_ui()
 
         live_pp = mode.pp.live_pp
         size = live_pp.size
