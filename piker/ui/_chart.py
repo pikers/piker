@@ -1708,7 +1708,6 @@ async def display_symbol_data(
             tick_throttle=_clear_throttle_rate,
 
         ) as feed,
-        trio.open_nursery() as n,
     ):
 
         ohlcv: ShmArray = feed.shm
@@ -1800,11 +1799,11 @@ async def display_symbol_data(
 
         async with (
 
-            trio.open_nursery() as n,
+            trio.open_nursery() as ln,
 
         ):
             # load initial fsp chain (otherwise known as "indicators")
-            n.start_soon(
+            ln.start_soon(
                 spawn_fsps,
                 linkedsplits,
                 fsp_conf,
@@ -1816,7 +1815,7 @@ async def display_symbol_data(
             )
 
             # start graphics update loop(s)after receiving first live quote
-            n.start_soon(
+            ln.start_soon(
                 chart_from_quotes,
                 chart,
                 feed.stream,
@@ -1824,7 +1823,7 @@ async def display_symbol_data(
                 wap_in_history,
             )
 
-            n.start_soon(
+            ln.start_soon(
                 check_for_new_bars,
                 feed,
                 ohlcv,
