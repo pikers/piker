@@ -27,8 +27,8 @@ from PyQt5.QtCore import QLineF, QPointF
 # from numba import types as ntypes
 # from ..data._source import numba_ohlc_dtype
 
-from ..._profile import pg_profile_enabled
-from .._style import hcolor
+from .._profile import pg_profile_enabled
+from ._style import hcolor
 
 
 def _mk_lines_array(

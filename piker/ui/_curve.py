@@ -23,7 +23,7 @@ from typing import Tuple
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from ..._profile import pg_profile_enabled
+from .._profile import pg_profile_enabled
 
 
 # TODO: got a feeling that dropping this inheritance gets us even more speedups
