@@ -92,7 +92,6 @@ class SettingsPane:
         '''Called on any order pane edit field value change.
 
         '''
-        print(f'settings change: {key}: {value}')
         alloc = self.alloc
         size_unit = alloc.size_unit
 
@@ -112,12 +111,14 @@ class SettingsPane:
             pass
 
         elif key == 'account':
-            print(f'TODO: change account -> {value}')
+            account_name = value or 'paper'
+            assert alloc.account_name() == account_name
 
         else:
             raise ValueError(f'Unknown setting {key}')
 
         # read out settings and update UI
+        log.info(f'settings change: {key}: {value}')
 
         suffix = {'currency': ' $', 'units': ' u'}[size_unit]
         limit = alloc.limit()
@@ -142,6 +143,7 @@ class SettingsPane:
         self.form.fields['size_unit'].setCurrentText(
             alloc._size_units[alloc.size_unit]
         )
+        self.form.fields['account'].setCurrentText(alloc.account_name())
         self.form.fields['slots'].setText(str(alloc.slots))
         self.form.fields['limit'].setText(str(limit))
 
