@@ -63,6 +63,24 @@ class Position(BaseModel):
     # ordered record of known constituent trade messages
     fills: list[Status] = []
 
+    def update_from_msg(
+        self,
+        msg: BrokerdPosition,
+
+    ) -> None:
+
+        # XXX: better place to do this?
+        symbol = self.symbol
+
+        lot_size_digits = symbol.lot_size_digits
+        avg_price, size = (
+            round(msg['avg_price'], ndigits=symbol.tick_size_digits),
+            round(msg['size'], ndigits=lot_size_digits),
+        )
+
+        self.avg_price = avg_price
+        self.size = size
+
 
 _size_units = bidict({
     'currency': '$ size',
@@ -250,6 +268,60 @@ class Allocator(BaseModel):
         return round(prop * self.slots)
 
 
+def mk_allocator(
+
+    alloc: Allocator,
+    startup_pp: Position,
+    config_section: dict = {},
+
+) -> (float, Allocator):
+
+    asset_type = alloc.symbol.type_key
+
+    # load and retreive user settings for default allocations
+    # ``config.toml``
+    slots = 4
+    currency_limit = 5e3
+
+    alloc.slots = slots
+    alloc.currency_limit = currency_limit
+
+    # default entry sizing
+    if asset_type in ('stock', 'crypto', 'forex'):
+
+        alloc.size_unit = '$ size'
+
+    elif asset_type in ('future', 'option', 'futures_option'):
+
+        # since it's harder to know how currency "applies" in this case
+        # given leverage properties
+        alloc.size_unit = '# units'
+
+        # set units limit to slots size thus making make the next
+        # entry step 1.0
+        alloc.units_limit = slots
+
+    # if the current position is already greater then the limit
+    # settings, increase the limit to the current position
+    if alloc.size_unit == 'currency':
+        startup_size = startup_pp.size * startup_pp.avg_price
+
+        if startup_size > alloc.currency_limit:
+            alloc.currency_limit = round(startup_size, ndigits=2)
+
+        limit_text = alloc.currency_limit
+
+    else:
+        startup_size = startup_pp.size
+
+        if startup_size > alloc.units_limit:
+            alloc.units_limit = startup_size
+
+        limit_text = alloc.units_limit
+
+    return limit_text, alloc
+
+
 @dataclass
 class SettingsPane:
     '''Composite set of widgets plus an allocator model for configuring
@@ -355,59 +427,6 @@ class SettingsPane:
         # can have general input handling code to report it through the
         # UI in some way?
         return True
-
-    def init_status_ui(
-        self,
-    ):
-        alloc = self.alloc
-        asset_type = alloc.symbol.type_key
-        # form = self.form
-
-        # TODO: pull from piker.toml
-        # default config
-        slots = 4
-        currency_limit = 5e3
-
-        startup_pp = self.tracker.startup_pp
-
-        alloc.slots = slots
-        alloc.currency_limit = currency_limit
-
-        # default entry sizing
-        if asset_type in ('stock', 'crypto', 'forex'):
-
-            alloc.size_unit = '$ size'
-
-        elif asset_type in ('future', 'option', 'futures_option'):
-
-            # since it's harder to know how currency "applies" in this case
-            # given leverage properties
-            alloc.size_unit = '# units'
-
-            # set units limit to slots size thus making make the next
-            # entry step 1.0
-            alloc.units_limit = slots
-
-        # if the current position is already greater then the limit
-        # settings, increase the limit to the current position
-        if alloc.size_unit == 'currency':
-            startup_size = startup_pp.size * startup_pp.avg_price
-
-            if startup_size > alloc.currency_limit:
-                alloc.currency_limit = round(startup_size, ndigits=2)
-
-            limit_text = alloc.currency_limit
-
-        else:
-            startup_size = startup_pp.size
-
-            if startup_size > alloc.units_limit:
-                alloc.units_limit = startup_size
-
-            limit_text = alloc.units_limit
-
-        self.on_ui_settings_change('limit', limit_text)
-        self.update_status_ui(size=startup_size)
 
     def update_status_ui(
         self,
@@ -533,9 +552,9 @@ class PositionTracker:
     # inputs
     chart: 'ChartPlotWidget'  # noqa
     alloc: Allocator
+    startup_pp: Position
 
     # allocated
-    startup_pp: Position
     live_pp: Position
     pp_label: Label
     size_label: Label
@@ -547,17 +566,14 @@ class PositionTracker:
         self,
         chart: 'ChartPlotWidget',  # noqa
         alloc: Allocator,
+        startup_pp: Position,
 
     ) -> None:
 
         self.chart = chart
         self.alloc = alloc
-        self.live_pp = Position(
-            symbol=chart.linked.symbol,
-            size=0,
-            avg_price=0,
-        )
-        self.startup_pp = self.live_pp.copy()
+        self.startup_pp = startup_pp
+        self.live_pp = startup_pp.copy()
 
         view = chart.getViewBox()
 
@@ -622,9 +638,8 @@ class PositionTracker:
         self.pp_label.update()
         self.size_label.update()
 
-    def update_from_pp_msg(
+    def update_from_pp(
         self,
-        msg: BrokerdPosition,
         position: Optional[Position] = None,
 
     ) -> None:
@@ -632,23 +647,14 @@ class PositionTracker:
         EMS ``BrokerdPosition`` msg.
 
         '''
-        # XXX: better place to do this?
-        symbol = self.chart.linked.symbol
-        lot_size_digits = symbol.lot_size_digits
-        avg_price, size = (
-            round(msg['avg_price'], ndigits=symbol.tick_size_digits),
-            round(msg['size'], ndigits=lot_size_digits),
-        )
-
         # live pp updates
         pp = position or self.live_pp
-        pp.avg_price = avg_price
-        pp.size = size
+        # pp.update_from_msg(msg)
 
         self.update_line(
-            avg_price,
-            size,
-            lot_size_digits,
+            pp.avg_price,
+            pp.size,
+            self.chart.linked.symbol.lot_size_digits,
         )
 
         # label updates
@@ -656,11 +662,11 @@ class PositionTracker:
             self.alloc.slots_used(pp), ndigits=1)
         self.size_label.render()
 
-        if size == 0:
+        if pp.size == 0:
             self.hide()
 
         else:
-            self._level_marker.level = avg_price
+            self._level_marker.level = pp.avg_price
 
             # these updates are critical to avoid lag on view/scene changes
             self._level_marker.update()  # trigger paint
