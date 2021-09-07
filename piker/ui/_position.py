@@ -78,7 +78,7 @@ class SettingsPane:
         '''Called on any order pane drop down selection change.
 
         '''
-        print(f'selection input: {text}')
+        log.info(f'selection input: {text}')
         setattr(self.alloc, key, text)
         self.on_ui_settings_change(key, text)
 
@@ -112,7 +112,7 @@ class SettingsPane:
 
         elif key == 'account':
             account_name = value or 'paper'
-            assert alloc.account_name() == account_name
+            alloc.account = account_name
 
         else:
             raise ValueError(f'Unknown setting {key}')
