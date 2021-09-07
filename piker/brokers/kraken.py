@@ -387,8 +387,76 @@ async def get_client() -> Client:
     }
 
     balances = await client.get_user_data('Balance', data)
+    traders = await client.get_user_data('TradesHistory', data)
     ledger = await client.get_ledger(data)
+    
     # positions
+    ## TODO: Make sure to add option with fees
+    n, m = ledger.shape
+    ledger['time'] = ledger['time'].apply(lambda x: int(x))
+    assets = set(ledger['asset'])
+    trade_times = set(ledger['time'])
+    trades = {}
+    positions = {}
+    # for index, row in ledger.iterrows():
+    #     if index == n:
+    #         break
+    #     asset = row['asset']
+    #     ## TODO: Look into a way to generalize this
+    #     if asset != 'ZEUR' and ledger.loc[index+1, 'asset'] == 'ZEUR':
+    #         try:
+    #             trades[asset]['amounts'].append(float(ledger.loc[index, 'amount']))
+    #             trades[asset]['prices'].append(float(ledger.loc[index+1, 'amount']))
+    #         except KeyError:
+    #             trades[asset] = {
+    #                 'amounts': [float(ledger.loc[index+1, 'amount'])],
+    #                 'prices': [float(ledger.loc[index+1, 'amount'])]
+    #             }
+
+    ## TODO: Look into a way to generalize this for any fiat
+    ## TODO: Figure out how to handle coin for coin trades
+    for trade_time in trade_times:
+        trade = ledger[ledger['time'] == trade_time]
+        coin = trade[trade['asset'] != 'ZEUR']
+        fiat = trade[trade['asset'] == 'ZEUR']
+        if len(coin) == 0 or len(coin) > 1:
+            continue
+        asset = list(coin.loc[:, 'asset'])[0]
+        amount = np.sum(coin['amount'].apply(lambda x: float(x)))
+        if amount > 0:
+            sign = -1
+            price = sign * np.sum(fiat['amount'].apply(lambda x: float(x)))
+            try:
+                trades[asset]['trade_amounts'].append(amount)
+                trades[asset]['trade_prices'].append(price)
+                trades[asset]['enter_amounts'].append(amount)
+            except KeyError:
+                trades[asset] = {
+                    'trade_amounts': [amount],
+                    'trade_prices': [price],
+                    'enter_amounts': [amount]
+                }
+        else:
+            price = 0
+            # continue
+            try:
+                trades[asset]['trade_amounts'].append(amount)
+                trades[asset]['trade_prices'].append(price)
+            except KeyError:
+                trades[asset] = {
+                    'trade_amounts': [amount],
+                    'trade_prices': [price],
+                    'enter_amounts': []
+                }
+
+
+    for asset in assets:
+        if asset == 'ZEUR':
+            continue
+        t_amounts = np.array(trades[asset]['trade_amounts'])
+        t_prices = np.array(trades[asset]['trade_prices'])
+        e_amounts = np.array(trades[asset]['enter_amounts'])
+        positions[asset] = np.dot(np.divide(t_prices, t_amounts), t_amounts) / np.sum(e_amounts)
 
     await tractor.breakpoint()
 
