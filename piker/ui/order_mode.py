@@ -32,7 +32,7 @@ from pydantic import BaseModel
 import tractor
 import trio
 
-from .. import brokers
+from .. import config
 from ..calc import pnl
 from ..clearing._client import open_ems, OrderBook
 from ..data._source import Symbol
@@ -41,7 +41,14 @@ from ..data.feed import Feed
 from ..log import get_logger
 from ._editors import LineEditor, ArrowEditor
 from ._lines import order_line, LevelLine
-from ._position import PositionTracker, SettingsPane, Allocator, _size_units
+from ._position import (
+    Position,
+    Allocator,
+    mk_allocator,
+    PositionTracker,
+    SettingsPane,
+    _size_units,
+)
 from ._window import MultiStatus
 from ..clearing._messages import Order
 from ._forms import open_form_input_handling
@@ -511,35 +518,90 @@ async def open_order_mode(
         lines = LineEditor(chart=chart)
         arrows = ArrowEditor(chart, {})
 
-        # load account names from ``brokers.toml``
-        accounts = bidict(brokers.config.load_accounts())
+        form = chart.sidepane
 
-        # allocator
-        alloc = Allocator(
-            symbol=symbol,
-            account=None,  # select paper by default
-            _accounts=accounts,
-            size_unit=_size_units['currency'],
-            units_limit=400,
-            currency_limit=5e3,
-            slots=4,
+        # update any from exising positions received from ``brokerd``
+        symbol = chart.linked.symbol
+        symkey = chart.linked._symbol.key
+
+        pp_msg = None
+        for sym, msg in positions.items():
+            if sym.lower() in symkey:
+                pp_msg = msg
+                break
+
+        # net-zero pp
+        startup_pp = Position(
+            symbol=chart.linked.symbol,
+            size=0,
+            avg_price=0,
         )
 
-        form = chart.sidepane
+        if pp_msg:
+            startup_pp.update_from_msg(msg)
+
+        # load account names from ``brokers.toml``
+        accounts = bidict(config.load_accounts())
+
+        # allocator
+        limit_value, alloc = mk_allocator(
+            alloc=Allocator(
+                symbol=symbol,
+                account=None,  # select paper by default
+                _accounts=accounts,
+                size_unit=_size_units['currency'],
+                units_limit=400,
+                currency_limit=5e3,
+                slots=4,
+            ),
+            startup_pp=startup_pp,
+        )
         form.model = alloc
 
-        pp_tracker = PositionTracker(chart, alloc)
-        pp_tracker.hide()
+        pp_tracker = PositionTracker(
+            chart,
+            alloc,
+            startup_pp
+        )
+        pp_tracker.update_from_pp(startup_pp)
+
+        if startup_pp.size == 0:
+            # if no position, don't show pp tracking graphics
+            pp_tracker.hide()
 
         # order pane widgets and allocation model
         order_pane = SettingsPane(
             tracker=pp_tracker,
             form=form,
             alloc=alloc,
+
+            # XXX: ugh, so hideous...
             fill_bar=form.fill_bar,
             pnl_label=form.left_label,
             step_label=form.bottom_label,
             limit_label=form.top_label,
+        )
+        # make fill bar and positioning snapshot
+        # XXX: this need to be called *before* the first
+        # pp tracker update(s) below to ensure the limit size unit has
+        # been correctly set prior to updating the line's pp size label
+        # (the one on the RHS).
+        # TODO: should probably split out the alloc config from the UI
+        # config startup steps..
+        order_pane.on_ui_settings_change('limit', limit_value)
+        order_pane.update_status_ui(size=startup_pp.size)
+
+        # top level abstraction which wraps all this crazyness into
+        # a namespace..
+        mode = OrderMode(
+            chart,
+            book,
+            lines,
+            arrows,
+            multistatus,
+            pp_tracker,
+            allocator=alloc,
+            pane=order_pane,
         )
 
         # XXX: would love to not have to do this separate from edit
@@ -556,51 +618,12 @@ async def open_order_mode(
                 )
             )
 
-        # top level abstraction which wraps all this crazyness into
-        # a namespace..
-        mode = OrderMode(
-            chart,
-            book,
-            lines,
-            arrows,
-            multistatus,
-            pp_tracker,
-            allocator=alloc,
-            pane=order_pane,
-        )
-
         # TODO: create a mode "manager" of sorts?
         # -> probably just call it "UxModes" err sumthin?
         # so that view handlers can access it
         view.order_mode = mode
 
-        our_sym = mode.chart.linked._symbol.key
-
-        # update any exising position
-        pp_msg = None
-        for sym, msg in positions.items():
-            if sym.lower() in our_sym:
-                pp_msg = msg
-                break
-
-        # make fill bar and positioning snapshot
-        # XXX: this need to be called *before* the first
-        # pp tracker update(s) below to ensure the limit size unit has
-        # been correctly set prior to updating the line's pp size label
-        # (the one on the RHS).
-        # TODO: should probably split out the alloc config from the UI
-        # config startup steps..
-        order_pane.init_status_ui()
-
-        # we should probably make the allocator config
-        # and explitict helper func call that takes in the aloc and
-        # the postion / symbol info then take that alloc ref and
-        # update the pp_tracker and pp_pane?
-        if pp_msg:
-            pp_tracker.update_from_pp_msg(msg)
-
-        order_pane.update_status_ui()
-
+        # real-time pnl display task allocation
         live_pp = mode.pp.live_pp
         size = live_pp.size
         if size:
@@ -626,7 +649,6 @@ async def open_order_mode(
         else:
             # set 0% pnl
             mode.pane.pnl_label.format(pnl=0)
-
 
         # Begin order-response streaming
         done()
@@ -751,7 +773,8 @@ async def process_trades_and_update_ui(
 
             sym = mode.chart.linked.symbol
             if msg['symbol'].lower() in sym.key:
-                tracker.update_from_pp_msg(msg)
+                tracker.live_pp.update_from_msg(msg)
+                tracker.update_from_pp()
 
                 # update order pane widgets
                 mode.pane.update_status_ui()
