@@ -39,7 +39,6 @@ from ..clearing._allocate import (
     Allocator,
     mk_allocator,
     Position,
-    _size_units,
 )
 from ..data._source import Symbol
 from ..data._normalize import iterticks
@@ -509,7 +508,7 @@ async def open_order_mode(
             trades_stream,
             positions
         ),
-        trio.open_nursery() as n,
+        trio.open_nursery() as tn,
 
     ):
         log.info(f'Opening order mode for {brokername}.{symbol.key}')
@@ -526,37 +525,34 @@ async def open_order_mode(
         symbol = chart.linked.symbol
         symkey = chart.linked._symbol.key
 
-        pp_msg = None
-        for sym, msg in positions.items():
-            if sym.lower() in symkey:
-                pp_msg = msg
-                break
+        # NOTE: requires that the backend exactly specifies
+        # the expected symbol key in it's positions msg.
+        pp_msg = positions.get(symkey)
 
         # net-zero pp
         startup_pp = Position(
-            symbol=chart.linked.symbol,
+            symbol=symbol,
             size=0,
             avg_price=0,
         )
 
-        if pp_msg:
-            startup_pp.update_from_msg(msg)
-
         # load account names from ``brokers.toml``
         accounts = bidict(config.load_accounts())
+        pp_account = None
+
+        if pp_msg:
+            log.info(f'Loading pp for {symkey}:\n{pformat(pp_msg)}')
+            startup_pp.update_from_msg(pp_msg)
+            pp_account = accounts.inverse.get(pp_msg.get('account'))
+
+        # lookup account for this pp or load the user default
+        # for this backend
 
         # allocator
-        limit_value, alloc = mk_allocator(
-
-            alloc=Allocator(
-                symbol=symbol,
-                account=None,  # select paper by default
-                _accounts=accounts,
-                size_unit=_size_units['currency'],
-                units_limit=400,
-                currency_limit=5e3,
-                slots=4,
-            ),
+        alloc = mk_allocator(
+            symbol=symbol,
+            accounts=accounts,
+            account=pp_account,
             startup_pp=startup_pp,
         )
         form.model = alloc
@@ -587,7 +583,9 @@ async def open_order_mode(
         )
 
         # set startup limit value read during alloc init
-        order_pane.on_ui_settings_change('limit', limit_value)
+        order_pane.on_ui_settings_change('limit', alloc.limit())
+        order_pane.on_ui_settings_change('account', pp_account)
+
         # make fill bar and positioning snapshot
         order_pane.update_status_ui(size=startup_pp.size)
 
@@ -640,7 +638,7 @@ async def open_order_mode(
             )
 
             # spawn updater task
-            n.start_soon(
+            tn.start_soon(
                 display_pnl,
                 feed,
                 mode,
@@ -672,9 +670,9 @@ async def open_order_mode(
             # to handle input since the ems connection is ready
             started.set()
 
-            n.start_soon(
+            tn.start_soon(
                 process_trades_and_update_ui,
-                n,
+                tn,
                 feed,
                 mode,
                 trades_stream,
