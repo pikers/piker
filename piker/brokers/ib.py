@@ -53,7 +53,7 @@ from ib_insync.client import Client as ib_Client
 from fuzzywuzzy import process as fuzzy
 import numpy as np
 
-from . import config
+from .. import config
 from ..log import get_logger, get_console_log
 from .._daemon import maybe_spawn_brokerd
 from ..data._source import from_df

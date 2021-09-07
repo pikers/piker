@@ -25,7 +25,7 @@ from typing import Optional
 import toml
 import click
 
-from ..log import get_logger
+from .log import get_logger
 
 log = get_logger('broker-config')
 

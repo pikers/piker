@@ -43,7 +43,7 @@ import asks
 
 from ..calc import humanize, percent_change
 from .._cacheables import open_cached_client, async_lifo_cache
-from . import config
+from .. import config
 from ._util import resproc, BrokerError, SymbolNotFound
 from ..log import get_logger, colorize_json, get_console_log
 from . import get_brokermod
