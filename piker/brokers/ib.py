@@ -1277,8 +1277,6 @@ async def stream_quotes(
                 calc_price=calc_price
             )
 
-            # con = quote['contract']
-            # topic = '.'.join((con['symbol'], suffix)).lower()
             quote['symbol'] = topic
             await send_chan.send({topic: quote})
 
@@ -1295,12 +1293,21 @@ def pack_position(pos: Position) -> dict[str, Any]:
         symbol = con.localSymbol.replace(' ', '')
 
     else:
-        symbol = con.symbol
+        symbol = con.symbol.lower()
 
-    symkey = '.'.join([
-        symbol.lower(),
-        (con.primaryExchange or con.exchange).lower(),
-    ])
+    exch = (con.primaryExchange or con.exchange).lower()
+    symkey = '.'.join((symbol, exch))
+
+    if not exch:
+        # attempt to lookup the symbol from our
+        # hacked set..
+        for sym in _adhoc_futes_set:
+            if symbol in sym:
+                symkey = sym
+                break
+
+        # TODO: options contracts into a sane format..
+
     return BrokerdPosition(
         broker='ib',
         account=pos.account,
