@@ -625,8 +625,7 @@ async def open_order_mode(
         live_pp = mode.pp.live_pp
         size = live_pp.size
         if size:
-            global _zero_pp
-            _zero_pp = False
+            global _pnl_tasks
 
             # compute and display pnl status immediately
             mode.pane.pnl_label.format(
@@ -681,7 +680,7 @@ async def open_order_mode(
             yield mode
 
 
-_zero_pp: bool = True
+_pnl_tasks: dict[str, bool] = {}
 
 
 async def display_pnl(
@@ -693,11 +692,14 @@ async def display_pnl(
     Error if this task is spawned where there is a net-zero pp.
 
     '''
-    global _zero_pp
-    assert not _zero_pp
+    global _pnl_tasks
 
     pp = order_mode.pp
     live = pp.live_pp
+
+    sym = live.symbol.key
+    assert not _pnl_tasks.get(sym)
+    _pnl_tasks[sym] = True
 
     if live.size < 0:
         types = ('ask', 'last', 'last', 'utrade')
@@ -709,37 +711,39 @@ async def display_pnl(
         raise RuntimeError('No pp?!?!')
 
     # real-time update pnl on the status pane
-    async with feed.stream.subscribe() as bstream:
-        # last_tick = time.time()
-        async for quotes in bstream:
+    try:
+        async with feed.stream.subscribe() as bstream:
+            # last_tick = time.time()
+            async for quotes in bstream:
 
-            # now = time.time()
-            # period = now - last_tick
+                # now = time.time()
+                # period = now - last_tick
 
-            for sym, quote in quotes.items():
+                for sym, quote in quotes.items():
 
-                for tick in iterticks(quote, types):
-                    # print(f'{1/period} Hz')
+                    for tick in iterticks(quote, types):
+                        # print(f'{1/period} Hz')
 
-                    size = live.size
+                        size = live.size
+                        if size == 0:
+                            # terminate this update task since we're
+                            # no longer in a pp
+                            order_mode.pane.pnl_label.format(pnl=0)
+                            return
 
-                    if size == 0:
-                        # terminate this update task since we're
-                        # no longer in a pp
-                        _zero_pp = True
-                        order_mode.pane.pnl_label.format(pnl=0)
-                        return
+                        else:
+                            # compute and display pnl status
+                            order_mode.pane.pnl_label.format(
+                                pnl=copysign(1, size) * pnl(
+                                    live.avg_price,
+                                    tick['price'],
+                                ),
+                            )
 
-                    else:
-                        # compute and display pnl status
-                        order_mode.pane.pnl_label.format(
-                            pnl=copysign(1, size) * pnl(
-                                live.avg_price,
-                                tick['price'],
-                            ),
-                        )
-
-                    # last_tick = time.time()
+                        # last_tick = time.time()
+    finally:
+        assert _pnl_tasks[sym]
+        assert _pnl_tasks.pop(sym)
 
 
 async def process_trades_and_update_ui(
@@ -754,7 +758,7 @@ async def process_trades_and_update_ui(
 
     get_index = mode.chart.get_index
     tracker = mode.pp
-    global _zero_pp
+    global _pnl_tasks
 
     # this is where we receive **back** messages
     # about executions **from** the EMS actor
@@ -771,14 +775,17 @@ async def process_trades_and_update_ui(
 
             sym = mode.chart.linked.symbol
             if msg['symbol'].lower() in sym.key:
+
                 tracker.live_pp.update_from_msg(msg)
                 tracker.update_from_pp()
 
                 # update order pane widgets
                 mode.pane.update_status_ui()
 
-            if mode.pp.live_pp.size and _zero_pp:
-                _zero_pp = False
+            if (
+                tracker.live_pp.size and
+                sym.key not in _pnl_tasks
+            ):
                 n.start_soon(
                     display_pnl,
                     feed,
