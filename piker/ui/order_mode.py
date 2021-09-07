@@ -35,6 +35,12 @@ import trio
 from .. import config
 from ..calc import pnl
 from ..clearing._client import open_ems, OrderBook
+from ..clearing._allocate import (
+    Allocator,
+    mk_allocator,
+    Position,
+    _size_units,
+)
 from ..data._source import Symbol
 from ..data._normalize import iterticks
 from ..data.feed import Feed
@@ -42,12 +48,8 @@ from ..log import get_logger
 from ._editors import LineEditor, ArrowEditor
 from ._lines import order_line, LevelLine
 from ._position import (
-    Position,
-    Allocator,
-    mk_allocator,
     PositionTracker,
     SettingsPane,
-    _size_units,
 )
 from ._window import MultiStatus
 from ..clearing._messages import Order
@@ -545,6 +547,7 @@ async def open_order_mode(
 
         # allocator
         limit_value, alloc = mk_allocator(
+
             alloc=Allocator(
                 symbol=symbol,
                 account=None,  # select paper by default
@@ -571,6 +574,7 @@ async def open_order_mode(
 
         # order pane widgets and allocation model
         order_pane = SettingsPane(
+
             tracker=pp_tracker,
             form=form,
             alloc=alloc,
@@ -581,14 +585,10 @@ async def open_order_mode(
             step_label=form.bottom_label,
             limit_label=form.top_label,
         )
-        # make fill bar and positioning snapshot
-        # XXX: this need to be called *before* the first
-        # pp tracker update(s) below to ensure the limit size unit has
-        # been correctly set prior to updating the line's pp size label
-        # (the one on the RHS).
-        # TODO: should probably split out the alloc config from the UI
-        # config startup steps..
+
+        # set startup limit value read during alloc init
         order_pane.on_ui_settings_change('limit', limit_value)
+        # make fill bar and positioning snapshot
         order_pane.update_status_ui(size=startup_pp.size)
 
         # top level abstraction which wraps all this crazyness into
