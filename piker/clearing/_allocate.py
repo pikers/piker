@@ -83,17 +83,16 @@ class Allocator(BaseModel):
 
         # required to get the account validator lookup working?
         extra = 'allow'
-        # underscore_attrs_are_private = False
+        underscore_attrs_are_private = False
 
     symbol: Symbol
-
+    accounts: bidict[str, Optional[str]]
     account: Optional[str] = 'paper'
-    _accounts: bidict[str, Optional[str]]
 
-    @validator('account', pre=True)
+    @validator('account', pre=False)
     def set_account(cls, v, values):
         if v:
-            return values['_accounts'][v]
+            return values['accounts'][v]
 
     size_unit: SizeUnit = 'currency'
     _size_units: dict[str, Optional[str]] = _size_units
@@ -128,6 +127,9 @@ class Allocator(BaseModel):
             return self.currency_limit
         else:
             return self.units_limit
+
+    def account_name(self) -> str:
+        return self.accounts.inverse[self.account]
 
     def next_order_info(
         self,
@@ -280,7 +282,7 @@ def mk_allocator(
 
     alloc = Allocator(
         symbol=symbol,
-        _accounts=accounts,
+        accounts=accounts,
         **defaults,
     )
 
