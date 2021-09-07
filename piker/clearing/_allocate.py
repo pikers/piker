@@ -250,27 +250,45 @@ class Allocator(BaseModel):
 
 def mk_allocator(
 
-    alloc: Allocator,
+    symbol: Symbol,
+    accounts: dict[str, str],
     startup_pp: Position,
 
-) -> (float, Allocator):
+    # default allocation settings
+    defaults: dict[str, float] = {
+        'account': None,  # select paper by default
+        'size_unit': _size_units['currency'],
+        'units_limit': 400,
+        'currency_limit': 5e3,
+        'slots': 4,
+    },
+    **kwargs,
 
-    asset_type = alloc.symbol.type_key
+) -> Allocator:
+
+    if kwargs:
+        defaults.update(kwargs)
 
     # load and retreive user settings for default allocations
     # ``config.toml``
-    slots = 4
-    currency_limit = 5e3
+    user_def = {
+        'currency_limit': 5e3,
+        'slots': 4,
+    }
 
-    alloc.slots = slots
-    alloc.currency_limit = currency_limit
+    defaults.update(user_def)
 
-    # default entry sizing
-    if asset_type in ('stock', 'crypto', 'forex'):
+    alloc = Allocator(
+        symbol=symbol,
+        _accounts=accounts,
+        **defaults,
+    )
 
-        alloc.size_unit = '$ size'
+    asset_type = symbol.type_key
 
-    elif asset_type in ('future', 'option', 'futures_option'):
+    # specific configs by asset class / type
+
+    if asset_type in ('future', 'option', 'futures_option'):
 
         # since it's harder to know how currency "applies" in this case
         # given leverage properties
@@ -278,7 +296,7 @@ def mk_allocator(
 
         # set units limit to slots size thus making make the next
         # entry step 1.0
-        alloc.units_limit = slots
+        alloc.units_limit = alloc.slots
 
     # if the current position is already greater then the limit
     # settings, increase the limit to the current position
@@ -288,14 +306,10 @@ def mk_allocator(
         if startup_size > alloc.currency_limit:
             alloc.currency_limit = round(startup_size, ndigits=2)
 
-        limit_text = alloc.currency_limit
-
     else:
         startup_size = startup_pp.size
 
         if startup_size > alloc.units_limit:
             alloc.units_limit = startup_size
 
-        limit_text = alloc.units_limit
-
-    return limit_text, alloc
+    return alloc
