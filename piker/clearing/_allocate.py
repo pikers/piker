@@ -129,7 +129,7 @@ class Allocator(BaseModel):
             return self.units_limit
 
     def account_name(self) -> str:
-        return self.accounts.inverse[self.account]
+       return self.accounts.inverse[self.account]
 
     def next_order_info(
         self,

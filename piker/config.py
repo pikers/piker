@@ -22,6 +22,7 @@ from os.path import dirname
 import shutil
 from typing import Optional
 
+from bidict import bidict
 import toml
 import click
 
@@ -104,10 +105,13 @@ def write(
         return toml.dump(config, cf)
 
 
-def load_accounts() -> dict[str, Optional[str]]:
+def load_accounts(
+    provider: Optional[str] = None
+
+) -> bidict[str, Optional[str]]:
 
     # our default paper engine entry
-    accounts: dict[str, Optional[str]] = {'paper': None}
+    accounts = bidict({'paper': None})
 
     conf, path = load()
     section = conf.get('accounts')
@@ -116,7 +120,11 @@ def load_accounts() -> dict[str, Optional[str]]:
 
     else:
         for brokername, account_labels in section.items():
-            for name, value in account_labels.items():
-                accounts[f'{brokername}.{name}'] = value
+            if (
+                provider is None or
+                provider and brokername == provider
+            ):
+                for name, value in account_labels.items():
+                    accounts[f'{brokername}.{name}'] = value
 
     return accounts
