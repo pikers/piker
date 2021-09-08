@@ -201,6 +201,7 @@ async def clear_dark_triggers(
                         msg = BrokerdOrder(
                             action=cmd['action'],
                             oid=oid,
+                            account=cmd['account'],
                             time_ns=time.time_ns(),
 
                             # this **creates** new order request for the
@@ -621,8 +622,11 @@ async def translate_and_relay_brokerd_events(
             # another stupid ib error to handle
             # if 10147 in message: cancel
 
+            resp = 'broker_errored'
+            broker_details = msg.dict()
+
             # don't relay message to order requester client
-            continue
+            # continue
 
         elif name in (
             'status',
@@ -741,6 +745,7 @@ async def process_client_order_cmds(
                     oid=oid,
                     reqid=reqid,
                     time_ns=time.time_ns(),
+                    account=live_entry.account,
                 )
 
                 # NOTE: cancel response will be relayed back in messages
@@ -814,6 +819,7 @@ async def process_client_order_cmds(
                     action=action,
                     price=trigger_price,
                     size=size,
+                    account=msg.account,
                 )
 
                 # send request to backend
@@ -1016,6 +1022,7 @@ async def _emsd_main(
                 try:
                     _router.clients.add(ems_client_order_stream)
 
+                    # main entrypoint, run here until cancelled.
                     await process_client_order_cmds(
 
                         ems_client_order_stream,
@@ -1035,7 +1042,7 @@ async def _emsd_main(
 
                     dialogues = _router.dialogues
 
-                    for oid, client_stream in dialogues.items():
+                    for oid, client_stream in dialogues.copy().items():
 
                         if client_stream == ems_client_order_stream:
 

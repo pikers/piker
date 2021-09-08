@@ -103,7 +103,7 @@ class OrderMode:
     arrows: ArrowEditor
     multistatus: MultiStatus
     pp: PositionTracker
-    allocator: 'Allocator'  # noqa
+    alloc: 'Allocator'  # noqa
     pane: SettingsPane
 
     active: bool = False
@@ -193,6 +193,7 @@ class OrderMode:
         order = self._staged_order = Order(
             action=action,
             price=price,
+            account=self.alloc.account_name(),
             size=0,
             symbol=symbol,
             brokers=symbol.brokers,
@@ -538,6 +539,8 @@ async def open_order_mode(
 
         # load account names from ``brokers.toml``
         accounts = bidict(config.load_accounts())
+        # process pps back from broker, only present
+        # account names reported back from ``brokerd``.
         pp_account = None
 
         if pp_msg:
@@ -598,7 +601,7 @@ async def open_order_mode(
             arrows,
             multistatus,
             pp_tracker,
-            allocator=alloc,
+            alloc=alloc,
             pane=order_pane,
         )
 
@@ -823,10 +826,13 @@ async def process_trades_and_update_ui(
         elif resp in (
             'broker_cancelled',
             'broker_inactive',
+            'broker_errored',
             'dark_cancelled'
         ):
             # delete level line from view
             mode.on_cancel(oid)
+            broker_msg = msg['brokerd_msg']
+            log.warning(f'Order {oid} failed with:\n{pformat(broker_msg)}')
 
         elif resp in (
             'dark_triggered'
