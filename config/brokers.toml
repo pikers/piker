@@ -14,12 +14,14 @@ private_key = ""
 [ib]
 host = "127.0.0.1"
 
-[ib.accounts]
-margin = ""
-registered = ""
-paper = ""
+ports.gw = 4002
+ports.tws = 7497
+ports.order = ["gw", "tws",]
 
-[ib.ports]
-gw = 4002
-tws = 7497
-order = [ "gw", "tws",]
+accounts.margin = "X0000000"
+accounts.ira = "X0000000"
+accounts.paper = "XX0000000"
+
+# the order in which accounts will be selected (if found through
+# `brokerd`) when a new symbol is loaded
+accounts_order = ['paper', 'margin', 'ira']

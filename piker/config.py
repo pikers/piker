@@ -106,6 +106,7 @@ def write(
 
 
 def load_accounts(
+
     provider: Optional[str] = None
 
 ) -> bidict[str, Optional[str]]:
@@ -114,17 +115,20 @@ def load_accounts(
     accounts = bidict({'paper': None})
 
     conf, path = load()
-    section = conf.get('accounts')
-    if section is None:
-        log.warning('No accounts config found?')
 
-    else:
-        for brokername, account_labels in section.items():
-            if (
-                provider is None or
-                provider and brokername == provider
-            ):
-                for name, value in account_labels.items():
-                    accounts[f'{brokername}.{name}'] = value
+    for provider_name, section in conf.items():
+        accounts_section = section.get('accounts')
+        if (
+            provider is None or
+            provider and provider_name == provider
+        ):
+            if accounts_section is None:
+                log.warning(f'No accounts named for {provider_name}?')
+                continue
+            else:
+                for label, value in accounts_section.items():
+                    accounts[
+                        f'{provider_name}.{label}'
+                    ] = value
 
     return accounts
