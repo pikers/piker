@@ -198,6 +198,8 @@ class SettingsPane:
         # update bound-in staged order
         order.price = level
         order.size = order_info['size']
+        # NOTE: the account is set at order stage time
+        # inside ``OrderMode.line_from_order()``.
 
 
 def position_line(
@@ -470,7 +472,6 @@ class PositionTracker:
 
         return arrow
 
-    # TODO: per account lines on a single (or very related) symbol
     def update_line(
         self,
         price: float,
@@ -506,7 +507,10 @@ class PositionTracker:
             line.update_labels({
                 'size': size,
                 'size_digits': size_digits,
-                'fiat_size': round(price * size, ndigits=2)
+                'fiat_size': round(price * size, ndigits=2),
+
+                # TODO: per account lines on a single (or very related) symbol
+                'account': self.alloc.account_name(),
             })
             line.show()
 
