@@ -129,7 +129,7 @@ class Allocator(BaseModel):
             return self.units_limit
 
     def account_name(self) -> str:
-       return self.accounts.inverse[self.account]
+        return self.accounts.inverse[self.account]
 
     def next_order_info(
         self,
@@ -224,6 +224,9 @@ class Allocator(BaseModel):
             # TODO: incorporate multipliers for relevant derivatives
             'fiat_size': round(order_size * price, ndigits=2),
             'slots_used': slots_used,
+
+            # update line LHS label with account name
+            'account': self.account_name(),
         }
 
     def slots_used(
