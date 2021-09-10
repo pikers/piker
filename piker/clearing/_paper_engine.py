@@ -35,7 +35,7 @@ from ..data._normalize import iterticks
 from ..log import get_logger
 from ._messages import (
     BrokerdCancel, BrokerdOrder, BrokerdOrderAck, BrokerdStatus,
-    BrokerdFill, BrokerdPosition,
+    BrokerdFill, BrokerdPosition, BrokerdError
 )
 
 
@@ -385,6 +385,19 @@ async def handle_order_requests(
         action = request_msg['action']
 
         if action in {'buy', 'sell'}:
+
+            account = request_msg['account']
+            if account != 'paper':
+                log.error(
+                    'This is a paper account, only a `paper` selection is valid'
+                )
+                await ems_order_stream.send(BrokerdError(
+                    oid=request_msg['oid'],
+                    symbol=request_msg['symbol'],
+                    reason=f'Paper only. No account found: `{account}` ?',
+                ).dict())
+                continue
+
             # validate
             order = BrokerdOrder(**request_msg)
 
