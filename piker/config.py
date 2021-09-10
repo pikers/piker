@@ -107,20 +107,17 @@ def write(
 
 def load_accounts(
 
-    provider: Optional[str] = None
+    providers: Optional[list[str]] = None
 
 ) -> bidict[str, Optional[str]]:
 
-    # our default paper engine entry
-    accounts = bidict({'paper': None})
-
     conf, path = load()
-
+    accounts = bidict()
     for provider_name, section in conf.items():
         accounts_section = section.get('accounts')
         if (
-            provider is None or
-            provider and provider_name == provider
+            providers is None or
+            providers and provider_name in providers
         ):
             if accounts_section is None:
                 log.warning(f'No accounts named for {provider_name}?')
@@ -131,4 +128,6 @@ def load_accounts(
                         f'{provider_name}.{label}'
                     ] = value
 
+    # our default paper engine entry
+    accounts['paper'] = None
     return accounts
