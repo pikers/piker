@@ -1010,7 +1010,10 @@ async def _emsd_main(
             # signal to client that we're started
             # TODO: we could eventually send back **all** brokerd
             # positions here?
-            await ems_ctx.started(relay.positions)
+            await ems_ctx.started(
+                {sym: list(pps.values())
+                 for sym, pps in relay.positions.items()}
+            )
 
             # establish 2-way stream with requesting order-client and
             # begin handling inbound order requests and updates
