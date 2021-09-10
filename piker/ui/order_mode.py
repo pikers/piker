@@ -530,7 +530,7 @@ async def open_order_mode(
         trackers: dict[str, PositionTracker] = {}
 
         # load account names from ``brokers.toml``
-        accounts = config.load_accounts(providers=symbol.brokers)
+        accounts = config.load_accounts(providers=symbol.brokers).copy()
         if accounts:
             # first account listed is the one we select at startup
             # (aka order based selection).
@@ -538,8 +538,59 @@ async def open_order_mode(
         else:
             pp_account = 'paper'
 
-        # for each account with this broker, allocate pp tracker components
-        for config_name, account in accounts.items():
+        # NOTE: requires the backend exactly specifies
+        # the expected symbol key in its positions msg.
+        pp_msgs = position_msgs.get(symkey, ())
+
+        # update all pp trackers with existing data relayed
+        # from ``brokerd``.
+        for msg in pp_msgs:
+
+            log.info(f'Loading pp for {symkey}:\n{pformat(msg)}')
+            account_name = accounts.inverse.get(msg.get('account'))
+
+            # net-zero pp
+            startup_pp = Position(
+                symbol=symbol,
+                size=0,
+                avg_price=0,
+            )
+            startup_pp.update_from_msg(msg)
+
+            # allocator
+            alloc = mk_allocator(
+                symbol=symbol,
+                accounts=accounts,
+                account=account_name,
+
+                # if this startup size is greater the allocator limit,
+                # the limit is increased internally in this factory.
+                startup_pp=startup_pp,
+            )
+
+            pp_tracker = PositionTracker(
+                chart,
+                alloc,
+                startup_pp
+            )
+            pp_tracker.hide()
+            trackers[account_name] = pp_tracker
+
+            assert pp_tracker.startup_pp.size == pp_tracker.live_pp.size
+
+            # TODO: do we even really need the "startup pp" or can we
+            # just take the max and pass that into the some state / the
+            # alloc?
+            pp_tracker.update_from_pp()
+
+            if pp_tracker.startup_pp.size != 0:
+                # if no position, don't show pp tracking graphics
+                pp_tracker.show()
+                pp_tracker.hide_info()
+
+        # fill out trackers for accounts with net-zero pps
+        for account_name in set(accounts) - set(trackers):
+
             # net-zero pp
             startup_pp = Position(
                 symbol=symbol,
@@ -551,7 +602,7 @@ async def open_order_mode(
             alloc = mk_allocator(
                 symbol=symbol,
                 accounts=accounts,
-                account=config_name,
+                account=account_name,
                 startup_pp=startup_pp,
             )
             pp_tracker = PositionTracker(
@@ -560,46 +611,7 @@ async def open_order_mode(
                 startup_pp
             )
             pp_tracker.hide()
-            trackers[config_name] = pp_tracker
-
-        # TODO: preparse and account-map these msgs and do it all in ONE LOOP!
-
-        # NOTE: requires the backend exactly specifies
-        # the expected symbol key in its positions msg.
-        pp_msgs = position_msgs.get(symkey, ())
-
-        # update all pp trackers with existing data relayed
-        # from ``brokerd``.
-        for msg in pp_msgs:
-            log.info(f'Loading pp for {symkey}:\n{pformat(msg)}')
-            account_name = accounts.inverse.get(msg.get('account'))
-            tracker = trackers[account_name]
-
-            # TODO: do we even really need the "startup pp" or can we
-            # just take the max and pass that into the some state / the
-            # alloc?
-            tracker.startup_pp.update_from_msg(msg)
-            tracker.live_pp.update_from_msg(msg)
-
-            # TODO:
-            # if this startup size is greater the allocator limit,
-            # increase the limit to the current pp size which is done
-            # in this alloc factory..
-            # tracker.alloc = mk_allocator(
-            #     symbol=symbol,
-            #     accounts=accounts,
-            #     account=account_name,
-            #     startup_pp=tracker.live_pp,
-            # )
-
-            # tracker.update_from_pp(tracker.startup_pp)
-            tracker.update_from_pp(tracker.live_pp)
-
-            if tracker.startup_pp.size != 0:
-                # if no position, don't show pp tracking graphics
-                tracker.show()
-
-            tracker.hide_info()
+            trackers[account_name] = pp_tracker
 
         # order pane widgets and allocation model
         order_pane = SettingsPane(
