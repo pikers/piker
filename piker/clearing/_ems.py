@@ -260,8 +260,15 @@ async def clear_dark_triggers(
 
 @dataclass
 class TradesRelay:
+
+    # for now we keep only a single connection open with
+    # each ``brokerd`` for simplicity.
     brokerd_dialogue: tractor.MsgStream
-    positions: dict[str, float]
+
+    # map of symbols to dicts of accounts to pp msgs
+    positions: dict[str, dict[str, BrokerdPosition]]
+
+    # count of connected ems clients for this ``brokerd``
     consumers: int = 0
 
 
@@ -514,10 +521,13 @@ async def translate_and_relay_brokerd_events(
 
             pos_msg = BrokerdPosition(**brokerd_msg).dict()
 
-            # keep up to date locally in ``emsd``
-            relay.positions.setdefault(pos_msg['symbol'], {}).update(pos_msg)
+            # XXX: this will be useful for automatic strats yah?
+            # keep pps per account up to date locally in ``emsd`` mem
+            relay.positions.setdefault(pos_msg['symbol'], {}).setdefault(
+                pos_msg['account'], {}
+            ).update(pos_msg)
 
-            # relay through position msgs immediately by
+            # fan-out-relay position msgs immediately by
             # broadcasting updates on all client streams
             for client_stream in router.clients:
                 await client_stream.send(pos_msg)
