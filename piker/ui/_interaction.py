@@ -198,7 +198,7 @@ async def handle_viewmode_kb_inputs(
                 Qt.Key_P,
             }
         ):
-            pp_pane = order_mode.pp.pane
+            pp_pane = order_mode.current_pp.pane
             if pp_pane.isHidden():
                 pp_pane.show()
             else:
@@ -213,7 +213,7 @@ async def handle_viewmode_kb_inputs(
         if order_keys_pressed:
 
             # show the pp size label
-            order_mode.pp.show()
+            order_mode.current_pp.show()
 
             # TODO: show pp config mini-params in status bar widget
             # mode.pp_config.show()
@@ -259,20 +259,23 @@ async def handle_viewmode_kb_inputs(
             ) and
             key in NUMBER_LINE
         ):
-            # hot key to set order slots size
+            # hot key to set order slots size.
+            # change edit field to current number line value,
+            # update the pp allocator bar, unhighlight the
+            # field when ctrl is released.
             num = int(text)
             pp_pane = order_mode.pane
             pp_pane.on_ui_settings_change('slots', num)
             edit = pp_pane.form.fields['slots']
             edit.selectAll()
+            # un-highlight on ctrl release
             on_next_release = edit.deselect
-
             pp_pane.update_status_ui()
 
         else:  # none active
 
             # hide pp label
-            order_mode.pp.hide_info()
+            order_mode.current_pp.hide_info()
 
             # if none are pressed, remove "staged" level
             # line under cursor position

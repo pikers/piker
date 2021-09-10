@@ -50,10 +50,6 @@ class SettingsPane:
     order entry sizes and position limits per tradable instrument.
 
     '''
-    # config for and underlying validation model
-    tracker: PositionTracker
-    alloc: Allocator
-
     # input fields
     form: FieldsForm
 
@@ -64,9 +60,8 @@ class SettingsPane:
     pnl_label: QLabel
     limit_label: QLabel
 
-    def transform_to(self, size_unit: str) -> None:
-        if self.alloc.size_unit == size_unit:
-            return
+    # encompasing high level namespace
+    order_mode: Optional['OrderMode'] = None  # typing: ignore # noqa
 
     def on_selection_change(
         self,
@@ -79,7 +74,6 @@ class SettingsPane:
 
         '''
         log.info(f'selection input: {text}')
-        setattr(self.alloc, key, text)
         self.on_ui_settings_change(key, text)
 
     def on_ui_settings_change(
@@ -92,10 +86,34 @@ class SettingsPane:
         '''Called on any order pane edit field value change.
 
         '''
-        alloc = self.alloc
+        mode = self.order_mode
+
+        if key == 'account':
+            # an account switch request
+
+            # hide detail on the old pp
+            old_tracker = mode.current_pp
+            old_tracker.hide_info()
+
+            # re-assign the order mode tracker
+            account_name = value
+            tracker = mode.trackers[account_name]
+            self.order_mode.current_pp = tracker
+            assert tracker.alloc.account_name() == account_name
+            self.form.fields['account'].setCurrentText(account_name)
+            tracker.show()
+            tracker.hide_info()
+
+            # load the new account's allocator
+            alloc = tracker.alloc
+
+        else:
+            tracker = mode.current_pp
+            alloc = tracker.alloc
+
         size_unit = alloc.size_unit
 
-        # write any passed settings to allocator
+        # WRITE any settings to current pp's allocator
         if key == 'limit':
             if size_unit == 'currency':
                 alloc.currency_limit = float(value)
@@ -110,14 +128,10 @@ class SettingsPane:
             # the current settings in the new units
             pass
 
-        elif key == 'account':
-            account_name = value or 'paper'
-            alloc.account = account_name
-
-        else:
+        elif key != 'account':
             raise ValueError(f'Unknown setting {key}')
 
-        # read out settings and update UI
+        # READ out settings and update UI
         log.info(f'settings change: {key}: {value}')
 
         suffix = {'currency': ' $', 'units': ' u'}[size_unit]
@@ -125,7 +139,7 @@ class SettingsPane:
 
         # TODO: a reverse look up from the position to the equivalent
         # account(s), if none then look to user config for default?
-        self.update_status_ui()
+        self.update_status_ui(pp=tracker)
 
         step_size, currency_per_slot = alloc.step_sizes()
 
@@ -143,7 +157,6 @@ class SettingsPane:
         self.form.fields['size_unit'].setCurrentText(
             alloc._size_units[alloc.size_unit]
         )
-        self.form.fields['account'].setCurrentText(alloc.account_name())
         self.form.fields['slots'].setText(str(alloc.slots))
         self.form.fields['limit'].setText(str(limit))
 
@@ -154,13 +167,14 @@ class SettingsPane:
 
     def update_status_ui(
         self,
-        size: float = None,
+
+        pp: PositionTracker,
 
     ) -> None:
 
-        alloc = self.alloc
+        alloc = pp.alloc
         slots = alloc.slots
-        used = alloc.slots_used(self.tracker.live_pp)
+        used = alloc.slots_used(pp.live_pp)
 
         # calculate proportion of position size limit
         # that exists and display in fill bar
@@ -173,12 +187,17 @@ class SettingsPane:
             min(used, slots)
         )
 
+    # TODO: move to order mode module! doesn't need to be a method since
+    # we partial in all the state
     def on_level_change_update_next_order_info(
         self,
 
         level: float,
+
+        # these are all ``partial``-ed in at callback assignment time.
         line: LevelLine,
         order: Order,
+        tracker: PositionTracker,
 
     ) -> None:
         '''A callback applied for each level change to the line
@@ -187,9 +206,9 @@ class SettingsPane:
         ``OrderMode.line_from_order()``
 
         '''
-        order_info = self.alloc.next_order_info(
-            startup_pp=self.tracker.startup_pp,
-            live_pp=self.tracker.live_pp,
+        order_info = tracker.alloc.next_order_info(
+            startup_pp=tracker.startup_pp,
+            live_pp=tracker.live_pp,
             price=level,
             action=order.action,
         )
@@ -267,8 +286,8 @@ def position_line(
 
 
 class PositionTracker:
-    '''Track and display a real-time position for a single symbol
-    on a chart.
+    '''Track and display real-time positions for a single symbol
+    over multiple accounts on a single chart.
 
     Graphically composed of a level line and marker as well as labels
     for indcating current position information. Updates are made to the
@@ -277,11 +296,12 @@ class PositionTracker:
     '''
     # inputs
     chart: 'ChartPlotWidget'  # noqa
+
     alloc: Allocator
     startup_pp: Position
+    live_pp: Position
 
     # allocated
-    live_pp: Position
     pp_label: Label
     size_label: Label
     line: Optional[LevelLine] = None
@@ -297,6 +317,7 @@ class PositionTracker:
     ) -> None:
 
         self.chart = chart
+
         self.alloc = alloc
         self.startup_pp = startup_pp
         self.live_pp = startup_pp.copy()
@@ -375,7 +396,6 @@ class PositionTracker:
         '''
         # live pp updates
         pp = position or self.live_pp
-        # pp.update_from_msg(msg)
 
         self.update_line(
             pp.avg_price,
@@ -413,7 +433,6 @@ class PositionTracker:
 
     def show(self) -> None:
         if self.live_pp.size:
-
             self.line.show()
             self.line.show_labels()
 
