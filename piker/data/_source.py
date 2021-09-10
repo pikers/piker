@@ -106,6 +106,7 @@ class Symbol(BaseModel):
         mult = 1 / self.tick_size
         return round(value * mult) / mult
 
+
 @validate_arguments
 def mk_symbol(
 
