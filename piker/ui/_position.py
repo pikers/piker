@@ -104,6 +104,8 @@ class SettingsPane:
             tracker.show()
             tracker.hide_info()
 
+            mode.display_pnl(tracker)
+
             # load the new account's allocator
             alloc = tracker.alloc
 

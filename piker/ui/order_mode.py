@@ -96,6 +96,8 @@ class OrderMode:
 
     '''
     chart: 'ChartPlotWidget'  #  type: ignore # noqa
+    nursery: trio.Nursery
+    quote_feed: Feed
     book: OrderBook
     lines: LineEditor
     arrows: ArrowEditor
@@ -474,6 +476,49 @@ class OrderMode:
 
         return ids
 
+    def display_pnl(
+        self,
+        tracker: PositionTracker,
+
+    ) -> bool:
+        '''Display the PnL for the current symbol and personal positioning (pp).
+
+        If a position is open start a background task which will
+        real-time update the pnl label in the settings pane.
+
+        '''
+        sym = self.chart.linked.symbol
+        size = tracker.live_pp.size
+        global _pnl_tasks
+        if (
+            size and
+            sym.key not in _pnl_tasks
+        ):
+            _pnl_tasks[sym.key] = True
+
+            # immediately compute and display pnl status from last quote
+            self.pane.pnl_label.format(
+                pnl=copysign(1, size) * pnl(
+                    tracker.live_pp.avg_price,
+                    # last historical close price
+                    self.quote_feed.shm.array[-1][['close']][0],
+                ),
+            )
+
+            log.info(
+                f'Starting pnl display for {tracker.alloc.account_name()}')
+            self.nursery.start_soon(
+                display_pnl,
+                self.quote_feed,
+                self,
+            )
+            return True
+
+        else:
+            # set 0% pnl
+            self.pane.pnl_label.format(pnl=0)
+            return False
+
 
 @asynccontextmanager
 async def open_order_mode(
@@ -627,6 +672,8 @@ async def open_order_mode(
         # a namespace..
         mode = OrderMode(
             chart,
+            tn,
+            feed,
             book,
             lines,
             arrows,
@@ -660,7 +707,8 @@ async def open_order_mode(
 
         # make fill bar and positioning snapshot
         order_pane.on_ui_settings_change('limit', tracker.alloc.limit())
-        order_pane.on_ui_settings_change('account', pp_account)
+        # order_pane.on_ui_settings_change('account', pp_account)
+
         # order_pane.update_status_ui(pp=tracker.startup_pp)
         order_pane.update_status_ui(pp=tracker)
 
@@ -669,31 +717,8 @@ async def open_order_mode(
         # so that view handlers can access it
         view.order_mode = mode
 
-        # real-time pnl display task allocation
-        live_pp = mode.current_pp.live_pp
-        size = live_pp.size
-        if size:
-            global _pnl_tasks
-
-            # compute and display pnl status immediately
-            mode.pane.pnl_label.format(
-                pnl=copysign(1, size) * pnl(
-                    live_pp.avg_price,
-                    # last historical close price
-                    feed.shm.array[-1][['close']][0],
-                ),
-            )
-
-            # spawn updater task
-            tn.start_soon(
-                display_pnl,
-                feed,
-                mode,
-            )
-
-        else:
-            # set 0% pnl
-            mode.pane.pnl_label.format(pnl=0)
+        mode.display_pnl(mode.current_pp)
+        order_pane.on_ui_settings_change('account', pp_account)
 
         # Begin order-response streaming
         done()
@@ -712,7 +737,6 @@ async def open_order_mode(
             ),
 
         ):
-
             # signal to top level symbol loading task we're ready
             # to handle input since the ems connection is ready
             started.set()
@@ -732,8 +756,10 @@ _pnl_tasks: dict[str, bool] = {}
 
 
 async def display_pnl(
+
     feed: Feed,
     order_mode: OrderMode,
+
 ) -> None:
     '''Real-time display the current pp's PnL in the appropriate label.
 
@@ -744,10 +770,7 @@ async def display_pnl(
 
     pp = order_mode.current_pp
     live = pp.live_pp
-
     sym = live.symbol.key
-    assert not _pnl_tasks.get(sym)
-    _pnl_tasks[sym] = True
 
     if live.size < 0:
         types = ('ask', 'last', 'last', 'utrade')
@@ -829,15 +852,7 @@ async def process_trades_and_update_ui(
                 # update order pane widgets
                 mode.pane.update_status_ui(tracker.live_pp)
 
-            if (
-                tracker.live_pp.size and
-                sym.key not in _pnl_tasks
-            ):
-                n.start_soon(
-                    display_pnl,
-                    feed,
-                    mode,
-                )
+            mode.display_pnl(tracker)
             # short circuit to next msg to avoid
             # unnecessary msg content lookups
             continue
