@@ -740,7 +740,7 @@ async def load_aio_clients(
     )
     order = ports['order']
 
-    accounts_def = config.load_accounts('ib')
+    accounts_def = config.load_accounts(['ib'])
 
     try_ports = [ports[key] for key in order]
     ports = try_ports if port is None else [port]
@@ -1459,7 +1459,7 @@ async def trades_dialogue(
     # XXX: required to propagate ``tractor`` loglevel to piker logging
     get_console_log(loglevel or tractor.current_actor().loglevel)
 
-    accounts_def = config.load_accounts('ib')
+    accounts_def = config.load_accounts(['ib'])
 
     global _accounts2clients
     global _client_cache
@@ -1480,7 +1480,9 @@ async def trades_dialogue(
         for client in _client_cache.values():
             for pos in client.positions():
                 msg = pack_position(pos)
-                all_positions[msg.symbol] = msg.dict()
+                all_positions.setdefault(
+                    msg.symbol, []
+                ).append(msg.dict())
 
     await ctx.started(all_positions)
 
