@@ -224,6 +224,7 @@ class Label:
 
     def show(self) -> None:
         self.txt.show()
+        self.txt.update()
 
     def hide(self) -> None:
         self.txt.hide()
