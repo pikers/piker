@@ -417,8 +417,6 @@ async def open_form_input_handling(
 
 ) -> FieldsForm:
 
-    # assert form.model, f'{form} must define a `.model`'
-
     async with open_handlers(
 
         list(form.fields.values()),
