@@ -733,7 +733,7 @@ async def open_order_mode(
 
             w.currentTextChanged.connect(
                 partial(
-                    order_pane.on_selection_change,
+                    order_pane.on_ui_settings_change,
                     key=key,
                 )
             )

@@ -62,19 +62,6 @@ class SettingsPane:
     # encompasing high level namespace
     order_mode: Optional['OrderMode'] = None  # typing: ignore # noqa
 
-    def on_selection_change(
-        self,
-
-        text: str,
-        key: str,
-
-    ) -> None:
-        '''Called on any order pane drop down selection change.
-
-        '''
-        log.info(f'selection input: {text}')
-        self.on_ui_settings_change(key, text)
-
     def on_ui_settings_change(
         self,
 
@@ -85,6 +72,7 @@ class SettingsPane:
         '''Called on any order pane edit field value change.
 
         '''
+        log.info(f'selection input: {value}')
         mode = self.order_mode
 
         if key == 'account':
