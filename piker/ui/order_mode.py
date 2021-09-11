@@ -75,6 +75,37 @@ class OrderDialog(BaseModel):
         underscore_attrs_are_private = False
 
 
+def on_level_change_update_next_order_info(
+
+    level: float,
+
+    # these are all ``partial``-ed in at callback assignment time.
+    line: LevelLine,
+    order: Order,
+    tracker: PositionTracker,
+
+) -> None:
+    '''A callback applied for each level change to the line
+    which will recompute the order size based on allocator
+    settings. this is assigned inside
+    ``OrderMode.line_from_order()``
+
+    '''
+    # NOTE: the ``Order.account`` is set at order stage time
+    # inside ``OrderMode.line_from_order()``.
+    order_info = tracker.alloc.next_order_info(
+        startup_pp=tracker.startup_pp,
+        live_pp=tracker.live_pp,
+        price=level,
+        action=order.action,
+    )
+    line.update_labels(order_info)
+
+    # update bound-in staged order
+    order.price = level
+    order.size = order_info['size']
+
+
 @dataclass
 class OrderMode:
     '''Major UX mode for placing orders on a chart view providing so
@@ -152,7 +183,7 @@ class OrderMode:
         # immediately
         if order.action != 'alert':
             line._on_level_change = partial(
-                self.pane.on_level_change_update_next_order_info,
+                on_level_change_update_next_order_info,
                 line=line,
                 order=order,
                 tracker=self.current_pp,
@@ -592,7 +623,10 @@ async def open_order_mode(
         for msg in pp_msgs:
 
             log.info(f'Loading pp for {symkey}:\n{pformat(msg)}')
-            account_name = accounts.inverse.get(msg.get('account'))
+            account_value = msg.get('account')
+            account_name = accounts.inverse.get(account_value)
+            if not account_name and account_value == 'paper':
+                account_name = 'paper'
 
             # net-zero pp
             startup_pp = Position(
@@ -634,9 +668,8 @@ async def open_order_mode(
                 pp_tracker.hide_info()
 
         # fill out trackers for accounts with net-zero pps
-        for account_name in set(accounts) - set(trackers):
-
-            # net-zero pp
+        zero_pp_accounts = set(accounts) - set(trackers)
+        for account_name in zero_pp_accounts:
             startup_pp = Position(
                 symbol=symbol,
                 size=0,
@@ -709,7 +742,6 @@ async def open_order_mode(
         order_pane.on_ui_settings_change('limit', tracker.alloc.limit())
         # order_pane.on_ui_settings_change('account', pp_account)
 
-        # order_pane.update_status_ui(pp=tracker.startup_pp)
         order_pane.update_status_ui(pp=tracker)
 
         # TODO: create a mode "manager" of sorts?
@@ -770,7 +802,7 @@ async def display_pnl(
 
     pp = order_mode.current_pp
     live = pp.live_pp
-    sym = live.symbol.key
+    key = live.symbol.key
 
     if live.size < 0:
         types = ('ask', 'last', 'last', 'utrade')
@@ -814,8 +846,8 @@ async def display_pnl(
 
                         # last_tick = time.time()
     finally:
-        assert _pnl_tasks[sym]
-        assert _pnl_tasks.pop(sym)
+        assert _pnl_tasks[key]
+        assert _pnl_tasks.pop(key)
 
 
 async def process_trades_and_update_ui(
@@ -850,7 +882,7 @@ async def process_trades_and_update_ui(
                 tracker.update_from_pp()
 
                 # update order pane widgets
-                mode.pane.update_status_ui(tracker.live_pp)
+                mode.pane.update_status_ui(tracker)
 
             mode.display_pnl(tracker)
             # short circuit to next msg to avoid
@@ -942,4 +974,6 @@ async def process_trades_and_update_ui(
                 arrow_index=get_index(details['broker_time']),
             )
 
-            tracker.live_pp.fills.append(msg)
+            # TODO: how should we look this up?
+            # tracker = mode.trackers[msg['account']]
+            # tracker.live_pp.fills.append(msg)
