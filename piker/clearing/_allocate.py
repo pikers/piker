@@ -134,6 +134,10 @@ class Allocator(BaseModel):
     def next_order_info(
         self,
 
+        # we only need a startup size for exit calcs, we can the
+        # determine how large slots should be if the initial pp size was
+        # larger then the current live one, and the live one is smaller
+        # then the initial config settings.
         startup_pp: Position,
         live_pp: Position,
         price: float,
@@ -191,9 +195,13 @@ class Allocator(BaseModel):
             else:
                 slot_size = u_per_slot
 
+            # TODO: ensure that the limit can never be set **lower**
+            # then the current pp size? It should be configured
+            # correctly at startup right?
+
             # if our position is greater then our limit setting
             # we'll want to use slot sizes which are larger then what
-            # the limit would normally determine
+            # the limit would normally determine.
             order_size = max(slotted_pp, slot_size)
 
             if (

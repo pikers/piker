@@ -75,10 +75,10 @@ class SettingsPane:
         log.info(f'selection input: {value}')
         mode = self.order_mode
 
+        # an account switch request
         if key == 'account':
-            # an account switch request
 
-            # hide detail on the old pp
+            # hide details on the old selection
             old_tracker = mode.current_pp
             old_tracker.hide_info()
 
@@ -86,6 +86,9 @@ class SettingsPane:
             account_name = value
             tracker = mode.trackers.get(account_name)
 
+            # if selection can't be found (likely never discovered with
+            # a ``brokerd`) then error and switch back to the last
+            # selection.
             if tracker is None:
                 sym = old_tracker.chart.linked.symbol.key
                 log.error(
