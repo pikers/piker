@@ -21,7 +21,6 @@ Chart trading, the only way to scalp.
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from functools import partial
-from math import copysign
 from pprint import pformat
 import time
 from typing import Optional, Dict, Callable, Any
@@ -32,14 +31,12 @@ import tractor
 import trio
 
 from .. import config
-from ..calc import pnl
 from ..clearing._client import open_ems, OrderBook
 from ..clearing._allocate import (
     mk_allocator,
     Position,
 )
 from ..data._source import Symbol
-from ..data._normalize import iterticks
 from ..data.feed import Feed
 from ..log import get_logger
 from ._editors import LineEditor, ArrowEditor
@@ -507,49 +504,6 @@ class OrderMode:
 
         return ids
 
-    def display_pnl(
-        self,
-        tracker: PositionTracker,
-
-    ) -> bool:
-        '''Display the PnL for the current symbol and personal positioning (pp).
-
-        If a position is open start a background task which will
-        real-time update the pnl label in the settings pane.
-
-        '''
-        sym = self.chart.linked.symbol
-        size = tracker.live_pp.size
-        global _pnl_tasks
-        if (
-            size and
-            sym.key not in _pnl_tasks
-        ):
-            _pnl_tasks[sym.key] = True
-
-            # immediately compute and display pnl status from last quote
-            self.pane.pnl_label.format(
-                pnl=copysign(1, size) * pnl(
-                    tracker.live_pp.avg_price,
-                    # last historical close price
-                    self.quote_feed.shm.array[-1][['close']][0],
-                ),
-            )
-
-            log.info(
-                f'Starting pnl display for {tracker.alloc.account_name()}')
-            self.nursery.start_soon(
-                display_pnl,
-                self.quote_feed,
-                self,
-            )
-            return True
-
-        else:
-            # set 0% pnl
-            self.pane.pnl_label.format(pnl=0)
-            return False
-
 
 @asynccontextmanager
 async def open_order_mode(
@@ -740,8 +694,6 @@ async def open_order_mode(
 
         # make fill bar and positioning snapshot
         order_pane.on_ui_settings_change('limit', tracker.alloc.limit())
-        # order_pane.on_ui_settings_change('account', pp_account)
-
         order_pane.update_status_ui(pp=tracker)
 
         # TODO: create a mode "manager" of sorts?
@@ -749,8 +701,8 @@ async def open_order_mode(
         # so that view handlers can access it
         view.order_mode = mode
 
-        mode.display_pnl(mode.current_pp)
         order_pane.on_ui_settings_change('account', pp_account)
+        mode.pane.display_pnl(mode.current_pp)
 
         # Begin order-response streaming
         done()
@@ -782,72 +734,6 @@ async def open_order_mode(
                 book,
             )
             yield mode
-
-
-_pnl_tasks: dict[str, bool] = {}
-
-
-async def display_pnl(
-
-    feed: Feed,
-    order_mode: OrderMode,
-
-) -> None:
-    '''Real-time display the current pp's PnL in the appropriate label.
-
-    Error if this task is spawned where there is a net-zero pp.
-
-    '''
-    global _pnl_tasks
-
-    pp = order_mode.current_pp
-    live = pp.live_pp
-    key = live.symbol.key
-
-    if live.size < 0:
-        types = ('ask', 'last', 'last', 'utrade')
-
-    elif live.size > 0:
-        types = ('bid', 'last', 'last', 'utrade')
-
-    else:
-        raise RuntimeError('No pp?!?!')
-
-    # real-time update pnl on the status pane
-    try:
-        async with feed.stream.subscribe() as bstream:
-            # last_tick = time.time()
-            async for quotes in bstream:
-
-                # now = time.time()
-                # period = now - last_tick
-
-                for sym, quote in quotes.items():
-
-                    for tick in iterticks(quote, types):
-                        # print(f'{1/period} Hz')
-
-                        size = order_mode.current_pp.live_pp.size
-                        if size == 0:
-                            # terminate this update task since we're
-                            # no longer in a pp
-                            order_mode.pane.pnl_label.format(pnl=0)
-                            return
-
-                        else:
-                            # compute and display pnl status
-                            order_mode.pane.pnl_label.format(
-                                pnl=copysign(1, size) * pnl(
-                                    # live.avg_price,
-                                    order_mode.current_pp.live_pp.avg_price,
-                                    tick['price'],
-                                ),
-                            )
-
-                        # last_tick = time.time()
-    finally:
-        assert _pnl_tasks[key]
-        assert _pnl_tasks.pop(key)
 
 
 async def process_trades_and_update_ui(
@@ -884,7 +770,7 @@ async def process_trades_and_update_ui(
                 # update order pane widgets
                 mode.pane.update_status_ui(tracker)
 
-            mode.display_pnl(tracker)
+            mode.pane.display_pnl(tracker)
             # short circuit to next msg to avoid
             # unnecessary msg content lookups
             continue

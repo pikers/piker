@@ -21,7 +21,7 @@ Position info and display
 from __future__ import annotations
 from dataclasses import dataclass
 from functools import partial
-from math import floor
+from math import floor, copysign
 from typing import Optional
 
 
@@ -32,8 +32,10 @@ from ._anchors import (
     pp_tight_and_right,  # wanna keep it straight in the long run
     gpath_pin,
 )
-from ..calc import humanize
+from ..calc import humanize, pnl
 from ..clearing._allocate import Allocator, Position
+from ..data._normalize import iterticks
+from ..data.feed import Feed
 from ._label import Label
 from ._lines import LevelLine, order_line
 from ._style import _font
@@ -41,6 +43,70 @@ from ._forms import FieldsForm, FillStatusBar, QLabel
 from ..log import get_logger
 
 log = get_logger(__name__)
+_pnl_tasks: dict[str, bool] = {}
+
+
+async def display_pnl(
+
+    feed: Feed,
+    order_mode: OrderMode,  # noqa
+
+) -> None:
+    '''Real-time display the current pp's PnL in the appropriate label.
+
+    ``ValueError`` if this task is spawned where there is a net-zero pp.
+
+    '''
+    global _pnl_tasks
+
+    pp = order_mode.current_pp
+    live = pp.live_pp
+    key = live.symbol.key
+
+    if live.size < 0:
+        types = ('ask', 'last', 'last', 'utrade')
+
+    elif live.size > 0:
+        types = ('bid', 'last', 'last', 'utrade')
+
+    else:
+        raise RuntimeError('No pp?!?!')
+
+    # real-time update pnl on the status pane
+    try:
+        async with feed.stream.subscribe() as bstream:
+            # last_tick = time.time()
+            async for quotes in bstream:
+
+                # now = time.time()
+                # period = now - last_tick
+
+                for sym, quote in quotes.items():
+
+                    for tick in iterticks(quote, types):
+                        # print(f'{1/period} Hz')
+
+                        size = order_mode.current_pp.live_pp.size
+                        if size == 0:
+                            # terminate this update task since we're
+                            # no longer in a pp
+                            order_mode.pane.pnl_label.format(pnl=0)
+                            return
+
+                        else:
+                            # compute and display pnl status
+                            order_mode.pane.pnl_label.format(
+                                pnl=copysign(1, size) * pnl(
+                                    # live.avg_price,
+                                    order_mode.current_pp.live_pp.avg_price,
+                                    tick['price'],
+                                ),
+                            )
+
+                        # last_tick = time.time()
+    finally:
+        assert _pnl_tasks[key]
+        assert _pnl_tasks.pop(key)
 
 
 @dataclass
@@ -116,7 +182,7 @@ class SettingsPane:
             tracker.show()
             tracker.hide_info()
 
-            mode.display_pnl(tracker)
+            self.display_pnl(tracker)
 
             # load the new account's allocator
             alloc = tracker.alloc
@@ -200,6 +266,52 @@ class SettingsPane:
             # min(round(prop * slots), slots)
             min(used, slots)
         )
+
+    def display_pnl(
+        self,
+        tracker: PositionTracker,
+
+    ) -> bool:
+        '''Display the PnL for the current symbol and personal positioning (pp).
+
+        If a position is open start a background task which will
+        real-time update the pnl label in the settings pane.
+
+        '''
+        mode = self.order_mode
+        sym = mode.chart.linked.symbol
+        size = tracker.live_pp.size
+        feed = mode.quote_feed
+        global _pnl_tasks
+
+        if (
+            size and
+            sym.key not in _pnl_tasks
+        ):
+            _pnl_tasks[sym.key] = True
+
+            # immediately compute and display pnl status from last quote
+            self.pnl_label.format(
+                pnl=copysign(1, size) * pnl(
+                    tracker.live_pp.avg_price,
+                    # last historical close price
+                    feed.shm.array[-1][['close']][0],
+                ),
+            )
+
+            log.info(
+                f'Starting pnl display for {tracker.alloc.account_name()}')
+            self.order_mode.nursery.start_soon(
+                display_pnl,
+                feed,
+                mode,
+            )
+            return True
+
+        else:
+            # set 0% pnl
+            self.pnl_label.format(pnl=0)
+            return False
 
 
 def position_line(
