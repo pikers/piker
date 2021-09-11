@@ -23,7 +23,7 @@ from typing import Tuple, Dict, Any, Optional
 from types import ModuleType
 from functools import partial
 
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtCore import QEvent
 from PyQt5.QtWidgets import (
@@ -277,7 +277,7 @@ class ChartnPane(QFrame):
 
     '''
     sidepane: FieldsForm
-    hbox: QtGui.QHBoxLayout
+    hbox: QtWidgets.QHBoxLayout
     chart: Optional['ChartPlotWidget'] = None
 
     def __init__(
@@ -293,7 +293,7 @@ class ChartnPane(QFrame):
         self.sidepane = sidepane
         self.chart = None
 
-        hbox = self.hbox = QtGui.QHBoxLayout(self)
+        hbox = self.hbox = QtWidgets.QHBoxLayout(self)
         hbox.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         hbox.setContentsMargins(0, 0, 0, 0)
         hbox.setSpacing(3)
