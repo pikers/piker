@@ -39,7 +39,6 @@ from ._lines import LevelLine, order_line
 from ._style import _font
 from ._forms import FieldsForm, FillStatusBar, QLabel
 from ..log import get_logger
-from ..clearing._messages import Order
 
 log = get_logger(__name__)
 
@@ -97,7 +96,17 @@ class SettingsPane:
 
             # re-assign the order mode tracker
             account_name = value
-            tracker = mode.trackers[account_name]
+            tracker = mode.trackers.get(account_name)
+
+            if tracker is None:
+                sym = old_tracker.chart.linked.symbol.key
+                log.error(
+                    f'Account `{account_name}` can not be set for {sym}'
+                )
+                self.form.fields['account'].setCurrentText(
+                    old_tracker.alloc.account_name())
+                return
+
             self.order_mode.current_pp = tracker
             assert tracker.alloc.account_name() == account_name
             self.form.fields['account'].setCurrentText(account_name)
@@ -188,39 +197,6 @@ class SettingsPane:
             # min(round(prop * slots), slots)
             min(used, slots)
         )
-
-    # TODO: move to order mode module! doesn't need to be a method since
-    # we partial in all the state
-    def on_level_change_update_next_order_info(
-        self,
-
-        level: float,
-
-        # these are all ``partial``-ed in at callback assignment time.
-        line: LevelLine,
-        order: Order,
-        tracker: PositionTracker,
-
-    ) -> None:
-        '''A callback applied for each level change to the line
-        which will recompute the order size based on allocator
-        settings. this is assigned inside
-        ``OrderMode.line_from_order()``
-
-        '''
-        order_info = tracker.alloc.next_order_info(
-            startup_pp=tracker.startup_pp,
-            live_pp=tracker.live_pp,
-            price=level,
-            action=order.action,
-        )
-        line.update_labels(order_info)
-
-        # update bound-in staged order
-        order.price = level
-        order.size = order_info['size']
-        # NOTE: the account is set at order stage time
-        # inside ``OrderMode.line_from_order()``.
 
 
 def position_line(
