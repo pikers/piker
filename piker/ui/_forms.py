@@ -157,6 +157,13 @@ class FontScaledDelegate(QStyledItemDelegate):
         else:
             return super().sizeHint(option, index)
 
+    # TODO: is there a way to set this stype option once?
+    def paint(self, painter, option, index):
+        # display icons on RHS
+        # https://stackoverflow.com/a/39943629
+        option.decorationPosition = QtGui.QStyleOptionViewItem.Right
+        super().paint(painter, option, index)
+
 
 # slew of resources which helped get this where it is:
 # https://stackoverflow.com/questions/20648210/qcombobox-adjusttocontents-changing-height
@@ -280,10 +287,16 @@ class FieldsForm(QWidget):
         label = self.add_field_label(label_name)
 
         select = QComboBox(self)
+
         select._key = key
+        select._items: dict[str, int] = {}
 
         for i, value in enumerate(values):
-            select.insertItem(i, str(value))
+            strkey = str(value)
+            select.insertItem(i, strkey)
+
+            # store map of entry keys to row indexes
+            select._items[strkey] = i
 
         select.setStyleSheet(
             f"""QComboBox {{
@@ -293,14 +306,15 @@ class FieldsForm(QWidget):
             """
         )
         select.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-        select.setIconSize(QSize(0, 0))
+
         self.setSizePolicy(
             QSizePolicy.Fixed,
             QSizePolicy.Fixed,
         )
         view = select.view()
         view.setUniformItemSizes(True)
-        view.setItemDelegate(FontScaledDelegate(view))
+        # TODO: this doesn't seem to work for the currently selected item?
+        select.setItemDelegate(FontScaledDelegate(self))
 
         # compute maximum item size so that the weird
         # "style item delegate" thing can then specify
@@ -308,6 +322,8 @@ class FieldsForm(QWidget):
         values.sort()
         br = _font.boundingRect(str(values[-1]))
         _, h = br.width(), br.height()
+
+        select.setIconSize(QSize(h, h))
 
         # TODO: something better then this monkey patch
         # view._max_item_size = w, h
