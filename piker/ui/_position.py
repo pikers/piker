@@ -25,6 +25,8 @@ from math import floor, copysign
 from typing import Optional
 
 
+from PyQt5.QtWidgets import QStyle
+from PyQt5.QtGui import QIcon
 from pyqtgraph import functions as fn
 
 from ._annotate import LevelMarker
@@ -109,6 +111,19 @@ async def display_pnl(
         assert _pnl_tasks.pop(key)
 
 
+# https://www.pythonguis.com/faq/built-in-qicons-pyqt/
+# account status icons taken from built-in set
+_icon_names: dict[str, str] = {
+    # 'connected': 'SP_DialogYesButton',
+    'unavailable': 'SP_DockWidgetCloseButton',
+    'long_pp': 'SP_TitleBarShadeButton',
+    'short_pp': 'SP_TitleBarUnshadeButton',
+    'ready': 'SP_MediaPlay',
+}
+_icons: dict[str, QIcon] = {}
+
+
+
 @dataclass
 class SettingsPane:
     '''Composite set of widgets plus an allocator model for configuring
@@ -127,6 +142,41 @@ class SettingsPane:
 
     # encompasing high level namespace
     order_mode: Optional['OrderMode'] = None  # typing: ignore # noqa
+
+    def update_accounts_icon(
+        self,
+        status: str,  # one of the values in ``_icons`` above
+        keys: Optional[list[str]] = None,
+
+    ) -> None:
+
+        form = self.form
+
+        global _icons, _icon_name
+        if not _icons:
+            # load account selection using current style
+            for name, icon_name in _icon_names.items():
+                pixmap = getattr(QStyle, icon_name)
+
+                # TODO: set color to our default pp color
+                # https://stackoverflow.com/questions/13350631/simple-color-fill-qicons-in-qt
+                # mask = pixmap.createMaskFromColor(
+                #     QColor('transparent'),
+                #     Qt.MaskOutColor
+                # )
+                # pixmap.fill((QColor(hcolor('default_light'))))
+                # pixmap.setMask(mask)
+
+                _icons[name] = form.style().standardIcon(pixmap)
+
+        acct_select = form.fields['account']
+        keys = list(keys or acct_select._items.keys())
+
+        # breakpoint()
+        for key in keys:
+            i = acct_select._items[key]
+            icon = _icons[status]
+            acct_select.setItemIcon(i, icon)
 
     def on_selection_change(
         self,
@@ -206,7 +256,7 @@ class SettingsPane:
         elif key == 'size_unit':
             # TODO: if there's a limit size unit change re-compute
             # the current settings in the new units
-            pass
+            alloc.size_unit = value
 
         elif key != 'account':
             raise ValueError(f'Unknown setting {key}')
