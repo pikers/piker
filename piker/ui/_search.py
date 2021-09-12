@@ -118,7 +118,7 @@ class CompleterView(QTreeView):
         self.setModel(model)
         self.setAlternatingRowColors(True)
         # TODO: size this based on DPI font
-        self.setIndentation(20)
+        self.setIndentation(_font.px_size)
 
         # self.setUniformRowHeights(True)
         # self.setColumnWidth(0, 3)
