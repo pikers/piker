@@ -20,234 +20,93 @@ Position info and display
 """
 from __future__ import annotations
 from dataclasses import dataclass
-from enum import Enum
 from functools import partial
-from math import floor
+from math import floor, copysign
 from typing import Optional
 
 
-from bidict import bidict
 from pyqtgraph import functions as fn
-from pydantic import BaseModel, validator
 
 from ._annotate import LevelMarker
 from ._anchors import (
     pp_tight_and_right,  # wanna keep it straight in the long run
     gpath_pin,
 )
-from ..calc import humanize
-from ..clearing._messages import BrokerdPosition, Status
-from ..data._source import Symbol
+from ..calc import humanize, pnl
+from ..clearing._allocate import Allocator, Position
+from ..data._normalize import iterticks
+from ..data.feed import Feed
 from ._label import Label
 from ._lines import LevelLine, order_line
 from ._style import _font
 from ._forms import FieldsForm, FillStatusBar, QLabel
 from ..log import get_logger
-from ..clearing._messages import Order
 
 log = get_logger(__name__)
+_pnl_tasks: dict[str, bool] = {}
 
 
-class Position(BaseModel):
-    '''Basic pp (personal position) model with attached fills history.
+async def display_pnl(
 
-    This type should be IPC wire ready?
+    feed: Feed,
+    order_mode: OrderMode,  # noqa
+
+) -> None:
+    '''Real-time display the current pp's PnL in the appropriate label.
+
+    ``ValueError`` if this task is spawned where there is a net-zero pp.
 
     '''
-    symbol: Symbol
+    global _pnl_tasks
 
-    # last size and avg entry price
-    size: float
-    avg_price: float  # TODO: contextual pricing
+    pp = order_mode.current_pp
+    live = pp.live_pp
+    key = live.symbol.key
 
-    # ordered record of known constituent trade messages
-    fills: list[Status] = []
+    if live.size < 0:
+        types = ('ask', 'last', 'last', 'utrade')
 
+    elif live.size > 0:
+        types = ('bid', 'last', 'last', 'utrade')
 
-_size_units = bidict({
-    'currency': '$ size',
-    'units': '# units',
-    # TODO: but we'll need a `<brokermod>.get_accounts()` or something
-    # 'percent_of_port': '% of port',
-})
-SizeUnit = Enum(
-    'SizeUnit',
-    _size_units,
-)
+    else:
+        raise RuntimeError('No pp?!?!')
 
+    # real-time update pnl on the status pane
+    try:
+        async with feed.stream.subscribe() as bstream:
+            # last_tick = time.time()
+            async for quotes in bstream:
 
-class Allocator(BaseModel):
+                # now = time.time()
+                # period = now - last_tick
 
-    class Config:
-        validate_assignment = True
-        copy_on_model_validation = False
-        arbitrary_types_allowed = True
+                for sym, quote in quotes.items():
 
-        # required to get the account validator lookup working?
-        extra = 'allow'
-        # underscore_attrs_are_private = False
+                    for tick in iterticks(quote, types):
+                        # print(f'{1/period} Hz')
 
-    symbol: Symbol
+                        size = order_mode.current_pp.live_pp.size
+                        if size == 0:
+                            # terminate this update task since we're
+                            # no longer in a pp
+                            order_mode.pane.pnl_label.format(pnl=0)
+                            return
 
-    account: Optional[str] = 'paper'
-    _accounts: bidict[str, Optional[str]]
+                        else:
+                            # compute and display pnl status
+                            order_mode.pane.pnl_label.format(
+                                pnl=copysign(1, size) * pnl(
+                                    # live.avg_price,
+                                    order_mode.current_pp.live_pp.avg_price,
+                                    tick['price'],
+                                ),
+                            )
 
-    @validator('account', pre=True)
-    def set_account(cls, v, values):
-        if v:
-            return values['_accounts'][v]
-
-    size_unit: SizeUnit = 'currency'
-    _size_units: dict[str, Optional[str]] = _size_units
-
-    @validator('size_unit')
-    def lookup_key(cls, v):
-        # apply the corresponding enum key for the text "description" value
-        return v.name
-
-    # TODO: if we ever want ot support non-uniform entry-slot-proportion
-    # "sizes"
-    # disti_weight: str = 'uniform'
-
-    units_limit: float
-    currency_limit: float
-    slots: int
-
-    def step_sizes(
-        self,
-    ) -> (float, float):
-        '''Return the units size for each unit type as a tuple.
-
-        '''
-        slots = self.slots
-        return (
-            self.units_limit / slots,
-            self.currency_limit / slots,
-        )
-
-    def limit(self) -> float:
-        if self.size_unit == 'currency':
-            return self.currency_limit
-        else:
-            return self.units_limit
-
-    def next_order_info(
-        self,
-
-        startup_pp: Position,
-        live_pp: Position,
-        price: float,
-        action: str,
-
-    ) -> dict:
-        '''Generate order request info for the "next" submittable order
-        depending on position / order entry config.
-
-        '''
-        sym = self.symbol
-        ld = sym.lot_size_digits
-
-        size_unit = self.size_unit
-        live_size = live_pp.size
-        abs_live_size = abs(live_size)
-        abs_startup_size = abs(startup_pp.size)
-
-        u_per_slot, currency_per_slot = self.step_sizes()
-
-        if size_unit == 'units':
-            slot_size = u_per_slot
-            l_sub_pp = self.units_limit - abs_live_size
-
-        elif size_unit == 'currency':
-            live_cost_basis = abs_live_size * live_pp.avg_price
-            slot_size = currency_per_slot / price
-            l_sub_pp = (self.currency_limit - live_cost_basis) / price
-
-        # an entry (adding-to or starting a pp)
-        if (
-            action == 'buy' and live_size > 0 or
-            action == 'sell' and live_size < 0 or
-            live_size == 0
-        ):
-
-            order_size = min(slot_size, l_sub_pp)
-
-        # an exit (removing-from or going to net-zero pp)
-        else:
-            # when exiting a pp we always try to slot the position
-            # in the instrument's units, since doing so in a derived
-            # size measure (eg. currency value, percent of port) would
-            # result in a mis-mapping of slots sizes in unit terms
-            # (i.e. it would take *more* slots to exit at a profit and
-            # *less* slots to exit at a loss).
-            pp_size = max(abs_startup_size, abs_live_size)
-            slotted_pp = pp_size / self.slots
-
-            if size_unit == 'currency':
-                # compute the "projected" limit's worth of units at the
-                # current pp (weighted) price:
-                slot_size = currency_per_slot / live_pp.avg_price
-
-            else:
-                slot_size = u_per_slot
-
-            # if our position is greater then our limit setting
-            # we'll want to use slot sizes which are larger then what
-            # the limit would normally determine
-            order_size = max(slotted_pp, slot_size)
-
-            if (
-                abs_live_size < slot_size or
-
-                # NOTE: front/back "loading" heurstic:
-                # if the remaining pp is in between 0-1.5x a slot's
-                # worth, dump the whole position in this last exit
-                # therefore conducting so called "back loading" but
-                # **without** going past a net-zero pp. if the pp is
-                # > 1.5x a slot size, then front load: exit a slot's and
-                # expect net-zero to be acquired on the final exit.
-                slot_size < pp_size < round((1.5*slot_size), ndigits=ld)
-            ):
-                order_size = abs_live_size
-
-        slots_used = 1.0  # the default uniform policy
-        if order_size < slot_size:
-            # compute a fractional slots size to display
-            slots_used = self.slots_used(
-                Position(symbol=sym, size=order_size, avg_price=price)
-            )
-
-        return {
-            'size': abs(round(order_size, ndigits=ld)),
-            'size_digits': ld,
-
-            # TODO: incorporate multipliers for relevant derivatives
-            'fiat_size': round(order_size * price, ndigits=2),
-            'slots_used': slots_used,
-        }
-
-    def slots_used(
-        self,
-        pp: Position,
-
-    ) -> float:
-        '''Calc and return the number of slots used by this ``Position``.
-
-        '''
-        abs_pp_size = abs(pp.size)
-
-        if self.size_unit == 'currency':
-            # live_currency_size = size or (abs_pp_size * pp.avg_price)
-            live_currency_size = abs_pp_size * pp.avg_price
-            prop = live_currency_size / self.currency_limit
-
-        else:
-            # return (size or abs_pp_size) / alloc.units_limit
-            prop = abs_pp_size / self.units_limit
-
-        # TODO: REALLY need a way to show partial slots..
-        # for now we round at the midway point between slots
-        return round(prop * self.slots)
+                        # last_tick = time.time()
+    finally:
+        assert _pnl_tasks[key]
+        assert _pnl_tasks.pop(key)
 
 
 @dataclass
@@ -256,10 +115,6 @@ class SettingsPane:
     order entry sizes and position limits per tradable instrument.
 
     '''
-    # config for and underlying validation model
-    tracker: PositionTracker
-    alloc: Allocator
-
     # input fields
     form: FieldsForm
 
@@ -270,9 +125,8 @@ class SettingsPane:
     pnl_label: QLabel
     limit_label: QLabel
 
-    def transform_to(self, size_unit: str) -> None:
-        if self.alloc.size_unit == size_unit:
-            return
+    # encompasing high level namespace
+    order_mode: Optional['OrderMode'] = None  # typing: ignore # noqa
 
     def on_selection_change(
         self,
@@ -284,8 +138,7 @@ class SettingsPane:
         '''Called on any order pane drop down selection change.
 
         '''
-        print(f'selection input: {text}')
-        setattr(self.alloc, key, text)
+        log.info(f'selection input: {text}')
         self.on_ui_settings_change(key, text)
 
     def on_ui_settings_change(
@@ -298,11 +151,49 @@ class SettingsPane:
         '''Called on any order pane edit field value change.
 
         '''
-        print(f'settings change: {key}: {value}')
-        alloc = self.alloc
+        mode = self.order_mode
+
+        # an account switch request
+        if key == 'account':
+
+            # hide details on the old selection
+            old_tracker = mode.current_pp
+            old_tracker.hide_info()
+
+            # re-assign the order mode tracker
+            account_name = value
+            tracker = mode.trackers.get(account_name)
+
+            # if selection can't be found (likely never discovered with
+            # a ``brokerd`) then error and switch back to the last
+            # selection.
+            if tracker is None:
+                sym = old_tracker.chart.linked.symbol.key
+                log.error(
+                    f'Account `{account_name}` can not be set for {sym}'
+                )
+                self.form.fields['account'].setCurrentText(
+                    old_tracker.alloc.account_name())
+                return
+
+            self.order_mode.current_pp = tracker
+            assert tracker.alloc.account_name() == account_name
+            self.form.fields['account'].setCurrentText(account_name)
+            tracker.show()
+            tracker.hide_info()
+
+            self.display_pnl(tracker)
+
+            # load the new account's allocator
+            alloc = tracker.alloc
+
+        else:
+            tracker = mode.current_pp
+            alloc = tracker.alloc
+
         size_unit = alloc.size_unit
 
-        # write any passed settings to allocator
+        # WRITE any settings to current pp's allocator
         if key == 'limit':
             if size_unit == 'currency':
                 alloc.currency_limit = float(value)
@@ -317,20 +208,18 @@ class SettingsPane:
             # the current settings in the new units
             pass
 
-        elif key == 'account':
-            print(f'TODO: change account -> {value}')
-
-        else:
+        elif key != 'account':
             raise ValueError(f'Unknown setting {key}')
 
-        # read out settings and update UI
+        # READ out settings and update UI
+        log.info(f'settings change: {key}: {value}')
 
         suffix = {'currency': ' $', 'units': ' u'}[size_unit]
         limit = alloc.limit()
 
         # TODO: a reverse look up from the position to the equivalent
         # account(s), if none then look to user config for default?
-        self.update_status_ui()
+        self.update_status_ui(pp=tracker)
 
         step_size, currency_per_slot = alloc.step_sizes()
 
@@ -356,68 +245,16 @@ class SettingsPane:
         # UI in some way?
         return True
 
-    def init_status_ui(
-        self,
-    ):
-        alloc = self.alloc
-        asset_type = alloc.symbol.type_key
-        # form = self.form
-
-        # TODO: pull from piker.toml
-        # default config
-        slots = 4
-        currency_limit = 5e3
-
-        startup_pp = self.tracker.startup_pp
-
-        alloc.slots = slots
-        alloc.currency_limit = currency_limit
-
-        # default entry sizing
-        if asset_type in ('stock', 'crypto', 'forex'):
-
-            alloc.size_unit = '$ size'
-
-        elif asset_type in ('future', 'option', 'futures_option'):
-
-            # since it's harder to know how currency "applies" in this case
-            # given leverage properties
-            alloc.size_unit = '# units'
-
-            # set units limit to slots size thus making make the next
-            # entry step 1.0
-            alloc.units_limit = slots
-
-        # if the current position is already greater then the limit
-        # settings, increase the limit to the current position
-        if alloc.size_unit == 'currency':
-            startup_size = startup_pp.size * startup_pp.avg_price
-
-            if startup_size > alloc.currency_limit:
-                alloc.currency_limit = round(startup_size, ndigits=2)
-
-            limit_text = alloc.currency_limit
-
-        else:
-            startup_size = startup_pp.size
-
-            if startup_size > alloc.units_limit:
-                alloc.units_limit = startup_size
-
-            limit_text = alloc.units_limit
-
-        self.on_ui_settings_change('limit', limit_text)
-        self.update_status_ui(size=startup_size)
-
     def update_status_ui(
         self,
-        size: float = None,
+
+        pp: PositionTracker,
 
     ) -> None:
 
-        alloc = self.alloc
+        alloc = pp.alloc
         slots = alloc.slots
-        used = alloc.slots_used(self.tracker.live_pp)
+        used = alloc.slots_used(pp.live_pp)
 
         # calculate proportion of position size limit
         # that exists and display in fill bar
@@ -430,31 +267,51 @@ class SettingsPane:
             min(used, slots)
         )
 
-    def on_level_change_update_next_order_info(
+    def display_pnl(
         self,
+        tracker: PositionTracker,
 
-        level: float,
-        line: LevelLine,
-        order: Order,
+    ) -> bool:
+        '''Display the PnL for the current symbol and personal positioning (pp).
 
-    ) -> None:
-        '''A callback applied for each level change to the line
-        which will recompute the order size based on allocator
-        settings. this is assigned inside
-        ``OrderMode.line_from_order()``
+        If a position is open start a background task which will
+        real-time update the pnl label in the settings pane.
 
         '''
-        order_info = self.alloc.next_order_info(
-            startup_pp=self.tracker.startup_pp,
-            live_pp=self.tracker.live_pp,
-            price=level,
-            action=order.action,
-        )
-        line.update_labels(order_info)
+        mode = self.order_mode
+        sym = mode.chart.linked.symbol
+        size = tracker.live_pp.size
+        feed = mode.quote_feed
+        global _pnl_tasks
 
-        # update bound-in staged order
-        order.price = level
-        order.size = order_info['size']
+        if (
+            size and
+            sym.key not in _pnl_tasks
+        ):
+            _pnl_tasks[sym.key] = True
+
+            # immediately compute and display pnl status from last quote
+            self.pnl_label.format(
+                pnl=copysign(1, size) * pnl(
+                    tracker.live_pp.avg_price,
+                    # last historical close price
+                    feed.shm.array[-1][['close']][0],
+                ),
+            )
+
+            log.info(
+                f'Starting pnl display for {tracker.alloc.account_name()}')
+            self.order_mode.nursery.start_soon(
+                display_pnl,
+                feed,
+                mode,
+            )
+            return True
+
+        else:
+            # set 0% pnl
+            self.pnl_label.format(pnl=0)
+            return False
 
 
 def position_line(
@@ -522,8 +379,8 @@ def position_line(
 
 
 class PositionTracker:
-    '''Track and display a real-time position for a single symbol
-    on a chart.
+    '''Track and display real-time positions for a single symbol
+    over multiple accounts on a single chart.
 
     Graphically composed of a level line and marker as well as labels
     for indcating current position information. Updates are made to the
@@ -532,11 +389,12 @@ class PositionTracker:
     '''
     # inputs
     chart: 'ChartPlotWidget'  # noqa
-    alloc: Allocator
 
-    # allocated
+    alloc: Allocator
     startup_pp: Position
     live_pp: Position
+
+    # allocated
     pp_label: Label
     size_label: Label
     line: Optional[LevelLine] = None
@@ -547,17 +405,15 @@ class PositionTracker:
         self,
         chart: 'ChartPlotWidget',  # noqa
         alloc: Allocator,
+        startup_pp: Position,
 
     ) -> None:
 
         self.chart = chart
+
         self.alloc = alloc
-        self.live_pp = Position(
-            symbol=chart.linked.symbol,
-            size=0,
-            avg_price=0,
-        )
-        self.startup_pp = self.live_pp.copy()
+        self.startup_pp = startup_pp
+        self.live_pp = startup_pp.copy()
 
         view = chart.getViewBox()
 
@@ -622,9 +478,8 @@ class PositionTracker:
         self.pp_label.update()
         self.size_label.update()
 
-    def update_from_pp_msg(
+    def update_from_pp(
         self,
-        msg: BrokerdPosition,
         position: Optional[Position] = None,
 
     ) -> None:
@@ -632,23 +487,13 @@ class PositionTracker:
         EMS ``BrokerdPosition`` msg.
 
         '''
-        # XXX: better place to do this?
-        symbol = self.chart.linked.symbol
-        lot_size_digits = symbol.lot_size_digits
-        avg_price, size = (
-            round(msg['avg_price'], ndigits=symbol.tick_size_digits),
-            round(msg['size'], ndigits=lot_size_digits),
-        )
-
         # live pp updates
         pp = position or self.live_pp
-        pp.avg_price = avg_price
-        pp.size = size
 
         self.update_line(
-            avg_price,
-            size,
-            lot_size_digits,
+            pp.avg_price,
+            pp.size,
+            self.chart.linked.symbol.lot_size_digits,
         )
 
         # label updates
@@ -656,11 +501,11 @@ class PositionTracker:
             self.alloc.slots_used(pp), ndigits=1)
         self.size_label.render()
 
-        if size == 0:
+        if pp.size == 0:
             self.hide()
 
         else:
-            self._level_marker.level = avg_price
+            self._level_marker.level = pp.avg_price
 
             # these updates are critical to avoid lag on view/scene changes
             self._level_marker.update()  # trigger paint
@@ -681,7 +526,6 @@ class PositionTracker:
 
     def show(self) -> None:
         if self.live_pp.size:
-
             self.line.show()
             self.line.show_labels()
 
@@ -740,7 +584,6 @@ class PositionTracker:
 
         return arrow
 
-    # TODO: per account lines on a single (or very related) symbol
     def update_line(
         self,
         price: float,
@@ -776,7 +619,10 @@ class PositionTracker:
             line.update_labels({
                 'size': size,
                 'size_digits': size_digits,
-                'fiat_size': round(price * size, ndigits=2)
+                'fiat_size': round(price * size, ndigits=2),
+
+                # TODO: per account lines on a single (or very related) symbol
+                'account': self.alloc.account_name(),
             })
             line.show()
 

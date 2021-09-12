@@ -45,6 +45,7 @@ class Order(BaseModel):
     # internal ``emdsd`` unique "order id"
     oid: str  # uuid4
     symbol: Union[str, Symbol]
+    account: str  # should we set a default as '' ?
 
     price: float
     size: float
@@ -86,6 +87,7 @@ class Status(BaseModel):
     #   'broker_cancelled',
     #   'broker_executed',
     #   'broker_filled',
+    #   'broker_errored',
 
     #   'alert_submitted',
     #   'alert_triggered',
@@ -118,6 +120,7 @@ class BrokerdCancel(BaseModel):
     oid: str  # piker emsd order id
     time_ns: int
 
+    account: str
     # "broker request id": broker specific/internal order id if this is
     # None, creates a new order otherwise if the id is valid the backend
     # api must modify the existing matching order. If the broker allows
@@ -131,6 +134,7 @@ class BrokerdOrder(BaseModel):
 
     action: str  # {buy, sell}
     oid: str
+    account: str
     time_ns: int
 
     # "broker request id": broker specific/internal order id if this is
@@ -162,6 +166,7 @@ class BrokerdOrderAck(BaseModel):
 
     # emsd id originally sent in matching request msg
     oid: str
+    account: str = ''
 
 
 class BrokerdStatus(BaseModel):
@@ -169,6 +174,9 @@ class BrokerdStatus(BaseModel):
     name: str = 'status'
     reqid: Union[int, str]
     time_ns: int
+
+    # XXX: should be best effort set for every update
+    account: str = ''
 
     # {
     #   'submitted',
@@ -224,7 +232,11 @@ class BrokerdError(BaseModel):
     This is still a TODO thing since we're not sure how to employ it yet.
     '''
     name: str = 'error'
-    reqid: Union[int, str]
+    oid: str
+
+    # if no brokerd order request was actually submitted (eg. we errored
+    # at the ``pikerd`` layer) then there will be ``reqid`` allocated.
+    reqid: Union[int, str] = ''
 
     symbol: str
     reason: str

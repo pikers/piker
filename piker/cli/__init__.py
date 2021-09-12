@@ -8,8 +8,9 @@ import trio
 import tractor
 
 from ..log import get_console_log, get_logger, colorize_json
-from ..brokers import get_brokermod, config
+from ..brokers import get_brokermod
 from .._daemon import _tractor_kwargs
+from .. import config
 
 
 log = get_logger('cli')

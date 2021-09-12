@@ -47,7 +47,7 @@ from PyQt5.QtWidgets import (
 from ._event import open_handlers
 from ._style import hcolor, _font, _font_small, DpiAwareFont
 from ._label import FormatLabel
-from .. import brokers
+from .. import config
 
 
 class FontAndChartAwareLineEdit(QLineEdit):
@@ -382,21 +382,21 @@ def mk_form(
     form._font_size = font_size or _font_small.px_size
 
     # generate sub-components from schema dict
-    for key, config in fields_schema.items():
-        wtype = config['type']
-        label = str(config.get('label', key))
+    for key, conf in fields_schema.items():
+        wtype = conf['type']
+        label = str(conf.get('label', key))
 
         # plain (line) edit field
         if wtype == 'edit':
             w = form.add_edit_field(
                 key,
                 label,
-                config['default_value']
+                conf['default_value']
             )
 
         # drop-down selection
         elif wtype == 'select':
-            values = list(config['default_value'])
+            values = list(conf['default_value'])
             w = form.add_select_field(
                 key,
                 label,
@@ -416,8 +416,6 @@ async def open_form_input_handling(
     on_value_change: Callable[[str, Any], Awaitable[bool]],
 
 ) -> FieldsForm:
-
-    # assert form.model, f'{form} must define a `.model`'
 
     async with open_handlers(
 
@@ -635,7 +633,7 @@ def mk_order_pane_layout(
 
     # font_size: int = _font_small.px_size - 2
     font_size: int = _font.px_size - 2
-    accounts = brokers.config.load_accounts()
+    accounts = config.load_accounts()
 
     # TODO: maybe just allocate the whole fields form here
     # and expect an async ctx entry?

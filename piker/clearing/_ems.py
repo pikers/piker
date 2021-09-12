@@ -201,6 +201,7 @@ async def clear_dark_triggers(
                         msg = BrokerdOrder(
                             action=cmd['action'],
                             oid=oid,
+                            account=cmd['account'],
                             time_ns=time.time_ns(),
 
                             # this **creates** new order request for the
@@ -259,8 +260,15 @@ async def clear_dark_triggers(
 
 @dataclass
 class TradesRelay:
+
+    # for now we keep only a single connection open with
+    # each ``brokerd`` for simplicity.
     brokerd_dialogue: tractor.MsgStream
-    positions: dict[str, float]
+
+    # map of symbols to dicts of accounts to pp msgs
+    positions: dict[str, dict[str, BrokerdPosition]]
+
+    # count of connected ems clients for this ``brokerd``
     consumers: int = 0
 
 
@@ -513,10 +521,13 @@ async def translate_and_relay_brokerd_events(
 
             pos_msg = BrokerdPosition(**brokerd_msg).dict()
 
-            # keep up to date locally in ``emsd``
-            relay.positions.setdefault(pos_msg['symbol'], {}).update(pos_msg)
+            # XXX: this will be useful for automatic strats yah?
+            # keep pps per account up to date locally in ``emsd`` mem
+            relay.positions.setdefault(pos_msg['symbol'], {}).setdefault(
+                pos_msg['account'], {}
+            ).update(pos_msg)
 
-            # relay through position msgs immediately by
+            # fan-out-relay position msgs immediately by
             # broadcasting updates on all client streams
             for client_stream in router.clients:
                 await client_stream.send(pos_msg)
@@ -621,8 +632,11 @@ async def translate_and_relay_brokerd_events(
             # another stupid ib error to handle
             # if 10147 in message: cancel
 
+            resp = 'broker_errored'
+            broker_details = msg.dict()
+
             # don't relay message to order requester client
-            continue
+            # continue
 
         elif name in (
             'status',
@@ -741,6 +755,7 @@ async def process_client_order_cmds(
                     oid=oid,
                     reqid=reqid,
                     time_ns=time.time_ns(),
+                    account=live_entry.account,
                 )
 
                 # NOTE: cancel response will be relayed back in messages
@@ -814,6 +829,7 @@ async def process_client_order_cmds(
                     action=action,
                     price=trigger_price,
                     size=size,
+                    account=msg.account,
                 )
 
                 # send request to backend
@@ -994,7 +1010,10 @@ async def _emsd_main(
             # signal to client that we're started
             # TODO: we could eventually send back **all** brokerd
             # positions here?
-            await ems_ctx.started(relay.positions)
+            await ems_ctx.started(
+                {sym: list(pps.values())
+                 for sym, pps in relay.positions.items()}
+            )
 
             # establish 2-way stream with requesting order-client and
             # begin handling inbound order requests and updates
@@ -1016,6 +1035,7 @@ async def _emsd_main(
                 try:
                     _router.clients.add(ems_client_order_stream)
 
+                    # main entrypoint, run here until cancelled.
                     await process_client_order_cmds(
 
                         ems_client_order_stream,
@@ -1035,7 +1055,7 @@ async def _emsd_main(
 
                     dialogues = _router.dialogues
 
-                    for oid, client_stream in dialogues.items():
+                    for oid, client_stream in dialogues.copy().items():
 
                         if client_stream == ems_client_order_stream:
 

@@ -665,7 +665,7 @@ def order_line(
             # display the order pos size, which is some multiple
             # of the user defined base unit size
             fmt_str=(
-                '{size:.{size_digits}f}u{fiat_text}'
+                '{account_text}{size:.{size_digits}f}u{fiat_text}'
             ),
             color=line.color,
         )
@@ -679,13 +679,23 @@ def order_line(
             if not fiat_size:
                 return ''
 
-            return f' -> ${humanize(fiat_size)}'
+            return f' ~ ${humanize(fiat_size)}'
+
+        def maybe_show_account_name(fields: dict) -> str:
+            account = fields.get('account')
+            if not account:
+                return ''
+
+            return f'{account}: '
+
 
         label.fields = {
             'size': size,
             'size_digits': 0,
             'fiat_size': None,
             'fiat_text': maybe_show_fiat_text,
+            'account': None,
+            'account_text': maybe_show_account_name,
         }
 
     label.orient_v = orient_v

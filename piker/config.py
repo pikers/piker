@@ -22,10 +22,11 @@ from os.path import dirname
 import shutil
 from typing import Optional
 
+from bidict import bidict
 import toml
 import click
 
-from ..log import get_logger
+from .log import get_logger
 
 log = get_logger('broker-config')
 
@@ -104,19 +105,29 @@ def write(
         return toml.dump(config, cf)
 
 
-def load_accounts() -> dict[str, Optional[str]]:
+def load_accounts(
 
-    # our default paper engine entry
-    accounts: dict[str, Optional[str]] = {'paper': None}
+    providers: Optional[list[str]] = None
+
+) -> bidict[str, Optional[str]]:
 
     conf, path = load()
-    section = conf.get('accounts')
-    if section is None:
-        log.warning('No accounts config found?')
+    accounts = bidict()
+    for provider_name, section in conf.items():
+        accounts_section = section.get('accounts')
+        if (
+            providers is None or
+            providers and provider_name in providers
+        ):
+            if accounts_section is None:
+                log.warning(f'No accounts named for {provider_name}?')
+                continue
+            else:
+                for label, value in accounts_section.items():
+                    accounts[
+                        f'{provider_name}.{label}'
+                    ] = value
 
-    else:
-        for brokername, account_labels in section.items():
-            for name, value in account_labels.items():
-                accounts[f'{brokername}.{name}'] = value
-
+    # our default paper engine entry
+    accounts['paper'] = None
     return accounts

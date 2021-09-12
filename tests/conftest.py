@@ -3,8 +3,8 @@ import os
 import pytest
 import tractor
 import trio
-from piker import log
-from piker.brokers import questrade, config
+from piker import log, config
+from piker.brokers import questrade
 
 
 def pytest_addoption(parser):

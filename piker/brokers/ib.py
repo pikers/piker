@@ -53,7 +53,7 @@ from ib_insync.client import Client as ib_Client
 from fuzzywuzzy import process as fuzzy
 import numpy as np
 
-from . import config
+from .. import config
 from ..log import get_logger, get_console_log
 from .._daemon import maybe_spawn_brokerd
 from ..data._source import from_df
@@ -62,8 +62,7 @@ from ._util import SymbolNotFound, NoData
 from ..clearing._messages import (
     BrokerdOrder, BrokerdOrderAck, BrokerdStatus,
     BrokerdPosition, BrokerdCancel,
-    BrokerdFill,
-    # BrokerdError,
+    BrokerdFill, BrokerdError,
 )
 
 
@@ -196,8 +195,8 @@ _adhoc_futes_set = {
     'mgc.nymex',
 
     'xagusd.cmdty',  # silver spot
-    'ni.nymex', # silver futes
-    'qi.comex', # mini-silver futes
+    'ni.nymex',  # silver futes
+    'qi.comex',  # mini-silver futes
 }
 
 # exchanges we don't support at the moment due to not knowing
@@ -220,15 +219,18 @@ class Client:
     Note: this client requires running inside an ``asyncio`` loop.
 
     """
+    _contracts: dict[str, Contract] = {}
+
     def __init__(
         self,
+
         ib: ibis.IB,
+
     ) -> None:
         self.ib = ib
         self.ib.RaiseRequestErrors = True
 
         # contract cache
-        self._contracts: dict[str, Contract] = {}
         self._feeds: dict[str, trio.abc.SendChannel] = {}
 
         # NOTE: the ib.client here is "throttled" to 45 rps by default
@@ -504,7 +506,7 @@ class Client:
         return contract, ticker, details
 
     # async to be consistent for the client proxy, and cuz why not.
-    async def submit_limit(
+    def submit_limit(
         self,
         # ignored since ib doesn't support defining your
         # own order id
@@ -513,7 +515,7 @@ class Client:
         price: float,
         action: str,
         size: int,
-        account: str = '',  # if blank the "default" tws account is used
+        account: str,  # if blank the "default" tws account is used
 
         # XXX: by default 0 tells ``ib_insync`` methods that there is no
         # existing order so ask the client to create a new one (which it
@@ -536,6 +538,7 @@ class Client:
             Order(
                 orderId=reqid or 0,  # stupid api devs..
                 action=action.upper(),  # BUY/SELL
+                # lookup the literal account number by name here.
                 account=account,
                 orderType='LMT',
                 lmtPrice=price,
@@ -552,7 +555,7 @@ class Client:
         # their own weird client int counting ids..
         return trade.order.orderId
 
-    async def submit_cancel(
+    def submit_cancel(
         self,
         reqid: str,
     ) -> None:
@@ -569,6 +572,7 @@ class Client:
     async def recv_trade_updates(
         self,
         to_trio: trio.abc.SendChannel,
+
     ) -> None:
         """Stream a ticker using the std L1 api.
         """
@@ -659,9 +663,10 @@ class Client:
 
         self.ib.errorEvent.connect(push_err)
 
-    async def positions(
+    def positions(
         self,
         account: str = '',
+
     ) -> list[Position]:
         """
         Retrieve position info for ``account``.
@@ -695,8 +700,11 @@ def get_config() -> dict[str, Any]:
     return section
 
 
+_accounts2clients: dict[str, Client] = {}
+
+
 @asynccontextmanager
-async def _aio_get_client(
+async def load_aio_clients(
 
     host: str = '127.0.0.1',
     port: int = None,
@@ -710,91 +718,126 @@ async def _aio_get_client(
 
     TODO: consider doing this with a ctx mngr eventually?
     '''
+    global _accounts2clients
+    global _client_cache
+
     conf = get_config()
+    ib = None
+    client = None
 
-    # first check cache for existing client
+    # attempt to get connection info from config; if no .toml entry
+    # exists, we try to load from a default localhost connection.
+    host = conf.get('host', '127.0.0.1')
+    ports = conf.get(
+        'ports',
+
+        # default order is to check for gw first
+        {
+            'gw': 4002,
+            'tws': 7497,
+            'order': ['gw', 'tws']
+        }
+    )
+    order = ports['order']
+
+    accounts_def = config.load_accounts(['ib'])
+
+    try_ports = [ports[key] for key in order]
+    ports = try_ports if port is None else [port]
+
+    we_connected = []
+    # allocate new and/or reload disconnected but cached clients
     try:
-        if port:
-            client = _client_cache[(host, port)]
-        else:
-            # grab first cached client
-            client = list(_client_cache.values())[0]
-
-        if not client.ib.isConnected():
-            # we have a stale client to re-allocate
-            raise KeyError
-
-        yield client
-
-    except (KeyError, IndexError):
-
-        # TODO: in case the arbiter has no record
-        # of existing brokerd we need to broadcast for one.
-
-        if client_id is None:
-            # if this is a persistent brokerd, try to allocate a new id for
-            # each client
-            client_id = next(_client_ids)
-
-        ib = NonShittyIB()
-
-        # attempt to get connection info from config; if no .toml entry
-        # exists, we try to load from a default localhost connection.
-        host = conf.get('host', '127.0.0.1')
-        ports = conf.get(
-            'ports',
-
-            # default order is to check for gw first
-            {
-                'gw': 4002,
-                'tws': 7497,
-                'order': ['gw', 'tws']
-            }
-        )
-        order = ports['order']
-
-        try_ports = [ports[key] for key in order]
-        ports = try_ports if port is None else [port]
-
         # TODO: support multiple clients allowing for execution on
         # multiple accounts (including a paper instance running on the
         # same machine) and switching between accounts in the EMs
 
         _err = None
 
+        # (re)load any and all clients that can be found
+        # from connection details in ``brokers.toml``.
         for port in ports:
-            try:
-                log.info(f"Connecting to the EYEBEE on port {port}!")
-                await ib.connectAsync(host, port, clientId=client_id)
-                break
-            except ConnectionRefusedError as ce:
-                _err = ce
-                log.warning(f'Failed to connect on {port}')
+            client = _client_cache.get((host, port))
+            accounts_found: dict[str, Client] = {}
+            if not client or not client.ib.isConnected():
+                try:
+                    ib = NonShittyIB()
+
+                    # if this is a persistent brokerd, try to allocate
+                    # a new id for each client
+                    client_id = next(_client_ids)
+
+                    log.info(f"Connecting to the EYEBEE on port {port}!")
+                    await ib.connectAsync(host, port, clientId=client_id)
+
+                    # create and cache client
+                    client = Client(ib)
+
+                    # Pre-collect all accounts available for this
+                    # connection and map account names to this client
+                    # instance.
+                    pps = ib.positions()
+                    if pps:
+                        for pp in pps:
+                            accounts_found[
+                                accounts_def.inverse[pp.account]
+                            ] = client
+
+                    # if there are no positions or accounts
+                    # without positions we should still register
+                    # them for this client
+                    for value in ib.accountValues():
+                        acct = value.account
+                        if acct not in accounts_found:
+                            accounts_found[
+                                accounts_def.inverse[acct]
+                            ] = client
+
+                    log.info(
+                        f'Loaded accounts for client @ {host}:{port}\n'
+                        f'{pformat(accounts_found)}'
+                    )
+
+                    # update all actor-global caches
+                    log.info(f"Caching client for {(host, port)}")
+                    _client_cache[(host, port)] = client
+                    we_connected.append(client)
+                    _accounts2clients.update(accounts_found)
+
+                except ConnectionRefusedError as ce:
+                    _err = ce
+                    log.warning(f'Failed to connect on {port}')
         else:
-            raise ConnectionRefusedError(_err)
+            if not _client_cache:
+                raise ConnectionRefusedError(_err)
 
-        # create and cache
-        try:
-            client = Client(ib)
+        # retreive first loaded client
+        clients = list(_client_cache.values())
+        if clients:
+            client = clients[0]
 
-            _client_cache[(host, port)] = client
-            log.debug(f"Caching client for {(host, port)}")
+        yield client, _client_cache, _accounts2clients
 
-            yield client
-
-        except BaseException:
-            ib.disconnect()
-            raise
+    except BaseException:
+        for client in we_connected:
+            client.ib.disconnect()
+        raise
 
 
 async def _aio_run_client_method(
     meth: str,
     to_trio=None,
     from_trio=None,
+    client=None,
     **kwargs,
 ) -> None:
-    async with _aio_get_client() as client:
 
+    async with load_aio_clients() as (
+        _client,
+        clients,
+        accts2clients,
+    ):
+        client = client or _client
         async_meth = getattr(client, meth)
 
         # handle streaming methods
@@ -808,7 +851,9 @@ async def _aio_run_client_method(
 
 async def _trio_run_client_method(
     method: str,
+    client: Optional[Client] = None,
     **kwargs,
+
 ) -> None:
     """Asyncio entry point to run tasks against the ``ib_insync`` api.
 
@@ -828,12 +873,12 @@ async def _trio_run_client_method(
     ):
         kwargs['_treat_as_stream'] = True
 
-    result = await tractor.to_asyncio.run_task(
+    return await tractor.to_asyncio.run_task(
         _aio_run_client_method,
         meth=method,
+        client=client,
         **kwargs
     )
-    return result
 
 
 class _MethodProxy:
@@ -1081,8 +1126,11 @@ async def _setup_quote_stream(
     """
     global _quote_streams
 
-    async with _aio_get_client() as client:
-
+    async with load_aio_clients() as (
+        client,
+        clients,
+        accts2clients,
+    ):
         contract = contract or (await client.find_contract(symbol))
         ticker: Ticker = client.ib.reqMktData(contract, ','.join(opts))
 
@@ -1277,8 +1325,6 @@ async def stream_quotes(
                 calc_price=calc_price
             )
 
-            # con = quote['contract']
-            # topic = '.'.join((con['symbol'], suffix)).lower()
             quote['symbol'] = topic
             await send_chan.send({topic: quote})
 
@@ -1295,12 +1341,21 @@ def pack_position(pos: Position) -> dict[str, Any]:
         symbol = con.localSymbol.replace(' ', '')
 
     else:
-        symbol = con.symbol
+        symbol = con.symbol.lower()
 
-    symkey = '.'.join([
-        symbol.lower(),
-        (con.primaryExchange or con.exchange).lower(),
-    ])
+    exch = (con.primaryExchange or con.exchange).lower()
+    symkey = '.'.join((symbol, exch))
+
+    if not exch:
+        # attempt to lookup the symbol from our
+        # hacked set..
+        for sym in _adhoc_futes_set:
+            if symbol in sym:
+                symkey = sym
+                break
+
+        # TODO: options contracts into a sane format..
+
     return BrokerdPosition(
         broker='ib',
         account=pos.account,
@@ -1314,28 +1369,57 @@ def pack_position(pos: Position) -> dict[str, Any]:
 async def handle_order_requests(
 
     ems_order_stream: tractor.MsgStream,
+    accounts_def: dict[str, str],
 
 ) -> None:
+
+    global _accounts2clients
 
     # request_msg: dict
     async for request_msg in ems_order_stream:
         log.info(f'Received order request {request_msg}')
 
         action = request_msg['action']
+        account = request_msg['account']
+
+        acct_number = accounts_def.get(account)
+        if not acct_number:
+            log.error(
+                f'An IB account number for name {account} is not found?\n'
+                'Make sure you have all TWS and GW instances running.'
+            )
+            await ems_order_stream.send(BrokerdError(
+                oid=request_msg['oid'],
+                symbol=request_msg['symbol'],
+                reason=f'No account found: `{account}` ?',
+            ).dict())
+            continue
+
+        client = _accounts2clients.get(account)
+        if not client:
+            log.error(
+                f'An IB client for account name {account} is not found.\n'
+                'Make sure you have all TWS and GW instances running.'
+            )
+            await ems_order_stream.send(BrokerdError(
+                oid=request_msg['oid'],
+                symbol=request_msg['symbol'],
+                reason=f'No api client loaded for account: `{account}` ?',
+            ).dict())
+            continue
 
         if action in {'buy', 'sell'}:
             # validate
             order = BrokerdOrder(**request_msg)
 
             # call our client api to submit the order
-            reqid = await _trio_run_client_method(
-
-                method='submit_limit',
+            reqid = client.submit_limit(
                 oid=order.oid,
                 symbol=order.symbol,
                 price=order.price,
                 action=order.action,
                 size=order.size,
+                account=acct_number,
 
                 # XXX: by default 0 tells ``ib_insync`` methods that
                 # there is no existing order so ask the client to create
@@ -1352,16 +1436,13 @@ async def handle_order_requests(
                     # broker specific request id
                     reqid=reqid,
                     time_ns=time.time_ns(),
+                    account=account,
                 ).dict()
             )
 
         elif action == 'cancel':
             msg = BrokerdCancel(**request_msg)
-
-            await _trio_run_client_method(
-                method='submit_cancel',
-                reqid=msg.reqid
-            )
+            client.submit_cancel(reqid=msg.reqid)
 
         else:
             log.error(f'Unknown order command: {request_msg}')
@@ -1378,166 +1459,204 @@ async def trades_dialogue(
     # XXX: required to propagate ``tractor`` loglevel to piker logging
     get_console_log(loglevel or tractor.current_actor().loglevel)
 
-    ib_trade_events_stream = await _trio_run_client_method(
-        method='recv_trade_updates',
-    )
+    accounts_def = config.load_accounts(['ib'])
+
+    global _accounts2clients
+    global _client_cache
 
     # deliver positions to subscriber before anything else
-    positions = await _trio_run_client_method(method='positions')
-
     all_positions = {}
 
-    for pos in positions:
-        msg = pack_position(pos)
-        all_positions[msg.symbol] = msg.dict()
+    clients: list[tuple[Client, trio.MemoryReceiveChannel]] = []
+    for account, client in _accounts2clients.items():
+
+        # each client to an api endpoint will have it's own event stream
+        trade_event_stream = await _trio_run_client_method(
+            method='recv_trade_updates',
+            client=client,
+        )
+        clients.append((client, trade_event_stream))
+
+        for client in _client_cache.values():
+            for pos in client.positions():
+                msg = pack_position(pos)
+                all_positions.setdefault(
+                    msg.symbol, []
+                ).append(msg.dict())
 
     await ctx.started(all_positions)
-
-    action_map = {'BOT': 'buy', 'SLD': 'sell'}
 
     async with (
         ctx.open_stream() as ems_stream,
         trio.open_nursery() as n,
     ):
         # start order request handler **before** local trades event loop
-        n.start_soon(handle_order_requests, ems_stream)
+        n.start_soon(handle_order_requests, ems_stream, accounts_def)
 
-        # TODO: for some reason we can receive a ``None`` here when the
-        # ib-gw goes down? Not sure exactly how that's happening looking
-        # at the eventkit code above but we should probably handle it...
-        async for event_name, item in ib_trade_events_stream:
-            print(f' ib sending {item}')
+        # allocate event relay tasks for each client connection
+        for client, stream in clients:
+            n.start_soon(
+                deliver_trade_events,
+                stream,
+                ems_stream,
+                accounts_def
+            )
 
-            # TODO: templating the ib statuses in comparison with other
-            # brokers is likely the way to go:
-            # https://interactivebrokers.github.io/tws-api/interfaceIBApi_1_1EWrapper.html#a17f2a02d6449710b6394d0266a353313
-            # short list:
-            # - PendingSubmit
-            # - PendingCancel
-            # - PreSubmitted (simulated orders)
-            # - ApiCancelled (cancelled by client before submission
-            #                 to routing)
-            # - Cancelled
-            # - Filled
-            # - Inactive (reject or cancelled but not by trader)
+        # block until cancelled
+        await trio.sleep_forever()
 
-            # XXX: here's some other sucky cases from the api
-            # - short-sale but securities haven't been located, in this
-            #   case we should probably keep the order in some kind of
-            #   weird state or cancel it outright?
 
-            # status='PendingSubmit', message=''),
-            # status='Cancelled', message='Error 404,
-            #   reqId 1550: Order held while securities are located.'),
-            # status='PreSubmitted', message='')],
+async def deliver_trade_events(
 
-            if event_name == 'status':
+    trade_event_stream: trio.MemoryReceiveChannel,
+    ems_stream: tractor.MsgStream,
+    accounts_def: dict[str, str],
 
-                # XXX: begin normalization of nonsense ib_insync internal
-                # object-state tracking representations...
+) -> None:
+    '''Format and relay all trade events for a given client to the EMS.
 
-                # unwrap needed data from ib_insync internal types
-                trade: Trade = item
-                status: OrderStatus = trade.orderStatus
+    '''
+    action_map = {'BOT': 'buy', 'SLD': 'sell'}
 
-                # skip duplicate filled updates - we get the deats
-                # from the execution details event
-                msg = BrokerdStatus(
+    # TODO: for some reason we can receive a ``None`` here when the
+    # ib-gw goes down? Not sure exactly how that's happening looking
+    # at the eventkit code above but we should probably handle it...
+    async for event_name, item in trade_event_stream:
 
-                    reqid=trade.order.orderId,
-                    time_ns=time.time_ns(),  # cuz why not
+        log.info(f'ib sending {event_name}:\n{pformat(item)}')
 
-                    # everyone doin camel case..
-                    status=status.status.lower(),  # force lower case
+        # TODO: templating the ib statuses in comparison with other
+        # brokers is likely the way to go:
+        # https://interactivebrokers.github.io/tws-api/interfaceIBApi_1_1EWrapper.html#a17f2a02d6449710b6394d0266a353313
+        # short list:
+        # - PendingSubmit
+        # - PendingCancel
+        # - PreSubmitted (simulated orders)
+        # - ApiCancelled (cancelled by client before submission
+        #                 to routing)
+        # - Cancelled
+        # - Filled
+        # - Inactive (reject or cancelled but not by trader)
 
-                    filled=status.filled,
-                    reason=status.whyHeld,
+        # XXX: here's some other sucky cases from the api
+        # - short-sale but securities haven't been located, in this
+        #   case we should probably keep the order in some kind of
+        #   weird state or cancel it outright?
 
-                    # this seems to not be necessarily up to date in the
-                    # execDetails event.. so we have to send it here I guess?
-                    remaining=status.remaining,
+        # status='PendingSubmit', message=''),
+        # status='Cancelled', message='Error 404,
+        #   reqId 1550: Order held while securities are located.'),
+        # status='PreSubmitted', message='')],
 
-                    broker_details={'name': 'ib'},
-                )
+        if event_name == 'status':
 
-            elif event_name == 'fill':
+            # XXX: begin normalization of nonsense ib_insync internal
+            # object-state tracking representations...
 
-                # for wtv reason this is a separate event type
-                # from IB, not sure why it's needed other then for extra
-                # complexity and over-engineering :eyeroll:.
-                # we may just end up dropping these events (or
-                # translating them to ``Status`` msgs) if we can
-                # show the equivalent status events are no more latent.
+            # unwrap needed data from ib_insync internal types
+            trade: Trade = item
+            status: OrderStatus = trade.orderStatus
 
-                # unpack ib_insync types
-                # pep-0526 style:
-                # https://www.python.org/dev/peps/pep-0526/#global-and-local-variable-annotations
-                trade: Trade
-                fill: Fill
-                trade, fill = item
-                execu: Execution = fill.execution
+            # skip duplicate filled updates - we get the deats
+            # from the execution details event
+            msg = BrokerdStatus(
 
-                # TODO: normalize out commissions details?
-                details = {
-                    'contract': asdict(fill.contract),
-                    'execution': asdict(fill.execution),
-                    'commissions': asdict(fill.commissionReport),
-                    'broker_time': execu.time,   # supposedly server fill time
-                    'name': 'ib',
-                }
+                reqid=trade.order.orderId,
+                time_ns=time.time_ns(),  # cuz why not
+                account=accounts_def.inverse[trade.order.account],
 
-                msg = BrokerdFill(
-                    # should match the value returned from `.submit_limit()`
-                    reqid=execu.orderId,
-                    time_ns=time.time_ns(),  # cuz why not
+                # everyone doin camel case..
+                status=status.status.lower(),  # force lower case
 
-                    action=action_map[execu.side],
-                    size=execu.shares,
-                    price=execu.price,
+                filled=status.filled,
+                reason=status.whyHeld,
 
-                    broker_details=details,
-                    # XXX: required by order mode currently
-                    broker_time=details['broker_time'],
+                # this seems to not be necessarily up to date in the
+                # execDetails event.. so we have to send it here I guess?
+                remaining=status.remaining,
 
-                )
+                broker_details={'name': 'ib'},
+            )
 
-            elif event_name == 'error':
+        elif event_name == 'fill':
 
-                err: dict = item
+            # for wtv reason this is a separate event type
+            # from IB, not sure why it's needed other then for extra
+            # complexity and over-engineering :eyeroll:.
+            # we may just end up dropping these events (or
+            # translating them to ``Status`` msgs) if we can
+            # show the equivalent status events are no more latent.
 
-                # f$#$% gawd dammit insync..
-                con = err['contract']
-                if isinstance(con, Contract):
-                    err['contract'] = asdict(con)
+            # unpack ib_insync types
+            # pep-0526 style:
+            # https://www.python.org/dev/peps/pep-0526/#global-and-local-variable-annotations
+            trade: Trade
+            fill: Fill
+            trade, fill = item
+            execu: Execution = fill.execution
 
-                if err['reqid'] == -1:
-                    log.error(f'TWS external order error:\n{pformat(err)}')
+            # TODO: normalize out commissions details?
+            details = {
+                'contract': asdict(fill.contract),
+                'execution': asdict(fill.execution),
+                'commissions': asdict(fill.commissionReport),
+                'broker_time': execu.time,   # supposedly server fill time
+                'name': 'ib',
+            }
 
-                # don't forward for now, it's unecessary.. but if we wanted to,
-                # msg = BrokerdError(**err)
-                continue
+            msg = BrokerdFill(
+                # should match the value returned from `.submit_limit()`
+                reqid=execu.orderId,
+                time_ns=time.time_ns(),  # cuz why not
 
-            elif event_name == 'position':
-                msg = pack_position(item)
+                action=action_map[execu.side],
+                size=execu.shares,
+                price=execu.price,
 
-            if getattr(msg, 'reqid', 0) < -1:
+                broker_details=details,
+                # XXX: required by order mode currently
+                broker_time=details['broker_time'],
 
-                # it's a trade event generated by TWS usage.
-                log.info(f"TWS triggered trade\n{pformat(msg.dict())}")
+            )
 
-                msg.reqid = 'tws-' + str(-1 * msg.reqid)
+        elif event_name == 'error':
 
-                # mark msg as from "external system"
-                # TODO: probably something better then this.. and start
-                # considering multiplayer/group trades tracking
-                msg.broker_details['external_src'] = 'tws'
-                continue
+            err: dict = item
 
-            # XXX: we always serialize to a dict for msgpack
-            # translations, ideally we can move to an msgspec (or other)
-            # encoder # that can be enabled in ``tractor`` ahead of
-            # time so we can pass through the message types directly.
-            await ems_stream.send(msg.dict())
+            # f$#$% gawd dammit insync..
+            con = err['contract']
+            if isinstance(con, Contract):
+                err['contract'] = asdict(con)
+
+            if err['reqid'] == -1:
+                log.error(f'TWS external order error:\n{pformat(err)}')
+
+            # TODO: what schema for this msg if we're going to make it
+            # portable across all backends?
+            # msg = BrokerdError(**err)
+            continue
+
+        elif event_name == 'position':
+            msg = pack_position(item)
+
+        if getattr(msg, 'reqid', 0) < -1:
+
+            # it's a trade event generated by TWS usage.
+            log.info(f"TWS triggered trade\n{pformat(msg.dict())}")
+
+            msg.reqid = 'tws-' + str(-1 * msg.reqid)
+
+            # mark msg as from "external system"
+            # TODO: probably something better then this.. and start
+            # considering multiplayer/group trades tracking
+            msg.broker_details['external_src'] = 'tws'
+            continue
+
+        # XXX: we always serialize to a dict for msgpack
+        # translations, ideally we can move to an msgspec (or other)
+        # encoder # that can be enabled in ``tractor`` ahead of
+        # time so we can pass through the message types directly.
+        await ems_stream.send(msg.dict())
 
 
 @tractor.context

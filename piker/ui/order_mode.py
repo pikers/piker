@@ -21,27 +21,30 @@ Chart trading, the only way to scalp.
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from functools import partial
-from math import copysign
 from pprint import pformat
 import time
 from typing import Optional, Dict, Callable, Any
 import uuid
 
-from bidict import bidict
 from pydantic import BaseModel
 import tractor
 import trio
 
-from .. import brokers
-from ..calc import pnl
+from .. import config
 from ..clearing._client import open_ems, OrderBook
+from ..clearing._allocate import (
+    mk_allocator,
+    Position,
+)
 from ..data._source import Symbol
-from ..data._normalize import iterticks
 from ..data.feed import Feed
 from ..log import get_logger
 from ._editors import LineEditor, ArrowEditor
 from ._lines import order_line, LevelLine
-from ._position import PositionTracker, SettingsPane, Allocator, _size_units
+from ._position import (
+    PositionTracker,
+    SettingsPane,
+)
 from ._window import MultiStatus
 from ..clearing._messages import Order
 from ._forms import open_form_input_handling
@@ -69,6 +72,37 @@ class OrderDialog(BaseModel):
         underscore_attrs_are_private = False
 
 
+def on_level_change_update_next_order_info(
+
+    level: float,
+
+    # these are all ``partial``-ed in at callback assignment time.
+    line: LevelLine,
+    order: Order,
+    tracker: PositionTracker,
+
+) -> None:
+    '''A callback applied for each level change to the line
+    which will recompute the order size based on allocator
+    settings. this is assigned inside
+    ``OrderMode.line_from_order()``
+
+    '''
+    # NOTE: the ``Order.account`` is set at order stage time
+    # inside ``OrderMode.line_from_order()``.
+    order_info = tracker.alloc.next_order_info(
+        startup_pp=tracker.startup_pp,
+        live_pp=tracker.live_pp,
+        price=level,
+        action=order.action,
+    )
+    line.update_labels(order_info)
+
+    # update bound-in staged order
+    order.price = level
+    order.size = order_info['size']
+
+
 @dataclass
 class OrderMode:
     '''Major UX mode for placing orders on a chart view providing so
@@ -90,16 +124,18 @@ class OrderMode:
 
     '''
     chart: 'ChartPlotWidget'  #  type: ignore # noqa
+    nursery: trio.Nursery
+    quote_feed: Feed
     book: OrderBook
     lines: LineEditor
     arrows: ArrowEditor
     multistatus: MultiStatus
-    pp: PositionTracker
-    allocator: 'Allocator'  # noqa
     pane: SettingsPane
+    trackers: dict[str, PositionTracker]
 
+    # switched state, the current position
+    current_pp: Optional[PositionTracker] = None
     active: bool = False
-
     name: str = 'order'
     dialogs: dict[str, OrderDialog] = field(default_factory=dict)
 
@@ -144,9 +180,10 @@ class OrderMode:
         # immediately
         if order.action != 'alert':
             line._on_level_change = partial(
-                self.pane.on_level_change_update_next_order_info,
+                on_level_change_update_next_order_info,
                 line=line,
                 order=order,
+                tracker=self.current_pp,
             )
 
         else:
@@ -185,6 +222,7 @@ class OrderMode:
         order = self._staged_order = Order(
             action=action,
             price=price,
+            account=self.current_pp.alloc.account_name(),
             size=0,
             symbol=symbol,
             brokers=symbol.brokers,
@@ -490,7 +528,7 @@ async def open_order_mode(
 
     book: OrderBook
     trades_stream: tractor.MsgStream
-    positions: dict
+    position_msgs: dict
 
     # spawn EMS actor-service
     async with (
@@ -498,9 +536,9 @@ async def open_order_mode(
         open_ems(brokername, symbol) as (
             book,
             trades_stream,
-            positions
+            position_msgs
         ),
-        trio.open_nursery() as n,
+        trio.open_nursery() as tn,
 
     ):
         log.info(f'Opening order mode for {brokername}.{symbol.key}')
@@ -511,36 +549,134 @@ async def open_order_mode(
         lines = LineEditor(chart=chart)
         arrows = ArrowEditor(chart, {})
 
-        # load account names from ``brokers.toml``
-        accounts = bidict(brokers.config.load_accounts())
-
-        # allocator
-        alloc = Allocator(
-            symbol=symbol,
-            account=None,  # select paper by default
-            _accounts=accounts,
-            size_unit=_size_units['currency'],
-            units_limit=400,
-            currency_limit=5e3,
-            slots=4,
-        )
-
+        # allocation and account settings side pane
         form = chart.sidepane
-        form.model = alloc
 
-        pp_tracker = PositionTracker(chart, alloc)
-        pp_tracker.hide()
+        # symbol id
+        symbol = chart.linked.symbol
+        symkey = symbol.key
+
+        # map of per-provider account keys to position tracker instances
+        trackers: dict[str, PositionTracker] = {}
+
+        # load account names from ``brokers.toml``
+        accounts = config.load_accounts(providers=symbol.brokers).copy()
+        if accounts:
+            # first account listed is the one we select at startup
+            # (aka order based selection).
+            pp_account = next(iter(accounts.keys()))
+        else:
+            pp_account = 'paper'
+
+        # NOTE: requires the backend exactly specifies
+        # the expected symbol key in its positions msg.
+        pp_msgs = position_msgs.get(symkey, ())
+
+        # update all pp trackers with existing data relayed
+        # from ``brokerd``.
+        for msg in pp_msgs:
+
+            log.info(f'Loading pp for {symkey}:\n{pformat(msg)}')
+            account_value = msg.get('account')
+            account_name = accounts.inverse.get(account_value)
+            if not account_name and account_value == 'paper':
+                account_name = 'paper'
+
+            # net-zero pp
+            startup_pp = Position(
+                symbol=symbol,
+                size=0,
+                avg_price=0,
+            )
+            startup_pp.update_from_msg(msg)
+
+            # allocator
+            alloc = mk_allocator(
+                symbol=symbol,
+                accounts=accounts,
+                account=account_name,
+
+                # if this startup size is greater the allocator limit,
+                # the limit is increased internally in this factory.
+                startup_pp=startup_pp,
+            )
+
+            pp_tracker = PositionTracker(
+                chart,
+                alloc,
+                startup_pp
+            )
+            pp_tracker.hide()
+            trackers[account_name] = pp_tracker
+
+            assert pp_tracker.startup_pp.size == pp_tracker.live_pp.size
+
+            # TODO: do we even really need the "startup pp" or can we
+            # just take the max and pass that into the some state / the
+            # alloc?
+            pp_tracker.update_from_pp()
+
+            if pp_tracker.startup_pp.size != 0:
+                # if no position, don't show pp tracking graphics
+                pp_tracker.show()
+                pp_tracker.hide_info()
+
+        # fill out trackers for accounts with net-zero pps
+        zero_pp_accounts = set(accounts) - set(trackers)
+        for account_name in zero_pp_accounts:
+            startup_pp = Position(
+                symbol=symbol,
+                size=0,
+                avg_price=0,
+            )
+
+            # allocator
+            alloc = mk_allocator(
+                symbol=symbol,
+                accounts=accounts,
+                account=account_name,
+                startup_pp=startup_pp,
+            )
+            pp_tracker = PositionTracker(
+                chart,
+                alloc,
+                startup_pp
+            )
+            pp_tracker.hide()
+            trackers[account_name] = pp_tracker
 
         # order pane widgets and allocation model
         order_pane = SettingsPane(
-            tracker=pp_tracker,
             form=form,
-            alloc=alloc,
+            # XXX: ugh, so hideous...
             fill_bar=form.fill_bar,
             pnl_label=form.left_label,
             step_label=form.bottom_label,
             limit_label=form.top_label,
         )
+
+        # top level abstraction which wraps all this crazyness into
+        # a namespace..
+        mode = OrderMode(
+            chart,
+            tn,
+            feed,
+            book,
+            lines,
+            arrows,
+            multistatus,
+            pane=order_pane,
+            trackers=trackers,
+
+        )
+        # XXX: MUST be set
+        order_pane.order_mode = mode
+
+        # select a pp to track
+        tracker = trackers[pp_account]
+        mode.current_pp = tracker
+        tracker.show()
+        tracker.hide_info()
 
         # XXX: would love to not have to do this separate from edit
         # fields (which are done in an async loop - see below)
@@ -556,77 +692,17 @@ async def open_order_mode(
                 )
             )
 
-        # top level abstraction which wraps all this crazyness into
-        # a namespace..
-        mode = OrderMode(
-            chart,
-            book,
-            lines,
-            arrows,
-            multistatus,
-            pp_tracker,
-            allocator=alloc,
-            pane=order_pane,
-        )
+        # make fill bar and positioning snapshot
+        order_pane.on_ui_settings_change('limit', tracker.alloc.limit())
+        order_pane.update_status_ui(pp=tracker)
 
         # TODO: create a mode "manager" of sorts?
         # -> probably just call it "UxModes" err sumthin?
         # so that view handlers can access it
         view.order_mode = mode
 
-        our_sym = mode.chart.linked._symbol.key
-
-        # update any exising position
-        pp_msg = None
-        for sym, msg in positions.items():
-            if sym.lower() in our_sym:
-                pp_msg = msg
-                break
-
-        # make fill bar and positioning snapshot
-        # XXX: this need to be called *before* the first
-        # pp tracker update(s) below to ensure the limit size unit has
-        # been correctly set prior to updating the line's pp size label
-        # (the one on the RHS).
-        # TODO: should probably split out the alloc config from the UI
-        # config startup steps..
-        order_pane.init_status_ui()
-
-        # we should probably make the allocator config
-        # and explitict helper func call that takes in the aloc and
-        # the postion / symbol info then take that alloc ref and
-        # update the pp_tracker and pp_pane?
-        if pp_msg:
-            pp_tracker.update_from_pp_msg(msg)
-
-        order_pane.update_status_ui()
-
-        live_pp = mode.pp.live_pp
-        size = live_pp.size
-        if size:
-            global _zero_pp
-            _zero_pp = False
-
-            # compute and display pnl status immediately
-            mode.pane.pnl_label.format(
-                pnl=copysign(1, size) * pnl(
-                    live_pp.avg_price,
-                    # last historical close price
-                    feed.shm.array[-1][['close']][0],
-                ),
-            )
-
-            # spawn updater task
-            n.start_soon(
-                display_pnl,
-                feed,
-                mode,
-            )
-
-        else:
-            # set 0% pnl
-            mode.pane.pnl_label.format(pnl=0)
-
+        order_pane.on_ui_settings_change('account', pp_account)
+        mode.pane.display_pnl(mode.current_pp)
 
         # Begin order-response streaming
         done()
@@ -645,81 +721,19 @@ async def open_order_mode(
             ),
 
         ):
-
             # signal to top level symbol loading task we're ready
             # to handle input since the ems connection is ready
             started.set()
 
-            n.start_soon(
+            tn.start_soon(
                 process_trades_and_update_ui,
-                n,
+                tn,
                 feed,
                 mode,
                 trades_stream,
                 book,
             )
             yield mode
-
-
-_zero_pp: bool = True
-
-
-async def display_pnl(
-    feed: Feed,
-    order_mode: OrderMode,
-) -> None:
-    '''Real-time display the current pp's PnL in the appropriate label.
-
-    Error if this task is spawned where there is a net-zero pp.
-
-    '''
-    global _zero_pp
-    assert not _zero_pp
-
-    pp = order_mode.pp
-    live = pp.live_pp
-
-    if live.size < 0:
-        types = ('ask', 'last', 'last', 'utrade')
-
-    elif live.size > 0:
-        types = ('bid', 'last', 'last', 'utrade')
-
-    else:
-        raise RuntimeError('No pp?!?!')
-
-    # real-time update pnl on the status pane
-    async with feed.stream.subscribe() as bstream:
-        # last_tick = time.time()
-        async for quotes in bstream:
-
-            # now = time.time()
-            # period = now - last_tick
-
-            for sym, quote in quotes.items():
-
-                for tick in iterticks(quote, types):
-                    # print(f'{1/period} Hz')
-
-                    size = live.size
-
-                    if size == 0:
-                        # terminate this update task since we're
-                        # no longer in a pp
-                        _zero_pp = True
-                        order_mode.pane.pnl_label.format(pnl=0)
-                        return
-
-                    else:
-                        # compute and display pnl status
-                        order_mode.pane.pnl_label.format(
-                            pnl=copysign(1, size) * pnl(
-                                live.avg_price,
-                                tick['price'],
-                            ),
-                        )
-
-                    # last_tick = time.time()
 
 
 async def process_trades_and_update_ui(
@@ -733,8 +747,7 @@ async def process_trades_and_update_ui(
 ) -> None:
 
     get_index = mode.chart.get_index
-    tracker = mode.pp
-    global _zero_pp
+    global _pnl_tasks
 
     # this is where we receive **back** messages
     # about executions **from** the EMS actor
@@ -747,24 +760,19 @@ async def process_trades_and_update_ui(
         if name in (
             'position',
         ):
-            # show line label once order is live
-
             sym = mode.chart.linked.symbol
             if msg['symbol'].lower() in sym.key:
-                tracker.update_from_pp_msg(msg)
+
+                tracker = mode.trackers[msg['account']]
+                tracker.live_pp.update_from_msg(msg)
+                tracker.update_from_pp()
 
                 # update order pane widgets
-                mode.pane.update_status_ui()
+                mode.pane.update_status_ui(tracker)
 
-            if mode.pp.live_pp.size and _zero_pp:
-                _zero_pp = False
-                n.start_soon(
-                    display_pnl,
-                    feed,
-                    mode,
-                )
+            mode.pane.display_pnl(tracker)
             # short circuit to next msg to avoid
-            # uncessary msg content lookups
+            # unnecessary msg content lookups
             continue
 
         resp = msg['resp']
@@ -795,10 +803,13 @@ async def process_trades_and_update_ui(
         elif resp in (
             'broker_cancelled',
             'broker_inactive',
+            'broker_errored',
             'dark_cancelled'
         ):
             # delete level line from view
             mode.on_cancel(oid)
+            broker_msg = msg['brokerd_msg']
+            log.warning(f'Order {oid} failed with:\n{pformat(broker_msg)}')
 
         elif resp in (
             'dark_triggered'
@@ -849,4 +860,6 @@ async def process_trades_and_update_ui(
                 arrow_index=get_index(details['broker_time']),
             )
 
-            tracker.live_pp.fills.append(msg)
+            # TODO: how should we look this up?
+            # tracker = mode.trackers[msg['account']]
+            # tracker.live_pp.fills.append(msg)
