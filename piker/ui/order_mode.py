@@ -549,9 +549,6 @@ async def open_order_mode(
         lines = LineEditor(chart=chart)
         arrows = ArrowEditor(chart, {})
 
-        # allocation and account settings side pane
-        form = chart.sidepane
-
         # symbol id
         symbol = chart.linked.symbol
         symkey = symbol.key
@@ -645,7 +642,9 @@ async def open_order_mode(
             pp_tracker.hide()
             trackers[account_name] = pp_tracker
 
-        # order pane widgets and allocation model
+        # setup order mode sidepane widgets
+        form = chart.sidepane
+
         order_pane = SettingsPane(
             form=form,
             # XXX: ugh, so hideous...
@@ -654,6 +653,17 @@ async def open_order_mode(
             step_label=form.bottom_label,
             limit_label=form.top_label,
         )
+        # set all entries as unavailable at startup and then fill out
+        # positions and ready icons
+        # order_pane.update_accounts_icon('unavailable')
+
+        for name, tracker in trackers.items():
+            if tracker.live_pp.size > 0:
+                order_pane.update_accounts_icon('long_pp', [name])
+            elif tracker.live_pp.size < 0:
+                order_pane.update_accounts_icon('short_pp', [name])
+            # else:
+            #     order_pane.update_accounts_icon('ready', [name])
 
         # top level abstraction which wraps all this crazyness into
         # a namespace..
