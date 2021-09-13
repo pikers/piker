@@ -577,8 +577,8 @@ async def open_order_mode(
         for msg in pp_msgs:
 
             log.info(f'Loading pp for {symkey}:\n{pformat(msg)}')
-            account_value = msg.get('account')
-            account_name = accounts.inverse.get(account_value)
+            account_name = msg.get('account')
+            account_value = accounts.get(account_name)
             if not account_name and account_value == 'paper':
                 account_name = 'paper'
 
