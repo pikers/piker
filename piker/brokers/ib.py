@@ -1333,7 +1333,10 @@ async def stream_quotes(
             # last = time.time()
 
 
-def pack_position(pos: Position) -> dict[str, Any]:
+def pack_position(
+    pos: Position
+
+) -> dict[str, Any]:
     con = pos.contract
 
     if isinstance(con, Option):
@@ -1480,6 +1483,7 @@ async def trades_dialogue(
         for client in _client_cache.values():
             for pos in client.positions():
                 msg = pack_position(pos)
+                msg.account = accounts_def.inverse[msg.account]
                 all_positions.append(msg.dict())
 
     await ctx.started(all_positions)
@@ -1636,6 +1640,7 @@ async def deliver_trade_events(
 
         elif event_name == 'position':
             msg = pack_position(item)
+            msg.account = accounts_def.inverse[msg.account]
 
         if getattr(msg, 'reqid', 0) < -1:
 
