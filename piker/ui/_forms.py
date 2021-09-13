@@ -157,12 +157,33 @@ class FontScaledDelegate(QStyledItemDelegate):
         else:
             return super().sizeHint(option, index)
 
+    # NOTE: hack to display icons on RHS
     # TODO: is there a way to set this stype option once?
-    def paint(self, painter, option, index):
-        # display icons on RHS
-        # https://stackoverflow.com/a/39943629
-        option.decorationPosition = QtGui.QStyleOptionViewItem.Right
-        super().paint(painter, option, index)
+    # def paint(self, painter, option, index):
+    #     # display icons on RHS
+    #     # https://stackoverflow.com/a/39943629
+    #     option.decorationPosition = QtGui.QStyleOptionViewItem.Right
+    #     option.decorationAlignment = Qt.AlignRight | Qt.AlignVCenter
+    #     QStyledItemDelegate.paint(self, painter, option, index)
+
+
+# NOTE: in theory we can put icons on the RHS side with this hackery:
+# https://stackoverflow.com/a/64256969
+# class ComboBox(QComboBox):
+#     def __init__(
+#         self,
+#         parent=None,
+#     ) -> None:
+#         super().__init__(parent=parent)
+
+#     def showPopup(self):
+#         print('show')
+#         QComboBox.showPopup(self)
+
+#     def hidePopup(self):
+#         # self.setItemDelegate(FontScaledDelegate(self.parent()))
+#         print('hide')
+#         QComboBox.hidePopup(self)
 
 
 # slew of resources which helped get this where it is:
@@ -171,7 +192,6 @@ class FontScaledDelegate(QStyledItemDelegate):
 # https://stackoverflow.com/questions/6337589/qlistwidget-adjust-size-to-content#6370892
 # https://stackoverflow.com/questions/25304267/qt-resize-of-qlistview
 # https://stackoverflow.com/questions/28227406/how-to-set-qlistview-rows-height-permanently
-
 class FieldsForm(QWidget):
 
     vbox: QVBoxLayout
@@ -287,7 +307,6 @@ class FieldsForm(QWidget):
         label = self.add_field_label(label_name)
 
         select = QComboBox(self)
-
         select._key = key
         select._items: dict[str, int] = {}
 
@@ -313,6 +332,7 @@ class FieldsForm(QWidget):
         )
         view = select.view()
         view.setUniformItemSizes(True)
+
         # TODO: this doesn't seem to work for the currently selected item?
         select.setItemDelegate(FontScaledDelegate(self))
 
@@ -323,7 +343,8 @@ class FieldsForm(QWidget):
         br = _font.boundingRect(str(values[-1]))
         _, h = br.width(), br.height()
 
-        select.setIconSize(QSize(h, h))
+        icon_size = round(h * 0.75)
+        select.setIconSize(QSize(icon_size, icon_size))
 
         # TODO: something better then this monkey patch
         # view._max_item_size = w, h
@@ -647,8 +668,7 @@ def mk_order_pane_layout(
 
 ) -> FieldsForm:
 
-    # font_size: int = _font_small.px_size - 2
-    font_size: int = _font.px_size - 2
+    font_size: int = _font.px_size - 1
     accounts = config.load_accounts()
 
     # TODO: maybe just allocate the whole fields form here
