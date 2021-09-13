@@ -25,10 +25,10 @@ from math import floor, copysign
 from typing import Optional
 
 
-from PyQt5.QtWidgets import QStyle
-from PyQt5.QtGui import (
-    QIcon, QPixmap, QColor
-)
+# from PyQt5.QtWidgets import QStyle
+# from PyQt5.QtGui import (
+#     QIcon, QPixmap, QColor
+# )
 from pyqtgraph import functions as fn
 
 from ._annotate import LevelMarker
@@ -42,7 +42,8 @@ from ..data._normalize import iterticks
 from ..data.feed import Feed
 from ._label import Label
 from ._lines import LevelLine, order_line
-from ._style import _font, hcolor
+from ._icons import mk_icons
+from ._style import _font
 from ._forms import FieldsForm, FillStatusBar, QLabel
 from ..log import get_logger
 
@@ -113,18 +114,6 @@ async def display_pnl(
         assert _pnl_tasks.pop(key)
 
 
-# https://www.pythonguis.com/faq/built-in-qicons-pyqt/
-# account status icons taken from built-in set
-_icon_names: dict[str, str] = {
-    # these two seem to work for our mask hack done below to
-    # change the coloring.
-    'long_pp': 'SP_TitleBarShadeButton',
-    'short_pp': 'SP_TitleBarUnshadeButton',
-    'ready': 'SP_MediaPlay',
-}
-_icons: dict[str, QIcon] = {}
-
-
 @dataclass
 class SettingsPane:
     '''Composite set of widgets plus an allocator model for configuring
@@ -152,52 +141,15 @@ class SettingsPane:
     ) -> None:
 
         form = self.form
-
-        global _icons, _icon_name
-        if not _icons:
-            # load account selection using current style
-            for name, icon_name in _icon_names.items():
-
-                stdpixmap = getattr(QStyle, icon_name)
-                stdicon = form.style().standardIcon(stdpixmap)
-                combo = form.fields['account']
-                size = combo.iconSize()
-                pixmap = stdicon.pixmap(combo.iconSize())
-
-                # fill hack from SO to change icon color:
-                # https://stackoverflow.com/a/38369468
-                out_pixmap = QPixmap(size)
-                out_pixmap.fill(QColor(hcolor('default_spotlight')))
-                out_pixmap.setMask(pixmap.createHeuristicMask())
-
-                # TODO: not idea why this doesn't work / looks like
-                # trash.  Sure would be nice to just generate our own
-                # pixmaps on the fly..
-                # p = QPainter(out_pixmap)
-                # p.setOpacity(1)
-                # p.setBrush(QColor(hcolor('papas_special')))
-                # p.setPen(QColor(hcolor('default_lightest')))
-                # path = mk_marker_path(style='|<')
-                # p.scale(6, 6)
-                # # p.translate(0, 0)
-                # p.drawPath(path)
-                # p.save()
-                # p.end()
-                # del p
-                # icon = QIcon(out_pixmap)
-
-                icon = QIcon()
-                icon.addPixmap(out_pixmap)
-
-                _icons[name] = icon
-
+        icons = mk_icons(
+            form.style(),
+            form.fields['account'].iconSize()
+        )
         acct_select = form.fields['account']
         keys = list(keys or acct_select._items.keys())
-
-        # breakpoint()
         for key in keys:
             i = acct_select._items[key]
-            icon = _icons[status]
+            icon = icons[status]
             acct_select.setItemIcon(i, icon)
 
     def on_selection_change(
