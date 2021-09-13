@@ -270,7 +270,7 @@ async def handle_viewmode_kb_inputs(
             edit.selectAll()
             # un-highlight on ctrl release
             on_next_release = edit.deselect
-            pp_pane.update_status_ui()
+            pp_pane.update_status_ui(pp_pane.order_mode.current_pp)
 
         else:  # none active
 
