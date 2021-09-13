@@ -429,9 +429,14 @@ async def open_brokerd_trades_dialogue(
                 # by receiving order submission response messages,
                 # normalizing them to EMS messages and relaying back to
                 # the piker order client set.
+
+                # locally cache and track positions per account.
                 pps = {}
                 for msg in positions:
-                    pps.setdefault(msg['symbol'], {})['account'] = msg
+                    pps.setdefault(
+                        msg['symbol'],
+                        {}
+                    )[msg['account']] = msg
 
                 relay = TradesRelay(
                     brokerd_dialogue=brokerd_trades_stream,
