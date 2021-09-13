@@ -769,8 +769,9 @@ async def process_trades_and_update_ui(
 
                 # update order pane widgets
                 mode.pane.update_status_ui(tracker)
+                # display pnl
+                mode.pane.display_pnl(tracker)
 
-            mode.pane.display_pnl(tracker)
             # short circuit to next msg to avoid
             # unnecessary msg content lookups
             continue
