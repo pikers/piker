@@ -50,7 +50,7 @@ log = get_logger(__name__)
 _pnl_tasks: dict[str, bool] = {}
 
 
-async def display_pnl(
+async def update_pnl_from_feed(
 
     feed: Feed,
     order_mode: OrderMode,  # noqa
@@ -66,6 +66,8 @@ async def display_pnl(
     pp = order_mode.current_pp
     live = pp.live_pp
     key = live.symbol.key
+
+    log.info(f'Starting pnl display for {pp.alloc.account}')
 
     if live.size < 0:
         types = ('ask', 'last', 'last', 'utrade')
@@ -303,7 +305,7 @@ class SettingsPane:
         self,
         tracker: PositionTracker,
 
-    ) -> bool:
+    ) -> None:
         '''Display the PnL for the current symbol and personal positioning (pp).
 
         If a position is open start a background task which will
@@ -314,36 +316,28 @@ class SettingsPane:
         sym = mode.chart.linked.symbol
         size = tracker.live_pp.size
         feed = mode.quote_feed
-        global _pnl_tasks
+        pnl_value = 0
 
-        if (
-            size and
-            sym.key not in _pnl_tasks
-        ):
-            _pnl_tasks[sym.key] = True
-
-            # immediately compute and display pnl status from last quote
-            self.pnl_label.format(
-                pnl=copysign(1, size) * pnl(
-                    tracker.live_pp.avg_price,
-                    # last historical close price
-                    feed.shm.array[-1][['close']][0],
-                ),
+        if size:
+            # last historical close price
+            last = feed.shm.array[-1][['close']][0]
+            pnl_value = copysign(1, size) * pnl(
+                tracker.live_pp.avg_price,
+                last,
             )
 
-            log.info(
-                f'Starting pnl display for {tracker.alloc.account}')
-            self.order_mode.nursery.start_soon(
-                display_pnl,
-                feed,
-                mode,
-            )
-            return True
+            # maybe start update task
+            global _pnl_tasks
+            if sym.key not in _pnl_tasks:
+                _pnl_tasks[sym.key] = True
+                self.order_mode.nursery.start_soon(
+                    update_pnl_from_feed,
+                    feed,
+                    mode,
+                )
 
-        else:
-            # set 0% pnl
-            self.pnl_label.format(pnl=0)
-            return False
+        # immediately display in status label
+        self.pnl_label.format(pnl=pnl_value)
 
 
 def position_line(
