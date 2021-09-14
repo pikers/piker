@@ -26,7 +26,6 @@ import time
 from typing import Optional, Dict, Callable, Any
 import uuid
 
-from bidict import bidict
 from pydantic import BaseModel
 import tractor
 import trio
@@ -564,30 +563,22 @@ async def open_order_mode(
         )
 
         # use only loaded accounts according to brokerd
-        accounts = bidict({})
+        accounts = {}
         for name in brokerd_accounts:
+            # ensure name is in ``brokers.toml``
             accounts[name] = accounts_def[name]
 
-        if accounts:
-            # first account listed is the one we select at startup
-            # (aka order based selection).
-            pp_account = next(iter(accounts.keys()))
-        else:
-            pp_account = 'paper'
+        # first account listed is the one we select at startup
+        # (aka order based selection).
+        pp_account = next(iter(accounts.keys())) if accounts else 'paper'
 
         # NOTE: requires the backend exactly specifies
         # the expected symbol key in its positions msg.
         pp_msgs = position_msgs.get(symkey, ())
+        pps_by_account = {msg['account']: msg for msg in pp_msgs}
 
-        # update all pp trackers with existing data relayed
-        # from ``brokerd``.
-        for msg in pp_msgs:
-
-            log.info(f'Loading pp for {symkey}:\n{pformat(msg)}')
-            account_name = msg.get('account')
-            account_value = accounts.get(account_name)
-            if not account_name and account_value == 'paper':
-                account_name = 'paper'
+        # update pp trackers with data relayed from ``brokerd``.
+        for account_name in accounts:
 
             # net-zero pp
             startup_pp = Position(
@@ -595,7 +586,10 @@ async def open_order_mode(
                 size=0,
                 avg_price=0,
             )
-            startup_pp.update_from_msg(msg)
+            msg = pps_by_account.get(account_name)
+            if msg:
+                log.info(f'Loading pp for {symkey}:\n{pformat(msg)}')
+                startup_pp.update_from_msg(msg)
 
             # allocator
             alloc = mk_allocator(
@@ -626,29 +620,6 @@ async def open_order_mode(
                 # if no position, don't show pp tracking graphics
                 pp_tracker.show()
                 pp_tracker.hide_info()
-
-        # fill out trackers for accounts with net-zero pps
-        zero_pp_accounts = set(accounts) - set(trackers)
-        for account_name in zero_pp_accounts:
-            startup_pp = Position(
-                symbol=symbol,
-                size=0,
-                avg_price=0,
-            )
-
-            # allocator
-            alloc = mk_allocator(
-                symbol=symbol,
-                account=account_name,
-                startup_pp=startup_pp,
-            )
-            pp_tracker = PositionTracker(
-                chart,
-                alloc,
-                startup_pp
-            )
-            pp_tracker.hide()
-            trackers[account_name] = pp_tracker
 
         # setup order mode sidepane widgets
         form = chart.sidepane
