@@ -665,15 +665,9 @@ async def open_order_mode(
         )
         order_pane.set_accounts(list(trackers.keys()))
 
-        # set all entries as unavailable at startup and then fill out
-        # positions and ready icons
-        # order_pane.update_accounts_icon('unavailable')
-
+        # update pp icons
         for name, tracker in trackers.items():
-            if tracker.live_pp.size > 0:
-                order_pane.update_accounts_icon('long_pp', [name])
-            elif tracker.live_pp.size < 0:
-                order_pane.update_accounts_icon('short_pp', [name])
+            order_pane.update_account_icons({name: tracker.live_pp})
 
         # top level abstraction which wraps all this crazyness into
         # a namespace..
