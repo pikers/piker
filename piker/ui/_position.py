@@ -185,11 +185,11 @@ class SettingsPane:
                     f'Account `{account_name}` can not be set for {sym}'
                 )
                 self.form.fields['account'].setCurrentText(
-                    old_tracker.alloc.account_name())
+                    old_tracker.alloc.account)
                 return
 
             self.order_mode.current_pp = tracker
-            assert tracker.alloc.account_name() == account_name
+            assert tracker.alloc.account == account_name
             self.form.fields['account'].setCurrentText(account_name)
             tracker.show()
             tracker.hide_info()
@@ -278,7 +278,7 @@ class SettingsPane:
             # min(round(prop * slots), slots)
             min(used, slots)
         )
-        self.update_account_icons({alloc.account_name(): pp.live_pp})
+        self.update_account_icons({alloc.account: pp.live_pp})
 
     def update_account_icons(
         self,
@@ -332,7 +332,7 @@ class SettingsPane:
             )
 
             log.info(
-                f'Starting pnl display for {tracker.alloc.account_name()}')
+                f'Starting pnl display for {tracker.alloc.account}')
             self.order_mode.nursery.start_soon(
                 display_pnl,
                 feed,
@@ -654,7 +654,7 @@ class PositionTracker:
                 'fiat_size': round(price * size, ndigits=2),
 
                 # TODO: per account lines on a single (or very related) symbol
-                'account': self.alloc.account_name(),
+                'account': self.alloc.account,
             })
             line.show()
 

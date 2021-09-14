@@ -223,7 +223,7 @@ class OrderMode:
         order = self._staged_order = Order(
             action=action,
             price=price,
-            account=self.current_pp.alloc.account_name(),
+            account=self.current_pp.alloc.account,
             size=0,
             symbol=symbol,
             brokers=symbol.brokers,
@@ -600,7 +600,6 @@ async def open_order_mode(
             # allocator
             alloc = mk_allocator(
                 symbol=symbol,
-                accounts=accounts,
                 account=account_name,
 
                 # if this startup size is greater the allocator limit,
@@ -640,7 +639,6 @@ async def open_order_mode(
             # allocator
             alloc = mk_allocator(
                 symbol=symbol,
-                accounts=accounts,
                 account=account_name,
                 startup_pp=startup_pp,
             )
