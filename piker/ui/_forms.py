@@ -44,6 +44,7 @@ from PyQt5.QtWidgets import (
 )
 
 from ._event import open_handlers
+from ._icons import mk_icons
 from ._style import hcolor, _font, _font_small, DpiAwareFont
 from ._label import FormatLabel
 
@@ -178,7 +179,6 @@ class Selection(QComboBox):
     ) -> None:
 
         self._items: dict[str, int] = {}
-
         super().__init__(parent=parent)
         self.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         # make line edit expand to surrounding frame
@@ -191,6 +191,13 @@ class Selection(QComboBox):
 
         # TODO: this doesn't seem to work for the currently selected item?
         self.setItemDelegate(FontScaledDelegate(self))
+
+        self.resize()
+
+        self._icons = mk_icons(
+            self.style(),
+            self.iconSize()
+        )
 
     def set_style(
         self,
@@ -207,6 +214,25 @@ class Selection(QComboBox):
             }}
             """
         )
+
+    def resize(
+        self,
+        char: str = 'W',
+    ) -> None:
+        br = _font.boundingRect(str(char))
+        _, h = br.width(), br.height()
+
+        # TODO: something better then this monkey patch
+        view = self.view()
+
+        # XXX: see size policy settings of line edit
+        # view._max_item_size = w, h
+
+        self.setMinimumHeight(h)  # at least one entry in view
+        view.setMaximumHeight(6*h)  # limit to 6 items max in view
+
+        icon_size = round(h * 0.75)
+        self.setIconSize(QSize(icon_size, icon_size))
 
     def set_items(
         self,
@@ -231,23 +257,24 @@ class Selection(QComboBox):
         # "style item delegate" thing can then specify
         # that size on each item...
         keys.sort()
-        br = _font.boundingRect(str(keys[-1]))
-        _, h = br.width(), br.height()
+        self.resize(keys[-1])
 
-        # TODO: something better then this monkey patch
-        view = self.view()
+    def set_icon(
+        self,
+        key: str,
+        icon_name: Optional[str],
 
-        # XXX: see size policy settings of line edit
-        # view._max_item_size = w, h
+    ) -> None:
+        self.setItemIcon(
+            self._items[key],
+            self._icons[icon_name],
+        )
 
-        self.setMinimumHeight(h)  # at least one entry in view
-        view.setMaximumHeight(6*h)  # limit to 6 items max in view
+    def items(self) -> list[(str, int)]:
+        return list(self._items.items())
 
-        icon_size = round(h * 0.75)
-        self.setIconSize(QSize(icon_size, icon_size))
-
-    # # NOTE: in theory we can put icons on the RHS side with this hackery:
-    # # https://stackoverflow.com/a/64256969
+    # NOTE: in theory we can put icons on the RHS side with this hackery:
+    # https://stackoverflow.com/a/64256969
     # def showPopup(self):
     #     print('show')
     #     QComboBox.showPopup(self)

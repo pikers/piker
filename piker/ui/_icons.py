@@ -51,6 +51,8 @@ def mk_icons(
     if _icons:
         return _icons
 
+    _icons[None] = QIcon()  # the "null" icon
+
     # load account selection using current style
     for name, icon_name in _icon_names.items():
 
