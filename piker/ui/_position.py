@@ -133,6 +133,15 @@ class SettingsPane:
     # encompasing high level namespace
     order_mode: Optional['OrderMode'] = None  # typing: ignore # noqa
 
+    def set_accounts(
+        self,
+        names: list[str],
+        sizes: Optional[list[float]] = None,
+    ) -> None:
+
+        combo = self.form.fields['account']
+        return combo.set_items(names)
+
     def update_accounts_icon(
         self,
         status: str,  # one of the values in ``_icons`` above
