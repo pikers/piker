@@ -1469,6 +1469,7 @@ async def trades_dialogue(
 
     # deliver positions to subscriber before anything else
     all_positions = []
+    accounts = set()
 
     clients: list[tuple[Client, trio.MemoryReceiveChannel]] = []
     for account, client in _accounts2clients.items():
@@ -1484,9 +1485,10 @@ async def trades_dialogue(
             for pos in client.positions():
                 msg = pack_position(pos)
                 msg.account = accounts_def.inverse[msg.account]
+                accounts.add(msg.account)
                 all_positions.append(msg.dict())
 
-    await ctx.started(all_positions)
+    await ctx.started((all_positions, accounts))
 
     async with (
         ctx.open_stream() as ems_stream,

@@ -210,7 +210,7 @@ async def open_ems(
                 broker=broker,
                 symbol=symbol.key,
 
-            ) as (ctx, positions),
+            ) as (ctx, (positions, accounts)),
 
             # open 2-way trade command stream
             ctx.open_stream() as trades_stream,
@@ -222,4 +222,4 @@ async def open_ems(
                     trades_stream
                 )
 
-                yield book, trades_stream, positions
+                yield book, trades_stream, positions, accounts
