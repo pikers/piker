@@ -26,6 +26,7 @@ import time
 from typing import Optional, Dict, Callable, Any
 import uuid
 
+from bidict import bidict
 from pydantic import BaseModel
 import tractor
 import trio
@@ -536,7 +537,8 @@ async def open_order_mode(
         open_ems(brokername, symbol) as (
             book,
             trades_stream,
-            position_msgs
+            position_msgs,
+            brokerd_accounts,
         ),
         trio.open_nursery() as tn,
 
@@ -557,7 +559,15 @@ async def open_order_mode(
         trackers: dict[str, PositionTracker] = {}
 
         # load account names from ``brokers.toml``
-        accounts = config.load_accounts(providers=symbol.brokers).copy()
+        accounts_def = config.load_accounts(
+            providers=symbol.brokers
+        )
+
+        # use only loaded accounts according to brokerd
+        accounts = bidict({})
+        for name in brokerd_accounts:
+            accounts[name] = accounts_def[name]
+
         if accounts:
             # first account listed is the one we select at startup
             # (aka order based selection).
@@ -653,6 +663,8 @@ async def open_order_mode(
             step_label=form.bottom_label,
             limit_label=form.top_label,
         )
+        order_pane.set_accounts(list(trackers.keys()))
+
         # set all entries as unavailable at startup and then fill out
         # positions and ready icons
         # order_pane.update_accounts_icon('unavailable')
@@ -662,8 +674,6 @@ async def open_order_mode(
                 order_pane.update_accounts_icon('long_pp', [name])
             elif tracker.live_pp.size < 0:
                 order_pane.update_accounts_icon('short_pp', [name])
-            # else:
-            #     order_pane.update_accounts_icon('ready', [name])
 
         # top level abstraction which wraps all this crazyness into
         # a namespace..
