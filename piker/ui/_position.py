@@ -42,7 +42,6 @@ from ..data._normalize import iterticks
 from ..data.feed import Feed
 from ._label import Label
 from ._lines import LevelLine, order_line
-from ._icons import mk_icons
 from ._style import _font
 from ._forms import FieldsForm, FillStatusBar, QLabel
 from ..log import get_logger
@@ -142,28 +141,8 @@ class SettingsPane:
         combo = self.form.fields['account']
         return combo.set_items(names)
 
-    def update_accounts_icon(
-        self,
-        status: str,  # one of the values in ``_icons`` above
-        keys: Optional[list[str]] = None,
-
-    ) -> None:
-
-        form = self.form
-        icons = mk_icons(
-            form.style(),
-            form.fields['account'].iconSize()
-        )
-        acct_select = form.fields['account']
-        keys = list(keys or acct_select._items.keys())
-        for key in keys:
-            i = acct_select._items[key]
-            icon = icons[status]
-            acct_select.setItemIcon(i, icon)
-
     def on_selection_change(
         self,
-
         text: str,
         key: str,
 
@@ -299,6 +278,26 @@ class SettingsPane:
             # min(round(prop * slots), slots)
             min(used, slots)
         )
+        self.update_account_icons({alloc.account_name(): pp.live_pp})
+
+    def update_account_icons(
+        self,
+        pps: dict[str, Position],
+
+    ) -> None:
+
+        form = self.form
+        accounts = form.fields['account']
+
+        for account_name, pp in pps.items():
+            icon_name = None
+
+            if pp.size > 0:
+                icon_name = 'long_pp'
+            elif pp.size < 0:
+                icon_name = 'short_pp'
+
+            accounts.set_icon(account_name, icon_name)
 
     def display_pnl(
         self,
