@@ -42,12 +42,11 @@ from PyQt5.QtWidgets import (
     QStyledItemDelegate,
     QStyleOptionViewItem,
 )
-# import pydantic
 
 from ._event import open_handlers
+from ._icons import mk_icons
 from ._style import hcolor, _font, _font_small, DpiAwareFont
 from ._label import FormatLabel
-from .. import config
 
 
 class FontAndChartAwareLineEdit(QLineEdit):
@@ -71,17 +70,21 @@ class FontAndChartAwareLineEdit(QLineEdit):
 
         if width_in_chars:
             self._chars = int(width_in_chars)
+            x_size_policy = QSizePolicy.Fixed
 
         else:
             # chart count which will be used to calculate
             # width of input field.
-            self._chars: int = 9
+            self._chars: int = 6
+            # fit to surroundingn frame width
+            x_size_policy = QSizePolicy.Expanding
 
         super().__init__(parent)
+
         # size it as we specify
         # https://doc.qt.io/qt-5/qsizepolicy.html#Policy-enum
         self.setSizePolicy(
-            QSizePolicy.Expanding,
+            x_size_policy,
             QSizePolicy.Fixed,
         )
         self.setFont(font.font)
@@ -99,11 +102,11 @@ class FontAndChartAwareLineEdit(QLineEdit):
         dpi_font = self.dpi_font
         psh.setHeight(dpi_font.px_size)
 
-        # space for ``._chars: int``
-        char_w_pxs = dpi_font.boundingRect(self.text()).width()
-        chars_w = char_w_pxs + 6  # * dpi_font.scale() * self._chars
-        psh.setWidth(chars_w)
-
+        # make space for ``._chars: int`` for of characters in view
+        # TODO: somehow this math ain't right?
+        chars_w_pxs = dpi_font.boundingRect('0'*self._chars).width()
+        scale = round(dpi_font.scale())
+        psh.setWidth(chars_w_pxs * scale)
         return psh
 
     def set_width_in_chars(
@@ -157,6 +160,130 @@ class FontScaledDelegate(QStyledItemDelegate):
         else:
             return super().sizeHint(option, index)
 
+    # NOTE: hack to display icons on RHS
+    # TODO: is there a way to set this stype option once?
+    # def paint(self, painter, option, index):
+    #     # display icons on RHS
+    #     # https://stackoverflow.com/a/39943629
+    #     option.decorationPosition = QtGui.QStyleOptionViewItem.Right
+    #     option.decorationAlignment = Qt.AlignRight | Qt.AlignVCenter
+    #     QStyledItemDelegate.paint(self, painter, option, index)
+
+
+class Selection(QComboBox):
+
+    def __init__(
+        self,
+        parent=None,
+
+    ) -> None:
+
+        self._items: dict[str, int] = {}
+        super().__init__(parent=parent)
+        self.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        # make line edit expand to surrounding frame
+        self.setSizePolicy(
+            QSizePolicy.Expanding,
+            QSizePolicy.Fixed,
+        )
+        view = self.view()
+        view.setUniformItemSizes(True)
+
+        # TODO: this doesn't seem to work for the currently selected item?
+        self.setItemDelegate(FontScaledDelegate(self))
+
+        self.resize()
+
+        self._icons = mk_icons(
+            self.style(),
+            self.iconSize()
+        )
+
+    def set_style(
+        self,
+
+        color: str,
+        font_size: int,
+
+    ) -> None:
+
+        self.setStyleSheet(
+            f"""QComboBox {{
+                color : {hcolor(color)};
+                font-size : {font_size}px;
+            }}
+            """
+        )
+
+    def resize(
+        self,
+        char: str = 'W',
+    ) -> None:
+        br = _font.boundingRect(str(char))
+        _, h = br.width(), br.height()
+
+        # TODO: something better then this monkey patch
+        view = self.view()
+
+        # XXX: see size policy settings of line edit
+        # view._max_item_size = w, h
+
+        self.setMinimumHeight(h)  # at least one entry in view
+        view.setMaximumHeight(6*h)  # limit to 6 items max in view
+
+        icon_size = round(h * 0.75)
+        self.setIconSize(QSize(icon_size, icon_size))
+
+    def set_items(
+        self,
+        keys: list[str],
+
+    ) -> None:
+        '''Write keys to the selection verbatim.
+
+        All other items are cleared beforehand.
+        '''
+        self.clear()
+        self._items.clear()
+
+        for i, key in enumerate(keys):
+            strkey = str(key)
+            self.insertItem(i, strkey)
+
+            # store map of entry keys to row indexes
+            self._items[strkey] = i
+
+        # compute max item size so that the weird
+        # "style item delegate" thing can then specify
+        # that size on each item...
+        keys.sort()
+        self.resize(keys[-1])
+
+    def set_icon(
+        self,
+        key: str,
+        icon_name: Optional[str],
+
+    ) -> None:
+        self.setItemIcon(
+            self._items[key],
+            self._icons[icon_name],
+        )
+
+    def items(self) -> list[(str, int)]:
+        return list(self._items.items())
+
+    # NOTE: in theory we can put icons on the RHS side with this hackery:
+    # https://stackoverflow.com/a/64256969
+    # def showPopup(self):
+    #     print('show')
+    #     QComboBox.showPopup(self)
+
+    # def hidePopup(self):
+    #     # self.setItemDelegate(FontScaledDelegate(self.parent()))
+    #     print('hide')
+    #     QComboBox.hidePopup(self)
+
 
 # slew of resources which helped get this where it is:
 # https://stackoverflow.com/questions/20648210/qcombobox-adjusttocontents-changing-height
@@ -164,7 +291,6 @@ class FontScaledDelegate(QStyledItemDelegate):
 # https://stackoverflow.com/questions/6337589/qlistwidget-adjust-size-to-content#6370892
 # https://stackoverflow.com/questions/25304267/qt-resize-of-qlistview
 # https://stackoverflow.com/questions/28227406/how-to-set-qlistview-rows-height-permanently
-
 class FieldsForm(QWidget):
 
     vbox: QVBoxLayout
@@ -252,6 +378,7 @@ class FieldsForm(QWidget):
 
         edit = FontAndChartAwareLineEdit(
             parent=self,
+            # width_in_chars=6,
         )
         edit.setStyleSheet(
             f"""QLineEdit {{
@@ -274,56 +401,23 @@ class FieldsForm(QWidget):
         label_name: str,
         values: list[str],
 
-    ) -> QComboBox:
+    ) -> Selection:
 
         # TODO: maybe a distint layout per "field" item?
         label = self.add_field_label(label_name)
 
-        select = QComboBox(self)
+        select = Selection(self)
+        select.set_style(color='gunmetal', font_size=self._font_size)
         select._key = key
+        select.set_items(values)
 
-        for i, value in enumerate(values):
-            select.insertItem(i, str(value))
-
-        select.setStyleSheet(
-            f"""QComboBox {{
-                color : {hcolor('gunmetal')};
-                font-size : {self._font_size}px;
-            }}
-            """
-        )
-        select.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-        select.setIconSize(QSize(0, 0))
         self.setSizePolicy(
             QSizePolicy.Fixed,
             QSizePolicy.Fixed,
         )
-        view = select.view()
-        view.setUniformItemSizes(True)
-        view.setItemDelegate(FontScaledDelegate(view))
-
-        # compute maximum item size so that the weird
-        # "style item delegate" thing can then specify
-        # that size on each item...
-        values.sort()
-        br = _font.boundingRect(str(values[-1]))
-        _, h = br.width(), br.height()
-
-        # TODO: something better then this monkey patch
-        # view._max_item_size = w, h
-
-        # limit to 6 items?
-        view.setMaximumHeight(6*h)
-
-        # one entry in view
-        select.setMinimumHeight(h)
-
         select.show()
-
         self.form.addRow(label, select)
-
         self.fields[key] = select
-
         return select
 
 
@@ -631,9 +725,7 @@ def mk_order_pane_layout(
 
 ) -> FieldsForm:
 
-    # font_size: int = _font_small.px_size - 2
-    font_size: int = _font.px_size - 2
-    accounts = config.load_accounts()
+    font_size: int = _font.px_size - 1
 
     # TODO: maybe just allocate the whole fields form here
     # and expect an async ctx entry?
@@ -643,7 +735,7 @@ def mk_order_pane_layout(
             'account': {
                 'label': '**account**:',
                 'type': 'select',
-                'default_value': accounts.keys(),
+                'default_value': ['paper'],
             },
             'size_unit': {
                 'label': '**allocate**:',
@@ -685,7 +777,6 @@ def mk_order_pane_layout(
         form,
         pane_vbox=vbox,
         label_font_size=font_size,
-
     )
     # TODO: would be nice to have some better way of reffing these over
     # monkey patching...

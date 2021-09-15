@@ -86,14 +86,7 @@ class Allocator(BaseModel):
         underscore_attrs_are_private = False
 
     symbol: Symbol
-    accounts: bidict[str, Optional[str]]
     account: Optional[str] = 'paper'
-
-    @validator('account', pre=False)
-    def set_account(cls, v, values):
-        if v:
-            return values['accounts'][v]
-
     size_unit: SizeUnit = 'currency'
     _size_units: dict[str, Optional[str]] = _size_units
 
@@ -127,9 +120,6 @@ class Allocator(BaseModel):
             return self.currency_limit
         else:
             return self.units_limit
-
-    def account_name(self) -> str:
-        return self.accounts.inverse[self.account]
 
     def next_order_info(
         self,
@@ -234,7 +224,7 @@ class Allocator(BaseModel):
             'slots_used': slots_used,
 
             # update line LHS label with account name
-            'account': self.account_name(),
+            'account': self.account,
         }
 
     def slots_used(
@@ -264,7 +254,6 @@ class Allocator(BaseModel):
 def mk_allocator(
 
     symbol: Symbol,
-    accounts: dict[str, str],
     startup_pp: Position,
 
     # default allocation settings
@@ -293,7 +282,6 @@ def mk_allocator(
 
     alloc = Allocator(
         symbol=symbol,
-        accounts=accounts,
         **defaults,
     )
 

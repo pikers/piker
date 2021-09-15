@@ -222,7 +222,7 @@ class OrderMode:
         order = self._staged_order = Order(
             action=action,
             price=price,
-            account=self.current_pp.alloc.account_name(),
+            account=self.current_pp.alloc.account,
             size=0,
             symbol=symbol,
             brokers=symbol.brokers,
@@ -536,7 +536,8 @@ async def open_order_mode(
         open_ems(brokername, symbol) as (
             book,
             trades_stream,
-            position_msgs
+            position_msgs,
+            brokerd_accounts,
         ),
         trio.open_nursery() as tn,
 
@@ -549,9 +550,6 @@ async def open_order_mode(
         lines = LineEditor(chart=chart)
         arrows = ArrowEditor(chart, {})
 
-        # allocation and account settings side pane
-        form = chart.sidepane
-
         # symbol id
         symbol = chart.linked.symbol
         symkey = symbol.key
@@ -560,27 +558,27 @@ async def open_order_mode(
         trackers: dict[str, PositionTracker] = {}
 
         # load account names from ``brokers.toml``
-        accounts = config.load_accounts(providers=symbol.brokers).copy()
-        if accounts:
-            # first account listed is the one we select at startup
-            # (aka order based selection).
-            pp_account = next(iter(accounts.keys()))
-        else:
-            pp_account = 'paper'
+        accounts_def = config.load_accounts(
+            providers=symbol.brokers
+        )
+
+        # use only loaded accounts according to brokerd
+        accounts = {}
+        for name in brokerd_accounts:
+            # ensure name is in ``brokers.toml``
+            accounts[name] = accounts_def[name]
+
+        # first account listed is the one we select at startup
+        # (aka order based selection).
+        pp_account = next(iter(accounts.keys())) if accounts else 'paper'
 
         # NOTE: requires the backend exactly specifies
         # the expected symbol key in its positions msg.
         pp_msgs = position_msgs.get(symkey, ())
+        pps_by_account = {msg['account']: msg for msg in pp_msgs}
 
-        # update all pp trackers with existing data relayed
-        # from ``brokerd``.
-        for msg in pp_msgs:
-
-            log.info(f'Loading pp for {symkey}:\n{pformat(msg)}')
-            account_name = msg.get('account')
-            account_value = accounts.get(account_name)
-            if not account_name and account_value == 'paper':
-                account_name = 'paper'
+        # update pp trackers with data relayed from ``brokerd``.
+        for account_name in accounts:
 
             # net-zero pp
             startup_pp = Position(
@@ -588,12 +586,14 @@ async def open_order_mode(
                 size=0,
                 avg_price=0,
             )
-            startup_pp.update_from_msg(msg)
+            msg = pps_by_account.get(account_name)
+            if msg:
+                log.info(f'Loading pp for {symkey}:\n{pformat(msg)}')
+                startup_pp.update_from_msg(msg)
 
             # allocator
             alloc = mk_allocator(
                 symbol=symbol,
-                accounts=accounts,
                 account=account_name,
 
                 # if this startup size is greater the allocator limit,
@@ -621,31 +621,9 @@ async def open_order_mode(
                 pp_tracker.show()
                 pp_tracker.hide_info()
 
-        # fill out trackers for accounts with net-zero pps
-        zero_pp_accounts = set(accounts) - set(trackers)
-        for account_name in zero_pp_accounts:
-            startup_pp = Position(
-                symbol=symbol,
-                size=0,
-                avg_price=0,
-            )
+        # setup order mode sidepane widgets
+        form = chart.sidepane
 
-            # allocator
-            alloc = mk_allocator(
-                symbol=symbol,
-                accounts=accounts,
-                account=account_name,
-                startup_pp=startup_pp,
-            )
-            pp_tracker = PositionTracker(
-                chart,
-                alloc,
-                startup_pp
-            )
-            pp_tracker.hide()
-            trackers[account_name] = pp_tracker
-
-        # order pane widgets and allocation model
         order_pane = SettingsPane(
             form=form,
             # XXX: ugh, so hideous...
@@ -654,6 +632,11 @@ async def open_order_mode(
             step_label=form.bottom_label,
             limit_label=form.top_label,
         )
+        order_pane.set_accounts(list(trackers.keys()))
+
+        # update pp icons
+        for name, tracker in trackers.items():
+            order_pane.update_account_icons({name: tracker.live_pp})
 
         # top level abstraction which wraps all this crazyness into
         # a namespace..

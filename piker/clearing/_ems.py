@@ -268,6 +268,9 @@ class TradesRelay:
     # map of symbols to dicts of accounts to pp msgs
     positions: dict[str, dict[str, BrokerdPosition]]
 
+    # allowed account names
+    accounts: set[str]
+
     # count of connected ems clients for this ``brokerd``
     consumers: int = 0
 
@@ -410,8 +413,7 @@ async def open_brokerd_trades_dialogue(
 
         try:
             async with (
-
-                open_trades_endpoint as (brokerd_ctx, positions),
+                open_trades_endpoint as (brokerd_ctx, (positions, accounts,)),
                 brokerd_ctx.open_stream() as brokerd_trades_stream,
 
             ):
@@ -433,15 +435,20 @@ async def open_brokerd_trades_dialogue(
                 # locally cache and track positions per account.
                 pps = {}
                 for msg in positions:
+
+                    account = msg['account']
+                    assert account in accounts
+
                     pps.setdefault(
                         msg['symbol'],
                         {}
-                    )[msg['account']] = msg
+                    )[account] = msg
 
                 relay = TradesRelay(
                     brokerd_dialogue=brokerd_trades_stream,
                     positions=pps,
-                    consumers=1
+                    accounts=set(accounts),
+                    consumers=1,
                 )
 
                 _router.relays[broker] = relay
@@ -936,11 +943,11 @@ async def _emsd_main(
 ) -> None:
     '''EMS (sub)actor entrypoint providing the
     execution management (micro)service which conducts broker
-    order control on behalf of clients.
+    order clearing control on behalf of clients.
 
     This is the daemon (child) side routine which starts an EMS runtime
-    (one per broker-feed) and and begins streaming back alerts from
-    broker executions/fills.
+    task (one per broker-feed) and and begins streaming back alerts from
+    each broker's executions/fills.
 
     ``send_order_cmds()`` is called here to execute in a task back in
     the actor which started this service (spawned this actor), presuming
@@ -964,8 +971,8 @@ async def _emsd_main(
           reponse" proxy-broker.
        |
         - ``process_client_order_cmds()``:
-          accepts order cmds from requesting piker clients, registers
-          execs with exec loop
+          accepts order cmds from requesting clients, registers dark orders and
+          alerts with clearing loop.
 
     '''
     global _router
@@ -1015,13 +1022,15 @@ async def _emsd_main(
 
             brokerd_stream = relay.brokerd_dialogue  # .clone()
 
-            # signal to client that we're started
-            # TODO: we could eventually send back **all** brokerd
-            # positions here?
-            await ems_ctx.started(
-                {sym: list(pps.values())
-                 for sym, pps in relay.positions.items()}
-            )
+            # flatten out collected pps from brokerd for delivery
+            pp_msgs = {
+                sym: list(pps.values())
+                for sym, pps in relay.positions.items()
+            }
+
+            # signal to client that we're started and deliver
+            # all known pps and accounts for this ``brokerd``.
+            await ems_ctx.started((pp_msgs, relay.accounts))
 
             # establish 2-way stream with requesting order-client and
             # begin handling inbound order requests and updates

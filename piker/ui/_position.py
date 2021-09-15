@@ -25,6 +25,10 @@ from math import floor, copysign
 from typing import Optional
 
 
+# from PyQt5.QtWidgets import QStyle
+# from PyQt5.QtGui import (
+#     QIcon, QPixmap, QColor
+# )
 from pyqtgraph import functions as fn
 
 from ._annotate import LevelMarker
@@ -46,7 +50,7 @@ log = get_logger(__name__)
 _pnl_tasks: dict[str, bool] = {}
 
 
-async def display_pnl(
+async def update_pnl_from_feed(
 
     feed: Feed,
     order_mode: OrderMode,  # noqa
@@ -62,6 +66,8 @@ async def display_pnl(
     pp = order_mode.current_pp
     live = pp.live_pp
     key = live.symbol.key
+
+    log.info(f'Starting pnl display for {pp.alloc.account}')
 
     if live.size < 0:
         types = ('ask', 'last', 'last', 'utrade')
@@ -128,9 +134,17 @@ class SettingsPane:
     # encompasing high level namespace
     order_mode: Optional['OrderMode'] = None  # typing: ignore # noqa
 
+    def set_accounts(
+        self,
+        names: list[str],
+        sizes: Optional[list[float]] = None,
+    ) -> None:
+
+        combo = self.form.fields['account']
+        return combo.set_items(names)
+
     def on_selection_change(
         self,
-
         text: str,
         key: str,
 
@@ -173,11 +187,11 @@ class SettingsPane:
                     f'Account `{account_name}` can not be set for {sym}'
                 )
                 self.form.fields['account'].setCurrentText(
-                    old_tracker.alloc.account_name())
+                    old_tracker.alloc.account)
                 return
 
             self.order_mode.current_pp = tracker
-            assert tracker.alloc.account_name() == account_name
+            assert tracker.alloc.account == account_name
             self.form.fields['account'].setCurrentText(account_name)
             tracker.show()
             tracker.hide_info()
@@ -206,7 +220,7 @@ class SettingsPane:
         elif key == 'size_unit':
             # TODO: if there's a limit size unit change re-compute
             # the current settings in the new units
-            pass
+            alloc.size_unit = value
 
         elif key != 'account':
             raise ValueError(f'Unknown setting {key}')
@@ -266,12 +280,32 @@ class SettingsPane:
             # min(round(prop * slots), slots)
             min(used, slots)
         )
+        self.update_account_icons({alloc.account: pp.live_pp})
+
+    def update_account_icons(
+        self,
+        pps: dict[str, Position],
+
+    ) -> None:
+
+        form = self.form
+        accounts = form.fields['account']
+
+        for account_name, pp in pps.items():
+            icon_name = None
+
+            if pp.size > 0:
+                icon_name = 'long_pp'
+            elif pp.size < 0:
+                icon_name = 'short_pp'
+
+            accounts.set_icon(account_name, icon_name)
 
     def display_pnl(
         self,
         tracker: PositionTracker,
 
-    ) -> bool:
+    ) -> None:
         '''Display the PnL for the current symbol and personal positioning (pp).
 
         If a position is open start a background task which will
@@ -282,36 +316,28 @@ class SettingsPane:
         sym = mode.chart.linked.symbol
         size = tracker.live_pp.size
         feed = mode.quote_feed
-        global _pnl_tasks
+        pnl_value = 0
 
-        if (
-            size and
-            sym.key not in _pnl_tasks
-        ):
-            _pnl_tasks[sym.key] = True
-
-            # immediately compute and display pnl status from last quote
-            self.pnl_label.format(
-                pnl=copysign(1, size) * pnl(
-                    tracker.live_pp.avg_price,
-                    # last historical close price
-                    feed.shm.array[-1][['close']][0],
-                ),
+        if size:
+            # last historical close price
+            last = feed.shm.array[-1][['close']][0]
+            pnl_value = copysign(1, size) * pnl(
+                tracker.live_pp.avg_price,
+                last,
             )
 
-            log.info(
-                f'Starting pnl display for {tracker.alloc.account_name()}')
-            self.order_mode.nursery.start_soon(
-                display_pnl,
-                feed,
-                mode,
-            )
-            return True
+            # maybe start update task
+            global _pnl_tasks
+            if sym.key not in _pnl_tasks:
+                _pnl_tasks[sym.key] = True
+                self.order_mode.nursery.start_soon(
+                    update_pnl_from_feed,
+                    feed,
+                    mode,
+                )
 
-        else:
-            # set 0% pnl
-            self.pnl_label.format(pnl=0)
-            return False
+        # immediately display in status label
+        self.pnl_label.format(pnl=pnl_value)
 
 
 def position_line(
@@ -622,7 +648,7 @@ class PositionTracker:
                 'fiat_size': round(price * size, ndigits=2),
 
                 # TODO: per account lines on a single (or very related) symbol
-                'account': self.alloc.account_name(),
+                'account': self.alloc.account,
             })
             line.show()
 

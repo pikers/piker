@@ -463,7 +463,7 @@ async def trades_dialogue(
         # TODO: load paper positions per broker from .toml config file
         # and pass as symbol to position data mapping: ``dict[str, dict]``
         # await ctx.started(all_positions)
-        await ctx.started({})
+        await ctx.started(({}, {'paper',}))
 
         async with (
             ctx.open_stream() as ems_stream,
