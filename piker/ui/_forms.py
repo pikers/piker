@@ -21,7 +21,6 @@ Text entry "forms" widgets (mostly for configuration and UI user input).
 from __future__ import annotations
 from contextlib import asynccontextmanager
 from functools import partial
-from textwrap import dedent
 from typing import (
     Optional, Any, Callable, Awaitable
 )
@@ -320,14 +319,14 @@ class FieldsForm(QWidget):
         self.vbox = QVBoxLayout(self)
         # self.vbox.setAlignment(Qt.AlignVCenter)
         self.vbox.setAlignment(Qt.AlignBottom)
-        self.vbox.setContentsMargins(0, 4, 3, 6)
+        self.vbox.setContentsMargins(3, 6, 3, 6)
         self.vbox.setSpacing(0)
 
         # split layout for the (<label>: |<widget>|) parameters entry
         self.form = QFormLayout()
         self.form.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self.form.setContentsMargins(0, 0, 0, 0)
-        self.form.setSpacing(3)
+        self.form.setContentsMargins(0, 0, 3, 0)
+        self.form.setSpacing(0)
         self.form.setHorizontalSpacing(0)
 
         self.vbox.addLayout(self.form, stretch=1/3)
@@ -645,9 +644,7 @@ def mk_fill_status_bar(
     # PnL on lhs
     bar_labels_lhs = QVBoxLayout()
     left_label = form.add_field_label(
-        dedent("""
-        {pnl:>+.2%} pnl
-        """),
+        '{pnl:>+.2%} pnl',
         font_size=bar_label_font_size,
         font_color='gunmetal',
     )
@@ -674,18 +671,13 @@ def mk_fill_status_bar(
     # https://docs.python.org/3/library/string.html#grammar-token-precision
 
     top_label = form.add_field_label(
-        # {limit:.1f} limit
-        dedent("""
-        {limit}
-        """),
+        '{limit}',
         font_size=bar_label_font_size,
         font_color='gunmetal',
     )
 
     bottom_label = form.add_field_label(
-        dedent("""
-        x: {step_size}\n
-        """),
+        'x: {step_size}',
         font_size=bar_label_font_size,
         font_color='gunmetal',
     )
@@ -788,29 +780,10 @@ def mk_order_pane_layout(
     # add pp fill bar + spacing
     vbox.addLayout(hbox, stretch=1/3)
 
-    # TODO: status labels for brokerd real-time info
-    # feed_label = form.add_field_label(
-    #     dedent("""
-    #     brokerd.ib\n
-    #     |_@{host}:{port}\n
-    #     |_consumers: {cons}\n
-    #     |_streams: {streams}\n
-    #     |_shms: {streams}\n
-    #     """),
-    #     font_size=_font_small.px_size,
-    # )
-
-    # # add feed info label
-    # vbox.addWidget(
-    #     feed_label,
-    #     alignment=Qt.AlignBottom,
-    #     # stretch=1/3,
-    # )
-
     # TODO: handle resize events and appropriately scale this
     # to the sidepane height?
     # https://doc.qt.io/qt-5/layout.html#adding-widgets-to-a-layout
-    vbox.setSpacing(_font.px_size * 1.375)
+    # vbox.setSpacing(_font.px_size * 1.375)
 
     form.show()
     return form
