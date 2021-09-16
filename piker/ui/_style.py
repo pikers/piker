@@ -124,14 +124,18 @@ class DpiAwareFont:
         if scale > 1 and self._font_size:
             # TODO: this denominator should probably be determined from
             # relative aspect ratios or something?
-            inches = inches * (1 / scale) * (1 + 6/16)
+            inches = inches * (1 + 6/16)
+            if scale < 2:
+                inches *= (1 / scale)
             dpi = mx_dpi
+            log.info(f'USING MAX DPI {dpi}')
 
         self._font_inches = inches
 
         font_size = math.floor(inches * dpi)
-        log.debug(
-            f"\nscreen:{screen.name()} with pDPI: {pdpi}, lDPI: {ldpi}"
+        log.info(
+            f"\nscreen:{screen.name()}"
+            f"pDPI: {pdpi}, lDPI: {ldpi}, scale: {scale}\n"
             f"\nOur best guess font size is {font_size}\n"
         )
         # apply the size
