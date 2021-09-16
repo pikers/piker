@@ -60,7 +60,7 @@ def repodir():
     """
     dirpath = os.path.abspath(
         # we're 3 levels down in **this** module file
-        dirname(dirname(dirname(os.path.realpath(__file__))))
+        dirname(dirname(os.path.realpath(__file__)))
     )
     return dirpath
 
@@ -73,7 +73,7 @@ def load(
     path = path or get_broker_conf_path()
     if not os.path.isfile(path):
         shutil.copyfile(
-            os.path.join(repodir(), 'data/brokers.toml'),
+            os.path.join(repodir(), 'config', 'brokers.toml'),
             path,
         )
 
