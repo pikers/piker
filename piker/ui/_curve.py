@@ -59,6 +59,19 @@ class FastAppendCurve(pg.PlotCurveItem):
         prepend_length = istart - x[0]
         append_length = x[-1] - istop
 
+        # TODO: step mode support
+        # if self.stepMode in ("center", True):  ## support True for back-compat
+        #     x2 = np.empty((len(x),2), dtype=x.dtype)
+        #     x2[:] = x[:, np.newaxis]
+
+        #     ## If we have a fill level, add two extra points at either end
+        #     x = x2.reshape(x2.size)
+        #     y2 = np.empty((len(y)+2,2), dtype=y.dtype)
+        #     y2[1:-1] = y[:,np.newaxis]
+        #     y = y2.reshape(y2.size)[1:-1]
+        #     y[0] = self.opts['fillLevel']
+        #     y[-1] = self.opts['fillLevel']
+
         if self.path is None or prepend_length:
             self.path = pg.functions.arrayToQPath(
                 x[:-1],
