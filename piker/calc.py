@@ -20,10 +20,17 @@ Handy financial calculations.
 import math
 import itertools
 
+from bidict import bidict
+
+
+_mag2suffix = bidict({3: 'k', 6: 'M', 9: 'B'})
+
 
 def humanize(
+
     number: float,
     digits: int = 1
+
 ) -> str:
     '''Convert large numbers to something with at most ``digits`` and
     a letter suffix (eg. k: thousand, M: million, B: billion).
@@ -36,17 +43,36 @@ def humanize(
     if not number or number <= 0:
         return round(number, ndigits=digits)
 
-    mag2suffix = {3: 'k', 6: 'M', 9: 'B'}
     mag = math.floor(math.log(number, 10))
     if mag < 3:
         return round(number, ndigits=digits)
 
-    maxmag = max(itertools.takewhile(lambda key: mag >= key, mag2suffix))
+    maxmag = max(itertools.takewhile(lambda key: mag >= key, _mag2suffix))
 
     return "{value}{suffix}".format(
         value=round(number/10**maxmag, ndigits=digits),
-        suffix=mag2suffix[maxmag],
+        suffix=_mag2suffix[maxmag],
     )
+
+
+def puterize(
+
+    text: str,
+    digits: int = 1,
+
+) -> float:
+    '''Inverse of ``humanize()`` above.
+
+    '''
+    try:
+        suffix = str(text)[-1]
+        mult = _mag2suffix.inverse[suffix]
+        value = text.rstrip(suffix)
+        return round(float(value) * 10**mult, ndigits=digits)
+
+    except KeyError:
+        # no matching suffix try just the value
+        return float(text)
 
 
 def pnl(
