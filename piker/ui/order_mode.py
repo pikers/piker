@@ -22,6 +22,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from pprint import pformat
+import platform
 import time
 from typing import Optional, Dict, Callable, Any
 import uuid
@@ -429,6 +430,9 @@ class OrderMode:
 
         # TODO: make this not trash.
         # XXX: linux only for now
+        if platform.system() == "Windows":
+            return
+
         result = await trio.run_process(
             [
                 'notify-send',
