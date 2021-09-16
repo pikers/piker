@@ -393,17 +393,22 @@ class Feed:
     shm: ShmArray
     mod: ModuleType
     first_quotes: dict  # symbol names to first quote dicts
-    stream: trio.abc.ReceiveChannel[dict[str, Any]]
 
-    _brokerd_portal: tractor._portal.Portal
+    _portal: tractor.Portal
+
+    stream: trio.abc.ReceiveChannel[dict[str, Any]]
+    throttle_rate: Optional[int] = None
+
     _trade_stream: Optional[AsyncIterator[dict[str, Any]]] = None
     _max_sample_rate: int = 0
-
-    search: Callable[..., Awaitable] = None
 
     # cache of symbol info messages received as first message when
     # a stream startsc.
     symbols: dict[str, Symbol] = field(default_factory=dict)
+
+    @property
+    def portal(self) -> tractor.Portal:
+        return self._portal
 
     async def receive(self) -> dict:
         return await self.stream.receive()
@@ -418,7 +423,7 @@ class Feed:
         delay_s = delay_s or self._max_sample_rate
 
         async with open_sample_step_stream(
-            self._brokerd_portal,
+            self.portal,
             delay_s,
         ) as istream:
             yield istream
@@ -526,7 +531,8 @@ async def open_feed(
             mod=mod,
             first_quotes=first_quotes,
             stream=stream,
-            _brokerd_portal=portal,
+            _portal=portal,
+            throttle_rate=tick_throttle,
         )
         ohlc_sample_rates = []
 
