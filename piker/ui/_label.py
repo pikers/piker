@@ -23,7 +23,7 @@ from typing import Callable, Optional, Any
 
 import pyqtgraph as pg
 from PyQt5 import QtGui, QtWidgets
-from PyQt5.QtWidgets import QLabel
+from PyQt5.QtWidgets import QLabel, QSizePolicy
 from PyQt5.QtCore import QPointF, QRectF, Qt
 
 from ._style import (
@@ -269,8 +269,11 @@ class FormatLabel(QLabel):
         self.setTextFormat(Qt.MarkdownText)  # markdown
         self.setMargin(0)
 
-        self.setAlignment(
-            Qt.AlignVCenter
+        self.setSizePolicy(
+            QSizePolicy.Expanding,
+            QSizePolicy.Expanding,
+        )
+        self.setAlignment(Qt.AlignVCenter
             | Qt.AlignLeft
         )
         self.setText(self.fmt_str)
