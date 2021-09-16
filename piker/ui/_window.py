@@ -151,8 +151,8 @@ class MainWindow(QtGui.QMainWindow):
     # XXX: for tiling wms this should scale
     # with the alloted window size.
     # TODO: detect for tiling and if untrue set some size?
-    # size = (300, 500)
-    size = (0, 0)
+    size = (300, 500)
+    #size = (0, 0)
 
     title = 'piker chart (ur symbol is loading bby)'
 
@@ -163,7 +163,7 @@ class MainWindow(QtGui.QMainWindow):
 
         self._status_bar: QStatusBar = None
         self._status_label: QLabel = None
-
+    
     @property
     def mode_label(self) -> QtGui.QLabel:
 
@@ -266,6 +266,16 @@ class MainWindow(QtGui.QMainWindow):
 
         assert screen, "Wow Qt is dumb as shit and has no screen..."
         return screen
+
+    def configure_to_desktop(
+        self,
+    ) -> None:
+        # https://stackoverflow.com/a/18975846
+        app = QtGui.QApplication.instance()
+        geo = self.current_screen().geometry()
+        h, w = geo.height(), geo.width()
+        self.resize(round(w * .375), round(h * 3/8))
+
 
 
 # singleton app per actor
