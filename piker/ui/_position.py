@@ -208,26 +208,33 @@ class SettingsPane:
         size_unit = alloc.size_unit
 
         # WRITE any settings to current pp's allocator
-        if key == 'limit':
-            if size_unit == 'currency':
-                alloc.currency_limit = float(value)
-            else:
-                alloc.units_limit = float(value)
+        try:
+            if key == 'limit':
+                    if size_unit == 'currency':
+                        # old = alloc.currency_limit
+                        alloc.currency_limit = float(value)
+                    else:
+                        # old = alloc.units_limit
+                        alloc.units_limit = float(value)
 
-        elif key == 'slots':
-            alloc.slots = int(value)
+            elif key == 'slots':
+                # old = alloc.slots
+                alloc.slots = int(value)
 
-        elif key == 'size_unit':
-            # TODO: if there's a limit size unit change re-compute
-            # the current settings in the new units
-            alloc.size_unit = value
+            elif key == 'size_unit':
+                # TODO: if there's a limit size unit change re-compute
+                # the current settings in the new units
+                alloc.size_unit = value
 
-        elif key != 'account':
-            raise ValueError(f'Unknown setting {key}')
+            elif key != 'account':
+                raise ValueError(f'Unknown setting {key}')
+
+            log.info(f'settings change: {key}: {value}')
+
+        except ValueError:
+            log.error(f'Invalid value for `{key}`: {value}')
 
         # READ out settings and update UI
-        log.info(f'settings change: {key}: {value}')
-
         suffix = {'currency': ' $', 'units': ' u'}[size_unit]
         limit = alloc.limit()
 
