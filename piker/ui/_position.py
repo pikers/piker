@@ -36,7 +36,7 @@ from ._anchors import (
     pp_tight_and_right,  # wanna keep it straight in the long run
     gpath_pin,
 )
-from ..calc import humanize, pnl
+from ..calc import humanize, pnl, puterize
 from ..clearing._allocate import Allocator, Position
 from ..data._normalize import iterticks
 from ..data.feed import Feed
@@ -209,16 +209,14 @@ class SettingsPane:
 
         # WRITE any settings to current pp's allocator
         try:
+            value = puterize(value)
             if key == 'limit':
-                    if size_unit == 'currency':
-                        # old = alloc.currency_limit
-                        alloc.currency_limit = float(value)
-                    else:
-                        # old = alloc.units_limit
-                        alloc.units_limit = float(value)
+                if size_unit == 'currency':
+                    alloc.currency_limit = value
+                else:
+                    alloc.units_limit = value
 
             elif key == 'slots':
-                # old = alloc.slots
                 alloc.slots = int(value)
 
             elif key == 'size_unit':
@@ -226,7 +224,7 @@ class SettingsPane:
                 # the current settings in the new units
                 alloc.size_unit = value
 
-            elif key != 'account':
+            else:
                 raise ValueError(f'Unknown setting {key}')
 
             log.info(f'settings change: {key}: {value}')
