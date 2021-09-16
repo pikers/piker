@@ -309,7 +309,8 @@ async def uniform_rate_send(
 
             except trio.WouldBlock:
                 now = time.time()
-                rate = 1 / (now - last_send)
+                diff = now - last_send
+                rate = 1 / diff if diff else float('inf')
                 last_send = now
 
                 # print(f'{rate} Hz sending quotes')  # \n{first_quote}')
