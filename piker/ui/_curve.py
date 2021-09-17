@@ -20,6 +20,7 @@ Fast, smooth, sexy curves.
 """
 from typing import Tuple
 
+import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 
@@ -29,7 +30,12 @@ from .._profile import pg_profile_enabled
 # TODO: got a feeling that dropping this inheritance gets us even more speedups
 class FastAppendCurve(pg.PlotCurveItem):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self,
+        *args,
+        step_mode: bool = False,
+        **kwargs
+    ) -> None:
 
         # TODO: we can probably just dispense with the parent since
         # we're basically only using the pen setting now...
@@ -37,6 +43,7 @@ class FastAppendCurve(pg.PlotCurveItem):
 
         self._last_line: QtCore.QLineF = None
         self._xrange: Tuple[int, int] = self.dataBounds(ax=0)
+        self._step_mode: bool = step_mode
 
         # TODO: one question still remaining is if this makes trasform
         # interactions slower (such as zooming) and if so maybe if/when
@@ -59,23 +66,53 @@ class FastAppendCurve(pg.PlotCurveItem):
         prepend_length = istart - x[0]
         append_length = x[-1] - istop
 
-        # TODO: step mode support
-        # if self.stepMode in ("center", True):  ## support True for back-compat
-        #     x2 = np.empty((len(x),2), dtype=x.dtype)
-        #     x2[:] = x[:, np.newaxis]
+        # step mode: draw flat top discrete "step"
+        # over the index space for each datum.
+        if self._step_mode:
+            y_out = y.copy()
+            x_out = x.copy()
+            x2 = np.empty(
+                # the data + 2 endpoints on either end for
+                # "termination of the path".
+                (len(x) + 1, 2),
+                # we want to align with OHLC or other sampling style
+                # bars likely so we need fractinal values
+                dtype=float,
+            )
+            x2[0] = x[0] - 0.5
+            x2[1] = x[0] + 0.5
+            x2[1:] = x[:, np.newaxis] + 0.5
 
-        #     ## If we have a fill level, add two extra points at either end
-        #     x = x2.reshape(x2.size)
-        #     y2 = np.empty((len(y)+2,2), dtype=y.dtype)
-        #     y2[1:-1] = y[:,np.newaxis]
-        #     y = y2.reshape(y2.size)[1:-1]
-        #     y[0] = self.opts['fillLevel']
-        #     y[-1] = self.opts['fillLevel']
+            # flatten to 1-d
+            x_out = x2.reshape(x2.size)
+
+            # we create a 1d with 2 extra indexes to
+            # hold the start and (current) end value for the steps
+            # on either end
+            y_out = np.empty(
+                2*len(y) + 2,
+                dtype=y.dtype
+            )
+            y2 = np.empty((len(y), 2), dtype=y.dtype)
+            y2[:] = y[:,np.newaxis]
+            # flatten 
+            y_out[1:-1] = y2.reshape(y2.size)
+            y_out[0] = 0
+            y_out[-1] = 0
+
+            # TODO: see ``painter.fillPath()`` call
+            # inside parent's ``.paint()`` to get
+            # a solid brush under the curve.
+
+        else:
+            # by default we only pull data up to the last (current) index
+            x_out, y_out = x[:-1], y[:-1]
+
 
         if self.path is None or prepend_length:
             self.path = pg.functions.arrayToQPath(
-                x[:-1],
-                y[:-1],
+                x_out,
+                y_out,
                 connect='all'
             )
             profiler('generate fresh path')
