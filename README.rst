@@ -72,6 +72,34 @@ for a development install::
     pip install -r requirements.txt -e .
 
 
+install for tinas
+*****************
+for windows peeps you can start by getting `conda installed`_
+and the `C++ build toolz`_ on your system.
+
+then, `crack a conda shell`_ and run the following commands::
+
+    conda create piker --python=3.9
+    conda activate piker
+    conda install pip
+    pip install --upgrade setuptools
+    cd dIreCToRieZ\oF\cODez\piker\
+    pip install -r requirements -e .
+
+
+in order to look coolio in front of all ur tina friends (and maybe
+want to help us with testin, hackzing or configgin), install
+`vscode`_ and `setup a coolio tiled wm console`_ so you can start
+living the life of the tech literate..
+
+.. _conda installed: https://
+.. _C++ build toolz: https://
+.. _crack a conda shell: https://
+.. _vscode: https://
+
+.. link to the tina guide
+.. _setup a coolio tiled wm console: https://
+
 provider support
 ****************
 for live data feeds the in-progress set of supported brokers is:
