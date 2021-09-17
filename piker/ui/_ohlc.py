@@ -146,7 +146,7 @@ def path_arrays_from_ohlc(
         # specifies that the first edge is never connected to the
         # prior bars last edge thus providing a small "gap"/"space"
         # between bars determined by ``bar_gap``.
-        c[istart:istop] = (0, 1, 1, 1, 1, 1)
+        c[istart:istop] = (1, 1, 1, 1, 1, 0)
 
     return x, y, c
 
