@@ -341,7 +341,14 @@ class ChartView(ViewBox):
         **kwargs,
 
     ):
-        super().__init__(parent=parent, **kwargs)
+        super().__init__(
+            parent=parent,
+            # TODO: look into the default view padding
+            # support that might replace somem of our
+            # ``ChartPlotWidget._set_yrange()`
+            # defaultPadding=0.,
+            **kwargs
+        )
 
         # disable vertical scrolling
         self.setMouseEnabled(x=True, y=False)
@@ -533,7 +540,6 @@ class ChartView(ViewBox):
                     # self.updateScaleBox(ev.buttonDownPos(), ev.pos())
             else:
                 # default bevavior: click to pan view
-
                 tr = self.childGroup.transform()
                 tr = fn.invertQTransform(tr)
                 tr = tr.map(dif*mask) - tr.map(Point(0, 0))
