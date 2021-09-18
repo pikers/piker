@@ -642,19 +642,17 @@ async def open_order_mode(
             |_ shm: **{shm}**\n
             """),
             font=_font.font,
-            font_size=_font_small.px_size - 1,
+            font_size=_font_small.px_size,
             font_color='default_lightest',
         )
 
         form.feed_label = feed_label
 
-        # add feed info label
-        # vbox.addWidget(
+        # add feed info label to top
         vbox.insertWidget(
             0,
             feed_label,
             alignment=Qt.AlignBottom,
-            # stretch=1/3,
         )
         # vbox.setAlignment(feed_label, Qt.AlignBottom)
         # vbox.setAlignment(Qt.AlignBottom)
@@ -663,9 +661,6 @@ async def open_order_mode(
             form.fill_bar.height()
             # feed_label.height()
         )
-        # await tractor.breakpoint()
-
-        # vbox.setSpacing(round(blank_h / 3) - 2*_font.px_size)
         vbox.setSpacing((1 + 5/8)*_font.px_size)
 
         # fill in brokerd feed info
