@@ -136,7 +136,7 @@ def chart(config, symbol, profile, pdb):
     """Start a real-time chartng UI
     """
     from .. import _profile
-    from ._chart import _main
+    from ._app import _main
 
     if '.' not in symbol:
         click.echo(click.style(
