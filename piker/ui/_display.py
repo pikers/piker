@@ -20,11 +20,10 @@ Real-time display tasks for charting / graphics.
 '''
 from contextlib import asynccontextmanager
 import time
-from typing import Any
 from types import ModuleType
 
 import numpy as np
-from pydantic import BaseModel
+from pydantic import create_model
 import tractor
 import trio
 
@@ -345,45 +344,51 @@ async def fan_out_spawn_fsp_daemons(
     # blocks here until all fsp actors complete
 
 
-class FspConfig(BaseModel):
-    class Config:
-        validate_assignment = True
-
-    name: str
-    period: int
-
-
 @asynccontextmanager
 async def open_sidepane(
 
     linked: LinkedSplits,
-    display_name: str,
+    conf: dict[str, dict[str, str]],
 
-) -> FspConfig:
+) -> FieldsForm:
+
+    schema = {}
+
+    assert len(conf) == 1  # for now
+
+    # add (single) selection widget
+    for display_name, config in conf.items():
+        schema[display_name] = {
+                'label': '**fsp**:',
+                'type': 'select',
+                'default_value': [display_name],
+            }
+
+        # add parameters for selection "options"
+        defaults = config.get('params', {})
+        for name, default in defaults.items():
+
+            # add to ORM schema
+            schema.update({
+                name: {
+                    'label': f'**{name}**:',
+                    'type': 'edit',
+                    'default_value': default,
+                },
+            })
 
     sidepane: FieldsForm = mk_form(
         parent=linked.godwidget,
-        fields_schema={
-            'name': {
-                'label': '**fsp**:',
-                'type': 'select',
-                'default_value': [
-                    f'{display_name}'
-                ],
-            },
+        fields_schema=schema,
+    )
 
-            # TODO: generate this from input map
-            'period': {
-                'label': '**period**:',
-                'type': 'edit',
-                'default_value': 14,
-            },
-        },
-    )
-    sidepane.model = FspConfig(
+    # https://pydantic-docs.helpmanual.io/usage/models/#dynamic-model-creation
+    FspConfig = create_model(
+        'FspConfig',
         name=display_name,
-        period=14,
+        **defaults,
     )
+    sidepane.model = FspConfig()
 
     # just a logger for now until we get fsp configs up and running.
     async def settings_change(key: str, value: str) -> bool:
@@ -410,7 +415,7 @@ async def run_fsp(
     src_shm: ShmArray,
     fsp_func_name: str,
     display_name: str,
-    conf: dict[str, Any],
+    conf: dict[str, dict],
     group_status_key: str,
     loglevel: str,
 
@@ -444,7 +449,7 @@ async def run_fsp(
         ctx.open_stream() as stream,
         open_sidepane(
             linkedsplits,
-            display_name,
+            {display_name: conf},
         ) as sidepane,
     ):
 
@@ -453,9 +458,10 @@ async def run_fsp(
         if conf.get('overlay'):
             chart = linkedsplits.chart
             chart.draw_curve(
-                name='vwap',
+                name=display_name,
                 data=shm.array,
                 overlay=True,
+                color='default_light',
             )
             last_val_sticky = None
 
@@ -658,22 +664,23 @@ async def maybe_open_vlm_display(
 
 ) -> ChartPlotWidget:
 
-    # make sure that the instrument supports volume history
-    # (sometimes this is not the case for some commodities and
-    # derivatives)
-    # volm = ohlcv.array['volume']
-    # if (
-    #     np.all(np.isin(volm, -1)) or
-    #     np.all(np.isnan(volm))
-    # ):
     if not has_vlm(ohlcv):
         log.warning(f"{linked.symbol.key} does not seem to have volume info")
     else:
-        async with open_sidepane(linked, 'volume') as sidepane:
+        async with open_sidepane(
+            linked, {
+                'volume': {
+                    'params': {
+                        'price_func': 'ohl3'
+                    }
+                }
+            },
+        ) as sidepane:
+
             # built-in $vlm
             shm = ohlcv
             chart = linked.add_plot(
-                name='vlm',
+                name='volume',
                 array=shm.array,
 
                 array_key='volume',
@@ -681,10 +688,10 @@ async def maybe_open_vlm_display(
 
                 # curve by default
                 ohlc=False,
+                style='step',
 
-                # vertical bars
+                # vertical bars, we do this internally ourselves
                 # stepMode=True,
-                # static_yrange=(0, 100),
             )
 
             # XXX: ONLY for sub-chart fsps, overlays have their
@@ -703,8 +710,22 @@ async def maybe_open_vlm_display(
 
             last_val_sticky.update_from_data(-1, value)
 
+            chart.update_curve_from_array(
+                'volume',
+                shm.array,
+            )
+
             # size view to data once at outset
             chart._set_yrange()
+
+            # size pain to parent chart
+            # TODO: this appears to nearly fix a bug where the vlm sidepane
+            # could be sized correctly nearly immediately (since the
+            # order pane is already sized), right now it doesn't seem to
+            # fully align until the VWAP fsp-actor comes up...
+            await trio.sleep(0)
+            chart.linked.resize_sidepanes()
+            await trio.sleep(0)
 
             yield chart
 
@@ -805,20 +826,11 @@ async def display_symbol_data(
         fsp_conf = {
             'rsi': {
                 'fsp_func_name': 'rsi',
-                'period': 14,
+                'params': {'period': 14},
                 'chart_kwargs': {
                     'static_yrange': (0, 100),
                 },
             },
-            # # test for duplicate fsps on same chart
-            # 'rsi2': {
-            #     'fsp_func_name': 'rsi',
-            #     'period': 14,
-            #     'chart_kwargs': {
-            #         'static_yrange': (0, 100),
-            #     },
-            # },
-
         }
 
         if has_vlm(ohlcv):
@@ -831,8 +843,14 @@ async def display_symbol_data(
                 },
             })
 
-        async with (
+        # NOTE: we must immediately tell Qt to show the OHLC chart
+        # to avoid a race where the subplots get added/shown to
+        # the linked set *before* the main price chart!
+        linkedsplits.show()
+        linkedsplits.focus()
+        await trio.sleep(0)
 
+        async with (
             trio.open_nursery() as ln,
         ):
             # load initial fsp chain (otherwise known as "indicators")
@@ -864,10 +882,7 @@ async def display_symbol_data(
             )
 
             async with (
-                # XXX: this slipped in during a commits refacotr,
-                # it's actually landing proper in #231
-                # maybe_open_vlm_display(linkedsplits, ohlcv),
-
+                maybe_open_vlm_display(linkedsplits, ohlcv),
                 open_order_mode(
                     feed,
                     chart,

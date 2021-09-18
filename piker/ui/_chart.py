@@ -326,8 +326,8 @@ class LinkedSplits(QWidget):
         #     self.xaxis.hide()
 
         self.splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
-        self.splitter.setMidLineWidth(1)
-        self.splitter.setHandleWidth(0)
+        self.splitter.setMidLineWidth(0)
+        self.splitter.setHandleWidth(2)
 
         self.layout = QtWidgets.QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -341,8 +341,7 @@ class LinkedSplits(QWidget):
 
     def set_split_sizes(
         self,
-        # prop: float = 0.375,  # proportion allocated to consumer subcharts
-        prop: float = 5/8,
+        prop: float = 0.375,  # proportion allocated to consumer subcharts
 
     ) -> None:
         '''Set the proportion of space allocated for linked subcharts.
@@ -495,8 +494,9 @@ class LinkedSplits(QWidget):
         cpw.plotItem.vb.linkedsplits = self
         cpw.setFrameStyle(
             QtWidgets.QFrame.StyledPanel
-            # | QtWidgets.QFrame.Plain)
+            # | QtWidgets.QFrame.Plain
         )
+
         cpw.hideButtons()
 
         # XXX: gives us outline on backside of y-axis
@@ -515,7 +515,20 @@ class LinkedSplits(QWidget):
             cpw.draw_ohlc(name, array, array_key=array_key)
 
         elif style == 'line':
-            cpw.draw_curve(name, array, array_key=array_key)
+            cpw.draw_curve(
+                name,
+                array,
+                array_key=array_key,
+                color='default_lightest',
+            )
+
+        elif style == 'step':
+            cpw.draw_curve(
+                name,
+                array,
+                array_key=array_key,
+                step_mode=True,
+            )
 
         else:
             raise ValueError(f"Chart style {style} is currently unsupported")
@@ -523,14 +536,7 @@ class LinkedSplits(QWidget):
         if not _is_main:
             # track by name
             self.subplots[name] = cpw
-
-            # if sidepane:
-            #     # TODO: use a "panes" collection to manage this?
-            #     qframe.setMaximumWidth(self.chart.sidepane.width())
-            #     qframe.setMinimumWidth(self.chart.sidepane.width())
-
             self.splitter.addWidget(qframe)
-
             # scale split regions
             self.set_split_sizes()
 
@@ -600,7 +606,7 @@ class ChartPlotWidget(pg.PlotWidget):
             # parent=None,
             # plotItem=None,
             # antialias=True,
-            useOpenGL=True,
+            # useOpenGL=True,
             **kwargs
         )
         self.name = name
@@ -784,7 +790,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         array_key: Optional[str] = None,
         overlay: bool = False,
-        color: str = 'default_light',
+        color: Optional[str] = None,
         add_label: bool = True,
 
         **pdi_kwargs,
@@ -794,6 +800,8 @@ class ChartPlotWidget(pg.PlotWidget):
         the input array ``data``.
 
         """
+        color = color or self.pen_color or 'default_light'
+
         _pdi_defaults = {
             'pen': pg.mkPen(hcolor(color)),
         }
@@ -944,13 +952,13 @@ class ChartPlotWidget(pg.PlotWidget):
         yrange: Optional[tuple[float, float]] = None,
         range_margin: float = 0.06,
     ) -> None:
-        """Set the viewable y-range based on embedded data.
+        '''Set the viewable y-range based on embedded data.
 
         This adds auto-scaling like zoom on the scroll wheel such
         that data always fits nicely inside the current view of the
         data set.
 
-        """
+        '''
         set_range = True
 
         if self._static_yrange == 'axis':
@@ -1003,15 +1011,17 @@ class ChartPlotWidget(pg.PlotWidget):
             a = self._arrays['ohlc']
             ifirst = a[0]['index']
             bars = a[lbar - ifirst:rbar - ifirst + 1]
+
             if not len(bars):
                 # likely no data loaded yet or extreme scrolling?
                 log.error(f"WTF bars_range = {lbar}:{rbar}")
                 return
 
             if self.data_key != self.linked.symbol.key:
-                bars = a[self.data_key]
+                bars = bars[self.data_key]
                 ylow = np.nanmin(bars)
-                yhigh = np.nanmax((bars))
+                yhigh = np.nanmax(bars)
+                # print(f'{(ylow, yhigh)}')
             else:
                 # just the std ohlc bars
                 ylow = np.nanmin(bars['low'])
@@ -1072,7 +1082,6 @@ class ChartPlotWidget(pg.PlotWidget):
         # TODO: this should go onto some sort of
         # data-view strimg thinger..right?
         ohlc = self._shm.array
-        # ohlc = chart._shm.array
 
         # XXX: not sure why the time is so off here
         # looks like we're gonna have to do some fixing..
