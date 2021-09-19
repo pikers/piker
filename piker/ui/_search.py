@@ -49,7 +49,7 @@ from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import (
     Qt,
-    # QSize,
+    QSize,
     QModelIndex,
     QItemSelectionModel,
 )
@@ -112,6 +112,7 @@ class CompleterView(QTreeView):
 
         model = QStandardItemModel(self)
         self.labels = labels
+        self._last_window_h: Optional[int] = None
 
         # a std "tabular" config
         self.setItemDelegate(FontScaledDelegate(self))
@@ -126,6 +127,10 @@ class CompleterView(QTreeView):
         # self.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
 
         # ux settings
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding,
+            QtWidgets.QSizePolicy.Expanding,
+        )
         self.setItemsExpandable(True)
         self.setExpandsOnDoubleClick(False)
         self.setAnimated(False)
@@ -152,24 +157,41 @@ class CompleterView(QTreeView):
         self._font_size = size
 
         self.setStyleSheet(f"font: {size}px")
+    
+    #def resizeEvent(self, event: 'QEvent') -> None:
+    #    self.resize_to_results()
+    #    super().resizeEvent(event)
 
-    def resize(self):
+    def resize_to_results(self):
         model = self.model()
         cols = model.columnCount()
 
         for i in range(cols):
             self.resizeColumnToContents(i)
 
-        # inclusive of search bar and header "rows" in pixel terms
-        rows = 100
-        # max_rows = 8  # 6 + search and headers
         row_px = self.rowHeight(self.currentIndex())
-        # print(f'font_h: {font_h}\n px_height: {px_height}')
 
         # TODO: probably make this more general / less hacky
-        self.setMinimumSize(self.width(), rows * row_px)
-        self.setMaximumSize(self.width() + 10, rows * row_px)
+        # we should figure out the exact number of rows to allow
+        # inclusive of search bar and header "rows", in pixel terms.
+        window_h = self.window().height()
+        rows = round(window_h * 0.5 / row_px) - 4
+
+        # TODO: the problem here is that this view widget is **not** resizing/scaling
+        # when the parent layout is adjusted, not sure what exactly is up...       
+        # only "scale up" the results view when the window size has increased/
+        if not self._last_window_h or self._last_window_h < window_h:
+            self.setMaximumSize(self.width(), rows * row_px)
+            self.setMinimumSize(self.width(), rows * row_px)
+        
+        #elif not self._last_window_h or self._last_window_h > window_h:
+        #    self.setMinimumSize(self.width(), rows * row_px)
+        #    self.setMaximumSize(self.width(), rows * row_px)
+        
+        self.resize(self.width(), rows * row_px)
+        self._last_window_h = window_h
         self.setFixedWidth(333)
+        self.update()
 
     def is_selecting_d1(self) -> bool:
         cidx = self.selectionModel().currentIndex()
@@ -334,7 +356,7 @@ class CompleterView(QTreeView):
             else:
                 model.setItem(idx.row(), 1, QStandardItem())
 
-            self.resize()
+            self.resize_to_results()
 
             return idx
         else:
@@ -405,7 +427,7 @@ class CompleterView(QTreeView):
 
     def show_matches(self) -> None:
         self.show()
-        self.resize()
+        self.resize_to_results()
 
 
 class SearchBar(Edit):
@@ -459,7 +481,7 @@ class SearchWidget(QtWidgets.QWidget):
         # size it as we specify
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Fixed,
-            QtWidgets.QSizePolicy.Fixed,
+            QtWidgets.QSizePolicy.Expanding,
         )
 
         self.godwidget = godwidget
