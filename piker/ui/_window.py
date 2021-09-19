@@ -163,6 +163,7 @@ class MainWindow(QtGui.QMainWindow):
 
         self._status_bar: QStatusBar = None
         self._status_label: QLabel = None
+        self._size: Optional[tuple[int, int]] = None
     
     @property
     def mode_label(self) -> QtGui.QLabel:
@@ -269,12 +270,18 @@ class MainWindow(QtGui.QMainWindow):
 
     def configure_to_desktop(
         self,
+        size: Optional[tuple[int, int]] = None,
     ) -> None:
         # https://stackoverflow.com/a/18975846
-        app = QtGui.QApplication.instance()
-        geo = self.current_screen().geometry()
-        h, w = geo.height(), geo.width()
-        self.resize(round(w * .375), round(h * 3/8))
+        if not size and not self._size:
+            app = QtGui.QApplication.instance()
+            geo = self.current_screen().geometry()
+            h, w = geo.height(), geo.width()
+            self.setMaximumSize(w, h)
+            # use approx 1/3 of the area of the screen by default
+            self._size = round(w * .666), round(h * .666)
+        
+        self.resize(*size or self._size)
 
 
 
