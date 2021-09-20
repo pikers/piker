@@ -205,19 +205,26 @@ def hcolor(name: str) -> str:
         'svags': '#0a0e14',
 
         # fifty shades
+        'original': '#a9a9a9',
         'gray': '#808080',  # like the kick
         'grayer': '#4c4c4c',
         'grayest': '#3f3f3f',
-        'i3': '#494D4F',
-        'jet': '#343434',
         'cadet': '#91A3B0',
         'marengo': '#91A3B0',
-        'charcoal': '#36454F',
         'gunmetal': '#91A3B0',
         'battleship': '#848482',
-        'davies': '#555555',
+
+        # bluish
+        'charcoal': '#36454F',
+
+        # default bars
         'bracket': '#666666',  # like the logo
-        'original': '#a9a9a9',
+
+        # work well for filled polygons which want a 'bracket' feel
+        # going light to dark
+        'davies': '#555555',
+        'i3': '#494D4F',
+        'jet': '#343434',
 
         # from ``qdarkstyle`` palette
         'default_darkest': DarkPalette.COLOR_BACKGROUND_1,
