@@ -951,6 +951,7 @@ class ChartPlotWidget(pg.PlotWidget):
         *,
         yrange: Optional[tuple[float, float]] = None,
         range_margin: float = 0.06,
+        bars_range: Optional[tuple[int, int, int, int]] = None
     ) -> None:
         '''Set the viewable y-range based on embedded data.
 
@@ -974,7 +975,18 @@ class ChartPlotWidget(pg.PlotWidget):
             # Determine max, min y values in viewable x-range from data.
             # Make sure min bars/datums on screen is adhered.
 
-            l, lbar, rbar, r = self.bars_range()
+            l, lbar, rbar, r = bars_range or self.bars_range()
+
+            if self.name != 'volume':
+                vlm_chart = self.linked.subplots.get('volume')
+                if vlm_chart:
+                    vlm_chart._set_yrange(bars_range=(l, lbar, rbar, r))
+                    curve = vlm_chart._graphics['volume']
+                    # if rbar - lbar < 1500:
+                    #     # print('small range')
+                    #     curve._fill = True
+                    # else:
+                    #     curve._fill = False
 
             # figure out x-range in view such that user can scroll "off"
             # the data set up to the point where ``_min_points_to_show``

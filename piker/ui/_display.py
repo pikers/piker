@@ -19,8 +19,10 @@ Real-time display tasks for charting / graphics.
 
 '''
 from contextlib import asynccontextmanager
+from pprint import pformat
 import time
 from types import ModuleType
+from typing import Optional
 
 import numpy as np
 from pydantic import create_model
@@ -61,6 +63,7 @@ async def chart_from_quotes(
     stream: tractor.MsgStream,
     ohlcv: np.ndarray,
     wap_in_history: bool = False,
+    vlm_chart: Optional[ChartPlotWidget] = None,
 
 ) -> None:
     '''The 'main' (price) chart real-time update loop.
@@ -149,7 +152,7 @@ async def chart_from_quotes(
 
             for tick in quote.get('ticks', ()):
 
-                # print(f"CHART: {quote['symbol']}: {tick}")
+                # log.info(f"quotes: {pformat(quote['symbol'])}: {pformat(tick)}")
                 ticktype = tick.get('type')
                 price = tick.get('price')
                 size = tick.get('size')
@@ -189,6 +192,10 @@ async def chart_from_quotes(
                     if wap_in_history:
                         # update vwap overlay line
                         chart.update_curve_from_array('bar_wap', ohlcv.array)
+
+                    if vlm_chart:
+                        print(f"volume: {end['volume']}")
+                        vlm_chart.update_curve_from_array('volume', ohlcv.array)
 
                 # l1 book events
                 # throttle the book graphics updates at a lower rate
@@ -666,6 +673,8 @@ async def maybe_open_vlm_display(
 
     if not has_vlm(ohlcv):
         log.warning(f"{linked.symbol.key} does not seem to have volume info")
+        yield
+        return
     else:
         async with open_sidepane(
             linked, {
@@ -852,6 +861,7 @@ async def display_symbol_data(
 
         async with (
             trio.open_nursery() as ln,
+            maybe_open_vlm_display(linkedsplits, ohlcv) as vlm_chart,
         ):
             # load initial fsp chain (otherwise known as "indicators")
             ln.start_soon(
@@ -872,6 +882,7 @@ async def display_symbol_data(
                 feed.stream,
                 ohlcv,
                 wap_in_history,
+                vlm_chart,
             )
 
             ln.start_soon(
@@ -882,7 +893,6 @@ async def display_symbol_data(
             )
 
             async with (
-                maybe_open_vlm_display(linkedsplits, ohlcv),
                 open_order_mode(
                     feed,
                     chart,
