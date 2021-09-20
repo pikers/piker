@@ -868,13 +868,13 @@ async def display_symbol_data(
 
         # TODO: eventually we'll support some kind of n-compose syntax
         fsp_conf = {
-            # 'rsi': {
-            #     'fsp_func_name': 'rsi',
-            #     'params': {'period': 14},
-            #     'chart_kwargs': {
-            #         'static_yrange': (0, 100),
-            #     },
-            # },
+            'rsi': {
+                'fsp_func_name': 'rsi',
+                'params': {'period': 14},
+                'chart_kwargs': {
+                    'static_yrange': (0, 100),
+                },
+            },
         }
 
         if has_vlm(ohlcv):
