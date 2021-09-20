@@ -182,12 +182,14 @@ class BarItems(pg.GraphicsObject):
         # scene: 'QGraphicsScene',  # noqa
         plotitem: 'pg.PlotItem',  # noqa
         pen_color: str = 'bracket',
+        last_bar_color: str = 'bracket',
     ) -> None:
         super().__init__()
 
         # XXX: for the mega-lulz increasing width here increases draw latency...
         # so probably don't do it until we figure that out.
         self.bars_pen = pg.mkPen(hcolor(pen_color), width=1)
+        self.last_bar_pen = pg.mkPen(hcolor(last_bar_color), width=2)
 
         # NOTE: this prevents redraws on mouse interaction which is
         # a huge boon for avg interaction latency.
@@ -364,7 +366,6 @@ class BarItems(pg.GraphicsObject):
         profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
 
         # p.setCompositionMode(0)
-        p.setPen(self.bars_pen)
 
         # TODO: one thing we could try here is pictures being drawn of
         # a fixed count of bars such that based on the viewbox indices we
@@ -372,9 +373,11 @@ class BarItems(pg.GraphicsObject):
         # as is necesarry for what's in "view". Not sure if this will
         # lead to any perf gains other then when zoomed in to less bars
         # in view.
+        p.setPen(self.last_bar_pen)
         p.drawLines(*tuple(filter(bool, self._last_bar_lines)))
         profiler('draw last bar')
 
+        p.setPen(self.bars_pen)
         p.drawPath(self.path)
         profiler('draw history path')
 
