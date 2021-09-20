@@ -341,19 +341,28 @@ class LinkedSplits(QWidget):
 
     def set_split_sizes(
         self,
-        prop: float = 0.375,  # proportion allocated to consumer subcharts
+        prop: Optional[float] = None,
 
     ) -> None:
         '''Set the proportion of space allocated for linked subcharts.
 
         '''
+        ln = len(self.subplots)
+
+        if not prop:
+            # proportion allocated to consumer subcharts
+            if ln < 2:
+                prop = 1/(.666 * 6)
+            elif ln >= 2:
+                prop = 3/8
+
         major = 1 - prop
-        min_h_ind = int((self.height() * prop) / len(self.subplots))
+        min_h_ind = int((self.height() * prop) / ln)
 
         sizes = [int(self.height() * major)]
-        sizes.extend([min_h_ind] * len(self.subplots))
+        sizes.extend([min_h_ind] * ln)
 
-        self.splitter.setSizes(sizes)  # , int(self.height()*0.2)
+        self.splitter.setSizes(sizes)
 
     def focus(self) -> None:
         if self.chart is not None:
@@ -528,6 +537,8 @@ class LinkedSplits(QWidget):
                 array,
                 array_key=array_key,
                 step_mode=True,
+                color='davies',
+                fill_color='davies',
             )
 
         else:
@@ -800,12 +811,9 @@ class ChartPlotWidget(pg.PlotWidget):
         the input array ``data``.
 
         """
-        color = color or self.pen_color or 'default_light'
-
-        _pdi_defaults = {
-            'pen': pg.mkPen(hcolor(color)),
-        }
-        pdi_kwargs.update(_pdi_defaults)
+        pdi_kwargs.update({
+            'color': color or self.pen_color or 'default_light'
+        })
 
         data_key = array_key or name
 
