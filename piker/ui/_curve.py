@@ -18,7 +18,7 @@
 Fast, smooth, sexy curves.
 
 """
-from typing import Tuple
+from typing import Optional
 
 import numpy as np
 import pyqtgraph as pg
@@ -37,6 +37,7 @@ from ._style import hcolor
 def step_path_arrays_from_1d(
     x: np.ndarray,
     y: np.ndarray,
+    include_endpoints: bool = False,
 
 ) -> (np.ndarray, np.ndarray):
     '''Generate a "step mode" curve aligned with OHLC style bars
@@ -63,46 +64,24 @@ def step_path_arrays_from_1d(
     # we create a 1d with 2 extra indexes to
     # hold the start and (current) end value for the steps
     # on either end
+    y2 = np.empty((len(y), 2), dtype=y.dtype)
+    y2[:] = y[:, np.newaxis]
+
     y_out = np.empty(
         2*len(y) + 2,
         dtype=y.dtype
     )
-    y2 = np.empty((len(y), 2), dtype=y.dtype)
-    y2[:] = y[:, np.newaxis]
 
     # flatten and set 0 endpoints
     y_out[1:-1] = y2.reshape(y2.size)
     y_out[0] = 0
     y_out[-1] = 0
 
-    return x_out, y_out
+    if not include_endpoints:
+        return x_out[:-1], y_out[:-1]
 
-
-def step_lines_from_point(
-    index: float,
-    level: float,
-
-) -> Tuple[QLineF]:
-
-    # TODO: maybe consider using `QGraphicsLineItem` ??
-    # gives us a ``.boundingRect()`` on the objects which may make
-    # computing the composite bounding rect of the last bars + the
-    # history path faster since it's done in C++:
-    # https://doc.qt.io/qt-5/qgraphicslineitem.html
-
-    # index = x[0]
-    # level = y[0]
-
-    # (x0 - 0.5, 0) -> (x0 - 0.5, y0)
-    left = QLineF(index - 0.5, 0, index - 0.5, level)
-
-    # (x0 - 0.5, y0) -> (x1 + 0.5, y1)
-    top = QLineF(index - 0.5, level, index + 0.5, level)
-
-    # (x1 + 0.5, y1 -> (x1 + 0.5, 0)
-    right = QLineF(index + 0.5, level, index + 0.5, 0)
-
-    return [left, top, right]
+    else:
+        return x_out, y_out
 
 
 # TODO: got a feeling that dropping this inheritance gets us even more speedups
@@ -112,7 +91,11 @@ class FastAppendCurve(pg.PlotCurveItem):
         self,
         *args,
         step_mode: bool = False,
+        color: str = 'default_lightest',
+        fill_color: Optional[str] = None,
+
         **kwargs
+
     ) -> None:
 
         # TODO: we can probably just dispense with the parent since
@@ -120,13 +103,12 @@ class FastAppendCurve(pg.PlotCurveItem):
         super().__init__(*args, **kwargs)
 
         self._last_line: QLineF = None
-        self._xrange: Tuple[int, int] = self.dataBounds(ax=0)
+        self._xrange: tuple[int, int] = self.dataBounds(ax=0)
         self._step_mode: bool = step_mode
         self._fill = False
 
-        color = hcolor('davies')
-        self.setBrush(color)
-        self.setPen(color)
+        self.setBrush(hcolor(fill_color or color))
+        self.setPen(hcolor(color))
 
         # TODO: one question still remaining is if this makes trasform
         # interactions slower (such as zooming) and if so maybe if/when
@@ -168,8 +150,8 @@ class FastAppendCurve(pg.PlotCurveItem):
             )
             profiler('generate fresh path')
 
-            if self._step_mode:
-                self.path.closeSubpath()
+            # if self._step_mode:
+            #     self.path.closeSubpath()
 
         # TODO: get this working - right now it's giving heck on vwap...
         # if prepend_length:
@@ -187,13 +169,14 @@ class FastAppendCurve(pg.PlotCurveItem):
         #     # self.path.moveTo(new_x[0], new_y[0])
         #     self.path.connectPath(old_path)
 
-        if append_length:
+        elif append_length:
             if self._step_mode:
-                new_x = x[-append_length - 2:-1]
-                new_y = y[-append_length - 2:-1]
-                new_x, new_y = step_path_arrays_from_1d(new_x, new_y)
-                # new_x = new_x[3:]
-                # new_y = new_y[3:]
+                new_x, new_y = step_path_arrays_from_1d(
+                    x[-append_length - 2:-1],
+                    y[-append_length - 2:-1],
+                )
+                new_x = new_x[1:]
+                new_y = new_y[1:]
 
             else:
                 # print(f"append_length: {append_length}")
@@ -205,28 +188,26 @@ class FastAppendCurve(pg.PlotCurveItem):
                 new_x,
                 new_y,
                 connect='all',
-                finiteCheck=False,
+                # finiteCheck=False,
             )
 
+            path = self.path
             if self._step_mode:
+
                 if self._fill:
-                    path = self.path
-                    # self.path = self.path.united(append_path).simplified()
-                    path.addPath(append_path.simplified())
-                    # path.connectPath(append_path.simplified())
-                    path.closeSubpath()
-                    # path.simplified()
+                    # XXX: super slow set "union" op
+                    self.path = self.path.united(append_path).simplified()
+
+                    # path.addPath(append_path)
+                    # path.closeSubpath()
                 else:
-                    self.path.connectPath(append_path.simplified())
+                    # path.addPath(append_path)
+                    self.path.connectPath(append_path)
             else:
                 # print(f"append_path br: {append_path.boundingRect()}")
                 # self.path.moveTo(new_x[0], new_y[0])
                 # self.path.connectPath(append_path)
-                self.path.connectPath(append_path.simplified())
-
-            # if self._step_mode:
-            #     self.path.closeSubpath()
-            # self.fill_path.connectPath(
+                path.connectPath(append_path)
 
             # XXX: pretty annoying but, without this there's little
             # artefacts on the append updates to the curve...
@@ -243,8 +224,7 @@ class FastAppendCurve(pg.PlotCurveItem):
 
         self._xrange = x[0], x[-1]
         if self._step_mode:
-            # TODO: use a ``QRectF`` and ``QPainterPath.addRect()``
-            self._last_step_lines = step_lines_from_point(x[-1], y[-1])
+            self._last_step_rect = QRectF(x[-1] - 0.5, 0, x[-1] + 0.5, y[-1])
         else:
             self._last_line = QLineF(x[-2], y[-2], x[-1], y[-1])
 
@@ -301,16 +281,16 @@ class FastAppendCurve(pg.PlotCurveItem):
 
         if self._step_mode:
 
-            p.drawLines(*tuple(filter(bool, self._last_step_lines)))
+            brush = self.opts['brush']
+            # p.drawLines(*tuple(filter(bool, self._last_step_lines)))
+            # p.drawRect(self._last_step_rect)
+            p.fillRect(self._last_step_rect, brush)
 
             p.drawPath(self.path)
 
-            # fill_path = QtGui.QPainterPath(self.path)
-            # if self._fill:
-            # self.path.closeSubpath()
             if self._fill:
                 print('FILLED')
-                p.fillPath(self.path, self.opts['brush'])
+                p.fillPath(self.path, brush)
 
             profiler('.drawPath()')
 
