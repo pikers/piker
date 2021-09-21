@@ -25,6 +25,9 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QFrame,
     QWidget,
+    QHBoxLayout,
+    QVBoxLayout,
+    QSplitter,
     # QSizePolicy,
 )
 import numpy as np
@@ -64,11 +67,11 @@ log = get_logger(__name__)
 class GodWidget(QWidget):
     '''
     "Our lord and savior, the holy child of window-shua, there is no
-    widget above thee." - 6|6
+    widget above thee." - 6||6
 
     The highest level composed widget which contains layouts for
-    organizing lower level charts as well as other widgets used to
-    control or modify them.
+    organizing charts as well as other sub-widgets used to control or
+    modify them.
 
     '''
     def __init__(
@@ -80,19 +83,19 @@ class GodWidget(QWidget):
 
         super().__init__(parent)
 
-        self.hbox = QtWidgets.QHBoxLayout(self)
+        self.hbox = QHBoxLayout(self)
         self.hbox.setContentsMargins(0, 0, 0, 0)
         self.hbox.setSpacing(6)
         self.hbox.setAlignment(Qt.AlignTop)
 
-        self.vbox = QtWidgets.QVBoxLayout()
+        self.vbox = QVBoxLayout()
         self.vbox.setContentsMargins(0, 0, 0, 0)
         self.vbox.setSpacing(2)
         self.vbox.setAlignment(Qt.AlignTop)
 
         self.hbox.addLayout(self.vbox)
 
-        # self.toolbar_layout = QtWidgets.QHBoxLayout()
+        # self.toolbar_layout = QHBoxLayout()
         # self.toolbar_layout.setContentsMargins(0, 0, 0, 0)
         # self.vbox.addLayout(self.toolbar_layout)
 
@@ -106,25 +109,8 @@ class GodWidget(QWidget):
         # assigned in the startup func `_async_main()`
         self._root_n: trio.Nursery = None
 
-    def set_chart_symbol(
-        self,
-        symbol_key: str,  # of form <fqsn>.<providername>
-        linkedsplits: 'LinkedSplits',  # type: ignore
-
-    ) -> None:
-        # re-sort org cache symbol list in LIFO order
-        cache = self._chart_cache
-        cache.pop(symbol_key, None)
-        cache[symbol_key] = linkedsplits
-
-    def get_chart_symbol(
-        self,
-        symbol_key: str,
-    ) -> 'LinkedSplits':  # type: ignore
-        return self._chart_cache.get(symbol_key)
-
     # def init_timeframes_ui(self):
-    #     self.tf_layout = QtWidgets.QHBoxLayout()
+    #     self.tf_layout = QHBoxLayout()
     #     self.tf_layout.setSpacing(0)
     #     self.tf_layout.setContentsMargins(0, 12, 0, 0)
     #     time_frames = ('1M', '5M', '15M', '30M', '1H', '1D', '1W', 'MN')
@@ -144,6 +130,23 @@ class GodWidget(QWidget):
     # def init_strategy_ui(self):
     #     self.strategy_box = StrategyBoxWidget(self)
     #     self.toolbar_layout.addWidget(self.strategy_box)
+
+    def set_chart_symbol(
+        self,
+        symbol_key: str,  # of form <fqsn>.<providername>
+        linkedsplits: 'LinkedSplits',  # type: ignore
+
+    ) -> None:
+        # re-sort org cache symbol list in LIFO order
+        cache = self._chart_cache
+        cache.pop(symbol_key, None)
+        cache[symbol_key] = linkedsplits
+
+    def get_chart_symbol(
+        self,
+        symbol_key: str,
+    ) -> 'LinkedSplits':  # type: ignore
+        return self._chart_cache.get(symbol_key)
 
     async def load_symbol(
         self,
@@ -255,7 +258,7 @@ class ChartnPane(QFrame):
 
     '''
     sidepane: FieldsForm
-    hbox: QtWidgets.QHBoxLayout
+    hbox: QHBoxLayout
     chart: Optional['ChartPlotWidget'] = None
 
     def __init__(
@@ -271,7 +274,7 @@ class ChartnPane(QFrame):
         self.sidepane = sidepane
         self.chart = None
 
-        hbox = self.hbox = QtWidgets.QHBoxLayout(self)
+        hbox = self.hbox = QHBoxLayout(self)
         hbox.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         hbox.setContentsMargins(0, 0, 0, 0)
         hbox.setSpacing(3)
@@ -281,21 +284,14 @@ class ChartnPane(QFrame):
 
 class LinkedSplits(QWidget):
     '''
-    Widget that holds a central chart plus derived
-    subcharts computed from the original data set apart
-    by splitters for resizing.
+    Composite that holds a central chart plus a set of (derived)
+    subcharts (usually computed from the original data) arranged in
+    a splitter for resizing.
 
     A single internal references to the data is maintained
     for each chart and can be updated externally.
 
     '''
-    long_pen = pg.mkPen('#006000')
-    long_brush = pg.mkBrush('#00ff00')
-    short_pen = pg.mkPen('#600000')
-    short_brush = pg.mkBrush('#ff0000')
-
-    zoomIsDisabled = QtCore.pyqtSignal(bool)
-
     def __init__(
 
         self,
@@ -325,11 +321,11 @@ class LinkedSplits(QWidget):
         #     self.xaxis_ind.setStyle(showValues=False)
         #     self.xaxis.hide()
 
-        self.splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        self.splitter = QSplitter(QtCore.Qt.Vertical)
         self.splitter.setMidLineWidth(0)
         self.splitter.setHandleWidth(2)
 
-        self.layout = QtWidgets.QVBoxLayout(self)
+        self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.addWidget(self.splitter)
 
@@ -749,6 +745,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self._vb.setXRange(
             min=l + 1,
             max=r + 1,
+
             # TODO: holy shit, wtf dude... why tf would this not be 0 by
             # default... speechless.
             padding=0,
@@ -817,8 +814,11 @@ class ChartPlotWidget(pg.PlotWidget):
 
         data_key = array_key or name
 
+        # pg internals for reference.
         # curve = pg.PlotDataItem(
         # curve = pg.PlotCurveItem(
+
+        # yah, we wrote our own B)
         curve = FastAppendCurve(
             y=data[data_key],
             x=data['index'],
@@ -958,9 +958,11 @@ class ChartPlotWidget(pg.PlotWidget):
     def _set_yrange(
         self,
         *,
+
         yrange: Optional[tuple[float, float]] = None,
         range_margin: float = 0.06,
         bars_range: Optional[tuple[int, int, int, int]] = None
+
     ) -> None:
         '''Set the viewable y-range based on embedded data.
 
@@ -986,11 +988,13 @@ class ChartPlotWidget(pg.PlotWidget):
 
             l, lbar, rbar, r = bars_range or self.bars_range()
 
+            # TODO: we need a loop for auto-scaled subplots to all
+            # be triggered by one another
             if self.name != 'volume':
                 vlm_chart = self.linked.subplots.get('volume')
                 if vlm_chart:
                     vlm_chart._set_yrange(bars_range=(l, lbar, rbar, r))
-                    curve = vlm_chart._graphics['volume']
+                    # curve = vlm_chart._graphics['volume']
                     # if rbar - lbar < 1500:
                     #     # print('small range')
                     #     curve._fill = True
