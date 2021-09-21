@@ -186,8 +186,8 @@ class BarItems(pg.GraphicsObject):
     ) -> None:
         super().__init__()
 
-        # XXX: for the mega-lulz increasing width here increases draw latency...
-        # so probably don't do it until we figure that out.
+        # XXX: for the mega-lulz increasing width here increases draw
+        # latency...  so probably don't do it until we figure that out.
         self.bars_pen = pg.mkPen(hcolor(pen_color), width=1)
         self.last_bar_pen = pg.mkPen(hcolor(last_bar_color), width=2)
 
@@ -356,31 +356,6 @@ class BarItems(pg.GraphicsObject):
         if flip_cache:
             self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
-    def paint(
-        self,
-        p: QtGui.QPainter,
-        opt: QtWidgets.QStyleOptionGraphicsItem,
-        w: QtWidgets.QWidget
-    ) -> None:
-
-        profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
-
-        # p.setCompositionMode(0)
-
-        # TODO: one thing we could try here is pictures being drawn of
-        # a fixed count of bars such that based on the viewbox indices we
-        # only draw the "rounded up" number of "pictures worth" of bars
-        # as is necesarry for what's in "view". Not sure if this will
-        # lead to any perf gains other then when zoomed in to less bars
-        # in view.
-        p.setPen(self.last_bar_pen)
-        p.drawLines(*tuple(filter(bool, self._last_bar_lines)))
-        profiler('draw last bar')
-
-        p.setPen(self.bars_pen)
-        p.drawPath(self.path)
-        profiler('draw history path')
-
     def boundingRect(self):
         # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
 
@@ -424,3 +399,28 @@ class BarItems(pg.GraphicsObject):
             )
 
         )
+
+    def paint(
+        self,
+        p: QtGui.QPainter,
+        opt: QtWidgets.QStyleOptionGraphicsItem,
+        w: QtWidgets.QWidget
+    ) -> None:
+
+        profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
+
+        # p.setCompositionMode(0)
+
+        # TODO: one thing we could try here is pictures being drawn of
+        # a fixed count of bars such that based on the viewbox indices we
+        # only draw the "rounded up" number of "pictures worth" of bars
+        # as is necesarry for what's in "view". Not sure if this will
+        # lead to any perf gains other then when zoomed in to less bars
+        # in view.
+        p.setPen(self.last_bar_pen)
+        p.drawLines(*tuple(filter(bool, self._last_bar_lines)))
+        profiler('draw last bar')
+
+        p.setPen(self.bars_pen)
+        p.drawPath(self.path)
+        profiler('draw history path')
