@@ -19,7 +19,7 @@ Real-time display tasks for charting / graphics.
 
 '''
 from contextlib import asynccontextmanager
-from pprint import pformat
+# from pprint import pformat
 import time
 from types import ModuleType
 from typing import Optional
@@ -57,11 +57,12 @@ _clear_throttle_rate: int = 58  # Hz
 _book_throttle_rate: int = 16  # Hz
 
 
-async def chart_from_quotes(
+async def update_chart_from_quotes(
 
     chart: ChartPlotWidget,
     stream: tractor.MsgStream,
     ohlcv: np.ndarray,
+
     wap_in_history: bool = False,
     vlm_chart: Optional[ChartPlotWidget] = None,
 
@@ -78,13 +79,17 @@ async def chart_from_quotes(
     # - handle odd lot orders
     # - update last open price correctly instead
     #   of copying it from last bar's close
-    # - 5 sec bar lookback-autocorrection like tws does?
+    # - 1-5 sec bar lookback-autocorrection like tws does?
+    #   (would require a background history checker task)
 
     # update last price sticky
     last_price_sticky = chart._ysticks[chart.name]
     last_price_sticky.update_from_data(
         *ohlcv.array[-1][['index', 'close']]
     )
+
+    if vlm_chart:
+        vlm_sticky = vlm_chart._ysticks['volume']
 
     def maxmin():
         # TODO: implement this
@@ -127,11 +132,11 @@ async def chart_from_quotes(
 
     # TODO:
     # - in theory we should be able to read buffer data faster
-    # then msgs arrive.. needs some tinkering and testing
+    #   then msgs arrive.. needs some tinkering and testing
 
     # - if trade volume jumps above / below prior L1 price
-    # levels this might be dark volume we need to
-    # present differently?
+    #   levels this might be dark volume we need to
+    #   present differently -> likely dark vlm
 
     tick_size = chart.linked.symbol.tick_size
     tick_margin = 2 * tick_size
@@ -152,7 +157,8 @@ async def chart_from_quotes(
 
             for tick in quote.get('ticks', ()):
 
-                # log.info(f"quotes: {pformat(quote['symbol'])}: {pformat(tick)}")
+                # log.info(
+                #   f"quotes: {pformat(quote['symbol'])}: {pformat(tick)}")
                 ticktype = tick.get('type')
                 price = tick.get('price')
                 size = tick.get('size')
@@ -193,9 +199,14 @@ async def chart_from_quotes(
                         # update vwap overlay line
                         chart.update_curve_from_array('bar_wap', ohlcv.array)
 
+                    # TODO: show dark trades differently
+                    # https://github.com/pikers/piker/issues/116
                     if vlm_chart:
-                        print(f"volume: {end['volume']}")
-                        vlm_chart.update_curve_from_array('volume', ohlcv.array)
+                        # print(f"volume: {end['volume']}")
+                        vlm_chart.update_curve_from_array(
+                            'volume', ohlcv.array
+                        )
+                        vlm_sticky.update_from_data(*end[['index', 'volume']])
 
                 # l1 book events
                 # throttle the book graphics updates at a lower rate
@@ -697,9 +708,13 @@ async def maybe_open_vlm_display(
 
                 # curve by default
                 ohlc=False,
+
+                # Draw vertical bars from zero.
+                # we do this internally ourselves since
+                # the curve item internals are pretty convoluted.
                 style='step',
 
-                # vertical bars, we do this internally ourselves
+                # original pyqtgraph flag for reference
                 # stepMode=True,
             )
 
@@ -877,7 +892,7 @@ async def display_symbol_data(
 
             # start graphics update loop(s)after receiving first live quote
             ln.start_soon(
-                chart_from_quotes,
+                update_chart_from_quotes,
                 chart,
                 feed.stream,
                 ohlcv,
