@@ -102,13 +102,21 @@ class FastAppendCurve(pg.PlotCurveItem):
         # we're basically only using the pen setting now...
         super().__init__(*args, **kwargs)
 
-        self._last_line: QLineF = None
         self._xrange: tuple[int, int] = self.dataBounds(ax=0)
-        self._step_mode: bool = step_mode
-        self._fill = False
 
-        self.setBrush(hcolor(fill_color or color))
+        # all history of curve is drawn in single px thickness
         self.setPen(hcolor(color))
+
+        # last segment is drawn in 2px thickness for emphasis
+        self.last_step_pen = pg.mkPen(hcolor(color), width=2)
+        self._last_line: QLineF = None
+        self._last_step_rect: QRectF = None
+
+        # flat-top style histogram-like discrete curve
+        self._step_mode: bool = step_mode
+
+        self._fill = False
+        self.setBrush(hcolor(fill_color or color))
 
         # TODO: one question still remaining is if this makes trasform
         # interactions slower (such as zooming) and if so maybe if/when
@@ -192,8 +200,10 @@ class FastAppendCurve(pg.PlotCurveItem):
             )
 
             path = self.path
-            if self._step_mode:
 
+            # other merging ideas:
+            # https://stackoverflow.com/questions/8936225/how-to-merge-qpainterpaths
+            if self._step_mode:
                 if self._fill:
                     # XXX: super slow set "union" op
                     self.path = self.path.united(append_path).simplified()
@@ -222,11 +232,23 @@ class FastAppendCurve(pg.PlotCurveItem):
         self.xData = x
         self.yData = y
 
-        self._xrange = x[0], x[-1]
+        x0, x_last = self._xrange = x[0], x[-1]
+        y_last = y[-1]
+
         if self._step_mode:
-            self._last_step_rect = QRectF(x[-1] - 0.5, 0, x[-1] + 0.5, y[-1])
+            self._last_line = QLineF(
+                x_last - 0.5, 0,
+                x_last + 0.5, 0,
+            )
+            self._last_step_rect = QRectF(
+                x_last - 0.5, 0,
+                x_last + 0.5, y_last
+            )
         else:
-            self._last_line = QLineF(x[-2], y[-2], x[-1], y[-1])
+            self._last_line = QLineF(
+                x[-2], y[-2],
+                x[-1], y_last
+            )
 
         # trigger redraw of path
         # do update before reverting to cache mode
@@ -277,8 +299,6 @@ class FastAppendCurve(pg.PlotCurveItem):
         profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
         # p.setRenderHint(p.Antialiasing, True)
 
-        p.setPen(self.opts['pen'])
-
         if self._step_mode:
 
             brush = self.opts['brush']
@@ -286,17 +306,19 @@ class FastAppendCurve(pg.PlotCurveItem):
             # p.drawRect(self._last_step_rect)
             p.fillRect(self._last_step_rect, brush)
 
-            p.drawPath(self.path)
+            # p.drawPath(self.path)
 
-            if self._fill:
-                print('FILLED')
-                p.fillPath(self.path, brush)
+            # profiler('.drawPath()')
 
-            profiler('.drawPath()')
+        # else:
+        p.setPen(self.last_step_pen)
+        p.drawLine(self._last_line)
+        profiler('.drawLine()')
 
-        else:
-            p.drawLine(self._last_line)
-            profiler('.drawLine()')
+        p.setPen(self.opts['pen'])
+        p.drawPath(self.path)
+        profiler('.drawPath()')
 
-            p.drawPath(self.path)
-            profiler('.drawPath()')
+        if self._fill:
+            print('FILLED')
+            p.fillPath(self.path, brush)
