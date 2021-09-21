@@ -528,7 +528,7 @@ class LinkedSplits(QWidget):
                 name,
                 array,
                 array_key=array_key,
-                color='default_lightest',
+                color='default_light',
             )
 
         elif style == 'step':
@@ -789,7 +789,7 @@ class ChartPlotWidget(pg.PlotWidget):
             update_func=ContentsLabel.update_from_ohlc,
         )
 
-        self._add_sticky(name)
+        self._add_sticky(name, bg_color='davies')
 
         return graphics
 
@@ -863,7 +863,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
             # TODO: something instead of stickies for overlays
             # (we need something that avoids clutter on x-axis).
-            self._add_sticky(name, bg_color='default_light')
+            self._add_sticky(name, bg_color=color)
 
         if self.linked.cursor:
             self.linked.cursor.add_curve_cursor(self, curve)
@@ -877,6 +877,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         return curve
 
+    # TODO: make this a ctx mngr
     def _add_sticky(
         self,
 
