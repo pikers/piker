@@ -101,7 +101,7 @@ async def update_chart_from_quotes(
 
         last_bars_range = chart.bars_range()
         l, lbar, rbar, r = last_bars_range
-        in_view = array[lbar - ifirst:rbar - ifirst]
+        in_view = array[lbar - ifirst:rbar - ifirst + 1]
 
         assert in_view.size
 
@@ -112,11 +112,20 @@ async def update_chart_from_quotes(
         # sym = chart.name
         # mx, mn = np.nanmax(in_view[sym]), np.nanmin(in_view[sym])
 
-        return last_bars_range, mx, max(mn, 0)
+        mx_vlm_in_view = 0
+        if vlm_chart:
+            mx_vlm_in_view = np.max(in_view['volume'])
+
+        return last_bars_range, mx, max(mn, 0), mx_vlm_in_view
 
     chart.default_view()
 
-    last_bars_range, last_mx, last_mn = maxmin()
+    (
+        last_bars_range,
+        last_mx,
+        last_mn,
+        last_mx_vlm,
+    ) = maxmin()
 
     last, volume = ohlcv.array[-1][['close', 'volume']]
 
@@ -139,7 +148,7 @@ async def update_chart_from_quotes(
     #   present differently -> likely dark vlm
 
     tick_size = chart.linked.symbol.tick_size
-    tick_margin = 2 * tick_size
+    tick_margin = 3 * tick_size
 
     last_ask = last_bid = last_clear = time.time()
     chart.show()
@@ -154,6 +163,36 @@ async def update_chart_from_quotes(
         for sym, quote in quotes.items():
 
             now = time.time()
+
+            # brange, mx_in_view, mn_in_view = maxmin()
+            (
+                brange,
+                mx_in_view,
+                mn_in_view,
+                mx_vlm_in_view,
+            ) = maxmin()
+            l, lbar, rbar, r = brange
+            mx = mx_in_view + tick_margin
+            mn = mn_in_view - tick_margin
+
+            # NOTE: vlm may be written by the ``brokerd`` backend
+            # event though a tick sample is not emitted.
+            # TODO: show dark trades differently
+            # https://github.com/pikers/piker/issues/116
+            array = ohlcv.array
+
+            if vlm_chart:
+                # print(f"volume: {end['volume']}")
+                vlm_chart.update_curve_from_array('volume', array)
+                vlm_sticky.update_from_data(*array[-1][['index', 'volume']])
+
+                if (
+                    mx_vlm_in_view != last_mx_vlm or
+                    mx_vlm_in_view > last_mx_vlm
+                ):
+                    # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
+                    vlm_chart._set_yrange(yrange=(0, mx_vlm_in_view * 1.375))
+                    last_mx_vlm = mx_vlm_in_view
 
             for tick in quote.get('ticks', ()):
 
@@ -180,16 +219,13 @@ async def update_chart_from_quotes(
                     # set time of last graphics update
                     last_clear = now
 
-                    array = ohlcv.array
-
                     # update price sticky(s)
                     end = array[-1]
                     last_price_sticky.update_from_data(
                         *end[['index', 'close']]
                     )
 
-                    # plot bars
-                    # update price bar
+                    # update ohlc sampled price bars
                     chart.update_ohlc_from_array(
                         chart.name,
                         array,
@@ -198,15 +234,6 @@ async def update_chart_from_quotes(
                     if wap_in_history:
                         # update vwap overlay line
                         chart.update_curve_from_array('bar_wap', ohlcv.array)
-
-                    # TODO: show dark trades differently
-                    # https://github.com/pikers/piker/issues/116
-                    if vlm_chart:
-                        # print(f"volume: {end['volume']}")
-                        vlm_chart.update_curve_from_array(
-                            'volume', ohlcv.array
-                        )
-                        vlm_sticky.update_from_data(*end[['index', 'volume']])
 
                 # l1 book events
                 # throttle the book graphics updates at a lower rate
@@ -231,11 +258,6 @@ async def update_chart_from_quotes(
                 # compute max and min trade values to display in view
                 # TODO: we need a streaming minmax algorithm here, see
                 # def above.
-                brange, mx_in_view, mn_in_view = maxmin()
-                l, lbar, rbar, r = brange
-
-                mx = mx_in_view + tick_margin
-                mn = mn_in_view - tick_margin
 
                 # XXX: prettty sure this is correct?
                 # if ticktype in ('trade', 'last'):
@@ -259,16 +281,14 @@ async def update_chart_from_quotes(
                 elif ticktype in ('bid', 'bsize'):
                     l1.bid_label.update_fields({'level': price, 'size': size})
 
-                # update min price in view to keep bid on screen
-                mn = min(price - tick_margin, mn)
-                # update max price in view to keep ask on screen
+                # in view y-range checking for auto-scale
+                # update the max/min price in view to keep bid/ask on screen
                 mx = max(price + tick_margin, mx)
-
+                mn = min(price - tick_margin, mn)
                 if (mx > last_mx) or (
                     mn < last_mn
                 ):
                     # print(f'new y range: {(mn, mx)}')
-
                     chart._set_yrange(
                         yrange=(mn, mx),
                         # TODO: we should probably scale
