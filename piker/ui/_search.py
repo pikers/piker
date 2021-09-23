@@ -72,7 +72,7 @@ from ._style import (
     _font,
     hcolor,
 )
-from ._forms import FontAndChartAwareLineEdit, FontScaledDelegate
+from ._forms import Edit, FontScaledDelegate
 
 
 log = get_logger(__name__)
@@ -407,7 +407,7 @@ class CompleterView(QTreeView):
         self.resize()
 
 
-class SearchBar(FontAndChartAwareLineEdit):
+class SearchBar(Edit):
 
     mode_name: str = 'search'
 

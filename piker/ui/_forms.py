@@ -48,7 +48,7 @@ from ._style import hcolor, _font, _font_small, DpiAwareFont
 from ._label import FormatLabel
 
 
-class FontAndChartAwareLineEdit(QLineEdit):
+class Edit(QLineEdit):
 
     def __init__(
 
@@ -369,13 +369,14 @@ class FieldsForm(QWidget):
         key: str,
         label_name: str,
         value: str,
+        readonly: bool = False,
 
-    ) -> FontAndChartAwareLineEdit:
+    ) -> Edit:
 
         # TODO: maybe a distint layout per "field" item?
         label = self.add_field_label(label_name)
 
-        edit = FontAndChartAwareLineEdit(
+        edit = Edit(
             parent=self,
             # width_in_chars=6,
         )
@@ -386,6 +387,7 @@ class FieldsForm(QWidget):
             }}
             """
         )
+        edit.setReadOnly(readonly)
         edit.setText(str(value))
         self.form.addRow(label, edit)
 
@@ -478,13 +480,15 @@ def mk_form(
     for key, conf in fields_schema.items():
         wtype = conf['type']
         label = str(conf.get('label', key))
+        kwargs = conf.get('kwargs', {})
 
         # plain (line) edit field
         if wtype == 'edit':
             w = form.add_edit_field(
                 key,
                 label,
-                conf['default_value']
+                conf['default_value'],
+                **kwargs,
             )
 
         # drop-down selection
@@ -493,7 +497,8 @@ def mk_form(
             w = form.add_select_field(
                 key,
                 label,
-                values
+                values,
+                **kwargs,
             )
 
         w._key = key
