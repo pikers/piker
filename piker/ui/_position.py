@@ -232,7 +232,7 @@ class SettingsPane:
         except ValueError:
             log.error(f'Invalid value for `{key}`: {value}')
 
-        # READ out settings and update UI
+        # READ out settings and update the status UI / settings widgets
         suffix = {'currency': ' $', 'units': ' u'}[size_unit]
         limit = alloc.limit()
 
@@ -258,6 +258,9 @@ class SettingsPane:
         )
         self.form.fields['slots'].setText(str(alloc.slots))
         self.form.fields['limit'].setText(str(limit))
+
+        # update of level marker size label based on any new settings
+        tracker.update_from_pp()
 
         # TODO: maybe return a diff of settings so if we can an error we
         # can have general input handling code to report it through the
