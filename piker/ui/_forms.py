@@ -653,11 +653,21 @@ def mk_fill_status_bar(
         font_size=bar_label_font_size,
         font_color='gunmetal',
     )
+    # size according to dpi scaled fonted contents to avoid
+    # resizes on magnitude changes (eg. 9 -> 10 %)
+    min_w = _font.boundingRect('1000.0M% pnl').width()
+    left_label.setMinimumWidth(min_w)
+    left_label.resize(
+        min_w,
+        left_label.size().height(),
+    )
 
     bar_labels_lhs.addSpacing(5/8 * bar_h)
     bar_labels_lhs.addWidget(
         left_label,
-        alignment=Qt.AlignLeft | Qt.AlignTop,
+        # XXX: doesn't seem to actually push up against
+        # the status bar?
+        alignment=Qt.AlignRight | Qt.AlignTop,
     )
 
     # this hbox is added as a layout by the paner maker/caller
