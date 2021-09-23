@@ -31,7 +31,7 @@ import tractor
 import numpy as np
 
 from ..log import get_logger
-from ._source import base_ohlc_dtype, base_iohlc_dtype
+from ._source import base_iohlc_dtype
 
 
 log = get_logger(__name__)
@@ -221,6 +221,11 @@ class ShmArray:
 
         if prepend:
             index = self._first.value - length
+            if index < 0:
+                raise ValueError(
+                    f'Array size of {self._len} was overrun during prepend.\n'
+                    'You have passed {abs(index)} too many datums.'
+                )
         else:
             index = self._last.value
 
@@ -290,8 +295,10 @@ class ShmArray:
 
 
 # how  much is probably dependent on lifestyle
-_secs_in_day = int(60 * 60 * 12)
-_default_size = 2 * _secs_in_day
+_secs_in_day = int(60 * 60 * 24)
+# we try for 3 times but only on a run-every-other-day kinda week.
+_default_size = 3 * _secs_in_day
+
 
 def open_shm_array(
     key: Optional[str] = None,
