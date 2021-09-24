@@ -287,6 +287,7 @@ def mk_allocator(
 
     asset_type = symbol.type_key
 
+
     # specific configs by asset class / type
 
     if asset_type in ('future', 'option', 'futures_option'):
@@ -308,9 +309,12 @@ def mk_allocator(
             alloc.currency_limit = round(startup_size, ndigits=2)
 
     else:
-        startup_size = startup_pp.size
+        startup_size = abs(startup_pp.size)
 
         if startup_size > alloc.units_limit:
             alloc.units_limit = startup_size
+
+            if asset_type in ('future', 'option', 'futures_option'):
+                alloc.slots = alloc.units_limit
 
     return alloc
