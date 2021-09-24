@@ -30,7 +30,7 @@ win_name = 'Interactive Brokers'  # what for gw tho?
 con = t.find_named(win_name)[0]
 
 win_id = str(con.window)
-w, h = str(con.rect.width), str(con.rect.height)
+w, h = con.rect.width, con.rect.height
 
 # TODO: seems to be a few libs for python but not sure
 # if they support all the sub commands we need, order of
@@ -40,15 +40,14 @@ w, h = str(con.rect.width), str(con.rect.height)
 # https://github.com/cphyc/pyxdotool
 subprocess.call([
     'xdotool',
-    'windowactivate',
-    '--sync',
-    win_id,
+    'windowactivate', '--sync', win_id,
+
     # move mouse to bottom left of window (where there should
     # be nothing to click).
-    'mousemove_relative', '--sync', w, h,
+    'mousemove_relative', '--sync', str(w-3), str(h-3),
 
     # NOTE: we may need to stick a `--retry 3` in here..
-    'click', '1',
+    'click', '--window', win_id, '1',
 
     # hackzorzes
     'key', 'ctrl+alt+f',
