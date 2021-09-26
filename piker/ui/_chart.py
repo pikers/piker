@@ -56,6 +56,7 @@ from ._style import (
 )
 from ..data.feed import Feed
 from ..data._source import Symbol
+from ..data._sharedmem import ShmArray
 from ..log import get_logger
 from ._interaction import ChartView
 from ._forms import FieldsForm
@@ -632,7 +633,8 @@ class ChartPlotWidget(pg.PlotWidget):
             'ohlc': array,
         }
         self._graphics = {}  # registry of underlying graphics
-        self._overlays = set()  # registry of overlay curve names
+        # registry of overlay curve names
+        self._overlays: dict[str, ShmArray] = {}
 
         self._feeds: dict[Symbol, Feed] = {}
 
@@ -808,8 +810,9 @@ class ChartPlotWidget(pg.PlotWidget):
         the input array ``data``.
 
         """
+        color = color or self.pen_color or 'default_light'
         pdi_kwargs.update({
-            'color': color or self.pen_color or 'default_light'
+            'color': color
         })
 
         data_key = array_key or name
@@ -856,7 +859,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         if overlay:
             anchor_at = ('bottom', 'left')
-            self._overlays.add(name)
+            self._overlays[name] = None
 
         else:
             anchor_at = ('top', 'left')
