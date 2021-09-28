@@ -379,16 +379,21 @@ class LinkedSplits(QWidget):
         style: str = 'bar',
 
     ) -> 'ChartPlotWidget':
-        """Start up and show main (price) chart and all linked subcharts.
+        '''Start up and show main (price) chart and all linked subcharts.
 
         The data input struct array must include OHLC fields.
-        """
+
+        '''
         # add crosshairs
         self.cursor = Cursor(
             linkedsplits=self,
             digits=symbol.tick_size_digits,
         )
 
+        # NOTE: atm the first (and only) OHLC price chart for the symbol
+        # is given a special reference but in the future there shouldn't
+        # be no distinction since we will have multiple symbols per
+        # view as part of "aggregate feeds".
         self.chart = self.add_plot(
 
             name=symbol.key,
@@ -430,9 +435,7 @@ class LinkedSplits(QWidget):
         **cpw_kwargs,
 
     ) -> 'ChartPlotWidget':
-        '''Add (sub)plots to chart widget by name.
-
-        If ``name`` == ``"main"`` the chart will be the the primary view.
+        '''Add (sub)plots to chart widget by key.
 
         '''
         if self.chart is None and not _is_main:
@@ -910,25 +913,26 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def update_ohlc_from_array(
         self,
-        name: str,
+
+        graphics_name: str,
         array: np.ndarray,
         **kwargs,
-    ) -> pg.GraphicsObject:
-        """Update the named internal graphics from ``array``.
 
-        """
+    ) -> pg.GraphicsObject:
+        '''Update the named internal graphics from ``array``.
+
+        '''
         self._arrays['ohlc'] = array
-        graphics = self._graphics[name]
+        graphics = self._graphics[graphics_name]
         graphics.update_from_array(array, **kwargs)
         return graphics
 
     def update_curve_from_array(
         self,
 
-        name: str,
+        graphics_name: str,
         array: np.ndarray,
         array_key: Optional[str] = None,
-
         **kwargs,
 
     ) -> pg.GraphicsObject:
@@ -936,20 +940,24 @@ class ChartPlotWidget(pg.PlotWidget):
 
         """
 
-        data_key = array_key or name
-        if name not in self._overlays:
+        data_key = array_key or graphics_name
+        if graphics_name not in self._overlays:
             self._arrays['ohlc'] = array
         else:
             self._arrays[data_key] = array
 
-        curve = self._graphics[name]
+        curve = self._graphics[graphics_name]
 
         if len(array):
             # TODO: we should instead implement a diff based
             # "only update with new items" on the pg.PlotCurveItem
             # one place to dig around this might be the `QBackingStore`
             # https://doc.qt.io/qt-5/qbackingstore.html
-            # curve.setData(y=array[name], x=array['index'], **kwargs)
+
+            # NOTE: back when we weren't implementing the curve graphics
+            # ourselves you'd have updates using this method:
+            # curve.setData(y=array[graphics_name], x=array['index'], **kwargs)
+
             curve.update_from_array(
                 x=array['index'],
                 y=array[data_key],
@@ -1034,6 +1042,8 @@ class ChartPlotWidget(pg.PlotWidget):
             # self._set_xlimits(begin, end)
 
             # TODO: this should be some kind of numpy view api
+
+
             # bars = self._arrays['ohlc'][lbar:rbar]
 
             a = self._arrays['ohlc']
