@@ -85,11 +85,11 @@ async def _async_main(
     screen = godwidget.window.current_screen()
 
     # configure graphics update throttling based on display refresh rate
-    _display._clear_throttle_rate = min(
+    _display._quote_throttle_rate = min(
         round(screen.refreshRate()),
-        _display._clear_throttle_rate,
+        _display._quote_throttle_rate,
     )
-    log.info(f'Set graphics update rate to {_display._clear_throttle_rate} Hz')
+    log.info(f'Set graphics update rate to {_display._quote_throttle_rate} Hz')
 
     # TODO: do styling / themeing setup
     # _style.style_ze_sheets(godwidget)
