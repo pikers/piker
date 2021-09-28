@@ -1006,7 +1006,7 @@ class ChartPlotWidget(pg.PlotWidget):
             if autoscale_linked_plots:
                 # avoid recursion by sibling plots
                 linked = self.linked
-                plots = list(linked.subplots.values.copy())
+                plots = list(linked.subplots.copy().values())
                 main = linked.chart
                 if main:
                     plots.append(main)
