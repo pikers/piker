@@ -1046,7 +1046,7 @@ async def _emsd_main(
 
             # signal to client that we're started and deliver
             # all known pps and accounts for this ``brokerd``.
-            await ems_ctx.started((pp_msgs, relay.accounts))
+            await ems_ctx.started((pp_msgs, list(relay.accounts)))
 
             # establish 2-way stream with requesting order-client and
             # begin handling inbound order requests and updates
