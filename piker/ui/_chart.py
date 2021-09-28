@@ -972,7 +972,11 @@ class ChartPlotWidget(pg.PlotWidget):
 
         yrange: Optional[tuple[float, float]] = None,
         range_margin: float = 0.06,
-        bars_range: Optional[tuple[int, int, int, int]] = None
+        bars_range: Optional[tuple[int, int, int, int]] = None,
+
+        # flag to prevent triggering sibling charts from the same linked
+        # set from recursion errors.
+        autoscale_linked_plots: bool = True,
 
     ) -> None:
         '''Set the viewable y-range based on embedded data.
@@ -999,39 +1003,26 @@ class ChartPlotWidget(pg.PlotWidget):
 
             l, lbar, rbar, r = bars_range or self.bars_range()
 
-            # TODO: we need a loop for auto-scaled subplots to all
-            # be triggered by one another
-            if self.name != 'volume':
-                vlm_chart = self.linked.subplots.get('volume')
-                if vlm_chart:
-                    vlm_chart._set_yrange(bars_range=(l, lbar, rbar, r))
-                    # curve = vlm_chart._graphics['volume']
-                    # if rbar - lbar < 1500:
-                    #     # print('small range')
-                    #     curve._fill = True
-                    # else:
-                    #     curve._fill = False
+            if autoscale_linked_plots:
+                # avoid recursion by sibling plots
+                linked = self.linked
+                plots = list(linked.subplots.values.copy())
+                main = linked.chart
+                if main:
+                    plots.append(main)
 
-            # figure out x-range in view such that user can scroll "off"
-            # the data set up to the point where ``_min_points_to_show``
-            # are left.
-            # view_len = r - l
+                for chart in plots:
+                    if chart and not chart._static_yrange:
+                        chart._set_yrange(
+                            bars_range=(l, lbar, rbar, r),
+                            autoscale_linked_plots=False,
+                        )
 
             # TODO: logic to check if end of bars in view
             # extra = view_len - _min_points_to_show
-
             # begin = self._arrays['ohlc'][0]['index'] - extra
-
             # # end = len(self._arrays['ohlc']) - 1 + extra
             # end = self._arrays['ohlc'][-1]['index'] - 1 + extra
-
-            # XXX: test code for only rendering lines for the bars in view.
-            # This turns out to be very very poor perf when scaling out to
-            # many bars (think > 1k) on screen.
-            # name = self.name
-            # bars = self._graphics[self.name]
-            # bars.draw_lines(
-            #   istart=max(lbar, l), iend=min(rbar, r), just_history=True)
 
             # bars_len = rbar - lbar
             # log.debug(
@@ -1039,12 +1030,6 @@ class ChartPlotWidget(pg.PlotWidget):
             #     f"view_len: {view_len}, bars_len: {bars_len}\n"
             #     f"begin: {begin}, end: {end}, extra: {extra}"
             # )
-            # self._set_xlimits(begin, end)
-
-            # TODO: this should be some kind of numpy view api
-
-
-            # bars = self._arrays['ohlc'][lbar:rbar]
 
             a = self._arrays['ohlc']
             ifirst = a[0]['index']
