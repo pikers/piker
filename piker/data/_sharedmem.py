@@ -220,7 +220,7 @@ class ShmArray:
         self,
         length: int = 1,
     ) -> np.ndarray:
-        return self.array[-length:]
+        return self.array[-length]
 
     def push(
         self,
