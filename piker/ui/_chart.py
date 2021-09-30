@@ -936,11 +936,12 @@ class ChartPlotWidget(pg.PlotWidget):
         **kwargs,
 
     ) -> pg.GraphicsObject:
-        """Update the named internal graphics from ``array``.
+        '''Update the named internal graphics from ``array``.
 
-        """
-
+        '''
+        assert len(array)
         data_key = array_key or graphics_name
+
         if graphics_name not in self._overlays:
             self._arrays['ohlc'] = array
         else:
@@ -948,21 +949,19 @@ class ChartPlotWidget(pg.PlotWidget):
 
         curve = self._graphics[graphics_name]
 
-        if len(array):
-            # TODO: we should instead implement a diff based
-            # "only update with new items" on the pg.PlotCurveItem
-            # one place to dig around this might be the `QBackingStore`
-            # https://doc.qt.io/qt-5/qbackingstore.html
+        # NOTE: back when we weren't implementing the curve graphics
+        # ourselves you'd have updates using this method:
+        # curve.setData(y=array[graphics_name], x=array['index'], **kwargs)
 
-            # NOTE: back when we weren't implementing the curve graphics
-            # ourselves you'd have updates using this method:
-            # curve.setData(y=array[graphics_name], x=array['index'], **kwargs)
-
-            curve.update_from_array(
-                x=array['index'],
-                y=array[data_key],
-                **kwargs
-            )
+        # NOTE: graphics **must** implement a diff based update
+        # operation where an internal ``FastUpdateCurve._xrange`` is
+        # used to determine if the underlying path needs to be
+        # pre/ap-pended.
+        curve.update_from_array(
+            x=array['index'],
+            y=array[data_key],
+            **kwargs
+        )
 
         return curve
 
