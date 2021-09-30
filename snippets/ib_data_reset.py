@@ -25,6 +25,8 @@ import i3ipc
 i3 = i3ipc.Connection()
 t = i3.get_tree()
 
+orig_win_id = t.find_focused().window
+
 # for tws
 win_names: list[str] = [
     'Interactive Brokers',  # tws running in i3
@@ -59,3 +61,10 @@ for name in win_names:
             # hackzorzes
             'key', 'ctrl+alt+f',
         ])
+
+# re-activate and focus original window
+subprocess.call([
+    'xdotool',
+    'windowactivate', '--sync', str(orig_win_id),
+    'click', '--window', str(orig_win_id), '1',
+])
