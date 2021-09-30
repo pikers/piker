@@ -171,6 +171,7 @@ async def cascade(
 
     symbol: str,
     func_name: str,
+    zero_on_step: bool = False,
 
     loglevel: Optional[str] = None,
 
@@ -232,6 +233,11 @@ async def cascade(
             )
 
             cs, index = await n.start(fsp_target)
+
+            if zero_on_step:
+                last = dst.array[-1:]
+                zeroed = np.zeros(last.shape, dtype=last.dtype)
+
             await ctx.started(index)
             profiler(f'{func_name}: fsp up')
 
@@ -263,6 +269,9 @@ async def cascade(
                     # TODO: some signals, like vlm should be reset to
                     # zero every step.
                     last = array[-1:].copy()
+                    if zero_on_step:
+                        last = zeroed
+
                     dst.push(last)
                     last_len = new_len
 
