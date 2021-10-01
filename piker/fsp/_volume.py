@@ -135,7 +135,7 @@ async def dolla_vlm(
 
             c, h, l, v = ohlcv.last()[
                 ['close', 'high', 'low', 'volume']
-            ]
+            ][0]
 
             lvlm += price * size
             tina_lvlm = c+h+l/3 * v
