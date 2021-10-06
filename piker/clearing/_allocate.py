@@ -204,7 +204,14 @@ class Allocator(BaseModel):
                 # **without** going past a net-zero pp. if the pp is
                 # > 1.5x a slot size, then front load: exit a slot's and
                 # expect net-zero to be acquired on the final exit.
-                slot_size < pp_size < round((1.5*slot_size), ndigits=ld)
+                slot_size < pp_size < round((1.5*slot_size), ndigits=ld) or
+
+                # underlying requires discrete (int) units (eg. stocks)
+                # and thus our slot size (based on our limit) would
+                # exit a fractional unit's worth so, presuming we aren't
+                # supporting a fractional-units-style broker, we need
+                # exit the final unit.
+                ld == 0 and abs_live_size == 1
             ):
                 order_size = abs_live_size
 
