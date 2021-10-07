@@ -603,6 +603,9 @@ class ChartPlotWidget(pg.PlotWidget):
         view_color: str = 'papas_special',
         pen_color: str = 'bracket',
 
+        # TODO: load from config
+        use_open_gl: bool = False,
+
         static_yrange: Optional[tuple[float, float]] = None,
 
         **kwargs,
@@ -617,9 +620,9 @@ class ChartPlotWidget(pg.PlotWidget):
             # parent=None,
             # plotItem=None,
             # antialias=True,
-            # useOpenGL=True,
             **kwargs
         )
+        self.useOpenGL(use_open_gl)
         self.name = name
         self.data_key = data_key
         self.linked = linkedsplits
