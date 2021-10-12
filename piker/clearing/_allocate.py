@@ -87,13 +87,21 @@ class Allocator(BaseModel):
 
     symbol: Symbol
     account: Optional[str] = 'paper'
-    size_unit: SizeUnit = 'currency'
+    # TODO: for enums this clearly doesn't fucking work, you can't set
+    # a default at startup by passing in a `dict` but yet you can set
+    # that value through assignment..for wtv cucked reason.. honestly, pure
+    # unintuitive garbage.
+    size_unit: str = 'currency'
     _size_units: dict[str, Optional[str]] = _size_units
 
-    @validator('size_unit')
-    def lookup_key(cls, v):
+    @validator('size_unit', pre=True)
+    def maybe_lookup_key(cls, v):
         # apply the corresponding enum key for the text "description" value
-        return v.name
+        if v not in _size_units:
+            return _size_units.inverse[v]
+
+        assert v in _size_units
+        return v
 
     # TODO: if we ever want ot support non-uniform entry-slot-proportion
     # "sizes"
@@ -156,6 +164,9 @@ class Allocator(BaseModel):
             live_cost_basis = abs_live_size * live_pp.avg_price
             slot_size = currency_per_slot / price
             l_sub_pp = (self.currency_limit - live_cost_basis) / price
+
+        else:
+            raise ValueError(f"Not valid size unit '{size}'")
 
         # an entry (adding-to or starting a pp)
         if (
@@ -266,7 +277,7 @@ def mk_allocator(
     # default allocation settings
     defaults: dict[str, float] = {
         'account': None,  # select paper by default
-        'size_unit': _size_units['currency'],
+        'size_unit': 'currency', #_size_units['currency'],
         'units_limit': 400,
         'currency_limit': 5e3,
         'slots': 4,
@@ -281,8 +292,8 @@ def mk_allocator(
     # load and retreive user settings for default allocations
     # ``config.toml``
     user_def = {
-        'currency_limit': 5e3,
-        'slots': 4,
+        'currency_limit': 6e3,
+        'slots': 6,
     }
 
     defaults.update(user_def)
