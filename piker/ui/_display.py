@@ -37,7 +37,7 @@ import trio
 from .. import brokers
 from .._cacheables import maybe_open_ctx
 from ..trionics import async_enter_all
-from ..data.feed import open_feed
+from ..data.feed import open_feed, Feed
 from ._chart import (
     ChartPlotWidget,
     LinkedSplits,
@@ -533,33 +533,19 @@ async def open_fsp_cluster(
 
 ) -> AsyncGenerator[int, dict[str, tractor.Portal]]:
 
+    from tractor._clustering import open_actor_cluster
+
     profiler = pg.debug.Profiler(
         delayed=False,
         disabled=False
     )
-    portals: dict[str, tractor.Portal] = {}
-    uid = tractor.current_actor().uid
-
-    async with tractor.open_nursery() as an:
-        # XXX: fsp may have been opened by a duplicate chart.
-        # Error for now until we figure out how to wrap fsps as
-        # "feeds".  assert opened, f"A chart for {key} likely
-        # already exists?"
-        async with trio.open_nursery() as n:
-            for index in range(workers):
-
-                async def start(i) -> None:
-                    key = f'fsp_{i}.' + '_'.join(uid)
-                    portals[key] = await an.start_actor(
-                        enable_modules=['piker.fsp._engine'],
-                        name=key,
-                    )
-
-                n.start_soon(start, index)
-
-        assert len(portals) == workers
+    async with open_actor_cluster(
+        count=2,
+        names=['fsp_0', 'fsp_1'],
+        modules=['piker.fsp._engine'],
+    ) as cluster_map:
         profiler('started fsp cluster')
-        yield portals
+        yield cluster_map
 
 
 @acm
@@ -827,11 +813,17 @@ async def update_chart_from_fsp(
                 last = time.time()
 
 
-async def check_for_new_bars(feed, ohlcv, linkedsplits):
-    """Task which updates from new bars in the shared ohlcv buffer every
+async def check_for_new_bars(
+    feed: Feed,
+    ohlcv: np.ndarray,
+    linkedsplits: LinkedSplits,
+
+) -> None:
+    '''
+    Task which updates from new bars in the shared ohlcv buffer every
     ``delay_s`` seconds.
 
-    """
+    '''
     # TODO: right now we'll spin printing bars if the last time
     # stamp is before a large period of no market activity.
     # Likely the best way to solve this is to make this task
@@ -861,6 +853,7 @@ async def check_for_new_bars(feed, ohlcv, linkedsplits):
             # XXX: this puts a flat bar on the current time step
             # TODO: if we eventually have an x-axis time-step "cursor"
             # we can get rid of this since it is extra overhead.
+
             price_chart.update_ohlc_from_array(
                 price_chart.name,
                 ohlcv.array,
@@ -1086,24 +1079,6 @@ async def display_symbol_data(
         # TODO: eventually we'll support some kind of n-compose syntax
         fsp_conf = {
 
-            # 'rsi': {
-            #     'func_name': 'rsi',  # literal python func ref lookup name
-
-            #     # map of parameters to place on the fsp sidepane widget
-            #     # which should map to dynamic inputs available to the
-            #     # fsp function at runtime.
-            #     'params': {
-            #         'period': {
-            #             'default_value': 14,
-            #             'widget_kwargs': {'readonly': True},
-            #         },
-            #     },
-
-            #     # ``ChartPlotWidget`` options passthrough
-            #     'chart_kwargs': {
-            #         'static_yrange': (0, 100),
-            #     },
-            # },
             'dolla_vlm': {
                 'func_name': 'dolla_vlm',
                 'zero_on_step': True,
@@ -1118,6 +1093,24 @@ async def display_symbol_data(
                 'chart_kwargs': {'style': 'step'}
             },
 
+            'rsi': {
+                'func_name': 'rsi',  # literal python func ref lookup name
+
+                # map of parameters to place on the fsp sidepane widget
+                # which should map to dynamic inputs available to the
+                # fsp function at runtime.
+                'params': {
+                    'period': {
+                        'default_value': 14,
+                        'widget_kwargs': {'readonly': True},
+                    },
+                },
+
+                # ``ChartPlotWidget`` options passthrough
+                'chart_kwargs': {
+                    'static_yrange': (0, 100),
+                },
+            },
         }
 
         if has_vlm(ohlcv):  # and provider != 'binance':
@@ -1144,7 +1137,7 @@ async def display_symbol_data(
         vlm_chart = None
         async with (
             trio.open_nursery() as ln,
-            maybe_open_vlm_display(linkedsplits, ohlcv) as vlm_chart,
+            # maybe_open_vlm_display(linkedsplits, ohlcv) as vlm_chart,
         ):
             # load initial fsp chain (otherwise known as "indicators")
             ln.start_soon(
