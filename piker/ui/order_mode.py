@@ -571,7 +571,10 @@ async def open_order_mode(
 
         # first account listed is the one we select at startup
         # (aka order based selection).
-        pp_account = next(iter(accounts.keys())) if accounts else 'paper'
+        pp_account = next(
+            # choose first account based on line order from `brokers.toml`.
+            iter(accounts.keys())
+        ) if accounts else 'paper'
 
         # NOTE: requires the backend exactly specifies
         # the expected symbol key in its positions msg.
