@@ -152,7 +152,7 @@ class SettingsPane:
         '''Called on any order pane drop down selection change.
 
         '''
-        log.info(f'selection input: {text}')
+        log.info(f'selection input {key}:{text}')
         self.on_ui_settings_change(key, text)
 
     def on_ui_settings_change(
@@ -209,23 +209,24 @@ class SettingsPane:
 
         # WRITE any settings to current pp's allocator
         try:
-            value = puterize(value)
-            if key == 'limit':
-                if size_unit == 'currency':
-                    alloc.currency_limit = value
-                else:
-                    alloc.units_limit = value
-
-            elif key == 'slots':
-                alloc.slots = int(value)
-
-            elif key == 'size_unit':
-                # TODO: if there's a limit size unit change re-compute
-                # the current settings in the new units
+            if key == 'size_unit':
+                # implicit re-write of value if input
+                # is the "text name" of the units.
+                # yah yah, i know this is badd..
                 alloc.size_unit = value
-
             else:
-                raise ValueError(f'Unknown setting {key}')
+                value = puterize(value)
+                if key == 'limit':
+                    if size_unit == 'currency':
+                        alloc.currency_limit = value
+                    else:
+                        alloc.units_limit = value
+
+                elif key == 'slots':
+                    alloc.slots = int(value)
+
+                else:
+                    raise ValueError(f'Unknown setting {key}')
 
             log.info(f'settings change: {key}: {value}')
 
