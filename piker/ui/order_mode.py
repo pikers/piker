@@ -620,8 +620,8 @@ async def open_order_mode(
             # alloc?
             pp_tracker.update_from_pp()
 
+            # on existing position, show pp tracking graphics
             if pp_tracker.startup_pp.size != 0:
-                # if no position, don't show pp tracking graphics
                 pp_tracker.show()
                 pp_tracker.hide_info()
 
@@ -805,12 +805,13 @@ async def process_trades_and_update_ui(
 
                 tracker = mode.trackers[msg['account']]
                 tracker.live_pp.update_from_msg(msg)
-                tracker.update_from_pp()
-
                 # update order pane widgets
+                tracker.update_from_pp()
                 mode.pane.update_status_ui(tracker)
-                # display pnl
-                mode.pane.display_pnl(tracker)
+
+                if tracker.live_pp.size:
+                    # display pnl
+                    mode.pane.display_pnl(tracker)
 
             # short circuit to next msg to avoid
             # unnecessary msg content lookups

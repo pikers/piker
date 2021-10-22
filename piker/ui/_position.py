@@ -54,6 +54,7 @@ async def update_pnl_from_feed(
 
     feed: Feed,
     order_mode: OrderMode,  # noqa
+    tracker: PositionTracker,
 
 ) -> None:
     '''Real-time display the current pp's PnL in the appropriate label.
@@ -76,7 +77,8 @@ async def update_pnl_from_feed(
         types = ('bid', 'last', 'last', 'utrade')
 
     else:
-        raise RuntimeError('No pp?!?!')
+        log.info(f'No position (yet) for {tracker.alloc.account}@{key}')
+        return
 
     # real-time update pnl on the status pane
     try:
@@ -343,6 +345,7 @@ class SettingsPane:
                     update_pnl_from_feed,
                     feed,
                     mode,
+                    tracker,
                 )
 
         # immediately display in status label
