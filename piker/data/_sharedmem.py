@@ -395,6 +395,7 @@ def open_shm_array(
 
     # "unlink" created shm on process teardown by
     # pushing teardown calls onto actor context stack
+
     tractor._actor._lifetime_stack.callback(shmarr.close)
     tractor._actor._lifetime_stack.callback(shmarr.destroy)
 
