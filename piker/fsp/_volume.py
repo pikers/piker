@@ -17,7 +17,7 @@
 from typing import AsyncIterator, Optional, Union
 
 import numpy as np
-from tractor._broadcast import AsyncReceiver
+from tractor.trionics._broadcast import AsyncReceiver
 
 from ..data._normalize import iterticks
 from ..data._sharedmem import ShmArray
