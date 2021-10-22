@@ -21,7 +21,7 @@ Profiling wrappers for internal libs.
 import time
 from functools import wraps
 
-_pg_profile: bool = False
+_pg_profile: bool = True
 
 
 def pg_profile_enabled() -> bool:
