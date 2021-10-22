@@ -20,7 +20,7 @@ ToOlS fOr CoPInG wITh "tHE wEB" protocols.
 """
 from contextlib import asynccontextmanager, AsyncExitStack
 from types import ModuleType
-from typing import Any, Callable
+from typing import Any, Callable, AsyncGenerator
 import json
 
 import trio
@@ -127,7 +127,7 @@ async def open_autorecon_ws(
 
     # TODO: proper type annot smh
     fixture: Callable,
-):
+) -> AsyncGenerator[tuple[...],  NoBsWs]:
     """Apparently we can QoS for all sorts of reasons..so catch em.
 
     """
