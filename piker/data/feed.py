@@ -34,7 +34,6 @@ import trio
 from trio.abc import ReceiveChannel
 from trio_typing import TaskStatus
 import tractor
-# from tractor import _broadcast
 from pydantic import BaseModel
 
 from ..brokers import get_brokermod
@@ -247,7 +246,7 @@ async def allocate_persistent_feed(
 
 
 @tractor.context
-async def attach_feed_bus(
+async def open_feed_bus(
 
     ctx: tractor.Context,
     brokername: str,
@@ -507,7 +506,7 @@ async def open_feed(
 
         portal.open_context(
 
-            attach_feed_bus,
+            open_feed_bus,
             brokername=brokername,
             symbol=sym,
             loglevel=loglevel,
