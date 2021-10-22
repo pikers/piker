@@ -114,7 +114,6 @@ async def fsp_compute(
     # and get historical output
     history_output = await out_stream.__anext__()
 
-    # await tractor.breakpoint()
     profiler(f'{func_name} generated history')
 
     # build a struct array which includes an 'index' field to push
@@ -304,8 +303,6 @@ async def cascade(
                 return tracker, step_diff
 
             s, step, ld = is_synced(src, dst)
-            if step or ld:
-                await tractor.breakpoint()
 
             # Increment the underlying shared memory buffer on every
             # "increment" msg received from the underlying data feed.
