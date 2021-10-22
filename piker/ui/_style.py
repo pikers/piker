@@ -110,7 +110,7 @@ class DpiAwareFont:
 
         mx_dpi = max(pdpi, ldpi)
         mn_dpi = min(pdpi, ldpi)
-        scale = round(ldpi/pdpi)
+        scale = round(ldpi/pdpi, ndigits=2)
 
         if mx_dpi <= 97:  # for low dpi use larger font sizes
             inches = _font_sizes['lo'][self._font_size]
@@ -121,20 +121,28 @@ class DpiAwareFont:
         dpi = mn_dpi
 
         # dpi is likely somewhat scaled down so use slightly larger font size
-        if scale > 1 and self._font_size:
-            # TODO: this denominator should probably be determined from
-            # relative aspect ratios or something?
-            inches = inches * (1 + 6/16)
-            if scale < 2:
-                inches *= (1 / scale)
+        if scale >= 1.1 and self._font_size:
+
+            if 1.2 <= scale:
+                inches *= (1 / scale) * 1.0616
+
+            if scale < 1.4 or scale >= 1.5:
+                # TODO: this denominator should probably be determined from
+                # relative aspect ratios or something?
+                inches = inches * (1 + 6/16)
+
             dpi = mx_dpi
             log.info(f'USING MAX DPI {dpi}')
 
+        # TODO: we might want to fiddle with incrementing font size by
+        # +1 for the edge cases above. it seems doing it via scaling is
+        # always going to hit that error in range mapping from inches:
+        # float to px size: int.
         self._font_inches = inches
-
         font_size = math.floor(inches * dpi)
+
         log.info(
-            f"\nscreen:{screen.name()}"
+            f"screen:{screen.name()}]\n"
             f"pDPI: {pdpi}, lDPI: {ldpi}, scale: {scale}\n"
             f"\nOur best guess font size is {font_size}\n"
         )
