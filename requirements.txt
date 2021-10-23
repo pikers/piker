@@ -1,3 +1,4 @@
-# no pypi package for tractor (yet)
-# we require the asyncio-via-guest-mode dev branch
--e git+git://github.com/goodboy/tractor.git@infect_asyncio#egg=tractor
+# we require a pinned dev branch to get some edge features that
+# are often untested in tractor's CI and/or being tested by us
+# first before committing as core features in tractor's base.
+-e git+git://github.com/goodboy/tractor.git@piker_pin#egg=tractor
