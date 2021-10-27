@@ -26,6 +26,7 @@ from dataclasses import asdict
 from datetime import datetime
 from functools import partial
 import itertools
+from math import isnan
 from typing import (
     Any, Optional,
     AsyncIterator, Awaitable,
@@ -502,7 +503,11 @@ class Client:
             contract,
             snapshot=True,
         )
-        ticker = await ticker.updateEvent
+
+        # ensure a last price gets filled in before we deliver quote
+        while isnan(ticker.last):
+            ticker = await ticker.updateEvent
+
         details = (await details_fute)[0]
         return contract, ticker, details
 
