@@ -35,7 +35,7 @@ import tractor
 import trio
 
 from .. import brokers
-from .._cacheables import maybe_open_ctx
+from .._cacheables import maybe_open_context
 from ..trionics import async_enter_all
 from ..data.feed import open_feed, Feed
 from ._chart import (
@@ -555,7 +555,7 @@ async def maybe_open_fsp_cluster(
 ) -> AsyncGenerator[int, dict[str, tractor.Portal]]:
 
     uid = tractor.current_actor().uid
-    async with maybe_open_ctx(
+    async with maybe_open_context(
         key=uid,  # for now make a cluster per client?
         mngr=open_fsp_cluster(
             workers,

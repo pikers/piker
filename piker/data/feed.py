@@ -37,7 +37,7 @@ import tractor
 from pydantic import BaseModel
 
 from ..brokers import get_brokermod
-from .._cacheables import maybe_open_ctx
+from .._cacheables import maybe_open_context
 from ..log import get_logger, get_console_log
 from .._daemon import (
     maybe_spawn_brokerd,
@@ -363,7 +363,7 @@ async def open_sample_step_stream(
     # XXX: this should be singleton on a host,
     # a lone broker-daemon per provider should be
     # created for all practical purposes
-    async with maybe_open_ctx(
+    async with maybe_open_context(
         key=delay_s,
         mngr=portal.open_stream_from(
             iter_ohlc_periods,
@@ -585,7 +585,7 @@ async def maybe_open_feed(
     '''
     sym = symbols[0].lower()
 
-    async with maybe_open_ctx(
+    async with maybe_open_context(
         key=(brokername, sym),
         mngr=open_feed(
             brokername,
