@@ -373,7 +373,9 @@ async def open_brokerd_trades_dialogue(
     broker = feed.mod.name
 
     # TODO: make a `tractor` bug/test for this!
-    # portal = feed._brokerd_portal
+    # if only i could member what the problem was..
+    # probably some GC of the portal thing?
+    # portal = feed.portal
 
     # XXX: we must have our own portal + channel otherwise
     # when the data feed closes it may result in a half-closed

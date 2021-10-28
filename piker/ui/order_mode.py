@@ -45,6 +45,7 @@ from ._position import (
     PositionTracker,
     SettingsPane,
 )
+from ._label import FormatLabel
 from ._window import MultiStatus
 from ..clearing._messages import Order
 from ._forms import open_form_input_handling
@@ -623,6 +624,59 @@ async def open_order_mode(
 
         # setup order mode sidepane widgets
         form = chart.sidepane
+        vbox = form.vbox
+
+        from textwrap import dedent
+
+        from PyQt5.QtCore import Qt
+
+        from ._style import _font, _font_small
+        from ..calc import humanize
+
+        feed_label = FormatLabel(
+            fmt_str=dedent("""
+            actor: **{actor_name}**\n
+            |_ @**{host}:{port}**\n
+            |_ throttle_hz: **{throttle_rate}**\n
+            |_ streams: **{symbols}**\n
+            |_ shm: **{shm}**\n
+            """),
+            font=_font.font,
+            font_size=_font_small.px_size,
+            font_color='default_lightest',
+        )
+
+        form.feed_label = feed_label
+
+        # add feed info label to top
+        vbox.insertWidget(
+            0,
+            feed_label,
+            alignment=Qt.AlignBottom,
+        )
+        # vbox.setAlignment(feed_label, Qt.AlignBottom)
+        # vbox.setAlignment(Qt.AlignBottom)
+        blank_h = chart.height() - (
+            form.height() +
+            form.fill_bar.height()
+            # feed_label.height()
+        )
+        vbox.setSpacing((1 + 5/8)*_font.px_size)
+
+        # fill in brokerd feed info
+        host, port = feed.portal.channel.raddr
+        if host == '127.0.0.1':
+            host = 'localhost'
+        mpshm = feed.shm._shm
+        shmstr = f'{humanize(mpshm.size)}'
+        form.feed_label.format(
+            actor_name=feed.portal.channel.uid[0],
+            host=host,
+            port=port,
+            symbols=len(feed.symbols),
+            shm=shmstr,
+            throttle_rate=feed.throttle_rate,
+        )
 
         order_pane = SettingsPane(
             form=form,

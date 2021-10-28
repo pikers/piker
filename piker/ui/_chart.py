@@ -276,6 +276,8 @@ class ChartnPane(QFrame):
         hbox.setContentsMargins(0, 0, 0, 0)
         hbox.setSpacing(3)
 
+        # self.setMaximumWidth()
+
 
 class LinkedSplits(QWidget):
     '''
@@ -339,7 +341,8 @@ class LinkedSplits(QWidget):
 
     def set_split_sizes(
         self,
-        prop: float = 0.375  # proportion allocated to consumer subcharts
+        # prop: float = 0.375,  # proportion allocated to consumer subcharts
+        prop: float = 5/8,
 
     ) -> None:
         '''Set the proportion of space allocated for linked subcharts.
@@ -450,7 +453,6 @@ class LinkedSplits(QWidget):
             self.xaxis = xaxis
 
         qframe = ChartnPane(sidepane=sidepane, parent=self.splitter)
-
         cpw = ChartPlotWidget(
 
             # this name will be used to register the primary
@@ -522,10 +524,10 @@ class LinkedSplits(QWidget):
             # track by name
             self.subplots[name] = cpw
 
-            if sidepane:
-                # TODO: use a "panes" collection to manage this?
-                sidepane.setMinimumWidth(self.chart.sidepane.width())
-                sidepane.setMaximumWidth(self.chart.sidepane.width())
+            # if sidepane:
+            #     # TODO: use a "panes" collection to manage this?
+            #     qframe.setMaximumWidth(self.chart.sidepane.width())
+            #     qframe.setMinimumWidth(self.chart.sidepane.width())
 
             self.splitter.addWidget(qframe)
 
@@ -536,6 +538,16 @@ class LinkedSplits(QWidget):
             assert style == 'bar', 'main chart must be OHLC'
 
         return cpw
+
+    def resize_sidepanes(
+        self,
+    ) -> None:
+        '''Size all sidepanes based on the OHLC "main" plot.
+
+        '''
+        for name, cpw in self.subplots.items():
+            cpw.sidepane.setMinimumWidth(self.chart.sidepane.width())
+            cpw.sidepane.setMaximumWidth(self.chart.sidepane.width())
 
 
 class ChartPlotWidget(pg.PlotWidget):
@@ -681,9 +693,9 @@ class ChartPlotWidget(pg.PlotWidget):
         """Return a range tuple for the bars present in view.
         """
         l, r = self.view_range()
-        a = self._arrays['ohlc']
-        lbar = max(l, a[0]['index'])
-        rbar = min(r, a[-1]['index'])
+        array = self._arrays['ohlc']
+        lbar = max(l, array[0]['index'])
+        rbar = min(r, array[-1]['index'])
         return l, lbar, rbar, r
 
     def default_view(
@@ -991,22 +1003,19 @@ class ChartPlotWidget(pg.PlotWidget):
             a = self._arrays['ohlc']
             ifirst = a[0]['index']
             bars = a[lbar - ifirst:rbar - ifirst + 1]
-
             if not len(bars):
                 # likely no data loaded yet or extreme scrolling?
                 log.error(f"WTF bars_range = {lbar}:{rbar}")
                 return
 
-            # TODO: should probably just have some kinda attr mark
-            # that determines this behavior based on array type
-            try:
+            if self.data_key != self.linked.symbol.key:
+                bars = a[self.data_key]
+                ylow = np.nanmin(bars)
+                yhigh = np.nanmax((bars))
+            else:
+                # just the std ohlc bars
                 ylow = np.nanmin(bars['low'])
                 yhigh = np.nanmax(bars['high'])
-            except (IndexError, ValueError):
-                # likely non-ohlc array?
-                bars = bars[self.name]
-                ylow = np.nanmin(bars)
-                yhigh = np.nanmax(bars)
 
         if set_range:
             # view margins: stay within a % of the "true range"

@@ -36,7 +36,7 @@ from ._anchors import (
     pp_tight_and_right,  # wanna keep it straight in the long run
     gpath_pin,
 )
-from ..calc import humanize, pnl
+from ..calc import humanize, pnl, puterize
 from ..clearing._allocate import Allocator, Position
 from ..data._normalize import iterticks
 from ..data.feed import Feed
@@ -208,26 +208,31 @@ class SettingsPane:
         size_unit = alloc.size_unit
 
         # WRITE any settings to current pp's allocator
-        if key == 'limit':
-            if size_unit == 'currency':
-                alloc.currency_limit = float(value)
+        try:
+            value = puterize(value)
+            if key == 'limit':
+                if size_unit == 'currency':
+                    alloc.currency_limit = value
+                else:
+                    alloc.units_limit = value
+
+            elif key == 'slots':
+                alloc.slots = int(value)
+
+            elif key == 'size_unit':
+                # TODO: if there's a limit size unit change re-compute
+                # the current settings in the new units
+                alloc.size_unit = value
+
             else:
-                alloc.units_limit = float(value)
+                raise ValueError(f'Unknown setting {key}')
 
-        elif key == 'slots':
-            alloc.slots = int(value)
+            log.info(f'settings change: {key}: {value}')
 
-        elif key == 'size_unit':
-            # TODO: if there's a limit size unit change re-compute
-            # the current settings in the new units
-            alloc.size_unit = value
-
-        elif key != 'account':
-            raise ValueError(f'Unknown setting {key}')
+        except ValueError:
+            log.error(f'Invalid value for `{key}`: {value}')
 
         # READ out settings and update UI
-        log.info(f'settings change: {key}: {value}')
-
         suffix = {'currency': ' $', 'units': ' u'}[size_unit]
         limit = alloc.limit()
 
