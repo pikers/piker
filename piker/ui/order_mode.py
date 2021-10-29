@@ -47,7 +47,7 @@ from ._position import (
 )
 from ._label import FormatLabel
 from ._window import MultiStatus
-from ..clearing._messages import Order
+from ..clearing._messages import Order, BrokerdPosition
 from ._forms import open_form_input_handling
 
 
@@ -529,7 +529,12 @@ async def open_order_mode(
 
     book: OrderBook
     trades_stream: tractor.MsgStream
-    position_msgs: dict
+
+    # The keys in this dict **must** be in set our set of "normalized"
+    # symbol names (i.e. the same names you'd get back in search
+    # results) in order for position msgs to correctly trigger the
+    # display of a position indicator on screen.
+    position_msgs: dict[str, list[BrokerdPosition]]
 
     # spawn EMS actor-service
     async with (
@@ -563,7 +568,9 @@ async def open_order_mode(
             providers=symbol.brokers
         )
 
-        # use only loaded accounts according to brokerd
+        # XXX: ``brokerd`` delivers a set of account names that it allows
+        # use of but the user also can define the accounts they'd like
+        # to use, in order, in their `brokers.toml` file.
         accounts = {}
         for name in brokerd_accounts:
             # ensure name is in ``brokers.toml``
