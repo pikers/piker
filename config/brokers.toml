@@ -8,8 +8,8 @@ expires_at = 1616095326.355846
 
 [kraken]
 key_descr = "api_0"
-public_key = ""
-private_key = ""
+api_key = ""
+secret = ""
 
 [ib]
 host = "127.0.0.1"
