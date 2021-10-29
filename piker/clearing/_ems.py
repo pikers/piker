@@ -493,7 +493,8 @@ async def open_brokerd_trades_dialogue(
         finally:
             # parent context must have been closed
             # remove from cache so next client will respawn if needed
-            _router.relays.pop(broker)
+            ## TODO: Maybe add a warning
+            _router.relays.pop(broker, None)
 
 
 @tractor.context

@@ -389,7 +389,7 @@ async def handle_order_requests(
             account = request_msg['account']
             if account != 'paper':
                 log.error(
-                    'On a paper account, only a `paper` selection is valid'
+                    'This is a paper account, only a `paper` selection is valid'
                 )
                 await ems_order_stream.send(BrokerdError(
                     oid=request_msg['oid'],
@@ -463,7 +463,8 @@ async def trades_dialogue(
     ):
         # TODO: load paper positions per broker from .toml config file
         # and pass as symbol to position data mapping: ``dict[str, dict]``
-        await ctx.started(({}, ['paper']))
+        # await ctx.started(all_positions)
+        await ctx.started(({}, {'paper',}))
 
         async with (
             ctx.open_stream() as ems_stream,
