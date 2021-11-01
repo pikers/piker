@@ -868,7 +868,9 @@ async def display_symbol_data(
             )
 
             async with (
-                maybe_open_vlm_display(linkedsplits, ohlcv),
+                # XXX: this slipped in during a commits refacotr,
+                # it's actually landing proper in #231
+                # maybe_open_vlm_display(linkedsplits, ohlcv),
 
                 open_order_mode(
                     feed,
