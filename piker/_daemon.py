@@ -47,7 +47,7 @@ _root_modules = [
 
 class Services(BaseModel):
 
-    actor_n: tractor._trionics.ActorNursery
+    actor_n: tractor._supervise.ActorNursery
     service_n: trio.Nursery
     debug_mode: bool  # tractor sub-actor debug mode flag
     service_tasks: dict[str, tuple[trio.CancelScope, tractor.Portal]] = {}
