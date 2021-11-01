@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 
 import trio
 import tractor
-from tractor._broadcast import broadcast_receiver
+from tractor.trionics import broadcast_receiver
 
 from ..data._source import Symbol
 from ..log import get_logger
