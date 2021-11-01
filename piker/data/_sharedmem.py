@@ -272,9 +272,8 @@ class ShmArray:
             return end
 
         except ValueError as err:
-            # shoudl raise if diff detected
+            # should raise if diff detected
             self.diff_err_fields(data)
-
             raise err
 
     def diff_err_fields(
