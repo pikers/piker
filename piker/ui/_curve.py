@@ -137,6 +137,9 @@ class FastAppendCurve(pg.PlotCurveItem):
         # print(f"xrange: {self._xrange}")
         istart, istop = self._xrange
 
+        # compute the length diffs between the first/last index entry in
+        # the input data and the last indexes we have on record from the
+        # last time we updated the curve index.
         prepend_length = istart - x[0]
         append_length = x[-1] - istop
 
@@ -149,7 +152,7 @@ class FastAppendCurve(pg.PlotCurveItem):
             # by default we only pull data up to the last (current) index
             x_out, y_out = x[:-1], y[:-1]
 
-        if self.path is None or prepend_length:
+        if self.path is None or prepend_length > 0:
             self.path = pg.functions.arrayToQPath(
                 x_out,
                 y_out,
@@ -177,7 +180,7 @@ class FastAppendCurve(pg.PlotCurveItem):
         #     # self.path.moveTo(new_x[0], new_y[0])
         #     self.path.connectPath(old_path)
 
-        elif append_length:
+        elif append_length > 0:
             if self._step_mode:
                 new_x, new_y = step_path_arrays_from_1d(
                     x[-append_length - 2:-1],
