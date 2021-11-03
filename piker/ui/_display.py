@@ -323,7 +323,7 @@ async def fan_out_spawn_fsp_daemons(
             conf['shm'] = shm
 
             portal = await n.start_actor(
-                enable_modules=['piker.fsp'],
+                enable_modules=['piker.fsp._engine'],
                 name='fsp.' + display_name,
             )
 
