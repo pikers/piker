@@ -40,7 +40,7 @@ from ._util import resproc, SymbolNotFound, BrokerError
 from ..log import get_logger, get_console_log
 from ..data import ShmArray
 from ..data._web_bs import open_autorecon_ws
-from ..clearing._messages import BrokerdPosition
+from ..clearing._messages import BrokerdPosition, BrokerdOrder, BrokerdStatus
 
 import urllib.parse
 import hashlib
@@ -455,7 +455,8 @@ async def trades_dialogue(
                 msg = pack_position(acc_name, norm_sym, pos, vols[ticker])
                 all_positions.append(msg.dict())
         
-        #await tractor.breakpoint()
+        open_orders = await client.get_user_data('OpenOrders', {})
+        await tractor.breakpoint()
 
         await ctx.started((all_positions, (acc_name,)))
 
