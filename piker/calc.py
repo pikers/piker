@@ -43,11 +43,15 @@ def humanize(
     if not number or number <= 0:
         return round(number, ndigits=digits)
 
-    mag = math.floor(math.log(number, 10))
+    mag = round(math.log(number, 10))
     if mag < 3:
         return round(number, ndigits=digits)
 
-    maxmag = max(itertools.takewhile(lambda key: mag >= key, _mag2suffix))
+    maxmag = max(
+        itertools.takewhile(
+            lambda key: mag >= key, _mag2suffix
+        )
+    )
 
     return "{value}{suffix}".format(
         value=round(number/10**maxmag, ndigits=digits),
