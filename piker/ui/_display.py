@@ -800,14 +800,11 @@ async def update_chart_from_fsp(
         profiler.finish()
 
         # update chart graphics
-        i = 0
         last = time.time()
         async for value in stream:
 
             # chart isn't actively shown so just skip render cycle
             if chart.linked.isHidden():
-                print(f'{i} unseen fsp cyclce')
-                i += 1
                 continue
 
             else:
