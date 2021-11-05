@@ -145,10 +145,13 @@ async def fsp_compute(
     profiler(f'{func_name} pushed history')
     profiler.finish()
 
+    # TODO: UGH, what is the right way to do something like this?
+    if not ctx._started_called:
+        await ctx.started(index)
+
     # setup a respawn handle
     with trio.CancelScope() as cs:
         tracker = TaskTracker(trio.Event(), cs)
-        await ctx.started(index)
         task_status.started((tracker, index))
         profiler(f'{func_name} yield last index')
 
