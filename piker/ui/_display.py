@@ -427,7 +427,7 @@ async def run_fsp(
     )
 
     async with (
-        portal.open_stream_from(
+        portal.open_context(
 
             # chaining entrypoint
             fsp.cascade,
@@ -437,20 +437,16 @@ async def run_fsp(
             src_shm_token=src_shm.token,
             dst_shm_token=conf['shm'].token,
             symbol=sym,
-            fsp_func_name=fsp_func_name,
+            func_name=fsp_func_name,
             loglevel=loglevel,
 
-        ) as stream,
-
+        ) as (ctx, last_index),
+        ctx.open_stream() as stream,
         open_sidepane(
             linkedsplits,
             display_name,
         ) as sidepane,
     ):
-
-        # receive last index for processed historical
-        # data-array as first msg
-        _ = await stream.receive()
 
         shm = conf['shm']
 
