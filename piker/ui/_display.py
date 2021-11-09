@@ -1142,11 +1142,11 @@ async def display_symbol_data(
 
             # add VWAP to fsp config for downstream loading
             fsp_conf.update({
-                # 'vwap': {
-                #     'func_name': 'vwap',
-                #     'overlay': True,
-                #     'anchor': 'session',
-                # },
+                'vwap': {
+                    'func_name': 'vwap',
+                    'overlay': True,
+                    'anchor': 'session',
+                },
             })
 
         # NOTE: we must immediately tell Qt to show the OHLC chart
