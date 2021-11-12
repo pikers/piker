@@ -48,7 +48,7 @@ from ._style import hcolor, _font, _font_small, DpiAwareFont
 from ._label import FormatLabel
 
 
-class FontAndChartAwareLineEdit(QLineEdit):
+class Edit(QLineEdit):
 
     def __init__(
 
@@ -369,13 +369,14 @@ class FieldsForm(QWidget):
         key: str,
         label_name: str,
         value: str,
+        readonly: bool = False,
 
-    ) -> FontAndChartAwareLineEdit:
+    ) -> Edit:
 
         # TODO: maybe a distint layout per "field" item?
         label = self.add_field_label(label_name)
 
-        edit = FontAndChartAwareLineEdit(
+        edit = Edit(
             parent=self,
             # width_in_chars=6,
         )
@@ -386,6 +387,7 @@ class FieldsForm(QWidget):
             }}
             """
         )
+        edit.setReadOnly(readonly)
         edit.setText(str(value))
         self.form.addRow(label, edit)
 
@@ -478,13 +480,15 @@ def mk_form(
     for key, conf in fields_schema.items():
         wtype = conf['type']
         label = str(conf.get('label', key))
+        kwargs = conf.get('kwargs', {})
 
         # plain (line) edit field
         if wtype == 'edit':
             w = form.add_edit_field(
                 key,
                 label,
-                conf['default_value']
+                conf['default_value'],
+                **kwargs,
             )
 
         # drop-down selection
@@ -493,7 +497,8 @@ def mk_form(
             w = form.add_select_field(
                 key,
                 label,
-                values
+                values,
+                **kwargs,
             )
 
         w._key = key
@@ -648,11 +653,21 @@ def mk_fill_status_bar(
         font_size=bar_label_font_size,
         font_color='gunmetal',
     )
+    # size according to dpi scaled fonted contents to avoid
+    # resizes on magnitude changes (eg. 9 -> 10 %)
+    min_w = _font.boundingRect('1000.0M% pnl').width()
+    left_label.setMinimumWidth(min_w)
+    left_label.resize(
+        min_w,
+        left_label.size().height(),
+    )
 
     bar_labels_lhs.addSpacing(5/8 * bar_h)
     bar_labels_lhs.addWidget(
         left_label,
-        alignment=Qt.AlignLeft | Qt.AlignTop,
+        # XXX: doesn't seem to actually push up against
+        # the status bar?
+        alignment=Qt.AlignRight | Qt.AlignTop,
     )
 
     # this hbox is added as a layout by the paner maker/caller

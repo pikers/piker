@@ -36,7 +36,7 @@ from PyQt5.QtWidgets import (
 
 from ._forms import (
     # FontScaledDelegate,
-    FontAndChartAwareLineEdit,
+    Edit,
 )
 
 
@@ -97,7 +97,7 @@ class Selection(Field[DataType], Generic[DataType]):
 class Edit(Field[DataType], Generic[DataType]):
     '''An edit field which takes a number.
     '''
-    widget_factory = FontAndChartAwareLineEdit
+    widget_factory = Edit
 
 
 class AllocatorPane(BaseModel):

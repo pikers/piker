@@ -87,13 +87,21 @@ class Allocator(BaseModel):
 
     symbol: Symbol
     account: Optional[str] = 'paper'
-    size_unit: SizeUnit = 'currency'
+    # TODO: for enums this clearly doesn't fucking work, you can't set
+    # a default at startup by passing in a `dict` but yet you can set
+    # that value through assignment..for wtv cucked reason.. honestly, pure
+    # unintuitive garbage.
+    size_unit: str = 'currency'
     _size_units: dict[str, Optional[str]] = _size_units
 
-    @validator('size_unit')
-    def lookup_key(cls, v):
+    @validator('size_unit', pre=True)
+    def maybe_lookup_key(cls, v):
         # apply the corresponding enum key for the text "description" value
-        return v.name
+        if v not in _size_units:
+            return _size_units.inverse[v]
+
+        assert v in _size_units
+        return v
 
     # TODO: if we ever want ot support non-uniform entry-slot-proportion
     # "sizes"
@@ -157,6 +165,9 @@ class Allocator(BaseModel):
             slot_size = currency_per_slot / price
             l_sub_pp = (self.currency_limit - live_cost_basis) / price
 
+        else:
+            raise ValueError(f"Not valid size unit '{size}'")
+
         # an entry (adding-to or starting a pp)
         if (
             action == 'buy' and live_size > 0 or
@@ -204,7 +215,14 @@ class Allocator(BaseModel):
                 # **without** going past a net-zero pp. if the pp is
                 # > 1.5x a slot size, then front load: exit a slot's and
                 # expect net-zero to be acquired on the final exit.
-                slot_size < pp_size < round((1.5*slot_size), ndigits=ld)
+                slot_size < pp_size < round((1.5*slot_size), ndigits=ld) or
+
+                # underlying requires discrete (int) units (eg. stocks)
+                # and thus our slot size (based on our limit) would
+                # exit a fractional unit's worth so, presuming we aren't
+                # supporting a fractional-units-style broker, we need
+                # exit the final unit.
+                ld == 0 and abs_live_size == 1
             ):
                 order_size = abs_live_size
 
@@ -259,7 +277,7 @@ def mk_allocator(
     # default allocation settings
     defaults: dict[str, float] = {
         'account': None,  # select paper by default
-        'size_unit': _size_units['currency'],
+        'size_unit': 'currency', #_size_units['currency'],
         'units_limit': 400,
         'currency_limit': 5e3,
         'slots': 4,
@@ -274,8 +292,8 @@ def mk_allocator(
     # load and retreive user settings for default allocations
     # ``config.toml``
     user_def = {
-        'currency_limit': 5e3,
-        'slots': 4,
+        'currency_limit': 6e3,
+        'slots': 6,
     }
 
     defaults.update(user_def)
@@ -286,6 +304,7 @@ def mk_allocator(
     )
 
     asset_type = symbol.type_key
+
 
     # specific configs by asset class / type
 
@@ -308,9 +327,12 @@ def mk_allocator(
             alloc.currency_limit = round(startup_size, ndigits=2)
 
     else:
-        startup_size = startup_pp.size
+        startup_size = abs(startup_pp.size)
 
         if startup_size > alloc.units_limit:
             alloc.units_limit = startup_size
+
+            if asset_type in ('future', 'option', 'futures_option'):
+                alloc.slots = alloc.units_limit
 
     return alloc

@@ -269,7 +269,7 @@ class TradesRelay:
     positions: dict[str, dict[str, BrokerdPosition]]
 
     # allowed account names
-    accounts: set[str]
+    accounts: tuple[str]
 
     # count of connected ems clients for this ``brokerd``
     consumers: int = 0
@@ -414,6 +414,9 @@ async def open_brokerd_trades_dialogue(
             )
 
         try:
+            positions: list[BrokerdPosition]
+            accounts: tuple[str]
+
             async with (
                 open_trades_endpoint as (brokerd_ctx, (positions, accounts,)),
                 brokerd_ctx.open_stream() as brokerd_trades_stream,
@@ -449,7 +452,7 @@ async def open_brokerd_trades_dialogue(
                 relay = TradesRelay(
                     brokerd_dialogue=brokerd_trades_stream,
                     positions=pps,
-                    accounts=set(accounts),
+                    accounts=accounts,
                     consumers=1,
                 )
 

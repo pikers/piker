@@ -47,7 +47,7 @@ from ._position import (
 )
 from ._label import FormatLabel
 from ._window import MultiStatus
-from ..clearing._messages import Order
+from ..clearing._messages import Order, BrokerdPosition
 from ._forms import open_form_input_handling
 
 
@@ -529,7 +529,12 @@ async def open_order_mode(
 
     book: OrderBook
     trades_stream: tractor.MsgStream
-    position_msgs: dict
+
+    # The keys in this dict **must** be in set our set of "normalized"
+    # symbol names (i.e. the same names you'd get back in search
+    # results) in order for position msgs to correctly trigger the
+    # display of a position indicator on screen.
+    position_msgs: dict[str, list[BrokerdPosition]]
 
     # spawn EMS actor-service
     async with (
@@ -563,7 +568,9 @@ async def open_order_mode(
             providers=symbol.brokers
         )
 
-        # use only loaded accounts according to brokerd
+        # XXX: ``brokerd`` delivers a set of account names that it allows
+        # use of but the user also can define the accounts they'd like
+        # to use, in order, in their `brokers.toml` file.
         accounts = {}
         for name in brokerd_accounts:
             # ensure name is in ``brokers.toml``
@@ -571,7 +578,10 @@ async def open_order_mode(
 
         # first account listed is the one we select at startup
         # (aka order based selection).
-        pp_account = next(iter(accounts.keys())) if accounts else 'paper'
+        pp_account = next(
+            # choose first account based on line order from `brokers.toml`.
+            iter(accounts.keys())
+        ) if accounts else 'paper'
 
         # NOTE: requires the backend exactly specifies
         # the expected symbol key in its positions msg.
@@ -617,8 +627,8 @@ async def open_order_mode(
             # alloc?
             pp_tracker.update_from_pp()
 
+            # on existing position, show pp tracking graphics
             if pp_tracker.startup_pp.size != 0:
-                # if no position, don't show pp tracking graphics
                 pp_tracker.show()
                 pp_tracker.hide_info()
 
@@ -802,12 +812,13 @@ async def process_trades_and_update_ui(
 
                 tracker = mode.trackers[msg['account']]
                 tracker.live_pp.update_from_msg(msg)
-                tracker.update_from_pp()
-
                 # update order pane widgets
+                tracker.update_from_pp()
                 mode.pane.update_status_ui(tracker)
-                # display pnl
-                mode.pane.display_pnl(tracker)
+
+                if tracker.live_pp.size:
+                    # display pnl
+                    mode.pane.display_pnl(tracker)
 
             # short circuit to next msg to avoid
             # unnecessary msg content lookups

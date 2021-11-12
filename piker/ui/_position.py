@@ -54,6 +54,7 @@ async def update_pnl_from_feed(
 
     feed: Feed,
     order_mode: OrderMode,  # noqa
+    tracker: PositionTracker,
 
 ) -> None:
     '''Real-time display the current pp's PnL in the appropriate label.
@@ -76,7 +77,8 @@ async def update_pnl_from_feed(
         types = ('bid', 'last', 'last', 'utrade')
 
     else:
-        raise RuntimeError('No pp?!?!')
+        log.info(f'No position (yet) for {tracker.alloc.account}@{key}')
+        return
 
     # real-time update pnl on the status pane
     try:
@@ -152,7 +154,7 @@ class SettingsPane:
         '''Called on any order pane drop down selection change.
 
         '''
-        log.info(f'selection input: {text}')
+        log.info(f'selection input {key}:{text}')
         self.on_ui_settings_change(key, text)
 
     def on_ui_settings_change(
@@ -209,30 +211,31 @@ class SettingsPane:
 
         # WRITE any settings to current pp's allocator
         try:
-            value = puterize(value)
-            if key == 'limit':
-                if size_unit == 'currency':
-                    alloc.currency_limit = value
-                else:
-                    alloc.units_limit = value
-
-            elif key == 'slots':
-                alloc.slots = int(value)
-
-            elif key == 'size_unit':
-                # TODO: if there's a limit size unit change re-compute
-                # the current settings in the new units
+            if key == 'size_unit':
+                # implicit re-write of value if input
+                # is the "text name" of the units.
+                # yah yah, i know this is badd..
                 alloc.size_unit = value
-
             else:
-                raise ValueError(f'Unknown setting {key}')
+                value = puterize(value)
+                if key == 'limit':
+                    if size_unit == 'currency':
+                        alloc.currency_limit = value
+                    else:
+                        alloc.units_limit = value
+
+                elif key == 'slots':
+                    alloc.slots = int(value)
+
+                else:
+                    raise ValueError(f'Unknown setting {key}')
 
             log.info(f'settings change: {key}: {value}')
 
         except ValueError:
             log.error(f'Invalid value for `{key}`: {value}')
 
-        # READ out settings and update UI
+        # READ out settings and update the status UI / settings widgets
         suffix = {'currency': ' $', 'units': ' u'}[size_unit]
         limit = alloc.limit()
 
@@ -258,6 +261,9 @@ class SettingsPane:
         )
         self.form.fields['slots'].setText(str(alloc.slots))
         self.form.fields['limit'].setText(str(limit))
+
+        # update of level marker size label based on any new settings
+        tracker.update_from_pp()
 
         # TODO: maybe return a diff of settings so if we can an error we
         # can have general input handling code to report it through the
@@ -339,6 +345,7 @@ class SettingsPane:
                     update_pnl_from_feed,
                     feed,
                     mode,
+                    tracker,
                 )
 
         # immediately display in status label
