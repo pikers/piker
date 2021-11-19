@@ -505,8 +505,14 @@ class Client:
         )
 
         # ensure a last price gets filled in before we deliver quote
-        while isnan(ticker.last):
-            ticker = await ticker.updateEvent
+        for _ in range(25):
+            if isnan(ticker.last):
+                ticker = await ticker.updateEvent
+                await asyncio.sleep(0.2)
+        else:
+            log.warning(
+                f'Symbol {symbol} is not returning a quote '
+                'it may be outside trading hours?')
 
         details = (await details_fute)[0]
         return contract, ticker, details
@@ -1350,10 +1356,11 @@ async def stream_quotes(
     # TODO: support multiple subscriptions
     sym = symbols[0]
 
-    contract, first_ticker, details = await _trio_run_client_method(
-        method='get_quote',
-        symbol=sym,
-    )
+    with trio.fail_after(3):
+        contract, first_ticker, details = await _trio_run_client_method(
+            method='get_quote',
+            symbol=sym,
+        )
 
     # stream = await start_aio_quote_stream(symbol=sym, contract=contract)
     async with open_aio_quote_stream(
