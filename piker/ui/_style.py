@@ -123,16 +123,17 @@ class DpiAwareFont:
         # dpi is likely somewhat scaled down so use slightly larger font size
         if scale >= 1.1 and self._font_size:
 
+            # no idea why
             if 1.2 <= scale:
-                inches *= (1 / scale) * 1.0616
+                mult = 1.0375
 
-            if scale < 1.4 or scale >= 1.5:
-                # TODO: this denominator should probably be determined from
-                # relative aspect ratios or something?
-                inches = inches * (1 + 6/16)
+            if scale >= 2:
+                mult = 1.375
 
-            dpi = mx_dpi
-            log.info(f'USING MAX DPI {dpi}')
+
+            # TODO: this multiplier should probably be determined from
+            # relative aspect ratios or something?
+            inches *= mult
 
         # TODO: we might want to fiddle with incrementing font size by
         # +1 for the edge cases above. it seems doing it via scaling is
