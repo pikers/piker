@@ -1164,6 +1164,7 @@ async def backfill_bars(
 
     """
     out, fails = await get_bars(sym)
+
     if out is None:
         raise RuntimeError("Could not pull currrent history?!")
 
@@ -1356,7 +1357,7 @@ async def stream_quotes(
     # TODO: support multiple subscriptions
     sym = symbols[0]
 
-    with trio.fail_after(3):
+    with trio.fail_after(5):
         contract, first_ticker, details = await _trio_run_client_method(
             method='get_quote',
             symbol=sym,
