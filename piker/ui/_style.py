@@ -127,9 +127,8 @@ class DpiAwareFont:
             if 1.2 <= scale:
                 mult = 1.0375
 
-            if scale >= 2:
+            if scale >= 1.5:
                 mult = 1.375
-
 
             # TODO: this multiplier should probably be determined from
             # relative aspect ratios or something?
