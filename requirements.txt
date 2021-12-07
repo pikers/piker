@@ -2,3 +2,8 @@
 # are often untested in tractor's CI and/or being tested by us
 # first before committing as core features in tractor's base.
 -e git+git://github.com/goodboy/tractor.git@piker_pin#egg=tractor
+
+# `pyqtgraph` peeps keep breaking, fixing, improving so might as well
+# pin this to a dev branch that we have more control over especially
+# as more graphics stuff gets hashed out.
+-e git+git://github.com/pikers/pyqtgraph.git@piker_pin#egg=pyqtgraph
