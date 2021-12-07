@@ -1014,7 +1014,8 @@ async def display_symbol_data(
     order_mode_started: trio.Event,
 
 ) -> None:
-    '''Spawn a real-time updated chart for ``symbol``.
+    '''
+    Spawn a real-time updated chart for ``symbol``.
 
     Spawned ``LinkedSplits`` chart widgets can remain up but hidden so
     that multiple symbols can be viewed and switched between extremely

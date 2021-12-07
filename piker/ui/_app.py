@@ -170,10 +170,11 @@ def _main(
     piker_loglevel: str,
     tractor_kwargs,
 ) -> None:
-    """Sync entry point to start a chart app.
+    '''
+    Sync entry point to start a chart: a ``tractor`` + Qt runtime
+    entry point
 
-    """
-    # ``tractor`` + Qt runtime entry point
+    '''
     run_qtractor(
         func=_async_main,
         args=(sym, brokernames, piker_loglevel),
