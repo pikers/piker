@@ -40,7 +40,8 @@ def step_path_arrays_from_1d(
     include_endpoints: bool = False,
 
 ) -> (np.ndarray, np.ndarray):
-    '''Generate a "step mode" curve aligned with OHLC style bars
+    '''
+    Generate a "step mode" curve aligned with OHLC style bars
     such that each segment spans each bar (aka "centered" style).
 
     '''
@@ -86,6 +87,18 @@ def step_path_arrays_from_1d(
 
 # TODO: got a feeling that dropping this inheritance gets us even more speedups
 class FastAppendCurve(pg.PlotCurveItem):
+    '''
+    A faster, append friendly version of ``pyqtgraph.PlotCurveItem``
+    built for real-time data updates.
+
+    The main difference is avoiding regeneration of the entire
+    historical path where possible and instead only updating the "new"
+    segment(s) via a ``numpy`` array diff calc. Further the "last"
+    graphic segment is drawn independently such that near-term (high
+    frequency) discrete-time-sampled style updates don't trigger a full
+    path redraw.
+
+    '''
 
     def __init__(
         self,
@@ -115,7 +128,7 @@ class FastAppendCurve(pg.PlotCurveItem):
         # flat-top style histogram-like discrete curve
         self._step_mode: bool = step_mode
 
-        self._fill = False
+        # self._fill = True
         self.setBrush(hcolor(fill_color or color))
 
         # TODO: one question still remaining is if this makes trasform
@@ -134,8 +147,8 @@ class FastAppendCurve(pg.PlotCurveItem):
         profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
         flip_cache = False
 
-        # print(f"xrange: {self._xrange}")
         istart, istop = self._xrange
+        # print(f"xrange: {self._xrange}")
 
         # compute the length diffs between the first/last index entry in
         # the input data and the last indexes we have on record from the
@@ -164,7 +177,8 @@ class FastAppendCurve(pg.PlotCurveItem):
             # if self._step_mode:
             #     self.path.closeSubpath()
 
-        # TODO: get this working - right now it's giving heck on vwap...
+        # TODO: get this piecewise prepend working - right now it's
+        # giving heck on vwap...
         # if prepend_length:
         #     breakpoint()
 
@@ -186,6 +200,10 @@ class FastAppendCurve(pg.PlotCurveItem):
                     x[-append_length - 2:-1],
                     y[-append_length - 2:-1],
                 )
+                # [1:] since we don't need the vertical line normally at
+                # the beginning of the step curve taking the first (x,
+                # y) poing down to the x-axis **because** this is an
+                # appended path graphic.
                 new_x = new_x[1:]
                 new_y = new_y[1:]
 
@@ -207,15 +225,20 @@ class FastAppendCurve(pg.PlotCurveItem):
             # other merging ideas:
             # https://stackoverflow.com/questions/8936225/how-to-merge-qpainterpaths
             if self._step_mode:
-                if self._fill:
-                    # XXX: super slow set "union" op
-                    self.path = self.path.united(append_path).simplified()
+                # path.addPath(append_path)
+                self.path.connectPath(append_path)
 
-                    # path.addPath(append_path)
-                    # path.closeSubpath()
-                else:
-                    # path.addPath(append_path)
-                    self.path.connectPath(append_path)
+                # TODO: try out new work from `pyqtgraph` main which
+                # should repair horrid perf:
+                # https://github.com/pyqtgraph/pyqtgraph/pull/2032
+                # ok, nope still horrible XD
+                # if self._fill:
+                #     # XXX: super slow set "union" op
+                #     self.path = self.path.united(append_path).simplified()
+
+                #     # path.addPath(append_path)
+                #     # path.closeSubpath()
+
             else:
                 # print(f"append_path br: {append_path.boundingRect()}")
                 # self.path.moveTo(new_x[0], new_y[0])
@@ -238,6 +261,8 @@ class FastAppendCurve(pg.PlotCurveItem):
         x0, x_last = self._xrange = x[0], x[-1]
         y_last = y[-1]
 
+        # draw the "current" step graphic segment so it lines up with
+        # the "middle" of the current (OHLC) sample.
         if self._step_mode:
             self._last_line = QLineF(
                 x_last - 0.5, 0,
@@ -259,6 +284,7 @@ class FastAppendCurve(pg.PlotCurveItem):
         self.update()
 
         if flip_cache:
+            # XXX: seems to be needed to avoid artifacts (see above).
             self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
     def boundingRect(self):
@@ -310,7 +336,6 @@ class FastAppendCurve(pg.PlotCurveItem):
             p.fillRect(self._last_step_rect, brush)
 
             # p.drawPath(self.path)
-
             # profiler('.drawPath()')
 
         # else:
@@ -322,6 +347,9 @@ class FastAppendCurve(pg.PlotCurveItem):
         p.drawPath(self.path)
         profiler('.drawPath()')
 
-        if self._fill:
-            print('FILLED')
-            p.fillPath(self.path, brush)
+        # TODO: try out new work from `pyqtgraph` main which
+        # should repair horrid perf:
+        # https://github.com/pyqtgraph/pyqtgraph/pull/2032
+        # if self._fill:
+        #     brush = self.opts['brush']
+        #     p.fillPath(self.path, brush)
