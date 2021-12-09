@@ -65,15 +65,16 @@ log = get_logger(__name__)
 
 
 class _FeedsBus(BaseModel):
-    """Data feeds broadcaster and persistence management.
+    '''
+    Data feeds broadcaster and persistence management.
 
     This is a brokerd side api used to manager persistent real-time
     streams that can be allocated and left alive indefinitely.
 
-    """
+    '''
     brokername: str
     nursery: trio.Nursery
-    feeds: dict[str, trio.CancelScope] = {}
+    feeds: dict[str, tuple[trio.CancelScope, dict, dict]] = {}
 
     task_lock: trio.StrictFIFOLock = trio.StrictFIFOLock()
 
@@ -103,13 +104,13 @@ _bus: _FeedsBus = None
 def get_feed_bus(
     brokername: str,
     nursery: Optional[trio.Nursery] = None,
+
 ) -> _FeedsBus:
-    """
+    '''
     Retreive broker-daemon-local data feeds bus from process global
     scope. Serialize task access to lock.
 
-    """
-
+    '''
     global _bus
 
     if nursery is not None:
@@ -131,11 +132,12 @@ async def _setup_persistent_brokerd(
     ctx: tractor.Context,
     brokername: str
 ) -> None:
-    """Allocate a actor-wide service nursery in ``brokerd``
+    '''
+    Allocate a actor-wide service nursery in ``brokerd``
     such that feeds can be run in the background persistently by
     the broker backend as needed.
 
-    """
+    '''
     try:
         async with trio.open_nursery() as service_nursery:
 
@@ -243,7 +245,10 @@ async def allocate_persistent_feed(
     ).get('sum_tick_vlm', True)
 
     # start sample loop
-    await sample_and_broadcast(bus, shm, quote_stream, sum_tick_vlm)
+    try:
+        await sample_and_broadcast(bus, shm, quote_stream, sum_tick_vlm)
+    finally:
+        log.warning(f'{symbol}@{brokername} feed task terminated')
 
 
 @tractor.context
