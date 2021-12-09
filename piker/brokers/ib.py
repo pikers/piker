@@ -489,20 +489,30 @@ class Client:
             formatDate=2,  # timezone aware UTC datetime
         )
 
-    async def get_quote(
+    async def get_sym_details(
         self,
         symbol: str,
-    ) -> Ticker:
-        """Return a single quote for symbol.
+    ) -> tuple[Contract, Ticker, ContractDetails]:
 
-        """
         contract = await self.find_contract(symbol)
-
-        details_fute = self.ib.reqContractDetailsAsync(contract)
         ticker: Ticker = self.ib.reqMktData(
             contract,
             snapshot=True,
         )
+        details_fute = self.ib.reqContractDetailsAsync(contract)
+        details = (await details_fute)[0]
+
+        return contract, ticker, details
+
+    async def get_quote(
+        self,
+        symbol: str,
+    ) -> tuple[Contract, Ticker, ContractDetails]:
+        '''
+        Return a single quote for symbol.
+
+        '''
+        contract, ticker, details = await self.get_sym_details(symbol)
 
         # ensure a last price gets filled in before we deliver quote
         for _ in range(25):
@@ -514,7 +524,6 @@ class Client:
                 f'Symbol {symbol} is not returning a quote '
                 'it may be outside trading hours?')
 
-        details = (await details_fute)[0]
         return contract, ticker, details
 
     # async to be consistent for the client proxy, and cuz why not.
@@ -935,9 +944,10 @@ async def _trio_run_client_method(
     **kwargs,
 
 ) -> None:
-    """Asyncio entry point to run tasks against the ``ib_insync`` api.
+    '''
+    Asyncio entry point to run tasks against the ``ib_insync`` api.
 
-    """
+    '''
     ca = tractor.current_actor()
     assert ca.is_infected_aio()
 
@@ -1357,17 +1367,13 @@ async def stream_quotes(
     # TODO: support multiple subscriptions
     sym = symbols[0]
 
-    with trio.fail_after(5):
+    with trio.fail_after(3) as cs:
         contract, first_ticker, details = await _trio_run_client_method(
             method='get_quote',
             symbol=sym,
         )
 
-    # stream = await start_aio_quote_stream(symbol=sym, contract=contract)
-    async with open_aio_quote_stream(
-        symbol=sym, contract=contract
-    ) as stream:
-
+    def mk_init_msgs() -> dict[str, dict]:
         # pass back some symbol info like min_tick, trading_hours, etc.
         syminfo = asdict(details)
         syminfo.update(syminfo['contract'])
@@ -1395,6 +1401,34 @@ async def stream_quotes(
                 'symbol_info': syminfo,
             }
         }
+        return init_msgs
+
+    if cs.cancelled_caught:
+        # it might be outside regular trading hours so see if we can at
+        # least grab history.
+
+        contract, first_ticker, details = await _trio_run_client_method(
+            method='get_sym_details',
+            symbol=sym,
+        )
+
+        # init_msgs = mk_init_msgs()
+
+        # try again but without timeout and then do feed startup once we
+        # get one.
+        contract, first_ticker, details = await _trio_run_client_method(
+            method='get_quote',
+            symbol=sym,
+        )
+
+    else:
+        init_msgs = mk_init_msgs()
+
+
+    # stream = await start_aio_quote_stream(symbol=sym, contract=contract)
+    async with open_aio_quote_stream(
+        symbol=sym, contract=contract
+    ) as stream:
 
         con = first_ticker.contract
 
