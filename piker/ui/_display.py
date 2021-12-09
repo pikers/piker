@@ -187,12 +187,13 @@ async def update_chart_from_quotes(
     vlm_chart: Optional[ChartPlotWidget] = None,
 
 ) -> None:
-    '''The 'main' (price) chart real-time update loop.
+    '''
+    The 'main' (price) chart real-time update loop.
 
     Receive from the quote stream and update the OHLC chart.
 
     '''
-    # TODO: bunch of stuff:
+    # TODO: bunch of stuff (some might be done already, can't member):
     # - I'm starting to think all this logic should be
     #   done in one place and "graphics update routines"
     #   should not be doing any length checking and array diffing.
@@ -250,19 +251,43 @@ async def update_chart_from_quotes(
     chart.show()
     last_quote = time.time()
 
+    async def iter_drain_quotes():
+        # NOTE: all code below this loop is expected to be synchronous
+        # and thus draw instructions are not picked up jntil the next
+        # wait / iteration.
+        async for quotes in stream:
+            while True:
+                try:
+                    moar = stream.receive_nowait()
+                except trio.WouldBlock:
+                    yield quotes
+                    break
+                else:
+                    for sym, quote in moar.items():
+                        ticks_frame = quote.get('ticks')
+                        if ticks_frame:
+                            quotes[sym].setdefault(
+                                'ticks', []).extend(ticks_frame)
+                        print('pulled extra')
+
+                    yield quotes
+
+    # async for quotes in iter_drain_quotes():
     async for quotes in stream:
 
-        now = time.time()
         quote_period = time.time() - last_quote
         quote_rate = round(
             1/quote_period, 1) if quote_period > 0 else float('inf')
-
         if (
             quote_period <= 1/_quote_throttle_rate
-            and quote_rate > _quote_throttle_rate * 1.5
+
+            # in the absolute worst case we shouldn't see more then
+            # twice the expected throttle rate right!?
+            and quote_rate >= _quote_throttle_rate * 1.9
         ):
             log.warning(f'High quote rate {symbol.key}: {quote_rate}')
-        last_quote = now
+
+        last_quote = time.time()
 
         # chart isn't active/shown so skip render cycle and pause feed(s)
         if chart.linked.isHidden():
