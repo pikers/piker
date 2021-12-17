@@ -66,14 +66,14 @@ def async_lifo_cache(maxsize=128):
 async def open_cached_client(
     brokername: str,
 ) -> 'Client':  # noqa
-    '''Get a cached broker client from the current actor's local vars.
+    '''
+    Get a cached broker client from the current actor's local vars.
 
     If one has not been setup do it and cache it.
 
     '''
     brokermod = get_brokermod(brokername)
     async with maybe_open_context(
-        key=brokername,
-        mngr=brokermod.get_client(),
+        acm_func=brokermod.get_client,
     ) as (cache_hit, client):
         yield client

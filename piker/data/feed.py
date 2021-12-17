@@ -27,7 +27,6 @@ from types import ModuleType
 from typing import (
     Any, Sequence,
     AsyncIterator, Optional,
-    Awaitable, Callable,
 )
 
 import trio
@@ -372,11 +371,12 @@ async def open_sample_step_stream(
     # a lone broker-daemon per provider should be
     # created for all practical purposes
     async with maybe_open_context(
-        key=delay_s,
-        mngr=portal.open_stream_from(
+        acm_func=partial(
+            portal.open_stream_from,
             iter_ohlc_periods,
-            delay_s=delay_s,  # must be kwarg
         ),
+
+        kwargs={'delay_s': delay_s},
     ) as (cache_hit, istream):
         if cache_hit:
             # add a new broadcast subscription for the quote stream
@@ -524,7 +524,7 @@ async def open_feed(
         ) as (ctx, (init_msg, first_quotes)),
 
         ctx.open_stream(
-            # XXX: be explicit about stream backpressure since we should 
+            # XXX: be explicit about stream backpressure since we should
             # **never** overrun on feeds being too fast, which will
             # pretty much always happen with HFT XD
             backpressure=True
@@ -574,6 +574,7 @@ async def open_feed(
 
         feed._max_sample_rate = max(ohlc_sample_rates)
 
+        # yield feed
         try:
             yield feed
         finally:
@@ -599,16 +600,18 @@ async def maybe_open_feed(
     sym = symbols[0].lower()
 
     async with maybe_open_context(
-        key=(brokername, sym),
-        mngr=open_feed(
-            brokername,
-            [sym],
-            loglevel=loglevel,
-            **kwargs,
-        ),
+        acm_func=open_feed,
+        kwargs={
+            'brokername': brokername,
+            'symbols': [sym],
+            'loglevel': loglevel,
+            'tick_throttle': kwargs.get('tick_throttle'),
+        },
+        key=sym,
     ) as (cache_hit, feed):
 
         if cache_hit:
+            print('USING CACHED FEED')
             # add a new broadcast subscription for the quote stream
             # if this feed is likely already in use
             async with feed.stream.subscribe() as bstream:

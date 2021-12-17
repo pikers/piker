@@ -572,14 +572,14 @@ async def maybe_open_fsp_cluster(
     **kwargs,
 ) -> AsyncGenerator[int, dict[str, tractor.Portal]]:
 
-    uid = tractor.current_actor().uid
+    kwargs.update(
+        {'workers': workers}
+    )
+
     async with maybe_open_context(
-        key=uid,  # for now make a cluster per client?
-        mngr=open_fsp_cluster(
-            workers,
-            # loglevel=loglevel,
-            **kwargs,
-        ),
+        # for now make a cluster per client?
+        acm_func=open_fsp_cluster,
+        kwargs=kwargs,
     ) as (cache_hit, cluster_map):
         if cache_hit:
             log.info('re-using existing fsp cluster')
