@@ -1367,7 +1367,7 @@ async def stream_quotes(
     # TODO: support multiple subscriptions
     sym = symbols[0]
 
-    with trio.fail_after(3) as cs:
+    with trio.fail_after(16) as cs:
         contract, first_ticker, details = await _trio_run_client_method(
             method='get_quote',
             symbol=sym,
