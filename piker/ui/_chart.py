@@ -18,6 +18,7 @@
 High level chart-widget apis.
 
 '''
+from __future__ import annotations
 from typing import Optional
 
 from PyQt5 import QtCore, QtWidgets
@@ -68,7 +69,7 @@ log = get_logger(__name__)
 class GodWidget(QWidget):
     '''
     "Our lord and savior, the holy child of window-shua, there is no
-    widget above thee." - 6||6
+    widget above thee." - 6|6
 
     The highest level composed widget which contains layouts for
     organizing charts as well as other sub-widgets used to control or
@@ -104,8 +105,8 @@ class GodWidget(QWidget):
         # self.init_strategy_ui()
         # self.vbox.addLayout(self.hbox)
 
-        self._chart_cache = {}
-        self.linkedsplits: 'LinkedSplits' = None
+        self._chart_cache: dict[str, LinkedSplits] = {}
+        self.linkedsplits: Optional[LinkedSplits] = None
 
         # assigned in the startup func `_async_main()`
         self._root_n: trio.Nursery = None
@@ -135,7 +136,7 @@ class GodWidget(QWidget):
     def set_chart_symbol(
         self,
         symbol_key: str,  # of form <fqsn>.<providername>
-        linkedsplits: 'LinkedSplits',  # type: ignore
+        linkedsplits: LinkedSplits,  # type: ignore
 
     ) -> None:
         # re-sort org cache symbol list in LIFO order
@@ -146,20 +147,20 @@ class GodWidget(QWidget):
     def get_chart_symbol(
         self,
         symbol_key: str,
-    ) -> 'LinkedSplits':  # type: ignore
+
+    ) -> LinkedSplits:  # type: ignore
         return self._chart_cache.get(symbol_key)
 
     async def load_symbol(
         self,
-
         providername: str,
         symbol_key: str,
         loglevel: str,
-
         reset: bool = False,
 
     ) -> trio.Event:
-        '''Load a new contract into the charting app.
+        '''
+        Load a new contract into the charting app.
 
         Expects a ``numpy`` structured array containing all the ohlcv fields.
 
@@ -178,6 +179,7 @@ class GodWidget(QWidget):
 
             # XXX: this is CRITICAL especially with pixel buffer caching
             self.linkedsplits.hide()
+            self.linkedsplits.unfocus()
 
             # XXX: pretty sure we don't need this
             # remove any existing plots?
@@ -202,6 +204,11 @@ class GodWidget(QWidget):
             )
 
             self.set_chart_symbol(fqsn, linkedsplits)
+            self.vbox.addWidget(linkedsplits)
+
+            linkedsplits.show()
+            linkedsplits.focus()
+            await trio.sleep(0)
 
         else:
             # symbol is already loaded and ems ready
@@ -215,21 +222,17 @@ class GodWidget(QWidget):
             # also switch it over to the new chart's interal-layout
             # self.linkedsplits.chart.qframe.hbox.removeWidget(self.pp_pane)
             chart = linkedsplits.chart
+
+            # chart is already in memory so just focus it
+            linkedsplits.show()
+            linkedsplits.focus()
+            await trio.sleep(0)
+
+            # resume feeds *after* rendering chart view asap
             await chart.resume_all_feeds()
 
-        # chart is already in memory so just focus it
-        if self.linkedsplits:
-            self.linkedsplits.unfocus()
-
-        self.vbox.addWidget(linkedsplits)
-
-        linkedsplits.show()
-        linkedsplits.focus()
-
         self.linkedsplits = linkedsplits
-
         symbol = linkedsplits.symbol
-
         if symbol is not None:
             self.window.setWindowTitle(
                 f'{symbol.key}@{symbol.brokers} '
@@ -239,7 +242,8 @@ class GodWidget(QWidget):
         return order_mode_started
 
     def focus(self) -> None:
-        '''Focus the top level widget which in turn focusses the chart
+        '''
+        Focus the top level widget which in turn focusses the chart
         ala "view mode".
 
         '''
@@ -247,9 +251,19 @@ class GodWidget(QWidget):
         self.clearFocus()
         self.linkedsplits.chart.setFocus()
 
+    def resizeEvent(self, event: QtCore.QEvent) -> None:
+        '''
+        Top level god widget resize handler.
+
+        Where we do UX magic to make things not suck B)
+
+        '''
+        log.debug('god widget resize')
+
 
 class ChartnPane(QFrame):
-    '''One-off ``QFrame`` composite which pairs a chart
+    '''
+    One-off ``QFrame`` composite which pairs a chart
     + sidepane (often a ``FieldsForm`` + other widgets if
     provided) forming a, sort of, "chart row" with a side panel
     for configuration and display of off-chart data.
@@ -279,8 +293,6 @@ class ChartnPane(QFrame):
         hbox.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         hbox.setContentsMargins(0, 0, 0, 0)
         hbox.setSpacing(3)
-
-        # self.setMaximumWidth()
 
 
 class LinkedSplits(QWidget):
@@ -460,7 +472,10 @@ class LinkedSplits(QWidget):
             self.xaxis.hide()
             self.xaxis = xaxis
 
-        qframe = ChartnPane(sidepane=sidepane, parent=self.splitter)
+        qframe = ChartnPane(
+            sidepane=sidepane,
+            parent=self.splitter,
+        )
         cpw = ChartPlotWidget(
 
             # this name will be used to register the primary
@@ -554,17 +569,23 @@ class LinkedSplits(QWidget):
         else:
             assert style == 'bar', 'main chart must be OHLC'
 
+        self.resize_sidepanes()
         return cpw
 
     def resize_sidepanes(
         self,
     ) -> None:
-        '''Size all sidepanes based on the OHLC "main" plot.
+        '''
+        Size all sidepanes based on the OHLC "main" plot and its
+        sidepane width.
 
         '''
-        for name, cpw in self.subplots.items():
-            cpw.sidepane.setMinimumWidth(self.chart.sidepane.width())
-            cpw.sidepane.setMaximumWidth(self.chart.sidepane.width())
+        main_chart = self.chart
+        if main_chart:
+            sp_w = main_chart.sidepane.width()
+            for name, cpw in self.subplots.items():
+                cpw.sidepane.setMinimumWidth(sp_w)
+                cpw.sidepane.setMaximumWidth(sp_w)
 
 
 class ChartPlotWidget(pg.PlotWidget):
@@ -672,12 +693,14 @@ class ChartPlotWidget(pg.PlotWidget):
         self._vb.sigResized.connect(self._set_yrange)
 
     async def resume_all_feeds(self):
-        for feed in self._feeds.values():
-            await feed.resume()
+        async with trio.open_nursery() as n:
+            for feed in self._feeds.values():
+                n.start_soon(feed.resume)
 
     async def pause_all_feeds(self):
-        for feed in self._feeds.values():
-            await feed.pause()
+        async with trio.open_nursery() as n:
+            for feed in self._feeds.values():
+                n.start_soon(feed.pause)
 
     @property
     def view(self) -> ChartView:
