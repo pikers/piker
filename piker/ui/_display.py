@@ -251,28 +251,29 @@ async def update_chart_from_quotes(
     chart.show()
     last_quote = time.time()
 
-    async def iter_drain_quotes():
-        # NOTE: all code below this loop is expected to be synchronous
-        # and thus draw instructions are not picked up jntil the next
-        # wait / iteration.
-        async for quotes in stream:
-            while True:
-                try:
-                    moar = stream.receive_nowait()
-                except trio.WouldBlock:
-                    yield quotes
-                    break
-                else:
-                    for sym, quote in moar.items():
-                        ticks_frame = quote.get('ticks')
-                        if ticks_frame:
-                            quotes[sym].setdefault(
-                                'ticks', []).extend(ticks_frame)
-                        print('pulled extra')
+    # async def iter_drain_quotes():
+    #     # NOTE: all code below this loop is expected to be synchronous
+    #     # and thus draw instructions are not picked up jntil the next
+    #     # wait / iteration.
+    #     async for quotes in stream:
+    #         while True:
+    #             try:
+    #                 moar = stream.receive_nowait()
+    #             except trio.WouldBlock:
+    #                 yield quotes
+    #                 break
+    #             else:
+    #                 for sym, quote in moar.items():
+    #                     ticks_frame = quote.get('ticks')
+    #                     if ticks_frame:
+    #                         quotes[sym].setdefault(
+    #                             'ticks', []).extend(ticks_frame)
+    #                     print('pulled extra')
 
-                    yield quotes
+    #                 yield quotes
 
     # async for quotes in iter_drain_quotes():
+
     async for quotes in stream:
 
         quote_period = time.time() - last_quote
