@@ -739,11 +739,13 @@ async def load_aio_clients(
     client_id: Optional[int] = None,
 
 ) -> Client:
-    '''Return an ``ib_insync.IB`` instance wrapped in our client API.
+    '''
+    Return an ``ib_insync.IB`` instance wrapped in our client API.
 
     Client instances are cached for later use.
 
     TODO: consider doing this with a ctx mngr eventually?
+
     '''
     global _accounts2clients, _client_cache, _scan_ignore
 
@@ -782,7 +784,7 @@ async def load_aio_clients(
     try_ports = list(ports.values())
     ports = try_ports if port is None else [port]
     # we_connected = []
-    connect_timeout = 0.5 if platform.system() != 'Windows' else 1
+    connect_timeout = 1 if platform.system() != 'Windows' else 2
     combos = list(itertools.product(hosts, ports))
 
     # allocate new and/or reload disconnected but cached clients
@@ -1300,6 +1302,10 @@ async def _setup_quote_stream(
                 # resulting in tracebacks spammed to console..
                 # Manually do the dereg ourselves.
                 teardown()
+            except trio.WouldBlock:
+                log.warning(f'channel is blocking symbol feed for {symbol}?'
+                    f'\n{to_trio.statistics}'
+                )
 
             # except trio.WouldBlock:
             #     # for slow debugging purposes to avoid clobbering prompt
