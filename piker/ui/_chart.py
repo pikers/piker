@@ -361,7 +361,7 @@ class LinkedSplits(QWidget):
         if not prop:
             # proportion allocated to consumer subcharts
             if ln < 2:
-                prop = 1/(.666 * 6)
+                prop = 1/(.375 * 6)
             elif ln >= 2:
                 prop = 3/8
 
