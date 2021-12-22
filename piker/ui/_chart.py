@@ -229,7 +229,7 @@ class GodWidget(QWidget):
             await trio.sleep(0)
 
             # resume feeds *after* rendering chart view asap
-            await chart.resume_all_feeds()
+            chart.resume_all_feeds()
 
         self.linkedsplits = linkedsplits
         symbol = linkedsplits.symbol
@@ -361,7 +361,7 @@ class LinkedSplits(QWidget):
         if not prop:
             # proportion allocated to consumer subcharts
             if ln < 2:
-                prop = 1/(.375 * 6)
+                prop = 1/3
             elif ln >= 2:
                 prop = 3/8
 
@@ -631,8 +631,11 @@ class ChartPlotWidget(pg.PlotWidget):
 
         **kwargs,
     ):
-        """Configure chart display settings.
-        """
+        '''
+        Configure initial display settings and connect view callback
+        handlers.
+
+        '''
         self.view_color = view_color
         self.pen_color = pen_color
 
@@ -692,15 +695,13 @@ class ChartPlotWidget(pg.PlotWidget):
         # for when the splitter(s) are resized
         self._vb.sigResized.connect(self._set_yrange)
 
-    async def resume_all_feeds(self):
-        async with trio.open_nursery() as n:
-            for feed in self._feeds.values():
-                n.start_soon(feed.resume)
+    def resume_all_feeds(self):
+        for feed in self._feeds.values():
+            self.linked.godwidget._root_n.start_soon(feed.resume)
 
-    async def pause_all_feeds(self):
-        async with trio.open_nursery() as n:
-            for feed in self._feeds.values():
-                n.start_soon(feed.pause)
+    def pause_all_feeds(self):
+        for feed in self._feeds.values():
+            self.linked.godwidget._root_n.start_soon(feed.pause)
 
     @property
     def view(self) -> ChartView:
