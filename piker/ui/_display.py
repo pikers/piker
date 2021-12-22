@@ -36,7 +36,7 @@ import trio
 
 from .. import brokers
 from .._cacheables import maybe_open_context
-from ..trionics import async_enter_all
+from tractor.trionics import gather_contexts
 from ..data.feed import open_feed, Feed
 from ._chart import (
     ChartPlotWidget,
@@ -266,7 +266,7 @@ async def update_chart_from_quotes(
 
         # chart isn't active/shown so skip render cycle and pause feed(s)
         if chart.linked.isHidden():
-            await chart.pause_all_feeds()
+            chart.pause_all_feeds()
             continue
 
         for sym, quote in quotes.items():
@@ -601,9 +601,6 @@ async def start_fsp_displays(
     group_status_key: str,
     loglevel: str,
 
-    # this con
-    display_in_own_task: bool = False,
-
 ) -> None:
     '''
     Create sub-actors (under flat tree)
@@ -626,7 +623,7 @@ async def start_fsp_displays(
         for (display_name, conf), (name, portal) in zip(
             fsps.items(),
 
-            # rr to cluster for now..
+            # round robin to cluster for now..
             cycle(cluster_map.items()),
         ):
             func_name = conf['func_name']
@@ -925,16 +922,14 @@ async def maybe_open_vlm_display(
 
         shm, opened = maybe_mk_fsp_shm(
             linked.symbol.key,
-            '$_vlm',
+            'vlm',
             readonly=True,
         )
 
         async with open_fsp_sidepane(
             linked, {
                 'vlm': {
-
                     'params': {
-
                         'price_func': {
                             'default_value': 'chl3',
                             # tell target ``Edit`` widget to not allow
@@ -962,9 +957,6 @@ async def maybe_open_vlm_display(
                 # we do this internally ourselves since
                 # the curve item internals are pretty convoluted.
                 style='step',
-
-                # original pyqtgraph flag for reference
-                # stepMode=True,
             )
 
             # XXX: ONLY for sub-chart fsps, overlays have their
@@ -999,7 +991,6 @@ async def display_symbol_data(
     provider: str,
     sym: str,
     loglevel: str,
-
     order_mode_started: trio.Event,
 
 ) -> None:
@@ -1026,8 +1017,7 @@ async def display_symbol_data(
     #     group_key=loading_sym_key,
     # )
 
-    async with async_enter_all(
-        open_feed(
+    async with open_feed(
             provider,
             [sym],
             loglevel=loglevel,
@@ -1035,11 +1025,8 @@ async def display_symbol_data(
             # limit to at least display's FPS
             # avoiding needless Qt-in-guest-mode context switches
             tick_throttle=_quote_throttle_rate,
-        ),
-        maybe_open_fsp_cluster(),
 
-    ) as (feed, cluster_map):
-
+    ) as feed:
         ohlcv: ShmArray = feed.shm
         bars = ohlcv.array
         symbol = feed.symbols[sym]
@@ -1091,19 +1078,19 @@ async def display_symbol_data(
         # TODO: eventually we'll support some kind of n-compose syntax
         fsp_conf = {
 
-            'dolla_vlm': {
-                'func_name': 'dolla_vlm',
-                'zero_on_step': True,
-                'params': {
-                    'price_func': {
-                        'default_value': 'chl3',
-                        # tell target ``Edit`` widget to not allow
-                        # edits for now.
-                        'widget_kwargs': {'readonly': True},
-                    },
-                },
-                'chart_kwargs': {'style': 'step'}
-            },
+            # 'dolla_vlm': {
+            #     'func_name': 'dolla_vlm',
+            #     'zero_on_step': True,
+            #     'params': {
+            #         'price_func': {
+            #             'default_value': 'chl3',
+            #             # tell target ``Edit`` widget to not allow
+            #             # edits for now.
+            #             'widget_kwargs': {'readonly': True},
+            #         },
+            #     },
+            #     'chart_kwargs': {'style': 'step'}
+            # },
 
             # 'rsi': {
             #     'func_name': 'rsi',  # literal python func ref lookup name
@@ -1147,10 +1134,15 @@ async def display_symbol_data(
         await trio.sleep(0)
 
         vlm_chart = None
-        async with (
-            trio.open_nursery() as ln,
-            maybe_open_vlm_display(linkedsplits, ohlcv) as vlm_chart,
-        ):
+
+        async with gather_contexts(
+            (
+                trio.open_nursery(),
+                maybe_open_vlm_display(linkedsplits, ohlcv),
+                maybe_open_fsp_cluster(),
+            )
+        ) as (ln, vlm_chart, cluster_map):
+
             # load initial fsp chain (otherwise known as "indicators")
             ln.start_soon(
                 start_fsp_displays,
@@ -1164,7 +1156,7 @@ async def display_symbol_data(
                 loglevel,
             )
 
-            # start graphics update loop(s)after receiving first live quote
+            # start graphics update loop after receiving first live quote
             ln.start_soon(
                 update_chart_from_quotes,
                 linkedsplits,
