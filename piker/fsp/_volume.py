@@ -103,6 +103,11 @@ async def _tina_vwap(
             yield w_tot / v_tot
 
 
+# @fsp.config(
+#     name='dolla_vlm',
+#     ohlc=False,
+#     style='step',
+# )
 async def dolla_vlm(
     source: AsyncReceiver[dict],
     ohlcv: ShmArray,  # OHLC sampled history
@@ -111,6 +116,15 @@ async def dolla_vlm(
     AsyncIterator[np.ndarray],
     float
 ]:
+    '''
+    "Dollar Volume", aka the volume in asset-currency-units (usually
+    a fiat) computed from some price function for the sample step
+    *times* the asset unit volume.
+
+    Useful for comparing cross asset "money flow" in #s that are
+    asset-currency-independent.
+
+    '''
     a = ohlcv.array
     chl3 = (a['close'] + a['high'] + a['low']) / 3
     v = a['volume']
