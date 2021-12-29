@@ -418,13 +418,16 @@ class Cursor(pg.GraphicsObject):
         # keep x-axis right below main chart
         plot_index = -1 if _xaxis_at == 'bottom' else 0
 
-        self.xaxis_label = XAxisLabel(
-            parent=self.plots[plot_index].getAxis('bottom'),
-            opacity=_ch_label_opac,
-            bg_color=self.label_color,
-        )
-        # place label off-screen during startup
-        self.xaxis_label.setPos(self.plots[0].mapFromView(QPointF(0, 0)))
+        # ONLY create an x-axis label for the cursor
+        # if this plot owns the 'bottom' axis.
+        if 'bottom' in plot.plotItem.axes:
+            self.xaxis_label = XAxisLabel(
+                parent=self.plots[plot_index].getAxis('bottom'),
+                opacity=_ch_label_opac,
+                bg_color=self.label_color,
+            )
+            # place label off-screen during startup
+            self.xaxis_label.setPos(self.plots[0].mapFromView(QPointF(0, 0)))
 
     def add_curve_cursor(
         self,
@@ -525,17 +528,18 @@ class Cursor(pg.GraphicsObject):
                 for cursor in opts.get('cursors', ()):
                     cursor.setIndex(ix)
 
-            # update the label on the bottom of the crosshair
-            self.xaxis_label.update_label(
+                # update the label on the bottom of the crosshair
+                if 'bottom' in plot.plotItem.axes:
+                    self.xaxis_label.update_label(
 
-                # XXX: requires:
-                # https://github.com/pyqtgraph/pyqtgraph/pull/1418
-                # otherwise gobbles tons of CPU..
+                        # XXX: requires:
+                        # https://github.com/pyqtgraph/pyqtgraph/pull/1418
+                        # otherwise gobbles tons of CPU..
 
-                # map back to abs (label-local) coordinates
-                abs_pos=plot.mapFromView(QPointF(ix + line_offset, iy)),
-                value=ix,
-            )
+                        # map back to abs (label-local) coordinates
+                        abs_pos=plot.mapFromView(QPointF(ix + line_offset, iy)),
+                        value=ix,
+                    )
 
         self._datum_xy = ix, iy
 
