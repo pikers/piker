@@ -505,3 +505,35 @@ def maybe_open_shm_array(
         # to fail if a block has been allocated
         # on the OS by someone else.
         return open_shm_array(key=key, dtype=dtype, **kwargs), True
+
+
+def try_read(
+    array: np.ndarray
+
+) -> Optional[np.ndarray]:
+    '''
+    Try to read the last row from a shared mem array or ``None``
+    if the array read returns a zero-length array result.
+
+    Can be used to check for backfilling race conditions where an array
+    is currently being (re-)written by a writer actor but the reader is
+    unaware and reads during the window where the first and last indexes
+    are being updated.
+
+    '''
+    try:
+        return array[-1]
+    except IndexError:
+        # XXX: race condition with backfilling shm.
+        #
+        # the underlying issue is that a backfill (aka prepend) and subsequent
+        # shm array first/last index update could result in an empty array
+        # read here since the indices may be updated in such a way that
+        # a read delivers an empty array (though it seems like we
+        # *should* be able to prevent that?). also, as and alt and
+        # something we need anyway, maybe there should be some kind of
+        # signal that a prepend is taking place and this consumer can
+        # respond (eg. redrawing graphics) accordingly.
+
+        # the array read was emtpy
+        return None
