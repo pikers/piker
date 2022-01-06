@@ -569,7 +569,6 @@ class ChartView(ViewBox):
         # WEIRD "RIGHT-CLICK CENTER ZOOM" MODE
         elif button & QtCore.Qt.RightButton:
 
-
             if self.state['aspectLocked'] is not False:
                 mask[0] = 0
 
@@ -588,6 +587,9 @@ class ChartView(ViewBox):
             self._resetTarget()
             self.scaleBy(x=x, y=y, center=center)
             self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
+
+            # XXX: WHY
+            ev.accept()
 
     # def mouseClickEvent(self, event: QtCore.QEvent) -> None:
     #      '''This routine is rerouted to an async handler.
