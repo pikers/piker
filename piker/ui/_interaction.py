@@ -156,6 +156,7 @@ async def handle_viewmode_kb_inputs(
             # View modes
             if key == Qt.Key_R:
 
+                # TODO: set this for all subplots
                 # edge triggered default view activation
                 view.chart.default_view()
 
@@ -339,6 +340,7 @@ class ChartView(ViewBox):
         name: str,
 
         parent: pg.PlotItem = None,
+        static_yrange: Optional[tuple[float, float]] = None,
         **kwargs,
 
     ):
@@ -351,8 +353,15 @@ class ChartView(ViewBox):
             **kwargs
         )
 
+        # for "known y-range style"
+        self._static_yrange = static_yrange
+        self._maxmin = None
+
         # disable vertical scrolling
-        self.setMouseEnabled(x=True, y=False)
+        self.setMouseEnabled(
+            x=True,
+            y=True,
+        )
 
         self.linkedsplits = None
         self._chart: 'ChartPlotWidget' = None  # noqa
@@ -399,6 +408,8 @@ class ChartView(ViewBox):
     def chart(self, chart: 'ChartPlotWidget') -> None:  # type: ignore # noqa
         self._chart = chart
         self.select_box.chart = chart
+        if self._maxmin is None:
+            self._maxmin = chart.maxmin
 
     def wheelEvent(
         self,
@@ -430,7 +441,7 @@ class ChartView(ViewBox):
             log.debug("Max zoom bruh...")
             return
 
-        if ev.delta() < 0 and vl >= len(chart._arrays['ohlc']) + 666:
+        if ev.delta() < 0 and vl >= len(chart._arrays[chart.name]) + 666:
             log.debug("Min zoom bruh...")
             return
 
@@ -438,66 +449,88 @@ class ChartView(ViewBox):
         s = 1.015 ** (ev.delta() * -1 / 20)  # self.state['wheelScaleFactor'])
         s = [(None if m is False else s) for m in mask]
 
-        # center = pg.Point(
-        #     fn.invertQTransform(self.childGroup.transform()).map(ev.pos())
-        # )
+        if (
+            # zoom happened on axis
+            axis == 1
 
-        # XXX: scroll "around" the right most element in the view
-        # which stays "pinned" in place.
+            # if already in axis zoom mode then keep it
+            or self.chart._static_yrange == 'axis'
+        ):
+            self.chart._static_yrange = 'axis'
+            self.setLimits(yMin=None, yMax=None)
 
-        # furthest_right_coord = self.boundingRect().topRight()
+            # print(scale_y)
+            # pos = ev.pos()
+            # lastPos = ev.lastPos()
+            # dif = pos - lastPos
+            # dif = dif * -1
+            center = Point(fn.invertQTransform(self.childGroup.transform()).map(ev.pos()))
+            # scale_y = 1.3 ** (center.y() * -1 / 20)
+            self.scaleBy(s, center)
 
-        # yaxis = pg.Point(
-        #     fn.invertQTransform(
-        #         self.childGroup.transform()
-        #     ).map(furthest_right_coord)
-        # )
+        else:
 
-        # This seems like the most "intuitive option, a hybrid of
-        # tws and tv styles
-        last_bar = pg.Point(int(rbar)) + 1
+            # center = pg.Point(
+            #     fn.invertQTransform(self.childGroup.transform()).map(ev.pos())
+            # )
 
-        ryaxis = chart.getAxis('right')
-        r_axis_x = ryaxis.pos().x()
+            # XXX: scroll "around" the right most element in the view
+            # which stays "pinned" in place.
 
-        end_of_l1 = pg.Point(
-            round(
-                chart._vb.mapToView(
-                    pg.Point(r_axis_x - chart._max_l1_line_len)
-                    # QPointF(chart._max_l1_line_len, 0)
-                ).x()
+            # furthest_right_coord = self.boundingRect().topRight()
+
+            # yaxis = pg.Point(
+            #     fn.invertQTransform(
+            #         self.childGroup.transform()
+            #     ).map(furthest_right_coord)
+            # )
+
+            # This seems like the most "intuitive option, a hybrid of
+            # tws and tv styles
+            last_bar = pg.Point(int(rbar)) + 1
+
+            ryaxis = chart.getAxis('right')
+            r_axis_x = ryaxis.pos().x()
+
+            end_of_l1 = pg.Point(
+                round(
+                    chart.cv.mapToView(
+                        pg.Point(r_axis_x - chart._max_l1_line_len)
+                        # QPointF(chart._max_l1_line_len, 0)
+                    ).x()
+                )
+            )  # .x()
+
+            # self.state['viewRange'][0][1] = end_of_l1
+            # focal = pg.Point((last_bar.x() + end_of_l1)/2)
+
+            focal = min(
+                last_bar,
+                end_of_l1,
+                key=lambda p: p.x()
             )
-        )  # .x()
+            # focal = pg.Point(last_bar.x() + end_of_l1)
 
-        # self.state['viewRange'][0][1] = end_of_l1
-
-        # focal = pg.Point((last_bar.x() + end_of_l1)/2)
-
-        focal = min(
-            last_bar,
-            end_of_l1,
-            key=lambda p: p.x()
-        )
-        # focal = pg.Point(last_bar.x() + end_of_l1)
-
-        self._resetTarget()
-        self.scaleBy(s, focal)
-        self.sigRangeChangedManually.emit(mask)
-        ev.accept()
+            self._resetTarget()
+            self.scaleBy(s, focal)
+            self.sigRangeChangedManually.emit(mask)
+            ev.accept()
 
     def mouseDragEvent(
         self,
         ev,
         axis: Optional[int] = None,
         relayed_from: ChartView = None,
+
     ) -> None:
-        #  if axis is specified, event will only affect that axis.
-        button = ev.button()
 
         pos = ev.pos()
         lastPos = ev.lastPos()
         dif = pos - lastPos
         dif = dif * -1
+
+        # NOTE: if axis is specified, event will only affect that axis.
+        button = ev.button()
 
         # Ignore axes if mouse is disabled
         mouseEnabled = np.array(self.state['mouseEnabled'], dtype=np.float)
@@ -506,22 +539,26 @@ class ChartView(ViewBox):
             mask[1-axis] = 0.0
 
         # Scale or translate based on mouse button
-        if button & (QtCore.Qt.LeftButton | QtCore.Qt.MidButton):
-
+        if button & (
+            QtCore.Qt.LeftButton | QtCore.Qt.MidButton
+        ):
             # zoom y-axis ONLY when click-n-drag on it
-            if axis == 1:
-                # set a static y range special value on chart widget to
-                # prevent sizing to data in view.
-                self.chart._static_yrange = 'axis'
+            # if axis == 1:
+            #     # set a static y range special value on chart widget to
+            #     # prevent sizing to data in view.
+            #     self.chart._static_yrange = 'axis'
 
-                scale_y = 1.3 ** (dif.y() * -1 / 20)
-                self.setLimits(yMin=None, yMax=None)
+            #     scale_y = 1.3 ** (dif.y() * -1 / 20)
+            #     self.setLimits(yMin=None, yMax=None)
 
-                # print(scale_y)
-                self.scaleBy((0, scale_y))
+            #     # print(scale_y)
+            #     self.scaleBy((0, scale_y))
 
             # SELECTION MODE
-            if self.state['mouseMode'] == ViewBox.RectMode:
+            if (
+                self.state['mouseMode'] == ViewBox.RectMode
+                and axis is None
+            ):
                 # XXX: WHY
                 ev.accept()
 
@@ -532,26 +569,36 @@ class ChartView(ViewBox):
 
                     self.select_box.mouse_drag_released(down_pos, pos)
 
-                    # ax = QtCore.QRectF(down_pos, pos)
-                    # ax = self.childGroup.mapRectFromParent(ax)
-                    # print(ax)
+                    ax = QtCore.QRectF(down_pos, pos)
+                    ax = self.childGroup.mapRectFromParent(ax)
 
                     # this is the zoom transform cmd
-                    # self.showAxRect(ax)
+                    self.showAxRect(ax)
 
-                    # self.axHistoryPointer += 1
-                    # self.axHistory = self.axHistory[
-                    #     :self.axHistoryPointer] + [ax]
+                    # axis history tracking
+                    self.axHistoryPointer += 1
+                    self.axHistory = self.axHistory[
+                        :self.axHistoryPointer] + [ax]
+
                 else:
+                    print('drag finish?')
                     self.select_box.set_pos(down_pos, pos)
 
                     # update shape of scale box
                     # self.updateScaleBox(ev.buttonDownPos(), ev.pos())
+                    self.updateScaleBox(
+                        down_pos,
+                        ev.pos(),
+                    )
 
             # PANNING MODE
             else:
                 # XXX: WHY
                 ev.accept()
+
+                if axis == 1:
+                    self.chart._static_yrange = 'axis'
+
                 tr = self.childGroup.transform()
                 tr = fn.invertQTransform(tr)
                 tr = tr.map(dif*mask) - tr.map(Point(0, 0))
@@ -605,3 +652,107 @@ class ChartView(ViewBox):
         '''This routine is rerouted to an async handler.
         '''
         pass
+
+    def _set_yrange(
+        self,
+        *,
+
+        yrange: Optional[tuple[float, float]] = None,
+        range_margin: float = 0.06,
+        bars_range: Optional[tuple[int, int, int, int]] = None,
+
+        # flag to prevent triggering sibling charts from the same linked
+        # set from recursion errors.
+        autoscale_linked_plots: bool = True,
+        autoscale_overlays: bool = False,
+
+    ) -> None:
+        '''
+        Set the viewable y-range based on embedded data.
+
+        This adds auto-scaling like zoom on the scroll wheel such
+        that data always fits nicely inside the current view of the
+        data set.
+
+        '''
+        set_range = True
+        chart = self._chart
+
+        # view has been set in 'axis' mode
+        # meaning it can be panned and zoomed
+        # arbitrarily on the y-axis:
+        # - disable autoranging
+        # - remove any y range limits
+        if chart._static_yrange == 'axis':
+            set_range = False
+            self.setLimits(yMin=None, yMax=None)
+
+        # static y-range has been set likely by
+        # a specialized FSP configuration.
+        elif chart._static_yrange is not None:
+            ylow, yhigh = chart._static_yrange
+
+        # range passed in by caller, usually a
+        # maxmin detection algos inside the
+        # display loop for re-draw efficiency.
+        elif yrange is not None:
+            ylow, yhigh = yrange
+
+        # calculate max, min y values in viewable x-range from data.
+        # Make sure min bars/datums on screen is adhered.
+        else:
+            br = bars_range or chart.bars_range()
+
+            # TODO: maybe should be a method on the
+            # chart widget/item?
+            if autoscale_linked_plots:
+                # avoid recursion by sibling plots
+                linked = self.linkedsplits
+                plots = list(linked.subplots.copy().values())
+                main = linked.chart
+                if main:
+                    plots.append(main)
+
+                for chart in plots:
+                    if chart and not chart._static_yrange:
+                        chart.cv._set_yrange(
+                            bars_range=br,
+                            autoscale_linked_plots=False,
+                        )
+
+        if set_range:
+            ylow, yhigh = self._maxmin()
+
+            # view margins: stay within a % of the "true range"
+            diff = yhigh - ylow
+            ylow = ylow - (diff * range_margin)
+            yhigh = yhigh + (diff * range_margin)
+
+            # XXX: this often needs to be unset
+            # to get different view modes to operate
+            # correctly!
+            self.setLimits(
+                yMin=ylow,
+                yMax=yhigh,
+            )
+            self.setYRange(ylow, yhigh)
+
+    def enable_auto_yrange(
+        vb: ChartView,
+
+    ) -> None:
+        '''
+        Assign callback for rescaling y-axis automatically
+        based on data contents and ``ViewBox`` state.
+
+        '''
+        vb.sigXRangeChanged.connect(vb._set_yrange)
+        # mouse wheel doesn't emit XRangeChanged
+        vb.sigRangeChangedManually.connect(vb._set_yrange)
+        vb.sigResized.connect(vb._set_yrange)  # splitter(s) resizing
+
+    def disable_auto_yrange(
+        self,
+    ) -> None:
+
+        self._chart._static_yrange = 'axis'
