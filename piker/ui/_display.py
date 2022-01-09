@@ -81,7 +81,7 @@ def chart_maxmin(
     # https://arxiv.org/abs/cs/0610046
     # https://github.com/lemire/pythonmaxmin
 
-    array = chart._arrays['ohlc']
+    array = chart._arrays[chart.name]
     ifirst = array[0]['index']
 
     last_bars_range = chart.bars_range()
@@ -140,6 +140,7 @@ async def update_linked_charts_graphics(
 
     if vlm_chart:
         vlm_sticky = vlm_chart._ysticks['volume']
+        vlm_view = vlm_chart.view
 
     maxmin = partial(chart_maxmin, chart, vlm_chart)
 
@@ -176,6 +177,7 @@ async def update_linked_charts_graphics(
     tick_margin = 3 * tick_size
 
     chart.show()
+    view = chart.view
     last_quote = time.time()
 
     # async def iter_drain_quotes():
@@ -248,8 +250,10 @@ async def update_linked_charts_graphics(
                     mx_vlm_in_view != last_mx_vlm or
                     mx_vlm_in_view > last_mx_vlm
                 ):
-                    # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
-                    vlm_chart._set_yrange(yrange=(0, mx_vlm_in_view * 1.375))
+                    print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
+                    vlm_view._set_yrange(
+                        yrange=(0, mx_vlm_in_view * 1.375)
+                    )
                     last_mx_vlm = mx_vlm_in_view
 
                 for curve_name, shm in vlm_chart._overlays.items():
@@ -373,9 +377,12 @@ async def update_linked_charts_graphics(
                     l1.bid_label.update_fields({'level': price, 'size': size})
 
             # check for y-range re-size
-            if (mx > last_mx) or (mn < last_mn):
-                # print(f'new y range: {(mn, mx)}')
-                chart._set_yrange(
+            if (
+                (mx > last_mx) or (mn < last_mn)
+                and not chart._static_yrange == 'axis'
+            ):
+                print(f'new y range: {(mn, mx)}')
+                view._set_yrange(
                     yrange=(mn, mx),
                     # TODO: we should probably scale
                     # the view margin based on the size
@@ -397,6 +404,7 @@ async def update_linked_charts_graphics(
                     name,
                     array_key=name,
                 )
+                subchart.cv._set_yrange()
 
                 # TODO: all overlays on all subplots..
 
@@ -408,6 +416,7 @@ async def update_linked_charts_graphics(
                     curve_name,
                     array_key=curve_name,
                 )
+                # chart._set_yrange()
 
 
 async def check_for_new_bars(
@@ -568,7 +577,7 @@ async def display_symbol_data(
                 )
 
         # size view to data once at outset
-        chart._set_yrange()
+        chart.cv._set_yrange()
 
         # TODO: a data view api that makes this less shit
         chart._shm = ohlcv
