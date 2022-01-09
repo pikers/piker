@@ -16,6 +16,7 @@
 
 """
 Qt UI styling.
+
 """
 from typing import Optional, Dict
 import math
@@ -141,7 +142,7 @@ class DpiAwareFont:
         self._font_inches = inches
         font_size = math.floor(inches * dpi)
 
-        log.info(
+        log.debug(
             f"screen:{screen.name()}]\n"
             f"pDPI: {pdpi}, lDPI: {ldpi}, scale: {scale}\n"
             f"\nOur best guess font size is {font_size}\n"
