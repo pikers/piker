@@ -276,7 +276,7 @@ class ContentsLabels:
     ) -> ContentsLabel:
 
         label = ContentsLabel(
-            view=chart._vb,
+            view=chart.view,
             anchor_at=anchor_at,
         )
         self._labels.append(
@@ -438,7 +438,7 @@ class Cursor(pg.GraphicsObject):
         # the current sample under the mouse
         cursor = LineDot(
             curve,
-            index=plot._arrays['ohlc'][-1]['index'],
+            index=plot._arrays[plot.name][-1]['index'],
             plot=plot
         )
         plot.addItem(cursor)

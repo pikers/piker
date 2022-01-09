@@ -342,7 +342,8 @@ class SelectRect(QtGui.QGraphicsRectItem):
         ixmn, ixmx = round(xmn), round(xmx)
         nbars = ixmx - ixmn + 1
 
-        data = self._chart._arrays['ohlc'][ixmn:ixmx]
+        chart = self._chart
+        data = chart._arrays[chart.name][ixmn:ixmx]
 
         if len(data):
             std = data['close'].std()
