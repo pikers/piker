@@ -120,7 +120,6 @@ def update_fsp_chart(
         array,
         array_key=array_key or graphics_name,
     )
-    chart._set_yrange()
 
     # XXX: re: ``array_key``: fsp func names must be unique meaning we
     # can't have duplicates of the underlying data even if multiple
@@ -400,72 +399,69 @@ async def maybe_open_vlm_display(
         log.warning(f"{linked.symbol.key} does not seem to have volume info")
         yield
         return
-    else:
 
-        # shm, opened = maybe_mk_fsp_shm(
-        #     linked.symbol.key,
-        #     'vlm',
-        #     readonly=True,
-        # )
-
-        async with open_fsp_sidepane(
-            linked, {
-                'vlm': {
-                    'params': {
-                        'price_func': {
-                            'default_value': 'chl3',
-                            # tell target ``Edit`` widget to not allow
-                            # edits for now.
-                            'widget_kwargs': {'readonly': True},
-                        },
+    async with open_fsp_sidepane(
+        linked, {
+            'vlm': {
+                'params': {
+                    'price_func': {
+                        'default_value': 'chl3',
+                        # tell target ``Edit`` widget to not allow
+                        # edits for now.
+                        'widget_kwargs': {'readonly': True},
                     },
-                }
-            },
-        ) as sidepane:
+                },
+            }
+        },
+    ) as sidepane:
 
-            # built-in $vlm
-            shm = ohlcv
-            chart = linked.add_plot(
-                name='volume',
-                array=shm.array,
+        # built-in $vlm
+        shm = ohlcv
+        chart = linked.add_plot(
+            name='volume',
+            array=shm.array,
 
-                array_key='volume',
-                sidepane=sidepane,
+            array_key='volume',
+            sidepane=sidepane,
 
-                # curve by default
-                ohlc=False,
+            # curve by default
+            ohlc=False,
 
-                # Draw vertical bars from zero.
-                # we do this internally ourselves since
-                # the curve item internals are pretty convoluted.
-                style='step',
-            )
+            # Draw vertical bars from zero.
+            # we do this internally ourselves since
+            # the curve item internals are pretty convoluted.
+            style='step',
+        )
 
-            # XXX: ONLY for sub-chart fsps, overlays have their
-            # data looked up from the chart's internal array set.
-            # TODO: we must get a data view api going STAT!!
-            chart._shm = shm
+        # show volume units value on LHS (for dinkus)
+        chart.hideAxis('right')
+        chart.showAxis('left')
 
-            # should **not** be the same sub-chart widget
-            assert chart.name != linked.chart.name
+        # XXX: ONLY for sub-chart fsps, overlays have their
+        # data looked up from the chart's internal array set.
+        # TODO: we must get a data view api going STAT!!
+        chart._shm = shm
 
-            # sticky only on sub-charts atm
-            last_val_sticky = chart._ysticks[chart.name]
+        # should **not** be the same sub-chart widget
+        assert chart.name != linked.chart.name
 
-            # read from last calculated value
-            value = shm.array['volume'][-1]
+        # sticky only on sub-charts atm
+        last_val_sticky = chart._ysticks[chart.name]
 
-            last_val_sticky.update_from_data(-1, value)
+        # read from last calculated value
+        value = shm.array['volume'][-1]
 
-            chart.update_curve_from_array(
-                'volume',
-                shm.array,
-            )
+        last_val_sticky.update_from_data(-1, value)
 
-            # size view to data once at outset
-            chart._set_yrange()
+        chart.update_curve_from_array(
+            'volume',
+            shm.array,
+        )
 
-            yield chart
+        # size view to data once at outset
+        chart.view._set_yrange()
+
+        yield chart
 
 
 async def run_fsp_ui(
@@ -494,7 +490,10 @@ async def run_fsp_ui(
 
     async with (
         # side UI for parameters/controls
-        open_fsp_sidepane(linkedsplits, {display_name: conf},) as sidepane,
+        open_fsp_sidepane(
+            linkedsplits,
+            {display_name: conf},
+        ) as sidepane,
     ):
         await started.wait()
         profiler(f'fsp:{func_name} attached to fsp ctx-stream')
@@ -511,6 +510,7 @@ async def run_fsp_ui(
                 data=shm.array,
                 overlay=True,
                 color='default_light',
+                array_key=func_name,
                 separate_axes=conf.get('separate_axes', False),
                 **conf.get('chart_kwargs', {})
             )
@@ -575,7 +575,7 @@ async def run_fsp_ui(
             level_line(chart, 70, orient_v='bottom')
             level_line(chart, 80, orient_v='top')
 
-        chart._set_yrange()
+        chart.view._set_yrange()
         # done()  # status updates
 
         profiler(f'fsp:{func_name} starting update loop')
@@ -669,7 +669,6 @@ async def start_fsp_displays(
             },
 
             'dolla_vlm': {
-
                 'func_name': 'dolla_vlm',
                 'zero_on_step': True,
                 'overlay': 'volume',
@@ -701,8 +700,10 @@ async def start_fsp_displays(
 
         trio.open_nursery(),
 
-        # TODO: fast startup of volume overlayed with $_vlm
-        maybe_open_vlm_display(linkedsplits, ohlcv),
+        maybe_open_vlm_display(
+            linkedsplits,
+            ohlcv,
+        ),
 
     )) as (admin, n, vlm_chart):
 
