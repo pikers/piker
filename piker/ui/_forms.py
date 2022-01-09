@@ -174,7 +174,6 @@ class Selection(QComboBox):
     def __init__(
         self,
         parent=None,
-
     ) -> None:
 
         self._items: dict[str, int] = {}
@@ -200,7 +199,6 @@ class Selection(QComboBox):
 
     def set_style(
         self,
-
         color: str,
         font_size: int,
 
@@ -217,6 +215,7 @@ class Selection(QComboBox):
     def resize(
         self,
         char: str = 'W',
+
     ) -> None:
         br = _font.boundingRect(str(char))
         _, h = br.width(), br.height()
@@ -238,9 +237,11 @@ class Selection(QComboBox):
         keys: list[str],
 
     ) -> None:
-        '''Write keys to the selection verbatim.
+        '''
+        Write keys to the selection verbatim.
 
         All other items are cleared beforehand.
+
         '''
         self.clear()
         self._items.clear()
@@ -536,7 +537,8 @@ async def open_form_input_handling(
 
 
 class FillStatusBar(QProgressBar):
-    '''A status bar for fills up to a position limit.
+    '''
+    A status bar for fills up to a position limit.
 
     '''
     border_px: int = 2
@@ -663,6 +665,7 @@ def mk_fill_status_bar(
     )
 
     bar_labels_lhs.addSpacing(5/8 * bar_h)
+
     bar_labels_lhs.addWidget(
         left_label,
         # XXX: doesn't seem to actually push up against
