@@ -347,7 +347,8 @@ class CompleterView(QTreeView):
         clear_all: bool = False,
 
     ) -> None:
-        '''Set result-rows for depth = 1 tree section ``section``.
+        '''
+        Set result-rows for depth = 1 tree section ``section``.
 
         '''
         model = self.model()
@@ -438,7 +439,8 @@ class SearchBar(Edit):
 
 
 class SearchWidget(QtWidgets.QWidget):
-    '''Composed widget of ``SearchBar`` + ``CompleterView``.
+    '''
+    Composed widget of ``SearchBar`` + ``CompleterView``.
 
     Includes helper methods for item management in the sub-widgets.
 
