@@ -24,7 +24,7 @@ from typing import Optional, Callable
 import inspect
 import numpy as np
 import pyqtgraph as pg
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import QPointF, QRectF
 
 from ._style import (
@@ -43,8 +43,8 @@ log = get_logger(__name__)
 # latency (in terms of perceived lag in cross hair) so really be sure
 # there's an improvement if you want to change it!
 
-_mouse_rate_limit = 120  # TODO; should we calc current screen refresh rate?
-_debounce_delay = 1 / 40
+_mouse_rate_limit = 58  # TODO; should we calc current screen refresh rate?
+_debounce_delay = 1 / 60
 _ch_label_opac = 1
 
 
@@ -64,7 +64,7 @@ class LineDot(pg.CurvePoint):
 
     ) -> None:
         # scale from dpi aware font size
-        size = int(_font.px_size  * 0.375)
+        size = int(_font.px_size * 0.375)
 
         pg.CurvePoint.__init__(
             self,
@@ -246,12 +246,16 @@ class ContentsLabels:
         # for name, (label, update) in self._labels.items():
         for chart, name, label, update in self._labels:
 
-            if not (index >= 0 and index < chart._arrays['ohlc'][-1]['index']):
+            array = chart._arrays[name]
+            if not (
+                index >= 0
+                and index < array[-1]['index']
+            ):
                 # out of range
                 print('out of range?')
                 continue
 
-            array = chart._arrays[name]
+            # array = chart._arrays[name]
 
             # call provided update func with data point
             try:
@@ -462,12 +466,15 @@ class Cursor(pg.GraphicsObject):
 
     def mouseMoved(
         self,
-        evt: 'tuple[QMouseEvent]',  # noqa
-    ) -> None:  # noqa
-        """Update horizonal and vertical lines when mouse moves inside
+        coords: tuple[QPointF],  # noqa
+
+    ) -> None:
+        '''
+        Update horizonal and vertical lines when mouse moves inside
         either the main chart or any indicator subplot.
-        """
-        pos = evt[0]
+
+        '''
+        pos = coords[0]
 
         # find position inside active plot
         try:
@@ -516,28 +523,37 @@ class Cursor(pg.GraphicsObject):
                 # with cursor movement
                 self.contents_labels.update_labels(ix)
 
+            vl_x = ix + line_offset
             for plot, opts in self.graphics.items():
 
-                # update the chart's "contents" label
-                # plot.update_contents_labels(ix)
-
                 # move the vertical line to the current "center of bar"
-                opts['vl'].setX(ix + line_offset)
+                opts['vl'].setX(vl_x)
 
                 # update all subscribed curve dots
                 for cursor in opts.get('cursors', ()):
                     cursor.setIndex(ix)
 
                 # update the label on the bottom of the crosshair
-                if 'bottom' in plot.plotItem.axes:
+                axes = plot.plotItem.axes
+
+                # TODO: make this an up-front calc that we update
+                # on axis-widget resize events.
+                # left axis offset width for calcuating
+                # absolute x-axis label placement.
+                left_axis_width = 0
+
+                if 'bottom' in axes:
+
+                    left = axes.get('left')
+                    if left:
+                        left_axis_width = left['item'].width()
+
+                    # map back to abs (label-local) coordinates
                     self.xaxis_label.update_label(
-
-                        # XXX: requires:
-                        # https://github.com/pyqtgraph/pyqtgraph/pull/1418
-                        # otherwise gobbles tons of CPU..
-
-                        # map back to abs (label-local) coordinates
-                        abs_pos=plot.mapFromView(QPointF(ix + line_offset, iy)),
+                        abs_pos=(
+                            plot.mapFromView(QPointF(vl_x, iy)) -
+                            QPointF(left_axis_width, 0)
+                        ),
                         value=ix,
                     )
 
