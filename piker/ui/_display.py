@@ -40,6 +40,8 @@ from ._l1 import L1Labels
 from ._fsp import (
     update_fsp_chart,
     start_fsp_displays,
+    has_vlm,
+    open_vlm_displays,
 )
 from ..data._sharedmem import ShmArray, try_read
 from ._forms import (
@@ -81,7 +83,7 @@ def chart_maxmin(
     # https://arxiv.org/abs/cs/0610046
     # https://github.com/lemire/pythonmaxmin
 
-    array = chart._arrays['ohlc']
+    array = chart._arrays[chart.name]
     ifirst = array[0]['index']
 
     last_bars_range = chart.bars_range()
@@ -139,6 +141,7 @@ async def update_linked_charts_graphics(
 
     if vlm_chart:
         vlm_sticky = vlm_chart._ysticks['volume']
+        vlm_view = vlm_chart.view
 
     maxmin = partial(chart_maxmin, chart, vlm_chart)
 
@@ -175,6 +178,7 @@ async def update_linked_charts_graphics(
     tick_margin = 3 * tick_size
 
     chart.show()
+    view = chart.view
     last_quote = time.time()
 
     async for quotes in stream:
@@ -186,7 +190,10 @@ async def update_linked_charts_graphics(
 
         if (
             quote_period <= 1/_quote_throttle_rate
-            and quote_rate > _quote_throttle_rate * 1.5
+
+            # in the absolute worst case we shouldn't see more then
+            # twice the expected throttle rate right!?
+            and quote_rate >= _quote_throttle_rate * 1.5
         ):
             log.warning(f'High quote rate {symbol.key}: {quote_rate}')
         last_quote = now
@@ -223,7 +230,9 @@ async def update_linked_charts_graphics(
                     mx_vlm_in_view > last_mx_vlm
                 ):
                     # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
-                    vlm_chart._set_yrange(yrange=(0, mx_vlm_in_view * 1.375))
+                    vlm_view._set_yrange(
+                        yrange=(0, mx_vlm_in_view * 1.375)
+                    )
                     last_mx_vlm = mx_vlm_in_view
 
                 for curve_name, shm in vlm_chart._overlays.items():
@@ -347,9 +356,12 @@ async def update_linked_charts_graphics(
                     l1.bid_label.update_fields({'level': price, 'size': size})
 
             # check for y-range re-size
-            if (mx > last_mx) or (mn < last_mn):
+            if (
+                (mx > last_mx) or (mn < last_mn)
+                and not chart._static_yrange == 'axis'
+            ):
                 # print(f'new y range: {(mn, mx)}')
-                chart._set_yrange(
+                view._set_yrange(
                     yrange=(mn, mx),
                     # TODO: we should probably scale
                     # the view margin based on the size
@@ -371,6 +383,7 @@ async def update_linked_charts_graphics(
                     name,
                     array_key=name,
                 )
+                subchart.cv._set_yrange()
 
                 # TODO: all overlays on all subplots..
 
@@ -382,6 +395,7 @@ async def update_linked_charts_graphics(
                     curve_name,
                     array_key=curve_name,
                 )
+                # chart._set_yrange()
 
 
 async def check_for_new_bars(
@@ -542,7 +556,7 @@ async def display_symbol_data(
                 )
 
         # size view to data once at outset
-        chart._set_yrange()
+        chart.cv._set_yrange()
 
         # TODO: a data view api that makes this less shit
         chart._shm = ohlcv
@@ -557,13 +571,19 @@ async def display_symbol_data(
         vlm_chart: Optional[ChartPlotWidget] = None
         async with trio.open_nursery() as ln:
 
-            # load initial fsp chain (otherwise known as "indicators")
-            admin, vlm_chart = await ln.start(
-                start_fsp_displays,
+            # if available load volume related built-in display(s)
+            if has_vlm(ohlcv):
+                vlm_chart = await ln.start(
+                    open_vlm_displays,
+                    linkedsplits,
+                    ohlcv,
+                )
 
+            # load (user's) FSP set (otherwise known as "indicators")
+            # from an input config.
+            ln.start_soon(
+                start_fsp_displays,
                 linkedsplits,
-                brokermod,
-                sym,
                 ohlcv,
                 loading_sym_key,
                 loglevel,
@@ -600,6 +620,10 @@ async def display_symbol_data(
                 # sidepanes line up vertically.
                 await trio.sleep(0)
                 linkedsplits.resize_sidepanes()
+
+                # TODO: make this not so shit XD
+                # close group status
+                sbar._status_groups[loading_sym_key][1]()
 
                 # let the app run.
                 await trio.sleep_forever()
