@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -25,7 +25,7 @@ from typing import Callable, Optional, Union
 import uuid
 
 from pyqtgraph import QtGui
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import QtCore
 from PyQt5.QtWidgets import QLabel, QStatusBar
 
 from ..log import get_logger
@@ -55,7 +55,8 @@ class MultiStatus:
         group_key: Optional[Union[bool, str]] = False,
 
     ) -> Union[Callable[..., None], str]:
-        '''Add a status to the status bar and return a close callback which
+        '''
+        Add a status to the status bar and return a close callback which
         when called will remove the status ``msg``.
 
         '''
@@ -137,7 +138,8 @@ class MultiStatus:
         return ret
 
     def render(self) -> None:
-        '''Display all open statuses to bar.
+        '''
+        Display all open statuses to bar.
 
         '''
         if self.statuses:

@@ -40,6 +40,8 @@ from ._l1 import L1Labels
 from ._fsp import (
     update_fsp_chart,
     start_fsp_displays,
+    has_vlm,
+    open_vlm_displays,
 )
 from ..data._sharedmem import ShmArray, try_read
 from ._forms import (
@@ -213,7 +215,7 @@ async def update_linked_charts_graphics(
 
             # in the absolute worst case we shouldn't see more then
             # twice the expected throttle rate right!?
-            and quote_rate >= _quote_throttle_rate * 1.9
+            and quote_rate >= _quote_throttle_rate * 1.5
         ):
             log.warning(f'High quote rate {symbol.key}: {quote_rate}')
 
@@ -250,7 +252,7 @@ async def update_linked_charts_graphics(
                     mx_vlm_in_view != last_mx_vlm or
                     mx_vlm_in_view > last_mx_vlm
                 ):
-                    print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
+                    # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
                     vlm_view._set_yrange(
                         yrange=(0, mx_vlm_in_view * 1.375)
                     )
@@ -381,7 +383,7 @@ async def update_linked_charts_graphics(
                 (mx > last_mx) or (mn < last_mn)
                 and not chart._static_yrange == 'axis'
             ):
-                print(f'new y range: {(mn, mx)}')
+                # print(f'new y range: {(mn, mx)}')
                 view._set_yrange(
                     yrange=(mn, mx),
                     # TODO: we should probably scale
@@ -592,13 +594,19 @@ async def display_symbol_data(
         vlm_chart: Optional[ChartPlotWidget] = None
         async with trio.open_nursery() as ln:
 
-            # load initial fsp chain (otherwise known as "indicators")
-            admin, vlm_chart = await ln.start(
-                start_fsp_displays,
+            # if available load volume related built-in display(s)
+            if has_vlm(ohlcv):
+                vlm_chart = await ln.start(
+                    open_vlm_displays,
+                    linkedsplits,
+                    ohlcv,
+                )
 
+            # load (user's) FSP set (otherwise known as "indicators")
+            # from an input config.
+            ln.start_soon(
+                start_fsp_displays,
                 linkedsplits,
-                brokermod,
-                sym,
                 ohlcv,
                 loading_sym_key,
                 loglevel,
@@ -635,6 +643,11 @@ async def display_symbol_data(
                 # sidepanes line up vertically.
                 await trio.sleep(0)
                 linkedsplits.resize_sidepanes()
+
+
+                # TODO: make this not so shit XD
+                # close group status
+                sbar._status_groups[loading_sym_key][1]()
 
                 # let the app run.
                 await trio.sleep_forever()
