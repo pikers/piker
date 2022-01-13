@@ -328,8 +328,10 @@ class FastAppendCurve(pg.PlotCurveItem):
         profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
         # p.setRenderHint(p.Antialiasing, True)
 
-        if self._step_mode:
-
+        if (
+            self._step_mode
+            and self._last_step_rect
+        ):
             brush = self.opts['brush']
             # p.drawLines(*tuple(filter(bool, self._last_step_lines)))
             # p.drawRect(self._last_step_rect)
