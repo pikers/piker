@@ -18,7 +18,7 @@
 Chart axes graphics and behavior.
 
 """
-import functools
+from functools import partial
 from typing import List, Tuple, Optional
 from math import floor
 
@@ -29,6 +29,7 @@ from PyQt5.QtCore import QPointF
 
 from ._style import DpiAwareFont, hcolor, _font
 from ..data._source import float_digits
+from ..calc import humanize
 
 _axis_pen = pg.mkPen(hcolor('bracket'))
 
@@ -92,6 +93,18 @@ class Axis(pg.AxisItem):
 
 class PriceAxis(Axis):
 
+    def __init__(
+        self,
+        *args,
+        humanize: bool = True,
+        digits: int = 2,
+        **kwargs
+
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.humanize = humanize
+        self.digits = digits
+
     def size_to_values(self) -> None:
         self.setWidth(self.typical_br.width())
 
@@ -103,20 +116,25 @@ class PriceAxis(Axis):
         scale,
         spacing,
     ):
-
-        # TODO: figure out how to enforce min tick spacing by passing
-        # it into the parent type
-        digits = max(float_digits(spacing * scale), self._min_tick)
+        # TODO: figure out how to enforce min tick spacing by passing it
+        # into the parent type
+        digits = max(
+            float_digits(spacing * scale),
+            self._min_tick,
+        )
 
         # print(f'vals: {vals}\nscale: {scale}\nspacing: {spacing}')
         # print(f'digits: {digits}')
 
-        return [
-            ('{value:,.{digits}f}').format(
-                digits=digits,
-                value=v,
-            ).replace(',', ' ') for v in vals
-        ]
+        if not self.humanize:
+            return [
+                ('{value:,.{digits}f}').format(
+                    digits=digits,
+                    value=v,
+                ).replace(',', ' ') for v in vals
+            ]
+        else:
+            return list(map(partial(humanize, digits=self.digits), vals))
 
 
 class DynamicDateAxis(Axis):
