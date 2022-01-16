@@ -19,7 +19,7 @@ Chart axes graphics and behavior.
 
 """
 from functools import partial
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Callable
 from math import floor
 
 import pandas as pd
@@ -29,7 +29,6 @@ from PyQt5.QtCore import QPointF
 
 from ._style import DpiAwareFont, hcolor, _font
 from ..data._source import float_digits
-from ..calc import humanize
 
 _axis_pen = pg.mkPen(hcolor('bracket'))
 
@@ -43,7 +42,6 @@ class Axis(pg.AxisItem):
         self,
         linkedsplits,
         typical_max_str: str = '100 000.000',
-        min_tick: int = 2,
         **kwargs
 
     ) -> None:
@@ -53,7 +51,6 @@ class Axis(pg.AxisItem):
         # self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
         self.linkedsplits = linkedsplits
-        self._min_tick = min_tick
         self._dpi_font = _font
 
         self.setTickFont(_font.font)
@@ -84,9 +81,6 @@ class Axis(pg.AxisItem):
     def size_to_values(self) -> None:
         pass
 
-    def set_min_tick(self, size: int) -> None:
-        self._min_tick = size
-
     def txt_offsets(self) -> Tuple[int, int]:
         return tuple(self.style['tickTextOffset'])
 
@@ -96,26 +90,34 @@ class PriceAxis(Axis):
     def __init__(
         self,
         *args,
-        humanize: bool = True,
-        digits: int = 2,
+        min_tick: int = 2,
+        formatter: Optional[Callable[[float], str]] = None,
         **kwargs
 
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.humanize = humanize
-        self.digits = digits
+        self.formatter = formatter
+        self._min_tick: int = min_tick
+
+    def set_min_tick(
+        self,
+        size: int
+    ) -> None:
+        self._min_tick = size
 
     def size_to_values(self) -> None:
+        # self.typical_br = _font._qfm.boundingRect(typical_max_str)
         self.setWidth(self.typical_br.width())
 
     # XXX: drop for now since it just eats up h space
 
     def tickStrings(
         self,
-        vals,
-        scale,
-        spacing,
-    ):
+        vals: tuple[float],
+        scale: float,
+        spacing: float,
+
+    ) -> list[str]:
         # TODO: figure out how to enforce min tick spacing by passing it
         # into the parent type
         digits = max(
@@ -126,7 +128,7 @@ class PriceAxis(Axis):
         # print(f'vals: {vals}\nscale: {scale}\nspacing: {spacing}')
         # print(f'digits: {digits}')
 
-        if not self.humanize:
+        if not self.formatter:
             return [
                 ('{value:,.{digits}f}').format(
                     digits=digits,
@@ -134,7 +136,7 @@ class PriceAxis(Axis):
                 ).replace(',', ' ') for v in vals
             ]
         else:
-            return list(map(partial(humanize, digits=self.digits), vals))
+            return list(map(self.formatter, vals))
 
 
 class DynamicDateAxis(Axis):
@@ -154,6 +156,7 @@ class DynamicDateAxis(Axis):
     def _indexes_to_timestrs(
         self,
         indexes: List[int],
+
     ) -> List[str]:
 
         chart = self.linkedsplits.chart
@@ -183,9 +186,10 @@ class DynamicDateAxis(Axis):
     def tickStrings(
         self,
         values: tuple[float],
-        scale,
-        spacing,
-    ):
+        scale: float,
+        spacing: float,
+
+    ) -> list[str]:
         # info = self.tickStrings.cache_info()
         # print(info)
         return self._indexes_to_timestrs(values)
