@@ -136,7 +136,7 @@ def ingest(config, name, test_file, tl, url):
     """Ingest real-time broker quotes and ticks to a marketstore instance.
     """
     # global opts
-    brokermod = config['brokermod']
+    brokermods = config['brokermods']
     loglevel = config['loglevel']
     tractorloglevel = config['tractorloglevel']
     # log = config['log']
@@ -145,15 +145,25 @@ def ingest(config, name, test_file, tl, url):
     watchlists = wl.merge_watchlist(watchlist_from_file, wl._builtins)
     symbols = watchlists[name]
 
-    tractor.run(
-        partial(
-            ingest_quote_stream,
-            symbols,
-            brokermod.name,
-            tries=1,
-            loglevel=loglevel,
-        ),
-        name='ingest_marketstore',
-        loglevel=tractorloglevel,
-        debug_mode=True,
-    )
+    grouped_syms = {}
+    for sym in symbols:
+        symbol, _, provider = sym.rpartition('.')
+        if provider not in grouped_syms:
+            grouped_syms[provider] = []
+
+        grouped_syms[provider].append(symbol)
+
+    async def entry_point():
+        async with tractor.open_nursery() as n:
+            for provider, symbols in grouped_syms.items(): 
+                await n.run_in_actor(
+                    ingest_quote_stream,
+                    name='ingest_marketstore',
+                    symbols=symbols,
+                    brokername=provider,
+                    tries=1,
+                    actorloglevel=loglevel,
+                    loglevel=tractorloglevel
+                )
+
+    tractor.run(entry_point)
