@@ -33,7 +33,9 @@ import pyqtgraph as pg
 import trio
 from trio_typing import TaskStatus
 
+from ._axes import PriceAxis
 from .._cacheables import maybe_open_context
+from ..calc import humanize
 from ..data._sharedmem import (
     ShmArray,
     maybe_open_shm_array,
@@ -661,73 +663,98 @@ async def open_vlm_displays(
         # size view to data once at outset
         chart.view._set_yrange()
 
-        if not dvlm:
-            return
+        # add axis title
+        axis = chart.getAxis('right')
+        axis.set_title(' vlm')
 
-        # spawn and overlay $ vlm on the same subchart
-        shm, started = await admin.start_engine_task(
-            'dolla_vlm',
-            # linked.symbol.front_feed(),  # data-feed symbol key
-            {  # fsp engine conf
-                'func_name': 'dolla_vlm',
-                'zero_on_step': True,
-                'params': {
-                    'price_func': {
-                        'default_value': 'chl3',
+        if dvlm:
+
+            # spawn and overlay $ vlm on the same subchart
+            shm, started = await admin.start_engine_task(
+                'dolla_vlm',
+                # linked.symbol.front_feed(),  # data-feed symbol key
+                {  # fsp engine conf
+                    'func_name': 'dolla_vlm',
+                    'zero_on_step': True,
+                    'params': {
+                        'price_func': {
+                            'default_value': 'chl3',
+                        },
                     },
                 },
-            },
-            # loglevel,
-        )
-        # profiler(f'created shm for fsp actor: {display_name}')
+                # loglevel,
+            )
+            # profiler(f'created shm for fsp actor: {display_name}')
 
-        await started.wait()
+            await started.wait()
 
-        pi = chart.overlay_plotitem(
-            'dolla_vlm',
-        )
-        # add custom auto range handler
-        pi.vb._maxmin = partial(maxmin, name='dolla_vlm')
+            pi = chart.overlay_plotitem(
+                'dolla_vlm',
+                axis_kwargs={
+                    # 'humanize': True,
+                    # 'text': 'dvlm',
+                    'typical_max_str': ' 99.9 M ',
+                    'formatter': partial(
+                        humanize,
+                        digits=2,
+                    ),
+                },
 
-        curve, _ = chart.draw_curve(
+            )
 
-            name='dolla_vlm',
-            data=shm.array,
+            # add axis title
+            raxis = pi.getAxis('right')
+            raxis.set_title(' $vlm', view=pi.getViewBox())
 
-            array_key='dolla_vlm',
-            overlay=pi,
-            color='charcoal',
-            step_mode=True,
-            # **conf.get('chart_kwargs', {})
-        )
-        # TODO: is there a way to "sync" the dual axes such that only
-        # one curve is needed?
-        # curve.hide()
+            # add custom auto range handler
+            pi.vb._maxmin = partial(maxmin, name='dolla_vlm')
 
-        # TODO: we need a better API to do this..
-        # specially store ref to shm for lookup in display loop
-        # since only a placeholder of `None` is entered in
-        # ``.draw_curve()``.
-        chart._overlays['dolla_vlm'] = shm
+            curve, _ = chart.draw_curve(
 
-        # XXX: old dict-style config before it was moved into the helper task
-        #     'dolla_vlm': {
-        #         'func_name': 'dolla_vlm',
-        #         'zero_on_step': True,
-        #         'overlay': 'volume',
-        #         'separate_axes': True,
-        #         'params': {
-        #             'price_func': {
-        #                 'default_value': 'chl3',
-        #                 # tell target ``Edit`` widget to not allow
-        #                 # edits for now.
-        #                 'widget_kwargs': {'readonly': True},
-        #             },
-        #         },
-        #         'chart_kwargs': {'step_mode': True}
-        #     },
+                name='dolla_vlm',
+                data=shm.array,
 
-        # }
+                array_key='dolla_vlm',
+                overlay=pi,
+                color='charcoal',
+                step_mode=True,
+                # **conf.get('chart_kwargs', {})
+            )
+            # TODO: is there a way to "sync" the dual axes such that only
+            # one curve is needed?
+            # curve.hide()
+
+            # TODO: we need a better API to do this..
+            # specially store ref to shm for lookup in display loop
+            # since only a placeholder of `None` is entered in
+            # ``.draw_curve()``.
+            chart._overlays['dolla_vlm'] = shm
+
+            # XXX: old dict-style config before it was moved into the
+            # helper task
+            #     'dolla_vlm': {
+            #         'func_name': 'dolla_vlm',
+            #         'zero_on_step': True,
+            #         'overlay': 'volume',
+            #         'separate_axes': True,
+            #         'params': {
+            #             'price_func': {
+            #                 'default_value': 'chl3',
+            #                 # tell target ``Edit`` widget to not allow
+            #                 # edits for now.
+            #                 'widget_kwargs': {'readonly': True},
+            #             },
+            #         },
+            #         'chart_kwargs': {'step_mode': True}
+            #     },
+
+            # }
+
+            for name, axis_info in pi.axes.items():
+                # lol this sux XD
+                axis = axis_info['item']
+                if isinstance(axis, PriceAxis):
+                    axis.size_to_values()
 
         # built-in vlm fsps
         for display_name, conf in {
