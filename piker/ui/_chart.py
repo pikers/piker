@@ -862,6 +862,7 @@ class ChartPlotWidget(pg.PlotWidget):
     def overlay_plotitem(
         self,
         name: str,
+        axis_kwargs: dict = {},
 
     ) -> pg.PlotItem:
         # Custom viewbox impl
@@ -875,6 +876,7 @@ class ChartPlotWidget(pg.PlotWidget):
         yaxis = PriceAxis(
             orientation='right',
             linkedsplits=self.linked,
+            **axis_kwargs,
         )
 
         plotitem = pg.PlotItem(
