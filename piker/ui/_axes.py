@@ -18,7 +18,7 @@
 Chart axes graphics and behavior.
 
 """
-from functools import partial
+from functools import lru_cache
 from typing import List, Tuple, Optional, Callable
 from math import floor
 
@@ -27,8 +27,10 @@ import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
 
-from ._style import DpiAwareFont, hcolor, _font
 from ..data._source import float_digits
+from ._label import Label
+from ._style import DpiAwareFont, hcolor, _font
+from ._interaction import ChartView
 
 _axis_pen = pg.mkPen(hcolor('bracket'))
 
@@ -72,7 +74,10 @@ class Axis(pg.AxisItem):
         })
 
         self.setTickFont(_font.font)
+        # NOTE: this is for surrounding "border"
         self.setPen(_axis_pen)
+        # this is the text color
+        self.setTextPen(_axis_pen)
         self.typical_br = _font._qfm.boundingRect(typical_max_str)
 
         # size the pertinent axis dimension to a "typical value"
@@ -91,6 +96,7 @@ class PriceAxis(Axis):
         self,
         *args,
         min_tick: int = 2,
+        title: str = '',
         formatter: Optional[Callable[[float], str]] = None,
         **kwargs
 
@@ -98,6 +104,43 @@ class PriceAxis(Axis):
         super().__init__(*args, **kwargs)
         self.formatter = formatter
         self._min_tick: int = min_tick
+        self.title = None
+
+    def set_title(
+        self,
+        title: str,
+        view: Optional[ChartView] = None
+
+    ) -> Label:
+        '''
+        Set a sane UX label using our built-in ``Label``.
+
+        '''
+        # XXX: built-in labels but they're huge, and placed weird..
+        # self.setLabel(title)
+        # self.showLabel()
+
+        label = self.title = Label(
+            view=view or self.linkedView(),
+            fmt_str=title,
+            color='bracket',
+            parent=self,
+            # update_on_range_change=False,
+        )
+
+        def below_axis() -> QPointF:
+            return QPointF(
+                0,
+                self.size().height(),
+            )
+
+        # XXX: doesn't work? have to pass it above
+        # label.txt.setParent(self)
+        label.scene_anchor = below_axis
+        label.render()
+        label.show()
+        label.update()
+        return label
 
     def set_min_tick(
         self,
@@ -124,6 +167,8 @@ class PriceAxis(Axis):
             float_digits(spacing * scale),
             self._min_tick,
         )
+        if self.title:
+            self.title.update()
 
         # print(f'vals: {vals}\nscale: {scale}\nspacing: {spacing}')
         # print(f'digits: {digits}')
@@ -291,9 +336,10 @@ class AxisLabel(pg.GraphicsObject):
 
 
     def boundingRect(self):  # noqa
-        """Size the graphics space from the text contents.
+        '''
+        Size the graphics space from the text contents.
 
-        """
+        '''
         if self.label_str:
             self._size_br_from_str(self.label_str)
 
@@ -309,23 +355,32 @@ class AxisLabel(pg.GraphicsObject):
 
         return QtCore.QRectF()
 
-        # return self.rect or QtCore.QRectF()
+    # TODO: but the input probably needs to be the "len" of
+    # the current text value:
+    @lru_cache
+    def _size_br_from_str(
+        self,
+        value: str
 
-    def _size_br_from_str(self, value: str) -> None:
-        """Do our best to render the bounding rect to a set margin
+    ) -> tuple[float, float]:
+        '''
+        Do our best to render the bounding rect to a set margin
         around provided string contents.
 
-        """
+        '''
         # size the filled rect to text and/or parent axis
         # if not self._txt_br:
-        #     # XXX: this can't be c
+        #     # XXX: this can't be called until stuff is rendered?
         #     self._txt_br = self._dpifont.boundingRect(value)
 
         txt_br = self._txt_br = self._dpifont.boundingRect(value)
         txt_h, txt_w = txt_br.height(), txt_br.width()
+        # print(f'wsw: {self._dpifont.boundingRect(" ")}')
 
         # allow subtypes to specify a static width and height
         h, w = self.size_hint()
+        # print(f'axis size: {self._parent.size()}')
+        # print(f'axis geo: {self._parent.geometry()}')
 
         self.rect = QtCore.QRectF(
             0, 0,
@@ -336,7 +391,7 @@ class AxisLabel(pg.GraphicsObject):
         # hb = self.path.controlPointRect()
         # hb_size = hb.size()
 
-        return self.rect
+        return (self.rect.width(), self.rect.height())
 
 # _common_text_flags = (
 #     QtCore.Qt.TextDontClip |
@@ -432,8 +487,12 @@ class YAxisLabel(AxisLabel):
             self.x_offset, y_offset = self._parent.txt_offsets()
 
     def size_hint(self) -> Tuple[float, float]:
-        # size to parent axis width
-        return None, self._parent.width()
+        # size to parent axis width(-ish)
+        wsh = self._dpifont.boundingRect(' ').height() / 2
+        return (
+            None,
+            self._parent.size().width() - wsh,
+        )
 
     def update_label(
         self,
@@ -461,9 +520,10 @@ class YAxisLabel(AxisLabel):
         self.update()
 
     def update_on_resize(self, vr, r):
-        """Tiis is a ``.sigRangeChanged()`` handler.
+        '''
+        This is a ``.sigRangeChanged()`` handler.
 
-        """
+        '''
         index, last = self._last_datum
         if index is not None:
             self.update_from_data(index, last)
@@ -473,11 +533,13 @@ class YAxisLabel(AxisLabel):
         index: int,
         value: float,
         _save_last: bool = True,
+
     ) -> None:
-        """Update the label's text contents **and** position from
+        '''
+        Update the label's text contents **and** position from
         a view box coordinate datum.
 
-        """
+        '''
         if _save_last:
             self._last_datum = (index, value)
 
