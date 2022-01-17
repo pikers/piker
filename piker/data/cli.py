@@ -25,11 +25,13 @@ import trio
 import tractor
 import click
 
+from anyio_marketstore import open_marketstore_client
+
 from .marketstore import (
     get_client,
-    stream_quotes,
+    # stream_quotes,
     ingest_quote_stream,
-    _url,
+    # _url,
     _tick_tbk_ids,
     mk_tbk,
 )
@@ -54,46 +56,47 @@ def ms_stream(config: dict, names: List[str], url: str):
     and print to console.
     """
     async def main():
-        async for quote in stream_quotes(symbols=names):
-            log.info(f"Received quote:\n{quote}")
+        # async for quote in stream_quotes(symbols=names):
+        #    log.info(f"Received quote:\n{quote}")
+        ...
 
     trio.run(main)
 
 
-@cli.command()
-@click.option(
-    '--url',
-    default=_url,
-    help='HTTP URL of marketstore instance'
-)
-@click.argument('names', nargs=-1)
-@click.pass_obj
-def ms_destroy(config: dict, names: List[str], url: str) -> None:
-    """Destroy symbol entries in the local marketstore instance.
-    """
-    async def main():
-        nonlocal names
-        async with get_client(url) as client:
-
-            if not names:
-                names = await client.list_symbols()
-
-            # default is to wipe db entirely.
-            answer = input(
-                "This will entirely wipe you local marketstore db @ "
-                f"{url} of the following symbols:\n {pformat(names)}"
-                "\n\nDelete [N/y]?\n")
-
-            if answer == 'y':
-                for sym in names:
-                    # tbk = _tick_tbk.format(sym)
-                    tbk = tuple(sym, *_tick_tbk_ids)
-                    print(f"Destroying {tbk}..")
-                    await client.destroy(mk_tbk(tbk))
-            else:
-                print("Nothing deleted.")
-
-    tractor.run(main)
+# @cli.command()
+# @click.option(
+#     '--url',
+#     default=_url,
+#     help='HTTP URL of marketstore instance'
+# )
+# @click.argument('names', nargs=-1)
+# @click.pass_obj
+# def ms_destroy(config: dict, names: List[str], url: str) -> None:
+#     """Destroy symbol entries in the local marketstore instance.
+#     """
+#     async def main():
+#         nonlocal names
+#         async with get_client(url) as client:
+# 
+#             if not names:
+#                 names = await client.list_symbols()
+# 
+#             # default is to wipe db entirely.
+#             answer = input(
+#                 "This will entirely wipe you local marketstore db @ "
+#                 f"{url} of the following symbols:\n {pformat(names)}"
+#                 "\n\nDelete [N/y]?\n")
+# 
+#             if answer == 'y':
+#                 for sym in names:
+#                     # tbk = _tick_tbk.format(sym)
+#                     tbk = tuple(sym, *_tick_tbk_ids)
+#                     print(f"Destroying {tbk}..")
+#                     await client.destroy(mk_tbk(tbk))
+#             else:
+#                 print("Nothing deleted.")
+# 
+#     tractor.run(main)
 
 
 @cli.command()
@@ -102,17 +105,19 @@ def ms_destroy(config: dict, names: List[str], url: str) -> None:
     is_flag=True,
     help='Enable tractor logging')
 @click.option(
-    '--url',
-    default=_url,
-    help='HTTP URL of marketstore instance'
+    '--host',
+    default='localhost'
 )
-@click.argument('name', nargs=1, required=True)
+@click.option(
+    '--port',
+    default=5995
+)
 @click.pass_obj
-def ms_shell(config, name, tl, url):
+def ms_shell(config, tl, host, port):
     """Start an IPython shell ready to query the local marketstore db.
     """
     async def main():
-        async with get_client(url) as client:
+        async with open_marketstore_client(host, port) as client:
             query = client.query  # noqa
             # TODO: write magics to query marketstore
             from IPython import embed
@@ -124,15 +129,9 @@ def ms_shell(config, name, tl, url):
 @cli.command()
 @click.option('--test-file', '-t', help='Test quote stream file')
 @click.option('--tl', is_flag=True, help='Enable tractor logging')
-@click.option('--tl', is_flag=True, help='Enable tractor logging')
-@click.option(
-    '--url',
-    default=_url,
-    help='HTTP URL of marketstore instance'
-)
 @click.argument('name', nargs=1, required=True)
 @click.pass_obj
-def ingest(config, name, test_file, tl, url):
+def ingest(config, name, test_file, tl):
     """Ingest real-time broker quotes and ticks to a marketstore instance.
     """
     # global opts
