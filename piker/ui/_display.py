@@ -644,10 +644,15 @@ async def display_symbol_data(
                 await trio.sleep(0)
                 linkedsplits.resize_sidepanes()
 
+                # NOTE: we pop the volume chart from the subplots set so
+                # that it isn't double rendered in the display loop
+                # above since we do a maxmin calc on the volume data to
+                # determine if auto-range adjustements should be made.
+                linkedsplits.subplots.pop('volume', None)
 
                 # TODO: make this not so shit XD
                 # close group status
                 sbar._status_groups[loading_sym_key][1]()
 
-                # let the app run.
+                # let the app run.. bby
                 await trio.sleep_forever()
