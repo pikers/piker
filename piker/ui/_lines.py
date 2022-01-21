@@ -334,10 +334,11 @@ class LevelLine(pg.InfiniteLine):
         w: QtWidgets.QWidget
 
     ) -> None:
-        """Core paint which we override (yet again)
+        '''
+        Core paint which we override (yet again)
         from pg..
 
-        """
+        '''
         p.setRenderHint(p.Antialiasing)
 
         # these are in viewbox coords
