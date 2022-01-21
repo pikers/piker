@@ -256,7 +256,11 @@ async def clear_dark_triggers(
 
                     # remove exec-condition from set
                     log.info(f'removing pred for {oid}')
-                    execs.pop(oid)
+                    pred = execs.pop(oid, None)
+                    if not pred:
+                        log.warning(
+                            f'pred for {oid} was already removed!?'
+                        )
 
                     await ems_client_order_stream.send(msg)
 
