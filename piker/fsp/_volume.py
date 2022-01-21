@@ -105,6 +105,7 @@ async def _tina_vwap(
 
 # @fsp.config(
 #     name='dolla_vlm',
+#     fields=('dolla_vlm', 'dark_$vlm'
 #     ohlc=False,
 #     style='step',
 # )
@@ -138,6 +139,10 @@ async def dolla_vlm(
     async for quote in source:
         for tick in iterticks(quote):
 
+            ttype = tick.get('type')
+            if ttype == 'dark_trade':
+                print(f'dark_trade: {tick}')
+
             # this computes tick-by-tick weightings from here forward
             size = tick['size']
             price = tick['price']
@@ -152,7 +157,9 @@ async def dolla_vlm(
             ][0]
 
             lvlm += price * size
-            tina_lvlm = c+h+l/3 * v
+
+            # TODO: plot both to compare?
+            # tina_lvlm = c+h+l/3 * v
             # print(f' tinal vlm: {tina_lvlm}')
 
             yield lvlm
