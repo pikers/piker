@@ -1032,7 +1032,11 @@ async def get_client(
 # https://interactivebrokers.github.io/tws-api/tick_types.html
 tick_types = {
     77: 'trade',
-    48: 'utrade',
+
+    # a "utrade" aka an off exchange "unreportable" (dark) vlm:
+    # https://interactivebrokers.github.io/tws-api/tick_types.html#rt_volume
+    48: 'dark_trade',
+
     0: 'bsize',
     1: 'bid',
     2: 'ask',
@@ -1046,13 +1050,17 @@ tick_types = {
 def normalize(
     ticker: Ticker,
     calc_price: bool = False
+
 ) -> dict:
     # convert named tuples to dicts so we send usable keys
     new_ticks = []
     for tick in ticker.ticks:
         if tick and not isinstance(tick, dict):
             td = tick._asdict()
-            td['type'] = tick_types.get(td['tickType'], 'n/a')
+            td['type'] = tick_types.get(
+                td['tickType'],
+                'n/a',
+            )
 
             new_ticks.append(td)
 
