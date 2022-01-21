@@ -479,14 +479,20 @@ class LinkedSplits(QWidget):
             axisItems=axes,
             **cpw_kwargs,
         )
+        cpw.hideAxis('left')
+        cpw.hideAxis('bottom')
 
         if self.xaxis_chart:
+            self.xaxis_chart.hideAxis('bottom')
+
             # presuming we only want it at the true bottom of all charts.
             # XXX: uses new api from our ``pyqtgraph`` fork.
             # https://github.com/pikers/pyqtgraph/tree/plotitemoverlay_onto_pg_master
-            _ = self.xaxis_chart.removeAxis('bottom', unlink=False)
-            assert 'bottom' not in self.xaxis_chart.plotItem.axes
+            # _ = self.xaxis_chart.removeAxis('bottom', unlink=False)
+            # assert 'bottom' not in self.xaxis_chart.plotItem.axes
+
             self.xaxis_chart = cpw
+            cpw.showAxis('bottom')
 
         if self.xaxis_chart is None:
             self.xaxis_chart = cpw
@@ -726,11 +732,6 @@ class ChartPlotWidget(pg.PlotWidget):
         self._static_yrange = static_yrange  # for "known y-range style"
         self._view_mode: str = 'follow'
 
-        # show only right side axes
-        self.hideAxis('left')
-        self.showAxis('right')
-        # self.showAxis('left')
-
         # show background grid
         self.showGrid(x=False, y=True, alpha=0.3)
 
@@ -862,55 +863,58 @@ class ChartPlotWidget(pg.PlotWidget):
     def overlay_plotitem(
         self,
         name: str,
+        index: Optional[int] = None,
+        axis_title: Optional[str] = None,
+        axis_side: str = 'right',
         axis_kwargs: dict = {},
 
     ) -> pg.PlotItem:
+
         # Custom viewbox impl
         cv = self.mk_vb(name)
         cv.chart = self
 
-        # xaxis = DynamicDateAxis(
-        #     orientation='bottom',
-        #     linkedsplits=self.linked,
-        # )
+        allowed_sides = {'left', 'right'}
+        if axis_side not in allowed_sides:
+            raise ValueError(f'``axis_side``` must be in {allowed_sides}')
         yaxis = PriceAxis(
-            orientation='right',
+            orientation=axis_side,
             linkedsplits=self.linked,
             **axis_kwargs,
         )
 
-        plotitem = pg.PlotItem(
+        pi = pg.PlotItem(
             parent=self.plotItem,
             name=name,
             enableMenu=False,
             viewBox=cv,
             axisItems={
                 # 'bottom': xaxis,
-                'right': yaxis,
+                axis_side: yaxis,
             },
             default_axes=[],
         )
-        # plotitem.setAxisItems(
-        #     add_to_layout=False,
-        #     axisItems={
-        #         'bottom': xaxis,
-        #         'right': yaxis,
-        #     },
-        # )
-        # plotite.hideAxis('right')
-        # plotite.hideAxis('bottom')
-        # plotitem.addItem(curve)
+        pi.hideButtons()
+
         cv.enable_auto_yrange()
 
-        # plotitem.enableAutoRange(axis='y')
-        plotitem.hideButtons()
-
+        # compose this new plot's graphics with the current chart's
+        # existing one but with separate axes as neede and specified.
         self.pi_overlay.add_plotitem(
-            plotitem,
+            pi,
+            index=index,
+
             # only link x-axes,
             link_axes=(0,),
         )
-        return plotitem
+
+        # add axis title
+        # TODO: do we want this API to still work?
+        # raxis = pi.getAxis('right')
+        axis = self.pi_overlay.get_axis(pi, axis_side)
+        axis.set_title(axis_title or name, view=pi.getViewBox())
+
+        return pi
 
     def draw_curve(
         self,
@@ -1016,7 +1020,8 @@ class ChartPlotWidget(pg.PlotWidget):
         # add y-axis "last" value label
         last = self._ysticks[name] = YAxisLabel(
             chart=self,
-            parent=self.getAxis('right'),
+            # parent=self.getAxis('right'),
+            parent=self.pi_overlay.get_axis(self.plotItem, 'right'),
             # TODO: pass this from symbol data
             digits=digits,
             opacity=1,
