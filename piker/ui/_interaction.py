@@ -334,6 +334,16 @@ class ChartView(ViewBox):
     '''
     mode_name: str = 'view'
 
+    # "relay events" for making overlaid views work.
+    # NOTE: these MUST be defined here (and can't be monkey patched
+    # on later) due to signal construction requiring refs to be
+    # in place during the run of meta-class machinery.
+    mouseDragEventRelay = QtCore.Signal(object, object, object)
+    wheelEventRelay = QtCore.Signal(object, object, object)
+
+    event_relay_source: 'Optional[ViewBox]' = None
+    relays: dict[str, Signal] = {}
+
     def __init__(
         self,
 
