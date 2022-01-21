@@ -287,6 +287,8 @@ class AxisLabel(pg.GraphicsObject):
         self.path = None
         self.rect = None
 
+        self._pw = self.pixelWidth()
+
     def paint(
         self,
         p: QtGui.QPainter,
@@ -419,6 +421,7 @@ class XAxisLabel(AxisLabel):
         abs_pos: QPointF,  # scene coords
         value: float,  # data for text
         offset: int = 0  # if have margins, k?
+
     ) -> None:
 
         timestrs = self._parent._indexes_to_timestrs([int(value)])
@@ -433,17 +436,19 @@ class XAxisLabel(AxisLabel):
 
         w = self.boundingRect().width()
 
-        self.setPos(QPointF(
-            abs_pos.x() - w/2,
-            y_offset/2,
-        ))
+        self.setPos(
+            QPointF(
+                abs_pos.x() - w/2 - self._pw,
+                y_offset/2,
+            )
+        )
         self.update()
 
     def _draw_arrow_path(self):
         y_offset = self._parent.style['tickTextOffset'][1]
         path = QtGui.QPainterPath()
         h, w = self.rect.height(), self.rect.width()
-        middle = w/2 - 0.5
+        middle = w/2 - self._pw * 0.5
         aw = h/2
         left = middle - aw
         right = middle + aw
@@ -513,10 +518,12 @@ class YAxisLabel(AxisLabel):
         br = self.boundingRect()
         h = br.height()
 
-        self.setPos(QPointF(
-            x_offset,
-            abs_pos.y() - h / 2 - self._y_margin / 2
-        ))
+        self.setPos(
+            QPointF(
+                x_offset,
+                abs_pos.y() - h / 2 - self._pw,
+            )
+        )
         self.update()
 
     def update_on_resize(self, vr, r):
@@ -553,7 +560,7 @@ class YAxisLabel(AxisLabel):
         path = QtGui.QPainterPath()
         h = self.rect.height()
         path.moveTo(0, 0)
-        path.lineTo(-x_offset - h/4, h/2.)
+        path.lineTo(-x_offset - h/4, h/2. - self._pw/2)
         path.lineTo(0, h)
         path.closeSubpath()
         self.path = path
