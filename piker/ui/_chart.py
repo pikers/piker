@@ -32,7 +32,6 @@ from PyQt5.QtWidgets import (
 )
 import numpy as np
 import pyqtgraph as pg
-from pyqtgraph.widgets._plotitemoverlay import PlotItemOverlay
 import trio
 
 from ._axes import (
@@ -61,6 +60,7 @@ from ..data._sharedmem import ShmArray
 from ..log import get_logger
 from ._interaction import ChartView
 from ._forms import FieldsForm
+from ._overlay import PlotItemOverlay
 
 
 log = get_logger(__name__)
