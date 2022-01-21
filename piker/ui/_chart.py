@@ -61,6 +61,7 @@ from ..data._sharedmem import ShmArray
 from ..log import get_logger
 from ._interaction import ChartView
 from ._forms import FieldsForm
+from ._overlay import PlotItemOverlay
 
 
 log = get_logger(__name__)
