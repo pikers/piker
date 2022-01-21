@@ -655,7 +655,7 @@ async def open_vlm_displays(
 
         last_val_sticky.update_from_data(-1, value)
 
-        chart.update_curve_from_array(
+        vlm_curve = chart.update_curve_from_array(
             'volume',
             shm.array,
         )
@@ -690,10 +690,11 @@ async def open_vlm_displays(
 
             pi = chart.overlay_plotitem(
                 'dolla_vlm',
+                index=0,  # place axis on inside (nearest to chart)
+                axis_title=' $vlm',
+                axis_side='right',
                 axis_kwargs={
-                    # 'humanize': True,
-                    # 'text': 'dvlm',
-                    'typical_max_str': ' 99.9 M ',
+                    'typical_max_str': ' 100.0 M ',
                     'formatter': partial(
                         humanize,
                         digits=2,
@@ -701,10 +702,6 @@ async def open_vlm_displays(
                 },
 
             )
-
-            # add axis title
-            raxis = pi.getAxis('right')
-            raxis.set_title(' $vlm', view=pi.getViewBox())
 
             # add custom auto range handler
             pi.vb._maxmin = partial(maxmin, name='dolla_vlm')
@@ -716,13 +713,18 @@ async def open_vlm_displays(
 
                 array_key='dolla_vlm',
                 overlay=pi,
-                color='charcoal',
+                # color='bracket',
+                # TODO: this color or dark volume
+                # color='charcoal',
                 step_mode=True,
                 # **conf.get('chart_kwargs', {})
             )
             # TODO: is there a way to "sync" the dual axes such that only
             # one curve is needed?
-            # curve.hide()
+            # hide the original vlm curve since the $vlm one is now
+            # displayed and the curves are effectively the same minus
+            # liquidity events (well at least on low OHLC periods - 1s).
+            vlm_curve.hide()
 
             # TODO: we need a better API to do this..
             # specially store ref to shm for lookup in display loop
