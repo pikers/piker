@@ -175,6 +175,7 @@ class ComposedGridLayout:
             axis = axis_info['item']
 
             if axis in axes:
+                # TODO: re-order using ``.pop()`` ?
                 ValueError(f'{axis} is already in {name} layout!?')
 
             # linking sanity
@@ -206,27 +207,7 @@ class ComposedGridLayout:
                 index = min(len(axes) - index, 0)
                 assert index >= 0
 
-            # elif name in ('bottom', 'right'):
-            #     i_dim = 1
-
-            # TODO: increment logic for layout on 'top'/'left' axes
-            # sets.. looks like ther'es no way around an unwind and
-            # re-stack of the layout to include all labels, unless
-            # we use a different layout system (cough).
-
-            # if name in ('top', 'left'):
-            #     increment = -1
-            # elif name in ('right', 'bottom'):
-            #     increment = +1
-
-            # increment = +count
-
-            # index = list(_axes_layout_indices[name])
-            # current = index[i_dim]
-            # index[i_dim] = current + increment if current > 0 else 0
-
             linlayout.insertItem(index, axis)
-            # axis.setLayout(linlayout)
             axes.insert(index, axis)
 
         self._register_item(index, plotitem)
@@ -269,4 +250,4 @@ class ComposedGridLayout:
         Remove item and restack all axes in list-order.
 
         '''
-        ...
+        raise NotImplemented
