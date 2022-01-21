@@ -369,7 +369,13 @@ class Cursor(pg.GraphicsObject):
         self,
         plot: 'ChartPlotWidget',  # noqa
         digits: int = 0,
+
     ) -> None:
+        '''
+        Add chart to tracked set such that a cross-hair and possibly
+        curve tracking cursor can be drawn on the plot.
+
+        '''
         # add ``pg.graphicsItems.InfiniteLine``s
         # vertical and horizonal lines and a y-axis label
 
@@ -382,7 +388,8 @@ class Cursor(pg.GraphicsObject):
 
         yl = YAxisLabel(
             chart=plot,
-            parent=plot.getAxis('right'),
+            # parent=plot.getAxis('right'),
+            parent=plot.pi_overlay.get_axis(plot.plotItem, 'right'),
             digits=digits or self.digits,
             opacity=_ch_label_opac,
             bg_color=self.label_color,
@@ -424,19 +431,25 @@ class Cursor(pg.GraphicsObject):
 
         # ONLY create an x-axis label for the cursor
         # if this plot owns the 'bottom' axis.
-        if 'bottom' in plot.plotItem.axes:
-            self.xaxis_label = XAxisLabel(
+        # if 'bottom' in plot.plotItem.axes:
+        if plot.linked.xaxis_chart is plot:
+            xlabel = self.xaxis_label = XAxisLabel(
                 parent=self.plots[plot_index].getAxis('bottom'),
+                # parent=self.plots[plot_index].pi_overlay.get_axis(plot.plotItem, 'bottom'),
                 opacity=_ch_label_opac,
                 bg_color=self.label_color,
             )
             # place label off-screen during startup
-            self.xaxis_label.setPos(self.plots[0].mapFromView(QPointF(0, 0)))
+            xlabel.setPos(
+                self.plots[0].mapFromView(QPointF(0, 0))
+            )
+            xlabel.show()
 
     def add_curve_cursor(
         self,
         plot: 'ChartPlotWidget',  # noqa
         curve: 'PlotCurveItem',  # noqa
+
     ) -> LineDot:
         # if this plot contains curves add line dot "cursors" to denote
         # the current sample under the mouse
@@ -493,24 +506,27 @@ class Cursor(pg.GraphicsObject):
 
         ix = round(x)  # since bars are centered around index
 
+        # px perfect...
+        line_offset = self._lw / 2
+
         # round y value to nearest tick step
         m = self._y_incr_mult
         iy = round(y * m) / m
-
-        # px perfect...
-        line_offset = self._lw / 2
+        vl_y = iy - line_offset
 
         # update y-range items
         if iy != last_iy:
 
             if self._y_label_update:
                 self.graphics[self.active_plot]['yl'].update_label(
-                    abs_pos=plot.mapFromView(QPointF(ix, iy)),
+                    # abs_pos=plot.mapFromView(QPointF(ix, iy)),
+                    abs_pos=plot.mapFromView(QPointF(ix, vl_y)),
                     value=iy
                 )
 
                 # only update horizontal xhair line if label is enabled
-                self.graphics[plot]['hl'].setY(iy)
+                # self.graphics[plot]['hl'].setY(iy)
+                self.graphics[plot]['hl'].setY(vl_y)
 
             # update all trackers
             for item in self._trackers:
@@ -541,21 +557,18 @@ class Cursor(pg.GraphicsObject):
                 # left axis offset width for calcuating
                 # absolute x-axis label placement.
                 left_axis_width = 0
+                left = axes.get('left')
+                if left:
+                    left_axis_width = left['item'].width()
 
-                if 'bottom' in axes:
-
-                    left = axes.get('left')
-                    if left:
-                        left_axis_width = left['item'].width()
-
-                    # map back to abs (label-local) coordinates
-                    self.xaxis_label.update_label(
-                        abs_pos=(
-                            plot.mapFromView(QPointF(vl_x, iy)) -
-                            QPointF(left_axis_width, 0)
-                        ),
-                        value=ix,
-                    )
+                # map back to abs (label-local) coordinates
+                self.xaxis_label.update_label(
+                    abs_pos=(
+                        plot.mapFromView(QPointF(vl_x, iy)) -
+                        QPointF(left_axis_width, 0)
+                    ),
+                    value=ix,
+                )
 
         self._datum_xy = ix, iy
 
