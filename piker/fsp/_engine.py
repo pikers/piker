@@ -90,7 +90,7 @@ async def fsp_compute(
     func_name: str,
     func: Callable,
 
-    attach_stream: bool = True,
+    attach_stream: bool = False,
     task_status: TaskStatus[None] = trio.TASK_STATUS_IGNORED,
 
 ) -> None:
