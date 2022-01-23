@@ -19,12 +19,13 @@ Real-time display tasks for charting / graphics.
 
 '''
 from contextlib import asynccontextmanager
+# from pprint import pformat
 import time
-from typing import Any
 from types import ModuleType
+from typing import Optional
 
 import numpy as np
-from pydantic import BaseModel
+from pydantic import create_model
 import tractor
 import trio
 
@@ -56,12 +57,14 @@ _clear_throttle_rate: int = 58  # Hz
 _book_throttle_rate: int = 16  # Hz
 
 
-async def chart_from_quotes(
+async def update_chart_from_quotes(
 
     chart: ChartPlotWidget,
     stream: tractor.MsgStream,
     ohlcv: np.ndarray,
+
     wap_in_history: bool = False,
+    vlm_chart: Optional[ChartPlotWidget] = None,
 
 ) -> None:
     '''The 'main' (price) chart real-time update loop.
@@ -76,13 +79,17 @@ async def chart_from_quotes(
     # - handle odd lot orders
     # - update last open price correctly instead
     #   of copying it from last bar's close
-    # - 5 sec bar lookback-autocorrection like tws does?
+    # - 1-5 sec bar lookback-autocorrection like tws does?
+    #   (would require a background history checker task)
 
     # update last price sticky
     last_price_sticky = chart._ysticks[chart.name]
     last_price_sticky.update_from_data(
         *ohlcv.array[-1][['index', 'close']]
     )
+
+    if vlm_chart:
+        vlm_sticky = vlm_chart._ysticks['volume']
 
     def maxmin():
         # TODO: implement this
@@ -94,7 +101,7 @@ async def chart_from_quotes(
 
         last_bars_range = chart.bars_range()
         l, lbar, rbar, r = last_bars_range
-        in_view = array[lbar - ifirst:rbar - ifirst]
+        in_view = array[lbar - ifirst:rbar - ifirst + 1]
 
         assert in_view.size
 
@@ -105,11 +112,20 @@ async def chart_from_quotes(
         # sym = chart.name
         # mx, mn = np.nanmax(in_view[sym]), np.nanmin(in_view[sym])
 
-        return last_bars_range, mx, max(mn, 0)
+        mx_vlm_in_view = 0
+        if vlm_chart:
+            mx_vlm_in_view = np.max(in_view['volume'])
+
+        return last_bars_range, mx, max(mn, 0), mx_vlm_in_view
 
     chart.default_view()
 
-    last_bars_range, last_mx, last_mn = maxmin()
+    (
+        last_bars_range,
+        last_mx,
+        last_mn,
+        last_mx_vlm,
+    ) = maxmin()
 
     last, volume = ohlcv.array[-1][['close', 'volume']]
 
@@ -125,14 +141,14 @@ async def chart_from_quotes(
 
     # TODO:
     # - in theory we should be able to read buffer data faster
-    # then msgs arrive.. needs some tinkering and testing
+    #   then msgs arrive.. needs some tinkering and testing
 
     # - if trade volume jumps above / below prior L1 price
-    # levels this might be dark volume we need to
-    # present differently?
+    #   levels this might be dark volume we need to
+    #   present differently -> likely dark vlm
 
     tick_size = chart.linked.symbol.tick_size
-    tick_margin = 2 * tick_size
+    tick_margin = 3 * tick_size
 
     last_ask = last_bid = last_clear = time.time()
     chart.show()
@@ -148,9 +164,40 @@ async def chart_from_quotes(
 
             now = time.time()
 
+            # brange, mx_in_view, mn_in_view = maxmin()
+            (
+                brange,
+                mx_in_view,
+                mn_in_view,
+                mx_vlm_in_view,
+            ) = maxmin()
+            l, lbar, rbar, r = brange
+            mx = mx_in_view + tick_margin
+            mn = mn_in_view - tick_margin
+
+            # NOTE: vlm may be written by the ``brokerd`` backend
+            # event though a tick sample is not emitted.
+            # TODO: show dark trades differently
+            # https://github.com/pikers/piker/issues/116
+            array = ohlcv.array
+
+            if vlm_chart:
+                # print(f"volume: {end['volume']}")
+                vlm_chart.update_curve_from_array('volume', array)
+                vlm_sticky.update_from_data(*array[-1][['index', 'volume']])
+
+                if (
+                    mx_vlm_in_view != last_mx_vlm or
+                    mx_vlm_in_view > last_mx_vlm
+                ):
+                    # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
+                    vlm_chart._set_yrange(yrange=(0, mx_vlm_in_view * 1.375))
+                    last_mx_vlm = mx_vlm_in_view
+
             for tick in quote.get('ticks', ()):
 
-                # print(f"CHART: {quote['symbol']}: {tick}")
+                # log.info(
+                #   f"quotes: {pformat(quote['symbol'])}: {pformat(tick)}")
                 ticktype = tick.get('type')
                 price = tick.get('price')
                 size = tick.get('size')
@@ -172,16 +219,13 @@ async def chart_from_quotes(
                     # set time of last graphics update
                     last_clear = now
 
-                    array = ohlcv.array
-
                     # update price sticky(s)
                     end = array[-1]
                     last_price_sticky.update_from_data(
                         *end[['index', 'close']]
                     )
 
-                    # plot bars
-                    # update price bar
+                    # update ohlc sampled price bars
                     chart.update_ohlc_from_array(
                         chart.name,
                         array,
@@ -214,11 +258,6 @@ async def chart_from_quotes(
                 # compute max and min trade values to display in view
                 # TODO: we need a streaming minmax algorithm here, see
                 # def above.
-                brange, mx_in_view, mn_in_view = maxmin()
-                l, lbar, rbar, r = brange
-
-                mx = mx_in_view + tick_margin
-                mn = mn_in_view - tick_margin
 
                 # XXX: prettty sure this is correct?
                 # if ticktype in ('trade', 'last'):
@@ -242,16 +281,14 @@ async def chart_from_quotes(
                 elif ticktype in ('bid', 'bsize'):
                     l1.bid_label.update_fields({'level': price, 'size': size})
 
-                # update min price in view to keep bid on screen
-                mn = min(price - tick_margin, mn)
-                # update max price in view to keep ask on screen
+                # in view y-range checking for auto-scale
+                # update the max/min price in view to keep bid/ask on screen
                 mx = max(price + tick_margin, mx)
-
+                mn = min(price - tick_margin, mn)
                 if (mx > last_mx) or (
                     mn < last_mn
                 ):
                     # print(f'new y range: {(mn, mx)}')
-
                     chart._set_yrange(
                         yrange=(mn, mx),
                         # TODO: we should probably scale
@@ -345,45 +382,51 @@ async def fan_out_spawn_fsp_daemons(
     # blocks here until all fsp actors complete
 
 
-class FspConfig(BaseModel):
-    class Config:
-        validate_assignment = True
-
-    name: str
-    period: int
-
-
 @asynccontextmanager
 async def open_sidepane(
 
     linked: LinkedSplits,
-    display_name: str,
+    conf: dict[str, dict[str, str]],
 
-) -> FspConfig:
+) -> FieldsForm:
+
+    schema = {}
+
+    assert len(conf) == 1  # for now
+
+    # add (single) selection widget
+    for display_name, config in conf.items():
+        schema[display_name] = {
+                'label': '**fsp**:',
+                'type': 'select',
+                'default_value': [display_name],
+            }
+
+        # add parameters for selection "options"
+        defaults = config.get('params', {})
+        for name, default in defaults.items():
+
+            # add to ORM schema
+            schema.update({
+                name: {
+                    'label': f'**{name}**:',
+                    'type': 'edit',
+                    'default_value': default,
+                },
+            })
 
     sidepane: FieldsForm = mk_form(
         parent=linked.godwidget,
-        fields_schema={
-            'name': {
-                'label': '**fsp**:',
-                'type': 'select',
-                'default_value': [
-                    f'{display_name}'
-                ],
-            },
+        fields_schema=schema,
+    )
 
-            # TODO: generate this from input map
-            'period': {
-                'label': '**period**:',
-                'type': 'edit',
-                'default_value': 14,
-            },
-        },
-    )
-    sidepane.model = FspConfig(
+    # https://pydantic-docs.helpmanual.io/usage/models/#dynamic-model-creation
+    FspConfig = create_model(
+        'FspConfig',
         name=display_name,
-        period=14,
+        **defaults,
     )
+    sidepane.model = FspConfig()
 
     # just a logger for now until we get fsp configs up and running.
     async def settings_change(key: str, value: str) -> bool:
@@ -410,7 +453,7 @@ async def run_fsp(
     src_shm: ShmArray,
     fsp_func_name: str,
     display_name: str,
-    conf: dict[str, Any],
+    conf: dict[str, dict],
     group_status_key: str,
     loglevel: str,
 
@@ -444,7 +487,7 @@ async def run_fsp(
         ctx.open_stream() as stream,
         open_sidepane(
             linkedsplits,
-            display_name,
+            {display_name: conf},
         ) as sidepane,
     ):
 
@@ -453,9 +496,10 @@ async def run_fsp(
         if conf.get('overlay'):
             chart = linkedsplits.chart
             chart.draw_curve(
-                name='vwap',
+                name=display_name,
                 data=shm.array,
                 overlay=True,
+                color='default_light',
             )
             last_val_sticky = None
 
@@ -658,22 +702,25 @@ async def maybe_open_vlm_display(
 
 ) -> ChartPlotWidget:
 
-    # make sure that the instrument supports volume history
-    # (sometimes this is not the case for some commodities and
-    # derivatives)
-    # volm = ohlcv.array['volume']
-    # if (
-    #     np.all(np.isin(volm, -1)) or
-    #     np.all(np.isnan(volm))
-    # ):
     if not has_vlm(ohlcv):
         log.warning(f"{linked.symbol.key} does not seem to have volume info")
+        yield
+        return
     else:
-        async with open_sidepane(linked, 'volume') as sidepane:
+        async with open_sidepane(
+            linked, {
+                'volume': {
+                    'params': {
+                        'price_func': 'ohl3'
+                    }
+                }
+            },
+        ) as sidepane:
+
             # built-in $vlm
             shm = ohlcv
             chart = linked.add_plot(
-                name='vlm',
+                name='volume',
                 array=shm.array,
 
                 array_key='volume',
@@ -682,9 +729,13 @@ async def maybe_open_vlm_display(
                 # curve by default
                 ohlc=False,
 
-                # vertical bars
+                # Draw vertical bars from zero.
+                # we do this internally ourselves since
+                # the curve item internals are pretty convoluted.
+                style='step',
+
+                # original pyqtgraph flag for reference
                 # stepMode=True,
-                # static_yrange=(0, 100),
             )
 
             # XXX: ONLY for sub-chart fsps, overlays have their
@@ -703,8 +754,22 @@ async def maybe_open_vlm_display(
 
             last_val_sticky.update_from_data(-1, value)
 
+            chart.update_curve_from_array(
+                'volume',
+                shm.array,
+            )
+
             # size view to data once at outset
             chart._set_yrange()
+
+            # size pain to parent chart
+            # TODO: this appears to nearly fix a bug where the vlm sidepane
+            # could be sized correctly nearly immediately (since the
+            # order pane is already sized), right now it doesn't seem to
+            # fully align until the VWAP fsp-actor comes up...
+            await trio.sleep(0)
+            chart.linked.resize_sidepanes()
+            await trio.sleep(0)
 
             yield chart
 
@@ -803,22 +868,13 @@ async def display_symbol_data(
 
         # TODO: eventually we'll support some kind of n-compose syntax
         fsp_conf = {
-            'rsi': {
-                'fsp_func_name': 'rsi',
-                'period': 14,
-                'chart_kwargs': {
-                    'static_yrange': (0, 100),
-                },
-            },
-            # # test for duplicate fsps on same chart
-            # 'rsi2': {
+            # 'rsi': {
             #     'fsp_func_name': 'rsi',
-            #     'period': 14,
+            #     'params': {'period': 14},
             #     'chart_kwargs': {
             #         'static_yrange': (0, 100),
             #     },
             # },
-
         }
 
         if has_vlm(ohlcv):
@@ -831,9 +887,16 @@ async def display_symbol_data(
                 },
             })
 
-        async with (
+        # NOTE: we must immediately tell Qt to show the OHLC chart
+        # to avoid a race where the subplots get added/shown to
+        # the linked set *before* the main price chart!
+        linkedsplits.show()
+        linkedsplits.focus()
+        await trio.sleep(0)
 
+        async with (
             trio.open_nursery() as ln,
+            maybe_open_vlm_display(linkedsplits, ohlcv) as vlm_chart,
         ):
             # load initial fsp chain (otherwise known as "indicators")
             ln.start_soon(
@@ -849,11 +912,12 @@ async def display_symbol_data(
 
             # start graphics update loop(s)after receiving first live quote
             ln.start_soon(
-                chart_from_quotes,
+                update_chart_from_quotes,
                 chart,
                 feed.stream,
                 ohlcv,
                 wap_in_history,
+                vlm_chart,
             )
 
             ln.start_soon(
@@ -864,10 +928,6 @@ async def display_symbol_data(
             )
 
             async with (
-                # XXX: this slipped in during a commits refacotr,
-                # it's actually landing proper in #231
-                # maybe_open_vlm_display(linkedsplits, ohlcv),
-
                 open_order_mode(
                     feed,
                     chart,
