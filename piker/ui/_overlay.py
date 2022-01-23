@@ -376,7 +376,7 @@ def mk_relay_method(
             # Access the "bound signal" that is created
             # on the widget type as part of instantiation.
             signal = getattr(vb, signame)
-            print(f'{vb.name} emitting {signame}')
+            # print(f'{vb.name} emitting {signame}')
 
             # TODO/NOTE: we could also just bypass a "relay" signal
             # entirely and instead call the handlers manually in
