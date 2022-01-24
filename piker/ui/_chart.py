@@ -856,7 +856,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         array_key: Optional[str] = None,
         overlay: bool = False,
-        separate_axes: bool = True,
+        separate_axes: bool = False,
         color: Optional[str] = None,
         add_label: bool = True,
 
@@ -937,6 +937,7 @@ class ChartPlotWidget(pg.PlotWidget):
                         # 'bottom': xaxis,
                         'right': yaxis,
                     },
+                    default_axes=[],
                 )
                 # plotitem.setAxisItems(
                 #     add_to_layout=False,
@@ -950,8 +951,8 @@ class ChartPlotWidget(pg.PlotWidget):
                 plotitem.addItem(curve)
 
                 # config
-                plotitem.enableAutoRange(axis='y')
-                plotitem.setAutoVisible(y=True)
+                # plotitem.enableAutoRange(axis='y')
+                # plotitem.setAutoVisible(y=True)
                 plotitem.hideButtons()
 
                 self.overlay.add_plotitem(
