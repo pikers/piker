@@ -322,17 +322,8 @@ class LinkedSplits(QWidget):
         self.subplots: dict[tuple[str, ...], ChartPlotWidget] = {}
 
         self.godwidget = godwidget
-
-        self.xaxis = DynamicDateAxis(
-            orientation='bottom',
-            linkedsplits=self
-        )
-        # if _xaxis_at == 'bottom':
-        #     self.xaxis.setStyle(showValues=False)
-        #     self.xaxis.hide()
-        # else:
-        #     self.xaxis_ind.setStyle(showValues=False)
-        #     self.xaxis.hide()
+        # placeholder for last appended ``PlotItem``'s bottom axis.
+        self.xaxis_chart = None
 
         self.splitter = QSplitter(QtCore.Qt.Vertical)
         self.splitter.setMidLineWidth(0)
@@ -410,7 +401,6 @@ class LinkedSplits(QWidget):
 
             name=symbol.key,
             array=array,
-            # xaxis=self.xaxis,
             style=style,
             _is_main=True,
 
@@ -420,7 +410,10 @@ class LinkedSplits(QWidget):
         self.chart.addItem(self.cursor)
 
         # axis placement
-        if _xaxis_at == 'bottom':
+        if (
+            _xaxis_at == 'bottom' and
+            'bottom' in self.chart.plotItem.axes
+        ):
             self.chart.hideAxis('bottom')
 
         # style?
@@ -438,7 +431,6 @@ class LinkedSplits(QWidget):
         array: np.ndarray,
 
         array_key: Optional[str] = None,
-        # xaxis: Optional[DynamicDateAxis] = None,
         style: str = 'line',
         _is_main: bool = False,
 
@@ -446,31 +438,28 @@ class LinkedSplits(QWidget):
 
         **cpw_kwargs,
 
-    ) -> 'ChartPlotWidget':
-        '''Add (sub)plots to chart widget by key.
+    ) -> ChartPlotWidget:
+        '''
+        Add (sub)plots to chart widget by key.
 
         '''
         if self.chart is None and not _is_main:
             raise RuntimeError(
                 "A main plot must be created first with `.plot_ohlc_main()`")
 
-        # source of our custom interactions
-        cv = ChartView(name)
-        cv.linkedsplits = self
-
         # use "indicator axis" by default
 
         # TODO: we gotta possibly assign this back
         # to the last subplot on removal of some last subplot
-
         xaxis = DynamicDateAxis(
             orientation='bottom',
             linkedsplits=self
         )
-
-        if self.xaxis:
-            self.xaxis.hide()
-            self.xaxis = xaxis
+        axes = {
+            'right': PriceAxis(linkedsplits=self, orientation='right'),
+            'left': PriceAxis(linkedsplits=self, orientation='left'),
+            'bottom': xaxis,
+        }
 
         qframe = ChartnPane(
             sidepane=sidepane,
@@ -486,14 +475,20 @@ class LinkedSplits(QWidget):
             array=array,
             parent=qframe,
             linkedsplits=self,
-            axisItems={
-                'bottom': xaxis,
-                'right': PriceAxis(linkedsplits=self, orientation='right'),
-                'left': PriceAxis(linkedsplits=self, orientation='left'),
-            },
-            viewBox=cv,
+            axisItems=axes,
             **cpw_kwargs,
         )
+
+        if self.xaxis_chart:
+            # presuming we only want it at the true bottom of all charts.
+            # XXX: uses new api from our ``pyqtgraph`` fork.
+            # https://github.com/pikers/pyqtgraph/tree/plotitemoverlay_onto_pg_master
+            axis = self.xaxis_chart.removeAxis('bottom', unlink=False)
+            assert 'bottom' not in self.xaxis_chart.plotItem.axes
+            self.xaxis_chart = cpw
+
+        if self.xaxis_chart is None:
+            self.xaxis_chart = cpw
 
         qframe.chart = cpw
         qframe.hbox.addWidget(cpw)
@@ -510,17 +505,13 @@ class LinkedSplits(QWidget):
         )
         cpw.sidepane = sidepane
 
-        # give viewbox as reference to chart
-        # allowing for kb controls and interactions on **this** widget
-        # (see our custom view mode in `._interactions.py`)
-        cv.chart = cpw
-
         cpw.plotItem.vb.linkedsplits = self
         cpw.setFrameStyle(
             QtWidgets.QFrame.StyledPanel
             # | QtWidgets.QFrame.Plain
         )
 
+        # don't show the little "autoscale" A label.
         cpw.hideButtons()
 
         # XXX: gives us outline on backside of y-axis
@@ -531,15 +522,27 @@ class LinkedSplits(QWidget):
         # comes from ;)
         cpw.setXLink(self.chart)
 
-        # add to cross-hair's known plots
-        self.cursor.add_plot(cpw)
+        add_label = False
+        anchor_at = ('top', 'left')
 
         # draw curve graphics
         if style == 'bar':
-            cpw.draw_ohlc(name, array, array_key=array_key)
+
+            graphics, data_key = cpw.draw_ohlc(
+                name,
+                array,
+                array_key=array_key
+            )
+            self.cursor.contents_labels.add_label(
+                cpw,
+                'ohlc',
+                anchor_at=('top', 'left'),
+                update_func=ContentsLabel.update_from_ohlc,
+            )
 
         elif style == 'line':
-            cpw.draw_curve(
+            add_label = True
+            graphics, data_key = cpw.draw_curve(
                 name,
                 array,
                 array_key=array_key,
@@ -547,7 +550,8 @@ class LinkedSplits(QWidget):
             )
 
         elif style == 'step':
-            cpw.draw_curve(
+            add_label = True
+            graphics, data_key = cpw.draw_curve(
                 name,
                 array,
                 array_key=array_key,
@@ -568,6 +572,22 @@ class LinkedSplits(QWidget):
 
         else:
             assert style == 'bar', 'main chart must be OHLC'
+
+        # add to cross-hair's known plots
+        # NOTE: add **AFTER** creating the underlying ``PlotItem``s
+        # since we require that global (linked charts wide) axes have
+        # been created!
+        self.cursor.add_plot(cpw)
+
+        if self.cursor and style != 'bar':
+            self.cursor.add_curve_cursor(cpw, graphics)
+
+            if add_label:
+                self.cursor.contents_labels.add_label(
+                    cpw,
+                    data_key,
+                    anchor_at=anchor_at,
+                )
 
         self.resize_sidepanes()
         return cpw
@@ -611,6 +631,10 @@ class ChartPlotWidget(pg.PlotWidget):
 
     # TODO: can take a ``background`` color setting - maybe there's
     # a better one?
+    def mk_vb(self, name: str) -> ChartView:
+        cv = ChartView(name)
+        cv.linkedsplits = self.linked
+        return cv
 
     def __init__(
         self,
@@ -639,17 +663,28 @@ class ChartPlotWidget(pg.PlotWidget):
         self.view_color = view_color
         self.pen_color = pen_color
 
+        # NOTE: must be set bfore calling ``.mk_vb()``
+        self.linked = linkedsplits
+
+        # source of our custom interactions
+        self.cv = cv = self.mk_vb(name)
+
         super().__init__(
             background=hcolor(view_color),
+            viewBox=cv,
             # parent=None,
             # plotItem=None,
             # antialias=True,
             **kwargs
         )
+        # give viewbox as reference to chart
+        # allowing for kb controls and interactions on **this** widget
+        # (see our custom view mode in `._interactions.py`)
+        cv.chart = self
+
         self.useOpenGL(use_open_gl)
         self.name = name
         self.data_key = data_key
-        self.linked = linkedsplits
 
         # scene-local placeholder for book graphics
         # sizing to avoid overlap with data contents
@@ -687,13 +722,12 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # Assign callback for rescaling y-axis automatically
         # based on data contents and ``ViewBox`` state.
-        # self.sigXRangeChanged.connect(self._set_yrange)
+        self.sigXRangeChanged.connect(self._set_yrange)
+        self._vb.sigRangeChangedManually.connect(self._set_yrange)  # mouse wheel doesn't emit XRangeChanged
+        self._vb.sigResized.connect(self._set_yrange)  # splitter(s) resizing
 
-        # for mouse wheel which doesn't seem to emit XRangeChanged
-        self._vb.sigRangeChangedManually.connect(self._set_yrange)
-
-        # for when the splitter(s) are resized
-        self._vb.sigResized.connect(self._set_yrange)
+        from pyqtgraph.widgets._plotitemoverlay import PlotItemOverlay
+        self.overlay: PlotItemOverlay = PlotItemOverlay(self.plotItem)
 
     def resume_all_feeds(self):
         for feed in self._feeds.values():
@@ -791,11 +825,11 @@ class ChartPlotWidget(pg.PlotWidget):
 
         array_key: Optional[str] = None,
 
-    ) -> pg.GraphicsObject:
-        """
+    ) -> (pg.GraphicsObject, str):
+        '''
         Draw OHLC datums to chart.
 
-        """
+        '''
         graphics = BarItems(
             self.plotItem,
             pen_color=self.pen_color
@@ -810,17 +844,9 @@ class ChartPlotWidget(pg.PlotWidget):
 
         data_key = array_key or name
         self._graphics[data_key] = graphics
-
-        self.linked.cursor.contents_labels.add_label(
-            self,
-            'ohlc',
-            anchor_at=('top', 'left'),
-            update_func=ContentsLabel.update_from_ohlc,
-        )
-
         self._add_sticky(name, bg_color='davies')
 
-        return graphics
+        return graphics, data_key
 
     def draw_curve(
         self,
@@ -830,26 +856,24 @@ class ChartPlotWidget(pg.PlotWidget):
 
         array_key: Optional[str] = None,
         overlay: bool = False,
+        separate_axes: bool = True,
         color: Optional[str] = None,
         add_label: bool = True,
 
         **pdi_kwargs,
 
-    ) -> pg.PlotDataItem:
-        """Draw a "curve" (line plot graphics) for the provided data in
+    ) -> (pg.PlotDataItem, str):
+        '''
+        Draw a "curve" (line plot graphics) for the provided data in
         the input array ``data``.
 
-        """
+        '''
         color = color or self.pen_color or 'default_light'
         pdi_kwargs.update({
             'color': color
         })
 
         data_key = array_key or name
-
-        # pg internals for reference.
-        # curve = pg.PlotDataItem(
-        # curve = pg.PlotCurveItem(
 
         # yah, we wrote our own B)
         curve = FastAppendCurve(
@@ -881,8 +905,6 @@ class ChartPlotWidget(pg.PlotWidget):
         # and is disastrous for performance.
         # curve.setCacheMode(QtWidgets.QGraphicsItem.ItemCoordinateCache)
 
-        self.addItem(curve)
-
         # register curve graphics and backing array for name
         self._graphics[name] = curve
         self._arrays[data_key or name] = data
@@ -891,24 +913,69 @@ class ChartPlotWidget(pg.PlotWidget):
             anchor_at = ('bottom', 'left')
             self._overlays[name] = None
 
+            if separate_axes:
+                # Custom viewbox impl
+                cv = self.mk_vb(name)
+                cv.chart = self
+                # cv.enableAutoRange(axis=1)
+
+                xaxis = DynamicDateAxis(
+                    orientation='bottom',
+                    linkedsplits=self.linked,
+                )
+                yaxis = PriceAxis(
+                    orientation='right',
+                    linkedsplits=self.linked,
+                )
+
+                plotitem = pg.PlotItem(
+                    parent=self.plotItem,
+                    name=name,
+                    enableMenu=False,
+                    viewBox=cv,
+                    axisItems={
+                        # 'bottom': xaxis,
+                        'right': yaxis,
+                    },
+                )
+                # plotitem.setAxisItems(
+                #     add_to_layout=False,
+                #     axisItems={
+                #         'bottom': xaxis,
+                #         'right': yaxis,
+                #     },
+                # )
+                # plotite.hideAxis('right')
+                # plotite.hideAxis('bottom')
+                plotitem.addItem(curve)
+
+                # config
+                plotitem.enableAutoRange(axis='y')
+                plotitem.setAutoVisible(y=True)
+                plotitem.hideButtons()
+
+                self.overlay.add_plotitem(
+                    plotitem,
+                    # only link x-axes,
+                    link_axes=(0,),
+                )
+
+            else:
+                # this intnernally calls `PlotItem.addItem()` on the
+                # graphics object
+                self.addItem(curve)
         else:
+            # this intnernally calls `PlotItem.addItem()` on the
+            # graphics object
+            self.addItem(curve)
+
             anchor_at = ('top', 'left')
 
             # TODO: something instead of stickies for overlays
             # (we need something that avoids clutter on x-axis).
             self._add_sticky(name, bg_color=color)
 
-        if self.linked.cursor:
-            self.linked.cursor.add_curve_cursor(self, curve)
-
-            if add_label:
-                self.linked.cursor.contents_labels.add_label(
-                    self,
-                    data_key or name,
-                    anchor_at=anchor_at
-                )
-
-        return curve
+        return curve, data_key
 
     # TODO: make this a ctx mngr
     def _add_sticky(
@@ -1005,7 +1072,8 @@ class ChartPlotWidget(pg.PlotWidget):
         autoscale_linked_plots: bool = True,
 
     ) -> None:
-        '''Set the viewable y-range based on embedded data.
+        '''
+        Set the viewable y-range based on embedded data.
 
         This adds auto-scaling like zoom on the scroll wheel such
         that data always fits nicely inside the current view of the
