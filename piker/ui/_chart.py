@@ -34,7 +34,6 @@ from PyQt5.QtWidgets import (
 )
 import numpy as np
 import pyqtgraph as pg
-from pyqtgraph.widgets._plotitemoverlay import PlotItemOverlay
 import trio
 
 from ._axes import (
