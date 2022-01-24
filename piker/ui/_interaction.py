@@ -18,6 +18,7 @@
 Chart view box primitives
 
 """
+from __future__ import annotations
 from contextlib import asynccontextmanager
 import time
 from typing import Optional, Callable
@@ -399,7 +400,12 @@ class ChartView(ViewBox):
         self._chart = chart
         self.select_box.chart = chart
 
-    def wheelEvent(self, ev, axis=None):
+    def wheelEvent(
+        self,
+        ev,
+        axis=None,
+        relayed_from: ChartView = None,
+    ):
         '''Override "center-point" location for scrolling.
 
         This is an override of the ``ViewBox`` method simply changing
@@ -476,16 +482,16 @@ class ChartView(ViewBox):
 
         self._resetTarget()
         self.scaleBy(s, focal)
-        ev.accept()
         self.sigRangeChangedManually.emit(mask)
+        ev.accept()
 
     def mouseDragEvent(
         self,
         ev,
         axis: Optional[int] = None,
+        relayed_from: ChartView = None,
     ) -> None:
         #  if axis is specified, event will only affect that axis.
-        ev.accept()  # we accept all buttons
         button = ev.button()
 
         pos = ev.pos()
@@ -514,7 +520,10 @@ class ChartView(ViewBox):
                 # print(scale_y)
                 self.scaleBy((0, scale_y))
 
+            # SELECTION MODE
             if self.state['mouseMode'] == ViewBox.RectMode:
+                # XXX: WHY
+                ev.accept()
 
                 down_pos = ev.buttonDownPos()
 
@@ -538,8 +547,11 @@ class ChartView(ViewBox):
 
                     # update shape of scale box
                     # self.updateScaleBox(ev.buttonDownPos(), ev.pos())
+
+            # PANNING MODE
             else:
-                # default bevavior: click to pan view
+                # XXX: WHY
+                ev.accept()
                 tr = self.childGroup.transform()
                 tr = fn.invertQTransform(tr)
                 tr = tr.map(dif*mask) - tr.map(Point(0, 0))
@@ -554,9 +566,8 @@ class ChartView(ViewBox):
 
                 self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
 
+        # WEIRD "RIGHT-CLICK CENTER ZOOM" MODE
         elif button & QtCore.Qt.RightButton:
-
-            # right click zoom to center behaviour
 
             if self.state['aspectLocked'] is not False:
                 mask[0] = 0
@@ -576,6 +587,9 @@ class ChartView(ViewBox):
             self._resetTarget()
             self.scaleBy(x=x, y=y, center=center)
             self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
+
+            # XXX: WHY
+            ev.accept()
 
     # def mouseClickEvent(self, event: QtCore.QEvent) -> None:
     #      '''This routine is rerouted to an async handler.
