@@ -25,6 +25,8 @@ import i3ipc
 i3 = i3ipc.Connection()
 t = i3.get_tree()
 
+orig_win_id = t.find_focused().window
+
 # for tws
 win_names: list[str] = [
     'Interactive Brokers',  # tws running in i3
@@ -51,11 +53,20 @@ for name in win_names:
 
             # move mouse to bottom left of window (where there should
             # be nothing to click).
-            'mousemove_relative', '--sync', str(w-3), str(h-3),
+            'mousemove_relative', '--sync', str(w-4), str(h-4),
 
             # NOTE: we may need to stick a `--retry 3` in here..
-            'click', '--window', win_id, '1',
+            'click', '--window', win_id, '--repeat', '3', '1',
 
             # hackzorzes
             'key', 'ctrl+alt+f',
-        ])
+            ],
+            timeout=1,
+        )
+
+# re-activate and focus original window
+subprocess.call([
+    'xdotool',
+    'windowactivate', '--sync', str(orig_win_id),
+    'click', '--window', str(orig_win_id), '1',
+])
