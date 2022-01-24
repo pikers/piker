@@ -253,11 +253,17 @@ async def sample_and_broadcast(
                             try:
                                 stream.send_nowait((sym, quote))
                             except trio.WouldBlock:
-                                log.warning(
-                                    f'Feed overrun {bus.brokername} ->'
-                                    f'{stream._ctx.channel.uid} !!!'
-                                )
-
+                                ctx = getattr(sream, '_ctx', None)
+                                if ctx:
+                                    log.warning(
+                                        f'Feed overrun {bus.brokername} ->'
+                                        f'{ctx.channel.uid} !!!'
+                                    )
+                                else:
+                                    log.warning(
+                                        f'Feed overrun {bus.brokername} -> '
+                                        f'feed @ {tick_throttle} Hz'
+                                    )
                         else:
                             await stream.send({sym: quote})
 
