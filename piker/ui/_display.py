@@ -1102,20 +1102,6 @@ async def display_symbol_data(
         # TODO: eventually we'll support some kind of n-compose syntax
         fsp_conf = {
 
-            'dolla_vlm': {
-                'func_name': 'dolla_vlm',
-                'zero_on_step': True,
-                'params': {
-                    'price_func': {
-                        'default_value': 'chl3',
-                        # tell target ``Edit`` widget to not allow
-                        # edits for now.
-                        'widget_kwargs': {'readonly': True},
-                    },
-                },
-                'chart_kwargs': {'style': 'step'}
-            },
-
             'rsi': {
                 'func_name': 'rsi',  # literal python func ref lookup name
 
@@ -1160,7 +1146,7 @@ async def display_symbol_data(
         vlm_chart = None
         async with (
             trio.open_nursery() as ln,
-            # maybe_open_vlm_display(linkedsplits, ohlcv) as vlm_chart,
+            maybe_open_vlm_display(linkedsplits, ohlcv) as vlm_chart,
         ):
             # load initial fsp chain (otherwise known as "indicators")
             ln.start_soon(
