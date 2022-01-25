@@ -107,7 +107,7 @@ def services(config, tl, names):
         async with tractor.get_arbiter(
             *_tractor_kwargs['arbiter_addr']
         ) as portal:
-            registry = await portal.run('self', 'get_registry')
+            registry = await portal.run_from_ns('self', 'get_registry')
             json_d = {}
             for uid, socket in registry.items():
                 name, uuid = uid

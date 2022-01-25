@@ -20,6 +20,7 @@ In da suit parlances: "Execution management systems"
 """
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from math import isnan
 from pprint import pformat
 import time
 from typing import AsyncIterator, Callable
@@ -47,9 +48,11 @@ log = get_logger(__name__)
 
 # TODO: numba all of this
 def mk_check(
+
     trigger_price: float,
     known_last: float,
     action: str,
+
 ) -> Callable[[float, float], bool]:
     """Create a predicate for given ``exec_price`` based on last known
     price, ``known_last``.
@@ -77,8 +80,7 @@ def mk_check(
 
         return check_lt
 
-    else:
-        return None
+    raise ValueError('trigger: {trigger_price}, last: {known_last}')
 
 
 @dataclass
@@ -177,7 +179,15 @@ async def clear_dark_triggers(
                     tuple(execs.items())
                 ):
 
-                    if not pred or (ttype not in tf) or (not pred(price)):
+                    if (
+                        not pred or
+                        ttype not in tf or
+                        not pred(price)
+                    ):
+                        log.debug(
+                            f'skipping quote for {sym} '
+                            f'{pred}, {ttype} not in {tf}?, {pred(price)}'
+                        )
                         # majority of iterations will be non-matches
                         continue
 
@@ -246,7 +256,11 @@ async def clear_dark_triggers(
 
                     # remove exec-condition from set
                     log.info(f'removing pred for {oid}')
-                    execs.pop(oid)
+                    pred = execs.pop(oid, None)
+                    if not pred:
+                        log.warning(
+                            f'pred for {oid} was already removed!?'
+                        )
 
                     await ems_client_order_stream.send(msg)
 
@@ -1005,7 +1019,8 @@ async def _emsd_main(
         first_quote = feed.first_quotes[symbol]
 
         book = _router.get_dark_book(broker)
-        book.lasts[(broker, symbol)] = first_quote['last']
+        last = book.lasts[(broker, symbol)] = first_quote['last']
+        assert not isnan(last)  # ib is a cucker but we've fixed it in the backend
 
         # open a stream with the brokerd backend for order
         # flow dialogue

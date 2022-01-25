@@ -135,6 +135,7 @@ async def increment_ohlc_buffer(
 async def iter_ohlc_periods(
     ctx: tractor.Context,
     delay_s: int,
+
 ) -> None:
     """
     Subscribe to OHLC sampling "step" events: when the time
@@ -252,11 +253,17 @@ async def sample_and_broadcast(
                             try:
                                 stream.send_nowait((sym, quote))
                             except trio.WouldBlock:
-                                log.warning(
-                                    f'Feed overrun {bus.brokername} ->'
-                                    f'{stream._ctx.channel.uid} !!!'
-                                )
-
+                                ctx = getattr(sream, '_ctx', None)
+                                if ctx:
+                                    log.warning(
+                                        f'Feed overrun {bus.brokername} ->'
+                                        f'{ctx.channel.uid} !!!'
+                                    )
+                                else:
+                                    log.warning(
+                                        f'Feed overrun {bus.brokername} -> '
+                                        f'feed @ {tick_throttle} Hz'
+                                    )
                         else:
                             await stream.send({sym: quote})
 
@@ -270,18 +277,20 @@ async def sample_and_broadcast(
                     trio.ClosedResourceError,
                     trio.EndOfChannel,
                 ):
+                    ctx = getattr(stream, '_ctx', None)
+                    if ctx:
+                        log.warning(
+                            f'{ctx.chan.uid} dropped  '
+                            '`brokerd`-quotes-feed connection'
+                        )
+                    if tick_throttle:
+                        assert stream.closed()
+
                     # XXX: do we need to deregister here
                     # if it's done in the fee bus code?
                     # so far seems like no since this should all
-                    # be single-threaded.
-                    log.warning(
-                        f'{stream._ctx.chan.uid} dropped  '
-                        '`brokerd`-quotes-feed connection'
-                    )
-                    if tick_throttle:
-                        assert stream.closed()
-                        # await stream.aclose()
-
+                    # be single-threaded. Doing it anyway though
+                    # since there seems to be some kinda race..
                     subs.remove((stream, tick_throttle))
 
 

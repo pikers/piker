@@ -592,7 +592,8 @@ async def maybe_open_feed(
     **kwargs,
 
 ) -> (Feed, ReceiveChannel[dict[str, Any]]):
-    '''Maybe open a data to a ``brokerd`` daemon only if there is no
+    '''
+    Maybe open a data to a ``brokerd`` daemon only if there is no
     local one for the broker-symbol pair, if one is cached use it wrapped
     in a tractor broadcast receiver.
 

@@ -26,7 +26,9 @@ import trio
 from PyQt5 import QtCore
 from PyQt5.QtCore import QEvent, pyqtBoundSignal
 from PyQt5.QtWidgets import QWidget
-from PyQt5.QtWidgets import QGraphicsSceneMouseEvent as gs_mouse
+from PyQt5.QtWidgets import (
+    QGraphicsSceneMouseEvent as gs_mouse,
+)
 
 
 MOUSE_EVENTS = {
@@ -129,6 +131,8 @@ class EventRelay(QtCore.QObject):
             # TODO: is there a global setting for this?
             if ev.isAutoRepeat() and self._filter_auto_repeats:
                 ev.ignore()
+                # filter out this event and stop it's processing
+                # https://doc.qt.io/qt-5/qobject.html#installEventFilter
                 return True
 
             # NOTE: the event object instance coming out
@@ -152,9 +156,6 @@ class EventRelay(QtCore.QObject):
 
         # **do not** filter out this event
         # and instead forward to the source widget
-        return False
-
-        # filter out this event
         # https://doc.qt.io/qt-5/qobject.html#installEventFilter
         return False
 

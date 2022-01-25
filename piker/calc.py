@@ -27,27 +27,32 @@ _mag2suffix = bidict({3: 'k', 6: 'M', 9: 'B'})
 
 
 def humanize(
-
     number: float,
     digits: int = 1
 
 ) -> str:
-    '''Convert large numbers to something with at most ``digits`` and
+    '''
+    Convert large numbers to something with at most ``digits`` and
     a letter suffix (eg. k: thousand, M: million, B: billion).
 
     '''
     try:
         float(number)
     except ValueError:
-        return 0
+        return '0'
+
     if not number or number <= 0:
-        return round(number, ndigits=digits)
+        return str(round(number, ndigits=digits))
 
-    mag = math.floor(math.log(number, 10))
+    mag = round(math.log(number, 10))
     if mag < 3:
-        return round(number, ndigits=digits)
+        return str(round(number, ndigits=digits))
 
-    maxmag = max(itertools.takewhile(lambda key: mag >= key, _mag2suffix))
+    maxmag = max(
+        itertools.takewhile(
+            lambda key: mag >= key, _mag2suffix
+        )
+    )
 
     return "{value}{suffix}".format(
         value=round(number/10**maxmag, ndigits=digits),

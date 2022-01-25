@@ -133,9 +133,11 @@ def mk_symbol(
 
 
 def from_df(
+
     df: pd.DataFrame,
     source=None,
     default_tf=None
+
 ) -> np.recarray:
     """Convert OHLC formatted ``pandas.DataFrame`` to ``numpy.recarray``.
 
