@@ -186,15 +186,17 @@ async def fsp_compute(
 async def cascade(
 
     ctx: tractor.Context,
+
+    # data feed key
     brokername: str,
+    symbol: str,
 
     src_shm_token: dict,
     dst_shm_token: tuple[str, np.dtype],
 
-    symbol: str,
     func_name: str,
-    zero_on_step: bool = False,
 
+    zero_on_step: bool = False,
     loglevel: Optional[str] = None,
 
 ) -> None:

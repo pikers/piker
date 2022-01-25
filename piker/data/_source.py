@@ -106,6 +106,18 @@ class Symbol(BaseModel):
         mult = 1 / self.tick_size
         return round(value * mult) / mult
 
+    def front_feed(self) -> tuple[str, str]:
+        '''
+        Return the "current" feed key for this symbol.
+
+        (i.e. the broker + symbol key in a tuple).
+
+        '''
+        return (
+            list(self.broker_info.keys())[0],
+            self.key,
+        )
+
 
 @validate_arguments
 def mk_symbol(

@@ -19,8 +19,6 @@ High level chart-widget apis.
 
 '''
 from __future__ import annotations
-from functools import partial
-from dataclasses import dataclass
 from typing import Optional
 
 from PyQt5 import QtCore, QtWidgets
@@ -383,8 +381,9 @@ class LinkedSplits(QWidget):
 
         style: str = 'bar',
 
-    ) -> 'ChartPlotWidget':
-        '''Start up and show main (price) chart and all linked subcharts.
+    ) -> ChartPlotWidget:
+        '''
+        Start up and show main (price) chart and all linked subcharts.
 
         The data input struct array must include OHLC fields.
 
@@ -537,7 +536,7 @@ class LinkedSplits(QWidget):
             )
             self.cursor.contents_labels.add_label(
                 cpw,
-                'ohlc',
+                name,
                 anchor_at=('top', 'left'),
                 update_func=ContentsLabel.update_from_ohlc,
             )
@@ -611,11 +610,11 @@ class LinkedSplits(QWidget):
 
 # import pydantic
 
-# class ArrayScene(pydantic.BaseModel):
+# class Graphics(pydantic.BaseModel):
 #     '''
 #     Data-AGGRegate: high level API onto multiple (categorized)
-#     ``ShmArray``s with high level processing routines mostly for
-#     graphics summary and display.
+#     ``ShmArray``s with high level processing routines for
+#     graphics computations and display.
 
 #     '''
 #     arrays: dict[str, np.ndarray] = {}
@@ -738,7 +737,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self.default_view()
         self.cv.enable_auto_yrange()
 
-        self.overlay: PlotItemOverlay = PlotItemOverlay(self.plotItem)
+        self.pi_overlay: PlotItemOverlay = PlotItemOverlay(self.plotItem)
 
     def resume_all_feeds(self):
         for feed in self._feeds.values():
@@ -849,7 +848,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # adds all bar/candle graphics objects for each data point in
         # the np array buffer to be drawn on next render cycle
-        self.addItem(graphics)
+        self.plotItem.addItem(graphics)
 
         # draw after to allow self.scene() to work...
         graphics.draw_from_data(data)
@@ -860,6 +859,57 @@ class ChartPlotWidget(pg.PlotWidget):
 
         return graphics, data_key
 
+    def overlay_plotitem(
+        self,
+        name: str,
+
+    ) -> pg.PlotItem:
+        # Custom viewbox impl
+        cv = self.mk_vb(name)
+        cv.chart = self
+
+        # xaxis = DynamicDateAxis(
+        #     orientation='bottom',
+        #     linkedsplits=self.linked,
+        # )
+        yaxis = PriceAxis(
+            orientation='right',
+            linkedsplits=self.linked,
+        )
+
+        plotitem = pg.PlotItem(
+            parent=self.plotItem,
+            name=name,
+            enableMenu=False,
+            viewBox=cv,
+            axisItems={
+                # 'bottom': xaxis,
+                'right': yaxis,
+            },
+            default_axes=[],
+        )
+        # plotitem.setAxisItems(
+        #     add_to_layout=False,
+        #     axisItems={
+        #         'bottom': xaxis,
+        #         'right': yaxis,
+        #     },
+        # )
+        # plotite.hideAxis('right')
+        # plotite.hideAxis('bottom')
+        # plotitem.addItem(curve)
+        cv.enable_auto_yrange()
+
+        # plotitem.enableAutoRange(axis='y')
+        plotitem.hideButtons()
+
+        self.pi_overlay.add_plotitem(
+            plotitem,
+            # only link x-axes,
+            link_axes=(0,),
+        )
+        return plotitem
+
     def draw_curve(
         self,
 
@@ -868,7 +918,6 @@ class ChartPlotWidget(pg.PlotWidget):
 
         array_key: Optional[str] = None,
         overlay: bool = False,
-        separate_axes: bool = False,
         color: Optional[str] = None,
         add_label: bool = True,
 
@@ -907,11 +956,11 @@ class ChartPlotWidget(pg.PlotWidget):
             **pdi_kwargs,
         )
 
-        # XXX: see explanation for differenct caching modes:
+        # XXX: see explanation for different caching modes:
         # https://stackoverflow.com/a/39410081
         # seems to only be useful if we don't re-generate the entire
         # QPainterPath every time
-        # curve.curve.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
+        # curve.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
         # don't ever use this - it's a colossal nightmare of artefacts
         # and is disastrous for performance.
@@ -921,83 +970,28 @@ class ChartPlotWidget(pg.PlotWidget):
         self._graphics[name] = curve
         self._arrays[data_key] = data
 
+        pi = self.plotItem
+
+        # TODO: this probably needs its own method?
         if overlay:
             # anchor_at = ('bottom', 'left')
             self._overlays[name] = None
 
-            if separate_axes:
+            if isinstance(overlay, pg.PlotItem):
+                if overlay not in self.pi_overlay.overlays:
+                    raise RuntimeError(
+                            f'{overlay} must be from `.plotitem_overlay()`'
+                        )
+                pi = overlay
 
-                # Custom viewbox impl
-                cv = self.mk_vb(name)
-
-                def maxmin():
-                    return self.maxmin(name=data_key)
-
-                # ensure view maxmin is computed from correct array
-                # cv._maxmin = partial(self.maxmin, name=data_key)
-
-                cv._maxmin = maxmin
-
-                cv.chart = self
-
-                # xaxis = DynamicDateAxis(
-                #     orientation='bottom',
-                #     linkedsplits=self.linked,
-                # )
-                yaxis = PriceAxis(
-                    orientation='right',
-                    linkedsplits=self.linked,
-                )
-
-                plotitem = pg.PlotItem(
-                    parent=self.plotItem,
-                    name=name,
-                    enableMenu=False,
-                    viewBox=cv,
-                    axisItems={
-                        # 'bottom': xaxis,
-                        'right': yaxis,
-                    },
-                    default_axes=[],
-                )
-                # plotitem.setAxisItems(
-                #     add_to_layout=False,
-                #     axisItems={
-                #         'bottom': xaxis,
-                #         'right': yaxis,
-                #     },
-                # )
-                # plotite.hideAxis('right')
-                # plotite.hideAxis('bottom')
-                plotitem.addItem(curve)
-                cv.enable_auto_yrange()
-
-                # config
-                # plotitem.setAutoVisible(y=True)
-                # plotitem.enableAutoRange(axis='y')
-                plotitem.hideButtons()
-
-                self.overlay.add_plotitem(
-                    plotitem,
-                    # only link x-axes,
-                    link_axes=(0,),
-                )
-
-            else:
-                # this intnernally calls `PlotItem.addItem()` on the
-                # graphics object
-                self.addItem(curve)
         else:
-            # this intnernally calls `PlotItem.addItem()` on the
-            # graphics object
-            self.addItem(curve)
-
             # anchor_at = ('top', 'left')
 
             # TODO: something instead of stickies for overlays
             # (we need something that avoids clutter on x-axis).
             self._add_sticky(name, bg_color=color)
 
+        pi.addItem(curve)
         return curve, data_key
 
     # TODO: make this a ctx mngr
@@ -1036,7 +1030,8 @@ class ChartPlotWidget(pg.PlotWidget):
         **kwargs,
 
     ) -> pg.GraphicsObject:
-        '''Update the named internal graphics from ``array``.
+        '''
+        Update the named internal graphics from ``array``.
 
         '''
         self._arrays[self.name] = array
@@ -1053,7 +1048,8 @@ class ChartPlotWidget(pg.PlotWidget):
         **kwargs,
 
     ) -> pg.GraphicsObject:
-        '''Update the named internal graphics from ``array``.
+        '''
+        Update the named internal graphics from ``array``.
 
         '''
         assert len(array)
@@ -1123,7 +1119,7 @@ class ChartPlotWidget(pg.PlotWidget):
     def get_index(self, time: float) -> int:
 
         # TODO: this should go onto some sort of
-        # data-view strimg thinger..right?
+        # data-view thinger..right?
         ohlc = self._shm.array
 
         # XXX: not sure why the time is so off here
@@ -1178,15 +1174,9 @@ class ChartPlotWidget(pg.PlotWidget):
             yhigh = np.nanmax(bars['high'])
 
         else:
-            try:
-                view = bars[name or self.data_key]
-            except:
-                breakpoint()
-            # if self.data_key != 'volume':
-            # else:
-            #     view = bars
+            view = bars[name or self.data_key]
             ylow = np.nanmin(view)
             yhigh = np.nanmax(view)
-            # print(f'{(ylow, yhigh)}')
 
+        # print(f'{(ylow, yhigh)}')
         return ylow, yhigh

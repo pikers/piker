@@ -21,36 +21,32 @@ this module ties together quote and computational (fsp) streams with
 graphics update methods via our custom ``pyqtgraph`` charting api.
 
 '''
-from contextlib import asynccontextmanager as acm
 from functools import partial
-from itertools import cycle
 import time
-from types import ModuleType
-from typing import Optional, AsyncGenerator
+from typing import Optional
 
 import numpy as np
-from pydantic import create_model
-import pyqtgraph as pg
 import tractor
 import trio
 
 from .. import brokers
-from .._cacheables import maybe_open_context
-from tractor.trionics import gather_contexts
 from ..data.feed import open_feed, Feed
 from ._chart import (
     ChartPlotWidget,
     LinkedSplits,
     GodWidget,
 )
-from .. import fsp
 from ._l1 import L1Labels
-from ..data._sharedmem import ShmArray, maybe_open_shm_array
+from ._fsp import (
+    update_fsp_chart,
+    start_fsp_displays,
+    has_vlm,
+    open_vlm_displays,
+)
+from ..data._sharedmem import ShmArray, try_read
 from ._forms import (
     FieldsForm,
-    mk_form,
     mk_order_pane_layout,
-    open_form_input_handling,
 )
 from .order_mode import open_order_mode
 from ..log import get_logger
@@ -59,78 +55,6 @@ log = get_logger(__name__)
 
 # TODO: load this from a config.toml!
 _quote_throttle_rate: int = 58  # Hz
-
-
-def try_read(
-    array: np.ndarray
-
-) -> Optional[np.ndarray]:
-    '''
-    Try to read the last row from a shared mem array or ``None``
-    if the array read returns a zero-length array result.
-
-    Can be used to check for backfilling race conditions where an array
-    is currently being (re-)written by a writer actor but the reader is
-    unaware and reads during the window where the first and last indexes
-    are being updated.
-
-    '''
-    try:
-        return array[-1]
-    except IndexError:
-        # XXX: race condition with backfilling shm.
-        #
-        # the underlying issue is that a backfill (aka prepend) and subsequent
-        # shm array first/last index update could result in an empty array
-        # read here since the indices may be updated in such a way that
-        # a read delivers an empty array (though it seems like we
-        # *should* be able to prevent that?). also, as and alt and
-        # something we need anyway, maybe there should be some kind of
-        # signal that a prepend is taking place and this consumer can
-        # respond (eg. redrawing graphics) accordingly.
-
-        # the array read was emtpy
-        return None
-
-
-def update_fsp_chart(
-    chart: ChartPlotWidget,
-    shm: ShmArray,
-    graphics_name: str,
-    array_key: Optional[str],
-
-) -> None:
-
-    array = shm.array
-    last_row = try_read(array)
-
-    # guard against unreadable case
-    if not last_row:
-        log.warning(f'Read-race on shm array: {graphics_name}@{shm.token}')
-        return
-
-    # update graphics
-    # NOTE: this does a length check internally which allows it
-    # staying above the last row check below..
-    chart.update_curve_from_array(
-        graphics_name,
-        array,
-        array_key=array_key or graphics_name,
-    )
-    chart.cv._set_yrange()
-
-    # XXX: re: ``array_key``: fsp func names must be unique meaning we
-    # can't have duplicates of the underlying data even if multiple
-    # sub-charts reference it under different 'named charts'.
-
-    # read from last calculated value and update any label
-    last_val_sticky = chart._ysticks.get(graphics_name)
-    if last_val_sticky:
-        # array = shm.array[array_key]
-        # if len(array):
-        #     value = array[-1]
-        last = last_row[array_key]
-        last_val_sticky.update_from_data(-1, last)
 
 
 # a working tick-type-classes template
@@ -151,6 +75,10 @@ def chart_maxmin(
     float,
     float,
 ]:
+    '''
+    Compute max and min datums "in view" for range limits.
+
+    '''
     # TODO: implement this
     # https://arxiv.org/abs/cs/0610046
     # https://github.com/lemire/pythonmaxmin
@@ -178,7 +106,7 @@ def chart_maxmin(
     return last_bars_range, mx, max(mn, 0), mx_vlm_in_view
 
 
-async def update_chart_from_quotes(
+async def update_linked_charts_graphics(
     linked: LinkedSplits,
     stream: tractor.MsgStream,
     ohlcv: np.ndarray,
@@ -189,7 +117,8 @@ async def update_chart_from_quotes(
 ) -> None:
     '''The 'main' (price) chart real-time update loop.
 
-    Receive from the quote stream and update the OHLC chart.
+    Receive from the primary instrument quote stream and update the OHLC
+    chart.
 
     '''
     # TODO: bunch of stuff:
@@ -261,7 +190,10 @@ async def update_chart_from_quotes(
 
         if (
             quote_period <= 1/_quote_throttle_rate
-            and quote_rate > _quote_throttle_rate * 1.5
+
+            # in the absolute worst case we shouldn't see more then
+            # twice the expected throttle rate right!?
+            and quote_rate >= _quote_throttle_rate * 1.5
         ):
             log.warning(f'High quote rate {symbol.key}: {quote_rate}')
         last_quote = now
@@ -297,11 +229,19 @@ async def update_chart_from_quotes(
                     mx_vlm_in_view != last_mx_vlm or
                     mx_vlm_in_view > last_mx_vlm
                 ):
-                    print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
+                    # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
                     vlm_view._set_yrange(
                         yrange=(0, mx_vlm_in_view * 1.375)
                     )
                     last_mx_vlm = mx_vlm_in_view
+
+                for curve_name, shm in vlm_chart._overlays.items():
+                    update_fsp_chart(
+                        vlm_chart,
+                        shm,
+                        curve_name,
+                        array_key=curve_name,
+                    )
 
             ticks_frame = quote.get('ticks', ())
 
@@ -420,7 +360,7 @@ async def update_chart_from_quotes(
                 (mx > last_mx) or (mn < last_mn)
                 and not chart._static_yrange == 'axis'
             ):
-                print(f'new y range: {(mn, mx)}')
+                # print(f'new y range: {(mn, mx)}')
                 view._set_yrange(
                     yrange=(mn, mx),
                     # TODO: we should probably scale
@@ -456,382 +396,6 @@ async def update_chart_from_quotes(
                     array_key=curve_name,
                 )
                 # chart._set_yrange()
-
-
-def maybe_mk_fsp_shm(
-    sym: str,
-    field_name: str,
-    display_name: Optional[str] = None,
-    readonly: bool = True,
-
-) -> (ShmArray, bool):
-    '''
-    Allocate a single row shm array for an symbol-fsp pair if none
-    exists, otherwise load the shm already existing for that token.
-
-    '''
-    uid = tractor.current_actor().uid
-    if not display_name:
-        display_name = field_name
-
-    # TODO: load function here and introspect
-    # return stream type(s)
-
-    # TODO: should `index` be a required internal field?
-    fsp_dtype = np.dtype([('index', int), (field_name, float)])
-
-    key = f'{sym}.fsp.{display_name}.{".".join(uid)}'
-
-    shm, opened = maybe_open_shm_array(
-        key,
-        # TODO: create entry for each time frame
-        dtype=fsp_dtype,
-        readonly=True,
-    )
-    return shm, opened
-
-
-@acm
-async def open_fsp_sidepane(
-    linked: LinkedSplits,
-    conf: dict[str, dict[str, str]],
-
-) -> FieldsForm:
-
-    schema = {}
-
-    assert len(conf) == 1  # for now
-
-    # add (single) selection widget
-    for display_name, config in conf.items():
-        schema[display_name] = {
-                'label': '**fsp**:',
-                'type': 'select',
-                'default_value': [display_name],
-            }
-
-        # add parameters for selection "options"
-        params = config.get('params', {})
-        for name, config in params.items():
-
-            default = config['default_value']
-            kwargs = config.get('widget_kwargs', {})
-
-            # add to ORM schema
-            schema.update({
-                name: {
-                    'label': f'**{name}**:',
-                    'type': 'edit',
-                    'default_value': default,
-                    'kwargs': kwargs,
-                },
-            })
-
-    sidepane: FieldsForm = mk_form(
-        parent=linked.godwidget,
-        fields_schema=schema,
-    )
-
-    # https://pydantic-docs.helpmanual.io/usage/models/#dynamic-model-creation
-    FspConfig = create_model(
-        'FspConfig',
-        name=display_name,
-        **params,
-    )
-    sidepane.model = FspConfig()
-
-    # just a logger for now until we get fsp configs up and running.
-    async def settings_change(key: str, value: str) -> bool:
-        print(f'{key}: {value}')
-        return True
-
-    # TODO:
-    async with (
-        open_form_input_handling(
-            sidepane,
-            focus_next=linked.godwidget,
-            on_value_change=settings_change,
-        )
-    ):
-        yield sidepane
-
-
-@acm
-async def open_fsp_cluster(
-    workers: int = 2
-
-) -> AsyncGenerator[int, dict[str, tractor.Portal]]:
-
-    from tractor._clustering import open_actor_cluster
-
-    profiler = pg.debug.Profiler(
-        delayed=False,
-        disabled=False
-    )
-    async with open_actor_cluster(
-        count=2,
-        names=['fsp_0', 'fsp_1'],
-        modules=['piker.fsp._engine'],
-    ) as cluster_map:
-        profiler('started fsp cluster')
-        yield cluster_map
-
-
-@acm
-async def maybe_open_fsp_cluster(
-    workers: int = 2,
-    **kwargs,
-
-) -> AsyncGenerator[int, dict[str, tractor.Portal]]:
-
-    kwargs.update(
-        {'workers': workers}
-    )
-
-    async with maybe_open_context(
-        # for now make a cluster per client?
-        acm_func=open_fsp_cluster,
-        kwargs=kwargs,
-    ) as (cache_hit, cluster_map):
-        if cache_hit:
-            log.info('re-using existing fsp cluster')
-            yield cluster_map
-        else:
-            yield cluster_map
-
-
-async def start_fsp_displays(
-    cluster_map: dict[str, tractor.Portal],
-    linkedsplits: LinkedSplits,
-    fsps: dict[str, str],
-    sym: str,
-    src_shm: list,
-    brokermod: ModuleType,
-    group_status_key: str,
-    loglevel: str,
-
-) -> None:
-    '''
-    Create sub-actors (under flat tree)
-    for each entry in config and attach to local graphics update tasks.
-
-    Pass target entrypoint and historical data.
-
-    '''
-    linkedsplits.focus()
-
-    profiler = pg.debug.Profiler(
-        delayed=False,
-        disabled=False
-    )
-
-    async with trio.open_nursery() as n:
-        # Currently we spawn an actor per fsp chain but
-        # likely we'll want to pool them eventually to
-        # scale horizonatlly once cores are used up.
-        for (display_name, conf), (name, portal) in zip(
-            fsps.items(),
-
-            # round robin to cluster for now..
-            cycle(cluster_map.items()),
-        ):
-            func_name = conf['func_name']
-            shm, opened = maybe_mk_fsp_shm(
-                sym,
-                field_name=func_name,
-                display_name=display_name,
-                readonly=True,
-            )
-
-            profiler(f'created shm for fsp actor: {display_name}')
-
-            # XXX: fsp may have been opened by a duplicate chart.
-            # Error for now until we figure out how to wrap fsps as
-            # "feeds".  assert opened, f"A chart for {key} likely
-            # already exists?"
-
-            profiler(f'attached to fsp portal: {display_name}')
-
-            # init async
-            n.start_soon(
-                partial(
-                    update_chart_from_fsp,
-
-                    portal,
-                    linkedsplits,
-                    brokermod,
-                    sym,
-                    src_shm,
-                    func_name,
-                    display_name,
-                    conf=conf,
-                    shm=shm,
-                    is_overlay=conf.get('overlay', False),
-                    group_status_key=group_status_key,
-                    loglevel=loglevel,
-                    profiler=profiler,
-                )
-            )
-
-    # blocks here until all fsp actors complete
-
-
-async def update_chart_from_fsp(
-    portal: tractor.Portal,
-    linkedsplits: LinkedSplits,
-    brokermod: ModuleType,
-    sym: str,
-    src_shm: ShmArray,
-    func_name: str,
-    display_name: str,
-    conf: dict[str, dict],
-
-    shm: ShmArray,
-    is_overlay: bool,
-
-    group_status_key: str,
-    loglevel: str,
-    profiler: pg.debug.Profiler,
-
-) -> None:
-    '''
-    FSP stream chart update loop.
-
-    This is called once for each entry in the fsp
-    config map.
-
-    '''
-
-    profiler(f'started chart task for fsp: {func_name}')
-
-    done = linkedsplits.window().status_bar.open_status(
-        f'loading fsp, {display_name}..',
-        group_key=group_status_key,
-    )
-
-    async with (
-        portal.open_context(
-
-            # chaining entrypoint
-            fsp.cascade,
-
-            # name as title of sub-chart
-            brokername=brokermod.name,
-            src_shm_token=src_shm.token,
-            dst_shm_token=shm.token,
-            symbol=sym,
-            func_name=func_name,
-            loglevel=loglevel,
-            zero_on_step=conf.get('zero_on_step', False),
-
-        ) as (ctx, last_index),
-        ctx.open_stream() as stream,
-
-        open_fsp_sidepane(linkedsplits, {display_name: conf},) as sidepane,
-    ):
-        profiler(f'fsp:{func_name} attached to fsp ctx-stream')
-
-        if is_overlay:
-            chart = linkedsplits.chart
-            chart.draw_curve(
-                name=display_name,
-                data=shm.array,
-                overlay=True,
-                color='default_light',
-            )
-            # specially store ref to shm for lookup in display loop
-            chart._overlays[display_name] = shm
-
-        else:
-            chart = linkedsplits.add_plot(
-                name=display_name,
-                array=shm.array,
-
-                array_key=conf['func_name'],
-                sidepane=sidepane,
-
-                # curve by default
-                ohlc=False,
-
-                # settings passed down to ``ChartPlotWidget``
-                **conf.get('chart_kwargs', {})
-                # static_yrange=(0, 100),
-            )
-
-            # XXX: ONLY for sub-chart fsps, overlays have their
-            # data looked up from the chart's internal array set.
-            # TODO: we must get a data view api going STAT!!
-            chart._shm = shm
-
-            # should **not** be the same sub-chart widget
-            assert chart.name != linkedsplits.chart.name
-
-        array_key = func_name
-
-        profiler(f'fsp:{func_name} chart created')
-
-        # first UI update, usually from shm pushed history
-        update_fsp_chart(
-            chart,
-            shm,
-            display_name,
-            array_key=array_key,
-        )
-
-        chart.linked.focus()
-
-        # TODO: figure out if we can roll our own `FillToThreshold` to
-        # get brush filled polygons for OS/OB conditions.
-        # ``pg.FillBetweenItems`` seems to be one technique using
-        # generic fills between curve types while ``PlotCurveItem`` has
-        # logic inside ``.paint()`` for ``self.opts['fillLevel']`` which
-        # might be the best solution?
-        # graphics = chart.update_from_array(chart.name, array[func_name])
-        # graphics.curve.setBrush(50, 50, 200, 100)
-        # graphics.curve.setFillLevel(50)
-
-        if func_name == 'rsi':
-            from ._lines import level_line
-            # add moveable over-[sold/bought] lines
-            # and labels only for the 70/30 lines
-            level_line(chart, 20)
-            level_line(chart, 30, orient_v='top')
-            level_line(chart, 70, orient_v='bottom')
-            level_line(chart, 80, orient_v='top')
-
-        chart.cv._set_yrange()
-        done()  # status updates
-
-        profiler(f'fsp:{func_name} starting update loop')
-        profiler.finish()
-
-        # update chart graphics
-        last = time.time()
-        async for value in stream:
-
-            # chart isn't actively shown so just skip render cycle
-            if chart.linked.isHidden():
-                continue
-
-            else:
-                now = time.time()
-                period = now - last
-
-                if period <= 1/_quote_throttle_rate:
-                    # faster then display refresh rate
-                    print(f'fsp too fast: {1/period}')
-                    continue
-
-                # run synchronous update
-                update_fsp_chart(
-                    chart,
-                    shm,
-                    display_name,
-                    array_key=func_name,
-                )
-
-                # set time of last graphics update
-                last = time.time()
 
 
 async def check_for_new_bars(
@@ -906,93 +470,6 @@ async def check_for_new_bars(
 
             # shift the view if in follow mode
             price_chart.increment_view()
-
-
-def has_vlm(ohlcv: ShmArray) -> bool:
-    # make sure that the instrument supports volume history
-    # (sometimes this is not the case for some commodities and
-    # derivatives)
-    volm = ohlcv.array['volume']
-    return not bool(np.all(np.isin(volm, -1)) or np.all(np.isnan(volm)))
-
-
-@acm
-async def maybe_open_vlm_display(
-    linked: LinkedSplits,
-    ohlcv: ShmArray,
-
-) -> ChartPlotWidget:
-
-    if not has_vlm(ohlcv):
-        log.warning(f"{linked.symbol.key} does not seem to have volume info")
-        yield
-        return
-    else:
-
-        shm, opened = maybe_mk_fsp_shm(
-            linked.symbol.key,
-            'vlm',
-            readonly=True,
-        )
-
-        async with open_fsp_sidepane(
-            linked, {
-                'vlm': {
-                    'params': {
-                        'price_func': {
-                            'default_value': 'chl3',
-                            # tell target ``Edit`` widget to not allow
-                            # edits for now.
-                            'widget_kwargs': {'readonly': True},
-                        },
-                    },
-                }
-            },
-        ) as sidepane:
-
-            # built-in $vlm
-            shm = ohlcv
-            chart = linked.add_plot(
-                name='volume',
-                array=shm.array,
-
-                array_key='volume',
-                sidepane=sidepane,
-
-                # curve by default
-                ohlc=False,
-
-                # Draw vertical bars from zero.
-                # we do this internally ourselves since
-                # the curve item internals are pretty convoluted.
-                style='step',
-            )
-
-            # XXX: ONLY for sub-chart fsps, overlays have their
-            # data looked up from the chart's internal array set.
-            # TODO: we must get a data view api going STAT!!
-            chart._shm = shm
-
-            # should **not** be the same sub-chart widget
-            assert chart.name != linked.chart.name
-
-            # sticky only on sub-charts atm
-            last_val_sticky = chart._ysticks[chart.name]
-
-            # read from last calculated value
-            value = shm.array['volume'][-1]
-
-            last_val_sticky.update_from_data(-1, value)
-
-            chart.update_curve_from_array(
-                'volume',
-                shm.array,
-            )
-
-            # size view to data once at outset
-            chart.cv._set_yrange()
-
-            yield chart
 
 
 async def display_symbol_data(
@@ -1084,57 +561,6 @@ async def display_symbol_data(
         # TODO: a data view api that makes this less shit
         chart._shm = ohlcv
 
-        # TODO: eventually we'll support some kind of n-compose syntax
-        fsp_conf = {
-
-            # 'dolla_vlm': {
-            #     'func_name': 'dolla_vlm',
-            #     'zero_on_step': True,
-            #     'params': {
-            #         'price_func': {
-            #             'default_value': 'chl3',
-            #             # tell target ``Edit`` widget to not allow
-            #             # edits for now.
-            #             'widget_kwargs': {'readonly': True},
-            #         },
-            #     },
-            #     'chart_kwargs': {'style': 'step'}
-            # },
-
-            # 'rsi': {
-            #     'func_name': 'rsi',  # literal python func ref lookup name
-
-            #     # map of parameters to place on the fsp sidepane widget
-            #     # which should map to dynamic inputs available to the
-            #     # fsp function at runtime.
-            #     'params': {
-            #         'period': {
-            #             'default_value': 14,
-            #             'widget_kwargs': {'readonly': True},
-            #         },
-            #     },
-
-            #     # ``ChartPlotWidget`` options passthrough
-            #     'chart_kwargs': {
-            #         'static_yrange': (0, 100),
-            #     },
-            # },
-        }
-
-        if has_vlm(ohlcv):  # and provider != 'binance':
-            # binance is too fast atm for FSPs until we wrap
-            # the fsp streams as throttled ``Feeds``, see
-            #
-
-            # add VWAP to fsp config for downstream loading
-            fsp_conf.update({
-                'vwap': {
-                    'func_name': 'vwap',
-                    'overlay': True,
-                    'anchor': 'session',
-                },
-            })
-
         # NOTE: we must immediately tell Qt to show the OHLC chart
         # to avoid a race where the subplots get added/shown to
         # the linked set *before* the main price chart!
@@ -1142,32 +568,30 @@ async def display_symbol_data(
         linkedsplits.focus()
         await trio.sleep(0)
 
-        vlm_chart = None
+        vlm_chart: Optional[ChartPlotWidget] = None
+        async with trio.open_nursery() as ln:
 
-        async with gather_contexts(
-            (
-                trio.open_nursery(),
-                maybe_open_vlm_display(linkedsplits, ohlcv),
-                maybe_open_fsp_cluster(),
-            )
-        ) as (ln, vlm_chart, cluster_map):
+            # if available load volume related built-in display(s)
+            if has_vlm(ohlcv):
+                vlm_chart = await ln.start(
+                    open_vlm_displays,
+                    linkedsplits,
+                    ohlcv,
+                )
 
-            # load initial fsp chain (otherwise known as "indicators")
+            # load (user's) FSP set (otherwise known as "indicators")
+            # from an input config.
             ln.start_soon(
                 start_fsp_displays,
-                cluster_map,
                 linkedsplits,
-                fsp_conf,
-                sym,
                 ohlcv,
-                brokermod,
                 loading_sym_key,
                 loglevel,
             )
 
             # start graphics update loop after receiving first live quote
             ln.start_soon(
-                update_chart_from_quotes,
+                update_linked_charts_graphics,
                 linkedsplits,
                 feed.stream,
                 ohlcv,
@@ -1175,6 +599,7 @@ async def display_symbol_data(
                 vlm_chart,
             )
 
+            # start sample step incrementer
             ln.start_soon(
                 check_for_new_bars,
                 feed,
@@ -1195,6 +620,10 @@ async def display_symbol_data(
                 # sidepanes line up vertically.
                 await trio.sleep(0)
                 linkedsplits.resize_sidepanes()
+
+                # TODO: make this not so shit XD
+                # close group status
+                sbar._status_groups[loading_sym_key][1]()
 
                 # let the app run.
                 await trio.sleep_forever()
