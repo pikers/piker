@@ -732,7 +732,7 @@ def mk_order_pane_layout(
 
 ) -> FieldsForm:
 
-    font_size: int = _font.px_size - 1
+    font_size: int = _font.px_size - 2
 
     # TODO: maybe just allocate the whole fields form here
     # and expect an async ctx entry?

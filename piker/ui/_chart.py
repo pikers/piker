@@ -18,6 +18,7 @@
 High level chart-widget apis.
 
 '''
+from __future__ import annotations
 from typing import Optional
 
 from PyQt5 import QtCore, QtWidgets
@@ -68,7 +69,7 @@ log = get_logger(__name__)
 class GodWidget(QWidget):
     '''
     "Our lord and savior, the holy child of window-shua, there is no
-    widget above thee." - 6||6
+    widget above thee." - 6|6
 
     The highest level composed widget which contains layouts for
     organizing charts as well as other sub-widgets used to control or
@@ -104,8 +105,8 @@ class GodWidget(QWidget):
         # self.init_strategy_ui()
         # self.vbox.addLayout(self.hbox)
 
-        self._chart_cache = {}
-        self.linkedsplits: 'LinkedSplits' = None
+        self._chart_cache: dict[str, LinkedSplits] = {}
+        self.linkedsplits: Optional[LinkedSplits] = None
 
         # assigned in the startup func `_async_main()`
         self._root_n: trio.Nursery = None
@@ -135,7 +136,7 @@ class GodWidget(QWidget):
     def set_chart_symbol(
         self,
         symbol_key: str,  # of form <fqsn>.<providername>
-        linkedsplits: 'LinkedSplits',  # type: ignore
+        linkedsplits: LinkedSplits,  # type: ignore
 
     ) -> None:
         # re-sort org cache symbol list in LIFO order
@@ -146,20 +147,20 @@ class GodWidget(QWidget):
     def get_chart_symbol(
         self,
         symbol_key: str,
-    ) -> 'LinkedSplits':  # type: ignore
+
+    ) -> LinkedSplits:  # type: ignore
         return self._chart_cache.get(symbol_key)
 
     async def load_symbol(
         self,
-
         providername: str,
         symbol_key: str,
         loglevel: str,
-
         reset: bool = False,
 
     ) -> trio.Event:
-        '''Load a new contract into the charting app.
+        '''
+        Load a new contract into the charting app.
 
         Expects a ``numpy`` structured array containing all the ohlcv fields.
 
@@ -178,6 +179,7 @@ class GodWidget(QWidget):
 
             # XXX: this is CRITICAL especially with pixel buffer caching
             self.linkedsplits.hide()
+            self.linkedsplits.unfocus()
 
             # XXX: pretty sure we don't need this
             # remove any existing plots?
@@ -202,6 +204,11 @@ class GodWidget(QWidget):
             )
 
             self.set_chart_symbol(fqsn, linkedsplits)
+            self.vbox.addWidget(linkedsplits)
+
+            linkedsplits.show()
+            linkedsplits.focus()
+            await trio.sleep(0)
 
         else:
             # symbol is already loaded and ems ready
@@ -215,21 +222,17 @@ class GodWidget(QWidget):
             # also switch it over to the new chart's interal-layout
             # self.linkedsplits.chart.qframe.hbox.removeWidget(self.pp_pane)
             chart = linkedsplits.chart
-            await chart.resume_all_feeds()
 
-        # chart is already in memory so just focus it
-        if self.linkedsplits:
-            self.linkedsplits.unfocus()
+            # chart is already in memory so just focus it
+            linkedsplits.show()
+            linkedsplits.focus()
+            await trio.sleep(0)
 
-        self.vbox.addWidget(linkedsplits)
-
-        linkedsplits.show()
-        linkedsplits.focus()
+            # resume feeds *after* rendering chart view asap
+            chart.resume_all_feeds()
 
         self.linkedsplits = linkedsplits
-
         symbol = linkedsplits.symbol
-
         if symbol is not None:
             self.window.setWindowTitle(
                 f'{symbol.key}@{symbol.brokers} '
@@ -239,7 +242,8 @@ class GodWidget(QWidget):
         return order_mode_started
 
     def focus(self) -> None:
-        '''Focus the top level widget which in turn focusses the chart
+        '''
+        Focus the top level widget which in turn focusses the chart
         ala "view mode".
 
         '''
@@ -247,9 +251,19 @@ class GodWidget(QWidget):
         self.clearFocus()
         self.linkedsplits.chart.setFocus()
 
+    def resizeEvent(self, event: QtCore.QEvent) -> None:
+        '''
+        Top level god widget resize handler.
+
+        Where we do UX magic to make things not suck B)
+
+        '''
+        log.debug('god widget resize')
+
 
 class ChartnPane(QFrame):
-    '''One-off ``QFrame`` composite which pairs a chart
+    '''
+    One-off ``QFrame`` composite which pairs a chart
     + sidepane (often a ``FieldsForm`` + other widgets if
     provided) forming a, sort of, "chart row" with a side panel
     for configuration and display of off-chart data.
@@ -279,8 +293,6 @@ class ChartnPane(QFrame):
         hbox.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         hbox.setContentsMargins(0, 0, 0, 0)
         hbox.setSpacing(3)
-
-        # self.setMaximumWidth()
 
 
 class LinkedSplits(QWidget):
@@ -349,7 +361,7 @@ class LinkedSplits(QWidget):
         if not prop:
             # proportion allocated to consumer subcharts
             if ln < 2:
-                prop = 1/(.666 * 6)
+                prop = 1/3
             elif ln >= 2:
                 prop = 3/8
 
@@ -379,16 +391,21 @@ class LinkedSplits(QWidget):
         style: str = 'bar',
 
     ) -> 'ChartPlotWidget':
-        """Start up and show main (price) chart and all linked subcharts.
+        '''Start up and show main (price) chart and all linked subcharts.
 
         The data input struct array must include OHLC fields.
-        """
+
+        '''
         # add crosshairs
         self.cursor = Cursor(
             linkedsplits=self,
             digits=symbol.tick_size_digits,
         )
 
+        # NOTE: atm the first (and only) OHLC price chart for the symbol
+        # is given a special reference but in the future there shouldn't
+        # be no distinction since we will have multiple symbols per
+        # view as part of "aggregate feeds".
         self.chart = self.add_plot(
 
             name=symbol.key,
@@ -430,9 +447,7 @@ class LinkedSplits(QWidget):
         **cpw_kwargs,
 
     ) -> 'ChartPlotWidget':
-        '''Add (sub)plots to chart widget by name.
-
-        If ``name`` == ``"main"`` the chart will be the the primary view.
+        '''Add (sub)plots to chart widget by key.
 
         '''
         if self.chart is None and not _is_main:
@@ -457,7 +472,10 @@ class LinkedSplits(QWidget):
             self.xaxis.hide()
             self.xaxis = xaxis
 
-        qframe = ChartnPane(sidepane=sidepane, parent=self.splitter)
+        qframe = ChartnPane(
+            sidepane=sidepane,
+            parent=self.splitter,
+        )
         cpw = ChartPlotWidget(
 
             # this name will be used to register the primary
@@ -551,17 +569,23 @@ class LinkedSplits(QWidget):
         else:
             assert style == 'bar', 'main chart must be OHLC'
 
+        self.resize_sidepanes()
         return cpw
 
     def resize_sidepanes(
         self,
     ) -> None:
-        '''Size all sidepanes based on the OHLC "main" plot.
+        '''
+        Size all sidepanes based on the OHLC "main" plot and its
+        sidepane width.
 
         '''
-        for name, cpw in self.subplots.items():
-            cpw.sidepane.setMinimumWidth(self.chart.sidepane.width())
-            cpw.sidepane.setMaximumWidth(self.chart.sidepane.width())
+        main_chart = self.chart
+        if main_chart:
+            sp_w = main_chart.sidepane.width()
+            for name, cpw in self.subplots.items():
+                cpw.sidepane.setMinimumWidth(sp_w)
+                cpw.sidepane.setMaximumWidth(sp_w)
 
 
 class ChartPlotWidget(pg.PlotWidget):
@@ -600,12 +624,18 @@ class ChartPlotWidget(pg.PlotWidget):
         view_color: str = 'papas_special',
         pen_color: str = 'bracket',
 
+        # TODO: load from config
+        use_open_gl: bool = False,
+
         static_yrange: Optional[tuple[float, float]] = None,
 
         **kwargs,
     ):
-        """Configure chart display settings.
-        """
+        '''
+        Configure initial display settings and connect view callback
+        handlers.
+
+        '''
         self.view_color = view_color
         self.pen_color = pen_color
 
@@ -614,9 +644,9 @@ class ChartPlotWidget(pg.PlotWidget):
             # parent=None,
             # plotItem=None,
             # antialias=True,
-            # useOpenGL=True,
             **kwargs
         )
+        self.useOpenGL(use_open_gl)
         self.name = name
         self.data_key = data_key
         self.linked = linkedsplits
@@ -665,13 +695,13 @@ class ChartPlotWidget(pg.PlotWidget):
         # for when the splitter(s) are resized
         self._vb.sigResized.connect(self._set_yrange)
 
-    async def resume_all_feeds(self):
+    def resume_all_feeds(self):
         for feed in self._feeds.values():
-            await feed.resume()
+            self.linked.godwidget._root_n.start_soon(feed.resume)
 
-    async def pause_all_feeds(self):
+    def pause_all_feeds(self):
         for feed in self._feeds.values():
-            await feed.pause()
+            self.linked.godwidget._root_n.start_soon(feed.pause)
 
     @property
     def view(self) -> ChartView:
@@ -910,51 +940,55 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def update_ohlc_from_array(
         self,
-        name: str,
+
+        graphics_name: str,
         array: np.ndarray,
         **kwargs,
-    ) -> pg.GraphicsObject:
-        """Update the named internal graphics from ``array``.
 
-        """
+    ) -> pg.GraphicsObject:
+        '''Update the named internal graphics from ``array``.
+
+        '''
         self._arrays['ohlc'] = array
-        graphics = self._graphics[name]
+        graphics = self._graphics[graphics_name]
         graphics.update_from_array(array, **kwargs)
         return graphics
 
     def update_curve_from_array(
         self,
 
-        name: str,
+        graphics_name: str,
         array: np.ndarray,
         array_key: Optional[str] = None,
-
         **kwargs,
 
     ) -> pg.GraphicsObject:
-        """Update the named internal graphics from ``array``.
+        '''Update the named internal graphics from ``array``.
 
-        """
+        '''
+        assert len(array)
+        data_key = array_key or graphics_name
 
-        data_key = array_key or name
-        if name not in self._overlays:
+        if graphics_name not in self._overlays:
             self._arrays['ohlc'] = array
         else:
             self._arrays[data_key] = array
 
-        curve = self._graphics[name]
+        curve = self._graphics[graphics_name]
 
-        if len(array):
-            # TODO: we should instead implement a diff based
-            # "only update with new items" on the pg.PlotCurveItem
-            # one place to dig around this might be the `QBackingStore`
-            # https://doc.qt.io/qt-5/qbackingstore.html
-            # curve.setData(y=array[name], x=array['index'], **kwargs)
-            curve.update_from_array(
-                x=array['index'],
-                y=array[data_key],
-                **kwargs
-            )
+        # NOTE: back when we weren't implementing the curve graphics
+        # ourselves you'd have updates using this method:
+        # curve.setData(y=array[graphics_name], x=array['index'], **kwargs)
+
+        # NOTE: graphics **must** implement a diff based update
+        # operation where an internal ``FastUpdateCurve._xrange`` is
+        # used to determine if the underlying path needs to be
+        # pre/ap-pended.
+        curve.update_from_array(
+            x=array['index'],
+            y=array[data_key],
+            **kwargs
+        )
 
         return curve
 
@@ -964,7 +998,11 @@ class ChartPlotWidget(pg.PlotWidget):
 
         yrange: Optional[tuple[float, float]] = None,
         range_margin: float = 0.06,
-        bars_range: Optional[tuple[int, int, int, int]] = None
+        bars_range: Optional[tuple[int, int, int, int]] = None,
+
+        # flag to prevent triggering sibling charts from the same linked
+        # set from recursion errors.
+        autoscale_linked_plots: bool = True,
 
     ) -> None:
         '''Set the viewable y-range based on embedded data.
@@ -991,39 +1029,26 @@ class ChartPlotWidget(pg.PlotWidget):
 
             l, lbar, rbar, r = bars_range or self.bars_range()
 
-            # TODO: we need a loop for auto-scaled subplots to all
-            # be triggered by one another
-            if self.name != 'volume':
-                vlm_chart = self.linked.subplots.get('volume')
-                if vlm_chart:
-                    vlm_chart._set_yrange(bars_range=(l, lbar, rbar, r))
-                    # curve = vlm_chart._graphics['volume']
-                    # if rbar - lbar < 1500:
-                    #     # print('small range')
-                    #     curve._fill = True
-                    # else:
-                    #     curve._fill = False
+            if autoscale_linked_plots:
+                # avoid recursion by sibling plots
+                linked = self.linked
+                plots = list(linked.subplots.copy().values())
+                main = linked.chart
+                if main:
+                    plots.append(main)
 
-            # figure out x-range in view such that user can scroll "off"
-            # the data set up to the point where ``_min_points_to_show``
-            # are left.
-            # view_len = r - l
+                for chart in plots:
+                    if chart and not chart._static_yrange:
+                        chart._set_yrange(
+                            bars_range=(l, lbar, rbar, r),
+                            autoscale_linked_plots=False,
+                        )
 
             # TODO: logic to check if end of bars in view
             # extra = view_len - _min_points_to_show
-
             # begin = self._arrays['ohlc'][0]['index'] - extra
-
             # # end = len(self._arrays['ohlc']) - 1 + extra
             # end = self._arrays['ohlc'][-1]['index'] - 1 + extra
-
-            # XXX: test code for only rendering lines for the bars in view.
-            # This turns out to be very very poor perf when scaling out to
-            # many bars (think > 1k) on screen.
-            # name = self.name
-            # bars = self._graphics[self.name]
-            # bars.draw_lines(
-            #   istart=max(lbar, l), iend=min(rbar, r), just_history=True)
 
             # bars_len = rbar - lbar
             # log.debug(
@@ -1031,10 +1056,6 @@ class ChartPlotWidget(pg.PlotWidget):
             #     f"view_len: {view_len}, bars_len: {bars_len}\n"
             #     f"begin: {begin}, end: {end}, extra: {extra}"
             # )
-            # self._set_xlimits(begin, end)
-
-            # TODO: this should be some kind of numpy view api
-            # bars = self._arrays['ohlc'][lbar:rbar]
 
             a = self._arrays['ohlc']
             ifirst = a[0]['index']

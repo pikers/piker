@@ -36,7 +36,7 @@ import trio
 
 from .. import brokers
 from .._cacheables import maybe_open_context
-from ..trionics import async_enter_all
+from tractor.trionics import gather_contexts
 from ..data.feed import open_feed, Feed
 from ._chart import (
     ChartPlotWidget,
@@ -61,7 +61,10 @@ log = get_logger(__name__)
 _quote_throttle_rate: int = 58  # Hz
 
 
-def try_read(array: np.ndarray) -> Optional[np.ndarray]:
+def try_read(
+    array: np.ndarray
+
+) -> Optional[np.ndarray]:
     '''
     Try to read the last row from a shared mem array or ``None``
     if the array read returns a zero-length array result.
@@ -85,10 +88,9 @@ def try_read(array: np.ndarray) -> Optional[np.ndarray]:
         # something we need anyway, maybe there should be some kind of
         # signal that a prepend is taking place and this consumer can
         # respond (eg. redrawing graphics) accordingly.
-        log.warning(f'Read-race on shm array: {graphics_name}@{shm.token}')
 
-    # the array read was emtpy
-    return None
+        # the array read was emtpy
+        return None
 
 
 def update_fsp_chart(
@@ -101,8 +103,10 @@ def update_fsp_chart(
 
     array = shm.array
     last_row = try_read(array)
+
     # guard against unreadable case
     if not last_row:
+        log.warning(f'Read-race on shm array: {graphics_name}@{shm.token}')
         return
 
     # update graphics
@@ -175,7 +179,6 @@ def chart_maxmin(
 
 
 async def update_chart_from_quotes(
-
     linked: LinkedSplits,
     stream: tractor.MsgStream,
     ohlcv: np.ndarray,
@@ -247,24 +250,23 @@ async def update_chart_from_quotes(
     chart.show()
     last_quote = time.time()
 
-    # NOTE: all code below this loop is expected to be synchronous
-    # and thus draw instructions are not picked up jntil the next
-    # wait / iteration.
     async for quotes in stream:
 
         now = time.time()
-        quote_period = now - last_quote
-        quote_rate = round(1/quote_period, 1) if quote_period else float('inf')
+        quote_period = time.time() - last_quote
+        quote_rate = round(
+            1/quote_period, 1) if quote_period > 0 else float('inf')
+
         if (
             quote_period <= 1/_quote_throttle_rate
-            and quote_rate > _quote_throttle_rate + 2
+            and quote_rate > _quote_throttle_rate * 1.5
         ):
             log.warning(f'High quote rate {symbol.key}: {quote_rate}')
         last_quote = now
 
         # chart isn't active/shown so skip render cycle and pause feed(s)
         if chart.linked.isHidden():
-            await chart.pause_all_feeds()
+            chart.pause_all_feeds()
             continue
 
         for sym, quote in quotes.items():
@@ -454,7 +456,8 @@ def maybe_mk_fsp_shm(
     readonly: bool = True,
 
 ) -> (ShmArray, bool):
-    '''Allocate a single row shm array for an symbol-fsp pair if none
+    '''
+    Allocate a single row shm array for an symbol-fsp pair if none
     exists, otherwise load the shm already existing for that token.
 
     '''
@@ -481,7 +484,6 @@ def maybe_mk_fsp_shm(
 
 @acm
 async def open_fsp_sidepane(
-
     linked: LinkedSplits,
     conf: dict[str, dict[str, str]],
 
@@ -570,6 +572,7 @@ async def open_fsp_cluster(
 async def maybe_open_fsp_cluster(
     workers: int = 2,
     **kwargs,
+
 ) -> AsyncGenerator[int, dict[str, tractor.Portal]]:
 
     kwargs.update(
@@ -589,7 +592,6 @@ async def maybe_open_fsp_cluster(
 
 
 async def start_fsp_displays(
-
     cluster_map: dict[str, tractor.Portal],
     linkedsplits: LinkedSplits,
     fsps: dict[str, str],
@@ -599,11 +601,9 @@ async def start_fsp_displays(
     group_status_key: str,
     loglevel: str,
 
-    # this con
-    display_in_own_task: bool = False,
-
 ) -> None:
-    '''Create sub-actors (under flat tree)
+    '''
+    Create sub-actors (under flat tree)
     for each entry in config and attach to local graphics update tasks.
 
     Pass target entrypoint and historical data.
@@ -623,7 +623,7 @@ async def start_fsp_displays(
         for (display_name, conf), (name, portal) in zip(
             fsps.items(),
 
-            # rr to cluster for now..
+            # round robin to cluster for now..
             cycle(cluster_map.items()),
         ):
             func_name = conf['func_name']
@@ -668,9 +668,7 @@ async def start_fsp_displays(
 
 
 async def update_chart_from_fsp(
-
     portal: tractor.Portal,
-
     linkedsplits: LinkedSplits,
     brokermod: ModuleType,
     sym: str,
@@ -687,7 +685,8 @@ async def update_chart_from_fsp(
     profiler: pg.debug.Profiler,
 
 ) -> None:
-    '''FSP stream chart update loop.
+    '''
+    FSP stream chart update loop.
 
     This is called once for each entry in the fsp
     config map.
@@ -792,9 +791,7 @@ async def update_chart_from_fsp(
             level_line(chart, 80, orient_v='top')
 
         chart._set_yrange()
-
-        done()
-        chart.linked.resize_sidepanes()
+        done()  # status updates
 
         profiler(f'fsp:{func_name} starting update loop')
         profiler.finish()
@@ -912,7 +909,6 @@ def has_vlm(ohlcv: ShmArray) -> bool:
 
 @acm
 async def maybe_open_vlm_display(
-
     linked: LinkedSplits,
     ohlcv: ShmArray,
 
@@ -926,16 +922,14 @@ async def maybe_open_vlm_display(
 
         shm, opened = maybe_mk_fsp_shm(
             linked.symbol.key,
-            '$_vlm',
+            'vlm',
             readonly=True,
         )
 
         async with open_fsp_sidepane(
             linked, {
                 'vlm': {
-
                     'params': {
-
                         'price_func': {
                             'default_value': 'chl3',
                             # tell target ``Edit`` widget to not allow
@@ -963,9 +957,6 @@ async def maybe_open_vlm_display(
                 # we do this internally ourselves since
                 # the curve item internals are pretty convoluted.
                 style='step',
-
-                # original pyqtgraph flag for reference
-                # stepMode=True,
             )
 
             # XXX: ONLY for sub-chart fsps, overlays have their
@@ -992,25 +983,14 @@ async def maybe_open_vlm_display(
             # size view to data once at outset
             chart._set_yrange()
 
-            # size pain to parent chart
-            # TODO: this appears to nearly fix a bug where the vlm sidepane
-            # could be sized correctly nearly immediately (since the
-            # order pane is already sized), right now it doesn't seem to
-            # fully align until the VWAP fsp-actor comes up...
-            await trio.sleep(0)
-            chart.linked.resize_sidepanes()
-            await trio.sleep(0)
-
             yield chart
 
 
 async def display_symbol_data(
-
     godwidget: GodWidget,
     provider: str,
     sym: str,
     loglevel: str,
-
     order_mode_started: trio.Event,
 
 ) -> None:
@@ -1037,8 +1017,7 @@ async def display_symbol_data(
     #     group_key=loading_sym_key,
     # )
 
-    async with async_enter_all(
-        open_feed(
+    async with open_feed(
             provider,
             [sym],
             loglevel=loglevel,
@@ -1046,11 +1025,8 @@ async def display_symbol_data(
             # limit to at least display's FPS
             # avoiding needless Qt-in-guest-mode context switches
             tick_throttle=_quote_throttle_rate,
-        ),
-        maybe_open_fsp_cluster(),
 
-    ) as (feed, cluster_map):
-
+    ) as feed:
         ohlcv: ShmArray = feed.shm
         bars = ohlcv.array
         symbol = feed.symbols[sym]
@@ -1102,38 +1078,38 @@ async def display_symbol_data(
         # TODO: eventually we'll support some kind of n-compose syntax
         fsp_conf = {
 
-            'dolla_vlm': {
-                'func_name': 'dolla_vlm',
-                'zero_on_step': True,
-                'params': {
-                    'price_func': {
-                        'default_value': 'chl3',
-                        # tell target ``Edit`` widget to not allow
-                        # edits for now.
-                        'widget_kwargs': {'readonly': True},
-                    },
-                },
-                'chart_kwargs': {'style': 'step'}
-            },
+            # 'dolla_vlm': {
+            #     'func_name': 'dolla_vlm',
+            #     'zero_on_step': True,
+            #     'params': {
+            #         'price_func': {
+            #             'default_value': 'chl3',
+            #             # tell target ``Edit`` widget to not allow
+            #             # edits for now.
+            #             'widget_kwargs': {'readonly': True},
+            #         },
+            #     },
+            #     'chart_kwargs': {'style': 'step'}
+            # },
 
-            'rsi': {
-                'func_name': 'rsi',  # literal python func ref lookup name
+            # 'rsi': {
+            #     'func_name': 'rsi',  # literal python func ref lookup name
 
-                # map of parameters to place on the fsp sidepane widget
-                # which should map to dynamic inputs available to the
-                # fsp function at runtime.
-                'params': {
-                    'period': {
-                        'default_value': 14,
-                        'widget_kwargs': {'readonly': True},
-                    },
-                },
+            #     # map of parameters to place on the fsp sidepane widget
+            #     # which should map to dynamic inputs available to the
+            #     # fsp function at runtime.
+            #     'params': {
+            #         'period': {
+            #             'default_value': 14,
+            #             'widget_kwargs': {'readonly': True},
+            #         },
+            #     },
 
-                # ``ChartPlotWidget`` options passthrough
-                'chart_kwargs': {
-                    'static_yrange': (0, 100),
-                },
-            },
+            #     # ``ChartPlotWidget`` options passthrough
+            #     'chart_kwargs': {
+            #         'static_yrange': (0, 100),
+            #     },
+            # },
         }
 
         if has_vlm(ohlcv):  # and provider != 'binance':
@@ -1158,10 +1134,15 @@ async def display_symbol_data(
         await trio.sleep(0)
 
         vlm_chart = None
-        async with (
-            trio.open_nursery() as ln,
-            maybe_open_vlm_display(linkedsplits, ohlcv) as vlm_chart,
-        ):
+
+        async with gather_contexts(
+            (
+                trio.open_nursery(),
+                maybe_open_vlm_display(linkedsplits, ohlcv),
+                maybe_open_fsp_cluster(),
+            )
+        ) as (ln, vlm_chart, cluster_map):
+
             # load initial fsp chain (otherwise known as "indicators")
             ln.start_soon(
                 start_fsp_displays,
@@ -1175,7 +1156,7 @@ async def display_symbol_data(
                 loglevel,
             )
 
-            # start graphics update loop(s)after receiving first live quote
+            # start graphics update loop after receiving first live quote
             ln.start_soon(
                 update_chart_from_quotes,
                 linkedsplits,
@@ -1201,4 +1182,10 @@ async def display_symbol_data(
                     order_mode_started
                 )
             ):
+                # let Qt run to render all widgets and make sure the
+                # sidepanes line up vertically.
+                await trio.sleep(0)
+                linkedsplits.resize_sidepanes()
+
+                # let the app run.
                 await trio.sleep_forever()
