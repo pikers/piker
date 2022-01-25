@@ -18,6 +18,7 @@
 Chart axes graphics and behavior.
 
 """
+import functools
 from typing import List, Tuple, Optional
 from math import floor
 
@@ -33,17 +34,18 @@ _axis_pen = pg.mkPen(hcolor('bracket'))
 
 
 class Axis(pg.AxisItem):
-    """A better axis that sizes tick contents considering font size.
+    '''
+    A better axis that sizes tick contents considering font size.
 
-    """
+    '''
     def __init__(
         self,
         linkedsplits,
         typical_max_str: str = '100 000.000',
         min_tick: int = 2,
         **kwargs
-    ) -> None:
 
+    ) -> None:
         super().__init__(**kwargs)
 
         # XXX: pretty sure this makes things slower
@@ -95,7 +97,12 @@ class PriceAxis(Axis):
 
     # XXX: drop for now since it just eats up h space
 
-    def tickStrings(self, vals, scale, spacing):
+    def tickStrings(
+        self,
+        vals,
+        scale,
+        spacing,
+    ):
 
         # TODO: figure out how to enforce min tick spacing by passing
         # it into the parent type
@@ -131,9 +138,8 @@ class DynamicDateAxis(Axis):
         indexes: List[int],
     ) -> List[str]:
 
-        # try:
         chart = self.linkedsplits.chart
-        bars = chart._arrays['ohlc']
+        bars = chart._arrays[chart.name]
         shm = self.linkedsplits.chart._shm
         first = shm._first.value
 
@@ -156,7 +162,14 @@ class DynamicDateAxis(Axis):
         delay = times[-1] - times[-2]
         return dts.strftime(self.tick_tpl[delay])
 
-    def tickStrings(self, values: List[float], scale, spacing):
+    def tickStrings(
+        self,
+        values: tuple[float],
+        scale,
+        spacing,
+    ):
+        # info = self.tickStrings.cache_info()
+        # print(info)
         return self._indexes_to_timestrs(values)
 
 

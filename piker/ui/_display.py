@@ -117,7 +117,7 @@ def update_fsp_chart(
         array,
         array_key=array_key or graphics_name,
     )
-    chart._set_yrange()
+    chart.cv._set_yrange()
 
     # XXX: re: ``array_key``: fsp func names must be unique meaning we
     # can't have duplicates of the underlying data even if multiple
@@ -155,7 +155,7 @@ def chart_maxmin(
     # https://arxiv.org/abs/cs/0610046
     # https://github.com/lemire/pythonmaxmin
 
-    array = chart._arrays['ohlc']
+    array = chart._arrays[chart.name]
     ifirst = array[0]['index']
 
     last_bars_range = chart.bars_range()
@@ -212,6 +212,7 @@ async def update_chart_from_quotes(
 
     if vlm_chart:
         vlm_sticky = vlm_chart._ysticks['volume']
+        vlm_view = vlm_chart.view
 
     maxmin = partial(chart_maxmin, chart, vlm_chart)
 
@@ -248,6 +249,7 @@ async def update_chart_from_quotes(
     tick_margin = 3 * tick_size
 
     chart.show()
+    view = chart.view
     last_quote = time.time()
 
     async for quotes in stream:
@@ -295,8 +297,10 @@ async def update_chart_from_quotes(
                     mx_vlm_in_view != last_mx_vlm or
                     mx_vlm_in_view > last_mx_vlm
                 ):
-                    # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
-                    vlm_chart._set_yrange(yrange=(0, mx_vlm_in_view * 1.375))
+                    print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
+                    vlm_view._set_yrange(
+                        yrange=(0, mx_vlm_in_view * 1.375)
+                    )
                     last_mx_vlm = mx_vlm_in_view
 
             ticks_frame = quote.get('ticks', ())
@@ -412,9 +416,12 @@ async def update_chart_from_quotes(
                     l1.bid_label.update_fields({'level': price, 'size': size})
 
             # check for y-range re-size
-            if (mx > last_mx) or (mn < last_mn):
-                # print(f'new y range: {(mn, mx)}')
-                chart._set_yrange(
+            if (
+                (mx > last_mx) or (mn < last_mn)
+                and not chart._static_yrange == 'axis'
+            ):
+                print(f'new y range: {(mn, mx)}')
+                view._set_yrange(
                     yrange=(mn, mx),
                     # TODO: we should probably scale
                     # the view margin based on the size
@@ -436,6 +443,7 @@ async def update_chart_from_quotes(
                     name,
                     array_key=name,
                 )
+                subchart.cv._set_yrange()
 
                 # TODO: all overlays on all subplots..
 
@@ -447,6 +455,7 @@ async def update_chart_from_quotes(
                     curve_name,
                     array_key=curve_name,
                 )
+                # chart._set_yrange()
 
 
 def maybe_mk_fsp_shm(
@@ -790,7 +799,7 @@ async def update_chart_from_fsp(
             level_line(chart, 70, orient_v='bottom')
             level_line(chart, 80, orient_v='top')
 
-        chart._set_yrange()
+        chart.cv._set_yrange()
         done()  # status updates
 
         profiler(f'fsp:{func_name} starting update loop')
@@ -981,7 +990,7 @@ async def maybe_open_vlm_display(
             )
 
             # size view to data once at outset
-            chart._set_yrange()
+            chart.cv._set_yrange()
 
             yield chart
 
@@ -1070,7 +1079,7 @@ async def display_symbol_data(
                 )
 
         # size view to data once at outset
-        chart._set_yrange()
+        chart.cv._set_yrange()
 
         # TODO: a data view api that makes this less shit
         chart._shm = ohlcv
