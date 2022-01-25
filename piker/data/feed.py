@@ -27,7 +27,6 @@ from types import ModuleType
 from typing import (
     Any, Sequence,
     AsyncIterator, Optional,
-    Awaitable, Callable,
 )
 
 import trio
@@ -37,7 +36,7 @@ import tractor
 from pydantic import BaseModel
 
 from ..brokers import get_brokermod
-from .._cacheables import maybe_open_ctx
+from .._cacheables import maybe_open_context
 from ..log import get_logger, get_console_log
 from .._daemon import (
     maybe_spawn_brokerd,
@@ -356,7 +355,10 @@ async def open_feed_bus(
                 f'Stopping {symbol}.{brokername} feed for {ctx.chan.uid}')
             if tick_throttle:
                 n.cancel_scope.cancel()
-            bus._subscribers[symbol].remove(sub)
+            try:
+                bus._subscribers[symbol].remove(sub)
+            except ValueError:
+                log.warning(f'{sub} for {symbol} was already removed?')
 
 
 @asynccontextmanager
@@ -368,12 +370,13 @@ async def open_sample_step_stream(
     # XXX: this should be singleton on a host,
     # a lone broker-daemon per provider should be
     # created for all practical purposes
-    async with maybe_open_ctx(
-        key=delay_s,
-        mngr=portal.open_stream_from(
+    async with maybe_open_context(
+        acm_func=partial(
+            portal.open_stream_from,
             iter_ohlc_periods,
-            delay_s=delay_s,  # must be kwarg
         ),
+
+        kwargs={'delay_s': delay_s},
     ) as (cache_hit, istream):
         if cache_hit:
             # add a new broadcast subscription for the quote stream
@@ -520,7 +523,12 @@ async def open_feed(
 
         ) as (ctx, (init_msg, first_quotes)),
 
-        ctx.open_stream() as stream,
+        ctx.open_stream(
+            # XXX: be explicit about stream backpressure since we should
+            # **never** overrun on feeds being too fast, which will
+            # pretty much always happen with HFT XD
+            backpressure=True
+        ) as stream,
 
     ):
         # we can only read from shm
@@ -566,6 +574,7 @@ async def open_feed(
 
         feed._max_sample_rate = max(ohlc_sample_rates)
 
+        # yield feed
         try:
             yield feed
         finally:
@@ -590,17 +599,19 @@ async def maybe_open_feed(
     '''
     sym = symbols[0].lower()
 
-    async with maybe_open_ctx(
-        key=(brokername, sym),
-        mngr=open_feed(
-            brokername,
-            [sym],
-            loglevel=loglevel,
-            **kwargs,
-        ),
+    async with maybe_open_context(
+        acm_func=open_feed,
+        kwargs={
+            'brokername': brokername,
+            'symbols': [sym],
+            'loglevel': loglevel,
+            'tick_throttle': kwargs.get('tick_throttle'),
+        },
+        key=sym,
     ) as (cache_hit, feed):
 
         if cache_hit:
+            print('USING CACHED FEED')
             # add a new broadcast subscription for the quote stream
             # if this feed is likely already in use
             async with feed.stream.subscribe() as bstream:
