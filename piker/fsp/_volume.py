@@ -14,16 +14,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, Optional, Union
 
 import numpy as np
+from tractor.trionics._broadcast import AsyncReceiver
 
 from ..data._normalize import iterticks
+from ..data._sharedmem import ShmArray
 
 
 def wap(
+
     signal: np.ndarray,
     weights: np.ndarray,
+
 ) -> np.ndarray:
     """Weighted average price from signal and weights.
 
@@ -47,15 +51,22 @@ def wap(
 
 
 async def _tina_vwap(
-    source,  #: AsyncStream[np.ndarray],
-    ohlcv: np.ndarray,  # price time-frame "aware"
+
+    source: AsyncReceiver[dict],
+    ohlcv: ShmArray,  # OHLC sampled history
+
+    # TODO: anchor logic (eg. to session start)
     anchors: Optional[np.ndarray] = None,
-) -> AsyncIterator[np.ndarray]:  # maybe something like like FspStream?
-    """Streaming volume weighted moving average.
+
+) -> Union[
+    AsyncIterator[np.ndarray],
+    float
+]:
+    '''Streaming volume weighted moving average.
 
     Calling this "tina" for now since we're using HLC3 instead of tick.
 
-    """
+    '''
     if anchors is None:
         # TODO:
         # anchor to session start of data if possible
@@ -75,7 +86,6 @@ async def _tina_vwap(
     # vwap_tot = h_vwap[-1]
 
     async for quote in source:
-
         for tick in iterticks(quote, types=['trade']):
 
             # c, h, l, v = ohlcv.array[-1][
@@ -91,3 +101,58 @@ async def _tina_vwap(
 
             # yield ((((o + h + l) / 3) * v) weights_tot) / v_tot
             yield w_tot / v_tot
+
+
+# @fsp.config(
+#     name='dolla_vlm',
+#     ohlc=False,
+#     style='step',
+# )
+async def dolla_vlm(
+    source: AsyncReceiver[dict],
+    ohlcv: ShmArray,  # OHLC sampled history
+
+) -> Union[
+    AsyncIterator[np.ndarray],
+    float
+]:
+    '''
+    "Dollar Volume", aka the volume in asset-currency-units (usually
+    a fiat) computed from some price function for the sample step
+    *times* the asset unit volume.
+
+    Useful for comparing cross asset "money flow" in #s that are
+    asset-currency-independent.
+
+    '''
+    a = ohlcv.array
+    chl3 = (a['close'] + a['high'] + a['low']) / 3
+    v = a['volume']
+
+    # history
+    yield chl3 * v
+
+    i = ohlcv.index
+    lvlm = 0
+
+    async for quote in source:
+        for tick in iterticks(quote):
+
+            # this computes tick-by-tick weightings from here forward
+            size = tick['size']
+            price = tick['price']
+
+            li = ohlcv.index
+            if li > i:
+                i = li
+                lvlm = 0
+
+            c, h, l, v = ohlcv.last()[
+                ['close', 'high', 'low', 'volume']
+            ][0]
+
+            lvlm += price * size
+            tina_lvlm = c+h+l/3 * v
+            # print(f' tinal vlm: {tina_lvlm}')
+
+            yield lvlm

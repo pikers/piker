@@ -34,7 +34,7 @@ from ..data import attach_shm_array
 from ..data.feed import Feed
 from ..data._sharedmem import ShmArray
 from ._momo import _rsi, _wma
-from ._volume import _tina_vwap
+from ._volume import _tina_vwap, dolla_vlm
 
 log = get_logger(__name__)
 
@@ -42,6 +42,7 @@ _fsp_builtins = {
     'rsi': _rsi,
     'wma': _wma,
     'vwap': _tina_vwap,
+    'dolla_vlm': dolla_vlm,
 }
 
 # TODO: things to figure the heck out:
