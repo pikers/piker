@@ -115,13 +115,14 @@ async def update_linked_charts_graphics(
     vlm_chart: Optional[ChartPlotWidget] = None,
 
 ) -> None:
-    '''The 'main' (price) chart real-time update loop.
+    '''
+    The 'main' (price) chart real-time update loop.
 
     Receive from the primary instrument quote stream and update the OHLC
     chart.
 
     '''
-    # TODO: bunch of stuff:
+    # TODO: bunch of stuff (some might be done already, can't member):
     # - I'm starting to think all this logic should be
     #   done in one place and "graphics update routines"
     #   should not be doing any length checking and array diffing.
@@ -181,13 +182,34 @@ async def update_linked_charts_graphics(
     view = chart.view
     last_quote = time.time()
 
+    # async def iter_drain_quotes():
+    #     # NOTE: all code below this loop is expected to be synchronous
+    #     # and thus draw instructions are not picked up jntil the next
+    #     # wait / iteration.
+    #     async for quotes in stream:
+    #         while True:
+    #             try:
+    #                 moar = stream.receive_nowait()
+    #             except trio.WouldBlock:
+    #                 yield quotes
+    #                 break
+    #             else:
+    #                 for sym, quote in moar.items():
+    #                     ticks_frame = quote.get('ticks')
+    #                     if ticks_frame:
+    #                         quotes[sym].setdefault(
+    #                             'ticks', []).extend(ticks_frame)
+    #                     print('pulled extra')
+
+    #                 yield quotes
+
+    # async for quotes in iter_drain_quotes():
+
     async for quotes in stream:
 
-        now = time.time()
         quote_period = time.time() - last_quote
         quote_rate = round(
             1/quote_period, 1) if quote_period > 0 else float('inf')
-
         if (
             quote_period <= 1/_quote_throttle_rate
 
@@ -196,7 +218,8 @@ async def update_linked_charts_graphics(
             and quote_rate >= _quote_throttle_rate * 1.5
         ):
             log.warning(f'High quote rate {symbol.key}: {quote_rate}')
-        last_quote = now
+
+        last_quote = time.time()
 
         # chart isn't active/shown so skip render cycle and pause feed(s)
         if chart.linked.isHidden():
@@ -621,9 +644,15 @@ async def display_symbol_data(
                 await trio.sleep(0)
                 linkedsplits.resize_sidepanes()
 
+                # NOTE: we pop the volume chart from the subplots set so
+                # that it isn't double rendered in the display loop
+                # above since we do a maxmin calc on the volume data to
+                # determine if auto-range adjustements should be made.
+                linkedsplits.subplots.pop('volume', None)
+
                 # TODO: make this not so shit XD
                 # close group status
                 sbar._status_groups[loading_sym_key][1]()
 
-                # let the app run.
+                # let the app run.. bby
                 await trio.sleep_forever()

@@ -18,21 +18,26 @@
 Anchor funtions for UI placement of annotions.
 
 '''
-from typing import Callable
+from __future__ import annotations
+from typing import Callable, TYPE_CHECKING
 
 from PyQt5.QtCore import QPointF
 from PyQt5.QtWidgets import QGraphicsPathItem
 
-from ._label import Label
+if TYPE_CHECKING:
+    from ._axes import PriceAxis
+    from ._chart import ChartPlotWidget
+    from ._label import Label
 
 
 def marker_right_points(
-
-    chart: 'ChartPlotWidget',  # noqa
+    chart: ChartPlotWidget,  # noqa
     marker_size: int = 20,
 
 ) -> (float, float, float):
-    '''Return x-dimension, y-axis-aware, level-line marker oriented scene values.
+    '''
+    Return x-dimension, y-axis-aware, level-line marker oriented scene
+    values.
 
     X values correspond to set the end of a level line, end of
     a paried level line marker, and the right most side of the "right"
@@ -57,16 +62,17 @@ def vbr_left(
     label: Label,
 
 ) -> Callable[..., float]:
-    """Return a closure which gives the scene x-coordinate for the
-    leftmost point of the containing view box.
+    '''
+    Return a closure which gives the scene x-coordinate for the leftmost
+    point of the containing view box.
 
-    """
+    '''
     return label.vbr().left
 
 
 def right_axis(
 
-    chart: 'ChartPlotWidget',  # noqa
+    chart: ChartPlotWidget,  # noqa
     label: Label,
 
     side: str = 'left',
@@ -141,13 +147,13 @@ def gpath_pin(
         return path_br.bottomRight() - QPointF(label.w, label.h / 6)
 
 
-
 def pp_tight_and_right(
     label: Label
 
 ) -> QPointF:
-    '''Place *just* right of the pp label.
+    '''
+    Place *just* right of the pp label.
 
     '''
-    txt = label.txt
+    # txt = label.txt
     return label.txt.pos() + QPointF(label.w - label.h/3, 0)

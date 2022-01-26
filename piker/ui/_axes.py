@@ -18,8 +18,8 @@
 Chart axes graphics and behavior.
 
 """
-import functools
-from typing import List, Tuple, Optional
+from functools import lru_cache
+from typing import List, Tuple, Optional, Callable
 from math import floor
 
 import pandas as pd
@@ -27,8 +27,10 @@ import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
 
-from ._style import DpiAwareFont, hcolor, _font
 from ..data._source import float_digits
+from ._label import Label
+from ._style import DpiAwareFont, hcolor, _font
+from ._interaction import ChartView
 
 _axis_pen = pg.mkPen(hcolor('bracket'))
 
@@ -42,7 +44,6 @@ class Axis(pg.AxisItem):
         self,
         linkedsplits,
         typical_max_str: str = '100 000.000',
-        min_tick: int = 2,
         **kwargs
 
     ) -> None:
@@ -52,7 +53,6 @@ class Axis(pg.AxisItem):
         # self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
         self.linkedsplits = linkedsplits
-        self._min_tick = min_tick
         self._dpi_font = _font
 
         self.setTickFont(_font.font)
@@ -74,7 +74,10 @@ class Axis(pg.AxisItem):
         })
 
         self.setTickFont(_font.font)
+        # NOTE: this is for surrounding "border"
         self.setPen(_axis_pen)
+        # this is the text color
+        self.setTextPen(_axis_pen)
         self.typical_br = _font._qfm.boundingRect(typical_max_str)
 
         # size the pertinent axis dimension to a "typical value"
@@ -83,40 +86,102 @@ class Axis(pg.AxisItem):
     def size_to_values(self) -> None:
         pass
 
-    def set_min_tick(self, size: int) -> None:
-        self._min_tick = size
-
     def txt_offsets(self) -> Tuple[int, int]:
         return tuple(self.style['tickTextOffset'])
 
 
 class PriceAxis(Axis):
 
+    def __init__(
+        self,
+        *args,
+        min_tick: int = 2,
+        title: str = '',
+        formatter: Optional[Callable[[float], str]] = None,
+        **kwargs
+
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.formatter = formatter
+        self._min_tick: int = min_tick
+        self.title = None
+
+    def set_title(
+        self,
+        title: str,
+        view: Optional[ChartView] = None
+
+    ) -> Label:
+        '''
+        Set a sane UX label using our built-in ``Label``.
+
+        '''
+        # XXX: built-in labels but they're huge, and placed weird..
+        # self.setLabel(title)
+        # self.showLabel()
+
+        label = self.title = Label(
+            view=view or self.linkedView(),
+            fmt_str=title,
+            color='bracket',
+            parent=self,
+            # update_on_range_change=False,
+        )
+
+        def below_axis() -> QPointF:
+            return QPointF(
+                0,
+                self.size().height(),
+            )
+
+        # XXX: doesn't work? have to pass it above
+        # label.txt.setParent(self)
+        label.scene_anchor = below_axis
+        label.render()
+        label.show()
+        label.update()
+        return label
+
+    def set_min_tick(
+        self,
+        size: int
+    ) -> None:
+        self._min_tick = size
+
     def size_to_values(self) -> None:
+        # self.typical_br = _font._qfm.boundingRect(typical_max_str)
         self.setWidth(self.typical_br.width())
 
     # XXX: drop for now since it just eats up h space
 
     def tickStrings(
         self,
-        vals,
-        scale,
-        spacing,
-    ):
+        vals: tuple[float],
+        scale: float,
+        spacing: float,
 
-        # TODO: figure out how to enforce min tick spacing by passing
-        # it into the parent type
-        digits = max(float_digits(spacing * scale), self._min_tick)
+    ) -> list[str]:
+        # TODO: figure out how to enforce min tick spacing by passing it
+        # into the parent type
+        digits = max(
+            float_digits(spacing * scale),
+            self._min_tick,
+        )
+        if self.title:
+            self.title.update()
 
         # print(f'vals: {vals}\nscale: {scale}\nspacing: {spacing}')
         # print(f'digits: {digits}')
 
-        return [
-            ('{value:,.{digits}f}').format(
-                digits=digits,
-                value=v,
-            ).replace(',', ' ') for v in vals
-        ]
+        if not self.formatter:
+            return [
+                ('{value:,.{digits}f}').format(
+                    digits=digits,
+                    value=v,
+                ).replace(',', ' ') for v in vals
+            ]
+        else:
+            return list(map(self.formatter, vals))
 
 
 class DynamicDateAxis(Axis):
@@ -136,6 +201,7 @@ class DynamicDateAxis(Axis):
     def _indexes_to_timestrs(
         self,
         indexes: List[int],
+
     ) -> List[str]:
 
         chart = self.linkedsplits.chart
@@ -165,9 +231,10 @@ class DynamicDateAxis(Axis):
     def tickStrings(
         self,
         values: tuple[float],
-        scale,
-        spacing,
-    ):
+        scale: float,
+        spacing: float,
+
+    ) -> list[str]:
         # info = self.tickStrings.cache_info()
         # print(info)
         return self._indexes_to_timestrs(values)
@@ -220,6 +287,8 @@ class AxisLabel(pg.GraphicsObject):
         self.path = None
         self.rect = None
 
+        self._pw = self.pixelWidth()
+
     def paint(
         self,
         p: QtGui.QPainter,
@@ -269,9 +338,10 @@ class AxisLabel(pg.GraphicsObject):
 
 
     def boundingRect(self):  # noqa
-        """Size the graphics space from the text contents.
+        '''
+        Size the graphics space from the text contents.
 
-        """
+        '''
         if self.label_str:
             self._size_br_from_str(self.label_str)
 
@@ -287,23 +357,32 @@ class AxisLabel(pg.GraphicsObject):
 
         return QtCore.QRectF()
 
-        # return self.rect or QtCore.QRectF()
+    # TODO: but the input probably needs to be the "len" of
+    # the current text value:
+    @lru_cache
+    def _size_br_from_str(
+        self,
+        value: str
 
-    def _size_br_from_str(self, value: str) -> None:
-        """Do our best to render the bounding rect to a set margin
+    ) -> tuple[float, float]:
+        '''
+        Do our best to render the bounding rect to a set margin
         around provided string contents.
 
-        """
+        '''
         # size the filled rect to text and/or parent axis
         # if not self._txt_br:
-        #     # XXX: this can't be c
+        #     # XXX: this can't be called until stuff is rendered?
         #     self._txt_br = self._dpifont.boundingRect(value)
 
         txt_br = self._txt_br = self._dpifont.boundingRect(value)
         txt_h, txt_w = txt_br.height(), txt_br.width()
+        # print(f'wsw: {self._dpifont.boundingRect(" ")}')
 
         # allow subtypes to specify a static width and height
         h, w = self.size_hint()
+        # print(f'axis size: {self._parent.size()}')
+        # print(f'axis geo: {self._parent.geometry()}')
 
         self.rect = QtCore.QRectF(
             0, 0,
@@ -314,7 +393,7 @@ class AxisLabel(pg.GraphicsObject):
         # hb = self.path.controlPointRect()
         # hb_size = hb.size()
 
-        return self.rect
+        return (self.rect.width(), self.rect.height())
 
 # _common_text_flags = (
 #     QtCore.Qt.TextDontClip |
@@ -342,6 +421,7 @@ class XAxisLabel(AxisLabel):
         abs_pos: QPointF,  # scene coords
         value: float,  # data for text
         offset: int = 0  # if have margins, k?
+
     ) -> None:
 
         timestrs = self._parent._indexes_to_timestrs([int(value)])
@@ -356,17 +436,19 @@ class XAxisLabel(AxisLabel):
 
         w = self.boundingRect().width()
 
-        self.setPos(QPointF(
-            abs_pos.x() - w/2,
-            y_offset/2,
-        ))
+        self.setPos(
+            QPointF(
+                abs_pos.x() - w/2 - self._pw,
+                y_offset/2,
+            )
+        )
         self.update()
 
     def _draw_arrow_path(self):
         y_offset = self._parent.style['tickTextOffset'][1]
         path = QtGui.QPainterPath()
         h, w = self.rect.height(), self.rect.width()
-        middle = w/2 - 0.5
+        middle = w/2 - self._pw * 0.5
         aw = h/2
         left = middle - aw
         right = middle + aw
@@ -410,8 +492,12 @@ class YAxisLabel(AxisLabel):
             self.x_offset, y_offset = self._parent.txt_offsets()
 
     def size_hint(self) -> Tuple[float, float]:
-        # size to parent axis width
-        return None, self._parent.width()
+        # size to parent axis width(-ish)
+        wsh = self._dpifont.boundingRect(' ').height() / 2
+        return (
+            None,
+            self._parent.size().width() - wsh,
+        )
 
     def update_label(
         self,
@@ -432,16 +518,19 @@ class YAxisLabel(AxisLabel):
         br = self.boundingRect()
         h = br.height()
 
-        self.setPos(QPointF(
-            x_offset,
-            abs_pos.y() - h / 2 - self._y_margin / 2
-        ))
+        self.setPos(
+            QPointF(
+                x_offset,
+                abs_pos.y() - h / 2 - self._pw,
+            )
+        )
         self.update()
 
     def update_on_resize(self, vr, r):
-        """Tiis is a ``.sigRangeChanged()`` handler.
+        '''
+        This is a ``.sigRangeChanged()`` handler.
 
-        """
+        '''
         index, last = self._last_datum
         if index is not None:
             self.update_from_data(index, last)
@@ -451,11 +540,13 @@ class YAxisLabel(AxisLabel):
         index: int,
         value: float,
         _save_last: bool = True,
+
     ) -> None:
-        """Update the label's text contents **and** position from
+        '''
+        Update the label's text contents **and** position from
         a view box coordinate datum.
 
-        """
+        '''
         if _save_last:
             self._last_datum = (index, value)
 
@@ -469,7 +560,7 @@ class YAxisLabel(AxisLabel):
         path = QtGui.QPainterPath()
         h = self.rect.height()
         path.moveTo(0, 0)
-        path.lineTo(-x_offset - h/4, h/2.)
+        path.lineTo(-x_offset - h/4, h/2. - self._pw/2)
         path.lineTo(0, h)
         path.closeSubpath()
         self.path = path

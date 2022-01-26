@@ -34,7 +34,7 @@ from ._style import (
 
 
 class Label:
-    """
+    '''
     A plain ol' "scene label" using an underlying ``QGraphicsTextItem``.
 
     After hacking for many days on multiple "label" systems inside
@@ -50,10 +50,8 @@ class Label:
     small, re-usable label components that can actually be used to build
     production grade UIs...
 
-    """
-
+    '''
     def __init__(
-
         self,
         view: pg.ViewBox,
         fmt_str: str,
@@ -63,6 +61,7 @@ class Label:
         font_size: str = 'small',
         opacity: float = 1,
         fields: dict = {},
+        parent: pg.GraphicsObject = None,
         update_on_range_change: bool = True,
 
     ) -> None:
@@ -71,11 +70,13 @@ class Label:
         self._fmt_str = fmt_str
         self._view_xy = QPointF(0, 0)
 
-        self.scene_anchor: Optional[Callable[..., QPointF]] = None
+        self.scene_anchor: Optional[
+            Callable[..., QPointF]
+        ] = None
 
         self._x_offset = x_offset
 
-        txt = self.txt = QtWidgets.QGraphicsTextItem()
+        txt = self.txt = QtWidgets.QGraphicsTextItem(parent=parent)
         txt.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
         vb.scene().addItem(txt)
@@ -86,7 +87,6 @@ class Label:
         )
         dpi_font.configure_to_dpi()
         txt.setFont(dpi_font.font)
-
         txt.setOpacity(opacity)
 
         # register viewbox callbacks
@@ -109,7 +109,7 @@ class Label:
         # self.setTextInteractionFlags(QtGui.Qt.TextEditorInteraction)
 
     @property
-    def color(self):
+    def color(self) -> str:
         return self._hcolor
 
     @color.setter
@@ -118,9 +118,10 @@ class Label:
         self._hcolor = color
 
     def update(self) -> None:
-        '''Update this label either by invoking its
-        user defined anchoring function, or by positioning
-        to the last recorded data view coordinates.
+        '''
+        Update this label either by invoking its user defined anchoring
+        function, or by positioning to the last recorded data view
+        coordinates.
 
         '''
         # move label in scene coords to desired position
@@ -234,7 +235,8 @@ class Label:
 
 
 class FormatLabel(QLabel):
-    '''Kinda similar to above but using the widget apis.
+    '''
+    Kinda similar to above but using the widget apis.
 
     '''
     def __init__(
@@ -273,8 +275,8 @@ class FormatLabel(QLabel):
             QSizePolicy.Expanding,
             QSizePolicy.Expanding,
         )
-        self.setAlignment(Qt.AlignVCenter
-            | Qt.AlignLeft
+        self.setAlignment(
+            Qt.AlignVCenter | Qt.AlignLeft
         )
         self.setText(self.fmt_str)
 
