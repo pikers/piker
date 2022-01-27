@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship of pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -19,6 +19,7 @@ from typing import AsyncIterator, Optional, Union
 import numpy as np
 from tractor.trionics._broadcast import AsyncReceiver
 
+from ._api import fsp
 from ..data._normalize import iterticks
 from ..data._sharedmem import ShmArray
 
@@ -50,7 +51,8 @@ def wap(
     )
 
 
-async def _tina_vwap(
+@fsp
+async def tina_vwap(
 
     source: AsyncReceiver[dict],
     ohlcv: ShmArray,  # OHLC sampled history
@@ -62,7 +64,8 @@ async def _tina_vwap(
     AsyncIterator[np.ndarray],
     float
 ]:
-    '''Streaming volume weighted moving average.
+    '''
+    Streaming volume weighted moving average.
 
     Calling this "tina" for now since we're using HLC3 instead of tick.
 
@@ -100,27 +103,25 @@ async def _tina_vwap(
             w_tot += price * size
 
             # yield ((((o + h + l) / 3) * v) weights_tot) / v_tot
-            yield w_tot / v_tot
+            yield 'tina_vwap', w_tot / v_tot
 
 
-# @fsp.config(
-#     name='dolla_vlm',
-#     fields=('dolla_vlm', 'dark_$vlm'
-#     ohlc=False,
-#     style='step',
-# )
+@fsp(
+    outputs=('dolla_vlm', 'dark_vlm'),
+    ohlc=False,
+    curve_style='step',
+)
 async def dolla_vlm(
     source: AsyncReceiver[dict],
     ohlcv: ShmArray,  # OHLC sampled history
 
-) -> Union[
-    AsyncIterator[np.ndarray],
-    float
+) -> AsyncIterator[
+    tuple[str, Union[np.ndarray, float]],
 ]:
     '''
     "Dollar Volume", aka the volume in asset-currency-units (usually
     a fiat) computed from some price function for the sample step
-    *times* the asset unit volume.
+    *multiplied* (*) by the asset unit volume.
 
     Useful for comparing cross asset "money flow" in #s that are
     asset-currency-independent.
@@ -130,7 +131,7 @@ async def dolla_vlm(
     chl3 = (a['close'] + a['high'] + a['low']) / 3
     v = a['volume']
 
-    # history
+    # on first iteration yield history
     yield chl3 * v
 
     i = ohlcv.index
@@ -141,7 +142,11 @@ async def dolla_vlm(
 
             ttype = tick.get('type')
             if ttype == 'dark_trade':
-                print(f'dark_trade: {tick}')
+                # print(f'dark_trade: {tick}')
+                key = 'dark_vlm'
+
+            else:
+                key = 'dolla_vlm'
 
             # this computes tick-by-tick weightings from here forward
             size = tick['size']
@@ -162,4 +167,4 @@ async def dolla_vlm(
             # tina_lvlm = c+h+l/3 * v
             # print(f' tinal vlm: {tina_lvlm}')
 
-            yield lvlm
+            yield key, lvlm
