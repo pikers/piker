@@ -135,18 +135,11 @@ async def dolla_vlm(
     yield chl3 * v
 
     i = ohlcv.index
-    lvlm = 0
+    output = vlm = 0
+    dvlm = 0
 
     async for quote in source:
         for tick in iterticks(quote):
-
-            ttype = tick.get('type')
-            if ttype == 'dark_trade':
-                # print(f'dark_trade: {tick}')
-                key = 'dark_vlm'
-
-            else:
-                key = 'dolla_vlm'
 
             # this computes tick-by-tick weightings from here forward
             size = tick['size']
@@ -155,16 +148,30 @@ async def dolla_vlm(
             li = ohlcv.index
             if li > i:
                 i = li
-                lvlm = 0
+                vlm = 0
+                dvlm = 0
 
-            c, h, l, v = ohlcv.last()[
-                ['close', 'high', 'low', 'volume']
-            ][0]
+            # TODO: for marginned instruments (futes, etfs?) we need to
+            # show the margin $vlm by multiplying by whatever multiplier
+            # is reported in the sym info.
 
-            lvlm += price * size
+            ttype = tick.get('type')
+            if ttype == 'dark_trade':
+                print(f'dark_trade: {tick}')
+                key = 'dark_vlm'
+                dvlm += price * size
+                output = dvlm
+
+            else:
+                key = 'dolla_vlm'
+                vlm += price * size
+                output = vlm
 
             # TODO: plot both to compare?
+            # c, h, l, v = ohlcv.last()[
+            #     ['close', 'high', 'low', 'volume']
+            # ][0]
             # tina_lvlm = c+h+l/3 * v
             # print(f' tinal vlm: {tina_lvlm}')
 
-            yield key, lvlm
+            yield key, output
