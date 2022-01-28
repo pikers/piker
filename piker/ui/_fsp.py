@@ -592,14 +592,22 @@ async def open_vlm_displays(
         )
 
         # force 0 to always be in view
-        def maxmin(name) -> tuple[float, float]:
-            mxmn = chart.maxmin(name=name)
-            if mxmn:
-                return 0, mxmn[1]
+        def maxmin(
+            names: list[str],
 
-            return 0, 0
+        ) -> tuple[float, float]:
+            mx = 0
+            for name in names:
+                mxmn = chart.maxmin(name=name)
+                if mxmn:
+                    mx = max(mxmn[1], mx)
 
-        chart.view._maxmin = partial(maxmin, name='volume')
+            # if mx:
+            #     return 0, mxmn[1]
+
+            return 0, mx
+
+        chart.view._maxmin = partial(maxmin, names=['volume'])
 
         # TODO: fix the x-axis label issue where if you put
         # the axis on the left it's totally not lined up...
@@ -675,7 +683,11 @@ async def open_vlm_displays(
             )
 
             # add custom auto range handler
-            pi.vb._maxmin = partial(maxmin, name='dolla_vlm')
+            pi.vb._maxmin = partial(
+                maxmin,
+                # keep both regular and dark vlm in view
+                names=['dolla_vlm', 'dark_vlm'],
+            )
 
             curve, _ = chart.draw_curve(
                 name='dolla_vlm',
