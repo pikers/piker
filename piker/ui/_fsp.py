@@ -28,8 +28,6 @@ from typing import Optional, AsyncGenerator, Any
 import numpy as np
 from pydantic import create_model
 import tractor
-# from tractor.trionics import gather_contexts
-from tractor._portal import NamespacePath
 import pyqtgraph as pg
 import trio
 from trio_typing import TaskStatus
@@ -118,8 +116,6 @@ async def open_fsp_sidepane(
 
     # add (single) selection widget
     for name, config in conf.items():
-        # schema[display_name] = {
-        # name = target.__name__
         schema[name] = {
                 'label': '**fsp**:',
                 'type': 'select',
@@ -200,8 +196,6 @@ async def run_fsp_ui(
     shm: ShmArray,
     started: trio.Event,
     target: Fsp,
-    # func_name: str,
-    # display_name: str,
     conf: dict[str, dict],
     loglevel: str,
     # profiler: pg.debug.Profiler,
@@ -216,19 +210,18 @@ async def run_fsp_ui(
     config.
 
     '''
-    # profiler(f'started UI task for fsp: {func_name}')
-    name = target.__name__
+    name = target.name
+    # profiler(f'started UI task for fsp: {name}')
 
     async with (
         # side UI for parameters/controls
         open_fsp_sidepane(
             linkedsplits,
             {name: conf},
-            # {display_name: conf},
         ) as sidepane,
     ):
         await started.wait()
-        # profiler(f'fsp:{func_name} attached to fsp ctx-stream')
+        # profiler(f'fsp:{name} attached to fsp ctx-stream')
 
         overlay_with = conf.get('overlay', False)
         if overlay_with:
@@ -238,28 +231,23 @@ async def run_fsp_ui(
                 chart = linkedsplits.subplots[overlay_with]
 
             chart.draw_curve(
-                # name=display_name,
                 name=name,
                 data=shm.array,
                 overlay=True,
                 color='default_light',
-                # array_key=func_name,
                 array_key=name,
                 separate_axes=conf.get('separate_axes', False),
                 **conf.get('chart_kwargs', {})
             )
             # specially store ref to shm for lookup in display loop
-            # chart._overlays[display_name] = shm
             chart._overlays[name] = shm
 
         else:
             # create a new sub-chart widget for this fsp
             chart = linkedsplits.add_plot(
                 name=name,
-                # name=display_name,
                 array=shm.array,
 
-                # array_key=func_name,
                 array_key=name,
                 sidepane=sidepane,
 
@@ -278,17 +266,15 @@ async def run_fsp_ui(
             # should **not** be the same sub-chart widget
             assert chart.name != linkedsplits.chart.name
 
-        # array_key = func_name
         array_key = name
 
-        # profiler(f'fsp:{func_name} chart created')
+        # profiler(f'fsp:{name} chart created')
 
         # first UI update, usually from shm pushed history
         update_fsp_chart(
             chart,
             shm,
             name,
-            # display_name,
             array_key=array_key,
         )
 
@@ -301,7 +287,7 @@ async def run_fsp_ui(
         # logic inside ``.paint()`` for ``self.opts['fillLevel']`` which
         # might be the best solution?
 
-        # graphics = chart.update_from_array(chart.name, array[func_name])
+        # graphics = chart.update_from_array(chart.name, array[name])
         # graphics.curve.setBrush(50, 50, 200, 100)
         # graphics.curve.setFillLevel(50)
 
@@ -401,7 +387,7 @@ class FspAdmin:
 
         '''
         brokername, sym = self.linked.symbol.front_feed()
-        ns_path = NamespacePath.from_ref(target)
+        ns_path = str(target.ns_path)
         async with (
             portal.open_context(
 
@@ -417,8 +403,7 @@ class FspAdmin:
                 dst_shm_token=dst_shm.token,
 
                 # target
-                ns_path=str(ns_path),
-                # func_name=func_name,
+                ns_path=ns_path,
 
                 loglevel=loglevel,
                 zero_on_step=conf.get('zero_on_step', False),
@@ -444,23 +429,18 @@ class FspAdmin:
         self,
 
         target: Fsp,
-        # display_name: str,
         conf: dict[str, dict[str, Any]],
 
         worker_name: Optional[str] = None,
-        loglevel: str = 'error',
+        loglevel: str = 'info',
 
     ) -> (ShmArray, trio.Event):
 
-        # unpack FSP details from config dict
-        # func_name = conf['func_name']
-        # func_name = target.__name__
         fqsn = self.linked.symbol.front_feed()
+
         # allocate an output shm array
         dst_shm, opened = maybe_mk_fsp_shm(
             fqsn,
-            # field_name=func_name,
-            # display_name=display_name,
             target=target,
             readonly=True,
         )
@@ -474,13 +454,11 @@ class FspAdmin:
         started = trio.Event()
         self.tn.start_soon(
             self.open_chain,
-
             portal,
             complete,
             started,
             dst_shm,
             conf,
-            # func_name,
             target,
             loglevel,
         )
@@ -491,19 +469,14 @@ class FspAdmin:
         self,
 
         target: Fsp,
-        # display_name: str,
 
         conf: dict,  # yeah probably dumb..
         loglevel: str = 'error',
 
     ) -> (trio.Event, ChartPlotWidget):
 
-        # func_name = conf['func_name']
-        # func_name = target.__name__
-
         shm, started = await self.start_engine_task(
             target,
-            # display_name,
             conf,
             loglevel,
         )
@@ -516,8 +489,6 @@ class FspAdmin:
                 self.linked,
                 shm,
                 started,
-                # func_name,
-                # display_name,
                 target,
 
                 conf=conf,
@@ -671,7 +642,6 @@ async def open_vlm_displays(
 
             # spawn and overlay $ vlm on the same subchart
             shm, started = await admin.start_engine_task(
-                # 'dolla_vlm',
                 dolla_vlm,
 
                 {  # fsp engine conf
@@ -760,17 +730,13 @@ async def open_vlm_displays(
                     axis.size_to_values()
 
         # built-in vlm fsps
-        # for display_name, conf in {
         for target, conf in {
-            # 'vwap': {
             tina_vwap: {
-                # 'func_name': 'vwap',
                 'overlay': 'ohlc',  # overlays with OHLCV (main) chart
                 'anchor': 'session',
             },
         }.items():
             started = await admin.open_fsp_chart(
-                # display_name,
                 target,
                 conf,
             )
@@ -819,17 +785,14 @@ async def start_fsp_displays(
         disabled=False
     )
 
-    # async with gather_contexts((
     async with (
 
         # NOTE: this admin internally opens an actor cluster
         open_fsp_admin(linked, ohlcv) as admin,
     ):
         statuses = []
-        # for display_name, conf in fsp_conf.items():
         for target, conf in fsp_conf.items():
             started = await admin.open_fsp_chart(
-                # display_name,
                 target,
                 conf,
             )
