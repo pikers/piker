@@ -107,8 +107,8 @@ async def fsp_compute(
     profiler(f'{func_name} generated history')
 
     # build struct array with an 'index' field to push as history
-    history = np.array(
-        np.arange(len(history_output)),
+    history = np.zeros(
+        len(history_output),
         dtype=dst.array.dtype
     )
 
