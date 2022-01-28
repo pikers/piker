@@ -18,8 +18,15 @@
 FSP (financial signal processing) apis.
 
 '''
+
+# TODO: things to figure the heck out:
+# - how to handle non-plottable values (pyqtgraph has facility for this
+#   now in `arrayToQPath()`)
+# - composition of fsps / implicit chaining syntax (we need an issue)
+
 from __future__ import annotations
 from functools import partial
+from pprint import pformat
 from typing import (
     Any,
     Callable,
@@ -30,32 +37,27 @@ from typing import (
 import numpy as np
 import tractor
 from tractor._portal import NamespacePath
-# import wrapt
 
 from ..data._sharedmem import (
     ShmArray,
     maybe_open_shm_array,
 )
+from ..log import get_logger
 
+log = get_logger(__name__)
 
 # global fsp registry filled out by @fsp decorator below
-_fsp_builtins = {}
-    # 'rsi': _rsi,
-    # 'wma': _wma,
-    # 'vwap': _tina_vwap,
-    # 'dolla_vlm': dolla_vlm,
-# }
+_fsp_registry = {}
+
 
 def _load_builtins() -> dict[tuple, Callable]:
-    from ._momo import _rsi, _wma
-    from ._volume import tina_vwap, dolla_vlm
 
-    return _fsp_builtins
+    # import to implicity trigger registration via ``@fsp``
+    from . import _momo  # noqa
+    from . import _volume  # noqa
 
-# TODO: things to figure the heck out:
-# - how to handle non-plottable values (pyqtgraph has facility for this
-#   now in `arrayToQPath()`)
-# - composition of fsps / implicit chaining syntax (we need an issue)
+    log.info(f'Registered FSP set:\n{pformat(_fsp_registry)}')
+    return _fsp_registry
 
 
 class Fsp:
@@ -81,18 +83,24 @@ class Fsp:
         **config,
 
     ) -> None:
-        # if wrapped is not None:
-        #     self.name = wrapped.__name__
-        # TODO: should we make this a wrapt object proxy?
+
+        # TODO (maybe):
+        # - type introspection?
+        # - should we make this a wrapt object proxy?
         self.func = func
-        self.__name__ = func.__name__
-        self.__module__ = func.__module__
+        self.__name__ = func.__name__  # XXX: must have func-object name
+
         self.ns_path: tuple[str, str] = NamespacePath.from_ref(func)
-        _fsp_builtins[self.ns_path] = func
         self.outputs = outputs
         self.config: dict[str, Any] = config
 
-    # @wrapt.decorator
+        # register with declared set.
+        _fsp_registry[self.ns_path] = func
+
+    @property
+    def name(self) -> str:
+        return self.__name__
+
     def __call__(
         self,
 
@@ -104,7 +112,6 @@ class Fsp:
         **kwargs
     ):
         return self.func(*args, **kwargs)
-        # return wrapped(*args, **kwargs)
 
 
 def fsp(
@@ -115,13 +122,8 @@ def fsp(
     **config,
 
 ) -> Fsp:
-    # @wrapt.decorator
-    # def wrapper(wrapped, instance, args, kwargs):
-    #     return wrapped(*args, **kwargs)
 
     if wrapped is None:
-        # return functools.partial(with_optional_arguments,
-        #         myarg1=myarg1, myarg2=myarg2)
         return partial(
             Fsp,
             outputs=outputs,
@@ -129,19 +131,12 @@ def fsp(
             **config,
         )
 
-    # return wrapper(wrapped)
     return Fsp(wrapped, outputs=(wrapped.__name__,))
-        # outputs=outputs,
-        # display_name=display_name,
-        # **config,
-    # )(wrapped)
 
 
 def maybe_mk_fsp_shm(
     sym: str,
     target: fsp,
-    # field_name: str,
-    # display_name: Optional[str] = None,
     readonly: bool = True,
 
 ) -> (ShmArray, bool):
@@ -152,22 +147,14 @@ def maybe_mk_fsp_shm(
     '''
     uid = tractor.current_actor().uid
 
-    # load declared fields from fsp and allocate in
-    # shm array.
-    # if not display_name:
-    #     display_name = field_name
-
-    # TODO: load function here and introspect
-    # return stream type(s)
-    display_name = target.__name__
-
-    # TODO: should `index` be a required internal field?
+    # TODO: load output types from `Fsp`
+    # - should `index` be a required internal field?
     fsp_dtype = np.dtype(
         [('index', int)] +
         [(field_name, float) for field_name in target.outputs]
     )
 
-    key = f'{sym}.fsp.{display_name}.{".".join(uid)}'
+    key = f'{sym}.fsp.{target.name}.{".".join(uid)}'
 
     shm, opened = maybe_open_shm_array(
         key,
