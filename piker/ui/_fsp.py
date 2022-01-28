@@ -678,15 +678,10 @@ async def open_vlm_displays(
             pi.vb._maxmin = partial(maxmin, name='dolla_vlm')
 
             curve, _ = chart.draw_curve(
-
                 name='dolla_vlm',
                 data=shm.array,
-
                 array_key='dolla_vlm',
                 overlay=pi,
-                # color='bracket',
-                # TODO: this color or dark volume
-                # color='charcoal',
                 step_mode=True,
                 # **conf.get('chart_kwargs', {})
             )
@@ -703,6 +698,17 @@ async def open_vlm_displays(
             # ``.draw_curve()``.
             chart._overlays['dolla_vlm'] = shm
 
+            curve, _ = chart.draw_curve(
+
+                name='dark_vlm',
+                data=shm.array,
+                array_key='dark_vlm',
+                overlay=pi,
+                color='charcoal',  # darker theme hue
+                step_mode=True,
+                # **conf.get('chart_kwargs', {})
+            )
+            chart._overlays['dark_vlm'] = shm
             # XXX: old dict-style config before it was moved into the
             # helper task
             #     'dolla_vlm': {
