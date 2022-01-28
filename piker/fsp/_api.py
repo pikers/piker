@@ -26,7 +26,6 @@ FSP (financial signal processing) apis.
 
 from __future__ import annotations
 from functools import partial
-from pprint import pformat
 from typing import (
     Any,
     Callable,
@@ -56,7 +55,6 @@ def _load_builtins() -> dict[tuple, Callable]:
     from . import _momo  # noqa
     from . import _volume  # noqa
 
-    log.info(f'Registered FSP set:\n{pformat(_fsp_registry)}')
     return _fsp_registry
 
 

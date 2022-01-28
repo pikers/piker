@@ -34,8 +34,7 @@ from .. import data
 from ..data import attach_shm_array
 from ..data.feed import Feed
 from ..data._sharedmem import ShmArray
-# from ._momo import _rsi, _wma
-# from ._volume import _tina_vwap, dolla_vlm
+from ._api import Fsp
 from ._api import _load_builtins
 
 log = get_logger(__name__)
@@ -78,7 +77,6 @@ async def fsp_compute(
     src: ShmArray,
     dst: ShmArray,
 
-    # func_name: str,
     func: Callable,
 
     attach_stream: bool = False,
@@ -216,8 +214,12 @@ async def cascade(
     src = attach_shm_array(token=src_shm_token)
     dst = attach_shm_array(readonly=False, token=dst_shm_token)
 
-    # func: Callable = _fsp_builtins.get(tuple(ns_path))
-    func: Fsp = _load_builtins().get(
+    reg = _load_builtins()
+    lines = '\n'.join([f'{key.rpartition(":")[2]} => {key}' for key in reg])
+    log.info(
+        f'Registered FSP set:\n{lines}'
+    )
+    func: Fsp = reg.get(
         NamespacePath(ns_path)
     )
 
