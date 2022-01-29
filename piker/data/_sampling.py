@@ -176,12 +176,11 @@ async def sample_and_broadcast(
         # TODO: ``numba`` this!
         for sym, quote in quotes.items():
 
-            # TODO: in theory you can send the IPC msg *before*
-            # writing to the sharedmem array to decrease latency,
-            # however, that will require `tractor.msg.pub` support
-            # here or at least some way to prevent task switching
-            # at the yield such that the array write isn't delayed
-            # while another consumer is serviced..
+            # TODO: in theory you can send the IPC msg *before* writing
+            # to the sharedmem array to decrease latency, however, that
+            # will require at least some way to prevent task switching
+            # at the yield such that the array write isn't delayed while
+            # another consumer is serviced..
 
             # start writing the shm buffer with appropriate
             # trade data
