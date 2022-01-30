@@ -38,6 +38,7 @@ import contextlib
 
 import trio
 import tractor
+from tractor.experimental import msgpub
 from async_generator import asynccontextmanager
 
 from ..log import get_logger, get_console_log
@@ -98,7 +99,7 @@ class BrokerFeed:
     )
 
 
-@tractor.trionics.msgpub(tasks=['stock', 'option'])
+@msgpub(tasks=['stock', 'option'])
 async def stream_poll_requests(
     get_topics: Callable,
     get_quotes: Coroutine,
