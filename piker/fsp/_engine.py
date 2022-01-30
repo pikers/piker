@@ -27,7 +27,7 @@ import pyqtgraph as pg
 import trio
 from trio_typing import TaskStatus
 import tractor
-from tractor._portal import NamespacePath
+from tractor.msg import NamespacePath
 
 from ..log import get_logger, get_console_log
 from .. import data

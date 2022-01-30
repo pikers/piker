@@ -35,7 +35,7 @@ from typing import (
 
 import numpy as np
 import tractor
-from tractor._portal import NamespacePath
+from tractor.msg import NamespacePath
 
 from ..data._sharedmem import (
     ShmArray,
