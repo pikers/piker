@@ -553,8 +553,6 @@ async def stream_quotes(
                     quote = ohlc
                     topic = quote['symbol'].lower()
 
-                # XXX: format required by ``tractor.msg.pub``
-                # requires a ``Dict[topic: str, quote: dict]``
                 await send_chan.send({topic: quote})
 
 

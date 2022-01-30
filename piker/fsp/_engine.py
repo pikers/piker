@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) Tyler Goodlet (in stewardship of pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -27,28 +27,17 @@ import pyqtgraph as pg
 import trio
 from trio_typing import TaskStatus
 import tractor
+from tractor.msg import NamespacePath
 
 from ..log import get_logger, get_console_log
 from .. import data
 from ..data import attach_shm_array
 from ..data.feed import Feed
 from ..data._sharedmem import ShmArray
-from ._momo import _rsi, _wma
-from ._volume import _tina_vwap, dolla_vlm
+from ._api import Fsp
+from ._api import _load_builtins
 
 log = get_logger(__name__)
-
-_fsp_builtins = {
-    'rsi': _rsi,
-    'wma': _wma,
-    'vwap': _tina_vwap,
-    'dolla_vlm': dolla_vlm,
-}
-
-# TODO: things to figure the heck out:
-# - how to handle non-plottable values (pyqtgraph has facility for this
-#   now in `arrayToQPath()`)
-# - composition of fsps / implicit chaining syntax (we need an issue)
 
 
 @dataclass
@@ -88,7 +77,6 @@ async def fsp_compute(
     src: ShmArray,
     dst: ShmArray,
 
-    func_name: str,
     func: Callable,
 
     attach_stream: bool = False,
@@ -115,15 +103,27 @@ async def fsp_compute(
     # and get historical output
     history_output = await out_stream.__anext__()
 
+    func_name = func.__name__
     profiler(f'{func_name} generated history')
 
-    # build a struct array which includes an 'index' field to push
-    # as history
-    history = np.array(
-        np.arange(len(history_output)),
+    # build struct array with an 'index' field to push as history
+    history = np.zeros(
+        len(history_output),
         dtype=dst.array.dtype
     )
-    history[func_name] = history_output
+
+    # TODO: push using a[['f0', 'f1', .., 'fn']] = .. syntax no?
+    # if the output array is multi-field then push
+    # each respective field.
+    fields = getattr(history.dtype, 'fields', None)
+    if fields:
+        for key in fields.keys():
+            if key in history.dtype.fields:
+                history[func_name] = history_output
+
+    # single-key output stream
+    else:
+        history[func_name] = history_output
 
     # TODO: XXX:
     # THERE'S A BIG BUG HERE WITH THE `index` field since we're
@@ -164,8 +164,9 @@ async def fsp_compute(
                 async for processed in out_stream:
 
                     log.debug(f"{func_name}: {processed}")
+                    key, output = processed
                     index = src.index
-                    dst.array[-1][func_name] = processed
+                    dst.array[-1][key] = output
 
                     # NOTE: for now we aren't streaming this to the consumer
                     # stream latest array index entry which basically just acts
@@ -194,7 +195,7 @@ async def cascade(
     src_shm_token: dict,
     dst_shm_token: tuple[str, np.dtype],
 
-    func_name: str,
+    ns_path: NamespacePath,
 
     zero_on_step: bool = False,
     loglevel: Optional[str] = None,
@@ -213,10 +214,18 @@ async def cascade(
     src = attach_shm_array(token=src_shm_token)
     dst = attach_shm_array(readonly=False, token=dst_shm_token)
 
-    func: Callable = _fsp_builtins.get(func_name)
+    reg = _load_builtins()
+    lines = '\n'.join([f'{key.rpartition(":")[2]} => {key}' for key in reg])
+    log.info(
+        f'Registered FSP set:\n{lines}'
+    )
+    func: Fsp = reg.get(
+        NamespacePath(ns_path)
+    )
+
     if not func:
         # TODO: assume it's a func target path
-        raise ValueError('Unknown fsp target: {func_name}')
+        raise ValueError(f'Unknown fsp target: {ns_path}')
 
     # open a data feed stream with requested broker
     async with data.feed.maybe_open_feed(
@@ -231,11 +240,12 @@ async def cascade(
 
     ) as (feed, quote_stream):
 
-        profiler(f'{func_name}: feed up')
+        profiler(f'{func}: feed up')
 
         assert src.token == feed.shm.token
         # last_len = new_len = len(src.array)
 
+        func_name = func.__name__
         async with (
             trio.open_nursery() as n,
         ):
@@ -252,7 +262,7 @@ async def cascade(
                 src=src,
                 dst=dst,
 
-                func_name=func_name,
+                # func_name=func_name,
                 func=func
             )
 

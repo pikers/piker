@@ -38,6 +38,7 @@ import contextlib
 
 import trio
 import tractor
+from tractor.experimental import msgpub
 from async_generator import asynccontextmanager
 
 from ..log import get_logger, get_console_log
@@ -98,7 +99,7 @@ class BrokerFeed:
     )
 
 
-@tractor.msg.pub(tasks=['stock', 'option'])
+@msgpub(tasks=['stock', 'option'])
 async def stream_poll_requests(
     get_topics: Callable,
     get_quotes: Coroutine,
@@ -293,7 +294,7 @@ async def start_quote_stream(
 
         await stream_poll_requests(
 
-            # ``msg.pub`` required kwargs
+            # ``trionics.msgpub`` required kwargs
             task_name=feed_type,
             ctx=ctx,
             topics=symbols,
