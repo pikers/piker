@@ -24,7 +24,10 @@ from typing import AsyncIterator
 
 def iterticks(
     quote: dict,
-    types: tuple[str] = ('trade', 'dark_trade'),
+    types: tuple[str] = (
+        'trade',
+        'dark_trade',
+    ),
     deduplicate_darks: bool = False,
 
 ) -> AsyncIterator:
@@ -47,17 +50,20 @@ def iterticks(
         if deduplicate_darks:
             for tick in ticks:
                 ttype = tick.get('type')
-                sig = (
-                    tick['time'],
-                    tick['price'],
-                    tick['size']
-                )
 
-                if ttype == 'dark_trade':
-                    darks[sig] = tick
+                time = tick.get('time', None)
+                if time:
+                    sig = (
+                        time,
+                        tick['price'],
+                        tick['size']
+                    )
 
-                elif ttype == 'trade':
-                    trades[sig] = tick
+                    if ttype == 'dark_trade':
+                        darks[sig] = tick
+
+                    elif ttype == 'trade':
+                        trades[sig] = tick
 
             # filter duplicates
             for sig, tick in trades.items():
