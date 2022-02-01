@@ -143,6 +143,7 @@ def maybe_mk_fsp_shm(
     exists, otherwise load the shm already existing for that token.
 
     '''
+    assert isinstance(sym, str), '`sym` should be file-name-friendly `str`'
     uid = tractor.current_actor().uid
 
     # TODO: load output types from `Fsp`
