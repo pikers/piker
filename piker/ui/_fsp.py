@@ -56,7 +56,6 @@ from ..fsp._volume import (
     flow_rates,
 )
 from ..log import get_logger
-from ._style import hcolor
 
 log = get_logger(__name__)
 
@@ -681,12 +680,6 @@ async def open_vlm_displays(
                 flow_rates,
                 {  # fsp engine conf
                     'func_name': 'flow_rates',
-                    # 'zero_on_step': True,
-                    # 'params': {
-                    #     'price_func': {
-                    #         'default_value': 'chl3',
-                    #     },
-                    # },
                 },
                 # loglevel,
             )
@@ -698,6 +691,9 @@ async def open_vlm_displays(
                 for event in tasks_ready:
                     n.start_soon(event.wait)
 
+            ###################
+            # dolla vlm overlay
+            ###################
             dvlm_pi = chart.overlay_plotitem(
                 'dolla_vlm',
                 index=0,  # place axis on inside (nearest to chart)
@@ -710,7 +706,6 @@ async def open_vlm_displays(
                         digits=2,
                     ),
                 },
-
             )
 
             # add custom auto range handler
@@ -726,7 +721,6 @@ async def open_vlm_displays(
                 array_key='dolla_vlm',
                 overlay=dvlm_pi,
                 step_mode=True,
-                # **conf.get('chart_kwargs', {})
             )
             # TODO: is there a way to "sync" the dual axes such that only
             # one curve is needed?
@@ -741,6 +735,9 @@ async def open_vlm_displays(
             # ``.draw_curve()``.
             chart._overlays['dolla_vlm'] = dvlm_shm
 
+            ################
+            # dark vlm curve
+            ################
             curve, _ = chart.draw_curve(
 
                 name='dark_vlm',
@@ -753,11 +750,16 @@ async def open_vlm_displays(
             )
             chart._overlays['dark_vlm'] = dvlm_shm
 
-            # add flow rate curves
-            rate_color = 'default_light'
+            ##################
+            # Vlm rate overlay
+            ##################
+            trade_rate_color = vlm_rate_color = 'i3'
             fr_pi = chart.overlay_plotitem(
-                'flow_rates',
+                'vlm_rates',
                 index=0,  # place axis on inside (nearest to chart)
+
+                # NOTE: we might want to suffix with a \w
+                # on lhs and prefix for the rhs axis labels?
                 axis_title=' vlm/m',
                 axis_side='left',
                 axis_kwargs={
@@ -766,17 +768,14 @@ async def open_vlm_displays(
                         humanize,
                         digits=2,
                     ),
-                    # 'textPen': pg.mkPen(hcolor(vlmr_color)),
-                    'text_color': rate_color,
+                    'text_color': vlm_rate_color,
                 },
-
             )
             # add custom auto range handler
             fr_pi.vb._maxmin = partial(
                 maxmin,
                 # keep both regular and dark vlm in view
                 names=[
-                    # '1m_trade_rate',
                     '1m_vlm_rate',
                 ],
             )
@@ -786,10 +785,47 @@ async def open_vlm_displays(
                 data=fr_shm.array,
                 array_key='1m_vlm_rate',
                 overlay=fr_pi,
-                color=rate_color,
-                # **conf.get('chart_kwargs', {})
+                color=vlm_rate_color,
+                style='solid',
             )
             chart._overlays['1m_vlm_rate'] = fr_shm
+
+            ####################
+            # Trade rate overlay
+            ####################
+            fr_pi = chart.overlay_plotitem(
+                'trade_rates',
+                index=1,  # place axis on inside (nearest to chart)
+                axis_title='trades/m ',
+                axis_side='left',
+                axis_kwargs={
+                    'typical_max_str': ' 100.0 M ',
+                    'formatter': partial(
+                        humanize,
+                        digits=2,
+                    ),
+                    'text_color': trade_rate_color,
+                },
+
+            )
+            # add custom auto range handler
+            fr_pi.vb._maxmin = partial(
+                maxmin,
+                # keep both regular and dark vlm in view
+                names=[
+                    '1m_trade_rate',
+                ],
+            )
+
+            curve, _ = chart.draw_curve(
+                name='1m_trade_rate',
+                data=fr_shm.array,
+                array_key='1m_trade_rate',
+                overlay=fr_pi,
+                color=trade_rate_color,
+                style='dash',
+            )
+            chart._overlays['1m_trade_rate'] = fr_shm
 
             for pi in (dvlm_pi, fr_pi):
                 for name, axis_info in pi.axes.items():
