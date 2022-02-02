@@ -215,12 +215,12 @@ async def flow_rates(
 
             tr = quote['tradeRate']
             if tr != ltr:
-                print(f'trade rate: {tr}')
+                # print(f'trade rate: {tr}')
                 yield '1m_trade_rate', tr
                 ltr = tr
 
             vr = quote['volumeRate']
             if vr != lvr:
-                print(f'vlm rate: {vr}')
+                # print(f'vlm rate: {vr}')
                 yield '1m_vlm_rate', vr
                 lvr = vr
