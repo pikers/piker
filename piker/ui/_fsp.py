@@ -50,8 +50,13 @@ from ._forms import (
 )
 from ..fsp._api import maybe_mk_fsp_shm, Fsp
 from ..fsp import cascade
-from ..fsp._volume import tina_vwap, dolla_vlm
+from ..fsp._volume import (
+    tina_vwap,
+    dolla_vlm,
+    flow_rates,
+)
 from ..log import get_logger
+from ._style import hcolor
 
 log = get_logger(__name__)
 
@@ -440,7 +445,7 @@ class FspAdmin:
 
         # allocate an output shm array
         dst_shm, opened = maybe_mk_fsp_shm(
-            fqsn,
+            '.'.join(fqsn),
             target=target,
             readonly=True,
         )
@@ -648,8 +653,9 @@ async def open_vlm_displays(
 
         if dvlm:
 
+            tasks_ready = []
             # spawn and overlay $ vlm on the same subchart
-            shm, started = await admin.start_engine_task(
+            dvlm_shm, started = await admin.start_engine_task(
                 dolla_vlm,
 
                 {  # fsp engine conf
@@ -663,11 +669,36 @@ async def open_vlm_displays(
                 },
                 # loglevel,
             )
+            tasks_ready.append(started)
+
+            # FIXME: we should error on starting the same fsp right
+            # since it might collide with existing shm.. or wait we
+            # had this before??
+            # dolla_vlm,
+
+            # spawn and overlay $ vlm on the same subchart
+            fr_shm, started = await admin.start_engine_task(
+                flow_rates,
+                {  # fsp engine conf
+                    'func_name': 'flow_rates',
+                    # 'zero_on_step': True,
+                    # 'params': {
+                    #     'price_func': {
+                    #         'default_value': 'chl3',
+                    #     },
+                    # },
+                },
+                # loglevel,
+            )
+            tasks_ready.append(started)
             # profiler(f'created shm for fsp actor: {display_name}')
 
-            await started.wait()
+            # wait for all engine tasks to startup
+            async with trio.open_nursery() as n:
+                for event in tasks_ready:
+                    n.start_soon(event.wait)
 
-            pi = chart.overlay_plotitem(
+            dvlm_pi = chart.overlay_plotitem(
                 'dolla_vlm',
                 index=0,  # place axis on inside (nearest to chart)
                 axis_title=' $vlm',
@@ -683,7 +714,7 @@ async def open_vlm_displays(
             )
 
             # add custom auto range handler
-            pi.vb._maxmin = partial(
+            dvlm_pi.vb._maxmin = partial(
                 maxmin,
                 # keep both regular and dark vlm in view
                 names=['dolla_vlm', 'dark_vlm'],
@@ -691,9 +722,9 @@ async def open_vlm_displays(
 
             curve, _ = chart.draw_curve(
                 name='dolla_vlm',
-                data=shm.array,
+                data=dvlm_shm.array,
                 array_key='dolla_vlm',
-                overlay=pi,
+                overlay=dvlm_pi,
                 step_mode=True,
                 # **conf.get('chart_kwargs', {})
             )
@@ -708,44 +739,64 @@ async def open_vlm_displays(
             # specially store ref to shm for lookup in display loop
             # since only a placeholder of `None` is entered in
             # ``.draw_curve()``.
-            chart._overlays['dolla_vlm'] = shm
+            chart._overlays['dolla_vlm'] = dvlm_shm
 
             curve, _ = chart.draw_curve(
 
                 name='dark_vlm',
-                data=shm.array,
+                data=dvlm_shm.array,
                 array_key='dark_vlm',
-                overlay=pi,
+                overlay=dvlm_pi,
                 color='charcoal',  # darker theme hue
                 step_mode=True,
                 # **conf.get('chart_kwargs', {})
             )
-            chart._overlays['dark_vlm'] = shm
-            # XXX: old dict-style config before it was moved into the
-            # helper task
-            #     'dolla_vlm': {
-            #         'func_name': 'dolla_vlm',
-            #         'zero_on_step': True,
-            #         'overlay': 'volume',
-            #         'separate_axes': True,
-            #         'params': {
-            #             'price_func': {
-            #                 'default_value': 'chl3',
-            #                 # tell target ``Edit`` widget to not allow
-            #                 # edits for now.
-            #                 'widget_kwargs': {'readonly': True},
-            #             },
-            #         },
-            #         'chart_kwargs': {'step_mode': True}
-            #     },
+            chart._overlays['dark_vlm'] = dvlm_shm
 
-            # }
+            # add flow rate curves
+            rate_color = 'default_light'
+            fr_pi = chart.overlay_plotitem(
+                'flow_rates',
+                index=0,  # place axis on inside (nearest to chart)
+                axis_title=' vlm/m',
+                axis_side='left',
+                axis_kwargs={
+                    'typical_max_str': ' 100.0 M ',
+                    'formatter': partial(
+                        humanize,
+                        digits=2,
+                    ),
+                    # 'textPen': pg.mkPen(hcolor(vlmr_color)),
+                    'text_color': rate_color,
+                },
 
-            for name, axis_info in pi.axes.items():
-                # lol this sux XD
-                axis = axis_info['item']
-                if isinstance(axis, PriceAxis):
-                    axis.size_to_values()
+            )
+            # add custom auto range handler
+            fr_pi.vb._maxmin = partial(
+                maxmin,
+                # keep both regular and dark vlm in view
+                names=[
+                    # '1m_trade_rate',
+                    '1m_vlm_rate',
+                ],
+            )
+
+            curve, _ = chart.draw_curve(
+                name='1m_vlm_rate',
+                data=fr_shm.array,
+                array_key='1m_vlm_rate',
+                overlay=fr_pi,
+                color=rate_color,
+                # **conf.get('chart_kwargs', {})
+            )
+            chart._overlays['1m_vlm_rate'] = fr_shm
+
+            for pi in (dvlm_pi, fr_pi):
+                for name, axis_info in pi.axes.items():
+                    # lol this sux XD
+                    axis = axis_info['item']
+                    if isinstance(axis, PriceAxis):
+                        axis.size_to_values()
 
         # built-in vlm fsps
         for target, conf in {
