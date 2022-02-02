@@ -135,11 +135,17 @@ async def fsp_compute(
                 output = history_output[key]
 
                 if history is None:
+
+                    if output is None:
+                        length = len(src.array)
+                    else:
+                        length = len(output)
+
                     # using the first output, determine
                     # the length of the struct-array that
                     # will be pushed to shm.
                     history = np.zeros(
-                        len(output),
+                        length,
                         dtype=dst.array.dtype
                     )
 
