@@ -24,6 +24,7 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtGui, QtWidgets
 from PyQt5.QtCore import (
+    Qt,
     QLineF,
     QSizeF,
     QRectF,
@@ -85,6 +86,14 @@ def step_path_arrays_from_1d(
         return x_out, y_out
 
 
+_line_styles: dict[str, int] = {
+    'solid': Qt.PenStyle.SolidLine,
+    'dash': Qt.PenStyle.DashLine,
+    'dot': Qt.PenStyle.DotLine,
+    'dashdot': Qt.PenStyle.DashDotLine,
+}
+
+
 # TODO: got a feeling that dropping this inheritance gets us even more speedups
 class FastAppendCurve(pg.PlotCurveItem):
     '''
@@ -106,6 +115,7 @@ class FastAppendCurve(pg.PlotCurveItem):
         step_mode: bool = False,
         color: str = 'default_lightest',
         fill_color: Optional[str] = None,
+        style: str = 'solid',
 
         **kwargs
 
@@ -118,7 +128,11 @@ class FastAppendCurve(pg.PlotCurveItem):
         self._xrange: tuple[int, int] = self.dataBounds(ax=0)
 
         # all history of curve is drawn in single px thickness
-        self.setPen(hcolor(color))
+        pen = pg.mkPen(hcolor(color))
+        pen.setStyle(_line_styles[style])
+        if 'dash' in style:
+            pen.setDashPattern([6, 6])
+        self.setPen(pen)
 
         # last segment is drawn in 2px thickness for emphasis
         self.last_step_pen = pg.mkPen(hcolor(color), width=2)
