@@ -120,6 +120,7 @@ class DpiAwareFont:
 
         dpi = mn_dpi
 
+        mult = 1.0
         # dpi is likely somewhat scaled down so use slightly larger font size
         if scale >= 1.1 and self._font_size:
 
