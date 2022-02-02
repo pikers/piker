@@ -193,7 +193,7 @@ async def dolla_vlm(
         '1m_trade_rate',
         '1m_vlm_rate',
     ),
-    curve_style='step',
+    curve_style='line',
 )
 async def flow_rates(
     source: AsyncReceiver[dict],
@@ -213,14 +213,14 @@ async def flow_rates(
     async for quote in source:
         if quote:
 
-            tr = quote['tradeRate'],
+            tr = quote['tradeRate']
             if tr != ltr:
                 print(f'trade rate: {tr}')
                 yield '1m_trade_rate', tr
                 ltr = tr
 
-            vr = quote['volumeRate'],
+            vr = quote['volumeRate']
             if vr != lvr:
-                print(f'vlm rate: {tr}')
-                yield '1m_vlm_rate', tr
-                ltr = tr
+                print(f'vlm rate: {vr}')
+                yield '1m_vlm_rate', vr
+                lvr = vr
