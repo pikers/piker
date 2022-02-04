@@ -715,7 +715,13 @@ async def open_vlm_displays(
             dvlm_pi.vb._maxmin = partial(
                 maxmin,
                 # keep both regular and dark vlm in view
-                names=['dolla_vlm', 'dark_vlm'],
+                names=[
+                    'dolla_vlm',
+                    'dark_vlm',
+
+                    'dvlm_rate',
+                    'dark_dvlm_rate',
+                ],
             )
 
             curve, _ = chart.draw_curve(
@@ -741,22 +747,21 @@ async def open_vlm_displays(
             ################
             # dark vlm curve
             ################
+            # darker theme hue (obvsly)
+            dark_vlm_color = 'charcoal'
             curve, _ = chart.draw_curve(
-
                 name='dark_vlm',
                 data=dvlm_shm.array,
                 array_key='dark_vlm',
                 overlay=dvlm_pi,
-                color='charcoal',  # darker theme hue
+                color=dark_vlm_color,
                 step_mode=True,
                 # **conf.get('chart_kwargs', {})
             )
             chart._overlays['dark_vlm'] = dvlm_shm
 
-            ##################
-            # Vlm rate overlay
-            ##################
-            # spawn and overlay $ vlm on the same subchart
+            # spawn flow rates fsp **ONLY AFTER** the 'dolla_vlm' fsp is
+            # up since this one depends on it.
             fr_shm, started = await admin.start_engine_task(
                 flow_rates,
                 {  # fsp engine conf
@@ -765,82 +770,121 @@ async def open_vlm_displays(
                 # loglevel,
             )
             await started.wait()
-            trade_rate_color = vlm_rate_color = 'i3'
 
-            fr_pi = chart.overlay_plotitem(
-                'vlm_rates',
-                index=0,  # place axis on inside (nearest to chart)
+            # curve, _ = chart.draw_curve(
+            #     name='1m_vlm_rate',
+            #     data=fr_shm.array,
+            #     array_key='1m_vlm_rate',
+            #     overlay=fr_pi,
+            #     color='jet',
+            #     style='solid',
+            # )
+            # chart._overlays['1m_vlm_rate'] = fr_shm
 
-                # NOTE: we might want to suffix with a \w
-                # on lhs and prefix for the rhs axis labels?
-                axis_title=' vlm/m',
-                axis_side='left',
-                axis_kwargs={
-                    'typical_max_str': ' 100.0 M ',
-                    'formatter': partial(
-                        humanize,
-                        digits=2,
-                    ),
-                    'text_color': vlm_rate_color,
-                },
-            )
-            # add custom auto range handler
-            fr_pi.vb._maxmin = partial(
-                maxmin,
-                # keep both regular and dark vlm in view
-                names=[
-                    '1m_vlm_rate',
-                ],
-            )
+            # use slightly less light (then bracket) gray
+            # for volume from "main exchange".
+            vlm_color = 'i3'
 
             curve, _ = chart.draw_curve(
-                name='1m_vlm_rate',
+                name='dvlm_rate',
                 data=fr_shm.array,
-                array_key='1m_vlm_rate',
-                overlay=fr_pi,
-                color=vlm_rate_color,
+                array_key='dvlm_rate',
+                overlay=dvlm_pi,
+                color=vlm_color,
                 style='solid',
             )
-            chart._overlays['1m_vlm_rate'] = fr_shm
+            chart._overlays['dvlm_rate'] = fr_shm
+
+            curve, _ = chart.draw_curve(
+                name='dark_dvlm_rate',
+                data=fr_shm.array,
+                array_key='dark_dvlm_rate',
+                overlay=dvlm_pi,
+                color=dark_vlm_color,
+                style='solid',
+            )
+            chart._overlays['dark_dvlm_rate'] = fr_shm
+
+            # vlm rate overlay
+            ####################
+            # (needs separate axis since trade counts are likely
+            # different scale then vlm)
+
+            # vlmrate_pi = chart.overlay_plotitem(
+            #     'vlm_rates',
+            #     index=0,  # place axis on inside (nearest to chart)
+
+            #     # NOTE: we might want to suffix with a \w
+            #     # on lhs and prefix for the rhs axis labels?
+            #     axis_title=' vlm/m',
+            #     axis_side='left',
+            #     axis_kwargs={
+            #         'typical_max_str': ' 100.0 M ',
+            #         'formatter': partial(
+            #             humanize,
+            #             digits=2,
+            #         ),
+            #         'text_color': vlm_color,
+            #     },
+            # )
+            # # add custom auto range handler
+            # vlmrate.vb._maxmin = partial(
+            #     maxmin,
+            #     # keep both regular and dark vlm in view
+            #     names=[
+            #         # '1m_vlm_rate',
+            #     ],
+            # )
 
             ####################
             # Trade rate overlay
             ####################
-            fr_pi = chart.overlay_plotitem(
+            tr_pi = chart.overlay_plotitem(
                 'trade_rates',
                 index=1,  # place axis on inside (nearest to chart)
-                axis_title='trades/m ',
+                axis_title='tr(16) ',
                 axis_side='left',
                 axis_kwargs={
-                    'typical_max_str': ' 100.0 M ',
+                    'typical_max_str': ' 10.0 M ',
                     'formatter': partial(
                         humanize,
                         digits=2,
                     ),
-                    'text_color': trade_rate_color,
+                    'text_color': vlm_color,
                 },
 
             )
+            fields = [
+                'trade_rate',
+                'dark_trade_rate',
+                # '1m_trade_rate',
+            ]
             # add custom auto range handler
-            fr_pi.vb._maxmin = partial(
+            tr_pi.vb._maxmin = partial(
                 maxmin,
                 # keep both regular and dark vlm in view
-                names=[
-                    '1m_trade_rate',
-                ],
+                names=fields,
             )
 
-            curve, _ = chart.draw_curve(
-                name='1m_trade_rate',
-                data=fr_shm.array,
-                array_key='1m_trade_rate',
-                overlay=fr_pi,
-                color=trade_rate_color,
-                style='dash',
-            )
-            chart._overlays['1m_trade_rate'] = fr_shm
+            for field in fields:
+                if 'dark' in field:
+                    color = dark_vlm_color
+                else:
+                    color = vlm_color
 
-            for pi in (dvlm_pi, fr_pi):
+                curve, _ = chart.draw_curve(
+                    name=field,
+                    data=fr_shm.array,
+                    array_key=field,
+                    overlay=tr_pi,
+                    color=color,
+                    # dashed line to represent "individual trades" being
+                    # more "granular" B)
+                    style='dash',
+                )
+                chart._overlays[field] = fr_shm
+
+            for pi in (dvlm_pi, tr_pi):
                 for name, axis_info in pi.axes.items():
                     # lol this sux XD
                     axis = axis_info['item']
