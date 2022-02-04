@@ -115,7 +115,12 @@ async def tina_vwap(
 
 
 @fsp(
-    outputs=('dolla_vlm', 'dark_vlm'),
+    outputs=(
+        'dolla_vlm',
+        'dark_vlm',
+        'trade_count',
+        'dark_trade_count',
+    ),
     curve_style='step',
 )
 async def dolla_vlm(
@@ -145,8 +150,8 @@ async def dolla_vlm(
     }
 
     i = ohlcv.index
-    output = vlm = 0
-    dvlm = 0
+    output = dvlm = vlm = 0
+    dark_trade_count = trade_count = 0
 
     async for quote in source:
         for tick in iterticks(
@@ -165,8 +170,8 @@ async def dolla_vlm(
             li = ohlcv.index
             if li > i:
                 i = li
-                vlm = 0
-                dvlm = 0
+                trade_count = dark_trade_count = dvlm = vlm = 0
+
 
             # TODO: for marginned instruments (futes, etfs?) we need to
             # show the margin $vlm by multiplying by whatever multiplier
@@ -178,13 +183,17 @@ async def dolla_vlm(
                 # print(f'dark_trade: {tick}')
                 key = 'dark_vlm'
                 dvlm += price * size
-                output = dvlm
+                yield 'dark_vlm', dvlm
+                dark_trade_count += 1
+                yield 'dark_trade_count', dark_trade_count
 
             else:
                 # print(f'vlm: {tick}')
                 key = 'dolla_vlm'
                 vlm += price * size
-                output = vlm
+                yield 'dolla_vlm', vlm
+                trade_count += 1
+                yield 'trade_count', vlm
 
             # TODO: plot both to compare?
             # c, h, l, v = ohlcv.last()[
@@ -192,8 +201,6 @@ async def dolla_vlm(
             # ][0]
             # tina_lvlm = c+h+l/3 * v
             # print(f' tinal vlm: {tina_lvlm}')
-
-            yield key, output
 
 
 @fsp(
@@ -287,6 +294,12 @@ async def flow_rates(
             weights=weights,
         )
         yield 'dvlm_rate', dvlm_wma[-1]
+        trade_rate_wma = _wma(
+            dvlm_shm.array['trade_count'],
+            period,
+            weights=weights,
+        )
+        yield 'trade_rate', trade_rate_wma[-1]
 
         # TODO: skip this if no dark vlm is declared
         # by symbol info (eg. in crypto$)
@@ -296,6 +309,13 @@ async def flow_rates(
             weights=weights,
         )
         yield 'dark_dvlm_rate', dark_dvlm_wma[-1]
+
+        dark_trade_rate_wma = _wma(
+            dvlm_shm.array['dark_trade_count'],
+            period,
+            weights=weights,
+        )
+        yield 'dark_trade_rate', dark_trade_rate_wma[-1]
 
         # XXX: ib specific schema we should
         # probably pre-pack ourselves.
