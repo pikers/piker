@@ -842,7 +842,11 @@ async def open_vlm_displays(
             tr_pi = chart.overlay_plotitem(
                 'trade_rates',
                 index=1,  # place axis on inside (nearest to chart)
-                axis_title='tr(16) ',
+
+                # TODO: dynamically update period (and thus this axis?)
+                # title from user input.
+                axis_title='clears/P',
+
                 axis_side='left',
                 axis_kwargs={
                     'typical_max_str': ' 10.0 M ',
