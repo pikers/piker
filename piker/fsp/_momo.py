@@ -171,6 +171,32 @@ def _wma(
 
 
 @fsp
+async def wma(
+
+    source,  #: AsyncStream[np.ndarray],
+    length: int,
+    ohlcv: np.ndarray,  # price time-frame "aware"
+
+) -> AsyncIterator[np.ndarray]:  # maybe something like like FspStream?
+    '''
+    Streaming weighted moving average.
+
+    ``weights`` is a sequence of already scaled values. As an example
+    for the WMA often found in "techincal analysis":
+    ``weights = np.arange(1, N) * N*(N-1)/2``.
+
+    '''
+    # deliver historical output as "first yield"
+    yield _wma(ohlcv.array['close'], length)
+
+    # begin real-time section
+
+    async for quote in source:
+        for tick in iterticks(quote, type='trade'):
+            yield _wma(ohlcv.last(length))
+
+
+@fsp
 async def rsi(
 
     source: 'QuoteStream[Dict[str, Any]]',  # noqa
@@ -224,29 +250,3 @@ async def rsi(
                 down_ema_last=last_down_ema_close,
             )
             yield rsi_out[-1:]
-
-
-@fsp
-async def wma(
-
-    source,  #: AsyncStream[np.ndarray],
-    length: int,
-    ohlcv: np.ndarray,  # price time-frame "aware"
-
-) -> AsyncIterator[np.ndarray]:  # maybe something like like FspStream?
-    '''
-    Streaming weighted moving average.
-
-    ``weights`` is a sequence of already scaled values. As an example
-    for the WMA often found in "techincal analysis":
-    ``weights = np.arange(1, N) * N*(N-1)/2``.
-
-    '''
-    # deliver historical output as "first yield"
-    yield _wma(ohlcv.array['close'], length)
-
-    # begin real-time section
-
-    async for quote in source:
-        for tick in iterticks(quote, type='trade'):
-            yield _wma(ohlcv.last(length))
