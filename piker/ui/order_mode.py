@@ -433,9 +433,12 @@ class OrderMode:
             [
                 'notify-send',
                 '-u', 'normal',
-                '-t', '10000',
+                '-t', '1616',
                 'piker',
-                f'alert: {msg}',
+
+                # TODO: add in standard fill/exec info that maybe we
+                # pack in a broker independent way?
+                f'{msg["resp"]}: {msg["trigger_price"]}',
             ],
         )
         log.runtime(result)
@@ -666,7 +669,7 @@ async def open_order_mode(
         )
         # vbox.setAlignment(feed_label, Qt.AlignBottom)
         # vbox.setAlignment(Qt.AlignBottom)
-        blank_h = chart.height() - (
+        _ = chart.height() - (
             form.height() +
             form.fill_bar.height()
             # feed_label.height()
