@@ -1042,6 +1042,7 @@ tick_types = {
     # https://interactivebrokers.github.io/tws-api/tick_types.html#rt_volume
     48: 'dark_trade',
 
+    # standard L1 ticks
     0: 'bsize',
     1: 'bid',
     2: 'ask',
@@ -1049,6 +1050,12 @@ tick_types = {
     4: 'last',
     5: 'size',
     8: 'volume',
+
+    # ``ib_insync`` already packs these into
+    # quotes under the following fields.
+    # 55: 'trades_per_min',  # `'tradeRate'`
+    # 56: 'vlm_per_min',  # `'volumeRate'`
+    # 89: 'shortable',  # `'shortableShares'`
 }
 
 
@@ -1263,7 +1270,13 @@ async def _setup_quote_stream(
     to_trio: trio.abc.SendChannel,
 
     symbol: str,
-    opts: tuple[int] = ('375', '233', '236'),
+    opts: tuple[int] = (
+        '375',  # RT trade volume (excludes utrades)
+        '233',  # RT trade volume (includes utrades)
+        '236',  # Shortable shares
+        '294',  # Trade rate / minute
+        '295',  # Vlm rate / minute
+    ),
     contract: Optional[Contract] = None,
 
 ) -> trio.abc.ReceiveChannel:
