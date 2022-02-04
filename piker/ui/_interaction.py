@@ -731,7 +731,11 @@ class ChartView(ViewBox):
                         )
 
         if set_range:
-            ylow, yhigh = self._maxmin()
+            yrange =  self._maxmin()
+            if yrange is None:
+                return
+
+            ylow, yhigh = yrange
 
             # view margins: stay within a % of the "true range"
             diff = yhigh - ylow
