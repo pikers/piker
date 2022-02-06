@@ -1388,7 +1388,7 @@ async def stream_quotes(
     # TODO: support multiple subscriptions
     sym = symbols[0]
 
-    with trio.fail_after(16) as cs:
+    with trio.fail_after(16):
         contract, first_ticker, details = await _trio_run_client_method(
             method='get_quote',
             symbol=sym,
@@ -1424,25 +1424,7 @@ async def stream_quotes(
         }
         return init_msgs
 
-    if cs.cancelled_caught:
-
-        contract, first_ticker, details = await _trio_run_client_method(
-            method='get_sym_details',
-            symbol=sym,
-        )
-
-        # init_msgs = mk_init_msgs()
-
-        # try again but without timeout and then do feed startup once we
-        # get one.
-        contract, first_ticker, details = await _trio_run_client_method(
-            method='get_quote',
-            symbol=sym,
-        )
-
-    # else:
     init_msgs = mk_init_msgs()
-
     con = first_ticker.contract
 
     # should be real volume for this contract by default
@@ -1470,16 +1452,9 @@ async def stream_quotes(
     # pass first quote asap
     first_quote = {topic: quote}
 
+    # it might be outside regular trading hours so see if we can at
+    # least grab history.
     if isnan(first_ticker.last):
-        # it might be outside regular trading hours so see if we can at
-        # least grab history.
-        # quote = normalize(first_ticker, calc_price=calc_price)
-        # con = quote['contract']
-        # topic = '.'.join((con['symbol'], suffix)).lower()
-        # quote['symbol'] = topic
-
-        # # pass first quote asap
-        # first_quote = {topic: quote}
         task_status.started((init_msgs,  first_quote))
 
         # it's not really live but this will unblock
