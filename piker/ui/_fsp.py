@@ -844,7 +844,7 @@ async def open_vlm_displays(
 
                 # TODO: dynamically update period (and thus this axis?)
                 # title from user input.
-                axis_title='clears/P',
+                axis_title='clrs/Ts',
 
                 axis_side='left',
                 axis_kwargs={
