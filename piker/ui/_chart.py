@@ -1164,7 +1164,10 @@ class ChartPlotWidget(pg.PlotWidget):
         #     f"begin: {begin}, end: {end}, extra: {extra}"
         # )
 
-        a = self._arrays[name or self.name]
+        a = self._arrays.get(name or self.name)
+        if a is None:
+            return None
+
         ifirst = a[0]['index']
         bars = a[lbar - ifirst:rbar - ifirst + 1]
 
