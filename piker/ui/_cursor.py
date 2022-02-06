@@ -253,7 +253,7 @@ class ContentsLabels:
                 and index < array[-1]['index']
             ):
                 # out of range
-                print('out of range?')
+                print('WTF out of range?')
                 continue
 
             # array = chart._arrays[name]
@@ -550,17 +550,20 @@ class Cursor(pg.GraphicsObject):
                 for cursor in opts.get('cursors', ()):
                     cursor.setIndex(ix)
 
-                # update the label on the bottom of the crosshair
-                axes = plot.plotItem.axes
-
+                # Update the label on the bottom of the crosshair.
                 # TODO: make this an up-front calc that we update
-                # on axis-widget resize events.
+                # on axis-widget resize events instead of on every mouse
+                # update cylce.
+
                 # left axis offset width for calcuating
                 # absolute x-axis label placement.
                 left_axis_width = 0
-                left = axes.get('left')
-                if left:
-                    left_axis_width = left['item'].width()
+                if len(plot.pi_overlay.overlays):
+                    # breakpoint()
+                    lefts = plot.pi_overlay.get_axes('left')
+                    if lefts:
+                        for left in lefts:
+                            left_axis_width += left.width()
 
                 # map back to abs (label-local) coordinates
                 self.xaxis_label.update_label(
