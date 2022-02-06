@@ -218,7 +218,7 @@ class Selection(QComboBox):
 
     ) -> None:
         br = _font.boundingRect(str(char))
-        _, h = br.width(), br.height()
+        _, h = br.width(), int(br.height())
 
         # TODO: something better then this monkey patch
         view = self.view()
@@ -330,7 +330,7 @@ class FieldsForm(QWidget):
         self.form.setSpacing(0)
         self.form.setHorizontalSpacing(0)
 
-        self.vbox.addLayout(self.form, stretch=1/3)
+        self.vbox.addLayout(self.form, stretch=3)
 
         self.labels: dict[str, QLabel] = {}
         self.fields: dict[str, QWidget] = {}
@@ -557,8 +557,8 @@ class FillStatusBar(QProgressBar):
         self.font_size = font_size
 
         self.setFormat('')  # label format
-        self.setMinimumWidth(width_px)
-        self.setMaximumWidth(width_px)
+        self.setMinimumWidth(int(width_px))
+        self.setMaximumWidth(int(width_px))
 
     def set_slots(
         self,
@@ -573,7 +573,7 @@ class FillStatusBar(QProgressBar):
             approx_h,
             slots,
         )
-        clipped = slots * tot_slot_h + 2*self.border_px
+        clipped = int(slots * tot_slot_h + 2*self.border_px)
         self.setMaximumHeight(clipped)
         slot_height_px = tot_slot_h - 2*self.slot_margin_px
 
@@ -657,14 +657,14 @@ def mk_fill_status_bar(
     )
     # size according to dpi scaled fonted contents to avoid
     # resizes on magnitude changes (eg. 9 -> 10 %)
-    min_w = _font.boundingRect('1000.0M% pnl').width()
+    min_w = int(_font.boundingRect('1000.0M% pnl').width())
     left_label.setMinimumWidth(min_w)
     left_label.resize(
         min_w,
         left_label.size().height(),
     )
 
-    bar_labels_lhs.addSpacing(5/8 * bar_h)
+    bar_labels_lhs.addSpacing(int(5/8 * bar_h))
 
     bar_labels_lhs.addWidget(
         left_label,
@@ -796,7 +796,7 @@ def mk_order_pane_layout(
     form.top_label = top_label
 
     # add pp fill bar + spacing
-    vbox.addLayout(hbox, stretch=1/3)
+    vbox.addLayout(hbox, stretch=3)
 
     # TODO: handle resize events and appropriately scale this
     # to the sidepane height?

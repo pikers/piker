@@ -199,7 +199,14 @@ class LevelLabel(YAxisLabel):
         elif self._orient_v == 'top':
             lp, rp = rect.bottomLeft(), rect.bottomRight()
 
-        p.drawLine(lp.x(), lp.y(), rp.x(), rp.y())
+        p.drawLine(
+            *map(int, [
+                lp.x(),
+                lp.y(),
+                rp.x(),
+                rp.y(),
+            ])
+        )
 
     def highlight(self, pen) -> None:
         self._pen = pen

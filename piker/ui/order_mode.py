@@ -671,7 +671,9 @@ async def open_order_mode(
             form.fill_bar.height()
             # feed_label.height()
         )
-        vbox.setSpacing((1 + 5/8)*_font.px_size)
+        vbox.setSpacing(
+            int((1 + 5/8)*_font.px_size)
+        )
 
         # fill in brokerd feed info
         host, port = feed.portal.channel.raddr
