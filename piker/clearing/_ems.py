@@ -1020,7 +1020,11 @@ async def _emsd_main(
 
         book = _router.get_dark_book(broker)
         last = book.lasts[(broker, symbol)] = first_quote['last']
-        assert not isnan(last)  # ib is a cucker but we've fixed it in the backend
+
+        # XXX: ib is a cucker but we've fixed avoiding receiving any
+        # `Nan`s in the backend during market hours (right?). this was
+        # here previously as a sanity check during market hours.
+        # assert not isnan(last)
 
         # open a stream with the brokerd backend for order
         # flow dialogue
