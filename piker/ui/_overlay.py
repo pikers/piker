@@ -508,7 +508,7 @@ class PlotItemOverlay:
 
     ) -> None:
 
-        index = index or 0
+        index = index or len(self.overlays)
         root = self.root_plotitem
         # layout: QGraphicsGridLayout = root.layout
         self.overlays.insert(index, plotitem)

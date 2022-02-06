@@ -841,7 +841,6 @@ async def open_vlm_displays(
             ####################
             tr_pi = chart.overlay_plotitem(
                 'trade_rates',
-                index=1,  # place axis on inside (nearest to chart)
 
                 # TODO: dynamically update period (and thus this axis?)
                 # title from user input.
