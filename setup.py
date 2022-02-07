@@ -52,6 +52,7 @@ setup(
         'trio',
         'trio-websocket',
         # 'tractor',  # from github currently
+        'msgspec',  # performant IPC messaging
         'async_generator',
 
         # brokers
@@ -87,6 +88,7 @@ setup(
         "Programming Language :: Python :: Implementation :: CPython",
         "Programming Language :: Python :: 3 :: Only",
         "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
         'Intended Audience :: Financial and Insurance Industry',
         'Intended Audience :: Science/Research',
         'Intended Audience :: Developers',
