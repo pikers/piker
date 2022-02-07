@@ -105,7 +105,7 @@ class Edit(QLineEdit):
         # TODO: somehow this math ain't right?
         chars_w_pxs = dpi_font.boundingRect('0'*self._chars).width()
         scale = round(dpi_font.scale())
-        psh.setWidth(chars_w_pxs * scale)
+        psh.setWidth(int(chars_w_pxs * scale))
         return psh
 
     def set_width_in_chars(
