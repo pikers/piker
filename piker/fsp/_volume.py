@@ -180,20 +180,21 @@ async def dolla_vlm(
             ttype = tick.get('type')
 
             if ttype == 'dark_trade':
-                # print(f'dark_trade: {tick}')
-                key = 'dark_vlm'
                 dvlm += price * size
                 yield 'dark_vlm', dvlm
+
                 dark_trade_count += 1
                 yield 'dark_trade_count', dark_trade_count
 
+                # print(f'{dark_trade_count}th dark_trade: {tick}')
+
             else:
                 # print(f'vlm: {tick}')
-                key = 'dolla_vlm'
                 vlm += price * size
                 yield 'dolla_vlm', vlm
+
                 trade_count += 1
-                yield 'trade_count', vlm
+                yield 'trade_count', trade_count
 
             # TODO: plot both to compare?
             # c, h, l, v = ohlcv.last()[
@@ -279,6 +280,10 @@ async def flow_rates(
     # on this same source flow.
     dvlm_shm = dolla_vlm.get_shm(ohlcv)
 
+    # breakpoint()
+    # import tractor
+    # await tractor.breakpoint()
+
     # precompute arithmetic mean weights (all ones)
     seq = np.full((period,), 1)
     weights = seq / seq.sum()
@@ -294,12 +299,18 @@ async def flow_rates(
             weights=weights,
         )
         yield 'dvlm_rate', dvlm_wma[-1]
-        trade_rate_wma = _wma(
-            dvlm_shm.array['trade_count'],
-            period,
-            weights=weights,
-        )
-        yield 'trade_rate', trade_rate_wma[-1]
+
+        if period > 1:
+            trade_rate_wma = _wma(
+                dvlm_shm.array['trade_count'],
+                period,
+                weights=weights,
+            )
+            yield 'trade_rate', trade_rate_wma[-1]
+        else:
+            # instantaneous rate per sample step
+            count = dvlm_shm.array['trade_count'][-1]
+            yield 'trade_rate', count
 
         # TODO: skip this if no dark vlm is declared
         # by symbol info (eg. in crypto$)
@@ -310,12 +321,17 @@ async def flow_rates(
         )
         yield 'dark_dvlm_rate', dark_dvlm_wma[-1]
 
-        dark_trade_rate_wma = _wma(
-            dvlm_shm.array['dark_trade_count'],
-            period,
-            weights=weights,
-        )
-        yield 'dark_trade_rate', dark_trade_rate_wma[-1]
+        if period > 1:
+            dark_trade_rate_wma = _wma(
+                dvlm_shm.array['dark_trade_count'],
+                period,
+                weights=weights,
+            )
+            yield 'dark_trade_rate', dark_trade_rate_wma[-1]
+        else:
+            # instantaneous rate per sample step
+            dark_count = dvlm_shm.array['dark_trade_count'][-1]
+            yield 'dark_trade_rate', dark_count
 
         # XXX: ib specific schema we should
         # probably pre-pack ourselves.
