@@ -158,7 +158,11 @@ async def open_fsp_sidepane(
     sidepane.model = FspConfig()
 
     # just a logger for now until we get fsp configs up and running.
-    async def settings_change(key: str, value: str) -> bool:
+    async def settings_change(
+        key: str,
+        value: str
+
+    ) -> bool:
         print(f'{key}: {value}')
         return True
 
@@ -573,12 +577,14 @@ async def open_vlm_displays(
     async with (
         open_fsp_sidepane(
             linked, {
-                'vlm': {
+                'flows': {
+
+                    # TODO: add support for dynamically changing these
                     'params': {
-                        'price_func': {
-                            'default_value': 'chl3',
-                            # tell target ``Edit`` widget to not allow
-                            # edits for now.
+                        u'\u03BC' + '_type': {'default_value': 'arithmetic'},
+                        'period': {
+                            'default_value': '16',
+                            # make widget un-editable for now.
                             'widget_kwargs': {'readonly': True},
                         },
                     },
