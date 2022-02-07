@@ -22,6 +22,7 @@ import math
 
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
+from PyQt5.QtCore import Qt, QCoreApplication
 from qdarkstyle import DarkPalette
 
 from ..log import get_logger
@@ -121,19 +122,29 @@ class DpiAwareFont:
         dpi = mn_dpi
 
         mult = 1.0
-        # dpi is likely somewhat scaled down so use slightly larger font size
-        if scale >= 1.1 and self._font_size:
 
-            # no idea why
-            if 1.2 <= scale:
-                mult = 1.0375
+        if (
+            hasattr(Qt, 'AA_EnableHighDpiScaling')
+            and QCoreApplication.testAttribute(Qt.AA_EnableHighDpiScaling)
+        ):
+            inches *= scale
 
-            if scale >= 1.5:
-                mult = 1.375
+        # No implicit DPI scaling was done by the DE so let's engage
+        # some hackery ad-hoc scaling shiat.
+        else:
+            # dpi is likely somewhat scaled down so use slightly larger font size
+            if scale >= 1.1 and self._font_size:
 
-            # TODO: this multiplier should probably be determined from
-            # relative aspect ratios or something?
-            inches *= mult
+                # no idea why
+                if 1.2 <= scale:
+                    mult = 1.0375
+
+                if scale >= 1.5:
+                    mult = 1.375
+
+                # TODO: this multiplier should probably be determined from
+                # relative aspect ratios or something?
+                inches *= mult
 
         # TODO: we might want to fiddle with incrementing font size by
         # +1 for the edge cases above. it seems doing it via scaling is
@@ -142,7 +153,7 @@ class DpiAwareFont:
         self._font_inches = inches
         font_size = math.floor(inches * dpi)
 
-        log.debug(
+        log.info(
             f"screen:{screen.name()}\n"
             f"pDPI: {pdpi}, lDPI: {ldpi}, scale: {scale}\n"
             f"\nOur best guess font size is {font_size}\n"
