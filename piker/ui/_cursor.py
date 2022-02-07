@@ -109,11 +109,12 @@ class LineDot(pg.CurvePoint):
         # first = self._plot._arrays['ohlc'][0]['index']
         # first = x[0]
         # i = index - first
-        i = index - x[0]
-        if i > 0 and i < len(y):
-            newPos = (index, y[i])
-            QtWidgets.QGraphicsItem.setPos(self, *newPos)
-            return True
+        if index:
+            i = index - x[0]
+            if i > 0 and i < len(y):
+                newPos = (index, y[i])
+                QtWidgets.QGraphicsItem.setPos(self, *newPos)
+                return True
 
         return False
 

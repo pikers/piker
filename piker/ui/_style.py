@@ -142,8 +142,8 @@ class DpiAwareFont:
         self._font_inches = inches
         font_size = math.floor(inches * dpi)
 
-        log.info(
-            f"screen:{screen.name()}]\n"
+        log.debug(
+            f"screen:{screen.name()}\n"
             f"pDPI: {pdpi}, lDPI: {ldpi}, scale: {scale}\n"
             f"\nOur best guess font size is {font_size}\n"
         )
