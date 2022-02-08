@@ -272,6 +272,11 @@ async def flow_rates(
     vr = quote.get('volumeRate')
     yield '1m_vlm_rate', vr or 0
 
+    yield 'trade_rate', 0
+    yield 'dark_trade_rate', 0
+    yield 'dvlm_rate', 0
+    yield 'dark_dvlm_rate', 0
+
     # NOTE: in theory we could dynamically allocate a cascade based on
     # this call but not sure if that's too "dynamic" in terms of
     # validating cascade flows from message typing perspective.
@@ -279,10 +284,6 @@ async def flow_rates(
     # attach to ``dolla_vlm`` fsp running
     # on this same source flow.
     dvlm_shm = dolla_vlm.get_shm(ohlcv)
-
-    # breakpoint()
-    # import tractor
-    # await tractor.breakpoint()
 
     # precompute arithmetic mean weights (all ones)
     seq = np.full((period,), 1)
@@ -306,7 +307,9 @@ async def flow_rates(
                 period,
                 weights=weights,
             )
-            yield 'trade_rate', trade_rate_wma[-1]
+            trade_rate = trade_rate_wma[-1]
+            # print(trade_rate)
+            yield 'trade_rate', trade_rate
         else:
             # instantaneous rate per sample step
             count = dvlm_shm.array['trade_count'][-1]
