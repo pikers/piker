@@ -130,8 +130,10 @@ class FastAppendCurve(pg.PlotCurveItem):
         # all history of curve is drawn in single px thickness
         pen = pg.mkPen(hcolor(color))
         pen.setStyle(_line_styles[style])
+
         if 'dash' in style:
-            pen.setDashPattern([6, 6])
+            pen.setDashPattern([8, 3])
+
         self.setPen(pen)
 
         # last segment is drawn in 2px thickness for emphasis
@@ -287,6 +289,7 @@ class FastAppendCurve(pg.PlotCurveItem):
                 x_last + 0.5, y_last
             )
         else:
+            # print((x[-1], y_last))
             self._last_line = QLineF(
                 x[-2], y[-2],
                 x[-1], y_last
@@ -337,6 +340,7 @@ class FastAppendCurve(pg.PlotCurveItem):
         p: QtGui.QPainter,
         opt: QtWidgets.QStyleOptionGraphicsItem,
         w: QtWidgets.QWidget
+
     ) -> None:
 
         profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
@@ -354,11 +358,11 @@ class FastAppendCurve(pg.PlotCurveItem):
             # p.drawPath(self.path)
             # profiler('.drawPath()')
 
-        # else:
         p.setPen(self.last_step_pen)
         p.drawLine(self._last_line)
         profiler('.drawLine()')
 
+        # else:
         p.setPen(self.opts['pen'])
         p.drawPath(self.path)
         profiler('.drawPath()')
