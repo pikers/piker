@@ -123,28 +123,27 @@ class DpiAwareFont:
 
         mult = 1.0
 
+        # No implicit DPI scaling was done by the DE so let's engage
+        # some hackery ad-hoc scaling shiat.
+        # dpi is likely somewhat scaled down so use slightly larger font size
+        if scale >= 1.1 and self._font_size:
+
+            # no idea why
+            if 1.2 <= scale:
+                mult = 1.0375
+
+            if scale >= 1.5:
+                mult = 1.375
+
+        # TODO: this multiplier should probably be determined from
+        # relative aspect ratios or something?
+        inches *= mult
+        #inches = inches*2
         if (
             hasattr(Qt, 'AA_EnableHighDpiScaling')
             and QCoreApplication.testAttribute(Qt.AA_EnableHighDpiScaling)
         ):
-            inches *= scale
-
-        # No implicit DPI scaling was done by the DE so let's engage
-        # some hackery ad-hoc scaling shiat.
-        else:
-            # dpi is likely somewhat scaled down so use slightly larger font size
-            if scale >= 1.1 and self._font_size:
-
-                # no idea why
-                if 1.2 <= scale:
-                    mult = 1.0375
-
-                if scale >= 1.5:
-                    mult = 1.375
-
-                # TODO: this multiplier should probably be determined from
-                # relative aspect ratios or something?
-                inches *= mult
+            inches *= round(scale)
 
         # TODO: we might want to fiddle with incrementing font size by
         # +1 for the edge cases above. it seems doing it via scaling is
