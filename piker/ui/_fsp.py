@@ -22,6 +22,7 @@ Financial signal processing cluster and real-time graphics management.
 '''
 from contextlib import asynccontextmanager as acm
 from functools import partial
+import inspect
 from itertools import cycle
 from typing import Optional, AsyncGenerator, Any
 
@@ -574,6 +575,9 @@ async def open_vlm_displays(
     be spawned here.
 
     '''
+    sig = inspect.signature(flow_rates.func)
+    params = sig.parameters
+
     async with (
         open_fsp_sidepane(
             linked, {
@@ -581,9 +585,11 @@ async def open_vlm_displays(
 
                     # TODO: add support for dynamically changing these
                     'params': {
-                        u'\u03BC' + '_type': {'default_value': 'arithmetic'},
+                        u'\u03BC' + '_type': {
+                            'default_value': str(params['mean_type'].default),
+                        },
                         'period': {
-                            'default_value': '16',
+                            'default_value': str(params['period'].default),
                             # make widget un-editable for now.
                             'widget_kwargs': {'readonly': True},
                         },
@@ -593,6 +599,12 @@ async def open_vlm_displays(
         ) as sidepane,
         open_fsp_admin(linked, ohlcv) as admin,
     ):
+        # TODO: support updates
+        # period_field = sidepane.fields['period']
+        # period_field.setText(
+        #     str(period_param.default)
+        # )
+
         # built-in vlm which we plot ASAP since it's
         # usually data provided directly with OHLC history.
         shm = ohlcv
@@ -762,8 +774,10 @@ async def open_vlm_displays(
                 for name in names:
                     if 'dark' in name:
                         color = dark_vlm_color
-                    else:
+                    elif 'rate' in name:
                         color = vlm_color
+                    else:
+                        color = 'bracket'
 
                     curve, _ = chart.draw_curve(
                         # name='dolla_vlm',
@@ -791,6 +805,7 @@ async def open_vlm_displays(
 
             # spawn flow rates fsp **ONLY AFTER** the 'dolla_vlm' fsp is
             # up since this one depends on it.
+
             fr_shm, started = await admin.start_engine_task(
                 flow_rates,
                 {  # fsp engine conf
@@ -814,7 +829,7 @@ async def open_vlm_displays(
 
                 # TODO: dynamically update period (and thus this axis?)
                 # title from user input.
-                axis_title='clrs/ts',
+                axis_title='clears',
 
                 axis_side='left',
                 axis_kwargs={
@@ -838,10 +853,11 @@ async def open_vlm_displays(
                 trade_rate_fields,
                 tr_pi,
                 fr_shm,
+                # step_mode=True,
 
                 # dashed line to represent "individual trades" being
                 # more "granular" B)
-                style='dash',
+                # style='dash',
             )
 
             for pi in (dvlm_pi, tr_pi):
