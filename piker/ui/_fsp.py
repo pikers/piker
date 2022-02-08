@@ -250,7 +250,7 @@ async def run_fsp_ui(
                 **conf.get('chart_kwargs', {})
             )
             # specially store ref to shm for lookup in display loop
-            chart._overlays[name] = shm
+            chart._flows[name].shm = shm
 
         else:
             # create a new sub-chart widget for this fsp
@@ -634,7 +634,9 @@ async def open_vlm_displays(
             for name in names:
                 mxmn = chart.maxmin(name=name)
                 if mxmn:
-                    mx = max(mxmn[1], mx)
+                    ymax = mxmn[1]
+                    if ymax > mx:
+                        mx = ymax
 
             return 0, mx
 
@@ -730,8 +732,8 @@ async def open_vlm_displays(
 
             # all to be overlayed curve names
             fields = [
-                'dolla_vlm',
-                'dark_vlm',
+               'dolla_vlm',
+               'dark_vlm',
             ]
             dvlm_rate_fields = [
                 'dvlm_rate',
@@ -794,7 +796,7 @@ async def open_vlm_displays(
                     # specially store ref to shm for lookup in display loop
                     # since only a placeholder of `None` is entered in
                     # ``.draw_curve()``.
-                    chart._overlays[name] = shm
+                    chart._flows[name].shm = shm
 
             chart_curves(
                 fields,
@@ -857,7 +859,7 @@ async def open_vlm_displays(
 
                 # dashed line to represent "individual trades" being
                 # more "granular" B)
-                # style='dash',
+                style='dash',
             )
 
             for pi in (dvlm_pi, tr_pi):

@@ -106,7 +106,7 @@ def chart_maxmin(
     return last_bars_range, mx, max(mn, 0), mx_vlm_in_view
 
 
-async def update_linked_charts_graphics(
+async def graphics_update_loop(
     linked: LinkedSplits,
     stream: tractor.MsgStream,
     ohlcv: np.ndarray,
@@ -258,13 +258,15 @@ async def update_linked_charts_graphics(
                     )
                     last_mx_vlm = mx_vlm_in_view
 
-                for curve_name, shm in vlm_chart._overlays.items():
+                for curve_name, flow in vlm_chart._flows.items():
                     update_fsp_chart(
                         vlm_chart,
-                        shm,
+                        flow.shm,
                         curve_name,
                         array_key=curve_name,
                     )
+                    # is this even doing anything?
+                    flow.plot.vb._set_yrange()
 
             ticks_frame = quote.get('ticks', ())
 
@@ -411,14 +413,14 @@ async def update_linked_charts_graphics(
                 # TODO: all overlays on all subplots..
 
             # run synchronous update on all derived overlays
-            for curve_name, shm in chart._overlays.items():
+            for curve_name, flow in chart._flows.items():
                 update_fsp_chart(
                     chart,
-                    shm,
+                    flow.shm,
                     curve_name,
                     array_key=curve_name,
                 )
-                # chart._set_yrange()
+                # chart.view._set_yrange()
 
 
 async def check_for_new_bars(
@@ -473,11 +475,11 @@ async def check_for_new_bars(
             )
 
             # main chart overlays
-            for name in price_chart._overlays:
-
+            # for name in price_chart._flows:
+            for curve_name in price_chart._flows:
                 price_chart.update_curve_from_array(
-                    name,
-                    price_chart._arrays[name]
+                    curve_name,
+                    price_chart._arrays[curve_name]
                 )
 
             # each subplot
@@ -614,7 +616,7 @@ async def display_symbol_data(
 
             # start graphics update loop after receiving first live quote
             ln.start_soon(
-                update_linked_charts_graphics,
+                graphics_update_loop,
                 linkedsplits,
                 feed.stream,
                 ohlcv,
