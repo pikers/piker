@@ -33,6 +33,7 @@ import tractor
 from pydantic.dataclasses import dataclass
 from pydantic import BaseModel
 import wsproto
+from itertools import count
 
 from .. import config
 from .._cacheables import open_cached_client
@@ -290,9 +291,9 @@ class Client:
         """Place an order and return integer request id provided by client.
 
         """
-        # Build order data from kraken
+        # Build order data for kraken api
         data = {
-            "userref": 1,
+            "userref": reqid,
             "ordertype": "limit",
             "type": action,
             "volume": size,
@@ -465,12 +466,14 @@ def normalize_symbol(
 
 async def handle_order_requests(
 
-        client: 'test',#kraken,
+        client: Client,
         ems_order_stream: tractor.MsgStream,
 
 ) -> None:
 
-    # order_request: dict
+    request_msg: dict
+    order: BrokerdOrder
+    userref_counter = count()
     async for request_msg in ems_order_stream:
         log.info(f'Received order request {request_msg}')
 
@@ -484,7 +487,7 @@ async def handle_order_requests(
                     'This is a kraken account, \
                     only a `kraken.spot` selection is valid'
                 )
-                await ems_order_stream.send(BrokerError(
+                await ems_order_stream.send(BrokerdError(
                     oid=request_msg['oid'],
                     symbol=request_msg['symbol'],
                     reason=f'Kraken only, No account found: `{account}` ?',
@@ -503,7 +506,7 @@ async def handle_order_requests(
                 action=order.action,
                 size=order.size,
                 ## XXX: how do I handle new orders
-                reqid=order.reqid,
+                reqid=next(userref_counter),
             )
 
             # deliver ack that order has been submitted to broker routing
