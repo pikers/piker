@@ -97,7 +97,10 @@ async def tina_vwap(
     # vwap_tot = h_vwap[-1]
 
     async for quote in source:
-        for tick in iterticks(quote, types=['trade']):
+        for tick in iterticks(
+            quote,
+            types=['trade'],
+        ):
 
             # c, h, l, v = ohlcv.array[-1][
             #     ['closes', 'high', 'low', 'volume']
@@ -150,7 +153,7 @@ async def dolla_vlm(
     }
 
     i = ohlcv.index
-    output = dvlm = vlm = 0
+    dvlm = vlm = 0
     dark_trade_count = trade_count = 0
 
     async for quote in source:
@@ -171,7 +174,6 @@ async def dolla_vlm(
             if li > i:
                 i = li
                 trade_count = dark_trade_count = dvlm = vlm = 0
-
 
             # TODO: for marginned instruments (futes, etfs?) we need to
             # show the margin $vlm by multiplying by whatever multiplier
@@ -232,7 +234,11 @@ async def flow_rates(
     # FSPs, user input, and possibly any general event stream in
     # real-time. Hint: ideally implemented with caching until mutated
     # ;)
-    period: 'Param[int]' = 16,  # noqa
+    period: 'Param[int]' = 6,  # noqa
+
+    # TODO: support other means by providing a map
+    # to weights `partial()`-ed with `wma()`?
+    mean_type: str = 'arithmetic',
 
     # TODO (idea): a generic for declaring boxed fsps much like ``pytest``
     # fixtures? This probably needs a lot of thought if we want to offer
@@ -262,11 +268,11 @@ async def flow_rates(
         'dark_dvlm_rate': None,
     }
 
-    ltr = 0
-    lvr = 0
-
     # TODO: 3.10 do ``anext()``
     quote = await source.__anext__()
+
+    # ltr = 0
+    # lvr = 0
     tr = quote.get('tradeRate')
     yield '1m_trade_rate', tr or 0
     vr = quote.get('volumeRate')
@@ -294,12 +300,12 @@ async def flow_rates(
             log.error("OH WTF NO QUOTE IN FSP")
             continue
 
-        dvlm_wma = _wma(
-            dvlm_shm.array['dolla_vlm'],
-            period,
-            weights=weights,
-        )
-        yield 'dvlm_rate', dvlm_wma[-1]
+        # dvlm_wma = _wma(
+        #     dvlm_shm.array['dolla_vlm'],
+        #     period,
+        #     weights=weights,
+        # )
+        # yield 'dvlm_rate', dvlm_wma[-1]
 
         if period > 1:
             trade_rate_wma = _wma(
@@ -317,12 +323,12 @@ async def flow_rates(
 
         # TODO: skip this if no dark vlm is declared
         # by symbol info (eg. in crypto$)
-        dark_dvlm_wma = _wma(
-            dvlm_shm.array['dark_vlm'],
-            period,
-            weights=weights,
-        )
-        yield 'dark_dvlm_rate', dark_dvlm_wma[-1]
+        # dark_dvlm_wma = _wma(
+        #     dvlm_shm.array['dark_vlm'],
+        #     period,
+        #     weights=weights,
+        # )
+        # yield 'dark_dvlm_rate', dark_dvlm_wma[-1]
 
         if period > 1:
             dark_trade_rate_wma = _wma(
@@ -338,13 +344,13 @@ async def flow_rates(
 
         # XXX: ib specific schema we should
         # probably pre-pack ourselves.
+
         # tr = quote.get('tradeRate')
         # if tr is not None and tr != ltr:
         #     # print(f'trade rate: {tr}')
         #     yield '1m_trade_rate', tr
         #     ltr = tr
 
-        # # TODO: we *could* do an ohlc3
         # vr = quote.get('volumeRate')
         # if vr is not None and vr != lvr:
         #     # print(f'vlm rate: {vr}')
