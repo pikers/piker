@@ -617,14 +617,12 @@ async def open_vlm_displays(
             names: list[str],
 
         ) -> tuple[float, float]:
+
             mx = 0
             for name in names:
                 mxmn = chart.maxmin(name=name)
                 if mxmn:
                     mx = max(mxmn[1], mx)
-
-            # if mx:
-            #     return 0, mxmn[1]
 
             return 0, mx
 
@@ -700,9 +698,10 @@ async def open_vlm_displays(
                 for event in tasks_ready:
                     n.start_soon(event.wait)
 
-            ###################
             # dolla vlm overlay
-            ###################
+            # XXX: the main chart already contains a vlm "units" axis
+            # so here we add an overlay wth a y-range in
+            # $ liquidity-value units (normally a fiat like USD).
             dvlm_pi = chart.overlay_plotitem(
                 'dolla_vlm',
                 index=0,  # place axis on inside (nearest to chart)
@@ -717,26 +716,27 @@ async def open_vlm_displays(
                 },
             )
 
+            # all to be overlayed curve names
+            fields = [
+                'dolla_vlm',
+                'dark_vlm',
+            ]
+            dvlm_rate_fields = [
+                'dvlm_rate',
+                'dark_dvlm_rate',
+            ]
+            trade_rate_fields = [
+                'trade_rate',
+                'dark_trade_rate',
+            ]
+
             # add custom auto range handler
             dvlm_pi.vb._maxmin = partial(
                 maxmin,
                 # keep both regular and dark vlm in view
-                names=[
-                    'dolla_vlm',
-                    'dark_vlm',
-
-                    'dvlm_rate',
-                    'dark_dvlm_rate',
-                ],
+                names=fields + dvlm_rate_fields,
             )
 
-            curve, _ = chart.draw_curve(
-                name='dolla_vlm',
-                data=dvlm_shm.array,
-                array_key='dolla_vlm',
-                overlay=dvlm_pi,
-                step_mode=True,
-            )
             # TODO: is there a way to "sync" the dual axes such that only
             # one curve is needed?
             # hide the original vlm curve since the $vlm one is now
@@ -744,27 +744,50 @@ async def open_vlm_displays(
             # liquidity events (well at least on low OHLC periods - 1s).
             vlm_curve.hide()
 
-            # TODO: we need a better API to do this..
-            # specially store ref to shm for lookup in display loop
-            # since only a placeholder of `None` is entered in
-            # ``.draw_curve()``.
-            chart._overlays['dolla_vlm'] = dvlm_shm
-
-            ################
-            # dark vlm curve
-            ################
-            # darker theme hue (obvsly)
+            # use slightly less light (then bracket) gray
+            # for volume from "main exchange" and a more "bluey"
+            # gray for "dark" vlm.
+            vlm_color = 'i3'
             dark_vlm_color = 'charcoal'
-            curve, _ = chart.draw_curve(
-                name='dark_vlm',
-                data=dvlm_shm.array,
-                array_key='dark_vlm',
-                overlay=dvlm_pi,
-                color=dark_vlm_color,
+
+            # add dvlm (step) curves to common view
+            def chart_curves(
+                names: list[str],
+                pi: pg.PlotItem,
+                shm: ShmArray,
+                step_mode: bool = False,
+                style: str = 'solid',
+
+            ) -> None:
+                for name in names:
+                    if 'dark' in name:
+                        color = dark_vlm_color
+                    else:
+                        color = vlm_color
+
+                    curve, _ = chart.draw_curve(
+                        # name='dolla_vlm',
+                        name=name,
+                        data=shm.array,
+                        array_key=name,
+                        overlay=pi,
+                        color=color,
+                        step_mode=step_mode,
+                        style=style,
+                    )
+
+                    # TODO: we need a better API to do this..
+                    # specially store ref to shm for lookup in display loop
+                    # since only a placeholder of `None` is entered in
+                    # ``.draw_curve()``.
+                    chart._overlays[name] = shm
+
+            chart_curves(
+                fields,
+                dvlm_pi,
+                dvlm_shm,
                 step_mode=True,
-                # **conf.get('chart_kwargs', {})
             )
-            chart._overlays['dark_vlm'] = dvlm_shm
 
             # spawn flow rates fsp **ONLY AFTER** the 'dolla_vlm' fsp is
             # up since this one depends on it.
@@ -777,80 +800,21 @@ async def open_vlm_displays(
             )
             await started.wait()
 
-            # curve, _ = chart.draw_curve(
-            #     name='1m_vlm_rate',
-            #     data=fr_shm.array,
-            #     array_key='1m_vlm_rate',
-            #     overlay=fr_pi,
-            #     color='jet',
-            #     style='solid',
-            # )
-            # chart._overlays['1m_vlm_rate'] = fr_shm
-
-            # use slightly less light (then bracket) gray
-            # for volume from "main exchange".
-            vlm_color = 'i3'
-
-            curve, _ = chart.draw_curve(
-                name='dvlm_rate',
-                data=fr_shm.array,
-                array_key='dvlm_rate',
-                overlay=dvlm_pi,
-                color=vlm_color,
-                style='solid',
+            chart_curves(
+                dvlm_rate_fields,
+                dvlm_pi,
+                fr_shm,
             )
-            chart._overlays['dvlm_rate'] = fr_shm
 
-            curve, _ = chart.draw_curve(
-                name='dark_dvlm_rate',
-                data=fr_shm.array,
-                array_key='dark_dvlm_rate',
-                overlay=dvlm_pi,
-                color=dark_vlm_color,
-                style='solid',
-            )
-            chart._overlays['dark_dvlm_rate'] = fr_shm
-
-            # vlm rate overlay
-            ####################
-            # (needs separate axis since trade counts are likely
-            # different scale then vlm)
-
-            # vlmrate_pi = chart.overlay_plotitem(
-            #     'vlm_rates',
-            #     index=0,  # place axis on inside (nearest to chart)
-
-            #     # NOTE: we might want to suffix with a \w
-            #     # on lhs and prefix for the rhs axis labels?
-            #     axis_title=' vlm/m',
-            #     axis_side='left',
-            #     axis_kwargs={
-            #         'typical_max_str': ' 100.0 M ',
-            #         'formatter': partial(
-            #             humanize,
-            #             digits=2,
-            #         ),
-            #         'text_color': vlm_color,
-            #     },
-            # )
-            # # add custom auto range handler
-            # vlmrate.vb._maxmin = partial(
-            #     maxmin,
-            #     # keep both regular and dark vlm in view
-            #     names=[
-            #         # '1m_vlm_rate',
-            #     ],
-            # )
-
-            ####################
             # Trade rate overlay
-            ####################
+            # XXX: requires an additional overlay for
+            # a trades-per-period (time) y-range.
             tr_pi = chart.overlay_plotitem(
                 'trade_rates',
 
                 # TODO: dynamically update period (and thus this axis?)
                 # title from user input.
-                axis_title='clrs/Ts',
+                axis_title='clrs/ts',
 
                 axis_side='left',
                 axis_kwargs={
@@ -863,35 +827,22 @@ async def open_vlm_displays(
                 },
 
             )
-            fields = [
-                'trade_rate',
-                'dark_trade_rate',
-                # '1m_trade_rate',
-            ]
+
             # add custom auto range handler
             tr_pi.vb._maxmin = partial(
                 maxmin,
                 # keep both regular and dark vlm in view
-                names=fields,
+                names=trade_rate_fields,
             )
+            chart_curves(
+                trade_rate_fields,
+                tr_pi,
+                fr_shm,
 
-            for field in fields:
-                if 'dark' in field:
-                    color = dark_vlm_color
-                else:
-                    color = vlm_color
-
-                curve, _ = chart.draw_curve(
-                    name=field,
-                    data=fr_shm.array,
-                    array_key=field,
-                    overlay=tr_pi,
-                    color=color,
-                    # dashed line to represent "individual trades" being
-                    # more "granular" B)
-                    style='dash',
-                )
-                chart._overlays[field] = fr_shm
+                # dashed line to represent "individual trades" being
+                # more "granular" B)
+                style='dash',
+            )
 
             for pi in (dvlm_pi, tr_pi):
                 for name, axis_info in pi.axes.items():
