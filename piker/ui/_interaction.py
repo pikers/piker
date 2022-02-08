@@ -342,7 +342,7 @@ class ChartView(ViewBox):
     wheelEventRelay = QtCore.Signal(object, object, object)
 
     event_relay_source: 'Optional[ViewBox]' = None
-    relays: dict[str, Signal] = {}
+    relays: dict[str, QtCore.Signal] = {}
 
     def __init__(
         self,
@@ -474,7 +474,11 @@ class ChartView(ViewBox):
             # lastPos = ev.lastPos()
             # dif = pos - lastPos
             # dif = dif * -1
-            center = Point(fn.invertQTransform(self.childGroup.transform()).map(ev.pos()))
+            center = Point(
+                fn.invertQTransform(
+                    self.childGroup.transform()
+                ).map(ev.pos())
+            )
             # scale_y = 1.3 ** (center.y() * -1 / 20)
             self.scaleBy(s, center)
 
@@ -674,7 +678,7 @@ class ChartView(ViewBox):
         # flag to prevent triggering sibling charts from the same linked
         # set from recursion errors.
         autoscale_linked_plots: bool = True,
-        autoscale_overlays: bool = False,
+        # autoscale_overlays: bool = False,
 
     ) -> None:
         '''
@@ -731,7 +735,7 @@ class ChartView(ViewBox):
                         )
 
         if set_range:
-            yrange =  self._maxmin()
+            yrange = self._maxmin()
             if yrange is None:
                 return
 
