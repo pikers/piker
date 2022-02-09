@@ -995,15 +995,15 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # TODO: this probably needs its own method?
         if overlay:
-            # anchor_at = ('bottom', 'left')
-            self._flows[name] = Flow(name=name, plot=pi)
-
             if isinstance(overlay, pg.PlotItem):
                 if overlay not in self.pi_overlay.overlays:
                     raise RuntimeError(
                             f'{overlay} must be from `.plotitem_overlay()`'
                         )
                 pi = overlay
+
+            # anchor_at = ('bottom', 'left')
+            self._flows[name] = Flow(name=name, plot=pi)
 
         else:
             # anchor_at = ('top', 'left')
