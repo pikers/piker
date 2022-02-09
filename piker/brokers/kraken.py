@@ -314,7 +314,7 @@ class Client:
         # txid is a transaction id given by kraken
         data = {"txid": reqid}
         resp = await self.kraken_endpoint('CancelOrder', data)
-        print(resp)
+        return resp
 
     async def symbol_info(
         self,
@@ -554,11 +554,32 @@ async def handle_order_requests(
                 )
 
         elif action == 'cancel':
-             msg = BrokerdCancel(**request_msg)
+            msg = BrokerdCancel(**request_msg)
 
-             await client.submit_cancel(
+            resp = await client.submit_cancel(
                 reqid=msg.reqid
             )
+
+            # Check to make sure there was no error returned by
+            # the kraken endpoint. Assert one order was cancelled
+            assert resp['error'] == []
+            assert resp['result']['count'] == 1
+
+            try:
+                pending = resp['result']['pending']
+            # Check to make sure the cancellation is NOT pending,
+            # then send the confirmation to the ems order stream
+            except KeyError:
+                await ems_order_stream.send(
+                    BrokerdStatus(
+                        reqid=msg.reqid,
+                        account=msg.account,
+                        time_ns=time.time_ns(),
+                        status='cancelled',
+                        reason='Order cancelled',
+                        broker_details={'name': 'kraken'}
+                    ).dict()
+                )
 
         else:
             log.error(f'Unknown order command: {request_msg}')
