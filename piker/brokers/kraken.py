@@ -243,18 +243,17 @@ class Client:
         uri_path = f'/0/private/{method}'
         data['nonce'] = str(int(1000*time.time()))
         resp = await self._private(method, data, uri_path)
-        err = resp['error']
-        if err:
-            print(err)
-        return resp['result']
+        return resp
 
     async def get_positions(
         self,
         data: Dict[str, Any] = {}
     ) -> Dict[str, Any]:
-        balances = await self.kraken_endpoint('Balance', data)
+        resp = await self.kraken_endpoint('Balance', data)
+        balances = resp['result']
         ## TODO: grab all entries, not just first 50
-        traders = await self.kraken_endpoint('TradesHistory', data)
+        resp = await self.kraken_endpoint('TradesHistory', data)
+        traders = resp['result']
         positions = {}
         vols = {}
         
@@ -284,7 +283,7 @@ class Client:
         symbol: str,
         price: float,
         action: str,
-        size: str,
+        size: float,
 #        account: str,
         reqid: int = None,
     ) -> int:
@@ -296,14 +295,26 @@ class Client:
             "userref": reqid,
             "ordertype": "limit",
             "type": action,
-            "volume": size,
+            "volume": str(size),
             "pair": symbol,
-            "price": price,
-            "validate": True
+            "price": str(price),
+            # set to True test AddOrder call without a real submission
+            "validate": False
         }
         resp = await self.kraken_endpoint('AddOrder', data)
+        return resp
+
+    async def submit_cancel(
+        self,
+        reqid: str,
+    ) -> None:
+        """Send cancel request for order id ``reqid``.
+
+        """
+        # txid is a transaction id given by kraken
+        data = {"txid": reqid}
+        resp = await self.kraken_endpoint('CancelOrder', data)
         print(resp)
-        return reqid
 
     async def symbol_info(
         self,
@@ -495,10 +506,11 @@ async def handle_order_requests(
                 continue
 
             # validate
+            temp_id = next(userref_counter)
             order = BrokerdOrder(**request_msg)
 
             # call our client api to submit the order
-            reqid = await client.submit_limit(
+            resp = await client.submit_limit(
 
                 oid=order.oid,
                 symbol=order.symbol,
@@ -506,21 +518,40 @@ async def handle_order_requests(
                 action=order.action,
                 size=order.size,
                 ## XXX: how do I handle new orders
-                reqid=next(userref_counter),
+                reqid=temp_id,
             )
 
-            # deliver ack that order has been submitted to broker routing
-            await ems_order_stream.send(
-                BrokerdOrderAck(
+            err = resp['error']
+            if err:
+                log.error(f'Failed to submit order')
+                await ems_order_stream.send(
+                    BrokerdError(
+                        oid=order.oid,
+                        reqid=temp_id,
+                        symbol=order.symbol,
+                        reason="Failed order submission",
+                        broker_details=resp
+                    ).dict()
+                )
+            else:
+                ## TODO: handle multiple cancels
+                ##       txid is an array of strings
+                reqid = resp['result']['txid'][0]
+                # deliver ack that order has been submitted to broker routing
+                await ems_order_stream.send(
+                    BrokerdOrderAck(
 
-                    # ems order request id
-                    oid=order.oid,
+                        # ems order request id
+                        oid=order.oid,
 
-                    # broker specific request id
-                    reqid=reqid,
+                        # broker specific request id
+                        reqid=reqid,
 
-                ).dict()
-            )
+                        # account the made the order
+                        account=order.account
+
+                    ).dict()
+                )
 
         elif action == 'cancel':
              msg = BrokerdCancel(**request_msg)
