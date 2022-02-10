@@ -632,6 +632,7 @@ async def open_vlm_displays(
 
             mx = 0
             for name in names:
+
                 mxmn = chart.maxmin(name=name)
                 if mxmn:
                     ymax = mxmn[1]
@@ -640,7 +641,7 @@ async def open_vlm_displays(
 
             return 0, mx
 
-        chart.view._maxmin = partial(maxmin, names=['volume'])
+        chart.view.maxmin = partial(maxmin, names=['volume'])
 
         # TODO: fix the x-axis label issue where if you put
         # the axis on the left it's totally not lined up...
@@ -812,6 +813,7 @@ async def open_vlm_displays(
                 flow_rates,
                 {  # fsp engine conf
                     'func_name': 'flow_rates',
+                    'zero_on_step': True,
                 },
                 # loglevel,
             )
@@ -844,13 +846,13 @@ async def open_vlm_displays(
                 },
 
             )
-
             # add custom auto range handler
-            tr_pi.vb._maxmin = partial(
+            tr_pi.vb.maxmin = partial(
                 maxmin,
                 # keep both regular and dark vlm in view
                 names=trade_rate_fields,
             )
+
             chart_curves(
                 trade_rate_fields,
                 tr_pi,
