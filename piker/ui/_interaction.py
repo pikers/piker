@@ -421,6 +421,14 @@ class ChartView(ViewBox):
         if self._maxmin is None:
             self._maxmin = chart.maxmin
 
+    @property
+    def maxmin(self) -> Callable:
+        return self._maxmin
+
+    @maxmin.setter
+    def maxmin(self, callback: Callable) -> None:
+        self._maxmin = callback
+
     def wheelEvent(
         self,
         ev,
@@ -678,6 +686,7 @@ class ChartView(ViewBox):
         # flag to prevent triggering sibling charts from the same linked
         # set from recursion errors.
         autoscale_linked_plots: bool = True,
+        name: Optional[str] = None,
         # autoscale_overlays: bool = False,
 
     ) -> None:
@@ -735,6 +744,7 @@ class ChartView(ViewBox):
                         )
 
         if set_range:
+
             yrange = self._maxmin()
             if yrange is None:
                 return

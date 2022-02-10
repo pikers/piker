@@ -54,7 +54,7 @@ from ..log import get_logger
 log = get_logger(__name__)
 
 # TODO: load this from a config.toml!
-_quote_throttle_rate: int = 58  # Hz
+_quote_throttle_rate: int = 6 + 16  # Hz
 
 
 # a working tick-type-classes template
@@ -266,7 +266,10 @@ async def graphics_update_loop(
                         array_key=curve_name,
                     )
                     # is this even doing anything?
-                    flow.plot.vb._set_yrange()
+                    flow.plot.vb._set_yrange(
+                        autoscale_linked_plots=False,
+                        name=curve_name,
+                    )
 
             ticks_frame = quote.get('ticks', ())
 
