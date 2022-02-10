@@ -273,7 +273,16 @@ class MainWindow(QtGui.QMainWindow):
     def configure_to_desktop(
         self,
         size: Optional[tuple[int, int]] = None,
+
     ) -> None:
+        '''
+        Explicitly size the window dimensions (for stacked window
+        managers).
+
+        For tina systems (like windoze) try to do a sane window size on
+        startup.
+
+        '''
         # https://stackoverflow.com/a/18975846
         if not size and not self._size:
             app = QtGui.QApplication.instance()
@@ -282,7 +291,7 @@ class MainWindow(QtGui.QMainWindow):
             self.setMaximumSize(w, h)
             # use approx 1/3 of the area of the screen by default
             self._size = round(w * .666), round(h * .666)
-        
+
         self.resize(*size or self._size)
 
 
