@@ -39,6 +39,7 @@ from typing import (
     Awaitable, Sequence,
     Any, AsyncIterator
 )
+from math import ceil
 import time
 # from pprint import pformat
 
@@ -49,7 +50,6 @@ from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import (
     Qt,
-    QSize,
     QModelIndex,
     QItemSelectionModel,
 )
@@ -157,17 +157,26 @@ class CompleterView(QTreeView):
         self._font_size = size
 
         self.setStyleSheet(f"font: {size}px")
-    
-    #def resizeEvent(self, event: 'QEvent') -> None:
-    #    self.resize_to_results()
-    #    super().resizeEvent(event)
+
+    # def resizeEvent(self, event: 'QEvent') -> None:
+    #     self.resize_to_results()
+    #     super().resizeEvent(event)
+
+    def on_resize(self) -> None:
+        '''
+        Resize relay event from god.
+
+        '''
+        self.resize_to_results()
 
     def resize_to_results(self):
         model = self.model()
         cols = model.columnCount()
 
+        col_w_tot = 0
         for i in range(cols):
             self.resizeColumnToContents(i)
+            col_w_tot += self.columnWidth(i)
 
         row_px = self.rowHeight(self.currentIndex())
 
@@ -175,22 +184,25 @@ class CompleterView(QTreeView):
         # we should figure out the exact number of rows to allow
         # inclusive of search bar and header "rows", in pixel terms.
         window_h = self.window().height()
-        rows = round(window_h * 0.5 / row_px) - 4
+        rows = ceil(window_h / row_px) - 2
 
-        # TODO: the problem here is that this view widget is **not** resizing/scaling
-        # when the parent layout is adjusted, not sure what exactly is up...       
-        # only "scale up" the results view when the window size has increased/
+        # TODO: the problem here is that this view widget is **not**
+        # resizing/scaling when the parent layout is adjusted, not sure
+        # what exactly is up... only "scale up" the results view
+        # when the window size has increased/
         if not self._last_window_h or self._last_window_h < window_h:
             self.setMaximumSize(self.width(), rows * row_px)
             self.setMinimumSize(self.width(), rows * row_px)
-        
-        #elif not self._last_window_h or self._last_window_h > window_h:
-        #    self.setMinimumSize(self.width(), rows * row_px)
-        #    self.setMaximumSize(self.width(), rows * row_px)
-        
+
+        # self.resize(self.width(), rows * row_px)
         self.resize(self.width(), rows * row_px)
         self._last_window_h = window_h
-        self.setFixedWidth(333)
+
+        # size to width of longest result seen thus far
+        # TODO: should we always dynamically scale to longest result?
+        if self.width() < col_w_tot:
+            self.setFixedWidth(col_w_tot)
+
         self.update()
 
     def is_selecting_d1(self) -> bool:
@@ -447,6 +459,7 @@ class SearchBar(Edit):
         self.godwidget = godwidget
         super().__init__(parent, **kwargs)
         self.view: CompleterView = view
+        godwidget._widgets[view.mode_name] = view
 
     def show(self) -> None:
         super().show()
