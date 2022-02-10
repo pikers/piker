@@ -138,7 +138,11 @@ class DpiAwareFont:
         # TODO: this multiplier should probably be determined from
         # relative aspect ratios or something?
         inches *= mult
-        #inches = inches*2
+
+        # XXX: if additionally we detect a known DE scaling factor we
+        # also scale *up* our font size on top of the existing
+        # heuristical (aka no clue why it works) scaling from the block
+        # above XD
         if (
             hasattr(Qt, 'AA_EnableHighDpiScaling')
             and QCoreApplication.testAttribute(Qt.AA_EnableHighDpiScaling)
@@ -152,7 +156,7 @@ class DpiAwareFont:
         self._font_inches = inches
         font_size = math.floor(inches * dpi)
 
-        log.info(
+        log.debug(
             f"screen:{screen.name()}\n"
             f"pDPI: {pdpi}, lDPI: {ldpi}, scale: {scale}\n"
             f"\nOur best guess font size is {font_size}\n"
