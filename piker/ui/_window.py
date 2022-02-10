@@ -154,7 +154,6 @@ class MainWindow(QtGui.QMainWindow):
     # with the alloted window size.
     # TODO: detect for tiling and if untrue set some size?
     size = (300, 500)
-    #size = (0, 0)
 
     title = 'piker chart (ur symbol is loading bby)'
 
@@ -166,7 +165,7 @@ class MainWindow(QtGui.QMainWindow):
         self._status_bar: QStatusBar = None
         self._status_label: QLabel = None
         self._size: Optional[tuple[int, int]] = None
-    
+
     @property
     def mode_label(self) -> QtGui.QLabel:
 
@@ -293,7 +292,6 @@ class MainWindow(QtGui.QMainWindow):
             self._size = round(w * .666), round(h * .666)
 
         self.resize(*size or self._size)
-
 
 
 # singleton app per actor
