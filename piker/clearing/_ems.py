@@ -54,7 +54,8 @@ def mk_check(
     action: str,
 
 ) -> Callable[[float, float], bool]:
-    """Create a predicate for given ``exec_price`` based on last known
+    '''
+    Create a predicate for given ``exec_price`` based on last known
     price, ``known_last``.
 
     This is an automatic alert level thunk generator based on where the
@@ -62,7 +63,7 @@ def mk_check(
     interest is; pick an appropriate comparison operator based on
     avoiding the case where the a predicate returns true immediately.
 
-    """
+    '''
     # str compares:
     # https://stackoverflow.com/questions/46708708/compare-strings-in-numba-compiled-function
 
@@ -139,29 +140,32 @@ async def clear_dark_triggers(
     book: _DarkBook,
 
 ) -> None:
-    """Core dark order trigger loop.
+    '''
+    Core dark order trigger loop.
 
     Scan the (price) data feed and submit triggered orders
     to broker.
 
-    """
-    # this stream may eventually contain multiple symbols
+    '''
     # XXX: optimize this for speed!
+    # TODO:
+    # - numba all this!
+    # - this stream may eventually contain multiple symbols
     async for quotes in quote_stream:
-
-        # TODO: numba all this!
-
         # start = time.time()
         for sym, quote in quotes.items():
-
-            execs = book.orders.get(sym, None)
-            if execs is None:
-                continue
+            execs = book.orders.get(sym, {})
 
             for tick in iterticks(
                 quote,
                 # dark order price filter(s)
-                types=('ask', 'bid', 'trade', 'last')
+                types=(
+                    'ask',
+                    'bid',
+                    'trade',
+                    'last',
+                    # 'dark_trade',  # TODO: should allow via config?
+                )
             ):
                 price = tick.get('price')
                 ttype = tick['type']
@@ -178,7 +182,6 @@ async def clear_dark_triggers(
                 ) in (
                     tuple(execs.items())
                 ):
-
                     if (
                         not pred or
                         ttype not in tf or
@@ -290,7 +293,8 @@ class TradesRelay:
 
 
 class Router(BaseModel):
-    '''Order router which manages and tracks per-broker dark book,
+    '''
+    Order router which manages and tracks per-broker dark book,
     alerts, clearing and related data feed management.
 
     A singleton per ``emsd`` actor.
