@@ -22,17 +22,25 @@ from tractor.trionics._broadcast import AsyncReceiver
 from ._api import fsp
 from ..data._normalize import iterticks
 from ..data._sharedmem import ShmArray
+from ._momo import _wma
+from ..log import get_logger
+
+log = get_logger(__name__)
 
 
+# NOTE: is the same as our `wma` fsp, and if so which one is faster?
+# Ohhh, this is an IIR style i think? So it has an anchor point
+# effectively instead of a moving window/FIR style?
 def wap(
 
     signal: np.ndarray,
     weights: np.ndarray,
 
 ) -> np.ndarray:
-    """Weighted average price from signal and weights.
+    '''
+    Weighted average price from signal and weights.
 
-    """
+    '''
     cum_weights = np.cumsum(weights)
     cum_weighted_input = np.cumsum(signal * weights)
 
@@ -89,7 +97,10 @@ async def tina_vwap(
     # vwap_tot = h_vwap[-1]
 
     async for quote in source:
-        for tick in iterticks(quote, types=['trade']):
+        for tick in iterticks(
+            quote,
+            types=['trade'],
+        ):
 
             # c, h, l, v = ohlcv.array[-1][
             #     ['closes', 'high', 'low', 'volume']
@@ -107,8 +118,12 @@ async def tina_vwap(
 
 
 @fsp(
-    outputs=('dolla_vlm', 'dark_vlm'),
-    ohlc=False,
+    outputs=(
+        'dolla_vlm',
+        'dark_vlm',
+        'trade_count',
+        'dark_trade_count',
+    ),
     curve_style='step',
 )
 async def dolla_vlm(
@@ -132,14 +147,24 @@ async def dolla_vlm(
     v = a['volume']
 
     # on first iteration yield history
-    yield chl3 * v
+    yield {
+        'dolla_vlm': chl3 * v,
+        'dark_vlm': None,
+    }
 
     i = ohlcv.index
-    output = vlm = 0
-    dvlm = 0
+    dvlm = vlm = 0
+    dark_trade_count = trade_count = 0
 
     async for quote in source:
-        for tick in iterticks(quote):
+        for tick in iterticks(
+            quote,
+            types=(
+                'trade',
+                'dark_trade',
+            ),
+            deduplicate_darks=True,
+        ):
 
             # this computes tick-by-tick weightings from here forward
             size = tick['size']
@@ -148,24 +173,30 @@ async def dolla_vlm(
             li = ohlcv.index
             if li > i:
                 i = li
-                vlm = 0
-                dvlm = 0
+                trade_count = dark_trade_count = dvlm = vlm = 0
 
             # TODO: for marginned instruments (futes, etfs?) we need to
             # show the margin $vlm by multiplying by whatever multiplier
             # is reported in the sym info.
 
             ttype = tick.get('type')
+
             if ttype == 'dark_trade':
-                print(f'dark_trade: {tick}')
-                key = 'dark_vlm'
                 dvlm += price * size
-                output = dvlm
+                yield 'dark_vlm', dvlm
+
+                dark_trade_count += 1
+                yield 'dark_trade_count', dark_trade_count
+
+                # print(f'{dark_trade_count}th dark_trade: {tick}')
 
             else:
-                key = 'dolla_vlm'
+                # print(f'vlm: {tick}')
                 vlm += price * size
-                output = vlm
+                yield 'dolla_vlm', vlm
+
+                trade_count += 1
+                yield 'trade_count', trade_count
 
             # TODO: plot both to compare?
             # c, h, l, v = ohlcv.last()[
@@ -174,4 +205,154 @@ async def dolla_vlm(
             # tina_lvlm = c+h+l/3 * v
             # print(f' tinal vlm: {tina_lvlm}')
 
-            yield key, output
+
+@fsp(
+    # TODO: eventually I guess we should support some kinda declarative
+    # graphics config syntax per output yah? That seems like a clean way
+    # to let users configure things? Not sure how exactly to offer that
+    # api as well as how to expose such a thing *inside* the body?
+    outputs=(
+        # pulled verbatim from `ib` for now
+        '1m_trade_rate',
+        '1m_vlm_rate',
+
+        # our own instantaneous rate calcs which are all
+        # parameterized by a samples count (bars) period
+        'trade_rate',
+        'dark_trade_rate',
+
+        'dvlm_rate',
+        'dark_dvlm_rate',
+    ),
+    curve_style='line',
+)
+async def flow_rates(
+    source: AsyncReceiver[dict],
+    ohlcv: ShmArray,  # OHLC sampled history
+
+    # TODO (idea): a dynamic generic / boxing type that can be updated by other
+    # FSPs, user input, and possibly any general event stream in
+    # real-time. Hint: ideally implemented with caching until mutated
+    # ;)
+    period: 'Param[int]' = 6,  # noqa
+
+    # TODO: support other means by providing a map
+    # to weights `partial()`-ed with `wma()`?
+    mean_type: str = 'arithmetic',
+
+    # TODO (idea): a generic for declaring boxed fsps much like ``pytest``
+    # fixtures? This probably needs a lot of thought if we want to offer
+    # a higher level composition syntax eventually (oh right gotta make
+    # an issue for that).
+    # ideas for how to allow composition / intercalling:
+    # - offer a `Fsp.get_history()` to do the first yield output?
+    #  * err wait can we just have shm access directly?
+    # - how would it work if some consumer fsp wanted to dynamically
+    # change params which are input to the callee fsp? i guess we could
+    # lazy copy in that case?
+    # dvlm: 'Fsp[dolla_vlm]'
+
+) -> AsyncIterator[
+    tuple[str, Union[np.ndarray, float]],
+]:
+    # generally no history available prior to real-time calcs
+    yield {
+        # from ib
+        '1m_trade_rate': None,
+        '1m_vlm_rate': None,
+
+        'trade_rate': None,
+        'dark_trade_rate': None,
+
+        'dvlm_rate': None,
+        'dark_dvlm_rate': None,
+    }
+
+    # TODO: 3.10 do ``anext()``
+    quote = await source.__anext__()
+
+    # ltr = 0
+    # lvr = 0
+    tr = quote.get('tradeRate')
+    yield '1m_trade_rate', tr or 0
+    vr = quote.get('volumeRate')
+    yield '1m_vlm_rate', vr or 0
+
+    yield 'trade_rate', 0
+    yield 'dark_trade_rate', 0
+    yield 'dvlm_rate', 0
+    yield 'dark_dvlm_rate', 0
+
+    # NOTE: in theory we could dynamically allocate a cascade based on
+    # this call but not sure if that's too "dynamic" in terms of
+    # validating cascade flows from message typing perspective.
+
+    # attach to ``dolla_vlm`` fsp running
+    # on this same source flow.
+    dvlm_shm = dolla_vlm.get_shm(ohlcv)
+
+    # precompute arithmetic mean weights (all ones)
+    seq = np.full((period,), 1)
+    weights = seq / seq.sum()
+
+    async for quote in source:
+        if not quote:
+            log.error("OH WTF NO QUOTE IN FSP")
+            continue
+
+        # dvlm_wma = _wma(
+        #     dvlm_shm.array['dolla_vlm'],
+        #     period,
+        #     weights=weights,
+        # )
+        # yield 'dvlm_rate', dvlm_wma[-1]
+
+        if period > 1:
+            trade_rate_wma = _wma(
+                dvlm_shm.array['trade_count'],
+                period,
+                weights=weights,
+            )
+            trade_rate = trade_rate_wma[-1]
+            # print(trade_rate)
+            yield 'trade_rate', trade_rate
+        else:
+            # instantaneous rate per sample step
+            count = dvlm_shm.array['trade_count'][-1]
+            yield 'trade_rate', count
+
+        # TODO: skip this if no dark vlm is declared
+        # by symbol info (eg. in crypto$)
+        # dark_dvlm_wma = _wma(
+        #     dvlm_shm.array['dark_vlm'],
+        #     period,
+        #     weights=weights,
+        # )
+        # yield 'dark_dvlm_rate', dark_dvlm_wma[-1]
+
+        if period > 1:
+            dark_trade_rate_wma = _wma(
+                dvlm_shm.array['dark_trade_count'],
+                period,
+                weights=weights,
+            )
+            yield 'dark_trade_rate', dark_trade_rate_wma[-1]
+        else:
+            # instantaneous rate per sample step
+            dark_count = dvlm_shm.array['dark_trade_count'][-1]
+            yield 'dark_trade_rate', dark_count
+
+        # XXX: ib specific schema we should
+        # probably pre-pack ourselves.
+
+        # tr = quote.get('tradeRate')
+        # if tr is not None and tr != ltr:
+        #     # print(f'trade rate: {tr}')
+        #     yield '1m_trade_rate', tr
+        #     ltr = tr
+
+        # vr = quote.get('volumeRate')
+        # if vr is not None and vr != lvr:
+        #     # print(f'vlm rate: {vr}')
+        #     yield '1m_vlm_rate', vr
+        #     lvr = vr

@@ -103,11 +103,6 @@ class ComposedGridLayout:
             dict[str, AxisItem],
         ] = {}
 
-        self._axes2pi: dict[
-            AxisItem,
-            dict[str, PlotItem],
-        ] = {}
-
         # TODO: better name?
         # construct surrounding layouts for placing outer axes and
         # their legends and title labels.
@@ -158,8 +153,8 @@ class ComposedGridLayout:
         for name, axis_info in plotitem.axes.items():
             axis = axis_info['item']
             # register this plot's (maybe re-placed) axes for lookup.
-            self._pi2axes.setdefault(index, {})[name] = axis
-            self._axes2pi.setdefault(index, {})[name] = plotitem
+            # print(f'inserting {name}:{axis} to index {index}')
+            self._pi2axes.setdefault(name, {})[index] = axis
 
         # enter plot into list for index tracking
         self.items.insert(index, plotitem)
@@ -213,11 +208,12 @@ class ComposedGridLayout:
 
             # invert insert index for layouts which are
             # not-left-to-right, top-to-bottom insert oriented
+            insert_index = index
             if name in ('top', 'left'):
-                index = min(len(axes) - index, 0)
-                assert index >= 0
+                insert_index = min(len(axes) - index, 0)
+                assert insert_index >= 0
 
-            linlayout.insertItem(index, axis)
+            linlayout.insertItem(insert_index, axis)
             axes.insert(index, axis)
 
         self._register_item(index, plotitem)
@@ -243,13 +239,15 @@ class ComposedGridLayout:
         plot: PlotItem,
         name: str,
 
-    ) -> AxisItem:
+    ) -> Optional[AxisItem]:
         '''
-        Retrieve the named axis for overlayed ``plot``.
+        Retrieve the named axis for overlayed ``plot`` or ``None``
+        if axis for that name is not shown.
 
         '''
         index = self.items.index(plot)
-        return self._pi2axes[index][name]
+        named = self._pi2axes[name]
+        return named.get(index)
 
     def pop(
         self,
@@ -341,7 +339,7 @@ def mk_relay_method(
             # halt/short circuit the graphicscene loop). Further the
             # surrounding handler for this signal must be allowed to execute
             # and get processed by **this consumer**.
-            print(f'{vb.name} rx relayed from {relayed_from.name}')
+            # print(f'{vb.name} rx relayed from {relayed_from.name}')
             ev.ignore()
 
             return slot(
@@ -351,7 +349,7 @@ def mk_relay_method(
             )
 
         if axis is not None:
-            print(f'{vb.name} handling axis event:\n{str(ev)}')
+            # print(f'{vb.name} handling axis event:\n{str(ev)}')
             ev.accept()
             return slot(
                 vb,
@@ -490,7 +488,6 @@ class PlotItemOverlay:
         vb.setZValue(1000)  # XXX: critical for scene layering/relaying
 
         self.overlays: list[PlotItem] = []
-        from piker.ui._overlay import ComposedGridLayout
         self.layout = ComposedGridLayout(
             root_plotitem,
             root_plotitem.layout,
@@ -511,7 +508,7 @@ class PlotItemOverlay:
 
     ) -> None:
 
-        index = index or 0
+        index = index or len(self.overlays)
         root = self.root_plotitem
         # layout: QGraphicsGridLayout = root.layout
         self.overlays.insert(index, plotitem)
@@ -612,6 +609,26 @@ class PlotItemOverlay:
 
         '''
         return self.layout.get_axis(plot, name)
+
+    def get_axes(
+        self,
+        name: str,
+
+    ) -> list[AxisItem]:
+        '''
+        Retrieve all axes for all plots with ``name: str``.
+
+        If a particular overlay doesn't have a displayed named axis
+        then it is not delivered in the returned ``list``.
+
+        '''
+        axes = []
+        for plot in self.overlays:
+            axis = self.layout.get_axis(plot, name)
+            if axis:
+                axes.append(axis)
+
+        return axes
 
     # TODO: i guess we need this if you want to detach existing plots
     # dynamically? XXX: untested as of now.

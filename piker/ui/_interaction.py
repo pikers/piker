@@ -342,7 +342,7 @@ class ChartView(ViewBox):
     wheelEventRelay = QtCore.Signal(object, object, object)
 
     event_relay_source: 'Optional[ViewBox]' = None
-    relays: dict[str, Signal] = {}
+    relays: dict[str, QtCore.Signal] = {}
 
     def __init__(
         self,
@@ -421,6 +421,14 @@ class ChartView(ViewBox):
         if self._maxmin is None:
             self._maxmin = chart.maxmin
 
+    @property
+    def maxmin(self) -> Callable:
+        return self._maxmin
+
+    @maxmin.setter
+    def maxmin(self, callback: Callable) -> None:
+        self._maxmin = callback
+
     def wheelEvent(
         self,
         ev,
@@ -474,7 +482,11 @@ class ChartView(ViewBox):
             # lastPos = ev.lastPos()
             # dif = pos - lastPos
             # dif = dif * -1
-            center = Point(fn.invertQTransform(self.childGroup.transform()).map(ev.pos()))
+            center = Point(
+                fn.invertQTransform(
+                    self.childGroup.transform()
+                ).map(ev.pos())
+            )
             # scale_y = 1.3 ** (center.y() * -1 / 20)
             self.scaleBy(s, center)
 
@@ -674,7 +686,8 @@ class ChartView(ViewBox):
         # flag to prevent triggering sibling charts from the same linked
         # set from recursion errors.
         autoscale_linked_plots: bool = True,
-        autoscale_overlays: bool = False,
+        name: Optional[str] = None,
+        # autoscale_overlays: bool = False,
 
     ) -> None:
         '''
@@ -731,7 +744,12 @@ class ChartView(ViewBox):
                         )
 
         if set_range:
-            ylow, yhigh = self._maxmin()
+
+            yrange = self._maxmin()
+            if yrange is None:
+                return
+
+            ylow, yhigh = yrange
 
             # view margins: stay within a % of the "true range"
             diff = yhigh - ylow

@@ -252,7 +252,7 @@ async def sample_and_broadcast(
                             try:
                                 stream.send_nowait((sym, quote))
                             except trio.WouldBlock:
-                                ctx = getattr(sream, '_ctx', None)
+                                ctx = getattr(stream, '_ctx', None)
                                 if ctx:
                                     log.warning(
                                         f'Feed overrun {bus.brokername} ->'
@@ -371,7 +371,7 @@ async def uniform_rate_send(
 
             # we have a quote already so send it now.
 
-        measured_rate = 1 / (time.time() - last_send)
+        # measured_rate = 1 / (time.time() - last_send)
         # log.info(
         #     f'`{sym}` throttled send hz: {round(measured_rate, ndigits=1)}'
         # )

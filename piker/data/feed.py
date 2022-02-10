@@ -567,7 +567,7 @@ async def open_feed(
             shm_token = data['shm_token']
 
             # XXX: msgspec won't relay through the tuples XD
-            shm_token['dtype_descr'] = list(
+            shm_token['dtype_descr'] = tuple(
                 map(tuple, shm_token['dtype_descr']))
 
             assert shm_token == shm.token  # sanity

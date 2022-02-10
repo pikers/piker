@@ -1042,6 +1042,7 @@ tick_types = {
     # https://interactivebrokers.github.io/tws-api/tick_types.html#rt_volume
     48: 'dark_trade',
 
+    # standard L1 ticks
     0: 'bsize',
     1: 'bid',
     2: 'ask',
@@ -1049,6 +1050,12 @@ tick_types = {
     4: 'last',
     5: 'size',
     8: 'volume',
+
+    # ``ib_insync`` already packs these into
+    # quotes under the following fields.
+    # 55: 'trades_per_min',  # `'tradeRate'`
+    # 56: 'vlm_per_min',  # `'volumeRate'`
+    # 89: 'shortable',  # `'shortableShares'`
 }
 
 
@@ -1069,6 +1076,10 @@ def normalize(
 
             new_ticks.append(td)
 
+            tbt = ticker.tickByTicks
+            if tbt:
+                print(f'tickbyticks:\n {ticker.tickByTicks}')
+
     ticker.ticks = new_ticks
 
     # some contracts don't have volume so we may want to calculate
@@ -1080,6 +1091,11 @@ def normalize(
 
     # serialize for transport
     data = asdict(ticker)
+
+    # convert named tuples to dicts for transport
+    tbts = data.get('tickByTicks')
+    if tbts:
+        data['tickByTicks'] = [tbt._asdict() for tbt in tbts]
 
     # add time stamps for downstream latency measurements
     data['brokerd_ts'] = time.time()
@@ -1263,7 +1279,18 @@ async def _setup_quote_stream(
     to_trio: trio.abc.SendChannel,
 
     symbol: str,
-    opts: tuple[int] = ('375', '233', '236'),
+    opts: tuple[int] = (
+        '375',  # RT trade volume (excludes utrades)
+        '233',  # RT trade volume (includes utrades)
+        '236',  # Shortable shares
+
+        # these all appear to only be updated every 25s thus
+        # making them mostly useless and explains why the scanner
+        # is always slow XD
+        # '293',  # Trade count for day
+        '294',  # Trade rate / minute
+        '295',  # Vlm rate / minute
+    ),
     contract: Optional[Contract] = None,
 
 ) -> trio.abc.ReceiveChannel:
@@ -1280,6 +1307,12 @@ async def _setup_quote_stream(
     ):
         contract = contract or (await client.find_contract(symbol))
         ticker: Ticker = client.ib.reqMktData(contract, ','.join(opts))
+
+        # NOTE: it's batch-wise and slow af but I guess could
+        # be good for backchecking? Seems to be every 5s maybe?
+        # ticker: Ticker = client.ib.reqTickByTickData(
+        #     contract, 'Last',
+        # )
 
         # # define a simple queue push routine that streams quote packets
         # # to trio over the ``to_trio`` memory channel.

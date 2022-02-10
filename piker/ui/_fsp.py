@@ -22,6 +22,7 @@ Financial signal processing cluster and real-time graphics management.
 '''
 from contextlib import asynccontextmanager as acm
 from functools import partial
+import inspect
 from itertools import cycle
 from typing import Optional, AsyncGenerator, Any
 
@@ -37,6 +38,7 @@ from .._cacheables import maybe_open_context
 from ..calc import humanize
 from ..data._sharedmem import (
     ShmArray,
+    _Token,
     try_read,
 )
 from ._chart import (
@@ -50,7 +52,11 @@ from ._forms import (
 )
 from ..fsp._api import maybe_mk_fsp_shm, Fsp
 from ..fsp import cascade
-from ..fsp._volume import tina_vwap, dolla_vlm
+from ..fsp._volume import (
+    tina_vwap,
+    dolla_vlm,
+    flow_rates,
+)
 from ..log import get_logger
 
 log = get_logger(__name__)
@@ -153,7 +159,11 @@ async def open_fsp_sidepane(
     sidepane.model = FspConfig()
 
     # just a logger for now until we get fsp configs up and running.
-    async def settings_change(key: str, value: str) -> bool:
+    async def settings_change(
+        key: str,
+        value: str
+
+    ) -> bool:
         print(f'{key}: {value}')
         return True
 
@@ -240,7 +250,7 @@ async def run_fsp_ui(
                 **conf.get('chart_kwargs', {})
             )
             # specially store ref to shm for lookup in display loop
-            chart._overlays[name] = shm
+            chart._flows[name].shm = shm
 
         else:
             # create a new sub-chart widget for this fsp
@@ -363,6 +373,7 @@ class FspAdmin:
             tuple,
             tuple[tractor.MsgStream, ShmArray]
         ] = {}
+        self._flow_registry: dict[_Token, str] = {}
         self.src_shm = src_shm
 
     def rr_next_portal(self) -> tractor.Portal:
@@ -407,6 +418,11 @@ class FspAdmin:
 
                 loglevel=loglevel,
                 zero_on_step=conf.get('zero_on_step', False),
+                shm_registry=[
+                    (token.as_msg(), fsp_name, dst_token.as_msg())
+                    for (token, fsp_name), dst_token
+                    in self._flow_registry.items()
+                ],
 
             ) as (ctx, last_index),
             ctx.open_stream() as stream,
@@ -439,11 +455,15 @@ class FspAdmin:
         fqsn = self.linked.symbol.front_feed()
 
         # allocate an output shm array
-        dst_shm, opened = maybe_mk_fsp_shm(
-            fqsn,
+        key, dst_shm, opened = maybe_mk_fsp_shm(
+            '.'.join(fqsn),
             target=target,
             readonly=True,
         )
+        self._flow_registry[
+            (self.src_shm._token, target.name)
+        ] = dst_shm._token
+
         # if not opened:
         #     raise RuntimeError(
         #         f'Already started FSP `{fqsn}:{func_name}`'
@@ -555,15 +575,22 @@ async def open_vlm_displays(
     be spawned here.
 
     '''
+    sig = inspect.signature(flow_rates.func)
+    params = sig.parameters
+
     async with (
         open_fsp_sidepane(
             linked, {
-                'vlm': {
+                'flows': {
+
+                    # TODO: add support for dynamically changing these
                     'params': {
-                        'price_func': {
-                            'default_value': 'chl3',
-                            # tell target ``Edit`` widget to not allow
-                            # edits for now.
+                        u'\u03BC' + '_type': {
+                            'default_value': str(params['mean_type'].default),
+                        },
+                        'period': {
+                            'default_value': str(params['period'].default),
+                            # make widget un-editable for now.
                             'widget_kwargs': {'readonly': True},
                         },
                     },
@@ -572,6 +599,12 @@ async def open_vlm_displays(
         ) as sidepane,
         open_fsp_admin(linked, ohlcv) as admin,
     ):
+        # TODO: support updates
+        # period_field = sidepane.fields['period']
+        # period_field.setText(
+        #     str(period_param.default)
+        # )
+
         # built-in vlm which we plot ASAP since it's
         # usually data provided directly with OHLC history.
         shm = ohlcv
@@ -596,18 +629,19 @@ async def open_vlm_displays(
             names: list[str],
 
         ) -> tuple[float, float]:
+
             mx = 0
             for name in names:
+
                 mxmn = chart.maxmin(name=name)
                 if mxmn:
-                    mx = max(mxmn[1], mx)
-
-            # if mx:
-            #     return 0, mxmn[1]
+                    ymax = mxmn[1]
+                    if ymax > mx:
+                        mx = ymax
 
             return 0, mx
 
-        chart.view._maxmin = partial(maxmin, names=['volume'])
+        chart.view.maxmin = partial(maxmin, names=['volume'])
 
         # TODO: fix the x-axis label issue where if you put
         # the axis on the left it's totally not lined up...
@@ -648,8 +682,9 @@ async def open_vlm_displays(
 
         if dvlm:
 
+            tasks_ready = []
             # spawn and overlay $ vlm on the same subchart
-            shm, started = await admin.start_engine_task(
+            dvlm_shm, started = await admin.start_engine_task(
                 dolla_vlm,
 
                 {  # fsp engine conf
@@ -663,11 +698,26 @@ async def open_vlm_displays(
                 },
                 # loglevel,
             )
+            tasks_ready.append(started)
+
+            # FIXME: we should error on starting the same fsp right
+            # since it might collide with existing shm.. or wait we
+            # had this before??
+            # dolla_vlm,
+
+            tasks_ready.append(started)
             # profiler(f'created shm for fsp actor: {display_name}')
 
-            await started.wait()
+            # wait for all engine tasks to startup
+            async with trio.open_nursery() as n:
+                for event in tasks_ready:
+                    n.start_soon(event.wait)
 
-            pi = chart.overlay_plotitem(
+            # dolla vlm overlay
+            # XXX: the main chart already contains a vlm "units" axis
+            # so here we add an overlay wth a y-range in
+            # $ liquidity-value units (normally a fiat like USD).
+            dvlm_pi = chart.overlay_plotitem(
                 'dolla_vlm',
                 index=0,  # place axis on inside (nearest to chart)
                 axis_title=' $vlm',
@@ -679,24 +729,29 @@ async def open_vlm_displays(
                         digits=2,
                     ),
                 },
-
             )
+
+            # all to be overlayed curve names
+            fields = [
+               'dolla_vlm',
+               'dark_vlm',
+            ]
+            dvlm_rate_fields = [
+                'dvlm_rate',
+                'dark_dvlm_rate',
+            ]
+            trade_rate_fields = [
+                'trade_rate',
+                'dark_trade_rate',
+            ]
 
             # add custom auto range handler
-            pi.vb._maxmin = partial(
+            dvlm_pi.vb._maxmin = partial(
                 maxmin,
                 # keep both regular and dark vlm in view
-                names=['dolla_vlm', 'dark_vlm'],
+                names=fields + dvlm_rate_fields,
             )
 
-            curve, _ = chart.draw_curve(
-                name='dolla_vlm',
-                data=shm.array,
-                array_key='dolla_vlm',
-                overlay=pi,
-                step_mode=True,
-                # **conf.get('chart_kwargs', {})
-            )
             # TODO: is there a way to "sync" the dual axes such that only
             # one curve is needed?
             # hide the original vlm curve since the $vlm one is now
@@ -704,48 +759,117 @@ async def open_vlm_displays(
             # liquidity events (well at least on low OHLC periods - 1s).
             vlm_curve.hide()
 
-            # TODO: we need a better API to do this..
-            # specially store ref to shm for lookup in display loop
-            # since only a placeholder of `None` is entered in
-            # ``.draw_curve()``.
-            chart._overlays['dolla_vlm'] = shm
+            # use slightly less light (then bracket) gray
+            # for volume from "main exchange" and a more "bluey"
+            # gray for "dark" vlm.
+            vlm_color = 'i3'
+            dark_vlm_color = 'charcoal'
 
-            curve, _ = chart.draw_curve(
+            # add dvlm (step) curves to common view
+            def chart_curves(
+                names: list[str],
+                pi: pg.PlotItem,
+                shm: ShmArray,
+                step_mode: bool = False,
+                style: str = 'solid',
 
-                name='dark_vlm',
-                data=shm.array,
-                array_key='dark_vlm',
-                overlay=pi,
-                color='charcoal',  # darker theme hue
+            ) -> None:
+                for name in names:
+                    if 'dark' in name:
+                        color = dark_vlm_color
+                    elif 'rate' in name:
+                        color = vlm_color
+                    else:
+                        color = 'bracket'
+
+                    curve, _ = chart.draw_curve(
+                        # name='dolla_vlm',
+                        name=name,
+                        data=shm.array,
+                        array_key=name,
+                        overlay=pi,
+                        color=color,
+                        step_mode=step_mode,
+                        style=style,
+                    )
+
+                    # TODO: we need a better API to do this..
+                    # specially store ref to shm for lookup in display loop
+                    # since only a placeholder of `None` is entered in
+                    # ``.draw_curve()``.
+                    chart._flows[name].shm = shm
+
+            chart_curves(
+                fields,
+                dvlm_pi,
+                dvlm_shm,
                 step_mode=True,
-                # **conf.get('chart_kwargs', {})
             )
-            chart._overlays['dark_vlm'] = shm
-            # XXX: old dict-style config before it was moved into the
-            # helper task
-            #     'dolla_vlm': {
-            #         'func_name': 'dolla_vlm',
-            #         'zero_on_step': True,
-            #         'overlay': 'volume',
-            #         'separate_axes': True,
-            #         'params': {
-            #             'price_func': {
-            #                 'default_value': 'chl3',
-            #                 # tell target ``Edit`` widget to not allow
-            #                 # edits for now.
-            #                 'widget_kwargs': {'readonly': True},
-            #             },
-            #         },
-            #         'chart_kwargs': {'step_mode': True}
-            #     },
 
-            # }
+            # spawn flow rates fsp **ONLY AFTER** the 'dolla_vlm' fsp is
+            # up since this one depends on it.
 
-            for name, axis_info in pi.axes.items():
-                # lol this sux XD
-                axis = axis_info['item']
-                if isinstance(axis, PriceAxis):
-                    axis.size_to_values()
+            fr_shm, started = await admin.start_engine_task(
+                flow_rates,
+                {  # fsp engine conf
+                    'func_name': 'flow_rates',
+                    'zero_on_step': True,
+                },
+                # loglevel,
+            )
+            await started.wait()
+
+            chart_curves(
+                dvlm_rate_fields,
+                dvlm_pi,
+                fr_shm,
+            )
+
+            # Trade rate overlay
+            # XXX: requires an additional overlay for
+            # a trades-per-period (time) y-range.
+            tr_pi = chart.overlay_plotitem(
+                'trade_rates',
+
+                # TODO: dynamically update period (and thus this axis?)
+                # title from user input.
+                axis_title='clears',
+
+                axis_side='left',
+                axis_kwargs={
+                    'typical_max_str': ' 10.0 M ',
+                    'formatter': partial(
+                        humanize,
+                        digits=2,
+                    ),
+                    'text_color': vlm_color,
+                },
+
+            )
+            # add custom auto range handler
+            tr_pi.vb.maxmin = partial(
+                maxmin,
+                # keep both regular and dark vlm in view
+                names=trade_rate_fields,
+            )
+
+            chart_curves(
+                trade_rate_fields,
+                tr_pi,
+                fr_shm,
+                # step_mode=True,
+
+                # dashed line to represent "individual trades" being
+                # more "granular" B)
+                style='dash',
+            )
+
+            for pi in (dvlm_pi, tr_pi):
+                for name, axis_info in pi.axes.items():
+                    # lol this sux XD
+                    axis = axis_info['item']
+                    if isinstance(axis, PriceAxis):
+                        axis.size_to_values()
 
         # built-in vlm fsps
         for target, conf in {

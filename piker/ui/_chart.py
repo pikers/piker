@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
 import numpy as np
 import pyqtgraph as pg
 import trio
+from pydantic import BaseModel
 
 from ._axes import (
     DynamicDateAxis,
@@ -614,17 +615,30 @@ class LinkedSplits(QWidget):
                 cpw.sidepane.setMinimumWidth(sp_w)
                 cpw.sidepane.setMaximumWidth(sp_w)
 
-# import pydantic
 
-# class Graphics(pydantic.BaseModel):
+# class FlowsTable(pydantic.BaseModel):
 #     '''
 #     Data-AGGRegate: high level API onto multiple (categorized)
-#     ``ShmArray``s with high level processing routines for
-#     graphics computations and display.
+#     ``Flow``s with high level processing routines for
+#     multi-graphics computations and display.
 
 #     '''
-#     arrays: dict[str, np.ndarray] = {}
-#     graphics: dict[str, pg.GraphicsObject] = {}
+#     flows: dict[str, np.ndarray] = {}
+
+
+class Flow(BaseModel):
+    '''
+    (FinancialSignal-)Flow compound type which wraps a real-time
+    graphics (curve) and its backing data stream together for high level
+    access and control.
+
+    '''
+    class Config:
+        arbitrary_types_allowed = True
+
+    name: str
+    plot: pg.PlotItem
+    shm: Optional[ShmArray] = None  # may be filled in "later"
 
 
 class ChartPlotWidget(pg.PlotWidget):
@@ -721,8 +735,9 @@ class ChartPlotWidget(pg.PlotWidget):
             self.data_key: array,
         }
         self._graphics = {}  # registry of underlying graphics
+
         # registry of overlay curve names
-        self._overlays: dict[str, ShmArray] = {}
+        self._flows: dict[str, Flow] = {}
 
         self._feeds: dict[Symbol, Feed] = {}
 
@@ -980,15 +995,15 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # TODO: this probably needs its own method?
         if overlay:
-            # anchor_at = ('bottom', 'left')
-            self._overlays[name] = None
-
             if isinstance(overlay, pg.PlotItem):
                 if overlay not in self.pi_overlay.overlays:
                     raise RuntimeError(
                             f'{overlay} must be from `.plotitem_overlay()`'
                         )
                 pi = overlay
+
+            # anchor_at = ('bottom', 'left')
+            self._flows[name] = Flow(name=name, plot=pi)
 
         else:
             # anchor_at = ('top', 'left')
@@ -1062,7 +1077,7 @@ class ChartPlotWidget(pg.PlotWidget):
         assert len(array)
         data_key = array_key or graphics_name
 
-        if graphics_name not in self._overlays:
+        if graphics_name not in self._flows:
             self._arrays[self.name] = array
         else:
             self._arrays[data_key] = array
@@ -1164,9 +1179,15 @@ class ChartPlotWidget(pg.PlotWidget):
         #     f"begin: {begin}, end: {end}, extra: {extra}"
         # )
 
-        a = self._arrays[name or self.name]
+        # TODO: here we should instead look up the ``Flow.shm.array``
+        # and read directly from shm to avoid copying to memory first
+        # and then reading it again here.
+        a = self._arrays.get(name or self.name)
+        if a is None:
+            return None
+
         ifirst = a[0]['index']
-        bars = a[lbar - ifirst:rbar - ifirst + 1]
+        bars = a[lbar - ifirst:(rbar - ifirst) + 1]
 
         if not len(bars):
             # likely no data loaded yet or extreme scrolling?

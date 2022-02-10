@@ -44,10 +44,14 @@ class Axis(pg.AxisItem):
         self,
         linkedsplits,
         typical_max_str: str = '100 000.000',
+        text_color: str = 'bracket',
         **kwargs
 
     ) -> None:
-        super().__init__(**kwargs)
+        super().__init__(
+            # textPen=textPen,
+            **kwargs
+        )
 
         # XXX: pretty sure this makes things slower
         # self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
@@ -74,14 +78,27 @@ class Axis(pg.AxisItem):
         })
 
         self.setTickFont(_font.font)
+
         # NOTE: this is for surrounding "border"
         self.setPen(_axis_pen)
+
         # this is the text color
-        self.setTextPen(_axis_pen)
+        # self.setTextPen(pg.mkPen(hcolor(text_color)))
+        self.text_color = text_color
+
         self.typical_br = _font._qfm.boundingRect(typical_max_str)
 
         # size the pertinent axis dimension to a "typical value"
         self.size_to_values()
+
+    @property
+    def text_color(self) -> str:
+        return self._text_color
+
+    @text_color.setter
+    def text_color(self, text_color: str) -> None:
+        self.setTextPen(pg.mkPen(hcolor(text_color)))
+        self._text_color = text_color
 
     def size_to_values(self) -> None:
         pass
@@ -109,7 +126,8 @@ class PriceAxis(Axis):
     def set_title(
         self,
         title: str,
-        view: Optional[ChartView] = None
+        view: Optional[ChartView] = None,
+        color: Optional[str] = None,
 
     ) -> Label:
         '''
@@ -123,7 +141,7 @@ class PriceAxis(Axis):
         label = self.title = Label(
             view=view or self.linkedView(),
             fmt_str=title,
-            color='bracket',
+            color=color or self.text_color,
             parent=self,
             # update_on_range_change=False,
         )

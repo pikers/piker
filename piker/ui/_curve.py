@@ -24,6 +24,7 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtGui, QtWidgets
 from PyQt5.QtCore import (
+    Qt,
     QLineF,
     QSizeF,
     QRectF,
@@ -85,6 +86,14 @@ def step_path_arrays_from_1d(
         return x_out, y_out
 
 
+_line_styles: dict[str, int] = {
+    'solid': Qt.PenStyle.SolidLine,
+    'dash': Qt.PenStyle.DashLine,
+    'dot': Qt.PenStyle.DotLine,
+    'dashdot': Qt.PenStyle.DashDotLine,
+}
+
+
 # TODO: got a feeling that dropping this inheritance gets us even more speedups
 class FastAppendCurve(pg.PlotCurveItem):
     '''
@@ -106,6 +115,8 @@ class FastAppendCurve(pg.PlotCurveItem):
         step_mode: bool = False,
         color: str = 'default_lightest',
         fill_color: Optional[str] = None,
+        style: str = 'solid',
+        name: Optional[str] = None,
 
         **kwargs
 
@@ -114,14 +125,22 @@ class FastAppendCurve(pg.PlotCurveItem):
         # TODO: we can probably just dispense with the parent since
         # we're basically only using the pen setting now...
         super().__init__(*args, **kwargs)
-
+        self._name = name
         self._xrange: tuple[int, int] = self.dataBounds(ax=0)
 
         # all history of curve is drawn in single px thickness
-        self.setPen(hcolor(color))
+        pen = pg.mkPen(hcolor(color))
+        pen.setStyle(_line_styles[style])
+
+        if 'dash' in style:
+            pen.setDashPattern([8, 3])
+
+        self.setPen(pen)
 
         # last segment is drawn in 2px thickness for emphasis
-        self.last_step_pen = pg.mkPen(hcolor(color), width=2)
+        # self.last_step_pen = pg.mkPen(hcolor(color), width=2)
+        self.last_step_pen = pg.mkPen(pen, width=2)
+
         self._last_line: QLineF = None
         self._last_step_rect: QRectF = None
 
@@ -135,7 +154,12 @@ class FastAppendCurve(pg.PlotCurveItem):
         # interactions slower (such as zooming) and if so maybe if/when
         # we implement a "history" mode for the view we disable this in
         # that mode?
-        self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
+        if step_mode:
+            # don't enable caching by default for the case where the
+            # only thing drawn is the "last" line segment which can
+            # have a weird artifact where it won't be fully drawn to its
+            # endpoint (something we saw on trade rate curves)
+            self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
     def update_from_array(
         self,
@@ -245,10 +269,13 @@ class FastAppendCurve(pg.PlotCurveItem):
                 # self.path.connectPath(append_path)
                 path.connectPath(append_path)
 
-            # XXX: pretty annoying but, without this there's little
-            # artefacts on the append updates to the curve...
-            self.setCacheMode(QtWidgets.QGraphicsItem.NoCache)
-            self.prepareGeometryChange()
+            self.disable_cache()
+            flip_cache = True
+
+        if (
+            self._step_mode
+        ):
+            self.disable_cache()
             flip_cache = True
 
             # print(f"update br: {self.path.boundingRect()}")
@@ -273,6 +300,7 @@ class FastAppendCurve(pg.PlotCurveItem):
                 x_last + 0.5, y_last
             )
         else:
+            # print((x[-1], y_last))
             self._last_line = QLineF(
                 x[-2], y[-2],
                 x[-1], y_last
@@ -286,6 +314,12 @@ class FastAppendCurve(pg.PlotCurveItem):
         if flip_cache:
             # XXX: seems to be needed to avoid artifacts (see above).
             self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
+
+    def disable_cache(self) -> None:
+        # XXX: pretty annoying but, without this there's little
+        # artefacts on the append updates to the curve...
+        self.setCacheMode(QtWidgets.QGraphicsItem.NoCache)
+        self.prepareGeometryChange()
 
     def boundingRect(self):
         if self.path is None:
@@ -323,6 +357,7 @@ class FastAppendCurve(pg.PlotCurveItem):
         p: QtGui.QPainter,
         opt: QtWidgets.QStyleOptionGraphicsItem,
         w: QtWidgets.QWidget
+
     ) -> None:
 
         profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
@@ -340,11 +375,11 @@ class FastAppendCurve(pg.PlotCurveItem):
             # p.drawPath(self.path)
             # profiler('.drawPath()')
 
-        # else:
         p.setPen(self.last_step_pen)
         p.drawLine(self._last_line)
         profiler('.drawLine()')
 
+        # else:
         p.setPen(self.opts['pen'])
         p.drawPath(self.path)
         profiler('.drawPath()')
