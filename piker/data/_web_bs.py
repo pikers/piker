@@ -53,11 +53,13 @@ class NoBsWs:
     def __init__(
         self,
         url: str,
+        token: str,
         stack: AsyncExitStack,
         fixture: Callable,
         serializer: ModuleType = json,
     ):
         self.url = url
+        self.token = token
         self.fixture = fixture
         self._stack = stack
         self._ws: 'WebSocketConnection' = None  # noqa
@@ -81,9 +83,15 @@ class NoBsWs:
                     trio_websocket.open_websocket_url(self.url)
                 )
                 # rerun user code fixture
-                ret = await self._stack.enter_async_context(
-                    self.fixture(self)
-                )
+                if self.token == '':
+                    ret = await self._stack.enter_async_context(
+                        self.fixture(self)
+                    )
+                else:
+                    ret = await self._stack.enter_async_context(
+                        self.fixture(self, self.token)
+                    )
+
                 assert ret is None
 
                 log.info(f'Connection success: {self.url}')
@@ -127,12 +135,14 @@ async def open_autorecon_ws(
 
     # TODO: proper type annot smh
     fixture: Callable,
+    # used for authenticated websockets
+    token: str = '',
 ) -> AsyncGenerator[tuple[...],  NoBsWs]:
     """Apparently we can QoS for all sorts of reasons..so catch em.
 
     """
     async with AsyncExitStack() as stack:
-        ws = NoBsWs(url, stack, fixture=fixture)
+        ws = NoBsWs(url, token, stack, fixture=fixture)
         await ws._connect()
 
         try:
