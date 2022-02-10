@@ -155,8 +155,11 @@ class BrokerdOrder(BaseModel):
 
 
 class BrokerdOrderAck(BaseModel):
-    '''Immediate reponse to a brokerd order request providing
-    the broker specifci unique order id.
+    '''
+    Immediate reponse to a brokerd order request providing the broker
+    specific unique order id so that the EMS can associate this
+    (presumably differently formatted broker side ID) with our own
+    ``.oid`` (which is a uuid4).
 
     '''
     name: str = 'ack'
@@ -203,7 +206,8 @@ class BrokerdStatus(BaseModel):
 
 
 class BrokerdFill(BaseModel):
-    '''A single message indicating a "fill-details" event from the broker
+    '''
+    A single message indicating a "fill-details" event from the broker
     if avaiable.
 
     '''
@@ -227,9 +231,11 @@ class BrokerdFill(BaseModel):
 
 
 class BrokerdError(BaseModel):
-    '''Optional error type that can be relayed to emsd for error handling.
+    '''
+    Optional error type that can be relayed to emsd for error handling.
 
     This is still a TODO thing since we're not sure how to employ it yet.
+
     '''
     name: str = 'error'
     oid: str

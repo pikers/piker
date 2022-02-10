@@ -521,7 +521,8 @@ async def translate_and_relay_brokerd_events(
     router: Router,
 
 ) -> AsyncIterator[dict]:
-    '''Trades update loop - receive updates from ``brokerd`` trades
+    '''
+    Trades update loop - receive updates from ``brokerd`` trades
     endpoint, convert to EMS response msgs, transmit **only** to
     ordering client(s).
 
