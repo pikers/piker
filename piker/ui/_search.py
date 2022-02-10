@@ -183,8 +183,11 @@ class CompleterView(QTreeView):
         # TODO: probably make this more general / less hacky
         # we should figure out the exact number of rows to allow
         # inclusive of search bar and header "rows", in pixel terms.
-        window_h = self.window().height()
-        rows = ceil(window_h / row_px) - 2
+        if row_px > 0:
+            window_h = self.window().height()
+            rows = ceil(window_h / row_px) - 2
+        else:
+            rows = 16
 
         # TODO: the problem here is that this view widget is **not**
         # resizing/scaling when the parent layout is adjusted, not sure
