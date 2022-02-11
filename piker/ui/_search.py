@@ -39,7 +39,6 @@ from typing import (
     Awaitable, Sequence,
     Any, AsyncIterator
 )
-from math import ceil
 import time
 # from pprint import pformat
 
@@ -158,7 +157,7 @@ class CompleterView(QTreeView):
         self.setStyleSheet(f"font: {size}px")
 
     # def resizeEvent(self, event: 'QEvent') -> None:
-    #     self.resize_to_results()
+    #     event.accept()
     #     super().resizeEvent(event)
 
     def on_resize(self) -> None:
@@ -171,27 +170,37 @@ class CompleterView(QTreeView):
     def resize_to_results(self):
         model = self.model()
         cols = model.columnCount()
+        # rows = model.rowCount()
 
         col_w_tot = 0
         for i in range(cols):
             self.resizeColumnToContents(i)
             col_w_tot += self.columnWidth(i)
 
-        row_px = self.rowHeight(self.currentIndex())
+        win = self.window()
+        win_h = win.height()
+        edit_h = self.parent().bar.height()
+        sb_h = win.statusBar().height()
 
         # TODO: probably make this more general / less hacky
         # we should figure out the exact number of rows to allow
         # inclusive of search bar and header "rows", in pixel terms.
-        if row_px > 0:
-            window_h = self.window().height()
-            rows = ceil(window_h / row_px) - 3
-        else:
-            rows = 16
-
-        self.setFixedHeight(rows * row_px)
-
+        # Eventually when we have an "info" widget below the results we
+        # will want space for it and likely terminating the results-view
+        # space **exactly on a row** would be ideal.
+        # if row_px > 0:
+        #     rows = ceil(window_h / row_px) - 4
+        # else:
+        #     rows = 16
+        # self.setFixedHeight(rows * row_px)
         # self.resize(self.width(), rows * row_px)
-        self.resize(self.width(), rows * row_px)
+
+        # NOTE: if the heigh set here is **too large** then the resize
+        # event will perpetually trigger as the window causes some kind
+        # of recompute of callbacks.. so we have to ensure it's limited.
+        h = win_h - (edit_h + 1.666*sb_h)
+        assert h > 0
+        self.setFixedHeight(round(h))
 
         # size to width of longest result seen thus far
         # TODO: should we always dynamically scale to longest result?
