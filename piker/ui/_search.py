@@ -112,7 +112,6 @@ class CompleterView(QTreeView):
 
         model = QStandardItemModel(self)
         self.labels = labels
-        self._last_window_h: Optional[int] = None
 
         # a std "tabular" config
         self.setItemDelegate(FontScaledDelegate(self))
@@ -185,21 +184,14 @@ class CompleterView(QTreeView):
         # inclusive of search bar and header "rows", in pixel terms.
         if row_px > 0:
             window_h = self.window().height()
-            rows = ceil(window_h / row_px) - 2
+            rows = ceil(window_h / row_px) - 6
         else:
             rows = 16
 
-        # TODO: the problem here is that this view widget is **not**
-        # resizing/scaling when the parent layout is adjusted, not sure
-        # what exactly is up... only "scale up" the results view
-        # when the window size has increased/
-        if not self._last_window_h or self._last_window_h < window_h:
-            self.setMaximumSize(self.width(), rows * row_px)
-            self.setMinimumSize(self.width(), rows * row_px)
+        self.setFixedHeight(rows * row_px)
 
         # self.resize(self.width(), rows * row_px)
         self.resize(self.width(), rows * row_px)
-        self._last_window_h = window_h
 
         # size to width of longest result seen thus far
         # TODO: should we always dynamically scale to longest result?
@@ -255,7 +247,8 @@ class CompleterView(QTreeView):
         idx: QModelIndex,
 
     ) -> QStandardItem:
-        '''Select and return the item at index ``idx``.
+        '''
+        Select and return the item at index ``idx``.
 
         '''
         sel = self.selectionModel()
@@ -270,7 +263,8 @@ class CompleterView(QTreeView):
         return model.itemFromIndex(idx)
 
     def select_first(self) -> QStandardItem:
-        '''Select the first depth >= 2 entry from the completer tree and
+        '''
+        Select the first depth >= 2 entry from the completer tree and
         return it's item.
 
         '''
@@ -333,7 +327,8 @@ class CompleterView(QTreeView):
         section: str,
 
     ) -> Optional[QModelIndex]:
-        '''Find the *first* depth = 1 section matching ``section`` in
+        '''
+        Find the *first* depth = 1 section matching ``section`` in
         the tree and return its index.
 
         '''
