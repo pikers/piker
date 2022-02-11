@@ -61,7 +61,9 @@ _do_overrides()
 # XXX: pretty sure none of this shit works on linux as per:
 # https://bugreports.qt.io/browse/QTBUG-53022
 # it seems to work on windows.. no idea wtf is up.
+is_windows = False
 if platform.system() == "Windows":
+    is_windows = True
 
     # Proper high DPI scaling is available in Qt >= 5.6.0. This attibute
     # must be set before creating the application
@@ -182,6 +184,8 @@ def run_qtractor(
 
     window.main_widget = main_widget
     window.setCentralWidget(instance)
+    if is_windows:
+        window.configure_to_desktop()
 
     # actually render to screen
     window.show()

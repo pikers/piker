@@ -22,6 +22,7 @@ import math
 
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui
+from PyQt5.QtCore import Qt, QCoreApplication
 from qdarkstyle import DarkPalette
 
 from ..log import get_logger
@@ -121,6 +122,9 @@ class DpiAwareFont:
         dpi = mn_dpi
 
         mult = 1.0
+
+        # No implicit DPI scaling was done by the DE so let's engage
+        # some hackery ad-hoc scaling shiat.
         # dpi is likely somewhat scaled down so use slightly larger font size
         if scale >= 1.1 and self._font_size:
 
@@ -131,9 +135,19 @@ class DpiAwareFont:
             if scale >= 1.5:
                 mult = 1.375
 
-            # TODO: this multiplier should probably be determined from
-            # relative aspect ratios or something?
-            inches *= mult
+        # TODO: this multiplier should probably be determined from
+        # relative aspect ratios or something?
+        inches *= mult
+
+        # XXX: if additionally we detect a known DE scaling factor we
+        # also scale *up* our font size on top of the existing
+        # heuristical (aka no clue why it works) scaling from the block
+        # above XD
+        if (
+            hasattr(Qt, 'AA_EnableHighDpiScaling')
+            and QCoreApplication.testAttribute(Qt.AA_EnableHighDpiScaling)
+        ):
+            inches *= round(scale)
 
         # TODO: we might want to fiddle with incrementing font size by
         # +1 for the edge cases above. it seems doing it via scaling is

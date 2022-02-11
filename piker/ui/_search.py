@@ -49,7 +49,6 @@ from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import (
     Qt,
-    # QSize,
     QModelIndex,
     QItemSelectionModel,
 )
@@ -126,6 +125,10 @@ class CompleterView(QTreeView):
         # self.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
 
         # ux settings
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding,
+            QtWidgets.QSizePolicy.Expanding,
+        )
         self.setItemsExpandable(True)
         self.setExpandsOnDoubleClick(False)
         self.setAnimated(False)
@@ -153,23 +156,58 @@ class CompleterView(QTreeView):
 
         self.setStyleSheet(f"font: {size}px")
 
-    def resize(self):
+    # def resizeEvent(self, event: 'QEvent') -> None:
+    #     event.accept()
+    #     super().resizeEvent(event)
+
+    def on_resize(self) -> None:
+        '''
+        Resize relay event from god.
+
+        '''
+        self.resize_to_results()
+
+    def resize_to_results(self):
         model = self.model()
         cols = model.columnCount()
+        # rows = model.rowCount()
 
+        col_w_tot = 0
         for i in range(cols):
             self.resizeColumnToContents(i)
+            col_w_tot += self.columnWidth(i)
 
-        # inclusive of search bar and header "rows" in pixel terms
-        rows = 100
-        # max_rows = 8  # 6 + search and headers
-        row_px = self.rowHeight(self.currentIndex())
-        # print(f'font_h: {font_h}\n px_height: {px_height}')
+        win = self.window()
+        win_h = win.height()
+        edit_h = self.parent().bar.height()
+        sb_h = win.statusBar().height()
 
         # TODO: probably make this more general / less hacky
-        self.setMinimumSize(self.width(), rows * row_px)
-        self.setMaximumSize(self.width() + 10, rows * row_px)
-        self.setFixedWidth(333)
+        # we should figure out the exact number of rows to allow
+        # inclusive of search bar and header "rows", in pixel terms.
+        # Eventually when we have an "info" widget below the results we
+        # will want space for it and likely terminating the results-view
+        # space **exactly on a row** would be ideal.
+        # if row_px > 0:
+        #     rows = ceil(window_h / row_px) - 4
+        # else:
+        #     rows = 16
+        # self.setFixedHeight(rows * row_px)
+        # self.resize(self.width(), rows * row_px)
+
+        # NOTE: if the heigh set here is **too large** then the resize
+        # event will perpetually trigger as the window causes some kind
+        # of recompute of callbacks.. so we have to ensure it's limited.
+        h = win_h - (edit_h + 1.666*sb_h)
+        assert h > 0
+        self.setFixedHeight(round(h))
+
+        # size to width of longest result seen thus far
+        # TODO: should we always dynamically scale to longest result?
+        if self.width() < col_w_tot:
+            self.setFixedWidth(col_w_tot)
+
+        self.update()
 
     def is_selecting_d1(self) -> bool:
         cidx = self.selectionModel().currentIndex()
@@ -218,7 +256,8 @@ class CompleterView(QTreeView):
         idx: QModelIndex,
 
     ) -> QStandardItem:
-        '''Select and return the item at index ``idx``.
+        '''
+        Select and return the item at index ``idx``.
 
         '''
         sel = self.selectionModel()
@@ -233,7 +272,8 @@ class CompleterView(QTreeView):
         return model.itemFromIndex(idx)
 
     def select_first(self) -> QStandardItem:
-        '''Select the first depth >= 2 entry from the completer tree and
+        '''
+        Select the first depth >= 2 entry from the completer tree and
         return it's item.
 
         '''
@@ -296,7 +336,8 @@ class CompleterView(QTreeView):
         section: str,
 
     ) -> Optional[QModelIndex]:
-        '''Find the *first* depth = 1 section matching ``section`` in
+        '''
+        Find the *first* depth = 1 section matching ``section`` in
         the tree and return its index.
 
         '''
@@ -334,7 +375,7 @@ class CompleterView(QTreeView):
             else:
                 model.setItem(idx.row(), 1, QStandardItem())
 
-            self.resize()
+            self.resize_to_results()
 
             return idx
         else:
@@ -405,7 +446,7 @@ class CompleterView(QTreeView):
 
     def show_matches(self) -> None:
         self.show()
-        self.resize()
+        self.resize_to_results()
 
 
 class SearchBar(Edit):
@@ -425,6 +466,7 @@ class SearchBar(Edit):
         self.godwidget = godwidget
         super().__init__(parent, **kwargs)
         self.view: CompleterView = view
+        godwidget._widgets[view.mode_name] = view
 
     def show(self) -> None:
         super().show()
@@ -459,7 +501,7 @@ class SearchWidget(QtWidgets.QWidget):
         # size it as we specify
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Fixed,
-            QtWidgets.QSizePolicy.Fixed,
+            QtWidgets.QSizePolicy.Expanding,
         )
 
         self.godwidget = godwidget

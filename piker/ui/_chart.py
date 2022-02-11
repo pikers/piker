@@ -112,6 +112,9 @@ class GodWidget(QWidget):
         # assigned in the startup func `_async_main()`
         self._root_n: trio.Nursery = None
 
+        self._widgets: dict[str, QWidget] = {}
+        self._resizing: bool = False
+
     # def init_timeframes_ui(self):
     #     self.tf_layout = QHBoxLayout()
     #     self.tf_layout.setSpacing(0)
@@ -259,7 +262,16 @@ class GodWidget(QWidget):
         Where we do UX magic to make things not suck B)
 
         '''
-        log.debug('god widget resize')
+        if self._resizing:
+            return
+
+        self._resizing = True
+
+        log.info('God widget resize')
+        for name, widget in self._widgets.items():
+            widget.on_resize()
+
+        self._resizing = False
 
 
 class ChartnPane(QFrame):

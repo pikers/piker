@@ -1204,6 +1204,11 @@ async def backfill_bars(
     https://github.com/pikers/piker/issues/128
 
     """
+    if platform.system() == 'Windows':
+        log.warning(
+            'Decreasing history query count to 4 since, windows...')
+        count = 4
+
     out, fails = await get_bars(sym)
 
     if out is None:
