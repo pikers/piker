@@ -184,7 +184,7 @@ class CompleterView(QTreeView):
         # inclusive of search bar and header "rows", in pixel terms.
         if row_px > 0:
             window_h = self.window().height()
-            rows = ceil(window_h / row_px) - 6
+            rows = ceil(window_h / row_px) - 3
         else:
             rows = 16
 
