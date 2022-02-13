@@ -7,3 +7,8 @@
 # pin this to a dev branch that we have more control over especially
 # as more graphics stuff gets hashed out.
 -e git+git://github.com/pikers/pyqtgraph.git@piker_pin#egg=pyqtgraph
+
+
+# we own and maintain the async client for `marketstore` in our org
+# `anyio_marketstore`:
+-e git+git://github.com/pikers/anyio-marketstore.git@master#egg=anyio-marketstore
