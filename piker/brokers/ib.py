@@ -20,6 +20,7 @@ Interactive Brokers API backend.
 Note the client runs under an ``asyncio`` loop (since ``ib_insync`` is
 built on it) and thus actor aware API calls must be spawned with
 ``infected_aio==True``.
+
 """
 from contextlib import asynccontextmanager as acm
 from dataclasses import asdict
@@ -547,10 +548,12 @@ class Client:
         # existing order so ask the client to create a new one (which it
         # seems to do by allocating an int counter - collision prone..)
         reqid: int = None,
-    ) -> int:
-        """Place an order and return integer request id provided by client.
 
-        """
+    ) -> int:
+        '''
+        Place an order and return integer request id provided by client.
+
+        '''
         try:
             contract = self._contracts[symbol]
         except KeyError:
@@ -1608,7 +1611,7 @@ async def handle_order_requests(
 
     global _accounts2clients
 
-    # request_msg: dict
+    request_msg: dict
     async for request_msg in ems_order_stream:
         log.info(f'Received order request {request_msg}')
 
