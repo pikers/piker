@@ -30,8 +30,34 @@ from .log import get_logger
 
 log = get_logger('broker-config')
 
-_config_dir = click.get_app_dir('piker')
+_config_dir = _click_config_dir = click.get_app_dir('piker')
+_parent_user = os.environ.get('SUDO_USER')
+
+if _parent_user:
+    non_root_user_dir = os.path.expanduser(
+        f'~{_parent_user}'
+    )
+    root = 'root'
+    _config_dir = (
+        non_root_user_dir +
+        _click_config_dir[
+            _click_config_dir.rfind(root) + len(root):
+        ]
+    )
+
 _file_name = 'brokers.toml'
+_watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
+_context_defaults = dict(
+    default_map={
+        # Questrade specific quote poll rates
+        'monitor': {
+            'rate': 3,
+        },
+        'optschain': {
+            'rate': 1,
+        },
+    }
+)
 
 
 def _override_config_dir(
