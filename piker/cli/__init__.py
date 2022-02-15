@@ -16,20 +16,6 @@ from .. import config
 log = get_logger('cli')
 DEFAULT_BROKER = 'questrade'
 
-_config_dir = click.get_app_dir('piker')
-_watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
-_context_defaults = dict(
-    default_map={
-        # Questrade specific quote poll rates
-        'monitor': {
-            'rate': 3,
-        },
-        'optschain': {
-            'rate': 1,
-        },
-    }
-)
-
 
 @click.command()
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
@@ -58,7 +44,7 @@ def pikerd(loglevel, host, tl, pdb):
     trio.run(main)
 
 
-@click.group(context_settings=_context_defaults)
+@click.group(context_settings=config._context_defaults)
 @click.option(
     '--brokers', '-b',
     default=[DEFAULT_BROKER],
@@ -87,8 +73,8 @@ def cli(ctx, brokers, loglevel, tl, configdir):
         'loglevel': loglevel,
         'tractorloglevel': None,
         'log': get_console_log(loglevel),
-        'confdir': _config_dir,
-        'wl_path': _watchlists_data_path,
+        'confdir': config._config_dir,
+        'wl_path': config._watchlists_data_path,
     })
 
     # allow enabling same loglevel in ``tractor`` machinery
