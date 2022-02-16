@@ -131,6 +131,7 @@ async def graphics_update_loop(
     #   of copying it from last bar's close
     # - 1-5 sec bar lookback-autocorrection like tws does?
     #   (would require a background history checker task)
+    display_rate = linked.godwidget.window.current_screen().refreshRate()
 
     chart = linked.chart
 
@@ -215,7 +216,8 @@ async def graphics_update_loop(
 
             # in the absolute worst case we shouldn't see more then
             # twice the expected throttle rate right!?
-            and quote_rate >= _quote_throttle_rate * 1.5
+            # and quote_rate >= _quote_throttle_rate * 2
+            and quote_rate >= display_rate
         ):
             log.warning(f'High quote rate {symbol.key}: {quote_rate}')
 
