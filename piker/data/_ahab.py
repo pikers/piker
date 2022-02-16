@@ -149,7 +149,6 @@ async def open_marketstore_container(
     '''
     # log = get_console_log('info', name=__name__)
 
-    # client = docker.from_env(**kwargs)
     async with open_docker() as client:
         # create a mount from user's local piker config dir into container
         config_dir_mnt = docker.types.Mount(
