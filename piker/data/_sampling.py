@@ -22,14 +22,16 @@ financial data flows.
 from __future__ import annotations
 from collections import Counter
 import time
+from typing import TYPE_CHECKING
 
 import tractor
 import trio
 from trio_typing import TaskStatus
 
-from ._sharedmem import ShmArray
 from ..log import get_logger
 
+if TYPE_CHECKING:
+    from ._sharedmem import ShmArray
 
 log = get_logger(__name__)
 
