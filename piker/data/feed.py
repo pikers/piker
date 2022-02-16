@@ -20,6 +20,7 @@ Data feed apis and infra.
 This module is enabled for ``brokerd`` daemons.
 
 """
+from __future__ import annotations
 from dataclasses import dataclass, field
 from contextlib import asynccontextmanager
 from functools import partial
