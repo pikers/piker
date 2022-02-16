@@ -16,27 +16,30 @@
 
 """
 Data buffers for fast shared humpy.
+
 """
+from __future__ import annotations
 import time
-from typing import Dict, List
+from typing import TYPE_CHECKING
 
 import tractor
 import trio
 from trio_typing import TaskStatus
 
-from ._sharedmem import ShmArray
 from ..log import get_logger
 
+if TYPE_CHECKING:
+    from ._sharedmem import ShmArray
 
 log = get_logger(__name__)
 
 
 # TODO: we could stick these in a composed type to avoid
 # angering the "i hate module scoped variables crowd" (yawn).
-_shms: Dict[int, List[ShmArray]] = {}
-_start_increment: Dict[str, trio.Event] = {}
-_incrementers: Dict[int, trio.CancelScope] = {}
-_subscribers: Dict[str, tractor.Context] = {}
+_shms: dict[int, list[ShmArray]] = {}
+_start_increment: dict[str, trio.Event] = {}
+_incrementers: dict[int, trio.CancelScope] = {}
+_subscribers: dict[str, tractor.Context] = {}
 
 
 def shm_incrementing(shm_token_name: str) -> trio.Event:
