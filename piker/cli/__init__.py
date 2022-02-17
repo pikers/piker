@@ -22,9 +22,16 @@ DEFAULT_BROKER = 'questrade'
 @click.option('--tl', is_flag=True, help='Enable tractor logging')
 @click.option('--pdb', is_flag=True, help='Enable tractor debug mode')
 @click.option('--host', '-h', default='127.0.0.1', help='Host address to bind')
-def pikerd(loglevel, host, tl, pdb):
-    """Spawn the piker broker-daemon.
-    """
+@click.option(
+    '--tsdb',
+    is_flag=True,
+    help='Enable local ``marketstore`` instance'
+)
+def pikerd(loglevel, host, tl, pdb, tsdb):
+    '''
+    Spawn the piker broker-daemon.
+
+    '''
     from .._daemon import open_pikerd
     log = get_console_log(loglevel)
 
@@ -38,7 +45,21 @@ def pikerd(loglevel, host, tl, pdb):
         ))
 
     async def main():
-        async with open_pikerd(loglevel=loglevel, debug_mode=pdb):
+
+        async with (
+            open_pikerd(
+                loglevel=loglevel,
+                debug_mode=pdb,
+            ) as services,
+            trio.open_nursery() as n,
+        ):
+            if tsdb:
+                from piker.data._ahab import start_ahab
+                log.info('Spawning `marketstore` supervisor')
+                ctn_ready = await n.start(start_ahab)
+                await ctn_ready.wait()
+                log.info('`marketstore` container:{uid} up')
+
             await trio.sleep_forever()
 
     trio.run(main)
