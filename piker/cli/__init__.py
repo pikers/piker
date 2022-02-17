@@ -50,7 +50,7 @@ def pikerd(loglevel, host, tl, pdb, tsdb):
             open_pikerd(
                 loglevel=loglevel,
                 debug_mode=pdb,
-            ) as services,
+            ),  # normally delivers a ``Services`` handle
             trio.open_nursery() as n,
         ):
             if tsdb:
