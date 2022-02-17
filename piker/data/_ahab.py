@@ -18,6 +18,7 @@
 Supervisor for docker with included specific-image service helpers.
 
 '''
+import os
 from typing import (
     Optional,
     # Any,
@@ -35,7 +36,7 @@ from docker.errors import DockerException
 from requests.exceptions import ConnectionError
 
 from ..log import get_logger  # , get_console_log
-from ..config import _config_dir
+from .. import config
 
 log = get_logger(__name__)
 
@@ -78,8 +79,10 @@ triggers:
 
 '''
 
+
 class DockerNotStarted(Exception):
     'Prolly you dint start da daemon bruh'
+
 
 @acm
 async def open_docker(
@@ -171,7 +174,7 @@ async def open_marketstore(
         # create a mount from user's local piker config dir into container
         config_dir_mnt = docker.types.Mount(
             target='/etc',
-            source=_config_dir,
+            source=config._config_dir,
             type='bind',
         )
 
@@ -226,19 +229,26 @@ async def start_ahab(
 ) -> None:
 
     cn_ready = trio.Event()
-    task_status.started(cn_ready)
     async with tractor.open_nursery(
         loglevel='runtime',
     ) as tn:
-        async with (
-            (
-                await tn.start_actor('ahab', enable_modules=[__name__])
-            ).open_context(
-                open_marketstore,
-            ) as (ctx, first),
-        ):
-            assert str(first)
 
+        portal = await tn.start_actor('ahab', enable_modules=[__name__])
+        if config._parent_user:
+            import pwd
+            os.setuid(
+                pwd.getpwnam(
+                    config._parent_user
+                )[2]  # named user's uid
+            )
+
+        task_status.started(cn_ready)
+
+        async with portal.open_context(
+            open_marketstore,
+        ) as (ctx, first):
+
+            assert str(first)
             # run till cancelled
             await trio.sleep_forever()
 
