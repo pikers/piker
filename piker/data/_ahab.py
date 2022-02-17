@@ -23,9 +23,11 @@ from typing import (
     # Any,
 )
 from contextlib import asynccontextmanager as acm
+from requests.exceptions import ConnectionError
 # import time
 
 import trio
+from trio_typing import TaskStatus
 import tractor
 import docker
 import json
@@ -75,6 +77,8 @@ triggers:
 
 '''
 
+class DockerNotStarted(Exception):
+    'Prolly you dint start da daemon bruh'
 
 @acm
 async def open_docker(
@@ -83,10 +87,16 @@ async def open_docker(
 
 ) -> docker.DockerClient:
 
-    client = docker.DockerClient(
-        base_url=url,
-        **kwargs
-    ) if url else docker.from_env(**kwargs)
+    try:
+        client = docker.DockerClient(
+            base_url=url,
+            **kwargs
+        ) if url else docker.from_env(**kwargs)
+    except (
+        ConnectionError,
+        docker.errors.DockerException,
+    ):
+        raise DockerNotStarted('!?!?')
 
     try:
         yield client
@@ -131,7 +141,7 @@ async def open_docker(
 
 
 @tractor.context
-async def open_marketstore_container(
+async def open_marketstore(
     ctx: tractor.Context,
     **kwargs,
 
@@ -195,15 +205,20 @@ async def open_marketstore_container(
                     'Failed to start `marketstore` check logs output for deats'
                 )
 
-            await ctx.started()
+            await ctx.started(cntr.id)
             await trio.sleep_forever()
 
         finally:
             cntr.stop()
 
 
-async def main():
+async def start_ahab(
+    task_status: TaskStatus[trio.Event] = trio.TASK_STATUS_IGNORED,
 
+) -> None:
+
+    cn_ready = trio.Event()
+    task_status.started(cn_ready)
     async with tractor.open_nursery(
         loglevel='runtime',
     ) as tn:
@@ -211,11 +226,18 @@ async def main():
             (
                 await tn.start_actor('ahab', enable_modules=[__name__])
             ).open_context(
-                open_marketstore_container
+                open_marketstore,
             ) as (ctx, first),
         ):
-            assert not first
+            assert str(first)
+
+            # run till cancelled
             await trio.sleep_forever()
+
+
+async def main():
+    await start_ahab()
+    await trio.sleep_forever()
 
 
 if __name__ == '__main__':
