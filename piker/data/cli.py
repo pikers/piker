@@ -16,6 +16,7 @@
 
 """
 marketstore cli.
+
 """
 from typing import List
 from functools import partial
