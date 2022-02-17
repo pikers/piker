@@ -303,7 +303,7 @@ async def maybe_spawn_daemon(
     **kwargs,
 
 ) -> tractor.Portal:
-    """
+    '''
     If no ``service_name`` daemon-actor can be found,
     spawn one in a local subactor and return a portal to it.
 
@@ -314,7 +314,7 @@ async def maybe_spawn_daemon(
     This can be seen as a service starting api for remote-actor
     clients.
 
-    """
+    '''
     if loglevel:
         get_console_log(loglevel)
 
@@ -423,7 +423,9 @@ async def maybe_spawn_brokerd(
     **kwargs,
 
 ) -> tractor.Portal:
-    '''Helper to spawn a brokerd service.
+    '''
+    Helper to spawn a brokerd service *from* a client
+    who wishes to use the sub-actor-daemon.
 
     '''
     async with maybe_spawn_daemon(
