@@ -609,35 +609,43 @@ async def handle_order_requests(
         elif action == 'cancel':
             msg = BrokerdCancel(**request_msg)
 
-            # Send order cancellation to kraken
-            resp = await client.submit_cancel(
-                reqid=msg.reqid
-            )
+            cancel_msg = {
+                "event": "cancelOrder",
+                "token": token,
+                "txid": [msg.reqid]
+            }
 
-            try:
-                # Check to make sure there was no error returned by
-                # the kraken endpoint. Assert one order was cancelled
-                assert resp['error'] == []
-                assert resp['result']['count'] == 1
+            await ws.send_msg(cancel_msg)
 
-                ## TODO: Change this code using .get
-                try:
-                    pending = resp['result']['pending']
-                # Check to make sure the cancellation is NOT pending,
-                # then send the confirmation to the ems order stream
-                except KeyError:
-                    await ems_order_stream.send(
-                        BrokerdStatus(
-                            reqid=msg.reqid,
-                            account=msg.account,
-                            time_ns=time.time_ns(),
-                            status='cancelled',
-                            reason='Order cancelled',
-                            broker_details={'name': 'kraken'}
-                        ).dict()
-                    )
-            except AssertionError:
-                log.error(f'Order cancel was not successful')
+            ## Send order cancellation to kraken
+            #resp = await client.submit_cancel(
+            #    reqid=msg.reqid
+            #)
+
+            #try:
+            #    # Check to make sure there was no error returned by
+            #    # the kraken endpoint. Assert one order was cancelled
+            #    assert resp['error'] == []
+            #    assert resp['result']['count'] == 1
+
+            #    ## TODO: Change this code using .get
+            #    try:
+            #        pending = resp['result']['pending']
+            #    # Check to make sure the cancellation is NOT pending,
+            #    # then send the confirmation to the ems order stream
+            #    except KeyError:
+            #        await ems_order_stream.send(
+            #            BrokerdStatus(
+            #                reqid=msg.reqid,
+            #                account=msg.account,
+            #                time_ns=time.time_ns(),
+            #                status='cancelled',
+            #                reason='Order cancelled',
+            #                broker_details={'name': 'kraken'}
+            #            ).dict()
+            #        )
+            #except AssertionError:
+            #    log.error(f'Order cancel was not successful')
 
         else:
             log.error(f'Unknown order command: {request_msg}')
@@ -746,8 +754,19 @@ async def trades_dialogue(
                 async for msg in process_order_msgs(ws):
                     pprint(msg)
                     for order in msg:
-                        ## TODO: Maybe do a better
+                        ## TODO: Maybe do a better check and handle accounts
                         if type(order) == dict:
+                            if order['status'] == 'canceled':
+                                await ems_stream.send(
+                                    BrokerdStatus(
+                                        account='kraken.spot',
+                                        reqid=order['txid'],
+                                        time_ns=time.time_ns(),
+                                        status='cancelled',
+                                        reason='Order cancelled',
+                                        broker_details={'name': 'kraken'}
+                                    ).dict()
+                                )
                             for pending_order in pending_orders:
                                 if pending_order.txid == order['txid'] and order['status'] == 'open':
                                     await ems_stream.send(
