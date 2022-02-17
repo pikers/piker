@@ -23,7 +23,6 @@ from typing import (
     # Any,
 )
 from contextlib import asynccontextmanager as acm
-from requests.exceptions import ConnectionError
 # import time
 
 import trio
@@ -32,6 +31,8 @@ import tractor
 import docker
 import json
 from docker.models.containers import Container
+from docker.errors import DockerException
+from requests.exceptions import ConnectionError
 
 from ..log import get_logger  # , get_console_log
 from ..config import _config_dir
@@ -87,24 +88,31 @@ async def open_docker(
 
 ) -> docker.DockerClient:
 
+    client: Optional[docker.DockerClient] = None
     try:
         client = docker.DockerClient(
             base_url=url,
             **kwargs
         ) if url else docker.from_env(**kwargs)
-    except (
-        ConnectionError,
-        docker.errors.DockerException,
-    ):
+        yield client
+    except ConnectionError:
+        # prolly no daemon started
         raise DockerNotStarted('!?!?')
 
-    try:
-        yield client
+    except DockerException as err:
+        # could be more specific so let's check if it's just perms.
+        if 'PermissionError' in err.args[0]:
+            raise DockerException('You dint run as root yo!')
+
+        # not perms?
+        raise
+
     finally:
-        # for c in client.containers.list():
-        #     c.kill()
-        client.close()
-        # client.api._custom_adapter.close()
+        if client:
+            # for c in client.containers.list():
+            #     c.kill()
+            client.close()
+            # client.api._custom_adapter.close()
 
 
 # async def waitfor(
