@@ -550,7 +550,8 @@ async def display_symbol_data(
         # load in symbol's ohlc data
         godwidget.window.setWindowTitle(
             f'{symbol.key}@{symbol.brokers} '
-            f'tick:{symbol.tick_size}'
+            f'tick:{symbol.tick_size} '
+            f'step:1s '
         )
 
         linkedsplits = godwidget.linkedsplits
