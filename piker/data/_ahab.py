@@ -32,7 +32,7 @@ import tractor
 import docker
 import json
 from docker.models.containers import Container
-from docker.errors import DockerException
+from docker.errors import DockerException, APIError
 from requests.exceptions import ConnectionError
 
 from ..log import get_logger  # , get_console_log
@@ -102,10 +102,23 @@ async def open_docker(
         # prolly no daemon started
         raise DockerNotStarted('!?!?')
 
-    except DockerException as err:
+    except (
+        DockerException,
+        APIError,
+    ) as err:
+
+        def unpack_msg(err: Exception) -> str:
+            args = getattr(err, 'args', None)
+            if args:
+                return args
+
         # could be more specific so let's check if it's just perms.
-        if 'PermissionError' in err.args[0]:
-            raise DockerException('You dint run as root yo!')
+        if err.args:
+            errs = err.args
+            for err in errs:
+                msg = unpack_msg(err)
+                if msg and 'PermissionError' in msg:
+                    raise DockerException('You dint run as root yo!')
 
         # not perms?
         raise
@@ -233,7 +246,13 @@ async def start_ahab(
         loglevel='runtime',
     ) as tn:
 
-        portal = await tn.start_actor('ahab', enable_modules=[__name__])
+        portal = await tn.start_actor(
+            'marketstored',
+            enable_modules=[__name__]
+        )
+
+        # de-escalate root perms to the original user
+        # after the docker supervisor actor is spawned.
         if config._parent_user:
             import pwd
             os.setuid(
