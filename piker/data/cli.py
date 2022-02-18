@@ -111,20 +111,27 @@ def ms_stream(config: dict, names: List[str], url: str):
 )
 @click.option(
     '--port',
-    default=5995
+    default=5993
 )
 @click.pass_obj
 def ms_shell(config, tl, host, port):
-    """Start an IPython shell ready to query the local marketstore db.
-    """
-    async def main():
-        async with open_marketstore_client(host, port) as client:
-            query = client.query  # noqa
-            # TODO: write magics to query marketstore
-            from IPython import embed
-            embed()
+    '''
+    Start an IPython shell ready to query the local marketstore db.
 
-    tractor.run(main)
+    '''
+    from piker.data.marketstore import backfill_history
+    from piker._daemon import open_piker_runtime
+    async def main():
+        async with open_piker_runtime(
+            'ms_shell',
+            enable_modules=['piker.data._ahab'],
+        ):
+            await backfill_history()
+            # TODO: write magics to query marketstore
+            # from IPython import embed
+            # embed()
+
+    trio.run(main)
 
 
 @cli.command()
