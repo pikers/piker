@@ -27,6 +27,8 @@ from pathlib import Path
 import toml
 import click
 
+from bidict import bidict
+
 from .log import get_logger
 
 log = get_logger('broker-config')
