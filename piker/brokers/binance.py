@@ -196,20 +196,11 @@ class Client:
         if signed:
             params['signature'] = self._get_signature(params)
 
-        if action == 'get':
-            resp = await self._sesh.get(
-                path=f'/api/v3/{method}',
-                params=params,
-                timeout=float('inf')
-            )
-
-        elif action == 'post':
-            resp = await self._sesh.post(
-                path=f'/api/v3/{method}',
-                params=params,
-                timeout=float('inf')
-            )
-
+        resp = await getattr(self._sesh, action)(
+            path=f'/api/v3/{method}',
+            params=params,
+            timeout=float('inf')
+        )
 
         return resproc(resp, log)
 
