@@ -59,6 +59,19 @@ tf_in_1m = {
 }
 
 
+def mk_fqsn(
+    provider: str,
+    symbol: str,
+
+) -> str:
+    '''
+    Generate a "fully qualified symbol name" which is
+    a reverse-hierarchical cross broker/provider symbol
+
+    '''
+    return '.'.join([symbol, provider]).lower()
+
+
 def float_digits(
     value: float,
 ) -> int:
@@ -118,6 +131,12 @@ class Symbol(BaseModel):
             self.key,
         )
 
+    def iterfqsns(self) -> list[str]:
+        return [
+            mk_fqsn(self.key, broker)
+            for broker in self.broker_info.keys()
+        ]
+
 
 @validate_arguments
 def mk_symbol(
@@ -129,7 +148,8 @@ def mk_symbol(
     broker_info: dict[str, Any] = {},
 
 ) -> Symbol:
-    '''Create and return an instrument description for the
+    '''
+    Create and return an instrument description for the
     "symbol" named as ``key``.
 
     '''
