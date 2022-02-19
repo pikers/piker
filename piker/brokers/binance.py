@@ -76,6 +76,7 @@ def get_config() -> 'configparser.ConfigParser':
 
 
 _url = 'https://api.binance.com'
+_fapi_url = 'https://testnet.binancefuture.com'
 
 # XXX: some additional fields are defined in the docs:
 # https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
@@ -159,6 +160,10 @@ class Client:
     def __init__(self) -> None:
         self._sesh = asks.Session(connections=4)
         self._sesh.base_location = _url
+
+        self._fapi_sesh = asks.Session(connections=4)
+        self._fapi_sesh.base_location = _fapi_url
+
         self._pairs: dict[str, Any] = {}
 
         conf = get_config()
@@ -166,9 +171,15 @@ class Client:
         self.api_secret = conf.get('api', {}).get('secret')
 
         if self.api_key:
-            self._sesh.headers.update({'X-MBX-APIKEY': self.api_key})
+            api_key_header = {'X-MBX-APIKEY': self.api_key}
+            self._sesh.headers.update(api_key_header)
+            self._fapi_sesh.headers.update(api_key_header)
 
     def _get_signature(self, data: OrderedDict) -> str:
+
+        # XXX: Info on security and authentification
+        # https://binance-docs.github.io/apidocs/#endpoint-security-type
+
         if not self.api_secret:
             raise BrokerConfigurationError(
                 'Attempt to get a signature without setting up credentials'
@@ -198,6 +209,25 @@ class Client:
 
         resp = await getattr(self._sesh, action)(
             path=f'/api/v3/{method}',
+            params=params,
+            timeout=float('inf')
+        )
+
+        return resproc(resp, log)
+
+    async def _fapi(
+        self,
+        method: str,
+        params: Union[dict, OrderedDict],
+        signed: bool = False,
+        action: str = 'get'
+    ) -> Dict[str, Any]:
+
+        if signed:
+            params['signature'] = self._get_signature(params)
+
+        resp = await getattr(self._fapi_sesh, action)(
+            path=f'/fapi/v1/{method}',
             params=params,
             timeout=float('inf')
         )
@@ -366,6 +396,70 @@ class Client:
 
         # return resp['orderId']
         return oid
+
+    async def submit_cancel(
+        self,
+        symbol: str,
+        oid: str,
+        recv_window: int = 60000
+    ) -> None:
+        symbol = symbol.upper()
+
+        params = OrderedDict([
+            ('symbol', symbol),
+            ('orderId', oid),
+            ('recvWindow', recv_window),
+            ('timestamp', binance_timestamp(arrow.utcnow()))
+        ])
+
+        await self._api(
+            'order',
+            params=params,
+            signed=True,
+            action='delete'
+        )
+
+    async def get_listen_key(self) -> str:
+        return await self._api(
+            'userDataStream',
+            params={},
+            action='post'
+        )['listenKey']
+
+    async def keep_alive_key(self, listen_key: str) -> None:
+        await self._fapi(
+            'userDataStream',
+            params={'listenKey': listen_key},
+            action='put'
+        )
+
+    async def close_listen_key(self, listen_key: str) -> None:
+        await self._fapi(
+            'userDataStream',
+            params={'listenKey': listen_key},
+            action='delete'
+        )
+
+    @asynccontextmanager
+    async def manage_listen_key(self):
+
+        async def periodic_keep_alive(
+            self,
+            listen_key: str,
+            timeout=60 * 29  # 29 minutes
+        ):
+            while True:
+                await trio.sleep(timeout)
+                await self.keep_alive_key(listen_key)
+
+        key = await self.get_listen_key()
+
+        async with trio.open_nursery() as n:
+            n.start_soon(periodic_keep_alive, key)
+            yield key
+
+        await self.close_listen_key(key)
+
 
 @asynccontextmanager
 async def get_client() -> Client:
@@ -603,7 +697,8 @@ async def stream_quotes(
 
 
 async def handle_order_requests(
-    ems_order_stream: tractor.MsgStream
+    ems_order_stream: tractor.MsgStream,
+    symbol: str
 ) -> None:
     async with open_cached_client('binance') as client:
         async for request_msg in ems_order_stream:
@@ -637,7 +732,8 @@ async def handle_order_requests(
 
             elif action == 'cancel':
                 # msg = BrokerdCancel(**request_msg)
-                # await run_client_method
+                # 
+                # await client.submit_cancel(symbol, msg.reqid)
                 ...
 
             else:
@@ -659,10 +755,16 @@ async def trades_dialogue(
 
     async with (
         ctx.open_stream() as ems_stream,
-        trio.open_nursery() as n
+        trio.open_nursery() as n,
+        open_cached_client('binance') as client,
+        client.manage_listen_key() as listen_key,
     ):
         n.start_soon(handle_order_requests, ems_stream)
         await trio.sleep_forever()
+        # async with open_autorecon_ws(
+        #     f'wss://stream.binance.com:9443/ws/{listen_key}',
+        # ) as ws:
+        #     ...
 
 
 @tractor.context
