@@ -54,13 +54,19 @@ def pikerd(loglevel, host, tl, pdb, tsdb):
             trio.open_nursery() as n,
         ):
             if tsdb:
+                # TODO:
+                # async with maybe_open_marketstored():
+
                 from piker.data._ahab import start_ahab
                 log.info('Spawning `marketstore` supervisor')
-                ctn_ready = await n.start(start_ahab)
+                ctn_ready = await n.start(
+                    start_ahab,
+                    'marketstored',
+                )
                 await ctn_ready.wait()
                 log.info('`marketstore` container:{uid} up')
 
-            await trio.sleep_forever()
+                await trio.sleep_forever()
 
     trio.run(main)
 
