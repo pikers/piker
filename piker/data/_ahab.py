@@ -186,10 +186,25 @@ async def open_marketstore(
     log = get_console_log('info', name=__name__)
 
     async with open_docker() as client:
+
         # create a mount from user's local piker config dir into container
         config_dir_mnt = docker.types.Mount(
             target='/etc',
             source=config._config_dir,
+            type='bind',
+        )
+
+        # create a user config subdir where the marketstore
+        # backing filesystem database can be persisted.
+        persistent_data_dir = os.path.join(
+            config._config_dir, 'data',
+        )
+        if not os.path.isdir(persistent_data_dir):
+            os.mkdir(persistent_data_dir)
+
+        data_dir_mnt = docker.types.Mount(
+            target='/data',
+            source=persistent_data_dir,
             type='bind',
         )
 
@@ -203,7 +218,7 @@ async def open_marketstore(
                 '5993/tcp': 5993,  # jsonrpc
                 '5995/tcp': 5995,  # grpc
             },
-            mounts=[config_dir_mnt],
+            mounts=[config_dir_mnt, data_dir_mnt],
             detach=True,
             stop_signal='SIGINT',
             init=True,
