@@ -406,7 +406,6 @@ async def stream_quotes(
 
     send_chan: trio.abc.SendChannel,
     symbols: List[str],
-    shm: ShmArray,
     feed_is_live: trio.Event,
     loglevel: str = None,
 

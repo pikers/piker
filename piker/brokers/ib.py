@@ -517,11 +517,11 @@ class Client:
         contract, ticker, details = await self.get_sym_details(symbol)
 
         # ensure a last price gets filled in before we deliver quote
-        for _ in range(2):
+        for _ in range(1):
             if isnan(ticker.last):
+                await asyncio.sleep(0.1)
                 log.warning(f'Quote for {symbol} timed out: market is closed?')
                 ticker = await ticker.updateEvent
-                await asyncio.sleep(0.1)
             else:
                 log.info(f'Got first quote for {symbol}')
                 break
@@ -1201,12 +1201,13 @@ async def backfill_bars(
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
 ) -> None:
-    """Fill historical bars into shared mem / storage afap.
+    '''
+    Fill historical bars into shared mem / storage afap.
 
     TODO: avoid pacing constraints:
     https://github.com/pikers/piker/issues/128
 
-    """
+    '''
     if platform.system() == 'Windows':
         log.warning(
             'Decreasing history query count to 4 since, windows...')
@@ -1411,7 +1412,6 @@ async def stream_quotes(
 
     send_chan: trio.abc.SendChannel,
     symbols: list[str],
-    shm: ShmArray,
     feed_is_live: trio.Event,
     loglevel: str = None,
 
