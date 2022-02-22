@@ -813,7 +813,7 @@ async def open_vlm_displays(
                 flow_rates,
                 {  # fsp engine conf
                     'func_name': 'flow_rates',
-                    'zero_on_step': True,
+                    'zero_on_step': False,
                 },
                 # loglevel,
             )
