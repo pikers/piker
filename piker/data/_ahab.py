@@ -298,7 +298,16 @@ async def start_ahab(
     task_status: TaskStatus[trio.Event] = trio.TASK_STATUS_IGNORED,
 
 ) -> None:
+    '''
+    Start a ``docker`` container supervisor with given service name.
 
+    Currently the actor calling this task should normally be started
+    with root permissions (until we decide to use something that doesn't
+    require this, like docker's rootless mode or some wrapper project) but
+    te root perms are de-escalated after the docker supervisor sub-actor
+    is started.
+
+    '''
     cn_ready = trio.Event()
     async with tractor.open_nursery(
         loglevel='runtime',
