@@ -30,7 +30,7 @@ import tractor
 import trio
 
 from .. import brokers
-from ..data.feed import open_feed, Feed
+from ..data.feed import open_feed
 from ._chart import (
     ChartPlotWidget,
     LinkedSplits,
@@ -43,7 +43,7 @@ from ._fsp import (
     has_vlm,
     open_vlm_displays,
 )
-from ..data._sharedmem import ShmArray, try_read
+from ..data._sharedmem import ShmArray
 from ._forms import (
     FieldsForm,
     mk_order_pane_layout,
@@ -90,7 +90,9 @@ def chart_maxmin(
     l, lbar, rbar, r = last_bars_range
     in_view = array[lbar - ifirst:rbar - ifirst + 1]
 
-    assert in_view.size
+    if not in_view.size:
+        log.warning('Resetting chart to data')
+        chart.default_view()
 
     mx, mn = np.nanmax(in_view['high']), np.nanmin(in_view['low'])
 
@@ -107,6 +109,7 @@ def chart_maxmin(
 
 
 async def graphics_update_loop(
+
     linked: LinkedSplits,
     stream: tractor.MsgStream,
     ohlcv: np.ndarray,
@@ -146,9 +149,8 @@ async def graphics_update_loop(
         vlm_view = vlm_chart.view
 
     maxmin = partial(chart_maxmin, chart, vlm_chart)
-
     chart.default_view()
-
+    last_bars_range: tuple[float, float]
     (
         last_bars_range,
         last_mx,
@@ -182,6 +184,7 @@ async def graphics_update_loop(
     chart.show()
     view = chart.view
     last_quote = time.time()
+    i_last = ohlcv.index
 
     # async def iter_drain_quotes():
     #     # NOTE: all code below this loop is expected to be synchronous
@@ -245,6 +248,22 @@ async def graphics_update_loop(
             # TODO: show dark trades differently
             # https://github.com/pikers/piker/issues/116
             array = ohlcv.array
+
+            # NOTE: this used to be implemented in a dedicated
+            # "increment tas": ``check_for_new_bars()`` but it doesn't
+            # make sense to do a whole task switch when we can just do
+            # this simple index-diff and all the fsp sub-curve graphics
+            # are diffed on each draw cycle anyway; so updates to the
+            # "curve" length is already automatic.
+
+            # increment the view position by the sample offset.
+            i_step = ohlcv.index
+            i_diff = i_step - i_last
+            if i_diff > 0:
+                chart.increment_view(
+                    steps=i_diff,
+                )
+            i_last = i_step
 
             if vlm_chart:
                 vlm_chart.update_curve_from_array('volume', array)
@@ -427,79 +446,7 @@ async def graphics_update_loop(
                 )
                 # chart.view._set_yrange()
 
-
-async def check_for_new_bars(
-    feed: Feed,
-    ohlcv: np.ndarray,
-    linkedsplits: LinkedSplits,
-
-) -> None:
-    '''
-    Task which updates from new bars in the shared ohlcv buffer every
-    ``delay_s`` seconds.
-
-    '''
-    # TODO: right now we'll spin printing bars if the last time
-    # stamp is before a large period of no market activity.
-    # Likely the best way to solve this is to make this task
-    # aware of the instrument's tradable hours?
-
-    price_chart = linkedsplits.chart
-    price_chart.default_view()
-
-    async with feed.index_stream() as stream:
-        async for index in stream:
-            # update chart historical bars graphics by incrementing
-            # a time step and drawing the history and new bar
-
-            # When appending a new bar, in the time between the insert
-            # from the writing process and the Qt render call, here,
-            # the index of the shm buffer may be incremented and the
-            # (render) call here might read the new flat bar appended
-            # to the buffer (since -1 index read). In that case H==L and the
-            # body will be set as None (not drawn) on what this render call
-            # *thinks* is the curent bar (even though it's reading data from
-            # the newly inserted flat bar.
-            #
-            # HACK: We need to therefore write only the history (not the
-            # current bar) and then either write the current bar manually
-            # or place a cursor for visual cue of the current time step.
-
-            array = ohlcv.array
-            # avoid unreadable race case on backfills
-            while not try_read(array):
-                await trio.sleep(0.01)
-
-            # XXX: this puts a flat bar on the current time step
-            # TODO: if we eventually have an x-axis time-step "cursor"
-            # we can get rid of this since it is extra overhead.
-            price_chart.update_ohlc_from_array(
-                price_chart.name,
-                array,
-                just_history=False,
-            )
-
-            # main chart overlays
-            # for name in price_chart._flows:
-            for curve_name in price_chart._flows:
-                price_chart.update_curve_from_array(
-                    curve_name,
-                    price_chart._arrays[curve_name]
-                )
-
-            # each subplot
-            for name, chart in linkedsplits.subplots.items():
-
-                # TODO: do we need the same unreadable guard as for the
-                # price chart (above) here?
-                chart.update_curve_from_array(
-                    chart.name,
-                    chart._shm.array,
-                    array_key=chart.data_key
-                )
-
-            # shift the view if in follow mode
-            price_chart.increment_view()
+        # loop end
 
 
 async def display_symbol_data(
@@ -628,14 +575,6 @@ async def display_symbol_data(
                 ohlcv,
                 wap_in_history,
                 vlm_chart,
-            )
-
-            # start sample step incrementer
-            ln.start_soon(
-                check_for_new_bars,
-                feed,
-                ohlcv,
-                linkedsplits
             )
 
             async with (
