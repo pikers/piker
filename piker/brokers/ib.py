@@ -516,12 +516,24 @@ class Client:
         '''
         contract, ticker, details = await self.get_sym_details(symbol)
 
+        ready = ticker.updateEvent
+
         # ensure a last price gets filled in before we deliver quote
         for _ in range(100):
             if isnan(ticker.last):
-                await asyncio.sleep(0.01)
-                log.warning(f'Quote for {symbol} timed out: market is closed?')
-                ticker = await ticker.updateEvent
+
+                done, pending = await asyncio.wait(
+                    [ready],
+                    timeout=0.1,
+                )
+                if ready in done:
+                    break
+                else:
+                    log.warning(
+                        f'Quote for {symbol} timed out: market is closed?'
+                    )
+
+                # ticker = await ticker.updateEvent
             else:
                 log.info(f'Got first quote for {symbol}')
                 break
