@@ -17,7 +17,7 @@
 """
 numpy data source coversion helpers.
 """
-from typing import Dict, Any, List
+from typing import Any
 import decimal
 
 import numpy as np
@@ -103,13 +103,13 @@ class Symbol(BaseModel):
     lot_tick_size: float  # "volume" precision as min step value
     tick_size_digits: int
     lot_size_digits: int
-    broker_info: Dict[str, Dict[str, Any]] = {}
+    broker_info: dict[str, dict[str, Any]] = {}
 
     # specifies a "class" of financial instrument
     # ex. stock, futer, option, bond etc.
 
     @property
-    def brokers(self) -> List[str]:
+    def brokers(self) -> list[str]:
         return list(self.broker_info.keys())
 
     def nearest_tick(self, value: float) -> float:
