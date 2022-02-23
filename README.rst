@@ -96,11 +96,11 @@ then, `crack a conda shell`_ and run the following commands::
     
     pip install -e . -r requirements.txt # install piker in editable mode
     piker -b kraken -b binance chart btcusdt.binance # command to load chart for test
-    
-    # FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\wyatt\\AppData\\Roaming\\piker\\brokers.toml'
-    # navigate to file directory above (may be different on your machine, location should be listed in the error)
-    # create folder and copy and paste file or create a blank file using notepad --> 'C:\\Users\\user\\code\\data/brokers.toml' 
-    
+
+potential errors:
+- FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\user\\AppData\\Roaming\\piker\\brokers.toml'
+- navigate to file directory above (may be different on your machine, location should be listed in the error)
+- create folder and copy and paste file or create a blank file using notepad --> 'C:\\Users\\user\\code\\data/brokers.toml' 
     
 now that piker is installed we can set up vscode as the default terminal for running piker and editing the code.
 within vscode you are going to want cmd.exe as your default terminal.
