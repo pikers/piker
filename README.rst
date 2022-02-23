@@ -75,10 +75,11 @@ for a development install::
 install for tinas
 *****************
 for windows peeps you can start by installing all the prerequisite software:
-install git with all default settings - https://git-scm.com/download/win
-install visual studio code default settings - select default profile for terminal as "cmd" (command prompt) - https://code.visualstudio.com/download
-install anaconda all default settings - https://www.anaconda.com/products/individual
-install microsoft build tools (check the box for Desktop development for C++)  - https://visualstudio.microsoft.com/visual-cpp-build-tools/
+
+- install git with all default settings - https://git-scm.com/download/win
+- install visual studio code default settings - select default profile for terminal as "cmd" (command prompt) - https://code.visualstudio.com/download
+- install anaconda all default settings - https://www.anaconda.com/products/individual
+- install microsoft build tools (check the box for Desktop development for C++)  - https://visualstudio.microsoft.com/visual-cpp-build-tools/
 
 then, `crack a conda shell`_ and run the following commands::
 
@@ -98,9 +99,9 @@ then, `crack a conda shell`_ and run the following commands::
     piker -b kraken -b binance chart btcusdt.binance # command to load chart for test
 
 potential errors:
-- FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\user\\AppData\\Roaming\\piker\\brokers.toml'
-- navigate to file directory above (may be different on your machine, location should be listed in the error)
-- create folder and copy and paste file or create a blank file using notepad --> 'C:\\Users\\user\\code\\data/brokers.toml' 
+FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\user\\AppData\\Roaming\\piker\\brokers.toml'
+navigate to file directory above (may be different on your machine, location should be listed in the error)
+create folder and copy and paste file or create a blank file using notepad --> 'C:\\Users\\user\\code\\data/brokers.toml' 
     
 now that piker is installed we can set up vscode as the default terminal for running piker and editing the code.
 within vscode you are going to want cmd.exe as your default terminal.
