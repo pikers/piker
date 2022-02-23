@@ -74,18 +74,36 @@ for a development install::
 
 install for tinas
 *****************
-for windows peeps you can start by getting `conda installed`_
-and the `C++ build toolz`_ on your system.
+for windows peeps you can start by installing all the prerequisite software:
+install git with all default settings - https://git-scm.com/download/win
+install visual studio code default settings - select default profile for terminal as "cmd" (command prompt) - https://code.visualstudio.com/download
+install anaconda all default settings - https://www.anaconda.com/products/individual
+install microsoft build tools (check the box for Desktop development for C++)  - https://visualstudio.microsoft.com/visual-cpp-build-tools/
 
 then, `crack a conda shell`_ and run the following commands::
 
-    conda create piker --python=3.9
-    conda activate piker
-    conda install pip
-    pip install --upgrade setuptools
-    cd dIreCToRieZ\oF\cODez\piker\
-    pip install -r requirements -e .
-
+    mkdir code # create code directory
+    cd code # change directory to code
+    pwd # shows present working directory, should show code inside default user folder
+    git clone https://github.com/pikers/piker.git # downloads piker installation package from github
+    cd piker # change directory to piker
+    
+    conda create -n py39 # creates conda environment named py39
+    conda activate py39 # activates py39
+    conda install -c conda-forge python-levenshtein # in case it is not already installed
+    conda install pip # may already be installed
+    pip # will show if pip is installed
+    
+    pip install -e . -r requirements.txt # install piker in editable mode
+    piker -b kraken -b binance chart btcusdt.binance # command to load chart for test
+    
+    # FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\wyatt\\AppData\\Roaming\\piker\\brokers.toml'
+    # navigate to file directory above (may be different on your machine, location should be listed in the error)
+    # create folder and copy and paste file or create a blank file using notepad --> 'C:\\Users\\user\\code\\data/brokers.toml' 
+    
+    
+now that piker is installed we can set up vscode as the default terminal for running piker and editing the code.
+within vscode you are going to want cmd.exe as your default terminal.
 
 in order to look coolio in front of all ur tina friends (and maybe
 want to help us with testin, hackzing or configgin), install
