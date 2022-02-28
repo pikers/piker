@@ -127,11 +127,11 @@ def unpack_fqsn(fqsn: str) -> tuple[str, str, str]:
 
 
 class Symbol(BaseModel):
-    """I guess this is some kinda container thing for dealing with
+    '''
+    I guess this is some kinda container thing for dealing with
     all the different meta-data formats from brokers?
 
-    Yah, i guess dats what it izz.
-    """
+    '''
     key: str
     tick_size: float = 0.01
     lot_tick_size: float = 0.0  # "volume" precision as min step value
