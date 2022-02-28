@@ -533,7 +533,6 @@ class Client:
                         f'Quote for {symbol} timed out: market is closed?'
                     )
 
-                # ticker = await ticker.updateEvent
             else:
                 log.info(f'Got first quote for {symbol}')
                 break
@@ -811,7 +810,7 @@ async def load_aio_clients(
     # try:
     # TODO: support multiple clients allowing for execution on
     # multiple accounts (including a paper instance running on the
-    # same machine) and switching between accounts in the EMs
+    # same machine) and switching between accounts in the ems.
 
     _err = None
 
@@ -834,7 +833,7 @@ async def load_aio_clients(
 
             # XXX: not sure if we ever really need to increment the
             # client id if teardown is sucessful.
-            client_id = 616
+            client_id = 6116
 
             await ib.connectAsync(
                 host,
@@ -910,13 +909,13 @@ async def load_aio_clients(
             # cache logic to avoid rescanning if we already have all
             # clients loaded.
             _scan_ignore.add(sockaddr)
-    else:
-        if not _client_cache:
-            raise ConnectionError(
-                'No ib APIs could be found scanning @:\n'
-                f'{pformat(combos)}\n'
-                'Check your `brokers.toml` and/or network'
-            ) from _err
+
+    if not _client_cache:
+        raise ConnectionError(
+            'No ib APIs could be found scanning @:\n'
+            f'{pformat(combos)}\n'
+            'Check your `brokers.toml` and/or network'
+        ) from _err
 
     # retreive first loaded client
     clients = list(_client_cache.values())
@@ -1440,7 +1439,6 @@ async def stream_quotes(
     '''
     # TODO: support multiple subscriptions
     sym = symbols[0]
-    details: Optional[dict] = None
 
     contract, first_ticker, details = await _trio_run_client_method(
         method='get_sym_details',
