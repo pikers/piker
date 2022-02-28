@@ -80,7 +80,6 @@ class Services(BaseModel):
         ) -> Any:
 
             with trio.CancelScope() as cs:
-
                 async with portal.open_context(
                     target,
                     **kwargs,
@@ -89,19 +88,17 @@ class Services(BaseModel):
 
                     # unblock once the remote context has started
                     task_status.started((cs, first))
-
+                    log.info(
+                        f'`pikerd` service {name} started with value {first}'
+                    )
                     # wait on any context's return value
                     ctx_res = await ctx.result()
-                    log.info(
-                        f'`pikerd` service {name} started with value {ctx_res}'
-                    )
 
                 # wait on any error from the sub-actor
                 # NOTE: this will block indefinitely until cancelled
-                # either by error from the target context function or
-                # by being cancelled here by the surroundingn cancel
-                # scope
-                return await (portal.result(), ctx_res)
+                # either by error from the target context function or by
+                # being cancelled here by the surrounding cancel scope
+                return (await portal.result(), ctx_res)
 
         cs, first = await self.service_n.start(open_context_in_task)
 
@@ -111,16 +108,16 @@ class Services(BaseModel):
 
         return cs, first
 
-    async def cancel_service(
-        self,
-        name: str,
-
-    ) -> Any:
-
-        log.info(f'Cancelling `pikerd` service {name}')
-        cs, portal = self.service_tasks[name]
-        cs.cancel()
-        return await portal.cancel_actor()
+    # TODO: per service cancellation by scope, we aren't using this
+    # anywhere right?
+    # async def cancel_service(
+    #     self,
+    #     name: str,
+    # ) -> Any:
+    #     log.info(f'Cancelling `pikerd` service {name}')
+    #     cs, portal = self.service_tasks[name]
+    #     cs.cancel()
+    #     return await portal.cancel_actor()
 
 
 _services: Optional[Services] = None
@@ -497,3 +494,25 @@ async def maybe_open_emsd(
 
     ) as portal:
         yield portal
+
+
+# TODO: ideally we can start the tsdb "on demand" but it's
+# probably going to require "rootless" docker, at least if we don't
+# want to expect the user to start ``pikerd`` with root perms all the
+# time.
+# async def maybe_open_marketstored(
+#     loglevel: Optional[str] = None,
+#     **kwargs,
+
+# ) -> tractor._portal.Portal:  # noqa
+
+#     async with maybe_spawn_daemon(
+
+#         'marketstored',
+#         service_task_target=spawn_emsd,
+#         spawn_args={'loglevel': loglevel},
+#         loglevel=loglevel,
+#         **kwargs,
+
+#     ) as portal:
+#         yield portal
