@@ -39,7 +39,9 @@ class NoData(BrokerError):
 def resproc(
     resp: asks.response_objects.Response,
     log: logging.Logger,
-    return_json: bool = True
+    return_json: bool = True,
+    log_resp: bool = False,
+
 ) -> asks.response_objects.Response:
     """Process response and return its json content.
 
@@ -52,7 +54,8 @@ def resproc(
     except json.decoder.JSONDecodeError:
         log.exception(f"Failed to process {resp}:\n{resp.text}")
         raise BrokerError(resp.text)
-    else:
+
+    if log_resp:
         log.debug(f"Received json contents:\n{colorize_json(json)}")
 
     return json if return_json else resp
