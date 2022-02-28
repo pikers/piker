@@ -119,14 +119,14 @@ def ms_shell(config, tl, host, port):
     Start an IPython shell ready to query the local marketstore db.
 
     '''
-    from piker.data.marketstore import backfill_history
+    from piker.data.marketstore import backfill_history_diff
     from piker._daemon import open_piker_runtime
     async def main():
         async with open_piker_runtime(
             'ms_shell',
             enable_modules=['piker.data._ahab'],
         ):
-            await backfill_history()
+            await backfill_history_diff()
             # TODO: write magics to query marketstore
             # from IPython import embed
             # embed()
