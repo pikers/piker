@@ -92,11 +92,11 @@ def ohlc_zeros(length: int) -> np.ndarray:
 
 
 class Symbol(BaseModel):
-    """I guess this is some kinda container thing for dealing with
+    '''
+    I guess this is some kinda container thing for dealing with
     all the different meta-data formats from brokers?
 
-    Yah, i guess dats what it izz.
-    """
+    '''
     key: str
     type_key: str  # {'stock', 'forex', 'future', ... etc.}
     tick_size: float
