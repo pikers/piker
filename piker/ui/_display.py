@@ -93,6 +93,7 @@ def chart_maxmin(
     if not in_view.size:
         log.warning('Resetting chart to data')
         chart.default_view()
+        return (last_bars_range, 0, 0, 0)
 
     mx, mn = np.nanmax(in_view['high']), np.nanmin(in_view['low'])
 
