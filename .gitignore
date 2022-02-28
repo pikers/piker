@@ -97,6 +97,9 @@ ENV/
 # mkdocs documentation
 /site
 
+# extra scripts dir
+/snippets
+
 # mypy
 .mypy_cache/
 .vscode/settings.json
