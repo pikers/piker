@@ -56,10 +56,7 @@ from ._source import (
 )
 from ..ui import _search
 from ._sampling import (
-    # TODO: should probably group these in a compound type at this point XD
-    _ohlcv_shms,
-    _subscribers,
-    _incrementers,
+    sampler,
     increment_ohlc_buffer,
     iter_ohlc_periods,
     sample_and_broadcast,
@@ -118,7 +115,7 @@ class _FeedsBus(BaseModel):
                 trio.CancelScope] = trio.TASK_STATUS_IGNORED,
         ) -> None:
             with trio.CancelScope() as cs:
-                self.nursery.start_soon(
+                await self.nursery.start(
                     target,
                     *args,
                 )
@@ -255,23 +252,26 @@ async def manage_history(
     await feed_is_live.wait()
 
     if opened:
-        _ohlcv_shms.setdefault(delay_s, []).append(shm)
+        sampler.ohlcv_shms.setdefault(delay_s, []).append(shm)
 
         # start shm incrementing for OHLC sampling at the current
         # detected sampling period if one dne.
-        if _incrementers.get(delay_s) is None:
-            cs = await bus.start_task(increment_ohlc_buffer, delay_s)
+        if sampler.incrementers.get(delay_s) is None:
+            cs = await bus.start_task(
+                increment_ohlc_buffer,
+                delay_s,
+            )
 
     await trio.sleep_forever()
     cs.cancel()
 
 
 async def allocate_persistent_feed(
-
     bus: _FeedsBus,
     brokername: str,
     symbol: str,
     loglevel: str,
+
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
 ) -> None:
