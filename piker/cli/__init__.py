@@ -109,13 +109,11 @@ def services(config, tl, names):
         ) as portal:
             registry = await portal.run_from_ns('self', 'get_registry')
             json_d = {}
-            for uid, socket in registry.items():
-                name, uuid = uid
+            for key, socket in registry.items():
+                # name, uuid = uid
                 host, port = socket
-                json_d[f'{name}.{uuid}'] = f'{host}:{port}'
-            click.echo(
-                f"Available `piker` services:\n{colorize_json(json_d)}"
-            )
+                json_d[key] = f'{host}:{port}'
+            click.echo(f"{colorize_json(json_d)}")
 
     tractor.run(
         list_services,
