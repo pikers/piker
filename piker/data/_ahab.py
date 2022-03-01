@@ -242,11 +242,12 @@ async def open_marketstore(
                             raise RuntimeError(entry)
 
                     msg = record['msg']
+                    level = record['level']
                     if msg and entry not in seen_so_far:
                         seen_so_far.add(entry)
                         if bp_on_msg:
                             await tractor.breakpoint()
-                        log.info(f'{msg}')
+                        getattr(log, level)(f'{msg}')
 
                     # if "launching tcp listener for all services..." in msg:
                     if match in msg:
