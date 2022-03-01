@@ -208,14 +208,6 @@ async def manage_history(
     buffer.
 
     '''
-    # TODO: history retreival, see if we can pull from an existing
-    # ``marketstored`` daemon
-    log.info('Scanning for existing `marketstored`')
-    fqsn = mk_fqsn(mod.name, symbol)
-    # from .marketstore import manage_history
-    # arrays = await manage_history(symbol)
-
-    arrays = {}
     task_status.started()
 
     opened = we_opened_shm
@@ -225,21 +217,12 @@ async def manage_history(
     #     raise RuntimeError("Persistent shm for sym was already open?!")
 
     if opened:
-        if arrays:
-            await tractor.breakpoint()
+        # ask broker backend for new history
 
-            # push to shm
-            # set data ready
-            # some_data_ready.set()
-            raise ValueError('this should never execute yet')
-
-        else:
-            # ask broker backend for new history
-
-            # start history backfill task ``backfill_bars()`` is
-            # a required backend func this must block until shm is
-            # filled with first set of ohlc bars
-            cs = await bus.nursery.start(mod.backfill_bars, symbol, shm)
+        # start history backfill task ``backfill_bars()`` is
+        # a required backend func this must block until shm is
+        # filled with first set of ohlc bars
+        cs = await bus.nursery.start(mod.backfill_bars, symbol, shm)
 
     # indicate to caller that feed can be delivered to
     # remote requesting client since we've loaded history
