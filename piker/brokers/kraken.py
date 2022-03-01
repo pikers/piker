@@ -271,7 +271,7 @@ class Client:
             # for speed
             elif data['ofs'] == 50:
                 trades = dict(trades, **resp['result']['trades'])
-            # catch the of the trades
+            # catch the end of the trades
             elif resp['result']['trades'] == {}:
                 count = resp['result']['count']
                 break
@@ -452,6 +452,7 @@ class Client:
             return array
         except KeyError:
             raise SymbolNotFound(json['error'][0] + f': {symbol}')
+
 
 
 @asynccontextmanager
@@ -703,9 +704,7 @@ async def trades_dialogue(
                 fixture=subscribe,
                 token=token,
             ) as ws:
-                from pprint import pprint
                 async for msg in process_trade_msgs(ws):
-                    pprint(msg)
                     for trade in msg:
                         # check the type of packaged message
                         assert type(trade) == Trade
