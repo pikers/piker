@@ -17,6 +17,7 @@
 """
 numpy data source coversion helpers.
 """
+from __future__ import annotations
 from typing import Any
 import decimal
 
@@ -98,15 +99,42 @@ class Symbol(BaseModel):
     Yah, i guess dats what it izz.
     """
     key: str
-    type_key: str  # {'stock', 'forex', 'future', ... etc.}
-    tick_size: float
-    lot_tick_size: float  # "volume" precision as min step value
-    tick_size_digits: int
-    lot_size_digits: int
+    tick_size: float = 0.01
+    lot_tick_size: float = 0.0  # "volume" precision as min step value
+    tick_size_digits: int = 2
+    lot_size_digits: int = 0
     broker_info: dict[str, dict[str, Any]] = {}
 
     # specifies a "class" of financial instrument
     # ex. stock, futer, option, bond etc.
+
+    # @validate_arguments
+    @classmethod
+    def from_broker_info(
+        cls,
+        broker: str,
+        symbol: str,
+        info: dict[str, Any],
+
+    # XXX: like wtf..
+    # ) -> 'Symbol':
+    ) -> None:
+
+        tick_size = info.get('price_tick_size', 0.01)
+        lot_tick_size = info.get('lot_tick_size', 0.0)
+
+        return Symbol(
+            key=symbol,
+            tick_size=tick_size,
+            lot_tick_size=lot_tick_size,
+            tick_size_digits=float_digits(tick_size),
+            lot_size_digits=float_digits(lot_tick_size),
+            broker_info={broker: info},
+        )
+
+    @property
+    def type_key(self) -> str:
+        return list(self.broker_info.values())[0]['asset_type']
 
     @property
     def brokers(self) -> list[str]:
@@ -136,32 +164,6 @@ class Symbol(BaseModel):
             mk_fqsn(self.key, broker)
             for broker in self.broker_info.keys()
         ]
-
-
-@validate_arguments
-def mk_symbol(
-
-    key: str,
-    type_key: str,
-    tick_size: float = 0.01,
-    lot_tick_size: float = 0,
-    broker_info: dict[str, Any] = {},
-
-) -> Symbol:
-    '''
-    Create and return an instrument description for the
-    "symbol" named as ``key``.
-
-    '''
-    return Symbol(
-        key=key,
-        type_key=type_key,
-        tick_size=tick_size,
-        lot_tick_size=lot_tick_size,
-        tick_size_digits=float_digits(tick_size),
-        lot_size_digits=float_digits(lot_tick_size),
-        broker_info=broker_info,
-    )
 
 
 def from_df(
