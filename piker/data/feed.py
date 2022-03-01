@@ -123,8 +123,11 @@ class _FeedsBus(BaseModel):
 
         return await self.nursery.start(start_with_cs)
 
-    def cancel_task(self, task: trio.Task) -> bool:
-        pass
+    # def cancel_task(
+    #     self,
+    #     task: trio.lowlevel.Task
+    # ) -> bool:
+    #     ...
 
 
 _bus: _FeedsBus = None
