@@ -51,7 +51,6 @@ from ._sharedmem import (
 from .ingest import get_ingestormod
 from ._source import (
     base_iohlc_dtype,
-    mk_symbol,
     Symbol,
     mk_fqsn,
 )
@@ -126,7 +125,7 @@ class _FeedsBus(BaseModel):
 
     # def cancel_task(
     #     self,
-    #     task: trio.lowlevel.Task
+    #     task: trio.lowlevel.Task,
     # ) -> bool:
     #     ...
 
@@ -209,48 +208,68 @@ async def manage_history(
     buffer.
 
     '''
-    task_status.started()
+    # TODO: history retreival, see if we can pull from an existing
+    # ``marketstored`` daemon
 
     opened = we_opened_shm
-    # TODO: history validation
-    # assert opened, f'Persistent shm for {symbol} was already open?!'
-    # if not opened:
-    #     raise RuntimeError("Persistent shm for sym was already open?!")
+    fqsn = mk_fqsn(mod.name, symbol)
 
-    if opened:
-        # ask broker backend for new history
+    from . import marketstore
+    log.info('Scanning for existing `marketstored`')
 
-        # start history backfill task ``backfill_bars()`` is
-        # a required backend func this must block until shm is
-        # filled with first set of ohlc bars
-        cs = await bus.nursery.start(mod.backfill_bars, symbol, shm)
+    async with marketstore.open_storage_client(
+        fqsn,
+    ) as (storage, arrays):
 
-    # indicate to caller that feed can be delivered to
-    # remote requesting client since we've loaded history
-    # data that can be used.
-    some_data_ready.set()
+        # yield back after client connect
+        task_status.started()
 
-    # detect sample step size for sampled historical data
-    times = shm.array['time']
-    delay_s = times[-1] - times[times != times[-1]][-1]
+        # TODO: history validation
+        # assert opened, f'Persistent shm for {symbol} was already open?!'
+        # if not opened:
+        #     raise RuntimeError("Persistent shm for sym was already open?!")
 
-    # begin real-time updates of shm and tsb once the feed
-    # goes live.
-    await feed_is_live.wait()
+        if opened:
+            if arrays:
 
-    if opened:
-        sampler.ohlcv_shms.setdefault(delay_s, []).append(shm)
+                log.info(f'Loaded tsdb history {arrays}')
+                # push to shm
+                # set data ready
+                # some_data_ready.set()
 
-        # start shm incrementing for OHLC sampling at the current
-        # detected sampling period if one dne.
-        if sampler.incrementers.get(delay_s) is None:
-            cs = await bus.start_task(
-                increment_ohlc_buffer,
-                delay_s,
-            )
+            # ask broker backend for new history
 
-    await trio.sleep_forever()
-    cs.cancel()
+            # start history backfill task ``backfill_bars()`` is
+            # a required backend func this must block until shm is
+            # filled with first set of ohlc bars
+            _ = await bus.nursery.start(mod.backfill_bars, symbol, shm)
+
+        # indicate to caller that feed can be delivered to
+        # remote requesting client since we've loaded history
+        # data that can be used.
+        some_data_ready.set()
+
+        # detect sample step size for sampled historical data
+        times = shm.array['time']
+        delay_s = times[-1] - times[times != times[-1]][-1]
+
+        # begin real-time updates of shm and tsb once the feed
+        # goes live.
+        await feed_is_live.wait()
+
+        if opened:
+            sampler.ohlcv_shms.setdefault(delay_s, []).append(shm)
+
+            # start shm incrementing for OHLC sampling at the current
+            # detected sampling period if one dne.
+            if sampler.incrementers.get(delay_s) is None:
+                await bus.start_task(
+                    increment_ohlc_buffer,
+                    delay_s,
+                )
+
+        await trio.sleep_forever()
+        # cs.cancel()
 
 
 async def allocate_persistent_feed(
@@ -310,9 +329,9 @@ async def allocate_persistent_feed(
     # XXX: neither of these will raise but will cause an inf hang due to:
     # https://github.com/python-trio/trio/issues/2258
     # bus.nursery.start_soon(
-    # await bus.start_task(
 
-    await bus.nursery.start(
+    # await bus.nursery.start(
+    await bus.start_task(
         manage_history,
         mod,
         shm,
@@ -339,6 +358,10 @@ async def allocate_persistent_feed(
     # can read directly from the memory which will be written by
     # this task.
     init_msg[symbol]['shm_token'] = shm.token
+    # symbol = Symbol.from_broker_info(
+    #     fqsn,
+    #     init_msg[symbol]['symbol_info']
+    # )
 
     # TODO: pretty sure we don't need this? why not just leave 1s as
     # the fastest "sample period" since we'll probably always want that
@@ -697,15 +720,12 @@ async def open_feed(
         for sym, data in init_msg.items():
 
             si = data['symbol_info']
-
-            symbol = mk_symbol(
-                key=sym,
-                type_key=si.get('asset_type', 'forex'),
-                tick_size=si.get('price_tick_size', 0.01),
-                lot_tick_size=si.get('lot_tick_size', 0.0),
+            symbol = Symbol.from_broker_info(
+                brokername,
+                sym,
+                si,
             )
-            symbol.broker_info[brokername] = si
-
+            # symbol.broker_info[brokername] = si
             feed.symbols[sym] = symbol
 
             # cast shm dtype to list... can't member why we need this
