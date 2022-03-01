@@ -28,8 +28,9 @@ from pprint import pformat
 from typing import (
     Any,
     Optional,
+    Union,
     # Callable,
-    TYPE_CHECKING,
+    # TYPE_CHECKING,
 )
 import time
 from math import isnan
@@ -40,12 +41,19 @@ import numpy as np
 import pandas as pd
 import tractor
 from trio_websocket import open_websocket_url
-from anyio_marketstore import open_marketstore_client, MarketstoreClient, Params
+from anyio_marketstore import (
+    open_marketstore_client,
+    MarketstoreClient,
+    Params,
+)
+import purerpc
 
-from ..log import get_logger, get_console_log
 from .feed import maybe_open_feed
-from ._source import mk_fqsn, Symbol
-
+from ._source import (
+    mk_fqsn,
+    # Symbol,
+)
+from ..log import get_logger, get_console_log
 
 # if TYPE_CHECKING:
 #     from ._sharedmem import ShmArray
@@ -210,42 +218,130 @@ tf_in_1s = bidict({
 })
 
 
-async def manage_history(
-    fqsn: str,
-    period: int = 1,  # in seconds
-
-) -> dict[str, np.ndarray]:
+class Storage:
     '''
-    Load a series by key and deliver in ``numpy`` struct array
-    format.
+    High level storage api for both real-time and historical ingest.
+
+
+    '''
+    def __init__(
+        self,
+        client: MarketstoreClient,
+
+    ) -> None:
+        # TODO: eventually this should be an api/interface type that
+        # ensures we can support multiple tsdb backends.
+        self.client = client
+
+        # series' cache from tsdb reads
+        self._arrays: dict[str, np.ndarray] = {}
+
+    async def write_ticks(self, ticks: list) -> None:
+        ...
+
+    async def write_ohlcv(self, ohlcv: np.ndarray) -> None:
+        ...
+
+    async def read_ohlcv(
+        self,
+        fqsn: str,
+        timeframe: Optional[Union[int, str]] = None,
+
+    ) -> tuple[
+        MarketstoreClient,
+        Union[dict, np.ndarray]
+    ]:
+        client = self.client
+        syms = await client.list_symbols()
+
+        if fqsn not in syms:
+            return {}
+
+        if timeframe is None:
+            log.info(f'starting {fqsn} tsdb granularity scan..')
+            # loop through and try to find highest granularity
+            for tfstr in tf_in_1s.values():
+                try:
+                    log.info(f'querying for {tfstr}@{fqsn}')
+                    result = await client.query(Params(fqsn, tfstr, 'OHLCV',))
+                    break
+                except purerpc.grpclib.exceptions.UnknownError:
+                    # XXX: this is already logged by the container and
+                    # thus shows up through `marketstored` logs relay.
+                    # log.warning(f'{tfstr}@{fqsn} not found')
+                    continue
+            else:
+                return {}
+
+        else:
+            tfstr = tf_in_1s[timeframe]
+            result = await client.query(Params(fqsn, tfstr, 'OHLCV',))
+
+        # Fill out a `numpy` array-results map
+        arrays = {}
+        for fqsn, data_set in result.by_symbols().items():
+            arrays.setdefault(fqsn, {})[
+                tf_in_1s.inverse[data_set.timeframe]
+            ] = data_set.array
+
+        return (
+            client,
+            arrays[fqsn][timeframe] if timeframe else arrays,
+        )
+
+
+@acm
+async def open_storage_client(
+    fqsn: str,
+    period: Optional[Union[int, str]] = None,  # in seconds
+
+) -> tuple[Storage, dict[str, np.ndarray]]:
+    '''
+    Load a series by key and deliver in ``numpy`` struct array format.
 
     '''
     async with get_client() as client:
 
-        tfstr = tf_in_1s[period]
-        result = await client.query(
-            Params(fqsn, tf_in_1s, 'OHLCV',)
+        storage_client = Storage(client)
+        arrays = await storage_client.read_ohlcv(
+            fqsn,
+            period,
         )
-        # Dig out `numpy` results map
-        arrays = {}
-        # for qr in [onem, fivem]:
-        for name, data_set in result.by_symbols().items():
-            arrays[(name, qr)] = data_set.array
 
-        await tractor.breakpoint()
-        # # TODO: backfiller loop
-        # array = arrays[(fqsn, qr)]
-        return arrays
+        yield storage_client, arrays
 
 
 async def backfill_history_diff(
     # symbol: Symbol
 
 ) -> list[str]:
-    # TODO: 
-    # - compute time-smaple step
-    # - take ``Symbol`` as input
-    # - backtrack into history using backend helper endpoint
+
+    # TODO: real-time dedicated task for ensuring
+    # history consistency between the tsdb, shm and real-time feed..
+
+    # update sequence design notes:
+
+    # - load existing highest frequency data from mkts
+    #   * how do we want to offer this to the UI?
+    #    - lazy loading?
+    #    - try to load it all and expect graphics caching/diffing
+    #      to  hide extra bits that aren't in view?
+
+    # - compute the diff between latest data from broker and shm
+    #   * use sql api in mkts to determine where the backend should
+    #     start querying for data?
+    #   * append any diff with new shm length
+    #   * determine missing (gapped) history by scanning
+    #   * how far back do we look?
+
+    # - begin rt update ingest and aggregation
+    #   * could start by always writing ticks to mkts instead of
+    #     worrying about a shm queue for now.
+    #   * we have a short list of shm queues worth groking:
+    #     - https://github.com/pikers/piker/issues/107
+    #   * the original data feed arch blurb:
+    #     - https://github.com/pikers/piker/issues/98
+    #
 
     broker = 'ib'
     symbol = 'mnq.globex'

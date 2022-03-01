@@ -22,6 +22,7 @@ This module is enabled for ``brokerd`` daemons.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
+from datetime import datetime
 from contextlib import asynccontextmanager
 from functools import partial
 from types import ModuleType
@@ -42,11 +43,13 @@ from .._cacheables import maybe_open_context
 from ..log import get_logger, get_console_log
 from .._daemon import (
     maybe_spawn_brokerd,
+    check_for_service,
 )
 from ._sharedmem import (
     maybe_open_shm_array,
     attach_shm_array,
     ShmArray,
+    _secs_in_day,
 )
 from .ingest import get_ingestormod
 from ._source import (
@@ -125,7 +128,7 @@ class _FeedsBus(BaseModel):
 
     # def cancel_task(
     #     self,
-    #     task: trio.lowlevel.Task
+    #     task: trio.lowlevel.Task,
     # ) -> bool:
     #     ...
 
@@ -218,7 +221,61 @@ async def manage_history(
         readonly=False,
     )
 
-    if opened:
+    log.info('Scanning for existing `marketstored`')
+    is_up = await check_for_service('marketstored')
+    if is_up and opened:
+        log.info('Found existing `marketstored`')
+        from . import marketstore
+
+        async with marketstore.open_storage_client(
+            fqsn,
+        ) as (storage, tsdb_arrays):
+
+            # TODO: history validation
+            # assert opened, f'Persistent shm for {symbol} was already open?!'
+            # if not opened:
+            #     raise RuntimeError(
+            #         "Persistent shm for sym was already open?!"
+            #     )
+
+            if tsdb_arrays:
+                log.info(f'Loaded tsdb history {tsdb_arrays}')
+                fastest = list(tsdb_arrays[fqsn].values())[0]
+                last_s = fastest['Epoch'][-1]
+
+                # TODO: see if there's faster multi-field reads:
+                # https://numpy.org/doc/stable/user/basics.rec.html#accessing-multiple-fields
+
+                # re-index  with a `time` and index field
+                shm.push(
+                    fastest[-3 * _secs_in_day:],
+
+                    # insert the history pre a "days worth" of samples
+                    # to leave some real-time buffer space at the end.
+                    prepend=True,
+                    start=shm._len - _secs_in_day,
+                    field_map={
+                        'Epoch': 'time',
+                        'Open': 'open',
+                        'High': 'high',
+                        'Low': 'low',
+                        'Close': 'close',
+                        'Volume': 'volume',
+                    },
+                )
+
+                # start history anal and load missing new data via backend.
+                async with mod.open_history_client(fqsn) as hist:
+
+                    # get latest query's worth of history
+                    array, next_dt = await hist(end_dt='')
+
+                    last_dt = datetime.fromtimestamp(last_s)
+                    array, next_dt = await hist(end_dt=last_dt)
+
+            some_data_ready.set()
+
+    elif opened:
         log.info('No existing `marketstored` found..')
 
         # start history backfill task ``backfill_bars()`` is
@@ -254,6 +311,7 @@ async def manage_history(
             )
 
     await trio.sleep_forever()
+    # cs.cancel()
 
 
 async def allocate_persistent_feed(
@@ -261,6 +319,7 @@ async def allocate_persistent_feed(
     brokername: str,
     symbol: str,
     loglevel: str,
+    start_stream: bool = True,
 
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
@@ -302,10 +361,8 @@ async def allocate_persistent_feed(
             loglevel=loglevel,
         )
     )
-    # the broker-specific fully qualified symbol name,
-    # but ensure it is lower-cased for external use.
-    bfqsn = init_msg[symbol]['fqsn'].lower()
-    init_msg[symbol]['fqsn'] = bfqsn
+    # the broker-specific fully qualified symbol name
+    bfqsn = init_msg[symbol]['fqsn']
 
     # HISTORY, run 2 tasks:
     # - a history loader / maintainer
@@ -333,6 +390,7 @@ async def allocate_persistent_feed(
 
     # true fqsn
     fqsn = '.'.join((bfqsn, brokername))
+
     # add a fqsn entry that includes the ``.<broker>`` suffix
     init_msg[fqsn] = msg
 
@@ -363,6 +421,9 @@ async def allocate_persistent_feed(
 
     # task_status.started((init_msg,  generic_first_quotes))
     task_status.started()
+
+    if not start_stream:
+        await trio.sleep_forever()
 
     # backend will indicate when real-time quotes have begun.
     await feed_is_live.wait()
@@ -429,13 +490,12 @@ async def open_feed_bus(
 
                     bus=bus,
                     brokername=brokername,
-
                     # here we pass through the selected symbol in native
                     # "format" (i.e. upper vs. lowercase depending on
                     # provider).
                     symbol=symbol,
-
                     loglevel=loglevel,
+                    start_stream=start_stream,
                 )
             )
             # TODO: we can remove this?
@@ -446,7 +506,7 @@ async def open_feed_bus(
     init_msg, first_quotes = bus.feeds[symbol]
 
     msg = init_msg[symbol]
-    bfqsn = msg['fqsn'].lower()
+    bfqsn = msg['fqsn']
 
     # true fqsn
     fqsn = '.'.join([bfqsn, brokername])
@@ -765,10 +825,7 @@ async def maybe_open_feed(
 
     **kwargs,
 
-) -> (
-    Feed,
-    ReceiveChannel[dict[str, Any]],
-):
+) -> (Feed, ReceiveChannel[dict[str, Any]]):
     '''
     Maybe open a data to a ``brokerd`` daemon only if there is no
     local one for the broker-symbol pair, if one is cached use it wrapped
@@ -789,7 +846,6 @@ async def maybe_open_feed(
             'start_stream': kwargs.get('start_stream', True),
         },
         key=fqsn,
-
     ) as (cache_hit, feed):
 
         if cache_hit:
