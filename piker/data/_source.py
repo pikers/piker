@@ -17,7 +17,7 @@
 """
 numpy data source coversion helpers.
 """
-from typing import Dict, Any, List
+from typing import Any
 import decimal
 
 import numpy as np
@@ -59,6 +59,19 @@ tf_in_1m = {
 }
 
 
+def mk_fqsn(
+    provider: str,
+    symbol: str,
+
+) -> str:
+    '''
+    Generate a "fully qualified symbol name" which is
+    a reverse-hierarchical cross broker/provider symbol
+
+    '''
+    return '.'.join([symbol, provider]).lower()
+
+
 def float_digits(
     value: float,
 ) -> int:
@@ -90,13 +103,13 @@ class Symbol(BaseModel):
     lot_tick_size: float  # "volume" precision as min step value
     tick_size_digits: int
     lot_size_digits: int
-    broker_info: Dict[str, Dict[str, Any]] = {}
+    broker_info: dict[str, dict[str, Any]] = {}
 
     # specifies a "class" of financial instrument
     # ex. stock, futer, option, bond etc.
 
     @property
-    def brokers(self) -> List[str]:
+    def brokers(self) -> list[str]:
         return list(self.broker_info.keys())
 
     def nearest_tick(self, value: float) -> float:
@@ -118,6 +131,12 @@ class Symbol(BaseModel):
             self.key,
         )
 
+    def iterfqsns(self) -> list[str]:
+        return [
+            mk_fqsn(self.key, broker)
+            for broker in self.broker_info.keys()
+        ]
+
 
 @validate_arguments
 def mk_symbol(
@@ -129,7 +148,8 @@ def mk_symbol(
     broker_info: dict[str, Any] = {},
 
 ) -> Symbol:
-    '''Create and return an instrument description for the
+    '''
+    Create and return an instrument description for the
     "symbol" named as ``key``.
 
     '''

@@ -66,7 +66,6 @@ setup(
         'numpy',
         'numba',
         'pandas',
-        'msgpack-numpy',
 
         # UI
         'PyQt5',

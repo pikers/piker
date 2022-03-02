@@ -108,7 +108,6 @@ class FastAppendCurve(pg.PlotCurveItem):
     path redraw.
 
     '''
-
     def __init__(
         self,
         *args,
@@ -167,7 +166,13 @@ class FastAppendCurve(pg.PlotCurveItem):
         y: np.ndarray,
 
     ) -> QtGui.QPainterPath:
+        '''
+        Update curve from input 2-d data.
 
+        Compare with a cached "x-range" state and (pre/a)ppend based on
+        a length diff.
+
+        '''
         profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
         flip_cache = False
 
@@ -316,12 +321,19 @@ class FastAppendCurve(pg.PlotCurveItem):
             self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
     def disable_cache(self) -> None:
+        '''
+        Disable the use of the pixel coordinate cache and trigger a geo event.
+
+        '''
         # XXX: pretty annoying but, without this there's little
         # artefacts on the append updates to the curve...
         self.setCacheMode(QtWidgets.QGraphicsItem.NoCache)
         self.prepareGeometryChange()
 
     def boundingRect(self):
+        '''
+        Compute and then cache our rect.
+        '''
         if self.path is None:
             return QtGui.QPainterPath().boundingRect()
         else:
@@ -331,9 +343,10 @@ class FastAppendCurve(pg.PlotCurveItem):
             return self._br()
 
     def _br(self):
-        """Post init ``.boundingRect()```.
+        '''
+        Post init ``.boundingRect()```.
 
-        """
+        '''
         hb = self.path.controlPointRect()
         hb_size = hb.size()
         # print(f'hb_size: {hb_size}')

@@ -818,11 +818,18 @@ class ChartPlotWidget(pg.PlotWidget):
     def default_view(
         self,
         index: int = -1,
-    ) -> None:
-        """Set the view box to the "default" startup view of the scene.
 
-        """
-        xlast = self._arrays[self.name][index]['index']
+    ) -> None:
+        '''
+        Set the view box to the "default" startup view of the scene.
+
+        '''
+        try:
+            xlast = self._arrays[self.name][index]['index']
+        except IndexError:
+            log.warning(f'array for {self.name} not loaded yet?')
+            return
+
         begin = xlast - _bars_to_left_in_follow_mode
         end = xlast + _bars_from_right_in_follow_mode
 
@@ -840,6 +847,8 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def increment_view(
         self,
+        steps: int = 1,
+
     ) -> None:
         """
         Increment the data view one step to the right thus "following"
@@ -848,8 +857,8 @@ class ChartPlotWidget(pg.PlotWidget):
         """
         l, r = self.view_range()
         self.view.setXRange(
-            min=l + 1,
-            max=r + 1,
+            min=l + steps,
+            max=r + steps,
 
             # TODO: holy shit, wtf dude... why tf would this not be 0 by
             # default... speechless.
@@ -858,7 +867,6 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def draw_ohlc(
         self,
-
         name: str,
         data: np.ndarray,
 

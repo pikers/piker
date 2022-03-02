@@ -34,9 +34,11 @@ from .brokers import get_brokermod
 log = get_logger(__name__)
 
 _root_dname = 'pikerd'
+
+_registry_addr = ('127.0.0.1', 6116)
 _tractor_kwargs: dict[str, Any] = {
     # use a different registry addr then tractor's default
-    'arbiter_addr':  ('127.0.0.1', 6116),
+    'arbiter_addr':  _registry_addr
 }
 _root_modules = [
     __name__,
@@ -78,7 +80,6 @@ class Services(BaseModel):
         ) -> Any:
 
             with trio.CancelScope() as cs:
-
                 async with portal.open_context(
                     target,
                     **kwargs,
@@ -87,19 +88,17 @@ class Services(BaseModel):
 
                     # unblock once the remote context has started
                     task_status.started((cs, first))
-
+                    log.info(
+                        f'`pikerd` service {name} started with value {first}'
+                    )
                     # wait on any context's return value
                     ctx_res = await ctx.result()
-                    log.info(
-                        f'`pikerd` service {name} started with value {ctx_res}'
-                    )
 
                 # wait on any error from the sub-actor
                 # NOTE: this will block indefinitely until cancelled
-                # either by error from the target context function or
-                # by being cancelled here by the surroundingn cancel
-                # scope
-                return await (portal.result(), ctx_res)
+                # either by error from the target context function or by
+                # being cancelled here by the surrounding cancel scope
+                return (await portal.result(), ctx_res)
 
         cs, first = await self.service_n.start(open_context_in_task)
 
@@ -109,16 +108,16 @@ class Services(BaseModel):
 
         return cs, first
 
-    async def cancel_service(
-        self,
-        name: str,
-
-    ) -> Any:
-
-        log.info(f'Cancelling `pikerd` service {name}')
-        cs, portal = self.service_tasks[name]
-        cs.cancel()
-        return await portal.cancel_actor()
+    # TODO: per service cancellation by scope, we aren't using this
+    # anywhere right?
+    # async def cancel_service(
+    #     self,
+    #     name: str,
+    # ) -> Any:
+    #     log.info(f'Cancelling `pikerd` service {name}')
+    #     cs, portal = self.service_tasks[name]
+    #     cs.cancel()
+    #     return await portal.cancel_actor()
 
 
 _services: Optional[Services] = None
@@ -150,7 +149,7 @@ async def open_pikerd(
         tractor.open_root_actor(
 
             # passed through to ``open_root_actor``
-            arbiter_addr=_tractor_kwargs['arbiter_addr'],
+            arbiter_addr=_registry_addr,
             name=_root_dname,
             loglevel=loglevel,
             debug_mode=debug_mode,
@@ -177,6 +176,47 @@ async def open_pikerd(
             )
 
             yield _services
+
+
+@asynccontextmanager
+async def open_piker_runtime(
+    name: str,
+    enable_modules: list[str] = [],
+    start_method: str = 'trio',
+    loglevel: Optional[str] = None,
+
+    # XXX: you should pretty much never want debug mode
+    # for data daemons when running in production.
+    debug_mode: bool = False,
+
+) -> Optional[tractor._portal.Portal]:
+    '''
+    Start a piker actor who's runtime will automatically
+    sync with existing piker actors in local network
+    based on configuration.
+
+    '''
+    global _services
+    assert _services is None
+
+    # XXX: this may open a root actor as well
+    async with (
+        tractor.open_root_actor(
+
+            # passed through to ``open_root_actor``
+            arbiter_addr=_registry_addr,
+            name=name,
+            loglevel=loglevel,
+            debug_mode=debug_mode,
+            start_method=start_method,
+
+            # TODO: eventually we should be able to avoid
+            # having the root have more then permissions to
+            # spawn other specialized daemons I think?
+            enable_modules=_root_modules,
+        ) as _,
+    ):
+        yield tractor.current_actor()
 
 
 @asynccontextmanager
@@ -283,12 +323,19 @@ async def maybe_spawn_daemon(
     lock = Brokerd.locks[service_name]
     await lock.acquire()
 
+    log.info(f'Scanning for existing {service_name}')
     # attach to existing daemon by name if possible
-    async with tractor.find_actor(service_name) as portal:
+    async with tractor.find_actor(
+        service_name,
+        arbiter_sockaddr=_registry_addr,
+
+    ) as portal:
         if portal is not None:
             lock.release()
             yield portal
             return
+
+        log.warning(f"Couldn't find any existing {service_name}")
 
     # ask root ``pikerd`` daemon to spawn the daemon we need if
     # pikerd is not live we now become the root of the
@@ -447,3 +494,25 @@ async def maybe_open_emsd(
 
     ) as portal:
         yield portal
+
+
+# TODO: ideally we can start the tsdb "on demand" but it's
+# probably going to require "rootless" docker, at least if we don't
+# want to expect the user to start ``pikerd`` with root perms all the
+# time.
+# async def maybe_open_marketstored(
+#     loglevel: Optional[str] = None,
+#     **kwargs,
+
+# ) -> tractor._portal.Portal:  # noqa
+
+#     async with maybe_spawn_daemon(
+
+#         'marketstored',
+#         service_task_target=spawn_emsd,
+#         spawn_args={'loglevel': loglevel},
+#         loglevel=loglevel,
+#         **kwargs,
+
+#     ) as portal:
+#         yield portal

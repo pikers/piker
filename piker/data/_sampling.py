@@ -15,10 +15,11 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-Data buffers for fast shared humpy.
+Sampling and broadcast machinery for (soft) real-time delivery of
+financial data flows.
+
 """
 import time
-from typing import Dict, List
 
 import tractor
 import trio
@@ -31,24 +32,35 @@ from ..log import get_logger
 log = get_logger(__name__)
 
 
-# TODO: we could stick these in a composed type to avoid
-# angering the "i hate module scoped variables crowd" (yawn).
-_shms: Dict[int, List[ShmArray]] = {}
-_start_increment: Dict[str, trio.Event] = {}
-_incrementers: Dict[int, trio.CancelScope] = {}
-_subscribers: Dict[str, tractor.Context] = {}
+class sampler:
+    '''
+    Global sampling engine registry.
 
+    Manages state for sampling events, shm incrementing and
+    sample period logic.
 
-def shm_incrementing(shm_token_name: str) -> trio.Event:
-    global _start_increment
-    return _start_increment.setdefault(shm_token_name, trio.Event())
+    '''
+    # TODO: we could stick these in a composed type to avoid
+    # angering the "i hate module scoped variables crowd" (yawn).
+    ohlcv_shms: dict[int, list[ShmArray]] = {}
+
+    # holds one-task-per-sample-period tasks which are spawned as-needed by
+    # data feed requests with a given detected time step usually from
+    # history loading.
+    incrementers: dict[int, trio.CancelScope] = {}
+
+    # holds all the ``tractor.Context`` remote subscriptions for
+    # a particular sample period increment event: all subscribers are
+    # notified on a step.
+    subscribers: dict[int, tractor.Context] = {}
 
 
 async def increment_ohlc_buffer(
     delay_s: int,
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 ):
-    """Task which inserts new bars into the provide shared memory array
+    '''
+    Task which inserts new bars into the provide shared memory array
     every ``delay_s`` seconds.
 
     This task fulfills 2 purposes:
@@ -59,8 +71,8 @@ async def increment_ohlc_buffer(
 
     Note that if **no** actor has initiated this task then **none** of
     the underlying buffers will actually be incremented.
-    """
 
+    '''
     # # wait for brokerd to signal we should start sampling
     # await shm_incrementing(shm_token['shm_name']).wait()
 
@@ -69,19 +81,17 @@ async def increment_ohlc_buffer(
     # to solve this is to make this task aware of the instrument's
     # tradable hours?
 
-    global _incrementers
-
     # adjust delay to compensate for trio processing time
-    ad = min(_shms.keys()) - 0.001
+    ad = min(sampler.ohlcv_shms.keys()) - 0.001
 
     total_s = 0  # total seconds counted
-    lowest = min(_shms.keys())
+    lowest = min(sampler.ohlcv_shms.keys())
     ad = lowest - 0.001
 
     with trio.CancelScope() as cs:
 
         # register this time period step as active
-        _incrementers[delay_s] = cs
+        sampler.incrementers[delay_s] = cs
         task_status.started(cs)
 
         while True:
@@ -91,8 +101,10 @@ async def increment_ohlc_buffer(
             total_s += lowest
 
             # increment all subscribed shm arrays
-            # TODO: this in ``numba``
-            for delay_s, shms in _shms.items():
+            # TODO:
+            # - this in ``numba``
+            # - just lookup shms for this step instead of iterating?
+            for delay_s, shms in sampler.ohlcv_shms.items():
                 if total_s % delay_s != 0:
                     continue
 
@@ -117,18 +129,19 @@ async def increment_ohlc_buffer(
                     # write to the buffer
                     shm.push(last)
 
-                # broadcast the buffer index step
-                subs = _subscribers.get(delay_s, ())
+            # broadcast the buffer index step to any subscribers for
+            # a given sample period.
+            subs = sampler.subscribers.get(delay_s, ())
 
-                for ctx in subs:
-                    try:
-                        await ctx.send_yield({'index': shm._last.value})
-                    except (
-                        trio.BrokenResourceError,
-                        trio.ClosedResourceError
-                    ):
-                        log.error(f'{ctx.chan.uid} dropped connection')
-                        subs.remove(ctx)
+            for ctx in subs:
+                try:
+                    await ctx.send_yield({'index': shm._last.value})
+                except (
+                    trio.BrokenResourceError,
+                    trio.ClosedResourceError
+                ):
+                    log.error(f'{ctx.chan.uid} dropped connection')
+                    subs.remove(ctx)
 
 
 @tractor.stream
@@ -137,15 +150,14 @@ async def iter_ohlc_periods(
     delay_s: int,
 
 ) -> None:
-    """
+    '''
     Subscribe to OHLC sampling "step" events: when the time
     aggregation period increments, this event stream emits an index
     event.
 
-    """
+    '''
     # add our subscription
-    global _subscribers
-    subs = _subscribers.setdefault(delay_s, [])
+    subs = sampler.subscribers.setdefault(delay_s, [])
     subs.append(ctx)
 
     try:
@@ -290,7 +302,10 @@ async def sample_and_broadcast(
                     # so far seems like no since this should all
                     # be single-threaded. Doing it anyway though
                     # since there seems to be some kinda race..
-                    subs.remove((stream, tick_throttle))
+                    try:
+                        subs.remove((stream, tick_throttle))
+                    except ValueError:
+                        log.error(f'{stream} was already removed from subs!?')
 
 
 # TODO: a less naive throttler, here's some snippets:
@@ -303,6 +318,8 @@ async def uniform_rate_send(
     quote_stream: trio.abc.ReceiveChannel,
     stream: tractor.MsgStream,
 
+    task_status: TaskStatus = trio.TASK_STATUS_IGNORED,
+
 ) -> None:
 
     # TODO: compute the approx overhead latency per cycle
@@ -312,6 +329,8 @@ async def uniform_rate_send(
     first_quote = last_quote = None
     last_send = time.time()
     diff = 0
+
+    task_status.started()
 
     while True:
 
