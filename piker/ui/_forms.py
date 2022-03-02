@@ -542,7 +542,7 @@ class FillStatusBar(QProgressBar):
 
     '''
     border_px: int = 2
-    slot_margin_px: int = 2
+    slot_margin_px: int = 1
 
     def __init__(
         self,
@@ -553,7 +553,10 @@ class FillStatusBar(QProgressBar):
 
     ) -> None:
         super().__init__(parent=parent)
+
         self.approx_h = approx_height_px
+        self.setMinimumHeight(int(round(approx_height_px)))
+
         self.font_size = font_size
 
         self.setFormat('')  # label format
@@ -573,9 +576,10 @@ class FillStatusBar(QProgressBar):
             approx_h,
             slots,
         )
-        clipped = int(slots * tot_slot_h + 2*self.border_px)
-        self.setMaximumHeight(clipped)
-        slot_height_px = tot_slot_h - 2*self.slot_margin_px
+        slot_height_px = tot_slot_h + r/slots - self.slot_margin_px
+
+        # clipped = int(slots * tot_slot_h)# + 2*self.border_px)
+        # self.setMaximumHeight(clipped)
 
         self.setOrientation(Qt.Vertical)
         self.setStyleSheet(
@@ -606,6 +610,7 @@ class FillStatusBar(QProgressBar):
             }}
             """
         )
+        # sets a discrete "block" per slot
 
         # margin-bottom: {slot_margin_px*2}px;
         # margin-top: {slot_margin_px*2}px;
