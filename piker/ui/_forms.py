@@ -21,6 +21,7 @@ Text entry "forms" widgets (mostly for configuration and UI user input).
 from __future__ import annotations
 from contextlib import asynccontextmanager
 from functools import partial
+from math import floor
 from typing import (
     Optional, Any, Callable, Awaitable
 )
@@ -571,17 +572,12 @@ class FillStatusBar(QProgressBar):
 
     ) -> None:
 
-        # TODO: compute "used height" thus far and mostly fill the rest
-        tot_slot_h, r = divmod(
-            self.approx_h,
-            slots,
-        )
-        slot_height_px = tot_slot_h + r/slots - self.slot_margin_px
-
-        # clipped = int(slots * tot_slot_h)# + 2*self.border_px)
-        # self.setMaximumHeight(clipped)
-
         self.setOrientation(Qt.Vertical)
+        h = self.height()
+
+        # TODO: compute "used height" thus far and mostly fill the rest
+        tot_slot_h, r = divmod(h, slots)
+
         self.setStyleSheet(
             f"""
             QProgressBar {{
@@ -596,21 +592,27 @@ class FillStatusBar(QProgressBar):
                 border: {self.border_px}px solid {hcolor('default_light')};
                 border-radius: 2px;
             }}
-
             QProgressBar::chunk {{
 
                 background-color: {hcolor('default_spotlight')};
                 color: {hcolor('bracket')};
 
                 border-radius: 2px;
-
-                margin: {self.slot_margin_px}px;
-                height: {slot_height_px}px;
-
             }}
             """
         )
-        # sets a discrete "block" per slot
+
+        # to set a discrete "block" per slot...
+        # XXX: couldn't get the discrete math to work here such
+        # that it was always correctly showing a discretized value
+        # up to the limit; not sure if it's the ``.setRange()``
+        # / ``.setValue()`` api or not but i was able to get something
+        # close screwing with the divmod above above but after so large
+        # a value it would always be less chunks then the correct
+        # value..
+        # margin: {self.slot_margin_px}px;
+        # height: {slot_height_px}px;
+
 
         # margin-bottom: {slot_margin_px*2}px;
         # margin-top: {slot_margin_px*2}px;
