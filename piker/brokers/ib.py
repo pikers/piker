@@ -517,9 +517,9 @@ class Client:
         contract, ticker, details = await self.get_sym_details(symbol)
 
         # ensure a last price gets filled in before we deliver quote
-        for _ in range(1):
+        for _ in range(100):
             if isnan(ticker.last):
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.01)
                 log.warning(f'Quote for {symbol} timed out: market is closed?')
                 ticker = await ticker.updateEvent
             else:
@@ -792,7 +792,7 @@ async def load_aio_clients(
     try_ports = list(ports.values())
     ports = try_ports if port is None else [port]
     # we_connected = []
-    connect_timeout = 1 if platform.system() != 'Windows' else 2
+    connect_timeout = 2
     combos = list(itertools.product(hosts, ports))
 
     # allocate new and/or reload disconnected but cached clients
@@ -1428,8 +1428,14 @@ async def stream_quotes(
     '''
     # TODO: support multiple subscriptions
     sym = symbols[0]
+    details: Optional[dict] = None
 
-    with trio.fail_after(16):
+    contract, first_ticker, details = await _trio_run_client_method(
+        method='get_sym_details',
+        symbol=sym,
+    )
+
+    with trio.move_on_after(1):
         contract, first_ticker, details = await _trio_run_client_method(
             method='get_quote',
             symbol=sym,
