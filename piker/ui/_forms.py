@@ -554,8 +554,9 @@ class FillStatusBar(QProgressBar):
     ) -> None:
         super().__init__(parent=parent)
 
-        self.approx_h = approx_height_px
-        self.setMinimumHeight(int(round(approx_height_px)))
+        self.approx_h = int(round(approx_height_px))
+        self.setMinimumHeight(self.approx_h)
+        self.setMaximumHeight(self.approx_h)
 
         self.font_size = font_size
 
@@ -570,10 +571,9 @@ class FillStatusBar(QProgressBar):
 
     ) -> None:
 
-        approx_h = self.approx_h
         # TODO: compute "used height" thus far and mostly fill the rest
         tot_slot_h, r = divmod(
-            approx_h,
+            self.approx_h,
             slots,
         )
         slot_height_px = tot_slot_h + r/slots - self.slot_margin_px
