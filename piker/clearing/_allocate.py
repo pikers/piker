@@ -29,7 +29,8 @@ from ._messages import BrokerdPosition, Status
 
 
 class Position(BaseModel):
-    '''Basic pp (personal position) model with attached fills history.
+    '''
+    Basic pp (personal position) model with attached fills history.
 
     This type should be IPC wire ready?
 
@@ -60,6 +61,15 @@ class Position(BaseModel):
 
         self.avg_price = avg_price
         self.size = size
+
+    @property
+    def dsize(self) -> float:
+        '''
+        The "dollar" size of the pp, normally in trading (fiat) unit
+        terms.
+
+        '''
+        return self.avg_price * self.size
 
 
 _size_units = bidict({
@@ -114,7 +124,8 @@ class Allocator(BaseModel):
     def step_sizes(
         self,
     ) -> (float, float):
-        '''Return the units size for each unit type as a tuple.
+        '''
+        Return the units size for each unit type as a tuple.
 
         '''
         slots = self.slots
@@ -142,7 +153,8 @@ class Allocator(BaseModel):
         action: str,
 
     ) -> dict:
-        '''Generate order request info for the "next" submittable order
+        '''
+        Generate order request info for the "next" submittable order
         depending on position / order entry config.
 
         '''
@@ -250,7 +262,8 @@ class Allocator(BaseModel):
         pp: Position,
 
     ) -> float:
-        '''Calc and return the number of slots used by this ``Position``.
+        '''
+        Calc and return the number of slots used by this ``Position``.
 
         '''
         abs_pp_size = abs(pp.size)

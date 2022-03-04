@@ -71,10 +71,10 @@ async def update_pnl_from_feed(
     log.info(f'Starting pnl display for {pp.alloc.account}')
 
     if live.size < 0:
-        types = ('ask', 'last', 'last', 'utrade')
+        types = ('ask', 'last', 'last', 'dark_trade')
 
     elif live.size > 0:
-        types = ('bid', 'last', 'last', 'utrade')
+        types = ('bid', 'last', 'last', 'dark_trade')
 
     else:
         log.info(f'No position (yet) for {tracker.alloc.account}@{key}')
@@ -119,7 +119,8 @@ async def update_pnl_from_feed(
 
 @dataclass
 class SettingsPane:
-    '''Composite set of widgets plus an allocator model for configuring
+    '''
+    Composite set of widgets plus an allocator model for configuring
     order entry sizes and position limits per tradable instrument.
 
     '''
@@ -151,7 +152,8 @@ class SettingsPane:
         key: str,
 
     ) -> None:
-        '''Called on any order pane drop down selection change.
+        '''
+        Called on any order pane drop down selection change.
 
         '''
         log.info(f'selection input {key}:{text}')
@@ -164,7 +166,8 @@ class SettingsPane:
         value: str,
 
     ) -> bool:
-        '''Called on any order pane edit field value change.
+        '''
+        Called on any order pane edit field value change.
 
         '''
         mode = self.order_mode
@@ -219,16 +222,36 @@ class SettingsPane:
             else:
                 value = puterize(value)
                 if key == 'limit':
+                    pp = mode.current_pp.live_pp
+
                     if size_unit == 'currency':
+                        dsize = pp.dsize
+                        if dsize > value:
+                            log.error(
+                                f'limit must > then current pp: {dsize}'
+                            )
+                            raise ValueError
+
                         alloc.currency_limit = value
+
                     else:
+                        size = pp.size
+                        if size > value:
+                            log.error(
+                                f'limit must > then current pp: {size}'
+                            )
+                            raise ValueError
+
                         alloc.units_limit = value
 
                 elif key == 'slots':
+                    if value <= 0:
+                        raise ValueError('slots must be > 0')
                     alloc.slots = int(value)
 
                 else:
-                    raise ValueError(f'Unknown setting {key}')
+                    log.error(f'Unknown setting {key}')
+                    raise ValueError
 
             log.info(f'settings change: {key}: {value}')
 
@@ -363,7 +386,8 @@ def position_line(
     marker: Optional[LevelMarker] = None,
 
 ) -> LevelLine:
-    '''Convenience routine to create a line graphic representing a "pp"
+    '''
+    Convenience routine to create a line graphic representing a "pp"
     aka the acro for a,
     "{piker, private, personal, puny, <place your p-word here>} position".
 
@@ -417,7 +441,8 @@ def position_line(
 
 
 class PositionTracker:
-    '''Track and display real-time positions for a single symbol
+    '''
+    Track and display real-time positions for a single symbol
     over multiple accounts on a single chart.
 
     Graphically composed of a level line and marker as well as labels
@@ -497,7 +522,8 @@ class PositionTracker:
 
     @property
     def pane(self) -> FieldsForm:
-        '''Return handle to pp side pane form.
+        '''
+        Return handle to pp side pane form.
 
         '''
         return self.chart.linked.godwidget.pp_pane
@@ -507,7 +533,8 @@ class PositionTracker:
         marker: LevelMarker
 
     ) -> None:
-        '''Update all labels.
+        '''
+        Update all labels.
 
         Meant to be called from the maker ``.paint()``
         for immediate, lag free label draws.

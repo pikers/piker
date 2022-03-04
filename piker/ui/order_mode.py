@@ -107,7 +107,8 @@ def on_level_change_update_next_order_info(
 
 @dataclass
 class OrderMode:
-    '''Major UX mode for placing orders on a chart view providing so
+    '''
+    Major UX mode for placing orders on a chart view providing so
     called, "chart trading".
 
     This is the other "main" mode that pairs with "view mode" (when
