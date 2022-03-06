@@ -1032,7 +1032,17 @@ class ChartPlotWidget(pg.PlotWidget):
             # (we need something that avoids clutter on x-axis).
             self._add_sticky(name, bg_color=color)
 
+        # NOTE: this is more or less the RENDER call that tells Qt to
+        # start showing the generated graphics-curves. This is kind of
+        # of edge-triggered call where once added any
+        # ``QGraphicsItem.update()`` calls are automatically displayed.
+        # Our internal graphics objects have their own "update from
+        # data" style method API that allows for real-time updates on
+        # the next render cycle; just note a lot of the real-time
+        # updates are implicit and require a bit of digging to
+        # understand.
         pi.addItem(curve)
+
         return curve, data_key
 
     # TODO: make this a ctx mngr
