@@ -140,8 +140,8 @@ class FastAppendCurve(pg.PlotCurveItem):
         # self.last_step_pen = pg.mkPen(hcolor(color), width=2)
         self.last_step_pen = pg.mkPen(pen, width=2)
 
-        self._last_line: QLineF = None
-        self._last_step_rect: QRectF = None
+        self._last_line: Optional[QLineF] = None
+        self._last_step_rect: Optional[QRectF] = None
 
         # flat-top style histogram-like discrete curve
         self._step_mode: bool = step_mode
@@ -388,12 +388,13 @@ class FastAppendCurve(pg.PlotCurveItem):
             # p.drawPath(self.path)
             # profiler('.drawPath()')
 
-        p.setPen(self.last_step_pen)
-        p.drawLine(self._last_line)
-        profiler('.drawLine()')
+        if self._last_line:
+            p.setPen(self.last_step_pen)
+            p.drawLine(self._last_line)
+            profiler('.drawLine()')
+            p.setPen(self.opts['pen'])
 
         # else:
-        p.setPen(self.opts['pen'])
         p.drawPath(self.path)
         profiler('.drawPath()')
 
