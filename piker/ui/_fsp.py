@@ -437,7 +437,13 @@ class FspAdmin:
 
             started.set()
 
+            from ._display import trigger_update
+
             # wait for graceful shutdown signal
+            async with stream.subscribe() as stream:
+                async for msg in stream:
+                    trigger_update()
+
             await complete.wait()
 
     async def start_engine_task(
