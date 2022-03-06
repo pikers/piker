@@ -167,7 +167,7 @@ async def open_docker(
 
 
 @tractor.context
-async def open_marketstore(
+async def open_marketstored(
     ctx: tractor.Context,
     **kwargs,
 
@@ -272,8 +272,9 @@ async def open_marketstore(
             await process_logs_until('exiting...',)
 
         except (
-            trio.Cancelled,
-            KeyboardInterrupt,
+            BaseException,
+            # trio.Cancelled,
+            # KeyboardInterrupt,
         ):
             cntr.kill('SIGINT')
             with trio.move_on_after(0.5) as cs:
@@ -310,34 +311,63 @@ async def start_ahab(
 
     '''
     cn_ready = trio.Event()
-    async with tractor.open_nursery(
-        loglevel='runtime',
-    ) as tn:
+    try:
+        async with tractor.open_nursery(
+            loglevel='runtime',
+        ) as tn:
 
-        portal = await tn.start_actor(
-            service_name,
-            enable_modules=[__name__]
-        )
-
-        # de-escalate root perms to the original user
-        # after the docker supervisor actor is spawned.
-        if config._parent_user:
-            import pwd
-            os.setuid(
-                pwd.getpwnam(
-                    config._parent_user
-                )[2]  # named user's uid
+            portal = await tn.start_actor(
+                service_name,
+                enable_modules=[__name__]
             )
 
-        task_status.started(cn_ready)
+            # TODO: we have issues with this on teardown
+            # where ``tractor`` tries to issue ``os.kill()``
+            # and hits perms errors since the root process
+            # doesn't any longer have root perms..
 
-        async with portal.open_context(
-            open_marketstore,
-        ) as (ctx, first):
+            # de-escalate root perms to the original user
+            # after the docker supervisor actor is spawned.
+            if config._parent_user:
+                import pwd
+                os.setuid(
+                    pwd.getpwnam(
+                        config._parent_user
+                    )[2]  # named user's uid
+                )
 
-            assert str(first)
-            # run till cancelled
-            await trio.sleep_forever()
+            task_status.started(cn_ready)
+
+            async with portal.open_context(
+                open_marketstored,
+            ) as (ctx, first):
+
+                assert str(first)
+                # run till cancelled
+                await trio.sleep_forever()
+
+    # since we demoted root perms in this parent
+    # we'll get a perms error on proc cleanup in
+    # ``tractor`` nursery exit. just make sure
+    # the child is terminated and don't raise the
+    # error if so.
+
+    # TODO: we could also consider adding
+    # a ``tractor.ZombieDetected`` or something that we could raise
+    # if we find the child didn't terminate.
+    # await tractor.breakpoint()
+    except PermissionError:
+        log.warning('Failed to cancel root permsed container')
+
+    except (
+        trio.MultiError,
+    ) as err:
+        for subexc in err.exceptions:
+            if isinstance(subexc, PermissionError):
+                log.warning('Failed to cancel root perms-ed container')
+                return
+        else:
+            raise
 
 
 async def main():
