@@ -125,8 +125,8 @@ async def fsp_compute(
     # each respective field.
     fields = getattr(dst.array.dtype, 'fields', None).copy()
     fields.pop('index')
-    # TODO: nptyping here!
-    history: Optional[np.ndarray] = None
+    history: Optional[np.ndarray] = None  # TODO: nptyping here!
+
     if fields and len(fields) > 1 and fields:
         if not isinstance(history_output, dict):
             raise ValueError(
@@ -207,6 +207,12 @@ async def fsp_compute(
         try:
             # rt stream
             async with ctx.open_stream() as stream:
+
+                # always trigger UI refresh after history update,
+                # see ``piker.ui._fsp.FspAdmin.open_chain()`` and
+                # ``piker.ui._display.trigger_update()``.
+                await stream.send(index)
+
                 async for processed in out_stream:
 
                     log.debug(f"{func_name}: {processed}")
