@@ -15,12 +15,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-<<<<<<< HEAD
 Sampling and broadcast machinery for (soft) real-time delivery of
 financial data flows.
-=======
-Data buffers for fast shared humpy.
->>>>>>> 78e5394 (Type annot updates)
 
 """
 from __future__ import annotations
