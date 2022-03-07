@@ -30,11 +30,13 @@ orig_win_id = t.find_focused().window
 # for tws
 win_names: list[str] = [
     'Interactive Brokers',  # tws running in i3
-    'IB Gateway.',  # gw running in i3
+    'IB Gateway',  # gw running in i3
+    # 'IB',  # gw running in i3 (newer version?)
 ]
 
 for name in win_names:
-    results = t.find_named(name)
+    results = t.find_titled(name)
+    print(f'results for {name}: {results}')
     if results:
         con = results[0]
         print(f'Resetting data feed for {name}')
