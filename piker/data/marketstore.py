@@ -222,7 +222,6 @@ class Storage:
     '''
     High level storage api for both real-time and historical ingest.
 
-
     '''
     def __init__(
         self,
@@ -284,10 +283,7 @@ class Storage:
                 tf_in_1s.inverse[data_set.timeframe]
             ] = data_set.array
 
-        return (
-            client,
-            arrays[fqsn][timeframe] if timeframe else arrays,
-        )
+        return arrays[fqsn][timeframe] if timeframe else arrays
 
 
 @acm
@@ -406,7 +402,8 @@ async def backfill_history_diff(
             len(to_append),
             dtype=mkts_dt,
         )
-        # copy from shm array
+        # copy from shm array (yes it's this easy):
+        # https://numpy.org/doc/stable/user/basics.rec.html#assignment-from-other-structured-arrays
         mkts_array[:] = to_append[[
             'time',
             'open',
