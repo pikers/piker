@@ -296,16 +296,15 @@ class Brokerd:
 @acm
 async def find_service(
     service_name: str,
+) -> Optional[tractor.Portal]:
 
-) -> tractor.Portal:
-
-    log.info(f'Scanning for existing {service_name}')
+    log.info(f'Scanning for service `{service_name}`')
     # attach to existing daemon by name if possible
     async with tractor.find_actor(
         service_name,
         arbiter_sockaddr=_registry_addr,
-    ) as portal:
-        yield portal
+    ) as maybe_portal:
+        yield maybe_portal
 
 
 async def check_for_service(
@@ -316,8 +315,11 @@ async def check_for_service(
     Service daemon "liveness" predicate.
 
     '''
-    async with find_service(service_name) as portal:
-        return portal is not None
+    async with tractor.query_actor(
+        service_name,
+        arbiter_sockaddr=_registry_addr,
+    ) as sockaddr:
+        return sockaddr
 
 
 @acm
