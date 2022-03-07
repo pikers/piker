@@ -443,7 +443,7 @@ class FspAdmin:
             async with stream.subscribe() as stream:
                 async for msg in stream:
                     if msg == 'update':
-                        _display.trigger_update(self.linked)
+                        self.linked.graphics_cycle()
 
             await complete.wait()
 
