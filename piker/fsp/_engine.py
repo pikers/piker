@@ -213,7 +213,7 @@ async def fsp_compute(
                 # always trigger UI refresh after history update,
                 # see ``piker.ui._fsp.FspAdmin.open_chain()`` and
                 # ``piker.ui._display.trigger_update()``.
-                await stream.send(index)
+                await stream.send('update')
 
                 async for processed in out_stream:
 
