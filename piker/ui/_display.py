@@ -109,12 +109,6 @@ def chart_maxmin(
     return last_bars_range, mx, max(mn, 0), mx_vlm_in_view
 
 
-# actor-local graphics state that can be passed
-# to a ``graphic_update_cycle()`` call by any task
-# wishing to update the UI.
-_ux_state: dict[str, Any] = {}
-
-
 async def graphics_update_loop(
 
     linked: LinkedSplits,
@@ -153,7 +147,6 @@ async def graphics_update_loop(
 
     if vlm_chart:
         vlm_sticky = vlm_chart._ysticks['volume']
-        # vlm_view = vlm_chart.view
 
     maxmin = partial(chart_maxmin, chart, vlm_chart)
     chart.default_view()
@@ -216,26 +209,30 @@ async def graphics_update_loop(
 
     # async for quotes in iter_drain_quotes():
 
-    _ux_state.update({
+    ds = linked.display_state = {
         'quotes': {},
         'linked': linked,
         'maxmin': maxmin,
-        'tick_margin': tick_margin,
         'ohlcv': ohlcv,
         'chart': chart,
         'last_price_sticky': last_price_sticky,
         'vlm_chart': vlm_chart,
-        'i_last': i_last,
-        'last_mx_vlm': last_mx_vlm,
         'vlm_sticky': vlm_sticky,
         'l1': l1,
-        'last_mx': last_mx,
-        'last_mn': last_mn,
-    })
 
+        'vars': {
+            'tick_margin': tick_margin,
+            'i_last': i_last,
+            'last_mx_vlm': last_mx_vlm,
+            'last_mx': last_mx,
+            'last_mn': last_mn,
+        }
+    }
+
+    # main loop
     async for quotes in stream:
 
-        _ux_state['quotes'] = quotes
+        ds['quotes'] = quotes
 
         quote_period = time.time() - last_quote
         quote_rate = round(
@@ -258,41 +255,27 @@ async def graphics_update_loop(
             continue
 
         # sync call to update all graphics/UX components.
-        graphics_update_cycle(**_ux_state)
-
-
-def trigger_update() -> None:
-    '''
-    Manually trigger a graphics update from global state.
-
-    Generally used from remote actors who wish to trigger a UI refresh.
-
-    '''
-    assert _ux_state is not None, 'graphics engine not initialized?'
-    graphics_update_cycle(**_ux_state)
+        graphics_update_cycle(**ds)
 
 
 def graphics_update_cycle(
     quotes,
     linked,
     maxmin,
-    tick_margin,
     ohlcv,
     chart,
     last_price_sticky,
     vlm_chart,
-    i_last,
-    last_mx_vlm,
     vlm_sticky,
     l1,
 
-    last_mx,
-    last_mn,
+    vars: dict[str, Any],
 
     wap_in_history: bool = False,
-    # vlm_view,
 
 ) -> None:
+
+    tick_margin = vars['tick_margin']
 
     for sym, quote in quotes.items():
 
@@ -321,26 +304,26 @@ def graphics_update_cycle(
 
         # increment the view position by the sample offset.
         i_step = ohlcv.index
-        i_diff = i_step - i_last
+        i_diff = i_step - vars['i_last']
         if i_diff > 0:
             chart.increment_view(
                 steps=i_diff,
             )
-        i_last = i_step
+        vars['i_last'] = i_step
 
         if vlm_chart:
             vlm_chart.update_curve_from_array('volume', array)
             vlm_sticky.update_from_data(*array[-1][['index', 'volume']])
 
             if (
-                mx_vlm_in_view != last_mx_vlm or
-                mx_vlm_in_view > last_mx_vlm
+                mx_vlm_in_view != vars['last_mx_vlm'] or
+                mx_vlm_in_view > vars['last_mx_vlm']
             ):
                 # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
                 vlm_chart.view._set_yrange(
                     yrange=(0, mx_vlm_in_view * 1.375)
                 )
-                last_mx_vlm = mx_vlm_in_view
+                vars['last_mx_vlm'] = mx_vlm_in_view
 
             for curve_name, flow in vlm_chart._flows.items():
                 update_fsp_chart(
@@ -469,7 +452,7 @@ def graphics_update_cycle(
 
         # check for y-range re-size
         if (
-            (mx > last_mx) or (mn < last_mn)
+            (mx > vars['last_mx']) or (mn < vars['last_mn'])
             and not chart._static_yrange == 'axis'
         ):
             # print(f'new y range: {(mn, mx)}')
@@ -483,7 +466,7 @@ def graphics_update_cycle(
                 # range_margin=0.1,
             )
 
-        last_mx, last_mn = mx, mn
+        vars['last_mx'], vars['last_mn'] = mx, mn
 
         # run synchronous update on all derived fsp subplots
         for name, subchart in linked.subplots.items():
@@ -507,9 +490,19 @@ def graphics_update_cycle(
                 curve_name,
                 array_key=curve_name,
             )
-            # chart.view._set_yrange()
 
-    # loop end
+
+def trigger_update(
+    linked: LinkedSplits,
+
+) -> None:
+    '''
+    Manually trigger a graphics update from global state.
+
+    Generally used from remote actors who wish to trigger a UI refresh.
+
+    '''
+    graphics_update_cycle(**linked.display_state)
 
 
 async def display_symbol_data(

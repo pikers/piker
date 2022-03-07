@@ -346,6 +346,11 @@ class LinkedSplits(QWidget):
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.addWidget(self.splitter)
 
+        # chart-local graphics state that can be passed to
+        # a ``graphic_update_cycle()`` call by any task wishing to
+        # update the UI for a given "chart instance".
+        self.display_state: dict[str, dict] = {}
+
         self._symbol: Symbol = None
 
     @property
