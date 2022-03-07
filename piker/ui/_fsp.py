@@ -50,6 +50,7 @@ from ._forms import (
     mk_form,
     open_form_input_handling,
 )
+from . import _display
 from ..fsp._api import maybe_mk_fsp_shm, Fsp
 from ..fsp import cascade
 from ..fsp._volume import (
@@ -437,12 +438,11 @@ class FspAdmin:
 
             started.set()
 
-            from ._display import trigger_update
-
             # wait for graceful shutdown signal
             async with stream.subscribe() as stream:
                 async for msg in stream:
-                    trigger_update()
+                    if msg == 'update':
+                        _display.trigger_update(self.linked)
 
             await complete.wait()
 
