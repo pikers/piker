@@ -66,7 +66,7 @@ def pikerd(loglevel, host, tl, pdb, tsdb):
                 await ctn_ready.wait()
                 log.info('`marketstore` container:{uid} up')
 
-                await trio.sleep_forever()
+            await trio.sleep_forever()
 
     trio.run(main)
 
