@@ -21,9 +21,10 @@ this module ties together quote and computational (fsp) streams with
 graphics update methods via our custom ``pyqtgraph`` charting api.
 
 '''
+from dataclasses import dataclass
 from functools import partial
 import time
-from typing import Optional, Any
+from typing import Optional, Any, Callable
 
 import numpy as np
 import tractor
@@ -31,6 +32,7 @@ import trio
 
 from .. import brokers
 from ..data.feed import open_feed
+from ._axes import YAxisLabel
 from ._chart import (
     ChartPlotWidget,
     LinkedSplits,
@@ -107,6 +109,33 @@ def chart_maxmin(
         mx_vlm_in_view = np.max(in_view['volume'])
 
     return last_bars_range, mx, max(mn, 0), mx_vlm_in_view
+
+
+@dataclass
+class DisplayState:
+    '''
+    Chart-local real-time graphics state container.
+
+    '''
+    quotes: dict[str, Any]
+
+    maxmin: Callable
+    ohlcv: ShmArray
+
+    # high level chart handles
+    linked: LinkedSplits
+    chart: ChartPlotWidget
+    vlm_chart: ChartPlotWidget
+
+    # axis labels
+    l1: L1Labels
+    last_price_sticky: YAxisLabel
+    vlm_sticky: YAxisLabel
+
+    # misc state tracking
+    vars: dict[str, Any]
+
+    wap_in_history: bool = False
 
 
 async def graphics_update_loop(
@@ -209,7 +238,7 @@ async def graphics_update_loop(
 
     # async for quotes in iter_drain_quotes():
 
-    ds = linked.display_state = {
+    ds = linked.display_state = DisplayState(**{
         'quotes': {},
         'linked': linked,
         'maxmin': maxmin,
@@ -227,12 +256,12 @@ async def graphics_update_loop(
             'last_mx': last_mx,
             'last_mn': last_mn,
         }
-    }
+    })
 
     # main loop
     async for quotes in stream:
 
-        ds['quotes'] = quotes
+        ds.quotes = quotes
 
         quote_period = time.time() - last_quote
         quote_rate = round(
@@ -255,36 +284,30 @@ async def graphics_update_loop(
             continue
 
         # sync call to update all graphics/UX components.
-        graphics_update_cycle(**ds)
+        graphics_update_cycle(ds)
 
 
 def graphics_update_cycle(
-    quotes,
-    linked,
-    maxmin,
-    ohlcv,
-    chart,
-    last_price_sticky,
-    vlm_chart,
-    vlm_sticky,
-    l1,
-
-    vars: dict[str, Any],
-
+    ds: DisplayState,
     wap_in_history: bool = False,
 
 ) -> None:
 
+    # TODO: eventually optimize this whole graphics stack with ``numba``
+    # hopefully XD
+
+    # unpack multi-referenced components
+    chart = ds.chart
+    vlm_chart = ds.vlm_chart
+    l1 = ds.l1
+
+    ohlcv = ds.ohlcv
+    array = ohlcv.array
+    vars = ds.vars
     tick_margin = vars['tick_margin']
 
-    for sym, quote in quotes.items():
-
-        (
-            brange,
-            mx_in_view,
-            mn_in_view,
-            mx_vlm_in_view,
-        ) = maxmin()
+    for sym, quote in ds.quotes.items():
+        brange, mx_in_view, mn_in_view, mx_vlm_in_view = ds.maxmin()
         l, lbar, rbar, r = brange
         mx = mx_in_view + tick_margin
         mn = mn_in_view - tick_margin
@@ -293,7 +316,6 @@ def graphics_update_cycle(
         # event though a tick sample is not emitted.
         # TODO: show dark trades differently
         # https://github.com/pikers/piker/issues/116
-        array = ohlcv.array
 
         # NOTE: this used to be implemented in a dedicated
         # "increment tas": ``check_for_new_bars()`` but it doesn't
@@ -313,11 +335,11 @@ def graphics_update_cycle(
 
         if vlm_chart:
             vlm_chart.update_curve_from_array('volume', array)
-            vlm_sticky.update_from_data(*array[-1][['index', 'volume']])
+            ds.vlm_sticky.update_from_data(*array[-1][['index', 'volume']])
 
             if (
-                mx_vlm_in_view != vars['last_mx_vlm'] or
-                mx_vlm_in_view > vars['last_mx_vlm']
+                mx_vlm_in_view != vars['last_mx_vlm']
+                or mx_vlm_in_view > vars['last_mx_vlm']
             ):
                 # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
                 vlm_chart.view._set_yrange(
@@ -382,6 +404,12 @@ def graphics_update_cycle(
         # last_clear_updated: bool = False
         # for typ, tick in reversed(lasts.items()):
 
+        # update ohlc sampled price bars
+        chart.update_ohlc_from_array(
+            chart.name,
+            array,
+        )
+
         # iterate in FIFO order per frame
         for typ, tick in lasts.items():
 
@@ -410,19 +438,16 @@ def graphics_update_cycle(
 
                 # update price sticky(s)
                 end = array[-1]
-                last_price_sticky.update_from_data(
+                ds.last_price_sticky.update_from_data(
                     *end[['index', 'close']]
-                )
-
-                # update ohlc sampled price bars
-                chart.update_ohlc_from_array(
-                    chart.name,
-                    array,
                 )
 
                 if wap_in_history:
                     # update vwap overlay line
-                    chart.update_curve_from_array('bar_wap', ohlcv.array)
+                    chart.update_curve_from_array(
+                        'bar_wap',
+                        array,
+                    )
 
             # L1 book label-line updates
             # XXX: is this correct for ib?
@@ -436,7 +461,9 @@ def graphics_update_cycle(
                 }.get(price)
 
                 if label is not None:
-                    label.update_fields({'level': price, 'size': size})
+                    label.update_fields(
+                        {'level': price, 'size': size}
+                    )
 
                     # TODO: on trades should we be knocking down
                     # the relevant L1 queue?
@@ -469,7 +496,7 @@ def graphics_update_cycle(
         vars['last_mx'], vars['last_mn'] = mx, mn
 
         # run synchronous update on all derived fsp subplots
-        for name, subchart in linked.subplots.items():
+        for name, subchart in ds.linked.subplots.items():
             update_fsp_chart(
                 subchart,
                 subchart._shm,
@@ -490,19 +517,6 @@ def graphics_update_cycle(
                 curve_name,
                 array_key=curve_name,
             )
-
-
-def trigger_update(
-    linked: LinkedSplits,
-
-) -> None:
-    '''
-    Manually trigger a graphics update from global state.
-
-    Generally used from remote actors who wish to trigger a UI refresh.
-
-    '''
-    graphics_update_cycle(**linked.display_state)
 
 
 async def display_symbol_data(
