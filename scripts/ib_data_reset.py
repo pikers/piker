@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -49,22 +49,30 @@ for name in win_names:
         # https://github.com/rr-/pyxdotool
         # https://github.com/ShaneHutter/pyxdotool
         # https://github.com/cphyc/pyxdotool
-        subprocess.call([
-            'xdotool',
-            'windowactivate', '--sync', win_id,
 
-            # move mouse to bottom left of window (where there should
-            # be nothing to click).
-            'mousemove_relative', '--sync', str(w-4), str(h-4),
+        # TODO: only run the reconnect (2nd) kc on a detected
+        # disconnect?
+        for key_combo, timeout in [
+            ('ctrl+alt+r', 12),
+            ('ctrl+alt+f', 6)
+        ]:
+            subprocess.call([
+                'xdotool',
+                'windowactivate', '--sync', win_id,
 
-            # NOTE: we may need to stick a `--retry 3` in here..
-            'click', '--window', win_id, '--repeat', '3', '1',
+                # move mouse to bottom left of window (where there should
+                # be nothing to click).
+                'mousemove_relative', '--sync', str(w-4), str(h-4),
 
-            # hackzorzes
-            'key', 'ctrl+alt+f',
-            ],
-            timeout=1,
-        )
+                # NOTE: we may need to stick a `--retry 3` in here..
+                'click', '--window', win_id,
+                '--repeat', '3', '1',
+
+                # hackzorzes
+                'key', key_combo,
+                ],
+                timeout=timeout,
+            )
 
 # re-activate and focus original window
 subprocess.call([
