@@ -36,6 +36,7 @@ from ..log import get_logger
 from ._style import _min_points_to_show
 from ._editors import SelectRect
 from . import _event
+from ._ohlc import BarItems
 
 
 log = get_logger(__name__)
@@ -429,6 +430,12 @@ class ChartView(ViewBox):
     def maxmin(self, callback: Callable) -> None:
         self._maxmin = callback
 
+
+    def maybe_downsample_graphics(self):
+        for graphic in self._chart._graphics.values():
+            if isinstance(graphic, BarItems):
+                graphic.maybe_paint_line()
+
     def wheelEvent(
         self,
         ev,
@@ -775,6 +782,15 @@ class ChartView(ViewBox):
 
         '''
         vb.sigXRangeChanged.connect(vb._set_yrange)
+
+        # TODO: a smarter way to avoid calling this needlessly?
+        # 2 things i can think of:
+        # - register downsample-able graphics specially and only
+        #   iterate those.
+        # - only register this when certain downsampleable graphics are
+        #   "added to scene".
+        vb.sigXRangeChanged.connect(vb.maybe_downsample_graphics)
+
         # mouse wheel doesn't emit XRangeChanged
         vb.sigRangeChangedManually.connect(vb._set_yrange)
         vb.sigResized.connect(vb._set_yrange)  # splitter(s) resizing
