@@ -29,6 +29,10 @@ from PyQt5.QtCore import QLineF, QPointF
 
 from .._profile import pg_profile_enabled
 from ._style import hcolor
+from ..log import get_logger
+
+
+log = get_logger(__name__)
 
 
 def _mk_lines_array(
@@ -170,8 +174,10 @@ def gen_qpath(
 
 
 class BarItems(pg.GraphicsObject):
-    """Price range bars graphics rendered from a OHLC sequence.
-    """
+    '''
+    "Price range" bars graphics rendered from a OHLC sampled sequence.
+
+    '''
     sigPlotChanged = QtCore.pyqtSignal(object)
 
     # 0.5 is no overlap between arms, 1.0 is full overlap
@@ -183,11 +189,15 @@ class BarItems(pg.GraphicsObject):
         plotitem: 'pg.PlotItem',  # noqa
         pen_color: str = 'bracket',
         last_bar_color: str = 'bracket',
-    ) -> None:
-        super().__init__()
 
+        name: Optional[str] = None,
+
+    ) -> None:
+
+        super().__init__()
         # XXX: for the mega-lulz increasing width here increases draw
         # latency...  so probably don't do it until we figure that out.
+        self._color = pen_color
         self.bars_pen = pg.mkPen(hcolor(pen_color), width=1)
         self.last_bar_pen = pg.mkPen(hcolor(last_bar_color), width=2)
 
@@ -219,15 +229,20 @@ class BarItems(pg.GraphicsObject):
         self.start_index: int = 0
         self.stop_index: int = 0
 
+        self._in_ds: bool = False
+
     def draw_from_data(
         self,
         data: np.ndarray,
         start: int = 0,
+
     ) -> QtGui.QPainterPath:
-        """Draw OHLC datum graphics from a ``np.ndarray``.
+        '''
+        Draw OHLC datum graphics from a ``np.ndarray``.
 
         This routine is usually only called to draw the initial history.
-        """
+
+        '''
         hist, last = data[:-1], data[-1]
 
         self.path = gen_qpath(hist, start, self.w)
@@ -249,14 +264,28 @@ class BarItems(pg.GraphicsObject):
         # https://doc.qt.io/qt-5/qgraphicsitem.html#update
         self.update()
 
+        from ._curve import FastAppendCurve
+        self._ds_line = FastAppendCurve(
+            y=data['close'],
+            x=data['index'],
+            name='ohlc_ds_line',
+            color=self._color,
+            # use_polyline=True,  # pretty sure this is slower?
+        )
+        self.update_from_array(data)
+        self._pi.addItem(self._ds_line)
+        self._ds_line.hide()
+
         return self.path
 
     def update_from_array(
         self,
         array: np.ndarray,
         just_history=False,
+
     ) -> None:
-        """Update the last datum's bar graphic from input data array.
+        '''
+        Update the last datum's bar graphic from input data array.
 
         This routine should be interface compatible with
         ``pg.PlotCurveItem.setData()``. Normally this method in
@@ -266,7 +295,16 @@ class BarItems(pg.GraphicsObject):
         does) so this "should" be simpler and faster.
 
         This routine should be made (transitively) as fast as possible.
-        """
+
+        '''
+        # XXX: always do this?
+        if self._in_ds:
+            self._ds_line.update_from_array(
+                x=array['index'],
+                y=array['close'],
+            )
+            return
+
         # index = self.start_index
         istart, istop = self._xrange
 
@@ -400,14 +438,59 @@ class BarItems(pg.GraphicsObject):
 
         )
 
+    def maybe_paint_line(
+        self,
+        x_gt: float = 2.,
+
+    ) -> bool:
+        '''
+        Call this when you want to stop drawing individual
+        bars and instead use a ``FastAppendCurve`` intepolation
+        line (normally when the width of a bar (aka 1.0 in the x)
+        is less then a pixel width on the device).
+
+        '''
+        # this is the ``float`` value of the "number of x units" (in
+        # view coords) that a pixel spans.
+        xs_in_px = self.pixelVectors()[0].x()
+        if (
+            not self._in_ds
+            and xs_in_px >= x_gt
+        ):
+            # TODO: a `.ui()` log level?
+            log.info(f'downsampling to line graphic')
+            self._in_ds = True
+            self.hide()
+            self._pi.addItem(self._ds_line)
+            self._ds_line.show()
+            return True
+
+        elif (
+            self._in_ds
+            and xs_in_px < x_gt
+        ):
+            log.info(f'showing bars graphic')
+            self._in_ds = False
+            self.show()
+            self._ds_line.hide()
+            self._pi.removeItem(self._ds_line)
+            return False
+
     def paint(
         self,
         p: QtGui.QPainter,
         opt: QtWidgets.QStyleOptionGraphicsItem,
         w: QtWidgets.QWidget
+
     ) -> None:
 
-        profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
+        if self._in_ds:
+            return
+
+        profiler = pg.debug.Profiler(
+            disabled=not pg_profile_enabled(),
+            delayed=False,
+        )
 
         # p.setCompositionMode(0)
 
@@ -424,3 +507,14 @@ class BarItems(pg.GraphicsObject):
         p.setPen(self.bars_pen)
         p.drawPath(self.path)
         profiler('draw history path')
+        profiler.finish()
+
+        # NOTE: for testing paint frequency as throttled by display loop.
+        # now = time.time()
+        # global _last_draw
+        # print(f'DRAW RATE {1/(now - _last_draw)}')
+        # _last_draw = now
+
+
+# import time
+# _last_draw: float = time.time()
