@@ -17,7 +17,11 @@
 Super fast OHLC sampling graphics types.
 
 """
-from typing import List, Optional, Tuple
+from __future__ import annotations
+from typing import (
+    Optional,
+    TYPE_CHECKING,
+)
 
 import numpy as np
 import pyqtgraph as pg
@@ -31,12 +35,15 @@ from .._profile import pg_profile_enabled
 from ._style import hcolor
 from ..log import get_logger
 
+if TYPE_CHECKING:
+    from ._chart import LinkedSplits
+
 
 log = get_logger(__name__)
 
 
 def _mk_lines_array(
-    data: List,
+    data: list,
     size: int,
     elements_step: int = 6,
 ) -> np.ndarray:
@@ -53,7 +60,8 @@ def _mk_lines_array(
 def lines_from_ohlc(
     row: np.ndarray,
     w: float
-) -> Tuple[QLineF]:
+
+) -> tuple[QLineF]:
 
     open, high, low, close, index = row[
         ['open', 'high', 'low', 'close', 'index']]
@@ -88,7 +96,7 @@ def lines_from_ohlc(
 @njit(
     # TODO: for now need to construct this manually for readonly arrays, see
     # https://github.com/numba/numba/issues/4511
-    # ntypes.Tuple((float64[:], float64[:], float64[:]))(
+    # ntypes.tuple((float64[:], float64[:], float64[:]))(
     #     numba_ohlc_dtype[::1],  # contiguous
     #     int64,
     #     optional(float64),
@@ -186,6 +194,7 @@ class BarItems(pg.GraphicsObject):
     def __init__(
         self,
         # scene: 'QGraphicsScene',  # noqa
+        linked: LinkedSplits,
         plotitem: 'pg.PlotItem',  # noqa
         pen_color: str = 'bracket',
         last_bar_color: str = 'bracket',
@@ -194,6 +203,7 @@ class BarItems(pg.GraphicsObject):
 
     ) -> None:
 
+        self.linked = linked
         super().__init__()
         # XXX: for the mega-lulz increasing width here increases draw
         # latency...  so probably don't do it until we figure that out.
@@ -218,12 +228,12 @@ class BarItems(pg.GraphicsObject):
 
         self._pi = plotitem
 
-        self._xrange: Tuple[int, int]
-        self._yrange: Tuple[float, float]
+        self._xrange: tuple[int, int]
+        self._yrange: tuple[float, float]
 
         # TODO: don't render the full backing array each time
         # self._path_data = None
-        self._last_bar_lines: Optional[Tuple[QLineF, ...]] = None
+        self._last_bar_lines: Optional[tuple[QLineF, ...]] = None
 
         # track the current length of drawable lines within the larger array
         self.start_index: int = 0
@@ -457,24 +467,33 @@ class BarItems(pg.GraphicsObject):
             not self._in_ds
             and xs_in_px >= x_gt
         ):
+            linked = self.linked
             # TODO: a `.ui()` log level?
-            log.info(f'downsampling to line graphic')
+            log.info(f'downsampling to line graphic {linked.symbol.key}')
             self._in_ds = True
             self.hide()
             self._pi.addItem(self._ds_line)
             self._ds_line.show()
+            self._ds_line.update()
+            linked.graphics_cycle()
             return True
 
         elif (
             self._in_ds
             and xs_in_px < x_gt
         ):
-            log.info(f'showing bars graphic')
+            linked = self.linked
+            log.info(f'showing bars graphic {linked.symbol.key}')
             self._in_ds = False
             self.show()
+            self.update()
             self._ds_line.hide()
             self._pi.removeItem(self._ds_line)
-            return False
+            linked.graphics_cycle()
+            return True
+
+        # no curve change
+        return False
 
     def paint(
         self,
