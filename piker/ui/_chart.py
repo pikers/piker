@@ -892,6 +892,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         '''
         graphics = BarItems(
+            self.linked,
             self.plotItem,
             pen_color=self.pen_color
         )
