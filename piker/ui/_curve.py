@@ -23,6 +23,7 @@ from typing import Optional
 import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtGui, QtWidgets
+from PyQt5.QtWidgets import QGraphicsItem
 from PyQt5.QtCore import (
     Qt,
     QLineF,
@@ -94,6 +95,38 @@ _line_styles: dict[str, int] = {
 }
 
 
+def downsample(
+    x: np.ndarray,
+    y: np.ndarray,
+    bins: int,
+    method: str = 'peak',
+
+) -> tuple[np.ndarray, np.ndarray]:
+    '''
+    Downsample x/y data for lesser curve graphics gen.
+
+    The "peak" method is originally copied verbatim from
+    ``pyqtgraph.PlotDataItem.getDisplayDataset()``.
+
+    '''
+    match method:
+        case 'peak':
+            ds = bins
+            n = len(x) // ds
+            x1 = np.empty((n, 2))
+            # start of x-values; try to select a somewhat centered point
+            stx = ds//2
+            x1[:] = x[stx:stx+n*ds:ds, np.newaxis]
+            x = x1.reshape(n*2)
+            y1 = np.empty((n, 2))
+            y2 = y[:n*ds].reshape((n, ds))
+            y1[:, 0] = y2.max(axis=1)
+            y1[:, 1] = y2.min(axis=1)
+            y = y1.reshape(n*2)
+
+    return x, y
+
+
 # TODO: got a feeling that dropping this inheritance gets us even more speedups
 class FastAppendCurve(pg.PlotCurveItem):
     '''
@@ -116,16 +149,22 @@ class FastAppendCurve(pg.PlotCurveItem):
         fill_color: Optional[str] = None,
         style: str = 'solid',
         name: Optional[str] = None,
+        use_polyline: bool = False,
 
         **kwargs
 
     ) -> None:
 
+        self._name = name
+
         # TODO: we can probably just dispense with the parent since
         # we're basically only using the pen setting now...
         super().__init__(*args, **kwargs)
-        self._name = name
         self._xrange: tuple[int, int] = self.dataBounds(ax=0)
+
+        # self._last_draw = time.time()
+        self._use_poly = use_polyline
+        self.poly = None
 
         # all history of curve is drawn in single px thickness
         pen = pg.mkPen(hcolor(color))
@@ -153,12 +192,14 @@ class FastAppendCurve(pg.PlotCurveItem):
         # interactions slower (such as zooming) and if so maybe if/when
         # we implement a "history" mode for the view we disable this in
         # that mode?
-        if step_mode:
+        if step_mode or self._use_poly:
             # don't enable caching by default for the case where the
             # only thing drawn is the "last" line segment which can
             # have a weird artifact where it won't be fully drawn to its
             # endpoint (something we saw on trade rate curves)
-            self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
+            self.setCacheMode(
+                QGraphicsItem.DeviceCoordinateCache
+            )
 
     def update_from_array(
         self,
@@ -195,12 +236,20 @@ class FastAppendCurve(pg.PlotCurveItem):
             x_out, y_out = x[:-1], y[:-1]
 
         if self.path is None or prepend_length > 0:
-            self.path = pg.functions.arrayToQPath(
-                x_out,
-                y_out,
-                connect='all',
-                finiteCheck=False,
-            )
+
+            if self._use_poly:
+                self.poly = pg.functions.arrayToQPolygonF(
+                    x_out,
+                    y_out,
+                )
+
+            else:
+                self.path = pg.functions.arrayToQPath(
+                    x_out,
+                    y_out,
+                    connect='all',
+                    finiteCheck=False,
+                )
             profiler('generate fresh path')
 
             # if self._step_mode:
@@ -242,18 +291,27 @@ class FastAppendCurve(pg.PlotCurveItem):
                 new_y = y[-append_length - 2:-1]
                 # print((new_x, new_y))
 
-            append_path = pg.functions.arrayToQPath(
-                new_x,
-                new_y,
-                connect='all',
-                # finiteCheck=False,
-            )
+            if self._use_poly:
+                union_poly = pg.functions.arrayToQPolygonF(
+                    new_x,
+                    new_y,
+                )
+
+            else:
+                append_path = pg.functions.arrayToQPath(
+                    new_x,
+                    new_y,
+                    connect='all',
+                    finiteCheck=False,
+                )
 
             path = self.path
 
             # other merging ideas:
             # https://stackoverflow.com/questions/8936225/how-to-merge-qpainterpaths
             if self._step_mode:
+                assert not self._use_poly, 'Dunno howw this worx yet'
+
                 # path.addPath(append_path)
                 self.path.connectPath(append_path)
 
@@ -269,19 +327,26 @@ class FastAppendCurve(pg.PlotCurveItem):
                 #     # path.closeSubpath()
 
             else:
-                # print(f"append_path br: {append_path.boundingRect()}")
-                # self.path.moveTo(new_x[0], new_y[0])
-                # self.path.connectPath(append_path)
-                path.connectPath(append_path)
+                if self._use_poly:
+                    self.poly = self.poly.united(union_poly)
+                else:
+                    # print(f"append_path br: {append_path.boundingRect()}")
+                    # self.path.moveTo(new_x[0], new_y[0])
+                    self.path.connectPath(append_path)
+                    # path.connectPath(append_path)
+
+                    # XXX: lol this causes a hang..
+                    # self.path = self.path.simplified()
 
             self.disable_cache()
             flip_cache = True
 
-        if (
-            self._step_mode
-        ):
-            self.disable_cache()
-            flip_cache = True
+        # XXX: do we need this any more?
+        # if (
+        #     self._step_mode
+        # ):
+        #     self.disable_cache()
+        #     flip_cache = True
 
             # print(f"update br: {self.path.boundingRect()}")
 
@@ -318,7 +383,7 @@ class FastAppendCurve(pg.PlotCurveItem):
 
         if flip_cache:
             # XXX: seems to be needed to avoid artifacts (see above).
-            self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
+            self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
     def disable_cache(self) -> None:
         '''
@@ -334,15 +399,22 @@ class FastAppendCurve(pg.PlotCurveItem):
         '''
         Compute and then cache our rect.
         '''
-        if self.path is None:
-            return QtGui.QPainterPath().boundingRect()
+        if self._use_poly:
+            if self.poly is None:
+                return QtGui.QPolygonF().boundingRect()
+            else:
+                br = self.boundingRect = self.poly.boundingRect
+                return br()
         else:
-            # dynamically override this method after initial
-            # path is created to avoid requiring the above None check
-            self.boundingRect = self._br
-            return self._br()
+            if self.path is None:
+                return QtGui.QPainterPath().boundingRect()
+            else:
+                # dynamically override this method after initial
+                # path is created to avoid requiring the above None check
+                self.boundingRect = self._path_br
+                return self._path_br()
 
-    def _br(self):
+    def _path_br(self):
         '''
         Post init ``.boundingRect()```.
 
@@ -373,7 +445,9 @@ class FastAppendCurve(pg.PlotCurveItem):
 
     ) -> None:
 
-        profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
+        profiler = pg.debug.Profiler(
+            # disabled=False, #not pg_profile_enabled(),
+        )
         # p.setRenderHint(p.Antialiasing, True)
 
         if (
@@ -395,12 +469,26 @@ class FastAppendCurve(pg.PlotCurveItem):
             p.setPen(self.opts['pen'])
 
         # else:
-        p.drawPath(self.path)
-        profiler('.drawPath()')
+        if self._use_poly:
+            assert self.poly
+            p.drawPolyline(self.poly)
+            profiler('.drawPolyline()')
+        else:
+            p.drawPath(self.path)
+            profiler('.drawPath()')
 
-        # TODO: try out new work from `pyqtgraph` main which
-        # should repair horrid perf:
+        # TODO: try out new work from `pyqtgraph` main which should
+        # repair horrid perf (pretty sure i did and it was still
+        # horrible?):
         # https://github.com/pyqtgraph/pyqtgraph/pull/2032
         # if self._fill:
         #     brush = self.opts['brush']
         #     p.fillPath(self.path, brush)
+
+        # now = time.time()
+        # print(f'DRAW RATE {1/(now - self._last_draw)}')
+        # self._last_draw = now
+
+
+# import time
+# _last_draw: float = time.time()
