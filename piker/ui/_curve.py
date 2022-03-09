@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -93,38 +93,6 @@ _line_styles: dict[str, int] = {
     'dot': Qt.PenStyle.DotLine,
     'dashdot': Qt.PenStyle.DashDotLine,
 }
-
-
-def downsample(
-    x: np.ndarray,
-    y: np.ndarray,
-    bins: int,
-    method: str = 'peak',
-
-) -> tuple[np.ndarray, np.ndarray]:
-    '''
-    Downsample x/y data for lesser curve graphics gen.
-
-    The "peak" method is originally copied verbatim from
-    ``pyqtgraph.PlotDataItem.getDisplayDataset()``.
-
-    '''
-    match method:
-        case 'peak':
-            ds = bins
-            n = len(x) // ds
-            x1 = np.empty((n, 2))
-            # start of x-values; try to select a somewhat centered point
-            stx = ds//2
-            x1[:] = x[stx:stx+n*ds:ds, np.newaxis]
-            x = x1.reshape(n*2)
-            y1 = np.empty((n, 2))
-            y2 = y[:n*ds].reshape((n, ds))
-            y1[:, 0] = y2.max(axis=1)
-            y1[:, 1] = y2.min(axis=1)
-            y = y1.reshape(n*2)
-
-    return x, y
 
 
 # TODO: got a feeling that dropping this inheritance gets us even more speedups
@@ -304,8 +272,6 @@ class FastAppendCurve(pg.PlotCurveItem):
                     connect='all',
                     finiteCheck=False,
                 )
-
-            path = self.path
 
             # other merging ideas:
             # https://stackoverflow.com/questions/8936225/how-to-merge-qpainterpaths
