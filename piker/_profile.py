@@ -21,7 +21,9 @@ Profiling wrappers for internal libs.
 import time
 from functools import wraps
 
-_pg_profile: bool = True
+# NOTE: you can pass a flag to enable this:
+# ``piker chart <args> --profile``.
+_pg_profile: bool = False
 
 
 def pg_profile_enabled() -> bool:
