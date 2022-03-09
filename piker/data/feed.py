@@ -318,6 +318,7 @@ async def allocate_persistent_feed(
     brokername: str,
     symbol: str,
     loglevel: str,
+    start_stream: bool = True,
 
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
@@ -404,6 +405,9 @@ async def allocate_persistent_feed(
     bus.feeds[symbol.lower()] = (init_msg, first_quotes)
     task_status.started((init_msg,  first_quotes))
 
+    if not start_stream:
+        await trio.sleep_forever()
+
     # backend will indicate when real-time quotes have begun.
     await feed_is_live.wait()
 
@@ -462,12 +466,6 @@ async def open_feed_bus(
     # brokerd yet, start persistent stream and shm writer task in
     # service nursery
     if entry is None:
-        if not start_stream:
-            raise RuntimeError(
-                f'No stream feed exists for {fqsn}?\n'
-                f'You may need a `brokerd` started first.'
-            )
-
         # allocate a new actor-local stream bus which will persist for
         # this `brokerd`.
         async with bus.task_lock:
@@ -477,13 +475,12 @@ async def open_feed_bus(
 
                     bus=bus,
                     brokername=brokername,
-
                     # here we pass through the selected symbol in native
                     # "format" (i.e. upper vs. lowercase depending on
                     # provider).
                     symbol=symbol,
-
                     loglevel=loglevel,
+                    start_stream=start_stream,
                 )
             )
             # TODO: we can remove this?
