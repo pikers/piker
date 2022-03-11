@@ -324,16 +324,29 @@ def graphics_update_cycle(
         # are diffed on each draw cycle anyway; so updates to the
         # "curve" length is already automatic.
 
+        # compute the first available graphic's x-units-per-pixel
+        xpx = vlm_chart.view.xs_in_px()
+        # print(r)
+
         # increment the view position by the sample offset.
         i_step = ohlcv.index
         i_diff = i_step - vars['i_last']
-        if i_diff > 0:
-            chart.increment_view(
-                steps=i_diff,
-            )
         vars['i_last'] = i_step
 
-        if vlm_chart:
+        # don't real-time "shift" the curve to the
+        # left under the following conditions:
+        if (
+            i_diff > 0  # no new sample step
+            and xpx < 4  # chart is zoomed out very far
+            and r >= i_step  # the last datum isn't in view
+        ):
+            chart.increment_view(steps=i_diff)
+
+        if (
+            vlm_chart
+            # if zoomed out alot don't update the last "bar"
+            and xpx < 4
+        ):
             vlm_chart.update_curve_from_array('volume', array)
             ds.vlm_sticky.update_from_data(*array[-1][['index', 'volume']])
 
@@ -405,10 +418,12 @@ def graphics_update_cycle(
         # for typ, tick in reversed(lasts.items()):
 
         # update ohlc sampled price bars
-        chart.update_ohlc_from_array(
-            chart.name,
-            array,
-        )
+
+        if xpx < 4 or i_diff > 0 :
+            chart.update_ohlc_from_array(
+                chart.name,
+                array,
+            )
 
         # iterate in FIFO order per frame
         for typ, tick in lasts.items():
