@@ -519,19 +519,20 @@ async def open_sample_step_stream(
     # created for all practical purposes
     async with maybe_open_context(
         acm_func=partial(
-            portal.open_stream_from,
+            portal.open_context,
             iter_ohlc_periods,
         ),
         kwargs={'delay_s': delay_s},
 
-    ) as (cache_hit, istream):
-        if cache_hit:
-            # add a new broadcast subscription for the quote stream
-            # if this feed is likely already in use
-            async with istream.subscribe() as bistream:
-                yield bistream
-        else:
-            yield istream
+    ) as (cache_hit, (ctx, first)):
+        async with ctx.open_stream() as istream:
+            if cache_hit:
+                # add a new broadcast subscription for the quote stream
+                # if this feed is likely already in use
+                async with istream.subscribe() as bistream:
+                    yield bistream
+            else:
+                yield istream
 
 
 @dataclass
