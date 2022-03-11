@@ -59,9 +59,9 @@ def hl2mxmn(
     mxmn = np.empty(2*hls.size, dtype=np.float64)
     x = np.empty(2*hls.size, dtype=np.float64)
     trace_hl(hls, mxmn, x, index[0])
-    x = x + index[0] - 1
+    x = x + index[0]
 
-    if not downsample_by > 2:
+    if downsample_by < 2:
         return mxmn, x
 
     dsx, dsy = downsample(
@@ -70,6 +70,7 @@ def hl2mxmn(
         bins=downsample_by,
     )
     log.info(f'downsampling by {downsample_by}')
+    print(f'downsampling by {downsample_by}')
     return dsy, dsx
 
 
