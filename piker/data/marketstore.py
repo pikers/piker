@@ -433,7 +433,13 @@ async def backfill_history_diff(
                 raise MarketStoreError(err)
 
         # TODO: backfiller loop
-        # await tractor.breakpoint()
+        from piker.ui._compression import downsample
+        x, y = downsample(
+            s1['Epoch'],
+            s1['Close'],
+            bins=10,
+        )
+        await tractor.breakpoint()
 
 
 async def ingest_quote_stream(
