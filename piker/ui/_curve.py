@@ -191,8 +191,8 @@ class FastAppendCurve(pg.PlotCurveItem):
         # compute the length diffs between the first/last index entry in
         # the input data and the last indexes we have on record from the
         # last time we updated the curve index.
-        prepend_length = istart - x[0]
-        append_length = x[-1] - istop
+        prepend_length = int(istart - x[0])
+        append_length = int(x[-1] - istop)
 
         # step mode: draw flat top discrete "step"
         # over the index space for each datum.
