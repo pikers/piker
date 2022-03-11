@@ -363,7 +363,6 @@ class ChartView(ViewBox):
             # defaultPadding=0.,
             **kwargs
         )
-
         # for "known y-range style"
         self._static_yrange = static_yrange
         self._maxmin = None
@@ -430,7 +429,6 @@ class ChartView(ViewBox):
     def maxmin(self, callback: Callable) -> None:
         self._maxmin = callback
 
-
     def maybe_downsample_graphics(self):
         for graphic in self._chart._graphics.values():
             if isinstance(graphic, BarItems):
@@ -442,7 +440,8 @@ class ChartView(ViewBox):
         axis=None,
         relayed_from: ChartView = None,
     ):
-        '''Override "center-point" location for scrolling.
+        '''
+        Override "center-point" location for scrolling.
 
         This is an override of the ``ViewBox`` method simply changing
         the center of the zoom to be the y-axis.
@@ -789,7 +788,7 @@ class ChartView(ViewBox):
         #   iterate those.
         # - only register this when certain downsampleable graphics are
         #   "added to scene".
-        vb.sigXRangeChanged.connect(vb.maybe_downsample_graphics)
+        vb.sigRangeChangedManually.connect(vb.maybe_downsample_graphics)
 
         # mouse wheel doesn't emit XRangeChanged
         vb.sigRangeChangedManually.connect(vb._set_yrange)
@@ -800,3 +799,19 @@ class ChartView(ViewBox):
     ) -> None:
 
         self._chart._static_yrange = 'axis'
+
+    def xs_in_px(self) -> float:
+        '''
+        Return the "number of x units" within a single
+        pixel currently being displayed for relevant
+        graphics items which are our children.
+
+        '''
+        for graphic in self._chart._graphics.values():
+            # if isinstance(graphic, BarItems):
+            xpx = graphic.pixelVectors()[0].x()
+            if xpx:
+                return xpx
+            else:
+                continue
+        return 1.0
