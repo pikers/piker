@@ -295,7 +295,8 @@ class ContentsLabels:
 
 
 class Cursor(pg.GraphicsObject):
-    '''Multi-plot cursor for use on a ``LinkedSplits`` chart (set).
+    '''
+    Multi-plot cursor for use on a ``LinkedSplits`` chart (set).
 
     '''
     def __init__(
@@ -310,7 +311,7 @@ class Cursor(pg.GraphicsObject):
 
         self.linked = linkedsplits
         self.graphics: dict[str, pg.GraphicsObject] = {}
-        self.plots: List['PlotChartWidget'] = []  # type: ignore # noqa
+        self.plots: list['PlotChartWidget'] = []  # type: ignore # noqa
         self.active_plot = None
         self.digits: int = digits
         self._datum_xy: tuple[int, float] = (0, 0)
@@ -439,7 +440,10 @@ class Cursor(pg.GraphicsObject):
         if plot.linked.xaxis_chart is plot:
             xlabel = self.xaxis_label = XAxisLabel(
                 parent=self.plots[plot_index].getAxis('bottom'),
-                # parent=self.plots[plot_index].pi_overlay.get_axis(plot.plotItem, 'bottom'),
+                # parent=self.plots[plot_index].pi_overlay.get_axis(
+                #     plot.plotItem, 'bottom'
+                # ),
+
                 opacity=_ch_label_opac,
                 bg_color=self.label_color,
             )
