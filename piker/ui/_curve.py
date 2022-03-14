@@ -466,9 +466,8 @@ class FastAppendCurve(pg.GraphicsObject):
     ) -> None:
 
         profiler = pg.debug.Profiler(
-            # disabled=False, #not pg_profile_enabled(),
+            disabled=not pg_profile_enabled(),
         )
-        # p.setRenderHint(p.Antialiasing, True)
 
         if (
             self._step_mode
@@ -486,13 +485,14 @@ class FastAppendCurve(pg.GraphicsObject):
             profiler('.drawLine()')
             p.setPen(self._pen)
 
-        # else:
+        path = self.path
         if self._use_poly:
             assert self.poly
             p.drawPolyline(self.poly)
             profiler('.drawPolyline()')
-        else:
-            p.drawPath(self.path)
+
+        elif path:
+            p.drawPath(path)
             profiler('.drawPath()')
 
         # TODO: try out new work from `pyqtgraph` main which should
