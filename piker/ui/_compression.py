@@ -19,7 +19,7 @@ Graphics related downsampling routines for compressing to pixel
 limits on the display device.
 
 '''
-from typing import Optional
+import math
 
 import numpy as np
 # from numpy.lib.recfunctions import structured_to_unstructured
@@ -141,7 +141,9 @@ def downsample(
     Downsample x/y data for lesser curve graphics gen.
 
     The "peak" method is originally copied verbatim from
-    ``pyqtgraph.PlotDataItem.getDisplayDataset()``.
+    ``pyqtgraph.PlotDataItem.getDisplayDataset()`` which gets
+    all credit, though we will likely drop this in favor of the M4
+    algo below.
 
     '''
     # py3.10 syntax
@@ -180,14 +182,13 @@ def ds_m4(
     # in display-device-local pixel units.
     px_width: int,
 
-    factor: Optional[int] = None,
-
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[int, np.ndarray, np.ndarray]:
     '''
     Downsample using the M4 algorithm.
 
-    '''
+    This is more or less an OHLC style sampling of a line-style series.
 
+    '''
     # NOTE: this method is a so called "visualization driven data
     # aggregation" approach. It gives error-free line chart
     # downsampling, see
@@ -212,24 +213,34 @@ def ds_m4(
     # you could in theory pass these as the slicing params,
     # do we care though since we can always just pre-slice the
     # input?
-    x_start = 0  # x index start
-    x_end = len(x)  # x index end
+    x_start = x[0]  # x value start/lowest in domain
+    x_end = x[-1]  # x end value/highest in domain
 
-    # uppx: units-per-pixel
-    pts_per_pixel = len(x) / px_width
-    print(f'UPPX: {pts_per_pixel}')
+    # XXX: always round up on the input pixels
+    px_width = math.ceil(px_width)
+
+    x_range = x_end - x_start
 
     # ratio of indexed x-value to width of raster in pixels.
-    if factor is None:
-        w = (x_end-x_start) / float(px_width)
-        print(f' pts/pxs = {w}')
-    else:
-        w = factor
+    # this is more or less, uppx: units-per-pixel.
+    w = x_range / float(px_width)
+
+    # ensure we make more then enough
+    # frames (windows) for the output pixel
+    frames = px_width
+
+    # if we have more and then exact integer's
+    # (uniform quotient output) worth of datum-domain-points
+    # per windows-frame, add one more window to ensure
+    # we have room for all output down-samples.
+    pts_per_pixel, r = divmod(len(x), px_width)
+    if r:
+        frames += 1
 
     # these are pre-allocated and mutated by ``numba``
     # code in-place.
-    ds = np.zeros((px_width, 4), y.dtype)
-    i_win = np.zeros(px_width, x.dtype)
+    y_out = np.zeros((frames, 4), y.dtype)
+    i_win = np.zeros(frames, x.dtype)
 
     # call into ``numba``
     nb = _m4(
@@ -237,7 +248,7 @@ def ds_m4(
         y,
 
         i_win,
-        ds,
+        y_out,
 
         # first index in x data to start at
         x_start,
@@ -245,9 +256,8 @@ def ds_m4(
         # scaled by the ratio of pixels on screen to data in x-range).
         w,
     )
-    print(f'downsampled to {nb} bins')
 
-    return i_win, ds.flatten()
+    return nb, i_win, y_out
 
 
 @jit(
@@ -275,13 +285,11 @@ def _m4(
     bincount = 0
     x_left = x_start
 
-    # Find the first window's starting index which *includes* the
-    # first value in the x-domain array.
-    # (this allows passing in an array which is indexed (and thus smaller then)
-    # the ``x_start`` value normally passed in - say if you normally
-    # want to start 0-indexed.
-    first = xs[0]
-    while first >= x_left + step:
+    # Find the first window's starting value which *includes* the
+    # first value in the x-domain array, i.e. the first
+    # "left-side-of-window" **plus** the downsampling step,
+    # creates a window which includes the first x **value**.
+    while xs[0] >= x_left + step:
         x_left += step
 
     # set all bins in the left-most entry to the starting left-most x value
