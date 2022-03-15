@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -406,7 +406,16 @@ async def uniform_rate_send(
         # rate timing exactly lul
         try:
             await stream.send({sym: first_quote})
-        except trio.ClosedResourceError:
+        except (
+            # NOTE: any of these can be raised by ``tractor``'s IPC
+            # transport-layer and we want to be highly resilient
+            # to consumers which crash or lose network connection.
+            # I.e. we **DO NOT** want to crash and propagate up to
+            # ``pikerd`` these kinds of errors!
+            trio.ClosedResourceError,
+            trio.BrokenResourceError,
+            ConnectionResetError,
+        ):
             # if the feed consumer goes down then drop
             # out of this rate limiter
             log.warning(f'{stream} closed')
