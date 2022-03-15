@@ -374,12 +374,15 @@ class LinkedSplits(QWidget):
         '''
         ln = len(self.subplots)
 
+        # proportion allocated to consumer subcharts
         if not prop:
-            # proportion allocated to consumer subcharts
-            if ln < 2:
-                prop = 1/3
-            elif ln >= 2:
-                prop = 3/8
+            prop = 3/8*5/8
+
+            # if ln < 2:
+            #     prop = 3/8*5/8
+
+            # elif ln >= 2:
+            #     prop = 3/8
 
         major = 1 - prop
         min_h_ind = int((self.height() * prop) / ln)
@@ -842,7 +845,7 @@ class ChartPlotWidget(pg.PlotWidget):
             log.warning(f'array for {self.name} not loaded yet?')
             return
 
-        begin = xlast - _bars_to_left_in_follow_mode
+        begin = xlast - 1000
         end = xlast + _bars_from_right_in_follow_mode
 
         # remove any custom user yrange setttings
@@ -856,6 +859,11 @@ class ChartPlotWidget(pg.PlotWidget):
             padding=0,
         )
         view._set_yrange()
+        self.view.maybe_downsample_graphics()
+        try:
+            self.linked.graphics_cycle()
+        except:
+            pass
 
     def increment_view(
         self,
@@ -1000,12 +1008,6 @@ class ChartPlotWidget(pg.PlotWidget):
             # XXX: pretty sure this is just more overhead
             # on data reads and makes graphics rendering no faster
             # clipToView=True,
-
-            # TODO: see how this handles with custom ohlcv bars graphics
-            # and/or if we can implement something similar for OHLC graphics
-            # autoDownsample=True,
-            # downsample=60,
-            # downsampleMethod='subsample',
 
             **pdi_kwargs,
         )
@@ -1195,6 +1197,23 @@ class ChartPlotWidget(pg.PlotWidget):
             return ohlc['index'][indexes][-1]
         else:
             return ohlc['index'][-1]
+
+    def in_view(
+        self,
+        array: np.ndarray,
+
+    ) -> np.ndarray:
+        '''
+        Slice an input struct array providing only datums
+        "in view" of this chart.
+
+        '''
+        l, lbar, rbar, r = self.bars_range()
+        ifirst = array[0]['index']
+        # slice data by offset from the first index
+        # available in the passed datum set.
+        start = lbar - ifirst
+        return array[lbar - ifirst:(rbar - ifirst) + 1]
 
     def maxmin(
         self,
