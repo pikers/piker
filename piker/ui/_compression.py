@@ -19,13 +19,13 @@ Graphics related downsampling routines for compressing to pixel
 limits on the display device.
 
 '''
-# from typing import Optional
+from typing import Optional
 
 import numpy as np
 # from numpy.lib.recfunctions import structured_to_unstructured
 from numba import (
     jit,
-    float64, optional, int64,
+    # float64, optional, int64,
 )
 
 from ..log import get_logger
@@ -36,7 +36,7 @@ log = get_logger(__name__)
 
 def hl2mxmn(
     ohlc: np.ndarray,
-    downsample_by: int = 0,
+    # downsample_by: int = 0,
 
 ) -> np.ndarray:
     '''
@@ -61,17 +61,19 @@ def hl2mxmn(
     trace_hl(hls, mxmn, x, index[0])
     x = x + index[0]
 
-    if downsample_by < 2:
-        return mxmn, x
+    return mxmn, x
 
-    dsx, dsy = downsample(
-        y=mxmn,
-        x=x,
-        bins=downsample_by,
-    )
-    log.info(f'downsampling by {downsample_by}')
-    print(f'downsampling by {downsample_by}')
-    return dsy, dsx
+    # if downsample_by < 2:
+    #     return mxmn, x
+
+    # dsx, dsy = downsample(
+    #     y=mxmn,
+    #     x=x,
+    #     bins=downsample_by,
+    # )
+    # log.info(f'downsampling by {downsample_by}')
+    # print(f'downsampling by {downsample_by}')
+    # return dsy, dsx
 
 
 @jit(
@@ -129,7 +131,10 @@ def downsample(
     x: np.ndarray,
     y: np.ndarray,
     bins: int = 2,
+
     method: str = 'peak',
+
+    **kwargs,
 
 ) -> tuple[np.ndarray, np.ndarray]:
     '''
@@ -142,7 +147,6 @@ def downsample(
     # py3.10 syntax
     match method:
         case 'peak':
-            # breakpoint()
             if bins < 2:
                 log.warning('No downsampling taking place?')
 
@@ -164,87 +168,142 @@ def downsample(
 
             return x, y
 
-        # TODO: this algo from infinite, see
-        # https://github.com/pikers/piker/issues/109
-        case 'infinite_4px':
-
-            # Ex. from infinite on downsampling viewable graphics.
-            # "one thing i remembered about the binning - if you are
-            # picking a range within your timeseries the start and end bin
-            # should be one more bin size outside the visual range, then
-            # you get better visual fidelity at the edges of the graph"
-            # "i didn't show it in the sample code, but it's accounted for
-            # in the start and end indices and number of bins"
-
-            def build_subchart(
-                self,
-                subchart,
-                width,  # width of screen in pxs?
-                chart_type,
-                lower,  # x start?
-                upper,  # x end?
-                xvals,
-                yvals
-            ):
-                pts_per_pixel = len(xvals) / width
-                if pts_per_pixel > 1:
-
-                    # this is mutated in-place
-                    data = np.zeros((width, 4), yvals.dtype)
-                    bins = np.zeros(width, xvals.dtype)
-
-                    nb = subset_by_x(
-                        xvals,
-                        yvals,
-                        bins,
-                        data,
-                        lower,
-                        # this is scaling the x-range by
-                        # the width of the screen?
-                        (upper-lower)/float(width),
-                    )
-                    print(f'downsampled to {nb} bins')
-
-            return x, y
+        case 'm4':
+            return ds_m4(x, y, kwargs['px_width'])
 
 
-@jit(nopython=True)
-def subset_by_x(
+def ds_m4(
+    x: np.ndarray,
+    y: np.ndarray,
+
+    # this is the width of the data in view
+    # in display-device-local pixel units.
+    px_width: int,
+
+    factor: Optional[int] = None,
+
+) -> tuple[np.ndarray, np.ndarray]:
+    '''
+    Downsample using the M4 algorithm.
+
+    '''
+
+    # NOTE: this method is a so called "visualization driven data
+    # aggregation" approach. It gives error-free line chart
+    # downsampling, see
+    # further scientific paper resources:
+    # - http://www.vldb.org/pvldb/vol7/p797-jugel.pdf
+    # - http://www.vldb.org/2014/program/papers/demo/p997-jugel.pdf
+
+    # Details on implementation of this algo are based in,
+    # https://github.com/pikers/piker/issues/109
+
+    # XXX: from infinite on downsampling viewable graphics:
+    # "one thing i remembered about the binning - if you are
+    # picking a range within your timeseries the start and end bin
+    # should be one more bin size outside the visual range, then
+    # you get better visual fidelity at the edges of the graph"
+    # "i didn't show it in the sample code, but it's accounted for
+    # in the start and end indices and number of bins"
+
+    assert px_width > 1  # width of screen in pxs?
+
+    # NOTE: if we didn't pre-slice the data to downsample
+    # you could in theory pass these as the slicing params,
+    # do we care though since we can always just pre-slice the
+    # input?
+    x_start = 0  # x index start
+    x_end = len(x)  # x index end
+
+    # uppx: units-per-pixel
+    pts_per_pixel = len(x) / px_width
+    print(f'UPPX: {pts_per_pixel}')
+
+    # ratio of indexed x-value to width of raster in pixels.
+    if factor is None:
+        w = (x_end-x_start) / float(px_width)
+        print(f' pts/pxs = {w}')
+    else:
+        w = factor
+
+    # these are pre-allocated and mutated by ``numba``
+    # code in-place.
+    ds = np.zeros((px_width, 4), y.dtype)
+    i_win = np.zeros(px_width, x.dtype)
+
+    # call into ``numba``
+    nb = _m4(
+        x,
+        y,
+
+        i_win,
+        ds,
+
+        # first index in x data to start at
+        x_start,
+        # window size for each "frame" of data to downsample (normally
+        # scaled by the ratio of pixels on screen to data in x-range).
+        w,
+    )
+    print(f'downsampled to {nb} bins')
+
+    return i_win, ds.flatten()
+
+
+@jit(
+    nopython=True,
+)
+def _m4(
 
     xs: np.ndarray,
     ys: np.ndarray,
-    bins: np.ndarray,
-    data: np.ndarray,
+
+    # pre-alloc array of x indices mapping to the start
+    # of each window used for downsampling in y.
+    i_win: np.ndarray,
+
+    # pre-alloc array of output downsampled y values
+    ds: np.ndarray,
+
     x_start: int,
     step: float,
 
 ) -> int:
-    # nbins = len(bins)
-    count = len(xs)
+    # nbins = len(i_win)
+    # count = len(xs)
+
     bincount = 0
     x_left = x_start
 
-    # Find the first bin
+    # Find the first window's starting index which *includes* the
+    # first value in the x-domain array.
+    # (this allows passing in an array which is indexed (and thus smaller then)
+    # the ``x_start`` value normally passed in - say if you normally
+    # want to start 0-indexed.
     first = xs[0]
     while first >= x_left + step:
         x_left += step
 
-    bins[bincount] = x_left
-    data[bincount] = ys[0]
+    # set all bins in the left-most entry to the starting left-most x value
+    # (aka a row broadcast).
+    i_win[bincount] = x_left
+    # set all y-values to the first value passed in.
+    ds[bincount] = ys[0]
 
-    for i in range(count):
+    for i in range(len(xs)):
         x = xs[i]
         y = ys[i]
-        if x < x_left + step:   # Interval is [bin, bin+1)
-            data[bincount, 1] = min(y, data[bincount, 1])
-            data[bincount, 2] = max(y, data[bincount, 2])
-            data[bincount, 3] = y
+        if x < x_left + step:   # the current window "step" is [bin, bin+1)
+            ds[bincount, 1] = min(y, ds[bincount, 1])
+            ds[bincount, 2] = max(y, ds[bincount, 2])
+            ds[bincount, 3] = y
         else:
             # Find the next bin
             while x >= x_left + step:
                 x_left += step
+
             bincount += 1
-            bins[bincount] = x_left
-            data[bincount] = y
+            i_win[bincount] = x_left
+            ds[bincount] = y
 
     return bincount
