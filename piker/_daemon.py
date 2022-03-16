@@ -35,10 +35,10 @@ log = get_logger(__name__)
 
 _root_dname = 'pikerd'
 
-_registry_addr = ('127.0.0.1', 6116)
+_registry_addr = ('127.0.0.1', 1616)
 _tractor_kwargs: dict[str, Any] = {
     # use a different registry addr then tractor's default
-    'arbiter_addr':  _registry_addr
+    'arbiter_addr': _registry_addr
 }
 _root_modules = [
     __name__,
@@ -91,14 +91,18 @@ class Services(BaseModel):
                     log.info(
                         f'`pikerd` service {name} started with value {first}'
                     )
-                    # wait on any context's return value
-                    ctx_res = await ctx.result()
-
-                # wait on any error from the sub-actor
-                # NOTE: this will block indefinitely until cancelled
-                # either by error from the target context function or by
-                # being cancelled here by the surrounding cancel scope
-                return (await portal.result(), ctx_res)
+                    try:
+                        # wait on any context's return value
+                        ctx_res = await ctx.result()
+                    except tractor.ContextCancelled:
+                        return await self.cancel_service(name)
+                    else:
+                        # wait on any error from the sub-actor
+                        # NOTE: this will block indefinitely until
+                        # cancelled either by error from the target
+                        # context function or by being cancelled here by
+                        # the surrounding cancel scope
+                        return (await portal.result(), ctx_res)
 
         cs, first = await self.service_n.start(open_context_in_task)
 
@@ -110,14 +114,17 @@ class Services(BaseModel):
 
     # TODO: per service cancellation by scope, we aren't using this
     # anywhere right?
-    # async def cancel_service(
-    #     self,
-    #     name: str,
-    # ) -> Any:
-    #     log.info(f'Cancelling `pikerd` service {name}')
-    #     cs, portal = self.service_tasks[name]
-    #     cs.cancel()
-    #     return await portal.cancel_actor()
+    async def cancel_service(
+        self,
+        name: str,
+    ) -> Any:
+        log.info(f'Cancelling `pikerd` service {name}')
+        cs, portal = self.service_tasks[name]
+        # XXX: not entirely sure why this is required,
+        # and should probably be better fine tuned in
+        # ``tractor``?
+        cs.cancel()
+        return await portal.cancel_actor()
 
 
 _services: Optional[Services] = None
@@ -395,6 +402,7 @@ async def maybe_spawn_daemon(
         async with tractor.wait_for_actor(service_name) as portal:
             lock.release()
             yield portal
+            await portal.cancel_actor()
 
 
 async def spawn_brokerd(
