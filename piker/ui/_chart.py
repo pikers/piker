@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -22,7 +22,11 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import (
+    Qt,
+    QLineF,
+    QPointF,
+)
 from PyQt5.QtWidgets import (
     QFrame,
     QWidget,
@@ -824,13 +828,23 @@ class ChartPlotWidget(pg.PlotWidget):
         return int(vr.left()), int(vr.right())
 
     def bars_range(self) -> tuple[int, int, int, int]:
-        """Return a range tuple for the bars present in view.
-        """
+        '''
+        Return a range tuple for the bars present in view.
+
+        '''
         l, r = self.view_range()
         array = self._arrays[self.name]
         lbar = max(l, array[0]['index'])
         rbar = min(r, array[-1]['index'])
         return l, lbar, rbar, r
+
+    def curve_width_pxs(
+        self,
+    ) -> float:
+        _, lbar, rbar, _ = self.bars_range()
+        return self.view.mapViewToDevice(
+            QLineF(lbar, 0, rbar, 0)
+        ).length()
 
     def default_view(
         self,
@@ -864,7 +878,7 @@ class ChartPlotWidget(pg.PlotWidget):
         self.view.maybe_downsample_graphics()
         try:
             self.linked.graphics_cycle()
-        except:
+        except IndexError:
             pass
 
     def increment_view(
