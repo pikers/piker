@@ -29,6 +29,8 @@ from typing import Optional, Any, Callable
 import numpy as np
 import tractor
 import trio
+import pyqtgraph as pg
+from PyQt5.QtCore import QLineF
 
 from .. import brokers
 from ..data.feed import open_feed
@@ -178,7 +180,6 @@ async def graphics_update_loop(
         vlm_sticky = vlm_chart._ysticks['volume']
 
     maxmin = partial(chart_maxmin, chart, vlm_chart)
-    chart.default_view()
     last_bars_range: tuple[float, float]
     (
         last_bars_range,
@@ -258,6 +259,8 @@ async def graphics_update_loop(
         }
     })
 
+    chart.default_view()
+
     # main loop
     async for quotes in stream:
         ds.quotes = quotes
@@ -295,6 +298,10 @@ def graphics_update_cycle(
     # TODO: eventually optimize this whole graphics stack with ``numba``
     # hopefully XD
 
+    profiler = pg.debug.Profiler(
+        disabled=False,  # not pg_profile_enabled(),
+        delayed=False,
+    )
     # unpack multi-referenced components
     chart = ds.chart
     vlm_chart = ds.vlm_chart
@@ -304,6 +311,8 @@ def graphics_update_cycle(
     array = ohlcv.array
     vars = ds.vars
     tick_margin = vars['tick_margin']
+
+    update_uppx = 5
 
     for sym, quote in ds.quotes.items():
 
@@ -318,10 +327,6 @@ def graphics_update_cycle(
         # this simple index-diff and all the fsp sub-curve graphics
         # are diffed on each draw cycle anyway; so updates to the
         # "curve" length is already automatic.
-
-        # compute the first available graphic's x-units-per-pixel
-        xpx = vlm_chart.view.xs_in_px()
-        # print(r)
 
         # increment the view position by the sample offset.
         i_step = ohlcv.index
@@ -338,7 +343,62 @@ def graphics_update_cycle(
         l, lbar, rbar, r = brange
         mx = mx_in_view + tick_margin
         mn = mn_in_view - tick_margin
+        profiler('maxmin call')
         liv = r > i_step  # the last datum is in view
+
+        # compute the first available graphic's x-units-per-pixel
+        xpx = vlm_chart.view.xs_in_px()
+
+        in_view = chart.in_view(ohlcv.array)
+
+        if lbar != rbar:
+            # view box width in pxs
+            w = chart.view.boundingRect().width()
+
+            # TODO: a better way to get this?
+            # i would guess the esiest way is to just
+            # get the ``.boundingRect()`` of the curve
+            # in view but maybe there's something smarter?
+            # Currently we're just mapping the rbar, lbar to
+            # pixels via:
+            cw = chart.view.mapViewToDevice(QLineF(lbar, 0, rbar, 0)).length()
+            # is this faster?
+            # cw = chart.mapFromView(QLineF(lbar, 0 , rbar, 0)).length()
+
+            profiler(
+                f'view width pxs: {w}\n'
+                f'curve width pxs: {cw}\n'
+                f'sliced in view: {in_view.size}'
+            )
+
+            # compress bars to m4 line(s) if uppx is high enough
+            # if in_view.size > cw:
+            #     from ._compression import ds_m4, hl2mxmn
+
+            #     mxmn, x = hl2mxmn(in_view)
+            #     profiler('hl tracer')
+
+            #     nb, x, y = ds_m4(
+            #         x=x,
+            #         y=mxmn,
+            #         # TODO: this needs to actually be the width
+            #         # in pixels of the visible curve since we don't
+            #         # want to downsample any 'zeros' around the curve,
+            #         # just the values that make up the curve graphic,
+            #         # i think?
+            #         px_width=cw,
+            #     )
+            #     profiler(
+            #         'm4 downsampled\n'
+            #         f' ds bins: {nb}\n'
+            #         f' x.shape: {x.shape}\n'
+            #         f' y.shape: {y.shape}\n'
+            #         f' x: {x}\n'
+            #         f' y: {y}\n'
+            #     )
+            # breakpoint()
+
+        # assert y.size == mxmn.size
 
         # don't real-time "shift" the curve to the
         # left unless we get one of the following:
@@ -355,36 +415,37 @@ def graphics_update_cycle(
             # and then iff update curves and shift?
             chart.increment_view(steps=i_diff)
 
-        if (
-            vlm_chart
-            # if zoomed out alot don't update the last "bar"
-            and xpx < 4
-        ):
-            vlm_chart.update_curve_from_array('volume', array)
+        if vlm_chart:
+            # always update y-label
             ds.vlm_sticky.update_from_data(*array[-1][['index', 'volume']])
 
             if (
-                mx_vlm_in_view > vars['last_mx_vlm']
+                (xpx < update_uppx or i_diff > 0)
                 or trigger_all
             ):
-                # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
-                vlm_chart.view._set_yrange(
-                    yrange=(0, mx_vlm_in_view * 1.375)
-                )
-                vars['last_mx_vlm'] = mx_vlm_in_view
+                vlm_chart.update_curve_from_array('volume', array)
 
-            for curve_name, flow in vlm_chart._flows.items():
-                update_fsp_chart(
-                    vlm_chart,
-                    flow.shm,
-                    curve_name,
-                    array_key=curve_name,
-                )
-                # is this even doing anything?
-                flow.plot.vb._set_yrange(
-                    autoscale_linked_plots=False,
-                    name=curve_name,
-                )
+                if (
+                    mx_vlm_in_view != vars['last_mx_vlm']
+                ):
+                    # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
+                    vlm_chart.view._set_yrange(
+                        yrange=(0, mx_vlm_in_view * 1.375)
+                    )
+                    vars['last_mx_vlm'] = mx_vlm_in_view
+
+                for curve_name, flow in vlm_chart._flows.items():
+                    update_fsp_chart(
+                        vlm_chart,
+                        flow.shm,
+                        curve_name,
+                        array_key=curve_name,
+                    )
+                    # is this even doing anything?
+                    flow.plot.vb._set_yrange(
+                        autoscale_linked_plots=False,
+                        name=curve_name,
+                    )
 
         ticks_frame = quote.get('ticks', ())
 
@@ -431,8 +492,10 @@ def graphics_update_cycle(
         # for typ, tick in reversed(lasts.items()):
 
         # update ohlc sampled price bars
-
-        if xpx < 4 or i_diff > 0:
+        if (
+            xpx < update_uppx
+            or i_diff > 0
+        ):
             chart.update_ohlc_from_array(
                 chart.name,
                 array,
@@ -600,8 +663,8 @@ async def display_symbol_data(
             f'step:1s '
         )
 
-        linkedsplits = godwidget.linkedsplits
-        linkedsplits._symbol = symbol
+        linked = godwidget.linkedsplits
+        linked._symbol = symbol
 
         # generate order mode side-pane UI
         # A ``FieldsForm`` form to configure order entry
@@ -611,7 +674,7 @@ async def display_symbol_data(
         godwidget.pp_pane = pp_pane
 
         # create main OHLC chart
-        chart = linkedsplits.plot_ohlc_main(
+        chart = linked.plot_ohlc_main(
             symbol,
             bars,
             sidepane=pp_pane,
@@ -641,8 +704,8 @@ async def display_symbol_data(
         # NOTE: we must immediately tell Qt to show the OHLC chart
         # to avoid a race where the subplots get added/shown to
         # the linked set *before* the main price chart!
-        linkedsplits.show()
-        linkedsplits.focus()
+        linked.show()
+        linked.focus()
         await trio.sleep(0)
 
         vlm_chart: Optional[ChartPlotWidget] = None
@@ -652,7 +715,7 @@ async def display_symbol_data(
             if has_vlm(ohlcv):
                 vlm_chart = await ln.start(
                     open_vlm_displays,
-                    linkedsplits,
+                    linked,
                     ohlcv,
                 )
 
@@ -660,7 +723,7 @@ async def display_symbol_data(
             # from an input config.
             ln.start_soon(
                 start_fsp_displays,
-                linkedsplits,
+                linked,
                 ohlcv,
                 loading_sym_key,
                 loglevel,
@@ -669,7 +732,7 @@ async def display_symbol_data(
             # start graphics update loop after receiving first live quote
             ln.start_soon(
                 graphics_update_loop,
-                linkedsplits,
+                linked,
                 feed.stream,
                 ohlcv,
                 wap_in_history,
@@ -687,17 +750,19 @@ async def display_symbol_data(
                 # let Qt run to render all widgets and make sure the
                 # sidepanes line up vertically.
                 await trio.sleep(0)
-                linkedsplits.resize_sidepanes()
+                linked.resize_sidepanes()
 
                 # NOTE: we pop the volume chart from the subplots set so
                 # that it isn't double rendered in the display loop
                 # above since we do a maxmin calc on the volume data to
                 # determine if auto-range adjustements should be made.
-                linkedsplits.subplots.pop('volume', None)
+                linked.subplots.pop('volume', None)
 
                 # TODO: make this not so shit XD
                 # close group status
                 sbar._status_groups[loading_sym_key][1]()
 
                 # let the app run.. bby
+                chart.default_view()
+                # linked.graphics_cycle()
                 await trio.sleep_forever()
