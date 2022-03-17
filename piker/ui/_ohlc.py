@@ -25,6 +25,7 @@ from typing import (
 
 import numpy as np
 import pyqtgraph as pg
+from numpy.lib import recfunctions as rfn
 from numba import njit, float64, int64  # , optional
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QLineF, QPointF
@@ -35,7 +36,7 @@ from .._profile import pg_profile_enabled
 from ._style import hcolor
 from ..log import get_logger
 from ._curve import FastAppendCurve
-from ._compression import hl2mxmn
+from ._compression import hl2mxmn, ds_m4
 
 if TYPE_CHECKING:
     from ._chart import LinkedSplits
@@ -226,7 +227,6 @@ class BarItems(pg.GraphicsObject):
         # that mode?
         self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
-
         self._pi = plotitem
         self.path = QtGui.QPainterPath()
         # not sure if this is actually impoving anything but figured it
@@ -320,24 +320,47 @@ class BarItems(pg.GraphicsObject):
 
         # determine current potential downsampling value (based on pixel
         # scaling) and return any existing curve for it.
-        curve, ds = self.get_ds_line(ds=ds)
+        curve, ds = self.get_ds_line(ds=0)
 
         # curve = self._ds_lines.get(ds)
         # if current and current != curve:
         #     current.hide()
 
         # if no curve for this downsample rate yet, allowcate a new one
+
+        # if not self.linked.chart:
+        #     return None, None
+
+        index = ohlc['index']
+        flat = rfn.structured_to_unstructured(
+            ohlc[['open', 'high', 'low', 'close']]
+        ).flatten()
+        xpts = np.linspace(start=index[0] - 0.5, stop=index[-1] + 0.5, num=4*len(ohlc))
+
+        # bins, x, ds = ds_m4(
+        #     xpts,
+        #     flat,
+        #     # px_width=self.linked.chart.curve_width_pxs()
+        #     px_width=self.getViewBox().width(),
+        # )
+        # breakpoint()
+
+        mxmn, x = hl2mxmn(ohlc)
+
+        # if self._ds_line:
+        #     self._pi.removeItem(self._ds_line)
+
         if not curve:
-            mxmn, x = hl2mxmn(ohlc, downsample_by=ds)
             curve = FastAppendCurve(
+                # y=ds.flatten(),
                 y=mxmn,
                 x=x,
-                name='ohlc_ds_line',
+                name='ds',
                 color=self._color,
                 # color='dad_blue',
                 # use_polyline=True,  # pretty sure this is slower?
             )
-            # self._pi.addItem(curve)
+            self._pi.addItem(curve)
             self._ds_lines[ds] = curve
             self._ds_line = curve
 
@@ -350,12 +373,24 @@ class BarItems(pg.GraphicsObject):
         # can just be read and rendered to graphics on events of our
         # choice.
         # diff = do_diff(ohlc, new_bit)
-        mxmn, x = hl2mxmn(ohlc, downsample_by=ds)
+        # mxmn, x = hl2mxmn(ohlc, downsample_by=ds)
 
+        # always refresh data bounds until we get diffing
+        # working properly, see below..
+        # curve._xrange = curve.dataBounds(ax=0)
+
+        # TODO: we need to do a diff here to determine
+        # which ohlc samples have not yet been converted
+        # to tracer lines.
+        # index = ohlc['index']
+        # istart, istop = curve._xrange
+        # curve.path = None
+        # print(x[-10:])
         curve.update_from_array(
             y=mxmn,
             x=x,
         )
+        # curve.update()
         self._ds = ds
 
         return curve, ds
@@ -380,9 +415,8 @@ class BarItems(pg.GraphicsObject):
 
         '''
         # XXX: always do this?
-        if self._in_ds:
+        if self._ds_line:
             curve, ds = self.update_ds_line(ohlc)
-            return
 
         # index = self.start_index
         istart, istop = self._xrange
