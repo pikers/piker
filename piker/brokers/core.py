@@ -142,15 +142,23 @@ async def symbol_search(
     brokermods: list[ModuleType],
     pattern: str,
     **kwargs,
+
 ) -> Dict[str, Dict[str, Dict[str, Any]]]:
-    """Return symbol info from broker.
-    """
+    '''
+    Return symbol info from broker.
+
+    '''
     results = []
 
-    async def search_backend(brokername: str) -> None:
+    async def search_backend(
+        brokermod: ModuleType
+    ) -> None:
+
+        brokername: str = mod.name
 
         async with maybe_spawn_brokerd(
-            brokername,
+            mod.name,
+            infect_asyncio=getattr(mod, '_infect_asyncio', False),
         ) as portal:
 
             results.append((
