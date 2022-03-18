@@ -92,6 +92,28 @@ def ohlc_zeros(length: int) -> np.ndarray:
     return np.zeros(length, dtype=base_ohlc_dtype)
 
 
+def uncons_fqsn(fqsn: str) -> tuple[str, str, str]:
+    '''
+    Unpack a fully-qualified-symbol-name to ``tuple``.
+
+    '''
+    # TODO: probably reverse the order of all this XD
+    tokens = fqsn.split('.')
+    if len(tokens) > 3:
+        symbol, venue, suffix, broker = tokens
+    else:
+        symbol, venue, broker = tokens
+        suffix = ''
+
+    # head, _, broker = fqsn.rpartition('.')
+    # symbol, _, suffix = head.rpartition('.')
+    return (
+        broker,
+        '.'.join([symbol, venue]),
+        suffix,
+    )
+
+
 class Symbol(BaseModel):
     '''
     I guess this is some kinda container thing for dealing with
@@ -103,6 +125,7 @@ class Symbol(BaseModel):
     lot_tick_size: float = 0.0  # "volume" precision as min step value
     tick_size_digits: int = 2
     lot_size_digits: int = 0
+    suffix: str = ''
     broker_info: dict[str, dict[str, Any]] = {}
 
     # specifies a "class" of financial instrument
@@ -115,6 +138,7 @@ class Symbol(BaseModel):
         broker: str,
         symbol: str,
         info: dict[str, Any],
+        suffix: str = '',
 
     # XXX: like wtf..
     # ) -> 'Symbol':
@@ -129,7 +153,25 @@ class Symbol(BaseModel):
             lot_tick_size=lot_tick_size,
             tick_size_digits=float_digits(tick_size),
             lot_size_digits=float_digits(lot_tick_size),
+            suffix=suffix,
             broker_info={broker: info},
+        )
+
+    @classmethod
+    def from_fqsn(
+        cls,
+        fqsn: str,
+        info: dict[str, Any],
+
+    # XXX: like wtf..
+    # ) -> 'Symbol':
+    ) -> None:
+        broker, key, suffix = uncons_fqsn(fqsn)
+        return cls.from_broker_info(
+            broker,
+            key,
+            info=info,
+            suffix=suffix,
         )
 
     @property
@@ -141,9 +183,10 @@ class Symbol(BaseModel):
         return list(self.broker_info.keys())
 
     def nearest_tick(self, value: float) -> float:
-        """Return the nearest tick value based on mininum increment.
+        '''
+        Return the nearest tick value based on mininum increment.
 
-        """
+        '''
         mult = 1 / self.tick_size
         return round(value * mult) / mult
 
@@ -159,11 +202,25 @@ class Symbol(BaseModel):
             self.key,
         )
 
+    def front_fqsn(self) -> str:
+        broker, key = self.front_feed()
+        if self.suffix:
+            tokens = (key, self.suffix, broker)
+        else:
+            tokens = (key, broker)
+
+        fqsn = '.'.join(tokens)
+        return fqsn
+
     def iterfqsns(self) -> list[str]:
-        return [
-            mk_fqsn(self.key, broker)
-            for broker in self.broker_info.keys()
-        ]
+        keys = []
+        for broker in self.broker_info.keys():
+            fqsn = mk_fqsn(self.key, broker)
+            if self.suffix:
+                fqsn += f'.{self.suffix}'
+            keys.append(fqsn)
+
+        return keys
 
 
 def from_df(
