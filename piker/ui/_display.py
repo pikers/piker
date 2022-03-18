@@ -211,7 +211,6 @@ async def graphics_update_loop(
     # async for quotes in iter_drain_quotes():
 
     async for quotes in stream:
-
         quote_period = time.time() - last_quote
         quote_rate = round(
             1/quote_period, 1) if quote_period > 0 else float('inf')
@@ -480,24 +479,25 @@ async def display_symbol_data(
     #     clear_on_next=True,
     #     group_key=loading_sym_key,
     # )
+    fqsn = '.'.join((sym, provider))
 
     async with open_feed(
-            provider,
-            [sym],
-            loglevel=loglevel,
+        [fqsn],
+        loglevel=loglevel,
 
-            # limit to at least display's FPS
-            # avoiding needless Qt-in-guest-mode context switches
-            tick_throttle=_quote_throttle_rate,
+        # limit to at least display's FPS
+        # avoiding needless Qt-in-guest-mode context switches
+        tick_throttle=_quote_throttle_rate,
 
     ) as feed:
         ohlcv: ShmArray = feed.shm
         bars = ohlcv.array
         symbol = feed.symbols[sym]
+        fqsn = symbol.front_fqsn()
 
         # load in symbol's ohlc data
         godwidget.window.setWindowTitle(
-            f'{symbol.key}@{symbol.brokers} '
+            f'{fqsn} '
             f'tick:{symbol.tick_size} '
             f'step:1s '
         )
@@ -582,8 +582,7 @@ async def display_symbol_data(
                 open_order_mode(
                     feed,
                     chart,
-                    symbol,
-                    provider,
+                    fqsn,
                     order_mode_started
                 )
             ):
