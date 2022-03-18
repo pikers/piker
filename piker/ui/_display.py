@@ -299,7 +299,7 @@ def graphics_update_cycle(
     # hopefully XD
 
     profiler = pg.debug.Profiler(
-        disabled=False,  # not pg_profile_enabled(),
+        disabled=True,  # not pg_profile_enabled(),
         delayed=False,
     )
     # unpack multi-referenced components
@@ -396,7 +396,6 @@ def graphics_update_cycle(
             #         f' x: {x}\n'
             #         f' y: {y}\n'
             #     )
-            # breakpoint()
 
         # assert y.size == mxmn.size
 
