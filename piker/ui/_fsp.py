@@ -387,6 +387,7 @@ class FspAdmin:
         portal: tractor.Portal,
         complete: trio.Event,
         started: trio.Event,
+        fqsn: str,
         dst_shm: ShmArray,
         conf: dict,
         target: Fsp,
@@ -398,7 +399,6 @@ class FspAdmin:
         cluster and sleeps until signalled to exit.
 
         '''
-        brokername, sym = self.linked.symbol.front_feed()
         ns_path = str(target.ns_path)
         async with (
             portal.open_context(
@@ -407,8 +407,7 @@ class FspAdmin:
                 cascade,
 
                 # data feed key
-                brokername=brokername,
-                symbol=sym,
+                fqsn=fqsn,
 
                 # mems
                 src_shm_token=self.src_shm.token,
@@ -430,7 +429,7 @@ class FspAdmin:
         ):
             # register output data
             self._registry[
-                (brokername, sym, ns_path)
+                (fqsn, ns_path)
             ] = (
                 stream,
                 dst_shm,
@@ -444,6 +443,8 @@ class FspAdmin:
                 async for msg in stream:
                     if msg == 'update':
                         self.linked.graphics_cycle()
+                    else:
+                        log.info(f'recved unexpected fsp engine msg: {msg}')
 
             await complete.wait()
 
@@ -458,11 +459,11 @@ class FspAdmin:
 
     ) -> (ShmArray, trio.Event):
 
-        fqsn = self.linked.symbol.front_feed()
+        fqsn = self.linked.symbol.front_fqsn()
 
         # allocate an output shm array
         key, dst_shm, opened = maybe_mk_fsp_shm(
-            '.'.join(fqsn),
+            fqsn,
             target=target,
             readonly=True,
         )
@@ -483,6 +484,7 @@ class FspAdmin:
             portal,
             complete,
             started,
+            fqsn,
             dst_shm,
             conf,
             target,
