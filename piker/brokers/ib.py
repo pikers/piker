@@ -1175,12 +1175,12 @@ async def open_client_proxy() -> MethodProxy:
 
     except (
         RequestError,
-        BaseException,
+        # BaseException,
     )as err:
         code = getattr(err, 'code', None)
         if code:
             msg = err.message
-            await tractor.breakpoint()
+            # await tractor.breakpoint()
 
             # TODO: retreive underlying ``ib_insync`` error?
             if (
