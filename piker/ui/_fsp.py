@@ -443,6 +443,8 @@ class FspAdmin:
                 async for msg in stream:
                     if msg == 'update':
                         self.linked.graphics_cycle()
+                    else:
+                        log.info(f'recved unexpected fsp engine msg: {msg}')
 
             await complete.wait()
 
