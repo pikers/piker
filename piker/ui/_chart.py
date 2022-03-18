@@ -246,7 +246,7 @@ class GodWidget(QWidget):
         symbol = linkedsplits.symbol
         if symbol is not None:
             self.window.setWindowTitle(
-                f'{symbol.key}@{symbol.brokers} '
+                f'{symbol.front_fqsn()} '
                 f'tick:{symbol.tick_size}'
             )
 

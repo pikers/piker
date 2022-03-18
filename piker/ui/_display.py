@@ -30,7 +30,7 @@ import numpy as np
 import tractor
 import trio
 import pyqtgraph as pg
-from PyQt5.QtCore import QLineF, QPointF
+from PyQt5.QtCore import QLineF
 
 from .. import brokers
 from ..data.feed import open_feed
@@ -263,9 +263,7 @@ async def graphics_update_loop(
 
     # main loop
     async for quotes in stream:
-
         ds.quotes = quotes
-
         quote_period = time.time() - last_quote
         quote_rate = round(
             1/quote_period, 1) if quote_period > 0 else float('inf')
@@ -300,7 +298,7 @@ def graphics_update_cycle(
     # hopefully XD
 
     profiler = pg.debug.Profiler(
-        disabled=False,  # not pg_profile_enabled(),
+        disabled=True,  # not pg_profile_enabled(),
         delayed=False,
     )
     # unpack multi-referenced components
@@ -372,7 +370,6 @@ def graphics_update_cycle(
             #         f' x: {x}\n'
             #         f' y: {y}\n'
             #     )
-                # breakpoint()
 
         # assert y.size == mxmn.size
 
@@ -632,24 +629,25 @@ async def display_symbol_data(
     #     clear_on_next=True,
     #     group_key=loading_sym_key,
     # )
+    fqsn = '.'.join((sym, provider))
 
     async with open_feed(
-            provider,
-            [sym],
-            loglevel=loglevel,
+        [fqsn],
+        loglevel=loglevel,
 
-            # limit to at least display's FPS
-            # avoiding needless Qt-in-guest-mode context switches
-            tick_throttle=_quote_throttle_rate,
+        # limit to at least display's FPS
+        # avoiding needless Qt-in-guest-mode context switches
+        tick_throttle=_quote_throttle_rate,
 
     ) as feed:
         ohlcv: ShmArray = feed.shm
         bars = ohlcv.array
         symbol = feed.symbols[sym]
+        fqsn = symbol.front_fqsn()
 
         # load in symbol's ohlc data
         godwidget.window.setWindowTitle(
-            f'{symbol.key}@{symbol.brokers} '
+            f'{fqsn} '
             f'tick:{symbol.tick_size} '
             f'step:1s '
         )
@@ -734,8 +732,7 @@ async def display_symbol_data(
                 open_order_mode(
                     feed,
                     chart,
-                    symbol,
-                    provider,
+                    fqsn,
                     order_mode_started
                 )
             ):
