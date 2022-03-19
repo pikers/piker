@@ -18,8 +18,11 @@
 Binance backend
 
 """
-from contextlib import asynccontextmanager
-from typing import List, Dict, Any, Tuple, Union, Optional, AsyncGenerator
+from contextlib import asynccontextmanager as acm
+from typing import (
+    Any, Union, Optional,
+    AsyncGenerator, Callable,
+)
 import time
 
 import trio
@@ -88,7 +91,7 @@ class Pair(BaseModel):
     baseCommissionPrecision: int
     quoteCommissionPrecision: int
 
-    orderTypes: List[str]
+    orderTypes: list[str]
 
     icebergAllowed: bool
     ocoAllowed: bool
@@ -96,8 +99,8 @@ class Pair(BaseModel):
     isSpotTradingAllowed: bool
     isMarginTradingAllowed: bool
 
-    filters: List[Dict[str, Union[str, int, float]]]
-    permissions: List[str]
+    filters: list[dict[str, Union[str, int, float]]]
+    permissions: list[str]
 
 
 @dataclass
@@ -145,7 +148,7 @@ class Client:
         self,
         method: str,
         params: dict,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         resp = await self._sesh.get(
             path=f'/api/v3/{method}',
             params=params,
@@ -200,7 +203,7 @@ class Client:
         self,
         pattern: str,
         limit: int = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         if self._pairs is not None:
             data = self._pairs
         else:
@@ -273,7 +276,7 @@ class Client:
         return array
 
 
-@asynccontextmanager
+@acm
 async def get_client() -> Client:
     client = Client()
     await client.cache_symbols()
@@ -353,7 +356,7 @@ async def stream_messages(ws: NoBsWs) -> AsyncGenerator[NoBsWs, dict]:
             }
 
 
-def make_sub(pairs: List[str], sub_name: str, uid: int) -> Dict[str, str]:
+def make_sub(pairs: list[str], sub_name: str, uid: int) -> dict[str, str]:
     """Create a request subscription packet dict.
 
     https://binance-docs.github.io/apidocs/spot/en/#live-subscribing-unsubscribing-to-streams
@@ -366,6 +369,17 @@ def make_sub(pairs: List[str], sub_name: str, uid: int) -> Dict[str, str]:
         ],
         'id': uid
     }
+
+
+@acm
+async def open_history_client(
+    symbol: str,
+
+) -> tuple[Callable, int]:
+
+    # TODO implement history getter for the new storage layer.
+    async with open_cached_client('binance') as client:
+        yield client
 
 
 async def backfill_bars(
@@ -385,12 +399,12 @@ async def backfill_bars(
 async def stream_quotes(
 
     send_chan: trio.abc.SendChannel,
-    symbols: List[str],
+    symbols: list[str],
     feed_is_live: trio.Event,
     loglevel: str = None,
 
     # startup sync
-    task_status: TaskStatus[Tuple[Dict, Dict]] = trio.TASK_STATUS_IGNORED,
+    task_status: TaskStatus[tuple[dict, dict]] = trio.TASK_STATUS_IGNORED,
 
 ) -> None:
     # XXX: required to propagate ``tractor`` loglevel to piker logging
@@ -427,10 +441,11 @@ async def stream_quotes(
             symbol: {
                 'symbol_info': sym_infos[sym],
                 'shm_write_opts': {'sum_tick_vml': False},
+                'fqsn': sym,
             },
         }
 
-        @asynccontextmanager
+        @acm
         async def subscribe(ws: wsproto.WSConnection):
             # setup subs
 
@@ -480,8 +495,7 @@ async def stream_quotes(
                 # TODO: use ``anext()`` when it lands in 3.10!
                 typ, quote = await msg_gen.__anext__()
 
-            first_quote = {quote['symbol'].lower(): quote}
-            task_status.started((init_msgs,  first_quote))
+            task_status.started((init_msgs,  quote))
 
             # signal to caller feed is ready for consumption
             feed_is_live.set()
