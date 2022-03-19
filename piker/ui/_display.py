@@ -479,10 +479,8 @@ async def display_symbol_data(
     #     clear_on_next=True,
     #     group_key=loading_sym_key,
     # )
-    fqsn = '.'.join((sym, provider))
-
     async with open_feed(
-        [fqsn],
+        ['.'.join((sym, provider))],
         loglevel=loglevel,
 
         # limit to at least display's FPS
