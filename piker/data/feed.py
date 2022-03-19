@@ -361,8 +361,11 @@ async def allocate_persistent_feed(
             loglevel=loglevel,
         )
     )
-    # the broker-specific fully qualified symbol name
-    bfqsn = init_msg[symbol]['fqsn']
+    # the broker-specific fully qualified symbol name,
+    # but ensure it is lower-cased for external use.
+    bfqsn = init_msg[symbol]['fqsn'].lower()
+    init_msg[symbol]['fqsn'] = bfqsn
+
 
     # HISTORY, run 2 tasks:
     # - a history loader / maintainer
@@ -390,7 +393,6 @@ async def allocate_persistent_feed(
 
     # true fqsn
     fqsn = '.'.join((bfqsn, brokername))
-
     # add a fqsn entry that includes the ``.<broker>`` suffix
     init_msg[fqsn] = msg
 
@@ -506,7 +508,7 @@ async def open_feed_bus(
     init_msg, first_quotes = bus.feeds[symbol]
 
     msg = init_msg[symbol]
-    bfqsn = msg['fqsn']
+    bfqsn = msg['fqsn'].lower()
 
     # true fqsn
     fqsn = '.'.join([bfqsn, brokername])
@@ -825,7 +827,10 @@ async def maybe_open_feed(
 
     **kwargs,
 
-) -> (Feed, ReceiveChannel[dict[str, Any]]):
+) -> (
+    Feed,
+    ReceiveChannel[dict[str, Any]],
+):
     '''
     Maybe open a data to a ``brokerd`` daemon only if there is no
     local one for the broker-symbol pair, if one is cached use it wrapped
@@ -846,6 +851,7 @@ async def maybe_open_feed(
             'start_stream': kwargs.get('start_stream', True),
         },
         key=fqsn,
+
     ) as (cache_hit, feed):
 
         if cache_hit:
