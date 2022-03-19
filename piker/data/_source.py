@@ -97,9 +97,21 @@ def uncons_fqsn(fqsn: str) -> tuple[str, str, str]:
     Unpack a fully-qualified-symbol-name to ``tuple``.
 
     '''
+    venue = ''
+    suffix = ''
+
     # TODO: probably reverse the order of all this XD
     tokens = fqsn.split('.')
-    if len(tokens) > 3:
+    if len(tokens) < 3:
+        # probably crypto
+        symbol, broker = tokens
+        return (
+            broker,
+            symbol,
+            '',
+        )
+
+    elif len(tokens) > 3:
         symbol, venue, suffix, broker = tokens
     else:
         symbol, venue, broker = tokens
