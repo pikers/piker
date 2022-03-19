@@ -18,9 +18,9 @@
 Kraken backend.
 
 """
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager as acm
 from dataclasses import asdict, field
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple, Optional, Callable
 import time
 
 from trio_typing import TaskStatus
@@ -271,7 +271,7 @@ class Client:
             raise SymbolNotFound(json['error'][0] + f': {symbol}')
 
 
-@asynccontextmanager
+@acm
 async def get_client() -> Client:
     client = Client()
 
@@ -385,6 +385,17 @@ def make_sub(pairs: List[str], data: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
+@acm
+async def open_history_client(
+    symbol: str,
+
+) -> tuple[Callable, int]:
+
+    # TODO implement history getter for the new storage layer.
+    async with open_cached_client('kraken') as client:
+        yield client
+
+
 async def backfill_bars(
 
     sym: str,
@@ -450,10 +461,11 @@ async def stream_quotes(
             symbol: {
                 'symbol_info': sym_infos[sym],
                 'shm_write_opts': {'sum_tick_vml': False},
+                'fqsn': sym,
             },
         }
 
-        @asynccontextmanager
+        @acm
         async def subscribe(ws: wsproto.WSConnection):
             # XXX: setup subs
             # https://docs.kraken.com/websockets/#message-subscribe
@@ -506,8 +518,7 @@ async def stream_quotes(
 
             topic, quote = normalize(ohlc_last)
 
-            first_quote = {topic: quote}
-            task_status.started((init_msgs,  first_quote))
+            task_status.started((init_msgs,  quote))
 
             # lol, only "closes" when they're margin squeezing clients ;P
             feed_is_live.set()
