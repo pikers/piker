@@ -1301,7 +1301,7 @@ def normalize(
     data = asdict(ticker)
 
     # generate fqsn with possible specialized suffix
-    # for derivatives.
+    # for derivatives, note the lowercase.
     data['symbol'] = data['fqsn'] = '.'.join(
         (con.symbol, suffix)
     ).lower()
