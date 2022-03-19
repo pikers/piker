@@ -417,8 +417,7 @@ async def open_brokerd_trades_dialogue(
             # actor to simulate the real IPC load it'll have when also
             # pulling data from feeds
             open_trades_endpoint = paper.open_paperboi(
-                broker=broker,
-                symbol=symbol,
+                fqsn='.'.join([symbol, broker]),
                 loglevel=loglevel,
             )
 
