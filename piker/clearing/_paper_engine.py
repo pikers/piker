@@ -32,6 +32,7 @@ from dataclasses import dataclass
 
 from .. import data
 from ..data._normalize import iterticks
+from ..data._source import uncons_fqsn
 from ..log import get_logger
 from ._messages import (
     BrokerdCancel, BrokerdOrder, BrokerdOrderAck, BrokerdStatus,
@@ -446,7 +447,7 @@ async def trades_dialogue(
 
     ctx: tractor.Context,
     broker: str,
-    symbol: str,
+    fqsn: str,
     loglevel: str = None,
 
 ) -> None:
@@ -455,8 +456,7 @@ async def trades_dialogue(
     async with (
 
         data.open_feed(
-            broker,
-            [symbol],
+            [fqsn],
             loglevel=loglevel,
         ) as feed,
 
@@ -491,15 +491,16 @@ async def trades_dialogue(
 
 @asynccontextmanager
 async def open_paperboi(
-    broker: str,
-    symbol: str,
+    fqsn: str,
     loglevel: str,
 
 ) -> Callable:
-    '''Spawn a paper engine actor and yield through access to
+    '''
+    Spawn a paper engine actor and yield through access to
     its context.
 
     '''
+    broker, symbol, expiry = uncons_fqsn(fqsn)
     service_name = f'paperboi.{broker}'
 
     async with (
@@ -518,7 +519,7 @@ async def open_paperboi(
         async with portal.open_context(
                 trades_dialogue,
                 broker=broker,
-                symbol=symbol,
+                fqsn=fqsn,
                 loglevel=loglevel,
 
         ) as (ctx, first):
