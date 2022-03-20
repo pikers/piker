@@ -20,7 +20,7 @@ Lines for orders, alerts, L2.
 """
 from functools import partial
 from math import floor
-from typing import Tuple, Optional, List, Callable
+from typing import Optional, Callable
 
 import pyqtgraph as pg
 from pyqtgraph import Point, functions as fn
@@ -32,7 +32,6 @@ from ._anchors import (
     marker_right_points,
     vbr_left,
     right_axis,
-    # pp_tight_and_right,  # wanna keep it straight in the long run
     gpath_pin,
 )
 from ..calc import humanize
@@ -104,8 +103,8 @@ class LevelLine(pg.InfiniteLine):
 
         # list of labels anchored at one of the 2 line endpoints
         # inside the viewbox
-        self._labels: List[Label] = []
-        self._markers: List[(int, Label)] = []
+        self._labels: list[Label] = []
+        self._markers: list[(int, Label)] = []
 
         # whenever this line is moved trigger label updates
         self.sigPositionChanged.connect(self.on_pos_change)
@@ -124,7 +123,7 @@ class LevelLine(pg.InfiniteLine):
         self._y_incr_mult = 1 / chart.linked.symbol.tick_size
         self._right_end_sc: float = 0
 
-    def txt_offsets(self) -> Tuple[int, int]:
+    def txt_offsets(self) -> tuple[int, int]:
         return 0, 0
 
     @property
@@ -315,17 +314,6 @@ class LevelLine(pg.InfiniteLine):
         # TODO: enter labels edit mode
         print(f'double click {ev}')
 
-    def right_point(
-        self,
-    ) -> float:
-
-        chart = self._chart
-        l1_len = chart._max_l1_line_len
-        ryaxis = chart.getAxis('right')
-        up_to_l1_sc = ryaxis.pos().x() - l1_len
-
-        return up_to_l1_sc
-
     def paint(
         self,
 
@@ -422,23 +410,23 @@ class LevelLine(pg.InfiniteLine):
 
     ) -> QtWidgets.QGraphicsPathItem:
 
+        self._marker = path
+        self._marker.setPen(self.currentPen)
+        self._marker.setBrush(fn.mkBrush(self.currentPen.color()))
         # add path to scene
         self.getViewBox().scene().addItem(path)
 
-        self._marker = path
-
-        rsc = self.right_point()
-
-        self._marker.setPen(self.currentPen)
-        self._marker.setBrush(fn.mkBrush(self.currentPen.color()))
+        # place to just-left of L1 labels
+        rsc = self._chart.pre_l1_x()[0]
         path.setPos(QPointF(rsc, self.scene_y()))
 
         return path
 
     def hoverEvent(self, ev):
-        """Mouse hover callback.
+        '''
+        Mouse hover callback.
 
-        """
+        '''
         cur = self._chart.linked.cursor
 
         # hovered
@@ -614,7 +602,8 @@ def order_line(
     **line_kwargs,
 
 ) -> LevelLine:
-    '''Convenience routine to add a line graphic representing an order
+    '''
+    Convenience routine to add a line graphic representing an order
     execution submitted to the EMS via the chart's "order mode".
 
     '''
@@ -688,7 +677,6 @@ def order_line(
                 return ''
 
             return f'{account}: '
-
 
         label.fields = {
             'size': size,

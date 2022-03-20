@@ -25,7 +25,7 @@ from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import (
     Qt,
     QLineF,
-    QPointF,
+    # QPointF,
 )
 from PyQt5.QtWidgets import (
     QFrame,
@@ -56,8 +56,6 @@ from ._style import (
     CHART_MARGINS,
     _xaxis_at,
     _min_points_to_show,
-    _bars_from_right_in_follow_mode,
-    _bars_to_left_in_follow_mode,
 )
 from ..data.feed import Feed
 from ..data._source import Symbol
@@ -846,29 +844,62 @@ class ChartPlotWidget(pg.PlotWidget):
             QLineF(lbar, 0, rbar, 0)
         ).length()
 
-    def default_view(
+    def pre_l1_x(
         self,
-        index: int = -1,
+        view_coords: bool = False,
 
-    ) -> None:
+    ) -> tuple[float, float]:
+        '''
+        Return the scene x-coord for the value just before
+        the L1 labels on the y-axis as well as the length
+        of that L1 label from the y-axis.
+
+        '''
+        l1_len = self._max_l1_line_len
+        ryaxis = self.getAxis('right')
+        ryaxis_x = ryaxis.pos().x()
+        up_to_l1_sc = ryaxis_x - l1_len
+        if not view_coords:
+            return up_to_l1_sc, l1_len
+        else:
+            view = self.view
+            line = view.mapToView(
+                QLineF(up_to_l1_sc, 0, ryaxis_x, 0)
+            )
+            return line.x1(), line.length()
+
+    def default_view(self) -> None:
         '''
         Set the view box to the "default" startup view of the scene.
 
         '''
         try:
-            xlast = self._arrays[self.name][index]['index']
+            index = self._arrays[self.name]['index']
         except IndexError:
             log.warning(f'array for {self.name} not loaded yet?')
             return
 
-        begin = xlast - 1000
-        end = xlast + _bars_from_right_in_follow_mode
+        xfirst, xlast = index[0], index[-1]
+        view = self.view
+        vr = view.viewRange()
+        marker_pos, l1_len = self.pre_l1_x(view_coords=True)
+        end = xlast + l1_len
+        xl = vr[0][0]
+        begin = max(xl, xfirst)
+
+        # print(
+        #     f'view range: {vr}\n'
+        #     f'xlast: {xlast}\n'
+        #     f'marker pos: {marker_pos}\n'
+        #     f'l1 len: {l1_len}\n'
+        #     f'begin: {begin}\n'
+        #     f'end: {end}\n'
+        # )
 
         # remove any custom user yrange setttings
         if self._static_yrange == 'axis':
             self._static_yrange = None
 
-        view = self.view
         view.setXRange(
             min=begin,
             max=end,
@@ -1228,7 +1259,6 @@ class ChartPlotWidget(pg.PlotWidget):
         ifirst = array[0]['index']
         # slice data by offset from the first index
         # available in the passed datum set.
-        start = lbar - ifirst
         return array[lbar - ifirst:(rbar - ifirst) + 1]
 
     def maxmin(
