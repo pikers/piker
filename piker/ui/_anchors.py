@@ -25,7 +25,6 @@ from PyQt5.QtCore import QPointF
 from PyQt5.QtWidgets import QGraphicsPathItem
 
 if TYPE_CHECKING:
-    from ._axes import PriceAxis
     from ._chart import ChartPlotWidget
     from ._label import Label
 
