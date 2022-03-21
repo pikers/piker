@@ -844,31 +844,52 @@ class ChartPlotWidget(pg.PlotWidget):
             QLineF(lbar, 0, rbar, 0)
         ).length()
 
-    def pre_l1_x(
-        self,
-        view_coords: bool = False,
-
-    ) -> tuple[float, float]:
+    def pre_l1_xs(self) -> tuple[float, float]:
         '''
-        Return the scene x-coord for the value just before
+        Return the view x-coord for the value just before
         the L1 labels on the y-axis as well as the length
         of that L1 label from the y-axis.
 
         '''
+        line_end, marker_right, yaxis_x = self.marker_right_points()
+        view = self.view
+        line = view.mapToView(
+            QLineF(line_end, 0, yaxis_x, 0)
+        )
+        return line.x1(), line.length()
+
+    def marker_right_points(
+        self,
+        marker_size: int = 20,
+
+    ) -> (float, float, float):
+        '''
+        Return x-dimension, y-axis-aware, level-line marker oriented scene
+        values.
+
+        X values correspond to set the end of a level line, end of
+        a paried level line marker, and the right most side of the "right"
+        axis respectively.
+
+        '''
+        # TODO: compute some sensible maximum value here
+        # and use a humanized scheme to limit to that length.
         l1_len = self._max_l1_line_len
         ryaxis = self.getAxis('right')
-        ryaxis_x = ryaxis.pos().x()
-        up_to_l1_sc = ryaxis_x - l1_len
-        if not view_coords:
-            return up_to_l1_sc, l1_len
-        else:
-            view = self.view
-            line = view.mapToView(
-                QLineF(up_to_l1_sc, 0, ryaxis_x, 0)
-            )
-            return line.x1(), line.length()
 
-    def default_view(self) -> None:
+        r_axis_x = ryaxis.pos().x()
+        up_to_l1_sc = r_axis_x - l1_len - 10
+
+        marker_right = up_to_l1_sc - (1.375 * 2 * marker_size)
+        line_end = marker_right - (6/16 * marker_size)
+
+        return line_end, marker_right, r_axis_x
+
+    def default_view(
+        self,
+        steps_on_screen: Optional[int] = None
+
+    ) -> None:
         '''
         Set the view box to the "default" startup view of the scene.
 
@@ -880,15 +901,25 @@ class ChartPlotWidget(pg.PlotWidget):
             return
 
         xfirst, xlast = index[0], index[-1]
-        view = self.view
-        vr = view.viewRange()
-        marker_pos, l1_len = self.pre_l1_x(view_coords=True)
-        end = xlast + l1_len
-        xl = vr[0][0]
-        begin = max(xl, xfirst)
+        brange = l, lbar, rbar, r = self.bars_range()
 
+        marker_pos, l1_len = self.pre_l1_xs()
+        end = xlast + l1_len
+
+        if (
+            rbar < 0
+            or l < xfirst
+        ):
+            # set fixed bars count on screen that approx includes as
+            # many bars as possible before a downsample line is shown.
+            begin = xlast - round(6116 / 6)
+
+        else:
+            begin = end - (r - l)
+
+        # for debugging
         # print(
-        #     f'view range: {vr}\n'
+        #     f'bars range: {brange}\n'
         #     f'xlast: {xlast}\n'
         #     f'marker pos: {marker_pos}\n'
         #     f'l1 len: {l1_len}\n'
@@ -900,6 +931,7 @@ class ChartPlotWidget(pg.PlotWidget):
         if self._static_yrange == 'axis':
             self._static_yrange = None
 
+        view = self.view
         view.setXRange(
             min=begin,
             max=end,
