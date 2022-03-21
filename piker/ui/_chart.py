@@ -240,6 +240,12 @@ class GodWidget(QWidget):
             # resume feeds *after* rendering chart view asap
             chart.resume_all_feeds()
 
+            # TODO: we need a check to see if the chart
+            # last had the xlast in view, if so then shift so it's
+            # still in view, if the user was viewing history then
+            # do nothing yah?
+            chart.default_view()
+
         self.linkedsplits = linkedsplits
         symbol = linkedsplits.symbol
         if symbol is not None:
@@ -904,7 +910,7 @@ class ChartPlotWidget(pg.PlotWidget):
         brange = l, lbar, rbar, r = self.bars_range()
 
         marker_pos, l1_len = self.pre_l1_xs()
-        end = xlast + l1_len
+        end = xlast + l1_len + 1
 
         if (
             rbar < 0
