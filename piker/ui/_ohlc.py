@@ -217,6 +217,7 @@ class BarItems(pg.GraphicsObject):
         self._color = pen_color
         self.bars_pen = pg.mkPen(hcolor(pen_color), width=1)
         self.last_bar_pen = pg.mkPen(hcolor(last_bar_color), width=2)
+        self._array = None
 
         # NOTE: this prevents redraws on mouse interaction which is
         # a huge boon for avg interaction latency.
@@ -249,6 +250,7 @@ class BarItems(pg.GraphicsObject):
         self._ds_lines: dict[int, FastAppendCurve] = {}
         self._ds_line: Optional[FastAppendCurve] = None
         self._ds: int = 0
+        self._xs_in_px: float = 0
 
     def draw_from_data(
         self,
@@ -283,10 +285,11 @@ class BarItems(pg.GraphicsObject):
         # https://doc.qt.io/qt-5/qgraphicsitem.html#update
         self.update()
 
-        self.update_ds_line(ohlc)
-        assert self._ds_line
-        self._ds_line.hide()
+        # self.update_ds_line(ohlc)
+        # assert self._ds_line
+        # self._ds_line.hide()
 
+        self._array = ohlc
         return self.path
 
     def get_ds_line(
@@ -332,28 +335,47 @@ class BarItems(pg.GraphicsObject):
         #     return None, None
 
         index = ohlc['index']
+
+        chart = self.linked.chart
+        if not chart:
+            return
+        else:
+            px_width = round(chart.curve_width_pxs())
+
         flat = rfn.structured_to_unstructured(
             ohlc[['open', 'high', 'low', 'close']]
         ).flatten()
-        xpts = np.linspace(start=index[0] - 0.5, stop=index[-1] + 0.5, num=4*len(ohlc))
+        xpts = np.linspace(
+            start=index[0] - 0.5,
+            stop=index[-1] + 0.5,
+            num=4*len(ohlc),
+        )
+        bins, x, y = ds_m4(
+            xpts,
+            flat,
+            px_width=px_width * 8,
+        )
+        # x4 = np.zeros(y.shape)
+        x = np.broadcast_to(x[:, None], y.shape) #.flatten()
+        x = (x + np.array([-0.5, 0, 0, 0.5])).flatten()
 
-        # bins, x, ds = ds_m4(
-        #     xpts,
-        #     flat,
-        #     # px_width=self.linked.chart.curve_width_pxs()
-        #     px_width=self.getViewBox().width(),
+        # x = np.linspace(
+        #     start=x[0] - 0.5,
+        #     stop=x[-1] + 0.5,
+        #     num=4*len(x),
         # )
+        y = y.flatten()
         # breakpoint()
 
-        mxmn, x = hl2mxmn(ohlc)
+        # y, x = hl2mxmn(ohlc)
 
         # if self._ds_line:
         #     self._pi.removeItem(self._ds_line)
 
         if not curve:
             curve = FastAppendCurve(
-                # y=ds.flatten(),
-                y=mxmn,
+                y=y,
+                # y=mxmn,
                 x=x,
                 name='ds',
                 color=self._color,
@@ -363,6 +385,7 @@ class BarItems(pg.GraphicsObject):
             self._pi.addItem(curve)
             self._ds_lines[ds] = curve
             self._ds_line = curve
+            curve.ds = px_width
 
         # elif ds != self._ds:
             # print(f'ds changed {self._ds} -> {ds}')
@@ -386,8 +409,13 @@ class BarItems(pg.GraphicsObject):
         # istart, istop = curve._xrange
         # curve.path = None
         # print(x[-10:])
+        if px_width != curve.ds:
+            print(f'redrawing {curve.ds} -> {px_width}')
+            curve.path = None
+            curve.ds = px_width
+
         curve.update_from_array(
-            y=mxmn,
+            y=y,
             x=x,
         )
         # curve.update()
@@ -415,8 +443,8 @@ class BarItems(pg.GraphicsObject):
 
         '''
         # XXX: always do this?
-        if self._ds_line:
-            curve, ds = self.update_ds_line(ohlc)
+        # if self._ds_line:
+        curve, ds = self.update_ds_line(ohlc)
 
         # index = self.start_index
         istart, istop = self._xrange
@@ -507,6 +535,8 @@ class BarItems(pg.GraphicsObject):
         if flip_cache:
             self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
+        self._array = ohlc
+
     def boundingRect(self):
         # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
 
@@ -530,10 +560,12 @@ class BarItems(pg.GraphicsObject):
         mx_y = hb_br.y()
         mn_y = hb_tl.y()
 
-        body_line = self._last_bar_lines[0]
-        if body_line:
-            mx_y = max(mx_y, max(body_line.y1(), body_line.y2()))
-            mn_y = min(mn_y, min(body_line.y1(), body_line.y2()))
+        last_lines = self._last_bar_lines
+        if last_lines:
+            body_line = self._last_bar_lines[0]
+            if body_line:
+                mx_y = max(mx_y, max(body_line.y1(), body_line.y2()))
+                mn_y = min(mn_y, min(body_line.y1(), body_line.y2()))
 
         return QtCore.QRectF(
 
@@ -563,6 +595,9 @@ class BarItems(pg.GraphicsObject):
         is less then a pixel width on the device).
 
         '''
+        if not self._ds_line:
+            return False
+
         # this is the ``float`` value of the "number of x units" (in
         # view coords) that a pixel spans.
         xvec = self.pixelVectors()[0]
@@ -570,6 +605,10 @@ class BarItems(pg.GraphicsObject):
             xs_in_px = xvec.x()
         else:
             xs_in_px = self._ds_line.pixelVectors()[0].x()
+
+        if xs_in_px != self._xs_in_px and self._array is not None:
+            self.update_ds_line(self._array)
+            self._xs_in_px = xs_in_px
 
         linked = self.linked
 
