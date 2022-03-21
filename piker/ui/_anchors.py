@@ -29,34 +29,6 @@ if TYPE_CHECKING:
     from ._label import Label
 
 
-def marker_right_points(
-    chart: ChartPlotWidget,  # noqa
-    marker_size: int = 20,
-
-) -> (float, float, float):
-    '''
-    Return x-dimension, y-axis-aware, level-line marker oriented scene
-    values.
-
-    X values correspond to set the end of a level line, end of
-    a paried level line marker, and the right most side of the "right"
-    axis respectively.
-
-    '''
-    # TODO: compute some sensible maximum value here
-    # and use a humanized scheme to limit to that length.
-    l1_len = chart._max_l1_line_len
-    ryaxis = chart.getAxis('right')
-
-    r_axis_x = ryaxis.pos().x()
-    up_to_l1_sc = r_axis_x - l1_len - 10
-
-    marker_right = up_to_l1_sc - (1.375 * 2 * marker_size)
-    line_end = marker_right - (6/16 * marker_size)
-
-    return line_end, marker_right, r_axis_x
-
-
 def vbr_left(
     label: Label,
 

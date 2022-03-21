@@ -29,7 +29,6 @@ from PyQt5.QtCore import QPointF
 
 from ._annotate import qgo_draw_markers, LevelMarker
 from ._anchors import (
-    marker_right_points,
     vbr_left,
     right_axis,
     gpath_pin,
@@ -333,7 +332,7 @@ class LevelLine(pg.InfiniteLine):
         vb_left, vb_right = self._endPoints
         vb = self.getViewBox()
 
-        line_end, marker_right, r_axis_x = marker_right_points(self._chart)
+        line_end, marker_right, r_axis_x = self._chart.marker_right_points()
 
         if self.show_markers and self.markers:
 
@@ -399,7 +398,7 @@ class LevelLine(pg.InfiniteLine):
     def scene_endpoint(self) -> QPointF:
 
         if not self._right_end_sc:
-            line_end, _, _ = marker_right_points(self._chart)
+            line_end, _, _ = self._chart.marker_right_points()
             self._right_end_sc = line_end - 10
 
         return QPointF(self._right_end_sc, self.scene_y())
@@ -417,7 +416,7 @@ class LevelLine(pg.InfiniteLine):
         self.getViewBox().scene().addItem(path)
 
         # place to just-left of L1 labels
-        rsc = self._chart.pre_l1_x()[0]
+        rsc = self._chart.pre_l1_xs()[0]
         path.setPos(QPointF(rsc, self.scene_y()))
 
         return path
