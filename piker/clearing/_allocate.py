@@ -284,6 +284,14 @@ class Allocator(BaseModel):
         return round(prop * self.slots)
 
 
+_derivs = (
+    'future',
+    'continuous_future',
+    'option',
+    'futures_option',
+)
+
+
 def mk_allocator(
 
     symbol: Symbol,
@@ -322,12 +330,7 @@ def mk_allocator(
 
     # specific configs by asset class / type
 
-    if asset_type in (
-        'future',
-        'continuous_future',
-        'option',
-        'futures_option',
-    ):
+    if asset_type in _derivs:
         # since it's harder to know how currency "applies" in this case
         # given leverage properties
         alloc.size_unit = '# units'
@@ -350,7 +353,7 @@ def mk_allocator(
         if startup_size > alloc.units_limit:
             alloc.units_limit = startup_size
 
-            if asset_type in ('future', 'option', 'futures_option'):
+            if asset_type in _derivs:
                 alloc.slots = alloc.units_limit
 
     return alloc
