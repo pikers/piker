@@ -1340,20 +1340,25 @@ async def get_bars(
     fails = 0
     bars: Optional[list] = None
 
-    for _ in range(3):
+    async def get():
+
+        bars, bars_array = await proxy.bars(
+            fqsn=fqsn,
+            end_dt=end_dt,
+        )
+        if bars_array is None:
+            raise SymbolNotFound(fqsn)
+
+        next_dt = bars[0].date
+        log.info(f'ib datetime {next_dt}')
+
+        return (bars, bars_array, next_dt), fails
+
+    in_throttle: bool = False
+
+    for _ in range(10):
         try:
-
-            bars, bars_array = await proxy.bars(
-                fqsn=fqsn,
-                end_dt=end_dt,
-            )
-            if bars_array is None:
-                raise SymbolNotFound(fqsn)
-
-            next_dt = bars[0].date
-            print(f'ib datetime {next_dt}')
-
-            return (bars, bars_array, next_dt), fails
+            return await get()
 
         except RequestError as err:
             _err = err
@@ -1382,7 +1387,7 @@ async def get_bars(
 
                     # try to decrement start point and look further back
                     next_dt = bars[0].date
-                    print(f'ib datetime {next_dt}')
+                    log.info(f'ib datetime {next_dt}')
                     continue
 
                 elif 'No market data permissions for' in err.message:
@@ -1401,7 +1406,10 @@ async def get_bars(
                     # TODO: should probably create some alert on screen
                     # and then somehow get that to trigger an event here
                     # that restarts/resumes this task?
-                    await tractor.breakpoint()
+                    if not in_throttle:
+                        await tractor.breakpoint()
+
+                    in_throttle = True
                     fails += 1
                     continue
 
@@ -1455,7 +1463,7 @@ async def backfill_bars(
     # on that until we have the `marketstore` daemon in place in which
     # case the shm size will be driven by user config and available sys
     # memory.
-    count: int = 16,
+    count: int = 22,
 
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
