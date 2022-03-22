@@ -22,7 +22,7 @@ limits on the display device.
 import math
 
 import numpy as np
-# from numpy.lib.recfunctions import structured_to_unstructured
+from numpy.lib import recfunctions as rfn
 from numba import (
     jit,
     # float64, optional, int64,
@@ -174,6 +174,51 @@ def downsample(
             return ds_m4(x, y, kwargs['px_width'])
 
 
+def ohlc_flatten(
+    ohlc: np.ndarray,
+
+) -> tuple[np.ndarray, np.ndarray]:
+    '''
+    Convert an OHLCV struct-array into a flat ready-for-line-plotting
+    1-d array that is 4 times the size with x-domain values distributed
+    evenly (by 0.5 steps) over each index.
+
+    '''
+    index = ohlc['index']
+
+    flat = rfn.structured_to_unstructured(
+        ohlc[['open', 'high', 'low', 'close']]
+    ).flatten()
+
+    x = np.linspace(
+        start=index[0] - 0.5,
+        stop=index[-1] + 0.5,
+        num=4*len(ohlc),
+    )
+    return x, flat
+
+
+def ohlc_to_m4_line(
+    ohlc: np.ndarray,
+    px_width: int,
+
+) -> tuple[np.ndarray, np.ndarray]:
+    '''
+    Convert an OHLC struct-array to a m4 downsampled 1-d array.
+
+    '''
+    xpts, flat = ohlc_flatten(ohlc)
+    bins, x, y = ds_m4(
+        xpts,
+        flat,
+        px_width=px_width * 16,
+    )
+    x = np.broadcast_to(x[:, None], y.shape)
+    x = (x + np.array([-0.43, 0, 0, 0.43])).flatten()
+    y = y.flatten()
+    return x, y
+
+
 def ds_m4(
     x: np.ndarray,
     y: np.ndarray,
@@ -233,7 +278,7 @@ def ds_m4(
     # (uniform quotient output) worth of datum-domain-points
     # per windows-frame, add one more window to ensure
     # we have room for all output down-samples.
-    pts_per_pixel, r = divmod(len(x), px_width)
+    pts_per_pixel, r = divmod(len(x), frames)
     if r:
         frames += 1
 
@@ -256,6 +301,12 @@ def ds_m4(
         # scaled by the ratio of pixels on screen to data in x-range).
         w,
     )
+
+    # filter out any overshoot in the input allocation arrays by
+    # removing zero-ed tail entries which should start at a certain
+    # index.
+    i_win = i_win[i_win != 0]
+    y_out = y_out[:i_win.size]
 
     return nb, i_win, y_out
 
