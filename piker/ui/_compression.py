@@ -20,6 +20,7 @@ limits on the display device.
 
 '''
 import math
+from typing import Optional
 
 import numpy as np
 from numpy.lib import recfunctions as rfn
@@ -34,11 +35,7 @@ from ..log import get_logger
 log = get_logger(__name__)
 
 
-def hl2mxmn(
-    ohlc: np.ndarray,
-    # downsample_by: int = 0,
-
-) -> np.ndarray:
+def hl2mxmn(ohlc: np.ndarray) -> np.ndarray:
     '''
     Convert a OHLC struct-array containing 'high'/'low' columns
     to a "joined" max/min 1-d array.
@@ -50,30 +47,12 @@ def hl2mxmn(
         'high',
     ]]
 
-    # XXX: don't really need this any more since we implemented
-    # the "tracer" routine, `numba`-style..
-    # create a "max and min" sequence from ohlc datums
-    # hl2d = structured_to_unstructured(hls)
-    # hl1d = hl2d.flatten()
-
     mxmn = np.empty(2*hls.size, dtype=np.float64)
     x = np.empty(2*hls.size, dtype=np.float64)
     trace_hl(hls, mxmn, x, index[0])
     x = x + index[0]
 
     return mxmn, x
-
-    # if downsample_by < 2:
-    #     return mxmn, x
-
-    # dsx, dsy = downsample(
-    #     y=mxmn,
-    #     x=x,
-    #     bins=downsample_by,
-    # )
-    # log.info(f'downsampling by {downsample_by}')
-    # print(f'downsampling by {downsample_by}')
-    # return dsy, dsx
 
 
 @jit(
@@ -176,6 +155,7 @@ def downsample(
 
 def ohlc_flatten(
     ohlc: np.ndarray,
+    use_mxmn: bool = False,
 
 ) -> tuple[np.ndarray, np.ndarray]:
     '''
@@ -186,15 +166,18 @@ def ohlc_flatten(
     '''
     index = ohlc['index']
 
-    flat = rfn.structured_to_unstructured(
-        ohlc[['open', 'high', 'low', 'close']]
-    ).flatten()
+    if use_mxmn:
+        flat, x = hl2mxmn(ohlc)
+    else:
+        flat = rfn.structured_to_unstructured(
+            ohlc[['open', 'high', 'low', 'close']]
+        ).flatten()
 
-    x = np.linspace(
-        start=index[0] - 0.5,
-        stop=index[-1] + 0.5,
-        num=4*len(ohlc),
-    )
+        x = np.linspace(
+            start=index[0] - 0.5,
+            stop=index[-1] + 0.5,
+            num=len(flat),
+        )
     return x, flat
 
 
@@ -202,16 +185,33 @@ def ohlc_to_m4_line(
     ohlc: np.ndarray,
     px_width: int,
 
+    uppx: Optional[float] = None,
+
 ) -> tuple[np.ndarray, np.ndarray]:
     '''
     Convert an OHLC struct-array to a m4 downsampled 1-d array.
 
     '''
     xpts, flat = ohlc_flatten(ohlc)
+
+    if uppx:
+        # optionally log-scale down the "supposed pxs on screen"
+        # as the units-per-px (uppx) get's large.
+        scaler = round(
+            max(
+                # NOTE: found that a 16x px width brought greater
+                # detail, likely due to dpi scaling?
+                # px_width=px_width * 16,
+                32 / (1 + math.log(uppx, 2)),
+                1
+            )
+        )
+        px_width *= scaler
+
     bins, x, y = ds_m4(
         xpts,
         flat,
-        px_width=px_width * 16,
+        px_width=px_width,
     )
     x = np.broadcast_to(x[:, None], y.shape)
     x = (x + np.array([-0.43, 0, 0, 0.43])).flatten()
@@ -313,6 +313,7 @@ def ds_m4(
 
 @jit(
     nopython=True,
+    nogil=True,
 )
 def _m4(
 
