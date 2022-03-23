@@ -306,7 +306,6 @@ class Client:
         price: float,
         action: str,
         size: float,
-#        account: str,
         reqid: int = None,
     ) -> int:
         '''
@@ -474,36 +473,26 @@ def pack_positions(
 
     for trade in trades.values():
         sign = -1 if trade['type'] == 'sell' else 1
-        # This catch is for populating the dict with new values
-        # as the plus assigment will fail if there no value
-        # tied to the key
         pair = trade['pair']
         vol = float(trade['vol'])
-        # This is for the initial addition of a pair so the 
-        # += operation does not fail.
-        vols[pair] = vols.setdefault(pair, 0)
-        costs[pair] = costs.setdefault(pair, 0)
-        positions[pair] = positions.setdefault(pair, 0)
-        vols[pair] += sign * vol
-        costs[pair] += sign * float(trade['cost'])
-        if vols[pair] != 0:
-            positions[pair] = costs[pair] / vols[pair]
-        else:
-            positions[pair] = 0
+        vols[pair] = vols.get(pair, 0) + sign * vol
+        costs[pair] = costs.get(pair, 0) + sign * float(trade['cost'])
+        positions[pair] = costs[pair] / vols[pair] if vols[pair] else 0
 
     for ticker, pos in positions.items():
-        norm_sym = normalize_symbol(ticker)
         vol = float(vols[ticker])
-        if vol != 0:
-            msg = BrokerdPosition(
-                broker='kraken',
-                account=acc,
-                symbol=norm_sym,
-                currency=norm_sym[-3:],
-                size=vol,
-                avg_price=float(pos),
-            )
-            position_msgs.append(msg.dict())
+        if not vol:
+            continue
+        norm_sym = normalize_symbol(ticker)
+        msg = BrokerdPosition(
+            broker='kraken',
+            account=acc,
+            symbol=norm_sym,
+            currency=norm_sym[-3:],
+            size=vol,
+            avg_price=float(pos),
+        )
+        position_msgs.append(msg.dict())
 
     return position_msgs
 
