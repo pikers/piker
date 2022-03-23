@@ -185,14 +185,19 @@ def ohlc_to_m4_line(
     ohlc: np.ndarray,
     px_width: int,
 
+    downsample: bool = False,
     uppx: Optional[float] = None,
+    pretrace: bool = False,
 
 ) -> tuple[np.ndarray, np.ndarray]:
     '''
     Convert an OHLC struct-array to a m4 downsampled 1-d array.
 
     '''
-    xpts, flat = ohlc_flatten(ohlc)
+    xpts, flat = ohlc_flatten(
+        ohlc,
+        use_mxmn=pretrace,
+    )
 
     if uppx:
         # optionally log-scale down the "supposed pxs on screen"
@@ -208,15 +213,19 @@ def ohlc_to_m4_line(
         )
         px_width *= scaler
 
-    bins, x, y = ds_m4(
-        xpts,
-        flat,
-        px_width=px_width,
-    )
-    x = np.broadcast_to(x[:, None], y.shape)
-    x = (x + np.array([-0.43, 0, 0, 0.43])).flatten()
-    y = y.flatten()
-    return x, y
+    if downsample:
+        bins, x, y = ds_m4(
+            xpts,
+            flat,
+            px_width=px_width,
+        )
+        x = np.broadcast_to(x[:, None], y.shape)
+        x = (x + np.array([-0.43, 0, 0, 0.43])).flatten()
+        y = y.flatten()
+
+        return x, y
+    else:
+        return xpts, flat
 
 
 def ds_m4(
