@@ -124,6 +124,7 @@ class FastAppendCurve(pg.PlotCurveItem):
     ) -> None:
 
         self._name = name
+        self.path: Optional[QtGui.QPainterPath] = None
 
         # TODO: we can probably just dispense with the parent since
         # we're basically only using the pen setting now...
@@ -133,6 +134,7 @@ class FastAppendCurve(pg.PlotCurveItem):
         # self._last_draw = time.time()
         self._use_poly = use_polyline
         self.poly = None
+        self._redraw: bool = False
 
         # all history of curve is drawn in single px thickness
         pen = pg.mkPen(hcolor(color))
@@ -203,8 +205,11 @@ class FastAppendCurve(pg.PlotCurveItem):
             # by default we only pull data up to the last (current) index
             x_out, y_out = x[:-1], y[:-1]
 
-        if self.path is None or prepend_length > 0:
-
+        if (
+            self.path is None
+            or prepend_length > 0
+            or self._redraw
+        ):
             if self._use_poly:
                 self.poly = pg.functions.arrayToQPolygonF(
                     x_out,
@@ -217,8 +222,19 @@ class FastAppendCurve(pg.PlotCurveItem):
                     y_out,
                     connect='all',
                     finiteCheck=False,
+                    path=self.path,
                 )
+                # reserve mem allocs see:
+                # - https://doc.qt.io/qt-5/qpainterpath.html#reserve
+                # - https://doc.qt.io/qt-5/qpainterpath.html#capacity
+                # - https://doc.qt.io/qt-5/qpainterpath.html#clear
+                # XXX: right now this is based on had hoc checks on a
+                # hidpi 3840x2160 4k monitor but we should optimize for
+                # the target display(s) on the sys.
+                self.path.reserve(int(500e3))
+
             profiler('generate fresh path')
+            self._redraw = False
 
             # if self._step_mode:
             #     self.path.closeSubpath()
@@ -350,6 +366,28 @@ class FastAppendCurve(pg.PlotCurveItem):
         if flip_cache:
             # XXX: seems to be needed to avoid artifacts (see above).
             self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+
+    def clear(self):
+        '''
+        Clear internal graphics making object ready for full re-draw.
+
+        '''
+        # NOTE: original code from ``pg.PlotCurveItem``
+        self.xData = None  ## raw values
+        self.yData = None
+        self._renderSegmentList = None
+        # self.path = None
+        self.fillPath = None
+        self._fillPathList = None
+        self._mouseShape = None
+        self._mouseBounds = None
+        self._boundsCache = [None, None]
+        #del self.xData, self.yData, self.xDisp, self.yDisp, self.path
+
+        # path reservation aware non-mem de-alloc cleaning
+        if self.path:
+            self.path.clear()
+            self._redraw = True
 
     def disable_cache(self) -> None:
         '''
