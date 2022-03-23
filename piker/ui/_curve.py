@@ -376,7 +376,6 @@ class FastAppendCurve(pg.PlotCurveItem):
         self.xData = None  ## raw values
         self.yData = None
         self._renderSegmentList = None
-        # self.path = None
         self.fillPath = None
         self._fillPathList = None
         self._mouseShape = None
@@ -388,6 +387,10 @@ class FastAppendCurve(pg.PlotCurveItem):
         if self.path:
             self.path.clear()
             self._redraw = True
+
+            # XXX: if not trying to leverage `.reserve()` allocs
+            # then you might as well create a new one..
+            # self.path = None
 
     def disable_cache(self) -> None:
         '''
