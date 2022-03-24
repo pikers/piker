@@ -207,7 +207,7 @@ def ohlc_to_m4_line(
                 # NOTE: found that a 16x px width brought greater
                 # detail, likely due to dpi scaling?
                 # px_width=px_width * 16,
-                32 / (1 + math.log(uppx, 2)),
+                64 / (1 + math.log(uppx, 2)),
                 1
             )
         )
@@ -291,18 +291,16 @@ def ds_m4(
     if r:
         frames += 1
 
-    # these are pre-allocated and mutated by ``numba``
-    # code in-place.
-    y_out = np.zeros((frames, 4), y.dtype)
-    i_win = np.zeros(frames, x.dtype)
-
     # call into ``numba``
-    nb = _m4(
+    nb, i_win, y_out = _m4(
         x,
         y,
 
-        i_win,
-        y_out,
+        frames,
+
+        # TODO: see func below..
+        # i_win,
+        # y_out,
 
         # first index in x data to start at
         x_start,
@@ -322,19 +320,25 @@ def ds_m4(
 
 @jit(
     nopython=True,
-    nogil=True,
+    # nogil=True,
 )
 def _m4(
 
     xs: np.ndarray,
     ys: np.ndarray,
 
+    frames: int,
+
+    # TODO: using this approach by having the ``.zeros()`` alloc lines
+    # below, in put python was causing segs faults and alloc crashes..
+    # we might need to see how it behaves with shm arrays and consider
+    # allocating them once at startup?
+
     # pre-alloc array of x indices mapping to the start
     # of each window used for downsampling in y.
-    i_win: np.ndarray,
-
+    # i_win: np.ndarray,
     # pre-alloc array of output downsampled y values
-    ds: np.ndarray,
+    # y_out: np.ndarray,
 
     x_start: int,
     step: float,
@@ -342,6 +346,11 @@ def _m4(
 ) -> int:
     # nbins = len(i_win)
     # count = len(xs)
+
+    # these are pre-allocated and mutated by ``numba``
+    # code in-place.
+    y_out = np.zeros((frames, 4), ys.dtype)
+    i_win = np.zeros(frames, xs.dtype)
 
     bincount = 0
     x_left = x_start
@@ -357,15 +366,15 @@ def _m4(
     # (aka a row broadcast).
     i_win[bincount] = x_left
     # set all y-values to the first value passed in.
-    ds[bincount] = ys[0]
+    y_out[bincount] = ys[0]
 
     for i in range(len(xs)):
         x = xs[i]
         y = ys[i]
         if x < x_left + step:   # the current window "step" is [bin, bin+1)
-            ds[bincount, 1] = min(y, ds[bincount, 1])
-            ds[bincount, 2] = max(y, ds[bincount, 2])
-            ds[bincount, 3] = y
+            y_out[bincount, 1] = min(y, y_out[bincount, 1])
+            y_out[bincount, 2] = max(y, y_out[bincount, 2])
+            y_out[bincount, 3] = y
         else:
             # Find the next bin
             while x >= x_left + step:
@@ -373,6 +382,6 @@ def _m4(
 
             bincount += 1
             i_win[bincount] = x_left
-            ds[bincount] = y
+            y_out[bincount] = y
 
-    return bincount
+    return bincount, i_win, y_out
