@@ -214,13 +214,15 @@ class Symbol(BaseModel):
             self.key,
         )
 
-    def front_fqsn(self) -> str:
+    def tokens(self) -> tuple[str]:
         broker, key = self.front_feed()
         if self.suffix:
-            tokens = (key, self.suffix, broker)
+            return (key, self.suffix, broker)
         else:
-            tokens = (key, broker)
+            return (key, broker)
 
+    def front_fqsn(self) -> str:
+        tokens = self.tokens()
         fqsn = '.'.join(tokens)
         return fqsn
 
