@@ -54,7 +54,7 @@ for name in win_names:
         # disconnect?
         for key_combo, timeout in [
             # only required if we need a connection reset.
-            ('ctrl+alt+r', 12),
+            # ('ctrl+alt+r', 12),
             # data feed reset.
             ('ctrl+alt+f', 6)
         ]:
