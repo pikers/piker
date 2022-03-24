@@ -36,10 +36,7 @@ from ._style import hcolor
 from ..log import get_logger
 from ._curve import FastAppendCurve
 from ._compression import (
-    # hl2mxmn,
-    # ohlc_flatten,
     ohlc_to_m4_line,
-    # ds_m4,
 )
 
 if TYPE_CHECKING:
@@ -234,9 +231,6 @@ class BarItems(pg.GraphicsObject):
 
         self._pi = plotitem
         self.path = QtGui.QPainterPath()
-        # not sure if this is actually impoving anything but figured it
-        # was worth a shot:
-        self.path.reserve(int(100e3 * 6))
 
         self._xrange: tuple[int, int]
         self._yrange: tuple[float, float]
@@ -253,7 +247,7 @@ class BarItems(pg.GraphicsObject):
         self._in_ds: bool = False
         self._ds_lines: dict[int, FastAppendCurve] = {}
         self._ds_line: Optional[FastAppendCurve] = None
-        self._ds: int = 0
+        self._dsi: tuple[int, int] = 0, 0
         self._xs_in_px: float = 0
 
     def draw_from_data(
@@ -319,18 +313,12 @@ class BarItems(pg.GraphicsObject):
     def update_ds_line(
         self,
         ohlc: np.ndarray,
-        use_ds: bool = False,
 
     ) -> int:
 
-        if not use_ds:
-            ds = 0
-        else:
-            ds = None
-
         # determine current potential downsampling value (based on pixel
         # scaling) and return any existing curve for it.
-        curve, ds = self.get_ds_line()
+        curve, uppx = self.get_ds_line()
 
         chart = self.linked.chart
         if not chart:
@@ -341,12 +329,46 @@ class BarItems(pg.GraphicsObject):
         # if self._ds_line:
         #     self._pi.removeItem(self._ds_line)
 
-        # old tracer with no downsampling
-        # y, x = hl2mxmn(ohlc)
-        x, y = ohlc_to_m4_line(ohlc, px_width)
+        # log.info(f'current dsi: {self._dsi}')
+        ds_uppx, ds_px_width = self._dsi
+
+        if (
+            abs(uppx - ds_uppx) >= 2
+            or ds_px_width == 0
+        ):
+            ds_uppx, ds_px_width = dsi = (uppx, px_width)
+            log.info(f'sampler change: {self._dsi} -> {dsi}')
+            self._dsi = dsi
+
+            if curve:
+                # trigger a full redraw of the curve path since
+                # we have downsampled another "level" using m4.
+                curve.clear()
+
+        # always refresh data bounds until we get diffing
+        # working properly, see above..
+        x, y = ohlc_to_m4_line(
+            ohlc,
+            ds_px_width,
+            uppx=ds_uppx,
+            # pretrace=True,
+
+            # activate m4 ds?
+            downsample=True,
+        )
 
         if not curve:
 
+            # TODO: figuring out the most optimial size for the ideal
+            # curve-path by,
+            # - calcing the display's max px width `.screen()`
+            # - drawing a curve and figuring out it's capacity:
+            #   https://doc.qt.io/qt-5/qpainterpath.html#capacity
+            # - reserving that cap for each curve-mapped-to-shm with
+
+            # - leveraging clearing when needed to redraw the entire
+            #   curve that does not release mem allocs:
+            #   https://doc.qt.io/qt-5/qpainterpath.html#clear
             curve = FastAppendCurve(
                 y=y,
                 x=x,
@@ -357,12 +379,9 @@ class BarItems(pg.GraphicsObject):
             )
             curve.hide()
             self._pi.addItem(curve)
-            self._ds_lines[ds] = curve
+            self._ds_lines[ds_uppx] = curve
             self._ds_line = curve
-            return curve, ds
-
-        # elif ds != self._ds:
-            # print(f'ds changed {self._ds} -> {ds}')
+            return curve, ds_uppx
 
         # TODO: we should be diffing the amount of new data which
         # needs to be downsampled. Ideally we actually are just
@@ -371,19 +390,11 @@ class BarItems(pg.GraphicsObject):
         # choice.
         # diff = do_diff(ohlc, new_bit)
 
-        # always refresh data bounds until we get diffing
-        # working properly, see above..
-        if abs(ds - self._ds) > 2:
-            log.info(f'sampler change: {self._ds} -> {ds}')
-            curve.path = None
-
         curve.update_from_array(
             y=y,
             x=x,
         )
-        self._ds = ds
-
-        return curve, ds
+        return curve, ds_uppx
 
     def update_from_array(
         self,
@@ -406,6 +417,8 @@ class BarItems(pg.GraphicsObject):
         '''
         # XXX: always do this?
         # if self._ds_line:
+        del self._array
+        self._array = ohlc
         curve, ds = self.update_ds_line(ohlc)
 
         # index = self.start_index
@@ -497,8 +510,6 @@ class BarItems(pg.GraphicsObject):
         if flip_cache:
             self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
-        self._array = ohlc
-
     def boundingRect(self):
         # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
 
@@ -568,7 +579,10 @@ class BarItems(pg.GraphicsObject):
         else:
             xs_in_px = self._ds_line.pixelVectors()[0].x()
 
-        if xs_in_px != self._xs_in_px and self._array is not None:
+        if (
+            # xs_in_px != self._xs_in_px
+            self._array is not None
+        ):
             self.update_ds_line(self._array)
             self._xs_in_px = xs_in_px
 
@@ -619,7 +633,7 @@ class BarItems(pg.GraphicsObject):
 
         # elif (
         #     self._in_ds
-        #     and self._ds != ds
+        #     and self._dsi != ds
         # ):
         #     # curve = self._ds_lines.get(ds)
         #     # assert self._ds_line is not curve
@@ -632,7 +646,7 @@ class BarItems(pg.GraphicsObject):
         #         curve.update()
 
         #     self._ds_line = curve
-        #     self._ds = ds
+        #     self._dsi = ds
         #     linked.graphics_cycle()
         #     return True
 
