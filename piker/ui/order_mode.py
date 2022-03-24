@@ -816,10 +816,18 @@ async def process_trades_and_update_ui(
             'position',
         ):
             sym = mode.chart.linked.symbol
-            symbol = msg['symbol'].lower()
+            pp_msg_symbol = msg['symbol'].lower()
             fqsn = sym.front_fqsn()
+            broker, key = sym.front_feed()
+            # print(
+            #     f'pp msg symbol: {pp_msg_symbol}\n',
+            #     f'fqsn: {fqsn}\n',
+            #     f'front key: {key}\n',
+            # )
 
-            if symbol in fqsn:
+            if (
+                pp_msg_symbol == fqsn.replace(f'.{broker}', '')
+            ):
                 tracker = mode.trackers[msg['account']]
                 tracker.live_pp.update_from_msg(msg)
                 # update order pane widgets
