@@ -599,8 +599,10 @@ class BarItems(pg.GraphicsObject):
             self._pi.removeItem(self)
 
             curve, ds = self.get_ds_line(ds=0)
+
             last_curve = self._ds_line
             assert last_curve is curve
+
             self._pi.addItem(curve)
             curve.show()
             curve.update()
@@ -619,6 +621,7 @@ class BarItems(pg.GraphicsObject):
             last_curve = self._ds_line
             assert last_curve is curve
             curve.hide()
+            curve.clear()
             self._pi.removeItem(curve)
 
             # XXX: is this actually any faster?
