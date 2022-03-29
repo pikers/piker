@@ -444,6 +444,9 @@ async def tsdb_history_update(
                 if err:
                     raise MarketStoreError(err)
 
+        from tractor.trionics import ipython_embed
+        await ipython_embed()
+
 
 async def ingest_quote_stream(
     symbols: list[str],
