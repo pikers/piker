@@ -207,7 +207,7 @@ def ohlc_to_m4_line(
                 # NOTE: found that a 16x px width brought greater
                 # detail, likely due to dpi scaling?
                 # px_width=px_width * 16,
-                64 / (1 + math.log(uppx, 2)),
+                128 / (1 + math.log(uppx, 2)),
                 1
             )
         )
