@@ -915,6 +915,7 @@ class ChartPlotWidget(pg.PlotWidget):
         if (
             rbar < 0
             or l < xfirst
+            or (rbar - lbar) < 6
         ):
             # set fixed bars count on screen that approx includes as
             # many bars as possible before a downsample line is shown.
