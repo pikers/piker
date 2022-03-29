@@ -175,6 +175,7 @@ def gen_qpath(
     data,
     start,  # XXX: do we need this?
     w,
+
 ) -> QtGui.QPainterPath:
 
     profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
@@ -319,6 +320,7 @@ class BarItems(pg.GraphicsObject):
         # determine current potential downsampling value (based on pixel
         # scaling) and return any existing curve for it.
         curve, uppx = self.get_ds_line()
+        # print(f'uppx: {uppx}')
 
         chart = self.linked.chart
         if not chart:
@@ -326,30 +328,37 @@ class BarItems(pg.GraphicsObject):
         else:
             px_width = round(chart.curve_width_pxs())
 
+        if px_width == 0:
+            return
+
         # if self._ds_line:
         #     self._pi.removeItem(self._ds_line)
 
         # log.info(f'current dsi: {self._dsi}')
-        ds_uppx, ds_px_width = self._dsi
+        old_dsi = ds_uppx, ds_px_width = self._dsi
 
+        changed = False
         if (
-            abs(uppx - ds_uppx) >= 2
-            or ds_px_width == 0
+            abs(uppx - ds_uppx) >= 4
+            # or not self._in_ds
         ):
-            ds_uppx, ds_px_width = dsi = (uppx, px_width)
-            log.info(f'sampler change: {self._dsi} -> {dsi}')
-            self._dsi = dsi
-
+            changed = True
             if curve:
                 # trigger a full redraw of the curve path since
                 # we have downsampled another "level" using m4.
                 curve.clear()
 
+        ds_uppx, ds_px_width = dsi = (uppx, px_width)
+        self._dsi = dsi
+
+        if changed:
+            log.info(f'sampler change: {old_dsi} -> {dsi}')
+
         # always refresh data bounds until we get diffing
         # working properly, see above..
         x, y = ohlc_to_m4_line(
             ohlc,
-            ds_px_width,
+            px_width=ds_px_width,
             uppx=ds_uppx,
             # pretrace=True,
 
@@ -417,9 +426,9 @@ class BarItems(pg.GraphicsObject):
         '''
         # XXX: always do this?
         # if self._ds_line:
-        del self._array
+        # del self._array
         self._array = ohlc
-        curve, ds = self.update_ds_line(ohlc)
+        self.update_ds_line(ohlc)
 
         # index = self.start_index
         istart, istop = self._xrange
@@ -568,7 +577,8 @@ class BarItems(pg.GraphicsObject):
         is less then a pixel width on the device).
 
         '''
-        if not self._ds_line:
+        curve = self._ds_line
+        if not curve:
             return False
 
         # this is the ``float`` value of the "number of x units" (in
@@ -579,14 +589,19 @@ class BarItems(pg.GraphicsObject):
         else:
             xs_in_px = self._ds_line.pixelVectors()[0].x()
 
+        linked = self.linked
+
         if (
             # xs_in_px != self._xs_in_px
             self._array is not None
         ):
-            self.update_ds_line(self._array)
-            self._xs_in_px = xs_in_px
+            # print('refreshing curve')
+            out = self.update_ds_line(self._array)
+            if not out:
+                print("NOTHING!?")
+                return
 
-        linked = self.linked
+        curve, ds = out
 
         if (
             not self._in_ds
@@ -596,14 +611,20 @@ class BarItems(pg.GraphicsObject):
             log.info(f'downsampling to line graphic {linked.symbol.key}')
             self.hide()
             # XXX: is this actually any faster?
-            self._pi.removeItem(self)
+            # self._pi.removeItem(self)
 
-            curve, ds = self.get_ds_line(ds=0)
+            curve, ds = out
+            self._xs_in_px = xs_in_px
+            # curve, ds = self.get_ds_line(ds=0)
+            curve.clear()
+            curve.update()
 
-            last_curve = self._ds_line
-            assert last_curve is curve
+            curve, out = self.update_ds_line(self._array)
 
-            self._pi.addItem(curve)
+            # curve = self._ds_line
+            # assert last_curve is curve
+
+            # self._pi.addItem(curve)
             curve.show()
             curve.update()
 
@@ -617,15 +638,15 @@ class BarItems(pg.GraphicsObject):
         ):
             log.info(f'showing bars graphic {linked.symbol.key}')
 
-            curve, ds = self.get_ds_line(ds=0)
-            last_curve = self._ds_line
-            assert last_curve is curve
-            curve.hide()
+            # curve, ds = self.get_ds_line()
+            curve = self._ds_line
+            # assert last_curve is curve
             curve.clear()
-            self._pi.removeItem(curve)
+            curve.hide()
+            # self._pi.removeItem(curve)
 
             # XXX: is this actually any faster?
-            self._pi.addItem(self)
+            # self._pi.addItem(self)
             self.show()
             self.update()
 
