@@ -22,8 +22,7 @@ from typing import Any
 import decimal
 
 import numpy as np
-import pandas as pd
-from pydantic import BaseModel, validate_arguments
+from pydantic import BaseModel
 # from numba import from_dtype
 
 
@@ -252,61 +251,6 @@ class Symbol(BaseModel):
             keys.append(fqsn)
 
         return keys
-
-
-def from_df(
-
-    df: pd.DataFrame,
-    source=None,
-    default_tf=None
-
-) -> np.recarray:
-    """Convert OHLC formatted ``pandas.DataFrame`` to ``numpy.recarray``.
-
-    """
-    df.reset_index(inplace=True)
-
-    # hackery to convert field names
-    date = 'Date'
-    if 'date' in df.columns:
-        date = 'date'
-
-    # convert to POSIX time
-    df[date] = [d.timestamp() for d in df[date]]
-
-    # try to rename from some camel case
-    columns = {
-        'Date': 'time',
-        'date': 'time',
-        'Open': 'open',
-        'High': 'high',
-        'Low': 'low',
-        'Close': 'close',
-        'Volume': 'volume',
-
-        # most feeds are providing this over sesssion anchored
-        'vwap': 'bar_wap',
-
-        # XXX: ib_insync calls this the "wap of the bar"
-        # but no clue what is actually is...
-        # https://github.com/pikers/piker/issues/119#issuecomment-729120988
-        'average': 'bar_wap',
-    }
-
-    df = df.rename(columns=columns)
-
-    for name in df.columns:
-        # if name not in base_ohlc_dtype.names[1:]:
-        if name not in base_ohlc_dtype.names:
-            del df[name]
-
-    # TODO: it turns out column access on recarrays is actually slower:
-    # https://jakevdp.github.io/PythonDataScienceHandbook/02.09-structured-data-numpy.html#RecordArrays:-Structured-Arrays-with-a-Twist
-    # it might make sense to make these structured arrays?
-    array = df.to_records(index=False)
-    _nan_to_closest_num(array)
-
-    return array
 
 
 def _nan_to_closest_num(array: np.ndarray):
