@@ -24,7 +24,6 @@ from typing import (
     # Any,
 )
 from contextlib import asynccontextmanager as acm
-# import time
 
 import trio
 from trio_typing import TaskStatus
@@ -97,6 +96,7 @@ async def open_docker(
             base_url=url,
             **kwargs
         ) if url else docker.from_env(**kwargs)
+
         yield client
 
     except (
@@ -127,43 +127,10 @@ async def open_docker(
 
     finally:
         if client:
-            # for c in client.containers.list():
-            #     c.kill()
             client.close()
             # client.api._custom_adapter.close()
-
-
-# async def waitfor(
-#     cntr: Container,
-#     attr_path: tuple[str],
-#     expect=None,
-#     timeout: float = 0.5,
-
-# ) -> Any:
-#     '''
-#     Wait for a container's attr value to be set. If ``expect`` is
-#     provided wait for the value to be set to that value.
-
-#     This is an async version of the helper from our ``pytest-dockerctl``
-#     plugin.
-
-#     '''
-#     def get(val, path):
-#         for key in path:
-#             val = val[key]
-#         return val
-
-#     start = time.time()
-#     while time.time() - start < timeout:
-#         cntr.reload()
-#         val = get(cntr.attrs, attr_path)
-#         if expect is None and val:
-#             return val
-#         elif val == expect:
-#             return val
-#     else:
-#         raise TimeoutError("{} failed to be {}, value: \"{}\"".format(
-#             attr_path, expect if expect else 'not None', val))
+            for c in client.containers.list():
+                c.kill()
 
 
 @tractor.context
@@ -220,7 +187,7 @@ async def open_marketstored(
             },
             mounts=[config_dir_mnt, data_dir_mnt],
             detach=True,
-            stop_signal='SIGINT',
+            # stop_signal='SIGINT',
             init=True,
             # remove=True,
         )
@@ -247,7 +214,7 @@ async def open_marketstored(
                         seen_so_far.add(entry)
                         if bp_on_msg:
                             await tractor.breakpoint()
-                        getattr(log, level)(f'{msg}')
+                        getattr(log, level, log.error)(f'{msg}')
 
                     # if "launching tcp listener for all services..." in msg:
                     if match in msg:
@@ -269,6 +236,8 @@ async def open_marketstored(
                     )
 
             await ctx.started(cntr.id)
+
+            # block for the expected "teardown log msg"..
             await process_logs_until('exiting...',)
 
         except (
