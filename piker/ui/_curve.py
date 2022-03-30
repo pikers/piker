@@ -95,8 +95,7 @@ _line_styles: dict[str, int] = {
 }
 
 
-# TODO: got a feeling that dropping this inheritance gets us even more speedups
-class FastAppendCurve(pg.PlotCurveItem):
+class FastAppendCurve(pg.GraphicsObject):
     '''
     A faster, append friendly version of ``pyqtgraph.PlotCurveItem``
     built for real-time data updates.
@@ -111,7 +110,11 @@ class FastAppendCurve(pg.PlotCurveItem):
     '''
     def __init__(
         self,
+
+        x: np.ndarray,
+        y: np.ndarray,
         *args,
+
         step_mode: bool = False,
         color: str = 'default_lightest',
         fill_color: Optional[str] = None,
@@ -123,13 +126,19 @@ class FastAppendCurve(pg.PlotCurveItem):
 
     ) -> None:
 
+        # brutaaalll, see comments within..
+        self.yData = y
+        self.xData = x
+
         self._name = name
         self.path: Optional[QtGui.QPainterPath] = None
 
         # TODO: we can probably just dispense with the parent since
         # we're basically only using the pen setting now...
         super().__init__(*args, **kwargs)
-        self._xrange: tuple[int, int] = self.dataBounds(ax=0)
+
+        # self._xrange: tuple[int, int] = self.dataBounds(ax=0)
+        self._xrange: Optional[tuple[int, int]] = None
 
         # self._last_draw = time.time()
         self._use_poly = use_polyline
@@ -143,7 +152,7 @@ class FastAppendCurve(pg.PlotCurveItem):
         if 'dash' in style:
             pen.setDashPattern([8, 3])
 
-        self.setPen(pen)
+        self._pen = pen
 
         # last segment is drawn in 2px thickness for emphasis
         # self.last_step_pen = pg.mkPen(hcolor(color), width=2)
@@ -156,7 +165,7 @@ class FastAppendCurve(pg.PlotCurveItem):
         self._step_mode: bool = step_mode
 
         # self._fill = True
-        self.setBrush(hcolor(fill_color or color))
+        self._brush = pg.functions.mkBrush(hcolor(fill_color or color))
 
         # TODO: one question still remaining is if this makes trasform
         # interactions slower (such as zooming) and if so maybe if/when
@@ -170,6 +179,8 @@ class FastAppendCurve(pg.PlotCurveItem):
             self.setCacheMode(
                 QGraphicsItem.DeviceCoordinateCache
             )
+
+        self.update()
 
     def update_from_array(
         self,
@@ -187,7 +198,11 @@ class FastAppendCurve(pg.PlotCurveItem):
         profiler = pg.debug.Profiler(disabled=not pg_profile_enabled())
         flip_cache = False
 
-        istart, istop = self._xrange
+        if self._xrange:
+            istart, istop = self._xrange
+        else:
+            istart, istop = x[0], x[-1]
+
         # print(f"xrange: {self._xrange}")
 
         # compute the length diffs between the first/last index entry in
@@ -367,20 +382,19 @@ class FastAppendCurve(pg.PlotCurveItem):
             # XXX: seems to be needed to avoid artifacts (see above).
             self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
+    # XXX: lol brutal, the internals of `CurvePoint` (inherited by
+    # our `LineDot`) required ``.getData()`` to work..
+    def getData(self):
+        return self.xData, self.yData
+
     def clear(self):
         '''
         Clear internal graphics making object ready for full re-draw.
 
         '''
         # NOTE: original code from ``pg.PlotCurveItem``
-        self.xData = None  ## raw values
+        self.xData = None
         self.yData = None
-        self._renderSegmentList = None
-        self.fillPath = None
-        self._fillPathList = None
-        self._mouseShape = None
-        self._mouseBounds = None
-        self._boundsCache = [None, None]
 
         # path reservation aware non-mem de-alloc cleaning
         if self.path:
@@ -460,19 +474,17 @@ class FastAppendCurve(pg.PlotCurveItem):
             self._step_mode
             and self._last_step_rect
         ):
-            brush = self.opts['brush']
+            brush = self._brush
+
             # p.drawLines(*tuple(filter(bool, self._last_step_lines)))
             # p.drawRect(self._last_step_rect)
             p.fillRect(self._last_step_rect, brush)
-
-            # p.drawPath(self.path)
-            # profiler('.drawPath()')
 
         if self._last_line:
             p.setPen(self.last_step_pen)
             p.drawLine(self._last_line)
             profiler('.drawLine()')
-            p.setPen(self.opts['pen'])
+            p.setPen(self._pen)
 
         # else:
         if self._use_poly:
@@ -490,11 +502,3 @@ class FastAppendCurve(pg.PlotCurveItem):
         # if self._fill:
         #     brush = self.opts['brush']
         #     p.fillPath(self.path, brush)
-
-        # now = time.time()
-        # print(f'DRAW RATE {1/(now - self._last_draw)}')
-        # self._last_draw = now
-
-
-# import time
-# _last_draw: float = time.time()
