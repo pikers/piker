@@ -19,7 +19,6 @@ NumPy compatible shared memory buffers for real-time IPC streaming.
 
 """
 from __future__ import annotations
-from dataclasses import dataclass, asdict
 from sys import byteorder
 from typing import Optional
 from multiprocessing.shared_memory import SharedMemory, _USE_POSIX
@@ -30,7 +29,7 @@ if _USE_POSIX:
 
 import tractor
 import numpy as np
-from pydantic import BaseModel, validator
+from pydantic import BaseModel
 
 from ..log import get_logger
 from ._source import base_iohlc_dtype
@@ -296,11 +295,6 @@ class ShmArray:
         except ValueError as err:
             if field_map:
                 raise
-            # dsize = data.size
-            # if dsize > self._len:
-            #     raise ValueError(
-            #         f'Input data is size {dsize} > our shm buffer {self._len}'
-            #     )
 
             # should raise if diff detected
             self.diff_err_fields(data)
@@ -357,7 +351,7 @@ class ShmArray:
 # how  much is probably dependent on lifestyle
 _secs_in_day = int(60 * 60 * 24)
 # we try for 3 times but only on a run-every-other-day kinda week.
-_default_size = 4 * _secs_in_day
+_default_size = 6 * _secs_in_day
 
 
 def open_shm_array(
@@ -427,7 +421,7 @@ def open_shm_array(
     # this sets the index to 3/4 of the length of the buffer
     # leaving a "days worth of second samples" for the real-time
     # section.
-    last.value = first.value = int(3*_secs_in_day)
+    last.value = first.value = int(5*_secs_in_day)
 
     shmarr = ShmArray(
         array,
