@@ -199,25 +199,13 @@ def ohlc_to_m4_line(
         use_mxmn=pretrace,
     )
 
-    if uppx:
-        # optionally log-scale down the "supposed pxs on screen"
-        # as the units-per-px (uppx) get's large.
-        scaler = round(
-            max(
-                # NOTE: found that a 16x px width brought greater
-                # detail, likely due to dpi scaling?
-                # px_width=px_width * 16,
-                128 / (1 + math.log(uppx, 2)),
-                1
-            )
-        )
-        px_width *= scaler
-
     if downsample:
         bins, x, y = ds_m4(
             xpts,
             flat,
             px_width=px_width,
+            uppx=uppx,
+            log_scale=bool(uppx)
         )
         x = np.broadcast_to(x[:, None], y.shape)
         x = (x + np.array([-0.43, 0, 0, 0.43])).flatten()
@@ -235,6 +223,8 @@ def ds_m4(
     # this is the width of the data in view
     # in display-device-local pixel units.
     px_width: int,
+    uppx: Optional[float] = None,
+    log_scale: bool = True,
 
 ) -> tuple[int, np.ndarray, np.ndarray]:
     '''
@@ -260,6 +250,22 @@ def ds_m4(
     # you get better visual fidelity at the edges of the graph"
     # "i didn't show it in the sample code, but it's accounted for
     # in the start and end indices and number of bins"
+
+    # optionally log-scale down the "supposed pxs on screen"
+    # as the units-per-px (uppx) get's large.
+    if log_scale:
+        assert uppx, 'You must provide a `uppx` value to use log scaling!'
+
+        scaler = round(
+            max(
+                # NOTE: found that a 16x px width brought greater
+                # detail, likely due to dpi scaling?
+                # px_width=px_width * 16,
+                2**6 / (1 + math.log(uppx, 2)),
+                1
+            )
+        )
+        px_width *= scaler
 
     assert px_width > 1  # width of screen in pxs?
 
@@ -320,7 +326,7 @@ def ds_m4(
 
 @jit(
     nopython=True,
-    # nogil=True,
+    nogil=True,
 )
 def _m4(
 
