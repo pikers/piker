@@ -1458,7 +1458,7 @@ async def get_bars(
     if end_dt:
         last_dt = pendulum.from_timestamp(end_dt.timestamp())
 
-    for _ in range(2):
+    for _ in range(10):
         try:
             bars, bars_array = await proxy.bars(
                 fqsn=fqsn,
@@ -1592,7 +1592,7 @@ async def backfill_bars(
     # on that until we have the `marketstore` daemon in place in which
     # case the shm size will be driven by user config and available sys
     # memory.
-    count: int = 65,
+    count: int = 59,
 
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
@@ -1637,11 +1637,14 @@ async def backfill_bars(
 
                 out, fails = await get_bars(proxy, fqsn, end_dt=first_dt)
 
-                if out == (None, None):
+                if out == None:
                     # could be trying to retreive bars over weekend
                     # TODO: add logic here to handle tradable hours and
                     # only grab valid bars in the range
                     log.error(f"Can't grab bars starting at {first_dt}!?!?")
+
+                    # XXX: get_bars() should internally decrement dt by
+                    # 2k seconds and try again.
                     continue
 
                 (first_bars, bars_array, first_dt, last_dt) = out
