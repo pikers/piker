@@ -95,22 +95,24 @@ class LineDot(pg.CurvePoint):
 
     def event(
         self,
-
         ev: QtCore.QEvent,
 
-    ) -> None:
+    ) -> bool:
         if not isinstance(
             ev, QtCore.QDynamicPropertyChangeEvent
         ) or self.curve() is None:
             return False
 
+        # TODO: get rid of this ``.getData()`` and
+        # make a more pythonic api to retreive backing
+        # numpy arrays...
         (x, y) = self.curve().getData()
         index = self.property('index')
         # first = self._plot._arrays['ohlc'][0]['index']
         # first = x[0]
         # i = index - first
         if index:
-            i = index - x[0]
+            i = round(index - x[0])
             if i > 0 and i < len(y):
                 newPos = (index, y[i])
                 QtWidgets.QGraphicsItem.setPos(self, *newPos)
@@ -406,6 +408,7 @@ class Cursor(pg.GraphicsObject):
             slot=self.mouseMoved,
             delay=_debounce_delay,
         )
+
         px_enter = pg.SignalProxy(
             plot.sig_mouse_enter,
             rateLimit=_mouse_rate_limit,
