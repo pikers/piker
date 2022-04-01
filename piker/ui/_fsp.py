@@ -50,7 +50,6 @@ from ._forms import (
     mk_form,
     open_form_input_handling,
 )
-from . import _display
 from ..fsp._api import maybe_mk_fsp_shm, Fsp
 from ..fsp import cascade
 from ..fsp._volume import (
@@ -247,7 +246,6 @@ async def run_fsp_ui(
                 overlay=True,
                 color='default_light',
                 array_key=name,
-                separate_axes=conf.get('separate_axes', False),
                 **conf.get('chart_kwargs', {})
             )
             # specially store ref to shm for lookup in display loop
@@ -766,6 +764,7 @@ async def open_vlm_displays(
             # displayed and the curves are effectively the same minus
             # liquidity events (well at least on low OHLC periods - 1s).
             vlm_curve.hide()
+            chart.removeItem(vlm_curve)
 
             # use slightly less light (then bracket) gray
             # for volume from "main exchange" and a more "bluey"
