@@ -32,7 +32,7 @@ from PyQt5.QtCore import (
     QPointF,
 )
 
-from .._profile import pg_profile_enabled
+from .._profile import pg_profile_enabled, ms_slower_then
 from ._style import hcolor
 from ._compression import (
     # ohlc_to_m4_line,
@@ -192,6 +192,10 @@ class FastAppendCurve(pg.GraphicsObject):
 
         self.update()
 
+    # TODO: probably stick this in a new parent
+    # type which will contain our own version of
+    # what ``PlotCurveItem`` had in terms of base
+    # functionality? A `FlowGraphic` maybe?
     def x_uppx(self) -> int:
 
         px_vecs = self.pixelVectors()[0]
@@ -225,14 +229,17 @@ class FastAppendCurve(pg.GraphicsObject):
 
         uppx = self.x_uppx()
         px_width = self.px_width()
-        uppx_diff = abs(uppx - self._last_uppx)
+        # uppx_diff = abs(uppx - self._last_uppx)
+        uppx_diff = (uppx - self._last_uppx)
         self._last_uppx = uppx
 
         should_redraw: bool = False
         should_ds: bool = False
 
+        # print(uppx_diff)
+
         if (
-            uppx <= 4
+            uppx <= 8
         ):
             # trigger redraw or original non-downsampled data
             if self._in_ds:
@@ -243,7 +250,8 @@ class FastAppendCurve(pg.GraphicsObject):
 
         elif (
             uppx_diff >= 4
-            or self._step_mode and uppx_diff >= 1
+            or uppx_diff <= -2
+            or self._step_mode and abs(uppx_diff) >= 1
         ):
             log.info(
                 f'{self._name} downsampler change: {self._last_uppx} -> {uppx}'
@@ -309,6 +317,7 @@ class FastAppendCurve(pg.GraphicsObject):
         profiler = pg.debug.Profiler(
             msg=f'{self._name}.update_from_array()',
             disabled=not pg_profile_enabled(),
+            gt=ms_slower_then,
         )
         flip_cache = False
 
@@ -625,8 +634,9 @@ class FastAppendCurve(pg.GraphicsObject):
     ) -> None:
 
         profiler = pg.debug.Profiler(
-            msg=f'{self._name}.paint()',
+            msg=f'FastAppendCurve.paint(): `{self._name}`',
             disabled=not pg_profile_enabled(),
+            gt=ms_slower_then,
         )
 
         if (
@@ -638,6 +648,7 @@ class FastAppendCurve(pg.GraphicsObject):
             # p.drawLines(*tuple(filter(bool, self._last_step_lines)))
             # p.drawRect(self._last_step_rect)
             p.fillRect(self._last_step_rect, brush)
+            profiler('.fillRect()')
 
         if self._last_line:
             p.setPen(self.last_step_pen)
@@ -648,8 +659,8 @@ class FastAppendCurve(pg.GraphicsObject):
         path = self.path
 
         if path:
-            profiler('.drawPath(path)')
             p.drawPath(path)
+            profiler('.drawPath(path)')
 
         fp = self.fast_path
         if fp:
