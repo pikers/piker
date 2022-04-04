@@ -318,6 +318,13 @@ class BarItems(pg.GraphicsObject):
 
         return self.path
 
+
+    def x_uppx(self) -> int:
+        if self._ds_line:
+            return self._ds_line.x_uppx()
+        else:
+            return 0
+
     def update_from_array(
         self,
 
@@ -346,6 +353,7 @@ class BarItems(pg.GraphicsObject):
         profiler = pg.debug.Profiler(
             disabled=not pg_profile_enabled(),
             gt=ms_slower_then,
+            delayed=True,
         )
 
         # index = self.start_index
@@ -364,7 +372,7 @@ class BarItems(pg.GraphicsObject):
 
         flip_cache = False
 
-        x_gt = 8
+        x_gt = 16
         if self._ds_line:
             uppx = self._ds_line.x_uppx()
         else:
@@ -383,6 +391,8 @@ class BarItems(pg.GraphicsObject):
         ):
             should_line = True
 
+        profiler('ds logic complete')
+
         if (
             should_line
         ):
@@ -391,6 +401,7 @@ class BarItems(pg.GraphicsObject):
             x, y = self._ds_line_xy = ohlc_flatten(ohlc)
             x_iv, y_iv = self._ds_line_xy = ohlc_flatten(ohlc_iv)
             profiler('flattening bars to line')
+            print(f'rendering linesc')
 
             # TODO: we should be diffing the amount of new data which
             # needs to be downsampled. Ideally we actually are just
@@ -427,6 +438,7 @@ class BarItems(pg.GraphicsObject):
             # stop here since we don't need to update bars path any more
             # as we delegate to the downsample line with updates.
             profiler.finish()
+            print('terminating early')
             return
 
         elif (
@@ -597,6 +609,8 @@ class BarItems(pg.GraphicsObject):
 
         if flip_cache:
             self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
+
+        profiler.finish()
 
     def boundingRect(self):
         # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
