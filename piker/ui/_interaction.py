@@ -20,6 +20,7 @@ Chart view box primitives
 """
 from __future__ import annotations
 from contextlib import asynccontextmanager
+# import itertools
 import time
 from typing import Optional, Callable
 
@@ -36,7 +37,7 @@ from ..log import get_logger
 from ._style import _min_points_to_show
 from ._editors import SelectRect
 from . import _event
-from ._ohlc import BarItems
+# from ._ohlc import BarItems
 
 
 log = get_logger(__name__)
@@ -319,6 +320,7 @@ async def handle_viewmode_mouse(
         ):
             # when in order mode, submit execution
             # msg.event.accept()
+            # breakpoint()
             view.order_mode.submit_order()
 
 
@@ -384,6 +386,29 @@ class ChartView(ViewBox):
         self.order_mode: bool = False
 
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
+        self._ic = None
+
+    def start_ic(
+        self,
+    ) -> None:
+        if self._ic is None:
+            self.chart.pause_all_feeds()
+            self._ic = trio.Event()
+
+    def signal_ic(
+        self,
+        *args,
+        # ev = None,
+    ) -> None:
+        if args:
+            print(f'range change dun: {args}')
+        else:
+            print('proxy called')
+
+        if self._ic:
+            self._ic.set()
+            self._ic = None
+            self.chart.resume_all_feeds()
 
     @asynccontextmanager
     async def open_async_input_handler(
@@ -428,11 +453,6 @@ class ChartView(ViewBox):
     @maxmin.setter
     def maxmin(self, callback: Callable) -> None:
         self._maxmin = callback
-
-    def maybe_downsample_graphics(self):
-        for graphic in self._chart._graphics.values():
-            if isinstance(graphic, BarItems):
-                graphic.maybe_paint_line()
 
     def wheelEvent(
         self,
@@ -542,6 +562,11 @@ class ChartView(ViewBox):
             self._resetTarget()
             self.scaleBy(s, focal)
             self.sigRangeChangedManually.emit(mask)
+
+            # self._ic.set()
+            # self._ic = None
+            # self.chart.resume_all_feeds()
+
             ev.accept()
 
     def mouseDragEvent(
@@ -624,6 +649,11 @@ class ChartView(ViewBox):
                 # XXX: WHY
                 ev.accept()
 
+                self.start_ic()
+                # if self._ic is None:
+                #     self.chart.pause_all_feeds()
+                #     self._ic = trio.Event()
+
                 if axis == 1:
                     self.chart._static_yrange = 'axis'
 
@@ -640,6 +670,13 @@ class ChartView(ViewBox):
                     self.translateBy(x=x, y=y)
 
                 self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
+
+                if ev.isFinish():
+                    print('DRAG FINISH')
+                    self.signal_ic()
+                    # self._ic.set()
+                    # self._ic = None
+                    # self.chart.resume_all_feeds()
 
         # WEIRD "RIGHT-CLICK CENTER ZOOM" MODE
         elif button & QtCore.Qt.RightButton:
@@ -788,11 +825,13 @@ class ChartView(ViewBox):
         #   iterate those.
         # - only register this when certain downsampleable graphics are
         #   "added to scene".
-        vb.sigRangeChangedManually.connect(vb.maybe_downsample_graphics)
+        vb.sigXRangeChanged.connect(vb.maybe_downsample_graphics)
 
         # mouse wheel doesn't emit XRangeChanged
         vb.sigRangeChangedManually.connect(vb._set_yrange)
-        vb.sigResized.connect(vb._set_yrange)  # splitter(s) resizing
+
+        # splitter(s) resizing
+        vb.sigResized.connect(vb._set_yrange)
 
     def disable_auto_yrange(
         self,
@@ -808,10 +847,27 @@ class ChartView(ViewBox):
 
         '''
         for graphic in self._chart._graphics.values():
-            # if isinstance(graphic, BarItems):
-            xpx = graphic.pixelVectors()[0].x()
-            if xpx:
-                return xpx
+            xvec = graphic.pixelVectors()[0]
+            if xvec:
+                xpx = xvec.x()
+                if xpx:
+                    return xpx
             else:
                 continue
         return 1.0
+
+    def maybe_downsample_graphics(self):
+
+        # TODO: a faster single-loop-iterator way of doing this XD
+        chart = self._chart
+        # graphics = list(self._chart._graphics.values())
+
+        for name, graphics in chart._graphics.items():
+            # pass in no array which will read and render from the last
+            # passed array (normally provided by the display loop.)
+            chart.update_graphics_from_array(name)
+
+        # for graphic in graphics:
+        #     ds_meth = getattr(graphic, 'maybe_downsample', None)
+        #     if ds_meth:
+        #         ds_meth()
