@@ -106,53 +106,6 @@ def trace_hl(
     return out
 
 
-def downsample(
-    x: np.ndarray,
-    y: np.ndarray,
-    bins: int = 2,
-
-    method: str = 'peak',
-
-    **kwargs,
-
-) -> tuple[np.ndarray, np.ndarray]:
-    '''
-    Downsample x/y data for lesser curve graphics gen.
-
-    The "peak" method is originally copied verbatim from
-    ``pyqtgraph.PlotDataItem.getDisplayDataset()`` which gets
-    all credit, though we will likely drop this in favor of the M4
-    algo below.
-
-    '''
-    # py3.10 syntax
-    match method:
-        case 'peak':
-            if bins < 2:
-                log.warning('No downsampling taking place?')
-
-            ds = bins
-            n = len(x) // ds
-            x1 = np.empty((n, 2))
-
-            # start of x-values; try to select a somewhat centered point
-            stx = ds // 2
-            x1[:] = x[stx:stx+n*ds:ds, np.newaxis]
-            x = x1.reshape(n*2)
-
-            y1 = np.empty((n, 2))
-            y2 = y[:n*ds].reshape((n, ds))
-
-            y1[:, 0] = y2.max(axis=1)
-            y1[:, 1] = y2.min(axis=1)
-            y = y1.reshape(n*2)
-
-            return x, y
-
-        case 'm4':
-            return ds_m4(x, y, kwargs['px_width'])
-
-
 def ohlc_flatten(
     ohlc: np.ndarray,
     use_mxmn: bool = True,
