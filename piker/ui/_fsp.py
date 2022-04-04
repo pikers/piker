@@ -753,20 +753,14 @@ async def open_vlm_displays(
                 'dark_trade_rate',
             ]
 
-            # add custom auto range handler
-            dvlm_pi.vb._maxmin = partial(
+            group_mxmn = partial(
                 maxmin,
                 # keep both regular and dark vlm in view
                 names=fields + dvlm_rate_fields,
             )
 
-            # TODO: is there a way to "sync" the dual axes such that only
-            # one curve is needed?
-            # hide the original vlm curve since the $vlm one is now
-            # displayed and the curves are effectively the same minus
-            # liquidity events (well at least on low OHLC periods - 1s).
-            vlm_curve.hide()
-            chart.removeItem(vlm_curve)
+            # add custom auto range handler
+            dvlm_pi.vb._maxmin = group_mxmn
 
             # use slightly less light (then bracket) gray
             # for volume from "main exchange" and a more "bluey"
@@ -833,6 +827,14 @@ async def open_vlm_displays(
                 dvlm_pi,
                 fr_shm,
             )
+
+            # TODO: is there a way to "sync" the dual axes such that only
+            # one curve is needed?
+            # hide the original vlm curve since the $vlm one is now
+            # displayed and the curves are effectively the same minus
+            # liquidity events (well at least on low OHLC periods - 1s).
+            vlm_curve.hide()
+            chart.removeItem(vlm_curve)
 
             # Trade rate overlay
             # XXX: requires an additional overlay for
