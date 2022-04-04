@@ -498,7 +498,6 @@ def graphics_update_cycle(
             xpx < update_uppx
             or i_diff > 0
         ):
-            # chart.update_ohlc_from_array(
             chart.update_graphics_from_array(
                 chart.name,
                 array,
