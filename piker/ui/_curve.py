@@ -342,9 +342,9 @@ class FastAppendCurve(pg.GraphicsObject):
         if (
             # std m4 downsample conditions
             px_width
-            and uppx_diff >= 2
-            or uppx_diff <= -2
-            or self._step_mode and abs(uppx_diff) >= 2
+            and uppx_diff >= 4
+            or uppx_diff <= -3
+            or self._step_mode and abs(uppx_diff) >= 4
 
         ):
             log.info(
