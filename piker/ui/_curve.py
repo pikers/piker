@@ -341,7 +341,8 @@ class FastAppendCurve(pg.GraphicsObject):
         # check for downsampling conditions
         if (
             # std m4 downsample conditions
-            uppx_diff >= 2
+            px_width
+            and uppx_diff >= 2
             or uppx_diff <= -2
             or self._step_mode and abs(uppx_diff) >= 2
 
@@ -350,7 +351,7 @@ class FastAppendCurve(pg.GraphicsObject):
                 f'{self._name} sampler change: {self._last_uppx} -> {uppx}'
             )
             self._last_uppx = uppx
-            should_ds = {'px_width': px_width, 'uppx': uppx}
+            should_ds = True
 
         elif (
             uppx <= 2
@@ -410,7 +411,8 @@ class FastAppendCurve(pg.GraphicsObject):
                 x_out, y_out = self.downsample(
                     x_out,
                     y_out,
-                    **should_ds,
+                    px_width,
+                    uppx,
                 )
                 profiler(f'FULL PATH downsample redraw={should_ds}')
                 self._in_ds = True
