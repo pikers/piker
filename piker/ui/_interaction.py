@@ -37,7 +37,7 @@ from ..log import get_logger
 from ._style import _min_points_to_show
 from ._editors import SelectRect
 from . import _event
-# from ._ohlc import BarItems
+from ._ohlc import BarItems
 
 
 log = get_logger(__name__)
@@ -809,7 +809,8 @@ class ChartView(ViewBox):
             self.setYRange(ylow, yhigh)
 
     def enable_auto_yrange(
-        vb: ChartView,
+        self,
+        src_vb: Optional[ChartView] = None,
 
     ) -> None:
         '''
@@ -817,7 +818,10 @@ class ChartView(ViewBox):
         based on data contents and ``ViewBox`` state.
 
         '''
-        vb.sigXRangeChanged.connect(vb._set_yrange)
+        if src_vb is None:
+            src_vb = self
+
+        src_vb.sigXRangeChanged.connect(self._set_yrange)
 
         # TODO: a smarter way to avoid calling this needlessly?
         # 2 things i can think of:
@@ -825,13 +829,13 @@ class ChartView(ViewBox):
         #   iterate those.
         # - only register this when certain downsampleable graphics are
         #   "added to scene".
-        vb.sigXRangeChanged.connect(vb.maybe_downsample_graphics)
+        src_vb.sigXRangeChanged.connect(self.maybe_downsample_graphics)
 
         # mouse wheel doesn't emit XRangeChanged
-        vb.sigRangeChangedManually.connect(vb._set_yrange)
+        src_vb.sigRangeChangedManually.connect(self._set_yrange)
 
         # splitter(s) resizing
-        vb.sigResized.connect(vb._set_yrange)
+        src_vb.sigResized.connect(self._set_yrange)
 
     def disable_auto_yrange(
         self,
@@ -863,9 +867,21 @@ class ChartView(ViewBox):
         # graphics = list(self._chart._graphics.values())
 
         for name, graphics in chart._graphics.items():
+
+            # TODO: make it so we don't have to do this XD
+            # if name == 'volume':
+            #     continue
+
+            use_vr = False
+            if isinstance(graphics, BarItems):
+                use_vr = True
+
             # pass in no array which will read and render from the last
             # passed array (normally provided by the display loop.)
-            chart.update_graphics_from_array(name)
+            chart.update_graphics_from_array(
+                name,
+                use_vr=use_vr,
+            )
 
         # for graphic in graphics:
         #     ds_meth = getattr(graphic, 'maybe_downsample', None)
