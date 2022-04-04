@@ -53,6 +53,10 @@ from ._forms import (
     mk_order_pane_layout,
 )
 from .order_mode import open_order_mode
+# from .._profile import (
+#     pg_profile_enabled,
+#     ms_slower_then,
+# )
 from ..log import get_logger
 
 log = get_logger(__name__)
@@ -284,6 +288,12 @@ async def graphics_update_loop(
             chart.pause_all_feeds()
             continue
 
+        ic = chart.view._ic
+        if ic:
+            chart.pause_all_feeds()
+            await ic.wait()
+            chart.resume_all_feeds()
+
         # sync call to update all graphics/UX components.
         graphics_update_cycle(ds)
 
@@ -299,8 +309,9 @@ def graphics_update_cycle(
 
     profiler = pg.debug.Profiler(
         disabled=True,  # not pg_profile_enabled(),
-        delayed=False,
+        gt=1/12 * 1e3,
     )
+
     # unpack multi-referenced components
     chart = ds.chart
     vlm_chart = ds.vlm_chart
@@ -409,9 +420,11 @@ def graphics_update_cycle(
             if (
                 # if zoomed out alot don't update the last "bar"
                 (xpx < update_uppx or i_diff > 0)
-                # and r >= i_step
+                and r >= i_step
             ):
-                vlm_chart.update_curve_from_array('volume', array)
+                # TODO: make it so this doesn't have to be called
+                # once the $vlm is up?
+                vlm_chart.update_graphics_from_array('volume', array)
 
                 if (
                     mx_vlm_in_view != vars['last_mx_vlm']
@@ -485,7 +498,8 @@ def graphics_update_cycle(
             xpx < update_uppx
             or i_diff > 0
         ):
-            chart.update_ohlc_from_array(
+            # chart.update_ohlc_from_array(
+            chart.update_graphics_from_array(
                 chart.name,
                 array,
             )
@@ -524,7 +538,7 @@ def graphics_update_cycle(
 
                 if wap_in_history:
                     # update vwap overlay line
-                    chart.update_curve_from_array(
+                    chart.update_graphics_from_array(
                         'bar_wap',
                         array,
                     )
