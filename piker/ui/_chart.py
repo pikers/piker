@@ -838,8 +838,12 @@ class ChartPlotWidget(pg.PlotWidget):
         '''
         l, r = self.view_range()
         array = self._arrays[self.name]
-        lbar = max(l, array[0]['index'])
-        rbar = min(r, array[-1]['index'])
+        start, stop = self._xrange = (
+            array[0]['index'],
+            array[-1]['index'],
+        )
+        lbar = max(l, start)
+        rbar = min(r, stop)
         return l, lbar, rbar, r
 
     def curve_width_pxs(
@@ -907,7 +911,7 @@ class ChartPlotWidget(pg.PlotWidget):
             return
 
         xfirst, xlast = index[0], index[-1]
-        brange = l, lbar, rbar, r = self.bars_range()
+        l, lbar, rbar, r = self.bars_range()
 
         marker_pos, l1_len = self.pre_l1_xs()
         end = xlast + l1_len + 1
@@ -986,7 +990,8 @@ class ChartPlotWidget(pg.PlotWidget):
         graphics = BarItems(
             self.linked,
             self.plotItem,
-            pen_color=self.pen_color
+            pen_color=self.pen_color,
+            name=name,
         )
 
         # adds all bar/candle graphics objects for each data point in
@@ -1175,29 +1180,13 @@ class ChartPlotWidget(pg.PlotWidget):
         )
         return last
 
-    def update_ohlc_from_array(
+    def update_graphics_from_array(
         self,
-
         graphics_name: str,
-        array: np.ndarray,
-        **kwargs,
 
-    ) -> pg.GraphicsObject:
-        '''
-        Update the named internal graphics from ``array``.
-
-        '''
-        self._arrays[self.name] = array
-        graphics = self._graphics[graphics_name]
-        graphics.update_from_array(array, **kwargs)
-        return graphics
-
-    def update_curve_from_array(
-        self,
-
-        graphics_name: str,
-        array: np.ndarray,
+        array: Optional[np.ndarray] = None,
         array_key: Optional[str] = None,
+
         **kwargs,
 
     ) -> pg.GraphicsObject:
@@ -1205,31 +1194,60 @@ class ChartPlotWidget(pg.PlotWidget):
         Update the named internal graphics from ``array``.
 
         '''
-        assert len(array)
+        if array is not None:
+            assert len(array)
+
         data_key = array_key or graphics_name
-
         if graphics_name not in self._flows:
-            self._arrays[self.name] = array
-        else:
+            data_key = self.name
+
+        if array is not None:
+            # write array to internal graphics table
             self._arrays[data_key] = array
+        else:
+            array = self._arrays[data_key]
 
-        curve = self._graphics[graphics_name]
+        # array key and graphics "name" might be different..
+        graphics = self._graphics[graphics_name]
 
-        # NOTE: back when we weren't implementing the curve graphics
-        # ourselves you'd have updates using this method:
-        # curve.setData(y=array[graphics_name], x=array['index'], **kwargs)
+        # compute "in-view" indices
+        l, lbar, rbar, r = self.bars_range()
+        indexes = array['index']
+        ifirst = indexes[0]
+        ilast = indexes[-1]
 
-        # NOTE: graphics **must** implement a diff based update
-        # operation where an internal ``FastUpdateCurve._xrange`` is
-        # used to determine if the underlying path needs to be
-        # pre/ap-pended.
-        curve.update_from_array(
-            x=array['index'],
-            y=array[data_key],
-            **kwargs
-        )
+        lbar_i = max(l, ifirst) - ifirst
+        rbar_i = min(r, ilast) - ifirst
 
-        return curve
+        # TODO: we could do it this way as well no?
+        # to_draw = array[lbar - ifirst:(rbar - ifirst) + 1]
+        in_view = array[lbar_i: rbar_i]
+
+        if not in_view.size:
+            return graphics
+
+        if isinstance(graphics, BarItems):
+            graphics.update_from_array(
+                array,
+                in_view,
+                view_range=(lbar_i, rbar_i),
+
+                **kwargs,
+            )
+
+        else:
+            graphics.update_from_array(
+                x=array['index'],
+                y=array[data_key],
+
+                x_iv=in_view['index'],
+                y_iv=in_view[data_key],
+                view_range=(lbar_i, rbar_i),
+
+                **kwargs
+            )
+
+        return graphics
 
     # def _label_h(self, yhigh: float, ylow: float) -> float:
     #     # compute contents label "height" in view terms
@@ -1260,6 +1278,9 @@ class ChartPlotWidget(pg.PlotWidget):
 
     #     print(f"bounds (ylow, yhigh): {(ylow, yhigh)}")
 
+    # TODO: pretty sure we can just call the cursor
+    # directly not? i don't wee why we need special "signal proxies"
+    # for this lul..
     def enterEvent(self, ev):  # noqa
         # pg.PlotWidget.enterEvent(self, ev)
         self.sig_mouse_enter.emit(self)
