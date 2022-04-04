@@ -1221,7 +1221,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # TODO: we could do it this way as well no?
         # to_draw = array[lbar - ifirst:(rbar - ifirst) + 1]
-        in_view = array[lbar_i: rbar_i]
+        in_view = array[lbar_i: rbar_i + 1]
 
         if not in_view.size:
             return graphics
