@@ -364,7 +364,7 @@ class BarItems(pg.GraphicsObject):
 
         flip_cache = False
 
-        x_gt = 2
+        x_gt = 8
         if self._ds_line:
             uppx = self._ds_line.x_uppx()
         else:
@@ -404,9 +404,9 @@ class BarItems(pg.GraphicsObject):
                 y=y,
                 x_iv=x_iv,
                 y_iv=y_iv,
-                view_range=view_range,  # hack
+                view_range=None,  # hack
             )
-            profiler('udated ds line')
+            profiler('updated ds line')
 
             if not self._in_ds:
                 # hide bars and show line
@@ -426,6 +426,7 @@ class BarItems(pg.GraphicsObject):
 
             # stop here since we don't need to update bars path any more
             # as we delegate to the downsample line with updates.
+            profiler.finish()
             return
 
         elif (
