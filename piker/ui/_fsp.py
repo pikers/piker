@@ -89,7 +89,7 @@ def update_fsp_chart(
     # update graphics
     # NOTE: this does a length check internally which allows it
     # staying above the last row check below..
-    chart.update_curve_from_array(
+    chart.update_graphics_from_array(
         graphics_name,
         array,
         array_key=array_key or graphics_name,
@@ -425,6 +425,7 @@ class FspAdmin:
             ) as (ctx, last_index),
             ctx.open_stream() as stream,
         ):
+
             # register output data
             self._registry[
                 (fqsn, ns_path)
@@ -440,6 +441,7 @@ class FspAdmin:
             async with stream.subscribe() as stream:
                 async for msg in stream:
                     if msg == 'update':
+                        log.info(f'Re-syncing graphics for fsp: {ns_path}')
                         self.linked.graphics_cycle()
                     else:
                         log.info(f'recved unexpected fsp engine msg: {msg}')
@@ -674,7 +676,7 @@ async def open_vlm_displays(
 
         last_val_sticky.update_from_data(-1, value)
 
-        vlm_curve = chart.update_curve_from_array(
+        vlm_curve = chart.update_graphics_from_array(
             'volume',
             shm.array,
         )
