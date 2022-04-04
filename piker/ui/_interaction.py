@@ -34,6 +34,7 @@ import numpy as np
 import trio
 
 from ..log import get_logger
+from .._profile import pg_profile_enabled, ms_slower_then
 from ._style import _min_points_to_show
 from ._editors import SelectRect
 from . import _event
@@ -862,15 +863,30 @@ class ChartView(ViewBox):
 
     def maybe_downsample_graphics(self):
 
+        profiler = pg.debug.Profiler(
+            disabled=not pg_profile_enabled(),
+            gt=3,
+            delayed=True,
+        )
+
         # TODO: a faster single-loop-iterator way of doing this XD
         chart = self._chart
-        # graphics = list(self._chart._graphics.values())
 
         for name, graphics in chart._graphics.items():
 
             # TODO: make it so we don't have to do this XD
             # if name == 'volume':
             #     continue
+            uppx = graphics.x_uppx()
+            if (
+                uppx and uppx > 16
+                and self._ic is not None
+            ):
+                # don't bother updating since we're zoomed out bigly and
+                # in a pan-interaction, in which case we shouldn't be
+                # doing view-range based rendering (at least not yet).
+                # print(f'{uppx} exiting early!')
+                return
 
             use_vr = False
             if isinstance(graphics, BarItems):
@@ -882,7 +898,9 @@ class ChartView(ViewBox):
                 name,
                 use_vr=use_vr,
             )
+            profiler(f'updated {name}')
 
+        profiler.finish()
         # for graphic in graphics:
         #     ds_meth = getattr(graphic, 'maybe_downsample', None)
         #     if ds_meth:
