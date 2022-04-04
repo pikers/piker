@@ -75,6 +75,7 @@ _tick_groups = {
 
 def chart_maxmin(
     chart: ChartPlotWidget,
+    ohlcv_shm: ShmArray,
     vlm_chart: Optional[ChartPlotWidget] = None,
 
 ) -> tuple[
@@ -91,7 +92,8 @@ def chart_maxmin(
     # https://arxiv.org/abs/cs/0610046
     # https://github.com/lemire/pythonmaxmin
 
-    array = chart._arrays[chart.name]
+    # array = chart._arrays[chart.name]
+    array = ohlcv_shm.array
     ifirst = array[0]['index']
 
     last_bars_range = chart.bars_range()
@@ -183,7 +185,12 @@ async def graphics_update_loop(
     if vlm_chart:
         vlm_sticky = vlm_chart._ysticks['volume']
 
-    maxmin = partial(chart_maxmin, chart, vlm_chart)
+    maxmin = partial(
+        chart_maxmin,
+        chart,
+        ohlcv,
+        vlm_chart,
+    )
     last_bars_range: tuple[float, float]
     (
         last_bars_range,
@@ -325,7 +332,13 @@ def graphics_update_cycle(
     update_uppx = 5
 
     for sym, quote in ds.quotes.items():
-        brange, mx_in_view, mn_in_view, mx_vlm_in_view = ds.maxmin()
+        (
+            brange,
+            mx_in_view,
+            mn_in_view,
+            mx_vlm_in_view,
+        ) = ds.maxmin()
+
         l, lbar, rbar, r = brange
         mx = mx_in_view + tick_margin
         mn = mn_in_view - tick_margin
@@ -333,6 +346,7 @@ def graphics_update_cycle(
 
         # compute the first available graphic's x-units-per-pixel
         xpx = vlm_chart.view.xs_in_px()
+        # print(f'vlm xpx {xpx}')
 
         in_view = chart.in_view(ohlcv.array)
 
@@ -424,15 +438,32 @@ def graphics_update_cycle(
             ):
                 # TODO: make it so this doesn't have to be called
                 # once the $vlm is up?
-                vlm_chart.update_graphics_from_array('volume', array)
+                vlm_chart.update_graphics_from_array(
+                    'volume',
+                    array,
 
+                    # UGGGh, see ``maxmin()`` impl in `._fsp` for
+                    # the overlayed plotitems... we need a better
+                    # bay to invoke a maxmin per overlay..
+                    render=False,
+                    # XXX: ^^^^ THIS IS SUPER IMPORTANT! ^^^^
+                    # without this, since we disable the
+                    # 'volume' (units) chart after the $vlm starts
+                    # up we need to be sure to enable this
+                    # auto-ranging otherwise there will be no handler
+                    # connected to update accompanying overlay
+                    # graphics..
+                )
+
+                last_mx_vlm = vars['last_mx_vlm']
                 if (
-                    mx_vlm_in_view != vars['last_mx_vlm']
-                    or mx_vlm_in_view > vars['last_mx_vlm']
+                    mx_vlm_in_view != last_mx_vlm
+                    or mx_vlm_in_view > last_mx_vlm
                 ):
                     # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
+                    yrange = (0, mx_vlm_in_view * 1.375)
                     vlm_chart.view._set_yrange(
-                        yrange=(0, mx_vlm_in_view * 1.375)
+                        yrange=yrange,
                     )
                     vars['last_mx_vlm'] = mx_vlm_in_view
 
@@ -444,7 +475,10 @@ def graphics_update_cycle(
                         array_key=curve_name,
                     )
                     # is this even doing anything?
-                    flow.plot.vb._set_yrange(
+                    # (pretty sure it's the real-time
+                    # resizing from last quote?)
+                    fvb = flow.plot.vb
+                    fvb._set_yrange(
                         autoscale_linked_plots=False,
                         name=curve_name,
                     )
@@ -590,6 +624,9 @@ def graphics_update_cycle(
 
         # run synchronous update on all derived fsp subplots
         for name, subchart in ds.linked.subplots.items():
+            if name == 'volume':
+                continue
+
             update_fsp_chart(
                 subchart,
                 subchart._shm,
