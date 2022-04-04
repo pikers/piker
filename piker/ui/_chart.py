@@ -958,6 +958,7 @@ class ChartPlotWidget(pg.PlotWidget):
     def increment_view(
         self,
         steps: int = 1,
+        vb: Optional[ChartView] = None,
 
     ) -> None:
         """
@@ -966,7 +967,8 @@ class ChartPlotWidget(pg.PlotWidget):
 
         """
         l, r = self.view_range()
-        self.view.setXRange(
+        view = vb or self.view
+        view.setXRange(
             min=l + steps,
             max=r + steps,
 
@@ -1043,6 +1045,7 @@ class ChartPlotWidget(pg.PlotWidget):
         )
         pi.hideButtons()
 
+        # cv.enable_auto_yrange(self.view)
         cv.enable_auto_yrange()
 
         # compose this new plot's graphics with the current chart's
@@ -1187,6 +1190,9 @@ class ChartPlotWidget(pg.PlotWidget):
         array: Optional[np.ndarray] = None,
         array_key: Optional[str] = None,
 
+        use_vr: bool = True,
+        render: bool = True,
+
         **kwargs,
 
     ) -> pg.GraphicsObject:
@@ -1223,14 +1229,17 @@ class ChartPlotWidget(pg.PlotWidget):
         # to_draw = array[lbar - ifirst:(rbar - ifirst) + 1]
         in_view = array[lbar_i: rbar_i + 1]
 
-        if not in_view.size:
+        if (
+            not in_view.size
+            or not render
+        ):
             return graphics
 
         if isinstance(graphics, BarItems):
             graphics.update_from_array(
                 array,
                 in_view,
-                view_range=(lbar_i, rbar_i),
+                view_range=(lbar_i, rbar_i) if use_vr else None,
 
                 **kwargs,
             )
@@ -1242,7 +1251,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
                 x_iv=in_view['index'],
                 y_iv=in_view[data_key],
-                view_range=(lbar_i, rbar_i),
+                view_range=(lbar_i, rbar_i) if use_vr else None,
 
                 **kwargs
             )
