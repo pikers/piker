@@ -157,23 +157,40 @@ def path_arrays_from_ohlc(
 
 
 def gen_qpath(
-    data,
-    start,  # XXX: do we need this?
-    w,
+    data: np.ndarray,
+    start: int,  # XXX: do we need this?
+    w: float,
+    path: Optional[QtGui.QPainterPath] = None,
 
 ) -> QtGui.QPainterPath:
 
+    path_was_none = path is None
+
     profiler = pg.debug.Profiler(
-        msg=f'gen_qpath ohlc',
+        msg='gen_qpath ohlc',
         disabled=not pg_profile_enabled(),
         gt=ms_slower_then,
     )
 
-    x, y, c = path_arrays_from_ohlc(data, start, bar_gap=w)
+    x, y, c = path_arrays_from_ohlc(
+        data,
+        start,
+        bar_gap=w,
+    )
     profiler("generate stream with numba")
 
     # TODO: numba the internals of this!
-    path = pg.functions.arrayToQPath(x, y, connect=c)
+    path = pg.functions.arrayToQPath(
+        x,
+        y,
+        connect=c,
+        path=path,
+    )
+
+    # avoid mem allocs if possible
+    if path_was_none:
+        path.reserve(path.capacity())
+
     profiler("generate path with arrayToQPath")
 
     return path
@@ -206,6 +223,7 @@ class BarItems(pg.GraphicsObject):
         self._color = pen_color
         self.bars_pen = pg.mkPen(hcolor(pen_color), width=1)
         self.last_bar_pen = pg.mkPen(hcolor(last_bar_color), width=2)
+        self._name = name
 
         self._ds_line_xy: Optional[
             tuple[np.ndarray, np.ndarray]
@@ -226,6 +244,7 @@ class BarItems(pg.GraphicsObject):
 
         self._xrange: tuple[int, int]
         self._yrange: tuple[float, float]
+        self._vrange = None
 
         # TODO: don't render the full backing array each time
         # self._path_data = None
@@ -254,7 +273,6 @@ class BarItems(pg.GraphicsObject):
 
         '''
         hist, last = ohlc[:-1], ohlc[-1]
-
         self.path = gen_qpath(hist, start, self.w)
 
         # save graphics for later reference and keep track
@@ -270,65 +288,46 @@ class BarItems(pg.GraphicsObject):
         # up to last to avoid double draw of last bar
         self._last_bar_lines = bar_from_ohlc_row(last, self.w)
 
+        x, y = self._ds_line_xy = ohlc_flatten(ohlc)
+
+        # TODO: figuring out the most optimial size for the ideal
+        # curve-path by,
+        # - calcing the display's max px width `.screen()`
+        # - drawing a curve and figuring out it's capacity:
+        #   https://doc.qt.io/qt-5/qpainterpath.html#capacity
+        # - reserving that cap for each curve-mapped-to-shm with
+
+        # - leveraging clearing when needed to redraw the entire
+        #   curve that does not release mem allocs:
+        #   https://doc.qt.io/qt-5/qpainterpath.html#clear
+        curve = FastAppendCurve(
+            y=y,
+            x=x,
+            name='OHLC',
+            color=self._color,
+        )
+        curve.hide()
+        self._pi.addItem(curve)
+        self._ds_line = curve
+
+        self._ds_xrange = (index[0], index[-1])
+
         # trigger render
         # https://doc.qt.io/qt-5/qgraphicsitem.html#update
         self.update()
 
-        x, y = self._ds_line_xy = ohlc_flatten(ohlc)
-        self.update_ds_line(x, y)
-        self._ds_xrange = (index[0], index[-1])
         return self.path
-
-    def update_ds_line(
-        self,
-        x,
-        y,
-
-    ) -> FastAppendCurve:
-
-        # determine current potential downsampling value (based on pixel
-        # scaling) and return any existing curve for it.
-        curve = self._ds_line
-
-        if not curve:
-            # TODO: figuring out the most optimial size for the ideal
-            # curve-path by,
-            # - calcing the display's max px width `.screen()`
-            # - drawing a curve and figuring out it's capacity:
-            #   https://doc.qt.io/qt-5/qpainterpath.html#capacity
-            # - reserving that cap for each curve-mapped-to-shm with
-
-            # - leveraging clearing when needed to redraw the entire
-            #   curve that does not release mem allocs:
-            #   https://doc.qt.io/qt-5/qpainterpath.html#clear
-            curve = FastAppendCurve(
-                y=y,
-                x=x,
-                name='OHLC',
-                color=self._color,
-            )
-            curve.hide()
-            self._pi.addItem(curve)
-            self._ds_line = curve
-            return curve
-
-        # TODO: we should be diffing the amount of new data which
-        # needs to be downsampled. Ideally we actually are just
-        # doing all the ds-ing in sibling actors so that the data
-        # can just be read and rendered to graphics on events of our
-        # choice.
-        # diff = do_diff(ohlc, new_bit)
-
-        curve.update_from_array(
-            y=y,
-            x=x,
-        )
-        return curve
 
     def update_from_array(
         self,
+
+        # full array input history
         ohlc: np.ndarray,
-        just_history=False,
+
+        # pre-sliced array data that's "in view"
+        ohlc_iv: np.ndarray,
+
+        view_range: Optional[tuple[int, int]] = None,
 
     ) -> None:
         '''
@@ -357,13 +356,101 @@ class BarItems(pg.GraphicsObject):
         first_index, last_index = index[0], index[-1]
 
         # length = len(ohlc)
-        prepend_length = istart - first_index
-        append_length = last_index - istop
+        # prepend_length = istart - first_index
+        # append_length = last_index - istop
 
-        ds_prepend_length = ds_istart - first_index
-        ds_append_length = last_index - ds_istop
+        # ds_prepend_length = ds_istart - first_index
+        # ds_append_length = last_index - ds_istop
 
         flip_cache = False
+
+        x_gt = 2
+        if self._ds_line:
+            uppx = self._ds_line.x_uppx()
+        else:
+            uppx = 0
+
+        should_line = self._in_ds
+        if (
+            self._in_ds
+            and uppx < x_gt
+        ):
+            should_line = False
+
+        elif (
+            not self._in_ds
+            and uppx >= x_gt
+        ):
+            should_line = True
+
+        if (
+            should_line
+        ):
+            # update the line graphic
+            # x, y = self._ds_line_xy = ohlc_flatten(ohlc_iv)
+            x, y = self._ds_line_xy = ohlc_flatten(ohlc)
+            x_iv, y_iv = self._ds_line_xy = ohlc_flatten(ohlc_iv)
+            profiler('flattening bars to line')
+
+            # TODO: we should be diffing the amount of new data which
+            # needs to be downsampled. Ideally we actually are just
+            # doing all the ds-ing in sibling actors so that the data
+            # can just be read and rendered to graphics on events of our
+            # choice.
+            # diff = do_diff(ohlc, new_bit)
+            curve = self._ds_line
+            curve.update_from_array(
+                x=x,
+                y=y,
+                x_iv=x_iv,
+                y_iv=y_iv,
+                view_range=view_range,  # hack
+            )
+            profiler('udated ds line')
+
+            if not self._in_ds:
+                # hide bars and show line
+                self.hide()
+                # XXX: is this actually any faster?
+                # self._pi.removeItem(self)
+
+                # TODO: a `.ui()` log level?
+                log.info(
+                    f'downsampling to line graphic {self._name}'
+                )
+
+                # self._pi.addItem(curve)
+                curve.show()
+                curve.update()
+                self._in_ds = True
+
+            # stop here since we don't need to update bars path any more
+            # as we delegate to the downsample line with updates.
+            return
+
+        elif (
+            not should_line
+            and self._in_ds
+        ):
+            # flip back to bars graphics and hide the downsample line.
+            log.info(f'showing bars graphic {self._name}')
+
+            curve = self._ds_line
+            curve.hide()
+            # self._pi.removeItem(curve)
+
+            # XXX: is this actually any faster?
+            # self._pi.addItem(self)
+            self.show()
+            self._in_ds = False
+
+        # generate in_view path
+        self.path = gen_qpath(
+            ohlc_iv,
+            0,
+            self.w,
+            # path=self.path,
+        )
 
         # TODO: to make the downsampling faster
         # - allow mapping only a range of lines thus only drawing as
@@ -372,87 +459,97 @@ class BarItems(pg.GraphicsObject):
         # - maybe move all this embedded logic to a higher
         #   level type?
 
-        fx, fy = self._ds_line_xy
+        # ohlc = in_view
 
-        if prepend_length:
-            # new history was added and we need to render a new path
-            prepend_bars = ohlc[:prepend_length]
+        # if prepend_length:
+        #     # new history was added and we need to render a new path
+        #     prepend_bars = ohlc[:prepend_length]
 
-        if ds_prepend_length:
-            ds_prepend_bars = ohlc[:ds_prepend_length]
-            pre_x, pre_y = ohlc_flatten(ds_prepend_bars)
-            fx = np.concatenate((pre_x, fx))
-            fy = np.concatenate((pre_y, fy))
-            profiler('ds line prepend diff complete')
+        # if ds_prepend_length:
+        #     ds_prepend_bars = ohlc[:ds_prepend_length]
+        #     pre_x, pre_y = ohlc_flatten(ds_prepend_bars)
+        #     fx = np.concatenate((pre_x, fx))
+        #     fy = np.concatenate((pre_y, fy))
+        #     profiler('ds line prepend diff complete')
 
-        if append_length:
-            # generate new graphics to match provided array
-            # path appending logic:
-            # we need to get the previous "current bar(s)" for the time step
-            # and convert it to a sub-path to append to the historical set
-            # new_bars = ohlc[istop - 1:istop + append_length - 1]
-            append_bars = ohlc[-append_length - 1:-1]
-            # print(f'ohlc bars to append size: {append_bars.size}\n')
+        # if append_length:
+        #     # generate new graphics to match provided array
+        #     # path appending logic:
+        #     # we need to get the previous "current bar(s)" for the time step
+        #     # and convert it to a sub-path to append to the historical set
+        #     # new_bars = ohlc[istop - 1:istop + append_length - 1]
+        #     append_bars = ohlc[-append_length - 1:-1]
+        #     # print(f'ohlc bars to append size: {append_bars.size}\n')
 
-        if ds_append_length:
-            ds_append_bars = ohlc[-ds_append_length - 1:-1]
-            post_x, post_y = ohlc_flatten(ds_append_bars)
-            # print(f'ds curve to append sizes: {(post_x.size, post_y.size)}')
-            fx = np.concatenate((fx, post_x))
-            fy = np.concatenate((fy, post_y))
+        # if ds_append_length:
+        #     ds_append_bars = ohlc[-ds_append_length - 1:-1]
+        #     post_x, post_y = ohlc_flatten(ds_append_bars)
+        #     print(
+        #         f'ds curve to append sizes: {(post_x.size, post_y.size)}'
+        #     )
+        #     fx = np.concatenate((fx, post_x))
+        #     fy = np.concatenate((fy, post_y))
 
-            profiler('ds line append diff complete')
+        #     profiler('ds line append diff complete')
 
         profiler('array diffs complete')
 
         # does this work?
         last = ohlc[-1]
-        fy[-1] = last['close']
+        # fy[-1] = last['close']
 
-        # incremental update and cache line datums
-        self._ds_line_xy = fx, fy
+        # # incremental update and cache line datums
+        # self._ds_line_xy = fx, fy
 
         # maybe downsample to line
-        ds = self.maybe_downsample()
-        if ds:
-            # if we downsample to a line don't bother with
-            # any more path generation / updates
-            self._ds_xrange = first_index, last_index
-            profiler('downsampled to line')
-            return
+        # ds = self.maybe_downsample()
+        # if ds:
+        #     # if we downsample to a line don't bother with
+        #     # any more path generation / updates
+        #     self._ds_xrange = first_index, last_index
+        #     profiler('downsampled to line')
+        #     return
+
+        # print(in_view.size)
+
+        # if self.path:
+        #     self.path = path
+        #     self.path.reserve(path.capacity())
+        #     self.path.swap(path)
 
         # path updates
-        if prepend_length:
-            # XXX: SOMETHING IS MAYBE FISHY HERE what with the old_path
-            # y value not matching the first value from
-            # ohlc[prepend_length + 1] ???
-            prepend_path = gen_qpath(prepend_bars, 0, self.w)
-            old_path = self.path
-            self.path = prepend_path
-            self.path.addPath(old_path)
-            profiler('path PREPEND')
+        # if prepend_length:
+        #     # XXX: SOMETHING IS MAYBE FISHY HERE what with the old_path
+        #     # y value not matching the first value from
+        #     # ohlc[prepend_length + 1] ???
+        #     prepend_path = gen_qpath(prepend_bars, 0, self.w)
+        #     old_path = self.path
+        #     self.path = prepend_path
+        #     self.path.addPath(old_path)
+        #     profiler('path PREPEND')
 
-        if append_length:
-            append_path = gen_qpath(append_bars, 0, self.w)
+        # if append_length:
+        #     append_path = gen_qpath(append_bars, 0, self.w)
 
-            self.path.moveTo(
-                float(istop - self.w),
-                float(append_bars[0]['open'])
-            )
-            self.path.addPath(append_path)
+        #     self.path.moveTo(
+        #         float(istop - self.w),
+        #         float(append_bars[0]['open'])
+        #     )
+        #     self.path.addPath(append_path)
 
-            profiler('path APPEND')
-            # fp = self.fast_path
-            # if fp is None:
-            #     self.fast_path = append_path
+        #     profiler('path APPEND')
+        #     fp = self.fast_path
+        #     if fp is None:
+        #         self.fast_path = append_path
 
-            # else:
-            #     fp.moveTo(float(istop - self.w), float(new_bars[0]['open']))
-            #     fp.addPath(append_path)
+        #     else:
+        #         fp.moveTo(
+        #             float(istop - self.w), float(new_bars[0]['open'])
+        #         )
+        #         fp.addPath(append_path)
 
-            # self.setCacheMode(QtWidgets.QGraphicsItem.NoCache)
-            # flip_cache = True
-
+        #     self.setCacheMode(QtWidgets.QGraphicsItem.NoCache)
+        #     flip_cache = True
 
         self._xrange = first_index, last_index
 
@@ -559,74 +656,6 @@ class BarItems(pg.GraphicsObject):
 
         )
 
-    def maybe_downsample(
-        self,
-        x_gt: float = 2.,
-
-    ) -> bool:
-        '''
-        Call this when you want to stop drawing individual
-        bars and instead use a ``FastAppendCurve`` intepolation
-        line (normally when the width of a bar (aka 1.0 in the x)
-        is less then a pixel width on the device).
-
-        '''
-        curve = self._ds_line
-        if not curve:
-            return False
-
-        # this is the ``float`` value of the "number of x units" (in
-        # view coords) that a pixel spans.
-        xs_in_px = self._ds_line.x_uppx()
-
-        linked = self.linked
-
-        if (
-            self._ds_line_xy is not None
-        ):
-            curve = self.update_ds_line(
-                *self._ds_line_xy,
-            )
-
-        if (
-            not self._in_ds
-            and xs_in_px >= x_gt
-        ):
-            # TODO: a `.ui()` log level?
-            log.info(
-                f'downsampling to line graphic {linked.symbol.key}'
-            )
-            self.hide()
-            # XXX: is this actually any faster?
-            # self._pi.removeItem(self)
-
-            self._xs_in_px = xs_in_px
-
-            # self._pi.addItem(curve)
-            curve.show()
-
-            self._in_ds = True
-
-        elif (
-            self._in_ds
-            and xs_in_px < x_gt
-        ):
-            log.info(f'showing bars graphic {linked.symbol.key}')
-
-            curve = self._ds_line
-            curve.hide()
-            # self._pi.removeItem(curve)
-
-            # XXX: is this actually any faster?
-            # self._pi.addItem(self)
-            self.show()
-            self.update()
-
-            self._in_ds = False
-
-        # no curve change
-        return self._in_ds
-
     def paint(
         self,
         p: QtGui.QPainter,
@@ -657,20 +686,8 @@ class BarItems(pg.GraphicsObject):
 
         p.setPen(self.bars_pen)
         p.drawPath(self.path)
-        profiler('draw history path')
+        profiler(f'draw history path: {self.path.capacity()}')
 
         # if self.fast_path:
         #     p.drawPath(self.fast_path)
         #     profiler('draw fast path')
-
-        profiler.finish()
-
-        # NOTE: for testing paint frequency as throttled by display loop.
-        # now = time.time()
-        # global _last_draw
-        # print(f'DRAW RATE {1/(now - _last_draw)}')
-        # _last_draw = now
-
-
-# import time
-# _last_draw: float = time.time()
