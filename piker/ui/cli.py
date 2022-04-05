@@ -122,7 +122,8 @@ def optschain(config, symbol, date, rate, test):
 @cli.command()
 @click.option(
     '--profile',
-    is_flag=True,
+    '-p',
+    default=None,
     help='Enable pyqtgraph profiling'
 )
 @click.option(
@@ -133,9 +134,16 @@ def optschain(config, symbol, date, rate, test):
 @click.argument('symbol', required=True)
 @click.pass_obj
 def chart(config, symbol, profile, pdb):
-    """Start a real-time chartng UI
-    """
-    from .. import _profile
+    '''
+    Start a real-time chartng UI
+
+    '''
+    # eg. ``--profile 3`` reports profiling for anything slower then 3 ms.
+    if profile is not None:
+        from .. import _profile
+        _profile._pg_profile = True
+        _profile.ms_slower_then = float(profile)
+
     from ._app import _main
 
     if '.' not in symbol:
@@ -145,8 +153,6 @@ def chart(config, symbol, profile, pdb):
         ))
         return
 
-    # toggle to enable profiling
-    _profile._pg_profile = profile
 
     # global opts
     brokernames = config['brokers']
