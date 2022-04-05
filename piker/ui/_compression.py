@@ -155,7 +155,7 @@ def downsample(
 
 def ohlc_flatten(
     ohlc: np.ndarray,
-    use_mxmn: bool = False,
+    use_mxmn: bool = True,
 
 ) -> tuple[np.ndarray, np.ndarray]:
     '''
@@ -167,7 +167,11 @@ def ohlc_flatten(
     index = ohlc['index']
 
     if use_mxmn:
+        # traces a line optimally over highs to lows
+        # using numba. NOTE: pretty sure this is faster
+        # and looks about the same as the below output.
         flat, x = hl2mxmn(ohlc)
+
     else:
         flat = rfn.structured_to_unstructured(
             ohlc[['open', 'high', 'low', 'close']]
