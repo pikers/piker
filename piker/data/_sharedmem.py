@@ -38,6 +38,14 @@ from ._source import base_iohlc_dtype
 log = get_logger(__name__)
 
 
+# how  much is probably dependent on lifestyle
+_secs_in_day = int(60 * 60 * 24)
+# we try for 3 times but only on a run-every-other-day kinda week.
+_default_size = 10 * _secs_in_day
+# where to start the new data append index
+_rt_buffer_start = int(9*_secs_in_day)
+
+
 # Tell the "resource tracker" thing to fuck off.
 class ManTracker(mantracker.ResourceTracker):
     def register(self, name, rtype):
@@ -348,12 +356,6 @@ class ShmArray:
         ...
 
 
-# how  much is probably dependent on lifestyle
-_secs_in_day = int(60 * 60 * 24)
-# we try for 3 times but only on a run-every-other-day kinda week.
-_default_size = 6 * _secs_in_day
-
-
 def open_shm_array(
 
     key: Optional[str] = None,
@@ -421,7 +423,7 @@ def open_shm_array(
     # this sets the index to 3/4 of the length of the buffer
     # leaving a "days worth of second samples" for the real-time
     # section.
-    last.value = first.value = int(5*_secs_in_day)
+    last.value = first.value = _rt_buffer_start
 
     shmarr = ShmArray(
         array,
