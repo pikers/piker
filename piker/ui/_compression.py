@@ -181,6 +181,7 @@ def ds_m4(
     # in display-device-local pixel units.
     px_width: int,
     uppx: Optional[float] = None,
+    xrange: Optional[float] = None,
     log_scale: bool = True,
 
 ) -> tuple[int, np.ndarray, np.ndarray]:
@@ -212,6 +213,7 @@ def ds_m4(
     # as the units-per-px (uppx) get's large.
     if log_scale:
         assert uppx, 'You must provide a `uppx` value to use log scaling!'
+        # uppx = uppx * math.log(uppx, 2)
 
         # scaler = 2**7 / (1 + math.log(uppx, 2))
         scaler = round(
@@ -223,37 +225,63 @@ def ds_m4(
                 1
             )
         )
-        px_width *= scaler
+        # px_width *= scaler
+
+    # else:
+    #     px_width *= 16
 
     assert px_width > 1  # width of screen in pxs?
+    assert uppx > 0
 
     # NOTE: if we didn't pre-slice the data to downsample
     # you could in theory pass these as the slicing params,
     # do we care though since we can always just pre-slice the
     # input?
     x_start = x[0]  # x value start/lowest in domain
-    x_end = x[-1]  # x end value/highest in domain
+
+    if xrange is None:
+        x_end = x[-1]  # x end value/highest in domain
+        xrange = (x_end - x_start)
 
     # XXX: always round up on the input pixels
-    px_width = math.ceil(px_width)
+    # lnx = len(x)
+    # uppx *= max(4 / (1 + math.log(uppx, 2)), 1)
 
-    x_range = x_end - x_start
+    pxw = math.ceil(xrange / uppx)
+    px_width = math.ceil(px_width)
 
     # ratio of indexed x-value to width of raster in pixels.
     # this is more or less, uppx: units-per-pixel.
-    w = x_range / float(px_width)
+    # w = xrange / float(px_width)
+    # uppx = uppx * math.log(uppx, 2)
+    w2 = px_width / uppx
+
+    # scale up the width as the uppx get's large
+    w = uppx# * math.log(uppx, 666)
 
     # ensure we make more then enough
     # frames (windows) for the output pixel
-    frames = px_width
+    frames = pxw
 
     # if we have more and then exact integer's
     # (uniform quotient output) worth of datum-domain-points
     # per windows-frame, add one more window to ensure
     # we have room for all output down-samples.
-    pts_per_pixel, r = divmod(len(x), frames)
+    pts_per_pixel, r = divmod(xrange, frames)
     if r:
-        frames += 1
+        while r:
+            frames += 1
+            pts_per_pixel, r = divmod(xrange, frames)
+
+    print(
+        f'uppx: {uppx}\n'
+        f'xrange: {xrange}\n'
+        f'px_width: {px_width}\n'
+        f'pxw: {pxw}\n'
+        f'WTF w:{w}, w2:{w2}\n'
+        f'frames: {frames}\n'
+    )
+    assert frames >= (xrange / uppx)
 
     # call into ``numba``
     nb, i_win, y_out = _m4(
