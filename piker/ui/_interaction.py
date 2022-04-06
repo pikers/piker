@@ -869,10 +869,10 @@ class ChartView(ViewBox):
         if not graphics:
             return 0
 
-        graphic = graphics[0]
-        xvec = graphic.pixelVectors()[0]
-        if xvec:
-            return xvec.x()
+        for graphic in graphics:
+            xvec = graphic.pixelVectors()[0]
+            if xvec:
+                return xvec.x()
         else:
             return 0
 
