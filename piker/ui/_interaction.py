@@ -798,9 +798,14 @@ class ChartView(ViewBox):
 
         if set_range:
 
-            yrange = self._maxmin()
-            if yrange is None:
-                return
+            if not yrange:
+                # XXX: only compute the mxmn range
+                # if none is provided as input!
+                yrange = self._maxmin()
+
+                if yrange is None:
+                    log.warning(f'No yrange provided for {self.name}!?')
+                    return
 
             ylow, yhigh = yrange
 
