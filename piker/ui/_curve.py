@@ -265,6 +265,7 @@ class FastAppendCurve(pg.GraphicsObject):
         y_iv: np.ndarray,
 
         view_range: Optional[tuple[int, int]] = None,
+        profiler: Optional[pg.debug.Profiler] = None,
 
     ) -> QtGui.QPainterPath:
         '''
@@ -274,7 +275,7 @@ class FastAppendCurve(pg.GraphicsObject):
         a length diff.
 
         '''
-        profiler = pg.debug.Profiler(
+        profiler = profiler or pg.debug.Profiler(
             msg=f'FastAppendCurve.update_from_array(): `{self._name}`',
             disabled=not pg_profile_enabled(),
             gt=ms_slower_then,
