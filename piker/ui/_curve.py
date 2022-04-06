@@ -408,7 +408,7 @@ class FastAppendCurve(pg.GraphicsObject):
 
                 self._in_ds = False
 
-            elif should_ds:
+            elif should_ds and px_width:
                 x_out, y_out = self.downsample(
                     x_out,
                     y_out,
