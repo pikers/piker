@@ -360,6 +360,7 @@ class ChartView(ViewBox):
     ):
         super().__init__(
             parent=parent,
+            name=name,
             # TODO: look into the default view padding
             # support that might replace somem of our
             # ``ChartPlotWidget._set_yrange()`
@@ -742,6 +743,11 @@ class ChartView(ViewBox):
         data set.
 
         '''
+        profiler = pg.debug.Profiler(
+            disabled=not pg_profile_enabled(),
+            gt=ms_slower_then,
+            delayed=True,
+        )
         set_range = True
         chart = self._chart
 
@@ -769,9 +775,11 @@ class ChartView(ViewBox):
         # Make sure min bars/datums on screen is adhered.
         else:
             br = bars_range or chart.bars_range()
+            profiler(f'got bars range: {br}')
 
             # TODO: maybe should be a method on the
             # chart widget/item?
+            # if False:
             if autoscale_linked_plots:
                 # avoid recursion by sibling plots
                 linked = self.linkedsplits
@@ -786,6 +794,7 @@ class ChartView(ViewBox):
                             bars_range=br,
                             autoscale_linked_plots=False,
                         )
+                profiler('autoscaled linked plots')
 
         if set_range:
 
@@ -794,6 +803,8 @@ class ChartView(ViewBox):
                 return
 
             ylow, yhigh = yrange
+
+            profiler(f'maxmin(): {yrange}')
 
             # view margins: stay within a % of the "true range"
             diff = yhigh - ylow
@@ -808,6 +819,7 @@ class ChartView(ViewBox):
                 yMax=yhigh,
             )
             self.setYRange(ylow, yhigh)
+            profiler(f'set limits: {(ylow, yhigh)}')
 
     def enable_auto_yrange(
         self,
@@ -830,7 +842,9 @@ class ChartView(ViewBox):
         #   iterate those.
         # - only register this when certain downsampleable graphics are
         #   "added to scene".
-        src_vb.sigXRangeChanged.connect(self.maybe_downsample_graphics)
+        src_vb.sigRangeChangedManually.connect(
+            self.maybe_downsample_graphics
+        )
 
         # mouse wheel doesn't emit XRangeChanged
         src_vb.sigRangeChangedManually.connect(self._set_yrange)
@@ -844,24 +858,38 @@ class ChartView(ViewBox):
 
         self._chart._static_yrange = 'axis'
 
-    def xs_in_px(self) -> float:
+    def x_uppx(self) -> float:
         '''
         Return the "number of x units" within a single
         pixel currently being displayed for relevant
         graphics items which are our children.
 
         '''
-        for graphic in self._chart._graphics.values():
-            xvec = graphic.pixelVectors()[0]
-            if xvec:
-                xpx = xvec.x()
-                if xpx:
-                    return xpx
-            else:
-                continue
-        return 1.0
+        graphics = list(self._chart._graphics.values())
+        if not graphics:
+            return 0
+
+        graphic = graphics[0]
+        xvec = graphic.pixelVectors()[0]
+        if xvec:
+            return xvec.x()
+        else:
+            return 0
 
     def maybe_downsample_graphics(self):
+
+        uppx = self.x_uppx()
+        if (
+            # we probably want to drop this once we are "drawing in
+            # view" for downsampled flows..
+            uppx and uppx > 16
+            and self._ic is not None
+        ):
+            # don't bother updating since we're zoomed out bigly and
+            # in a pan-interaction, in which case we shouldn't be
+            # doing view-range based rendering (at least not yet).
+            # print(f'{uppx} exiting early!')
+            return
 
         profiler = pg.debug.Profiler(
             disabled=not pg_profile_enabled(),
@@ -871,37 +899,23 @@ class ChartView(ViewBox):
 
         # TODO: a faster single-loop-iterator way of doing this XD
         chart = self._chart
+        linked = self.linkedsplits
+        plots = linked.subplots | {chart.name: chart}
+        for chart_name, chart in plots.items():
+            for name, graphics in chart._graphics.items():
+                # print(f'maybe ds chart:{name} graphic:{name}')
 
-        for name, graphics in chart._graphics.items():
+                use_vr = False
+                if isinstance(graphics, BarItems):
+                    use_vr = True
 
-            # TODO: make it so we don't have to do this XD
-            # if name == 'volume':
-            #     continue
-            uppx = graphics.x_uppx()
-            if (
-                uppx and uppx > 16
-                and self._ic is not None
-            ):
-                # don't bother updating since we're zoomed out bigly and
-                # in a pan-interaction, in which case we shouldn't be
-                # doing view-range based rendering (at least not yet).
-                # print(f'{uppx} exiting early!')
-                return
-
-            use_vr = False
-            if isinstance(graphics, BarItems):
-                use_vr = True
-
-            # pass in no array which will read and render from the last
-            # passed array (normally provided by the display loop.)
-            chart.update_graphics_from_array(
-                name,
-                use_vr=use_vr,
-            )
-            profiler(f'updated {name}')
+                # pass in no array which will read and render from the last
+                # passed array (normally provided by the display loop.)
+                chart.update_graphics_from_array(
+                    name,
+                    use_vr=use_vr,
+                    profiler=profiler,
+                )
+                profiler(f'range change updated {chart_name}:{name}')
 
         profiler.finish()
-        # for graphic in graphics:
-        #     ds_meth = getattr(graphic, 'maybe_downsample', None)
-        #     if ds_meth:
-        #         ds_meth()
