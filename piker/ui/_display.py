@@ -30,7 +30,6 @@ import numpy as np
 import tractor
 import trio
 import pyqtgraph as pg
-from PyQt5.QtCore import QLineF
 
 from .. import brokers
 from ..data.feed import open_feed
@@ -73,13 +72,20 @@ _tick_groups = {
 }
 
 
+# TODO: delegate this to each `Flow.maxmin()` which includes
+# caching and further we should implement the following stream based
+# approach, likely with ``numba``:
+# https://arxiv.org/abs/cs/0610046
+# https://github.com/lemire/pythonmaxmin
 def chart_maxmin(
     chart: ChartPlotWidget,
     ohlcv_shm: ShmArray,
     vlm_chart: Optional[ChartPlotWidget] = None,
 
 ) -> tuple[
+
     tuple[int, int, int, int],
+
     float,
     float,
     float,
@@ -88,11 +94,6 @@ def chart_maxmin(
     Compute max and min datums "in view" for range limits.
 
     '''
-    # TODO: implement this
-    # https://arxiv.org/abs/cs/0610046
-    # https://github.com/lemire/pythonmaxmin
-
-    # array = chart._arrays[chart.name]
     array = ohlcv_shm.array
     ifirst = array[0]['index']
 
@@ -105,18 +106,23 @@ def chart_maxmin(
         chart.default_view()
         return (last_bars_range, 0, 0, 0)
 
-    mx, mn = np.nanmax(in_view['high']), np.nanmin(in_view['low'])
-
-    # TODO: when we start using line charts, probably want to make
-    # this an overloaded call on our `DataView
-    # sym = chart.name
-    # mx, mn = np.nanmax(in_view[sym]), np.nanmin(in_view[sym])
+    mx, mn = (
+        np.nanmax(in_view['high']),
+        np.nanmin(in_view['low'],)
+    )
 
     mx_vlm_in_view = 0
     if vlm_chart:
-        mx_vlm_in_view = np.max(in_view['volume'])
+        mx_vlm_in_view = np.max(
+            in_view['volume']
+        )
 
-    return last_bars_range, mx, max(mn, 0), mx_vlm_in_view
+    return (
+        last_bars_range,
+        mx,
+        max(mn, 0),  # presuming price can't be negative?
+        mx_vlm_in_view,
+    )
 
 
 @dataclass
@@ -272,8 +278,9 @@ async def graphics_update_loop(
 
     chart.default_view()
 
-    # main loop
+    # main real-time quotes update loop
     async for quotes in stream:
+
         ds.quotes = quotes
         quote_period = time.time() - last_quote
         quote_rate = round(
@@ -310,28 +317,50 @@ def graphics_update_cycle(
     wap_in_history: bool = False,
 
 ) -> None:
-
     # TODO: eventually optimize this whole graphics stack with ``numba``
     # hopefully XD
 
+    chart = ds.chart
+
     profiler = pg.debug.Profiler(
+        msg=f'Graphics loop cycle for: `{chart.name}`',
         disabled=True,  # not pg_profile_enabled(),
         gt=1/12 * 1e3,
+        # gt=ms_slower_then,
     )
 
     # unpack multi-referenced components
-    chart = ds.chart
     vlm_chart = ds.vlm_chart
     l1 = ds.l1
-
     ohlcv = ds.ohlcv
     array = ohlcv.array
     vars = ds.vars
     tick_margin = vars['tick_margin']
 
-    update_uppx = 5
+    update_uppx = 6
 
     for sym, quote in ds.quotes.items():
+
+        # compute the first available graphic's x-units-per-pixel
+        xpx = vlm_chart.view.x_uppx()
+
+        # NOTE: vlm may be written by the ``brokerd`` backend
+        # event though a tick sample is not emitted.
+        # TODO: show dark trades differently
+        # https://github.com/pikers/piker/issues/116
+
+        # NOTE: this used to be implemented in a dedicated
+        # "increment task": ``check_for_new_bars()`` but it doesn't
+        # make sense to do a whole task switch when we can just do
+        # this simple index-diff and all the fsp sub-curve graphics
+        # are diffed on each draw cycle anyway; so updates to the
+        # "curve" length is already automatic.
+
+        # increment the view position by the sample offset.
+        i_step = ohlcv.index
+        i_diff = i_step - vars['i_last']
+        vars['i_last'] = i_step
+
         (
             brange,
             mx_in_view,
@@ -344,83 +373,12 @@ def graphics_update_cycle(
         mn = mn_in_view - tick_margin
         profiler('maxmin call')
 
-        # compute the first available graphic's x-units-per-pixel
-        xpx = vlm_chart.view.xs_in_px()
-        # print(f'vlm xpx {xpx}')
-
-        in_view = chart.in_view(ohlcv.array)
-
-        if lbar != rbar:
-            # view box width in pxs
-            w = chart.view.boundingRect().width()
-
-            # TODO: a better way to get this?
-            # i would guess the esiest way is to just
-            # get the ``.boundingRect()`` of the curve
-            # in view but maybe there's something smarter?
-            # Currently we're just mapping the rbar, lbar to
-            # pixels via:
-            cw = chart.view.mapViewToDevice(QLineF(lbar, 0, rbar, 0)).length()
-            # is this faster?
-            # cw = chart.mapFromView(QLineF(lbar, 0 , rbar, 0)).length()
-
-            profiler(
-                f'view width pxs: {w}\n'
-                f'curve width pxs: {cw}\n'
-                f'sliced in view: {in_view.size}'
-            )
-
-            # compress bars to m4 line(s) if uppx is high enough
-            # if in_view.size > cw:
-            #     from ._compression import ds_m4, hl2mxmn
-
-            #     mxmn, x = hl2mxmn(in_view)
-            #     profiler('hl tracer')
-
-            #     nb, x, y = ds_m4(
-            #         x=x,
-            #         y=mxmn,
-            #         # TODO: this needs to actually be the width
-            #         # in pixels of the visible curve since we don't
-            #         # want to downsample any 'zeros' around the curve,
-            #         # just the values that make up the curve graphic,
-            #         # i think?
-            #         px_width=cw,
-            #     )
-            #     profiler(
-            #         'm4 downsampled\n'
-            #         f' ds bins: {nb}\n'
-            #         f' x.shape: {x.shape}\n'
-            #         f' y.shape: {y.shape}\n'
-            #         f' x: {x}\n'
-            #         f' y: {y}\n'
-            #     )
-
-        # assert y.size == mxmn.size
-
-        # NOTE: vlm may be written by the ``brokerd`` backend
-        # event though a tick sample is not emitted.
-        # TODO: show dark trades differently
-        # https://github.com/pikers/piker/issues/116
-
-        # NOTE: this used to be implemented in a dedicated
-        # "increment tas": ``check_for_new_bars()`` but it doesn't
-        # make sense to do a whole task switch when we can just do
-        # this simple index-diff and all the fsp sub-curve graphics
-        # are diffed on each draw cycle anyway; so updates to the
-        # "curve" length is already automatic.
-
-        # increment the view position by the sample offset.
-        i_step = ohlcv.index
-        i_diff = i_step - vars['i_last']
-        vars['i_last'] = i_step
-
         # don't real-time "shift" the curve to the
         # left under the following conditions:
         if (
             i_diff > 0  # no new sample step
             and xpx < update_uppx  # chart is zoomed out very far
-            and r >= i_step  # the last datum isn't in view
+            and r >= i_step  # the last datum is in view
         ):
             # TODO: we should track and compute whether the last
             # pixel in a curve should show new data based on uppx
@@ -429,7 +387,9 @@ def graphics_update_cycle(
 
         if vlm_chart:
             # always update y-label
-            ds.vlm_sticky.update_from_data(*array[-1][['index', 'volume']])
+            ds.vlm_sticky.update_from_data(
+                *array[-1][['index', 'volume']]
+            )
 
             if (
                 # if zoomed out alot don't update the last "bar"
@@ -460,17 +420,17 @@ def graphics_update_cycle(
                     mx_vlm_in_view != last_mx_vlm
                     or mx_vlm_in_view > last_mx_vlm
                 ):
-                    # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
                     yrange = (0, mx_vlm_in_view * 1.375)
                     vlm_chart.view._set_yrange(
                         yrange=yrange,
                     )
+                    # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
                     vars['last_mx_vlm'] = mx_vlm_in_view
 
                 for curve_name, flow in vlm_chart._flows.items():
                     update_fsp_chart(
                         vlm_chart,
-                        flow.shm,
+                        flow,
                         curve_name,
                         array_key=curve_name,
                     )
@@ -525,7 +485,6 @@ def graphics_update_cycle(
         # current) tick first order as an optimization where we only
         # update from the last tick from each type class.
         # last_clear_updated: bool = False
-        # for typ, tick in reversed(lasts.items()):
 
         # update ohlc sampled price bars
         if (
@@ -537,7 +496,7 @@ def graphics_update_cycle(
                 array,
             )
 
-        # iterate in FIFO order per frame
+        # iterate in FIFO order per tick-frame
         for typ, tick in lasts.items():
 
             price = tick.get('price')
@@ -608,42 +567,34 @@ def graphics_update_cycle(
         if (
             (mx > vars['last_mx']) or (mn < vars['last_mn'])
             and not chart._static_yrange == 'axis'
+            and r > i_step  # the last datum is in view
         ):
-            # print(f'new y range: {(mn, mx)}')
-            chart.view._set_yrange(
-                yrange=(mn, mx),
-                # TODO: we should probably scale
-                # the view margin based on the size
-                # of the true range? This way you can
-                # slap in orders outside the current
-                # L1 (only) book range.
-                # range_margin=0.1,
-            )
+            main_vb = chart.view
+            if (
+                main_vb._ic is None
+                or not main_vb._ic.is_set()
+            ):
+                main_vb._set_yrange(
+                    # TODO: we should probably scale
+                    # the view margin based on the size
+                    # of the true range? This way you can
+                    # slap in orders outside the current
+                    # L1 (only) book range.
+                    # range_margin=0.1,
+                    yrange=(mn, mx),
+                )
 
         vars['last_mx'], vars['last_mn'] = mx, mn
 
-        # run synchronous update on all derived fsp subplots
-        for name, subchart in ds.linked.subplots.items():
-            if name == 'volume':
+        # run synchronous update on all linked flows
+        for curve_name, flow in chart._flows.items():
+            # TODO: should the "main" (aka source) flow be special?
+            if curve_name == chart.data_key:
                 continue
 
             update_fsp_chart(
-                subchart,
-                subchart._shm,
-
-                # XXX: do we really needs seperate names here?
-                name,
-                array_key=name,
-            )
-            subchart.cv._set_yrange()
-
-            # TODO: all overlays on all subplots..
-
-        # run synchronous update on all derived overlays
-        for curve_name, flow in chart._flows.items():
-            update_fsp_chart(
                 chart,
-                flow.shm,
+                flow,
                 curve_name,
                 array_key=curve_name,
             )
@@ -737,6 +688,7 @@ async def display_symbol_data(
 
         # TODO: a data view api that makes this less shit
         chart._shm = ohlcv
+        chart._flows[chart.data_key].shm = ohlcv
 
         # NOTE: we must immediately tell Qt to show the OHLC chart
         # to avoid a race where the subplots get added/shown to
@@ -793,7 +745,7 @@ async def display_symbol_data(
                 # that it isn't double rendered in the display loop
                 # above since we do a maxmin calc on the volume data to
                 # determine if auto-range adjustements should be made.
-                linked.subplots.pop('volume', None)
+                # linked.subplots.pop('volume', None)
 
                 # TODO: make this not so shit XD
                 # close group status
