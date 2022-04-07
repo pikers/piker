@@ -260,12 +260,13 @@ def ds_m4(
     if log_scale:
         assert uppx, 'You must provide a `uppx` value to use log scaling!'
 
+        # scaler = 2**7 / (1 + math.log(uppx, 2))
         scaler = round(
             max(
                 # NOTE: found that a 16x px width brought greater
                 # detail, likely due to dpi scaling?
                 # px_width=px_width * 16,
-                2**6 / (1 + math.log(uppx, 2)),
+                2**7 / (1 + math.log(uppx, 2)),
                 1
             )
         )
