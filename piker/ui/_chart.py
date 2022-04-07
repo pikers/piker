@@ -658,102 +658,6 @@ class LinkedSplits(QWidget):
                 cpw.sidepane.setMaximumWidth(sp_w)
 
 
-# class FlowsTable(pydantic.BaseModel):
-#     '''
-#     Data-AGGRegate: high level API onto multiple (categorized)
-#     ``Flow``s with high level processing routines for
-#     multi-graphics computations and display.
-
-#     '''
-#     flows: dict[str, np.ndarray] = {}
-
-
-class Flow(msgspec.Struct):  # , frozen=True):
-    '''
-    (FinancialSignal-)Flow compound type which wraps a real-time
-    graphics (curve) and its backing data stream together for high level
-    access and control.
-
-    The intention is for this type to eventually be capable of shm-passing
-    of incrementally updated graphics stream data between actors.
-
-    '''
-    name: str
-    plot: pg.PlotItem
-    is_ohlc: bool = False
-
-    # TODO: hackery to be able to set a shm later
-    # but whilst also allowing this type to hashable,
-    # likely will require serializable token that is used to attach
-    # to the underlying shm ref after startup?
-    _shm: Optional[ShmArray] = None  # currently, may be filled in "later"
-
-    # cache of y-range values per x-range input.
-    _mxmns: dict[tuple[int, int], tuple[float, float]] = {}
-
-    @property
-    def shm(self) -> ShmArray:
-        return self._shm
-
-    @shm.setter
-    def shm(self, shm: ShmArray) -> ShmArray:
-        self._shm = shm
-
-    def maxmin(
-        self,
-        lbar,
-        rbar,
-
-    ) -> tuple[float, float]:
-        '''
-        Compute the cached max and min y-range values for a given
-        x-range determined by ``lbar`` and ``rbar``.
-
-        '''
-        rkey = (lbar, rbar)
-        result = self._mxmns.get(rkey)
-        if result:
-            return result
-
-        shm = self.shm
-        if shm is None:
-            # print(f'no shm {self.name}?')
-            return 0, 0
-
-        arr = shm.array
-
-        # build relative indexes into shm array
-        # TODO: should we just add/use a method
-        # on the shm to do this?
-        ifirst = arr[0]['index']
-        slice_view = arr[
-            lbar - ifirst:(rbar - ifirst) + 1]
-
-        if not slice_view.size:
-            # print(f'no data in view {self.name}?')
-            return 0, 0
-
-        if self.is_ohlc:
-            ylow = np.min(slice_view['low'])
-            yhigh = np.max(slice_view['high'])
-
-        else:
-            view = slice_view[self.name]
-            ylow = np.min(view)
-            yhigh = np.max(view)
-        # else:
-        #     ylow, yhigh = 0, 0
-
-        result = ylow, yhigh
-
-        if result != (0, 0):
-            self._mxmns[rkey] = result
-
-        if self.name == 'drk_vlm':
-            print(f'{self.name} mxmn @ {rkey} -> {result}')
-        return result
-
-
 class ChartPlotWidget(pg.PlotWidget):
     '''
     ``GraphicsView`` subtype containing a single ``PlotItem``.
@@ -1086,6 +990,7 @@ class ChartPlotWidget(pg.PlotWidget):
             name=name,
             plot=self.plotItem,
             is_ohlc=True,
+            graphics=graphics,
         )
 
         self._add_sticky(name, bg_color='davies')
@@ -1159,6 +1064,7 @@ class ChartPlotWidget(pg.PlotWidget):
         overlay: bool = False,
         color: Optional[str] = None,
         add_label: bool = True,
+        pi: Optional[pg.PlotItem] = None,
 
         **pdi_kwargs,
 
@@ -1203,12 +1109,13 @@ class ChartPlotWidget(pg.PlotWidget):
         self._graphics[name] = curve
         self._arrays[data_key] = data
 
-        pi = self.plotItem
+        pi = pi or self.plotItem
 
         self._flows[data_key] = Flow(
             name=name,
             plot=pi,
             is_ohlc=False,
+            graphics=curve,
         )
 
         # TODO: this probably needs its own method?
@@ -1428,6 +1335,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         '''
         profiler = pg.debug.Profiler(
+            msg=f'`{str(self)}.maxmin()` loop cycle for: `{self.name}`',
             disabled=not pg_profile_enabled(),
             gt=ms_slower_then,
             delayed=True,
@@ -1444,16 +1352,113 @@ class ChartPlotWidget(pg.PlotWidget):
         if (
             flow is None
         ):
-            print(f"flow {flow_key} doesn't exist in chart {self.name}")
-            return 0, 0
+            log.error(f"flow {flow_key} doesn't exist in chart {self.name} !?")
+            res = 0, 0
 
         else:
             key = round(lbar), round(rbar)
             res = flow.maxmin(*key)
-            profiler(f'{key} max-min {res}')
-            if res == (0, 0):
+            profiler(f'yrange mxmn: {key} -> {res}')
+            if res == (None, None):
                 log.error(
-                    f"{flow_key} -> (0, 0) for bars_range = {key}"
+                    f"{flow_key} no mxmn for bars_range => {key} !?"
                 )
+                res = 0, 0
 
         return res
+
+
+# class FlowsTable(pydantic.BaseModel):
+#     '''
+#     Data-AGGRegate: high level API onto multiple (categorized)
+#     ``Flow``s with high level processing routines for
+#     multi-graphics computations and display.
+
+#     '''
+#     flows: dict[str, np.ndarray] = {}
+
+
+class Flow(msgspec.Struct):  # , frozen=True):
+    '''
+    (FinancialSignal-)Flow compound type which wraps a real-time
+    graphics (curve) and its backing data stream together for high level
+    access and control.
+
+    The intention is for this type to eventually be capable of shm-passing
+    of incrementally updated graphics stream data between actors.
+
+    '''
+    name: str
+    plot: pg.PlotItem
+    is_ohlc: bool = False
+    graphics: pg.GraphicsObject
+
+    # TODO: hackery to be able to set a shm later
+    # but whilst also allowing this type to hashable,
+    # likely will require serializable token that is used to attach
+    # to the underlying shm ref after startup?
+    _shm: Optional[ShmArray] = None  # currently, may be filled in "later"
+
+    # cache of y-range values per x-range input.
+    _mxmns: dict[tuple[int, int], tuple[float, float]] = {}
+
+    @property
+    def shm(self) -> ShmArray:
+        return self._shm
+
+    @shm.setter
+    def shm(self, shm: ShmArray) -> ShmArray:
+        self._shm = shm
+
+    def maxmin(
+        self,
+        lbar,
+        rbar,
+
+    ) -> tuple[float, float]:
+        '''
+        Compute the cached max and min y-range values for a given
+        x-range determined by ``lbar`` and ``rbar``.
+
+        '''
+        rkey = (lbar, rbar)
+        cached_result = self._mxmns.get(rkey)
+        if cached_result:
+            return cached_result
+
+        shm = self.shm
+        if shm is None:
+            mxmn = None
+
+        else:  # new block for profiling?..
+            arr = shm.array
+
+            # build relative indexes into shm array
+            # TODO: should we just add/use a method
+            # on the shm to do this?
+            ifirst = arr[0]['index']
+            slice_view = arr[
+                lbar - ifirst:
+                (rbar - ifirst) + 1
+            ]
+
+            if not slice_view.size:
+                mxmn = None
+
+            else:
+                if self.is_ohlc:
+                    ylow = np.min(slice_view['low'])
+                    yhigh = np.max(slice_view['high'])
+
+                else:
+                    view = slice_view[self.name]
+                    ylow = np.min(view)
+                    yhigh = np.max(view)
+
+                mxmn = ylow, yhigh
+
+            if mxmn is not None:
+                # cache new mxmn result
+                self._mxmns[rkey] = mxmn
+
+            return mxmn
