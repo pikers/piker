@@ -393,6 +393,11 @@ class ChartView(ViewBox):
     def start_ic(
         self,
     ) -> None:
+        '''
+        Signal the beginning of a click-drag interaction
+        to any interested task waiters.
+
+        '''
         if self._ic is None:
             self.chart.pause_all_feeds()
             self._ic = trio.Event()
@@ -400,13 +405,13 @@ class ChartView(ViewBox):
     def signal_ic(
         self,
         *args,
-        # ev = None,
-    ) -> None:
-        if args:
-            print(f'range change dun: {args}')
-        else:
-            print('proxy called')
 
+    ) -> None:
+        '''
+        Signal the end of a click-drag interaction
+        to any waiters.
+
+        '''
         if self._ic:
             self._ic.set()
             self._ic = None
@@ -674,7 +679,6 @@ class ChartView(ViewBox):
                 self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
 
                 if ev.isFinish():
-                    print('DRAG FINISH')
                     self.signal_ic()
                     # self._ic.set()
                     # self._ic = None
