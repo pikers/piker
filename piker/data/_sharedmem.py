@@ -240,7 +240,13 @@ class ShmArray:
     def last(
         self,
         length: int = 1,
+
     ) -> np.ndarray:
+        '''
+        Return the last ``length``'s worth of ("row") entries from the
+        array.
+
+        '''
         return self.array[-length:]
 
     def push(
