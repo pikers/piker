@@ -72,11 +72,15 @@ def has_vlm(ohlcv: ShmArray) -> bool:
 
 def update_fsp_chart(
     chart: ChartPlotWidget,
-    shm: ShmArray,
+    flow,
     graphics_name: str,
     array_key: Optional[str],
 
 ) -> None:
+
+    shm = flow.shm
+    if not shm:
+        return
 
     array = shm.array
     last_row = try_read(array)
@@ -271,6 +275,7 @@ async def run_fsp_ui(
             # data looked up from the chart's internal array set.
             # TODO: we must get a data view api going STAT!!
             chart._shm = shm
+            chart._flows[chart.data_key].shm = shm
 
             # should **not** be the same sub-chart widget
             assert chart.name != linkedsplits.chart.name
@@ -282,7 +287,7 @@ async def run_fsp_ui(
         # first UI update, usually from shm pushed history
         update_fsp_chart(
             chart,
-            shm,
+            chart._flows[array_key],
             name,
             array_key=array_key,
         )
@@ -441,8 +446,11 @@ class FspAdmin:
             async with stream.subscribe() as stream:
                 async for msg in stream:
                     if msg == 'update':
-                        log.info(f'Re-syncing graphics for fsp: {ns_path}')
-                        self.linked.graphics_cycle()
+                        # if the chart isn't hidden try to update
+                        # the data on screen.
+                        if not self.linked.isHidden():
+                            log.info(f'Re-syncing graphics for fsp: {ns_path}')
+                            self.linked.graphics_cycle()
                     else:
                         log.info(f'recved unexpected fsp engine msg: {msg}')
 
@@ -631,6 +639,7 @@ async def open_vlm_displays(
             # the curve item internals are pretty convoluted.
             style='step',
         )
+        chart._flows['volume'].shm = ohlcv
 
         # force 0 to always be in view
         def maxmin(
@@ -794,13 +803,16 @@ async def open_vlm_displays(
                         color=color,
                         step_mode=step_mode,
                         style=style,
+                        pi=pi,
                     )
 
                     # TODO: we need a better API to do this..
                     # specially store ref to shm for lookup in display loop
                     # since only a placeholder of `None` is entered in
                     # ``.draw_curve()``.
-                    chart._flows[name].shm = shm
+                    flow = chart._flows[name]
+                    assert flow.plot is pi
+                    flow.shm = shm
 
             chart_curves(
                 fields,
@@ -835,6 +847,9 @@ async def open_vlm_displays(
             # liquidity events (well at least on low OHLC periods - 1s).
             vlm_curve.hide()
             chart.removeItem(vlm_curve)
+            chart._flows.pop('volume')
+            # avoid range sorting on volume once disabled
+            chart.view.disable_auto_yrange()
 
             # Trade rate overlay
             # XXX: requires an additional overlay for
@@ -875,7 +890,10 @@ async def open_vlm_displays(
                 style='dash',
             )
 
-            for pi in (dvlm_pi, tr_pi):
+            for pi in (
+                dvlm_pi,
+                tr_pi,
+            ):
                 for name, axis_info in pi.axes.items():
                     # lol this sux XD
                     axis = axis_info['item']
