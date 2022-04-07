@@ -780,21 +780,21 @@ class ChartView(ViewBox):
             # TODO: maybe should be a method on the
             # chart widget/item?
             # if False:
-            if autoscale_linked_plots:
-                # avoid recursion by sibling plots
-                linked = self.linkedsplits
-                plots = list(linked.subplots.copy().values())
-                main = linked.chart
-                if main:
-                    plots.append(main)
+            # if autoscale_linked_plots:
+            #     # avoid recursion by sibling plots
+            #     linked = self.linkedsplits
+            #     plots = list(linked.subplots.copy().values())
+            #     main = linked.chart
+            #     if main:
+            #         plots.append(main)
 
-                for chart in plots:
-                    if chart and not chart._static_yrange:
-                        chart.cv._set_yrange(
-                            bars_range=br,
-                            autoscale_linked_plots=False,
-                        )
-                profiler('autoscaled linked plots')
+            #     for chart in plots:
+            #         if chart and not chart._static_yrange:
+            #             chart.cv._set_yrange(
+            #                 bars_range=br,
+            #                 autoscale_linked_plots=False,
+            #             )
+            #     profiler('autoscaled linked plots')
 
         if set_range:
 
@@ -839,7 +839,16 @@ class ChartView(ViewBox):
         if src_vb is None:
             src_vb = self
 
+        # such that when a linked chart changes its range
+        # this local view is also automatically changed and
+        # resized to data.
         src_vb.sigXRangeChanged.connect(self._set_yrange)
+
+        # splitter(s) resizing
+        src_vb.sigResized.connect(self._set_yrange)
+
+        # mouse wheel doesn't emit XRangeChanged
+        src_vb.sigRangeChangedManually.connect(self._set_yrange)
 
         # TODO: a smarter way to avoid calling this needlessly?
         # 2 things i can think of:
@@ -851,17 +860,24 @@ class ChartView(ViewBox):
             self.maybe_downsample_graphics
         )
 
-        # mouse wheel doesn't emit XRangeChanged
-        src_vb.sigRangeChangedManually.connect(self._set_yrange)
-
-        # splitter(s) resizing
-        src_vb.sigResized.connect(self._set_yrange)
-
     def disable_auto_yrange(
         self,
     ) -> None:
 
-        self._chart._static_yrange = 'axis'
+        # self._chart._static_yrange = 'axis'
+
+        self.sigXRangeChanged.disconnect(
+            self._set_yrange,
+        )
+        self.sigResized.disconnect(
+            self._set_yrange,
+        )
+        self.sigRangeChangedManually.disconnect(
+            self.maybe_downsample_graphics
+        )
+        self.sigRangeChangedManually.disconnect(
+            self._set_yrange,
+        )
 
     def x_uppx(self) -> float:
         '''
@@ -907,8 +923,8 @@ class ChartView(ViewBox):
         linked = self.linkedsplits
         plots = linked.subplots | {chart.name: chart}
         for chart_name, chart in plots.items():
-            for name, graphics in chart._graphics.items():
-                # print(f'maybe ds chart:{name} graphic:{name}')
+            for name, flow in chart._flows.items():
+                graphics = flow.graphics
 
                 use_vr = False
                 if isinstance(graphics, BarItems):
