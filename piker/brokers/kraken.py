@@ -764,6 +764,23 @@ async def trades_dialogue(
                         
                         await ems_stream.send(trade_msg.dict())
 
+                        filled_msg = BrokerdStatus(
+                            reqid=trade.reqid,
+                            time_ns=time.time_ns(),
+
+                            account='kraken.spot',
+                            status='filled',
+                            filled=float(trade.size),
+                            reason='Order filled by kraken',
+                            # remaining='' # TODO: not sure what to do here.
+                            broker_details={
+                                'name': 'kraken',
+                                'broker_time': trade.broker_time
+                            }
+                        )
+                        
+                        await ems_stream.send(filled_msg.dict())
+
                         # send a fill msg for gui update
                         fill_msg = BrokerdFill(
                             reqid=trade.reqid,
