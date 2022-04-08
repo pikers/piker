@@ -1592,7 +1592,7 @@ async def backfill_bars(
     # on that until we have the `marketstore` daemon in place in which
     # case the shm size will be driven by user config and available sys
     # memory.
-    count: int = 59,
+    count: int = 16,
 
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
