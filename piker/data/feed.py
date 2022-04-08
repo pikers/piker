@@ -306,7 +306,6 @@ async def allocate_persistent_feed(
     bfqsn = init_msg[symbol]['fqsn'].lower()
     init_msg[symbol]['fqsn'] = bfqsn
 
-
     # HISTORY, run 2 tasks:
     # - a history loader / maintainer
     # - a real-time streamer which consumers and sends new data to any
