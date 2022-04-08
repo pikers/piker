@@ -1472,6 +1472,7 @@ async def stream_quotes(
         return init_msgs
 
     init_msgs = mk_init_msgs()
+
     con = first_ticker.contract
 
     # should be real volume for this contract by default
@@ -1496,8 +1497,11 @@ async def stream_quotes(
     topic = '.'.join((con['symbol'], suffix)).lower()
     quote['symbol'] = topic
 
+    # for compat with upcoming fqsn based derivs search
+    init_msgs[sym]['fqsn'] = topic
+
     # pass first quote asap
-    first_quote = {topic: quote}
+    first_quote = quote
 
     # it might be outside regular trading hours so see if we can at
     # least grab history.
