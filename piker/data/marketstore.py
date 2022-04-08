@@ -258,16 +258,29 @@ class Storage:
         if fqsn not in syms:
             return {}
 
+        tfstr = tf_in_1s[1]
+
+        params = Params(
+            symbols=fqsn,
+            timeframe=tfstr,
+            attrgroup='OHLCV',
+            # limit_from_start=True,
+
+            # TODO: figure the max limit here given the
+            # ``purepc`` msg size limit of purerpc: 33554432
+            limit=int(800e3),
+        )
+
         if timeframe is None:
             log.info(f'starting {fqsn} tsdb granularity scan..')
             # loop through and try to find highest granularity
             for tfstr in tf_in_1s.values():
                 try:
                     log.info(f'querying for {tfstr}@{fqsn}')
-                    result = await client.query(
-                        Params(fqsn, tfstr, 'OHLCV',)
-                    )
+                    params.set('timeframe', tfstr)
+                    result = await client.query(params)
                     break
+
                 except purerpc.grpclib.exceptions.UnknownError:
                     # XXX: this is already logged by the container and
                     # thus shows up through `marketstored` logs relay.
@@ -277,8 +290,7 @@ class Storage:
                 return {}
 
         else:
-            tfstr = tf_in_1s[timeframe]
-            result = await client.query(Params(fqsn, tfstr, 'OHLCV',))
+            result = await client.query(params)
 
         # TODO: it turns out column access on recarrays is actually slower:
         # https://jakevdp.github.io/PythonDataScienceHandbook/02.09-structured-data-numpy.html#RecordArrays:-Structured-Arrays-with-a-Twist
