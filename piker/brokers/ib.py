@@ -448,14 +448,17 @@ class Client:
                         symbol=sym,
                         exchange=exch,
                     )
-                    possibles = await self.ib.qualifyContractsAsync(con)
-                    for i, condict in enumerate(sorted(
-                        map(asdict, possibles),
-                        # sort by expiry
-                        key=lambda con: con['lastTradeDateOrContractMonth'],
-                    )):
-                        expiry = condict['lastTradeDateOrContractMonth']
-                        results[f'{sym}.{exch}.{expiry}'] = condict
+                    try:
+                        possibles = await self.ib.qualifyContractsAsync(con)
+                        for i, condict in enumerate(sorted(
+                            map(asdict, possibles),
+                            # sort by expiry
+                            key=lambda con: con['lastTradeDateOrContractMonth'],
+                        )):
+                            expiry = condict['lastTradeDateOrContractMonth']
+                            results[f'{sym}.{exch}.{expiry}'] = condict
+                    except RequestError as err:
+                        log.warning(err.message)
 
         return results
 
