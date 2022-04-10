@@ -33,7 +33,7 @@ import tractor
 from pydantic.dataclasses import dataclass
 from pydantic import BaseModel
 import wsproto
-from itertools import count
+import itertools
 import urllib.parse
 import hashlib
 import hmac
@@ -540,7 +540,8 @@ async def handle_order_requests(
 
     request_msg: dict
     order: BrokerdOrder
-    userref_counter = count()
+    userref_counter = itertools.count()
+
     async for request_msg in ems_order_stream:
         log.info(f'Received order request {request_msg}')
 
@@ -618,38 +619,63 @@ async def handle_order_requests(
             )
 
             # Check to make sure there was no error returned by
-            # the kraken endpoint. Assert one order was cancelled
-            assert resp['error'] == []
-            assert resp['result']['count'] == 1
+            # the kraken endpoint. Assert one order was cancelled.
+            try:
+                result = resp['result']
+                count = result['count']
 
-            # Check to make sure the cancellation is NOT pending,
-            # then send the confirmation to the ems order stream
-            pending = resp['result'].get('pending')
-            if pending:
-
-                oid = order.oid
-                log.error(f'Order {oid} cancel was not successful')
+            # check for 'error' key if we received no 'result'
+            except KeyError:
+                error = resp.get('error')
 
                 await ems_order_stream.send(
                     BrokerdError(
-                        oid=oid,
+                        oid=order.oid,
                         reqid=temp_id,
                         symbol=order.symbol,
                         reason="Failed order cancel",
                         broker_details=resp
                     ).dict()
                 )
+
+                if not error:
+                    raise BrokerError(f'Unknown order cancel response: {resp}')
+
             else:
-                await ems_order_stream.send(
-                    BrokerdStatus(
-                        reqid=msg.reqid,
-                        account=msg.account,
-                        time_ns=time.time_ns(),
-                        status='cancelled',
-                        reason='Order cancelled',
-                        broker_details={'name': 'kraken'}
-                    ).dict()
-                )
+                if not count:  # no orders were cancelled?
+
+                    # XXX: what exactly is this from and why would we care?
+                    # there doesn't seem to be any docs here?
+                    # https://docs.kraken.com/rest/#operation/cancelOrder
+
+                    # Check to make sure the cancellation is NOT pending,
+                    # then send the confirmation to the ems order stream
+                    pending = result.get('pending')
+                    if pending:
+                        log.error(f'Order {oid} cancel was not yet successful')
+
+                        await ems_order_stream.send(
+                            BrokerdError(
+                                oid=order.oid,
+                                reqid=temp_id,
+                                symbol=order.symbol,
+                                reason="Order cancel is still pending?",
+                                broker_details=resp
+                            ).dict()
+                        )
+
+                else:  # order cancel success case.
+
+                    await ems_order_stream.send(
+                        BrokerdStatus(
+                            reqid=msg.reqid,
+                            account=msg.account,
+                            time_ns=time.time_ns(),
+                            status='cancelled',
+                            reason='Order cancelled',
+                            broker_details={'name': 'kraken'}
+                        ).dict()
+                    )
     else:
         log.error(f'Unknown order command: {request_msg}')
 
