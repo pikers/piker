@@ -184,7 +184,7 @@ class BrokerdStatus(BaseModel):
     # {
     #   'submitted',
     #   'cancelled',
-    #   'executed',
+    #   'filled',
     # }
     status: str
 
