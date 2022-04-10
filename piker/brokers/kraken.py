@@ -159,8 +159,14 @@ class OHLC:
 def get_config() -> dict[str, Any]:
 
     conf, path = config.load()
-
     section = conf.get('kraken')
+
+    if section:
+        log.warning(
+            'Kraken order mode is currently disabled due to bug!\n'
+            'See https://github.com/pikers/piker/issues/299'
+        )
+        return {}
 
     if section is None:
         log.warning(f'No config section found for kraken in {path}')
@@ -558,7 +564,13 @@ async def handle_order_requests(
                 await ems_order_stream.send(BrokerdError(
                     oid=request_msg['oid'],
                     symbol=request_msg['symbol'],
-                    reason=f'Kraken only, No account found: `{account}` ?',
+
+                    # reason=f'Kraken only, No account found: `{account}` ?',
+                    reason=(
+                        'Kraken only, order mode disabled due to '
+                        'https://github.com/pikers/piker/issues/299'
+                    ),
+
                 ).dict())
                 continue
 
