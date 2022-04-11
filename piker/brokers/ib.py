@@ -507,8 +507,8 @@ class Client:
         # inside our eventkit handler instead to bypass this entirely?
 
         if 'ib' in pattern:
-            from ..data._source import uncons_fqsn
-            broker, symbol, expiry = uncons_fqsn(pattern)
+            from ..data._source import unpack_fqsn
+            broker, symbol, expiry = unpack_fqsn(pattern)
         else:
             symbol = pattern
 
