@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -19,6 +19,8 @@ Sampling and broadcast machinery for (soft) real-time delivery of
 financial data flows.
 
 """
+from __future__ import annotations
+from collections import Counter
 import time
 
 import tractor
@@ -133,18 +135,20 @@ async def increment_ohlc_buffer(
             # a given sample period.
             subs = sampler.subscribers.get(delay_s, ())
 
-            for ctx in subs:
+            for stream in subs:
                 try:
-                    await ctx.send_yield({'index': shm._last.value})
+                    await stream.send({'index': shm._last.value})
                 except (
                     trio.BrokenResourceError,
                     trio.ClosedResourceError
                 ):
-                    log.error(f'{ctx.chan.uid} dropped connection')
-                    subs.remove(ctx)
+                    log.error(
+                        f'{stream._ctx.chan.uid} dropped connection'
+                    )
+                    subs.remove(stream)
 
 
-@tractor.stream
+@tractor.context
 async def iter_ohlc_periods(
     ctx: tractor.Context,
     delay_s: int,
@@ -158,18 +162,20 @@ async def iter_ohlc_periods(
     '''
     # add our subscription
     subs = sampler.subscribers.setdefault(delay_s, [])
-    subs.append(ctx)
+    await ctx.started()
+    async with ctx.open_stream() as stream:
+        subs.append(stream)
 
-    try:
-        # stream and block until cancelled
-        await trio.sleep_forever()
-    finally:
         try:
-            subs.remove(ctx)
-        except ValueError:
-            log.error(
-                f'iOHLC step stream was already dropped for {ctx.chan.uid}?'
-            )
+            # stream and block until cancelled
+            await trio.sleep_forever()
+        finally:
+            try:
+                subs.remove(stream)
+            except ValueError:
+                log.error(
+                    f'iOHLC step stream was already dropped {ctx.chan.uid}?'
+                )
 
 
 async def sample_and_broadcast(
@@ -177,17 +183,19 @@ async def sample_and_broadcast(
     bus: '_FeedsBus',  # noqa
     shm: ShmArray,
     quote_stream: trio.abc.ReceiveChannel,
+    brokername: str,
     sum_tick_vlm: bool = True,
 
 ) -> None:
 
     log.info("Started shared mem bar writer")
 
+    overruns = Counter()
+
     # iterate stream delivered by broker
     async for quotes in quote_stream:
         # TODO: ``numba`` this!
-        for sym, quote in quotes.items():
-
+        for broker_symbol, quote in quotes.items():
             # TODO: in theory you can send the IPC msg *before* writing
             # to the sharedmem array to decrease latency, however, that
             # will require at least some way to prevent task switching
@@ -251,9 +259,15 @@ async def sample_and_broadcast(
             # end up triggering backpressure which which will
             # eventually block this producer end of the feed and
             # thus other consumers still attached.
-            subs = bus._subscribers[sym.lower()]
+            subs = bus._subscribers[broker_symbol.lower()]
 
-            lags = 0
+            # NOTE: by default the broker backend doesn't append
+            # it's own "name" into the fqsn schema (but maybe it
+            # should?) so we have to manually generate the correct
+            # key here.
+            bsym = f'{broker_symbol}.{brokername}'
+            lags: int = 0
+
             for (stream, tick_throttle) in subs:
 
                 try:
@@ -262,7 +276,9 @@ async def sample_and_broadcast(
                             # this is a send mem chan that likely
                             # pushes to the ``uniform_rate_send()`` below.
                             try:
-                                stream.send_nowait((sym, quote))
+                                stream.send_nowait(
+                                    (bsym, quote)
+                                )
                             except trio.WouldBlock:
                                 ctx = getattr(stream, '_ctx', None)
                                 if ctx:
@@ -271,12 +287,22 @@ async def sample_and_broadcast(
                                         f'{ctx.channel.uid} !!!'
                                     )
                                 else:
+                                    key = id(stream)
+                                    overruns[key] += 1
                                     log.warning(
                                         f'Feed overrun {bus.brokername} -> '
                                         f'feed @ {tick_throttle} Hz'
                                     )
+                                    if overruns[key] > 6:
+                                        log.warning(
+                                            f'Dropping consumer {stream}'
+                                        )
+                                        await stream.aclose()
+                                        raise trio.BrokenResourceError
                         else:
-                            await stream.send({sym: quote})
+                            await stream.send(
+                                {bsym: quote}
+                            )
 
                     if cs.cancelled_caught:
                         lags += 1
@@ -295,7 +321,7 @@ async def sample_and_broadcast(
                             '`brokerd`-quotes-feed connection'
                         )
                     if tick_throttle:
-                        assert stream.closed()
+                        assert stream._closed
 
                     # XXX: do we need to deregister here
                     # if it's done in the fee bus code?
@@ -399,7 +425,16 @@ async def uniform_rate_send(
         # rate timing exactly lul
         try:
             await stream.send({sym: first_quote})
-        except trio.ClosedResourceError:
+        except (
+            # NOTE: any of these can be raised by ``tractor``'s IPC
+            # transport-layer and we want to be highly resilient
+            # to consumers which crash or lose network connection.
+            # I.e. we **DO NOT** want to crash and propagate up to
+            # ``pikerd`` these kinds of errors!
+            trio.ClosedResourceError,
+            trio.BrokenResourceError,
+            ConnectionResetError,
+        ):
             # if the feed consumer goes down then drop
             # out of this rate limiter
             log.warning(f'{stream} closed')

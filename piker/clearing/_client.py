@@ -18,7 +18,7 @@
 Orders and execution client API.
 
 """
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager as acm
 from typing import Dict
 from pprint import pformat
 from dataclasses import dataclass, field
@@ -27,7 +27,6 @@ import trio
 import tractor
 from tractor.trionics import broadcast_receiver
 
-from ..data._source import Symbol
 from ..log import get_logger
 from ._ems import _emsd_main
 from .._daemon import maybe_open_emsd
@@ -156,15 +155,18 @@ async def relay_order_cmds_from_sync_code(
                 await to_ems_stream.send(cmd)
 
 
-@asynccontextmanager
+@acm
 async def open_ems(
-    broker: str,
-    symbol: Symbol,
+    fqsn: str,
 
-) -> (OrderBook, tractor.MsgStream, dict):
-    """Spawn an EMS daemon and begin sending orders and receiving
+) -> (
+    OrderBook,
+    tractor.MsgStream,
+    dict,
+):
+    '''
+    Spawn an EMS daemon and begin sending orders and receiving
     alerts.
-
 
     This EMS tries to reduce most broker's terrible order entry apis to
     a very simple protocol built on a few easy to grok and/or
@@ -194,21 +196,22 @@ async def open_ems(
     - 'dark_executed', 'broker_executed'
     - 'broker_filled'
 
-    """
+    '''
     # wait for service to connect back to us signalling
     # ready for order commands
     book = get_orders()
 
+    from ..data._source import unpack_fqsn
+    broker, symbol, suffix = unpack_fqsn(fqsn)
+
     async with maybe_open_emsd(broker) as portal:
 
         async with (
-
             # connect to emsd
             portal.open_context(
 
                 _emsd_main,
-                broker=broker,
-                symbol=symbol.key,
+                fqsn=fqsn,
 
             ) as (ctx, (positions, accounts)),
 
@@ -218,7 +221,7 @@ async def open_ems(
             async with trio.open_nursery() as n:
                 n.start_soon(
                     relay_order_cmds_from_sync_code,
-                    symbol.key,
+                    fqsn,
                     trades_stream
                 )
 

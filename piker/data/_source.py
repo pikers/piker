@@ -17,6 +17,7 @@
 """
 numpy data source coversion helpers.
 """
+from __future__ import annotations
 from typing import Any
 import decimal
 
@@ -91,6 +92,40 @@ def ohlc_zeros(length: int) -> np.ndarray:
     return np.zeros(length, dtype=base_ohlc_dtype)
 
 
+def unpack_fqsn(fqsn: str) -> tuple[str, str, str]:
+    '''
+    Unpack a fully-qualified-symbol-name to ``tuple``.
+
+    '''
+    venue = ''
+    suffix = ''
+
+    # TODO: probably reverse the order of all this XD
+    tokens = fqsn.split('.')
+    if len(tokens) < 3:
+        # probably crypto
+        symbol, broker = tokens
+        return (
+            broker,
+            symbol,
+            '',
+        )
+
+    elif len(tokens) > 3:
+        symbol, venue, suffix, broker = tokens
+    else:
+        symbol, venue, broker = tokens
+        suffix = ''
+
+    # head, _, broker = fqsn.rpartition('.')
+    # symbol, _, suffix = head.rpartition('.')
+    return (
+        broker,
+        '.'.join([symbol, venue]),
+        suffix,
+    )
+
+
 class Symbol(BaseModel):
     """I guess this is some kinda container thing for dealing with
     all the different meta-data formats from brokers?
@@ -98,24 +133,72 @@ class Symbol(BaseModel):
     Yah, i guess dats what it izz.
     """
     key: str
-    type_key: str  # {'stock', 'forex', 'future', ... etc.}
-    tick_size: float
-    lot_tick_size: float  # "volume" precision as min step value
-    tick_size_digits: int
-    lot_size_digits: int
+    tick_size: float = 0.01
+    lot_tick_size: float = 0.0  # "volume" precision as min step value
+    tick_size_digits: int = 2
+    lot_size_digits: int = 0
+    suffix: str = ''
     broker_info: dict[str, dict[str, Any]] = {}
 
     # specifies a "class" of financial instrument
     # ex. stock, futer, option, bond etc.
+
+    # @validate_arguments
+    @classmethod
+    def from_broker_info(
+        cls,
+        broker: str,
+        symbol: str,
+        info: dict[str, Any],
+        suffix: str = '',
+
+    # XXX: like wtf..
+    # ) -> 'Symbol':
+    ) -> None:
+
+        tick_size = info.get('price_tick_size', 0.01)
+        lot_tick_size = info.get('lot_tick_size', 0.0)
+
+        return Symbol(
+            key=symbol,
+            tick_size=tick_size,
+            lot_tick_size=lot_tick_size,
+            tick_size_digits=float_digits(tick_size),
+            lot_size_digits=float_digits(lot_tick_size),
+            suffix=suffix,
+            broker_info={broker: info},
+        )
+
+    @classmethod
+    def from_fqsn(
+        cls,
+        fqsn: str,
+        info: dict[str, Any],
+
+    # XXX: like wtf..
+    # ) -> 'Symbol':
+    ) -> None:
+        broker, key, suffix = unpack_fqsn(fqsn)
+        return cls.from_broker_info(
+            broker,
+            key,
+            info=info,
+            suffix=suffix,
+        )
+
+    @property
+    def type_key(self) -> str:
+        return list(self.broker_info.values())[0]['asset_type']
 
     @property
     def brokers(self) -> list[str]:
         return list(self.broker_info.keys())
 
     def nearest_tick(self, value: float) -> float:
-        """Return the nearest tick value based on mininum increment.
+        '''
+        Return the nearest tick value based on mininum increment.
 
-        """
+        '''
         mult = 1 / self.tick_size
         return round(value * mult) / mult
 
@@ -131,37 +214,44 @@ class Symbol(BaseModel):
             self.key,
         )
 
+    def tokens(self) -> tuple[str]:
+        broker, key = self.front_feed()
+        if self.suffix:
+            return (key, self.suffix, broker)
+        else:
+            return (key, broker)
+
+    def front_fqsn(self) -> str:
+        '''
+        fqsn = "fully qualified symbol name"
+
+        Basically the idea here is for all client-ish code (aka programs/actors
+        that ask the provider agnostic layers in the stack for data) should be
+        able to tell which backend / venue / derivative each data feed/flow is
+        from by an explicit string key of the current form:
+
+        <instrumentname>.<venue>.<suffixwithmetadata>.<brokerbackendname>
+
+        TODO: I have thoughts that we should actually change this to be
+        more like an "attr lookup" (like how the web should have done
+        urls, but marketting peeps ruined it etc. etc.):
+
+        <broker>.<venue>.<instrumentname>.<suffixwithmetadata>
+
+        '''
+        tokens = self.tokens()
+        fqsn = '.'.join(tokens)
+        return fqsn
+
     def iterfqsns(self) -> list[str]:
-        return [
-            mk_fqsn(self.key, broker)
-            for broker in self.broker_info.keys()
-        ]
+        keys = []
+        for broker in self.broker_info.keys():
+            fqsn = mk_fqsn(self.key, broker)
+            if self.suffix:
+                fqsn += f'.{self.suffix}'
+            keys.append(fqsn)
 
-
-@validate_arguments
-def mk_symbol(
-
-    key: str,
-    type_key: str,
-    tick_size: float = 0.01,
-    lot_tick_size: float = 0,
-    broker_info: dict[str, Any] = {},
-
-) -> Symbol:
-    '''
-    Create and return an instrument description for the
-    "symbol" named as ``key``.
-
-    '''
-    return Symbol(
-        key=key,
-        type_key=type_key,
-        tick_size=tick_size,
-        lot_tick_size=lot_tick_size,
-        tick_size_digits=float_digits(tick_size),
-        lot_size_digits=float_digits(lot_tick_size),
-        broker_info=broker_info,
-    )
+        return keys
 
 
 def from_df(

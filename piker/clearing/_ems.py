@@ -20,7 +20,6 @@ In da suit parlances: "Execution management systems"
 """
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from math import isnan
 from pprint import pformat
 import time
 from typing import AsyncIterator, Callable
@@ -113,8 +112,8 @@ class _DarkBook:
 
     # tracks most recent values per symbol each from data feed
     lasts: dict[
-        tuple[str, str],
-        float
+        str,
+        float,
     ] = field(default_factory=dict)
 
     # mapping of piker ems order ids to current brokerd order flow message
@@ -135,7 +134,7 @@ async def clear_dark_triggers(
     ems_client_order_stream: tractor.MsgStream,
     quote_stream: tractor.ReceiveMsgStream,  # noqa
     broker: str,
-    symbol: str,
+    fqsn: str,
 
     book: _DarkBook,
 
@@ -155,7 +154,6 @@ async def clear_dark_triggers(
         # start = time.time()
         for sym, quote in quotes.items():
             execs = book.orders.get(sym, {})
-
             for tick in iterticks(
                 quote,
                 # dark order price filter(s)
@@ -171,7 +169,7 @@ async def clear_dark_triggers(
                 ttype = tick['type']
 
                 # update to keep new cmds informed
-                book.lasts[(broker, symbol)] = price
+                book.lasts[sym] = price
 
                 for oid, (
                     pred,
@@ -196,6 +194,7 @@ async def clear_dark_triggers(
 
                     action: str = cmd['action']
                     symbol: str = cmd['symbol']
+                    bfqsn: str = symbol.replace(f'.{broker}', '')
 
                     if action == 'alert':
                         # nothing to do but relay a status
@@ -225,7 +224,7 @@ async def clear_dark_triggers(
                             # order-request and instead create a new one.
                             reqid=None,
 
-                            symbol=sym,
+                            symbol=bfqsn,
                             price=submit_price,
                             size=cmd['size'],
                         )
@@ -247,12 +246,9 @@ async def clear_dark_triggers(
                         oid=oid,  # ems order id
                         resp=resp,
                         time_ns=time.time_ns(),
-
-                        symbol=symbol,
+                        symbol=fqsn,
                         trigger_price=price,
-
                         broker_details={'name': broker},
-
                         cmd=cmd,  # original request message
 
                     ).dict()
@@ -270,7 +266,7 @@ async def clear_dark_triggers(
                 else:  # condition scan loop complete
                     log.debug(f'execs are {execs}')
                     if execs:
-                        book.orders[symbol] = execs
+                        book.orders[fqsn] = execs
 
         # print(f'execs scan took: {time.time() - start}')
 
@@ -382,7 +378,8 @@ async def open_brokerd_trades_dialogue(
     task_status: TaskStatus[TradesRelay] = trio.TASK_STATUS_IGNORED,
 
 ) -> tuple[dict, tractor.MsgStream]:
-    '''Open and yield ``brokerd`` trades dialogue context-stream if none
+    '''
+    Open and yield ``brokerd`` trades dialogue context-stream if none
     already exists.
 
     '''
@@ -419,8 +416,7 @@ async def open_brokerd_trades_dialogue(
             # actor to simulate the real IPC load it'll have when also
             # pulling data from feeds
             open_trades_endpoint = paper.open_paperboi(
-                broker=broker,
-                symbol=symbol,
+                fqsn='.'.join([symbol, broker]),
                 loglevel=loglevel,
             )
 
@@ -458,12 +454,13 @@ async def open_brokerd_trades_dialogue(
                 # locally cache and track positions per account.
                 pps = {}
                 for msg in positions:
+                    log.info(f'loading pp: {msg}')
 
                     account = msg['account']
                     assert account in accounts
 
                     pps.setdefault(
-                        msg['symbol'],
+                        f'{msg["symbol"]}.{broker}',
                         {}
                     )[account] = msg
 
@@ -493,8 +490,9 @@ async def open_brokerd_trades_dialogue(
         finally:
             # parent context must have been closed
             # remove from cache so next client will respawn if needed
-            ## TODO: Maybe add a warning
-            _router.relays.pop(broker, None)
+            relay = _router.relays.pop(broker, None)
+            if not relay:
+                log.warning(f'Relay for {broker} was already removed!?')
 
 
 @tractor.context
@@ -563,7 +561,13 @@ async def translate_and_relay_brokerd_events(
 
             # XXX: this will be useful for automatic strats yah?
             # keep pps per account up to date locally in ``emsd`` mem
-            relay.positions.setdefault(pos_msg['symbol'], {}).setdefault(
+            sym, broker = pos_msg['symbol'], pos_msg['broker']
+
+            relay.positions.setdefault(
+                # NOTE: translate to a FQSN!
+                f'{sym}.{broker}',
+                {}
+            ).setdefault(
                 pos_msg['account'], {}
             ).update(pos_msg)
 
@@ -840,11 +844,15 @@ async def process_client_order_cmds(
 
             msg = Order(**cmd)
 
-            sym = msg.symbol
+            fqsn = msg.symbol
             trigger_price = msg.price
             size = msg.size
             exec_mode = msg.exec_mode
             broker = msg.brokers[0]
+            # remove the broker part before creating a message
+            # to send to the specific broker since they probably
+            # aren't expectig their own name, but should they?
+            sym = fqsn.replace(f'.{broker}', '')
 
             if exec_mode == 'live' and action in ('buy', 'sell',):
 
@@ -902,7 +910,7 @@ async def process_client_order_cmds(
                 # price received from the feed, instead of being
                 # like every other shitty tina platform that makes
                 # the user choose the predicate operator.
-                last = dark_book.lasts[(broker, sym)]
+                last = dark_book.lasts[fqsn]
                 pred = mk_check(trigger_price, last, action)
 
                 spread_slap: float = 5
@@ -933,7 +941,7 @@ async def process_client_order_cmds(
                 # dark book entry if the order id already exists
 
                 dark_book.orders.setdefault(
-                    sym, {}
+                    fqsn, {}
                 )[oid] = (
                     pred,
                     tickfilter,
@@ -960,8 +968,8 @@ async def process_client_order_cmds(
 async def _emsd_main(
 
     ctx: tractor.Context,
-    broker: str,
-    symbol: str,
+    fqsn: str,
+
     _exec_mode: str = 'dark',  # ('paper', 'dark', 'live')
     loglevel: str = 'info',
 
@@ -1003,6 +1011,8 @@ async def _emsd_main(
     global _router
     assert _router
 
+    from ..data._source import unpack_fqsn
+    broker, symbol, suffix = unpack_fqsn(fqsn)
     dark_book = _router.get_dark_book(broker)
 
     # TODO: would be nice if in tractor we can require either a ctx arg,
@@ -1015,22 +1025,16 @@ async def _emsd_main(
     # spawn one task per broker feed
     async with (
         maybe_open_feed(
-            broker,
-            [symbol],
+            [fqsn],
             loglevel=loglevel,
-        ) as (feed, stream),
+        ) as (feed, quote_stream),
     ):
 
         # XXX: this should be initial price quote from target provider
-        first_quote = feed.first_quotes[symbol]
+        first_quote = feed.first_quotes[fqsn]
 
         book = _router.get_dark_book(broker)
-        last = book.lasts[(broker, symbol)] = first_quote['last']
-
-        # XXX: ib is a cucker but we've fixed avoiding receiving any
-        # `Nan`s in the backend during market hours (right?). this was
-        # here previously as a sanity check during market hours.
-        # assert not isnan(last)
+        book.lasts[fqsn] = first_quote['last']
 
         # open a stream with the brokerd backend for order
         # flow dialogue
@@ -1054,8 +1058,8 @@ async def _emsd_main(
 
             # flatten out collected pps from brokerd for delivery
             pp_msgs = {
-                sym: list(pps.values())
-                for sym, pps in relay.positions.items()
+                fqsn: list(pps.values())
+                for fqsn, pps in relay.positions.items()
             }
 
             # signal to client that we're started and deliver
@@ -1072,9 +1076,9 @@ async def _emsd_main(
 
                     brokerd_stream,
                     ems_client_order_stream,
-                    stream,
+                    quote_stream,
                     broker,
-                    symbol,
+                    fqsn,  # form: <name>.<venue>.<suffix>.<broker>
                     book
                 )
 
@@ -1090,7 +1094,7 @@ async def _emsd_main(
                         # relay.brokerd_dialogue,
                         brokerd_stream,
 
-                        symbol,
+                        fqsn,
                         feed,
                         dark_book,
                         _router,

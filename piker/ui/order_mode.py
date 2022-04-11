@@ -268,13 +268,14 @@ class OrderMode:
 
         '''
         staged = self._staged_order
-        symbol = staged.symbol
+        symbol: Symbol = staged.symbol
         oid = str(uuid.uuid4())
 
         # format order data for ems
+        fqsn = symbol.front_fqsn()
         order = staged.copy(
             update={
-                'symbol': symbol.key,
+                'symbol': fqsn,
                 'oid': oid,
             }
         )
@@ -519,8 +520,7 @@ async def open_order_mode(
 
     feed: Feed,
     chart: 'ChartPlotWidget',  # noqa
-    symbol: Symbol,
-    brokername: str,
+    fqsn: str,
     started: trio.Event,
 
 ) -> None:
@@ -546,8 +546,7 @@ async def open_order_mode(
 
     # spawn EMS actor-service
     async with (
-
-        open_ems(brokername, symbol) as (
+        open_ems(fqsn) as (
             book,
             trades_stream,
             position_msgs,
@@ -556,8 +555,7 @@ async def open_order_mode(
         trio.open_nursery() as tn,
 
     ):
-        log.info(f'Opening order mode for {brokername}.{symbol.key}')
-
+        log.info(f'Opening order mode for {fqsn}')
         view = chart.view
 
         # annotations editors
@@ -566,7 +564,7 @@ async def open_order_mode(
 
         # symbol id
         symbol = chart.linked.symbol
-        symkey = symbol.key
+        symkey = symbol.front_fqsn()
 
         # map of per-provider account keys to position tracker instances
         trackers: dict[str, PositionTracker] = {}
@@ -610,7 +608,7 @@ async def open_order_mode(
                 log.info(f'Loading pp for {symkey}:\n{pformat(msg)}')
                 startup_pp.update_from_msg(msg)
 
-            # allocator
+            # allocator config
             alloc = mk_allocator(
                 symbol=symbol,
                 account=account_name,
@@ -818,8 +816,18 @@ async def process_trades_and_update_ui(
             'position',
         ):
             sym = mode.chart.linked.symbol
-            if msg['symbol'].lower() in sym.key:
+            pp_msg_symbol = msg['symbol'].lower()
+            fqsn = sym.front_fqsn()
+            broker, key = sym.front_feed()
+            # print(
+            #     f'pp msg symbol: {pp_msg_symbol}\n',
+            #     f'fqsn: {fqsn}\n',
+            #     f'front key: {key}\n',
+            # )
 
+            if (
+                pp_msg_symbol == fqsn.replace(f'.{broker}', '')
+            ):
                 tracker = mode.trackers[msg['account']]
                 tracker.live_pp.update_from_msg(msg)
                 # update order pane widgets

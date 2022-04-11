@@ -258,7 +258,7 @@ class ShmArray:
             if index < 0:
                 raise ValueError(
                     f'Array size of {self._len} was overrun during prepend.\n'
-                    'You have passed {abs(index)} too many datums.'
+                    f'You have passed {abs(index)} too many datums.'
                 )
 
         end = index + length
