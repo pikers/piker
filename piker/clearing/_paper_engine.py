@@ -32,7 +32,7 @@ from dataclasses import dataclass
 
 from .. import data
 from ..data._normalize import iterticks
-from ..data._source import uncons_fqsn
+from ..data._source import unpack_fqsn
 from ..log import get_logger
 from ._messages import (
     BrokerdCancel, BrokerdOrder, BrokerdOrderAck, BrokerdStatus,
@@ -500,7 +500,7 @@ async def open_paperboi(
     its context.
 
     '''
-    broker, symbol, expiry = uncons_fqsn(fqsn)
+    broker, symbol, expiry = unpack_fqsn(fqsn)
     service_name = f'paperboi.{broker}'
 
     async with (

@@ -92,7 +92,7 @@ def ohlc_zeros(length: int) -> np.ndarray:
     return np.zeros(length, dtype=base_ohlc_dtype)
 
 
-def uncons_fqsn(fqsn: str) -> tuple[str, str, str]:
+def unpack_fqsn(fqsn: str) -> tuple[str, str, str]:
     '''
     Unpack a fully-qualified-symbol-name to ``tuple``.
 
@@ -178,7 +178,7 @@ class Symbol(BaseModel):
     # XXX: like wtf..
     # ) -> 'Symbol':
     ) -> None:
-        broker, key, suffix = uncons_fqsn(fqsn)
+        broker, key, suffix = unpack_fqsn(fqsn)
         return cls.from_broker_info(
             broker,
             key,

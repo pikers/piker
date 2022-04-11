@@ -201,8 +201,8 @@ async def open_ems(
     # ready for order commands
     book = get_orders()
 
-    from ..data._source import uncons_fqsn
-    broker, symbol, suffix = uncons_fqsn(fqsn)
+    from ..data._source import unpack_fqsn
+    broker, symbol, suffix = unpack_fqsn(fqsn)
 
     async with maybe_open_emsd(broker) as portal:
 

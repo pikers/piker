@@ -51,7 +51,7 @@ from .ingest import get_ingestormod
 from ._source import (
     base_iohlc_dtype,
     Symbol,
-    uncons_fqsn,
+    unpack_fqsn,
 )
 from ..ui import _search
 from ._sampling import (
@@ -672,7 +672,7 @@ async def open_feed(
     '''
     fqsn = fqsns[0].lower()
 
-    brokername, key, suffix = uncons_fqsn(fqsn)
+    brokername, key, suffix = unpack_fqsn(fqsn)
     bfqsn = fqsn.replace('.' + brokername, '')
 
     try:

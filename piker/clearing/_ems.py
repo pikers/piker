@@ -1011,8 +1011,8 @@ async def _emsd_main(
     global _router
     assert _router
 
-    from ..data._source import uncons_fqsn
-    broker, symbol, suffix = uncons_fqsn(fqsn)
+    from ..data._source import unpack_fqsn
+    broker, symbol, suffix = unpack_fqsn(fqsn)
     dark_book = _router.get_dark_book(broker)
 
     # TODO: would be nice if in tractor we can require either a ctx arg,
