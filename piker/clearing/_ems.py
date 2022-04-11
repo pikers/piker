@@ -20,7 +20,6 @@ In da suit parlances: "Execution management systems"
 """
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-# from math import isnan
 from pprint import pformat
 import time
 from typing import AsyncIterator, Callable
@@ -491,8 +490,9 @@ async def open_brokerd_trades_dialogue(
         finally:
             # parent context must have been closed
             # remove from cache so next client will respawn if needed
-            ## TODO: Maybe add a warning
-            _router.relays.pop(broker, None)
+            relay = _router.relays.pop(broker, None)
+            if not relay:
+                log.warning(f'Relay for {broker} was already removed!?')
 
 
 @tractor.context
@@ -1035,11 +1035,6 @@ async def _emsd_main(
 
         book = _router.get_dark_book(broker)
         book.lasts[fqsn] = first_quote['last']
-
-        # XXX: ib is a cucker but we've fixed avoiding receiving any
-        # `Nan`s in the backend during market hours (right?). this was
-        # here previously as a sanity check during market hours.
-        # assert not isnan(last)
 
         # open a stream with the brokerd backend for order
         # flow dialogue
