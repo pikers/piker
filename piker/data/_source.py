@@ -222,6 +222,23 @@ class Symbol(BaseModel):
             return (key, broker)
 
     def front_fqsn(self) -> str:
+        '''
+        fqsn = "fully qualified symbol name"
+
+        Basically the idea here is for all client-ish code (aka programs/actors
+        that ask the provider agnostic layers in the stack for data) should be
+        able to tell which backend / venue / derivative each data feed/flow is
+        from by an explicit string key of the current form:
+
+        <instrumentname>.<venue>.<suffixwithmetadata>.<brokerbackendname>
+
+        TODO: I have thoughts that we should actually change this to be
+        more like an "attr lookup" (like how the web should have done
+        urls, but marketting peeps ruined it etc. etc.):
+
+        <broker>.<venue>.<instrumentname>.<suffixwithmetadata>
+
+        '''
         tokens = self.tokens()
         fqsn = '.'.join(tokens)
         return fqsn
