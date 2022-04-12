@@ -300,41 +300,33 @@ class Client:
 
     async def submit_limit(
         self,
-        oid: str,
         symbol: str,
         price: float,
         action: str,
         size: float,
         reqid: str = None,
+        validate: bool = False # set True test call without a real submission
     ) -> dict:
         '''
         Place an order and return integer request id provided by client.
 
         '''
+        # Build common data dict for common keys from both endpoints
+        data = {
+            "pair": symbol,
+            "price": str(price),
+            "validate": validate
+        }
         if reqid is None:
             # Build order data for kraken api
-            data = {
-                "ordertype": "limit",
-                "type": action,
-                "volume": str(size),
-                "pair": symbol,
-                "price": str(price),
-                # set to True test AddOrder call without a real submission
-                "validate": False
-            }
+            data["ordertype"] = "limit"
+            data["type"] = action
+            data["volume"] = str(size)
             return await self.endpoint('AddOrder', data)
         else:
             # Edit order data for kraken api
-            data = {
-                "txid": reqid,
-                "pair": symbol,
-                "price": str(price),
-                # set to True test EditOrder call without a real submission
-                "validate": False
-            }
+            data["txid"] = reqid
             return await self.endpoint('EditOrder', data)
-
-
 
     async def submit_cancel(
         self,
@@ -581,7 +573,6 @@ async def handle_order_requests(
             order = BrokerdOrder(**request_msg)
             # call our client api to submit the order
             resp = await client.submit_limit(
-                oid=order.oid,
                 symbol=order.symbol,
                 price=order.price,
                 action=order.action,
