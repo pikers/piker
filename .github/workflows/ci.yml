@@ -25,13 +25,13 @@ jobs:
       - name: Setup python
         uses: actions/setup-python@v2
         with:
-          python-version: '3.9'
+          python-version: '3.10'
 
       - name: Install dependencies
-        run: pip install -e . --upgrade-strategy eager -r requirements.txt
+        run: pip install -e . -r requirements.txt
 
       - name: Run piker cli
-        run: piker 
+        run: piker
 
   testing:
     name: 'test suite'
@@ -44,7 +44,7 @@ jobs:
       - name: Setup python
         uses: actions/setup-python@v2
         with:
-          python-version: '3.9'
+          python-version: '3.10'
 
       - name: Install dependencies
         run: pip install -U . -r requirements-test.txt -r requirements.txt --upgrade-strategy eager
