@@ -372,13 +372,14 @@ def graphics_update_cycle(
         mx = mx_in_view + tick_margin
         mn = mn_in_view - tick_margin
         profiler('maxmin call')
+        liv = r > i_step  # the last datum is in view
 
         # don't real-time "shift" the curve to the
         # left under the following conditions:
         if (
             i_diff > 0  # no new sample step
             and xpx < update_uppx  # chart is zoomed out very far
-            and r >= i_step  # the last datum is in view
+            and liv
         ):
             # TODO: we should track and compute whether the last
             # pixel in a curve should show new data based on uppx
@@ -394,7 +395,7 @@ def graphics_update_cycle(
             if (
                 # if zoomed out alot don't update the last "bar"
                 (xpx < update_uppx or i_diff > 0)
-                and r >= i_step
+                and liv
             ):
                 # TODO: make it so this doesn't have to be called
                 # once the $vlm is up?
@@ -546,7 +547,10 @@ def graphics_update_cycle(
                     l1.bid_label.fields['level']: l1.bid_label,
                 }.get(price)
 
-                if label is not None:
+                if (
+                    label is not None
+                    # and liv
+                ):
                     label.update_fields(
                         {'level': price, 'size': size}
                     )
@@ -555,19 +559,27 @@ def graphics_update_cycle(
                     # the relevant L1 queue?
                     # label.size -= size
 
-            # elif ticktype in ('ask', 'asize'):
-            elif typ in _tick_groups['asks']:
+            elif (
+                typ in _tick_groups['asks']
+                # TODO: instead we could check if the price is in the
+                # y-view-range?
+                # and liv
+            ):
                 l1.ask_label.update_fields({'level': price, 'size': size})
 
-            # elif ticktype in ('bid', 'bsize'):
-            elif typ in _tick_groups['bids']:
+            elif (
+                typ in _tick_groups['bids']
+                # TODO: instead we could check if the price is in the
+                # y-view-range?
+                # and liv
+            ):
                 l1.bid_label.update_fields({'level': price, 'size': size})
 
         # check for y-range re-size
         if (
             (mx > vars['last_mx']) or (mn < vars['last_mn'])
             and not chart._static_yrange == 'axis'
-            and r > i_step  # the last datum is in view
+            and liv
         ):
             main_vb = chart.view
             if (
