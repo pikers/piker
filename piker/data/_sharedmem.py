@@ -19,7 +19,6 @@ NumPy compatible shared memory buffers for real-time IPC streaming.
 
 """
 from __future__ import annotations
-from dataclasses import dataclass, asdict
 from sys import byteorder
 from typing import Optional
 from multiprocessing.shared_memory import SharedMemory, _USE_POSIX
@@ -30,13 +29,21 @@ if _USE_POSIX:
 
 import tractor
 import numpy as np
-from pydantic import BaseModel, validator
+from pydantic import BaseModel
 
 from ..log import get_logger
 from ._source import base_iohlc_dtype
 
 
 log = get_logger(__name__)
+
+
+# how  much is probably dependent on lifestyle
+_secs_in_day = int(60 * 60 * 24)
+# we try for 3 times but only on a run-every-other-day kinda week.
+_default_size = 10 * _secs_in_day
+# where to start the new data append index
+_rt_buffer_start = int(9*_secs_in_day)
 
 
 # Tell the "resource tracker" thing to fuck off.
@@ -152,7 +159,8 @@ def _make_token(
 
 
 class ShmArray:
-    """A shared memory ``numpy`` (compatible) array API.
+    '''
+    A shared memory ``numpy`` (compatible) array API.
 
     An underlying shared memory buffer is allocated based on
     a user specified ``numpy.ndarray``. This fixed size array
@@ -162,7 +170,7 @@ class ShmArray:
     ``SharedInt`` interfaces) values such that multiple processes can
     interact with the same array using a synchronized-index.
 
-    """
+    '''
     def __init__(
         self,
         shmarr: np.ndarray,
@@ -209,7 +217,8 @@ class ShmArray:
 
     @property
     def array(self) -> np.ndarray:
-        '''Return an up-to-date ``np.ndarray`` view of the
+        '''
+        Return an up-to-date ``np.ndarray`` view of the
         so-far-written data to the underlying shm buffer.
 
         '''
@@ -231,26 +240,34 @@ class ShmArray:
     def last(
         self,
         length: int = 1,
+
     ) -> np.ndarray:
+        '''
+        Return the last ``length``'s worth of ("row") entries from the
+        array.
+
+        '''
         return self.array[-length:]
 
     def push(
         self,
         data: np.ndarray,
 
+        field_map: Optional[dict[str, str]] = None,
         prepend: bool = False,
         start: Optional[int] = None,
 
     ) -> int:
-        '''Ring buffer like "push" to append data
+        '''
+        Ring buffer like "push" to append data
         into the buffer and return updated "last" index.
 
         NB: no actual ring logic yet to give a "loop around" on overflow
         condition, lel.
+
         '''
-        self._post_init = True
         length = len(data)
-        index = start or self._last.value
+        index = start if start is not None else self._last.value
 
         if prepend:
             index = self._first.value - length
@@ -263,10 +280,15 @@ class ShmArray:
 
         end = index + length
 
-        fields = self._write_fields
+        if field_map:
+            src_names, dst_names = zip(*field_map.items())
+        else:
+            dst_names = src_names = self._write_fields
 
         try:
-            self._array[fields][index:end] = data[fields][:]
+            self._array[
+                list(dst_names)
+            ][index:end] = data[list(src_names)][:]
 
             # NOTE: there was a race here between updating
             # the first and last indices and when the next reader
@@ -281,9 +303,13 @@ class ShmArray:
             else:
                 self._last.value = end
 
+            self._post_init = True
             return end
 
         except ValueError as err:
+            if field_map:
+                raise
+
             # should raise if diff detected
             self.diff_err_fields(data)
             raise err
@@ -336,12 +362,6 @@ class ShmArray:
         ...
 
 
-# how  much is probably dependent on lifestyle
-_secs_in_day = int(60 * 60 * 24)
-# we try for 3 times but only on a run-every-other-day kinda week.
-_default_size = 3 * _secs_in_day
-
-
 def open_shm_array(
 
     key: Optional[str] = None,
@@ -392,7 +412,24 @@ def open_shm_array(
         )
     )
 
-    last.value = first.value = int(_secs_in_day)
+    # start the "real-time" updated section after 3-days worth of 1s
+    # sampled OHLC. this allows appending up to a days worth from
+    # tick/quote feeds before having to flush to a (tsdb) storage
+    # backend, and looks something like,
+    # -------------------------
+    # |              |        i
+    # _________________________
+    # <-------------> <------->
+    #  history         real-time
+    #
+    # Once fully "prepended", the history section will leave the
+    # ``ShmArray._start.value: int = 0`` and the yet-to-be written
+    # real-time section will start at ``ShmArray.index: int``.
+
+    # this sets the index to 3/4 of the length of the buffer
+    # leaving a "days worth of second samples" for the real-time
+    # section.
+    last.value = first.value = _rt_buffer_start
 
     shmarr = ShmArray(
         array,
