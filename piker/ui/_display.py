@@ -602,7 +602,7 @@ def graphics_update_cycle(
                     yrange=(mn, mx),
                 )
 
-            vars['last_mx'], vars['last_mn'] = mx, mn
+        vars['last_mx'], vars['last_mn'] = mx, mn
 
         # run synchronous update on all linked flows
         for curve_name, flow in chart._flows.items():
