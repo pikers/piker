@@ -223,8 +223,9 @@ class DynamicDateAxis(Axis):
     ) -> List[str]:
 
         chart = self.linkedsplits.chart
-        bars = chart._arrays[chart.name]
-        shm = self.linkedsplits.chart._shm
+        flow = chart._flows[chart.name]
+        shm = flow.shm
+        bars = shm.array
         first = shm._first.value
 
         bars_len = len(bars)
