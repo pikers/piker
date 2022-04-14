@@ -408,9 +408,8 @@ def graphics_update_cycle(
             ):
                 # TODO: make it so this doesn't have to be called
                 # once the $vlm is up?
-                vlm_chart.update_graphics_from_array(
+                vlm_chart.update_graphics_from_flow(
                     'volume',
-                    array,
 
                     # UGGGh, see ``maxmin()`` impl in `._fsp` for
                     # the overlayed plotitems... we need a better
@@ -436,6 +435,11 @@ def graphics_update_cycle(
                     vars['last_mx_vlm'] = mx_vlm_in_view
 
                 for curve_name, flow in vlm_chart._flows.items():
+
+                    if not flow.render:
+                        print(f'skipping flow {curve_name}?')
+                        continue
+
                     update_fsp_chart(
                         vlm_chart,
                         flow,
@@ -500,9 +504,8 @@ def graphics_update_cycle(
             or i_diff > 0
             or trigger_all
         ):
-            chart.update_graphics_from_array(
+            chart.update_graphics_from_flow(
                 chart.name,
-                array,
             )
 
         # iterate in FIFO order per tick-frame
@@ -515,8 +518,9 @@ def graphics_update_cycle(
             # tick frames to determine the y-range for chart
             # auto-scaling.
             # TODO: we need a streaming minmax algo here, see def above.
-            mx = max(price + tick_margin, mx)
-            mn = min(price - tick_margin, mn)
+            if liv:
+                mx = max(price + tick_margin, mx)
+                mn = min(price - tick_margin, mn)
 
             if typ in clear_types:
 
@@ -539,9 +543,8 @@ def graphics_update_cycle(
 
                 if wap_in_history:
                     # update vwap overlay line
-                    chart.update_graphics_from_array(
+                    chart.update_graphics_from_flow(
                         'bar_wap',
-                        array,
                     )
 
             # L1 book label-line updates
@@ -557,7 +560,7 @@ def graphics_update_cycle(
 
                 if (
                     label is not None
-                    # and liv
+                    and liv
                 ):
                     label.update_fields(
                         {'level': price, 'size': size}
@@ -571,7 +574,7 @@ def graphics_update_cycle(
                 typ in _tick_groups['asks']
                 # TODO: instead we could check if the price is in the
                 # y-view-range?
-                # and liv
+                and liv
             ):
                 l1.ask_label.update_fields({'level': price, 'size': size})
 
@@ -579,7 +582,7 @@ def graphics_update_cycle(
                 typ in _tick_groups['bids']
                 # TODO: instead we could check if the price is in the
                 # y-view-range?
-                # and liv
+                and liv
             ):
                 l1.bid_label.update_fields({'level': price, 'size': size})
 
@@ -692,9 +695,10 @@ async def display_symbol_data(
         # create main OHLC chart
         chart = linked.plot_ohlc_main(
             symbol,
-            bars,
+            ohlcv,
             sidepane=pp_pane,
         )
+        chart.default_view()
         chart._feeds[symbol.key] = feed
         chart.setFocus()
 
@@ -713,10 +717,6 @@ async def display_symbol_data(
 
         # size view to data once at outset
         chart.cv._set_yrange()
-
-        # TODO: a data view api that makes this less shit
-        chart._shm = ohlcv
-        chart._flows[chart.data_key].shm = ohlcv
 
         # NOTE: we must immediately tell Qt to show the OHLC chart
         # to avoid a race where the subplots get added/shown to
@@ -780,6 +780,5 @@ async def display_symbol_data(
                 sbar._status_groups[loading_sym_key][1]()
 
                 # let the app run.. bby
-                chart.default_view()
                 # linked.graphics_cycle()
                 await trio.sleep_forever()

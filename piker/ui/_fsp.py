@@ -93,9 +93,8 @@ def update_fsp_chart(
     # update graphics
     # NOTE: this does a length check internally which allows it
     # staying above the last row check below..
-    chart.update_graphics_from_array(
+    chart.update_graphics_from_flow(
         graphics_name,
-        array,
         array_key=array_key or graphics_name,
     )
 
@@ -106,9 +105,6 @@ def update_fsp_chart(
     # read from last calculated value and update any label
     last_val_sticky = chart._ysticks.get(graphics_name)
     if last_val_sticky:
-        # array = shm.array[array_key]
-        # if len(array):
-        #     value = array[-1]
         last = last_row[array_key]
         last_val_sticky.update_from_data(-1, last)
 
@@ -246,20 +242,18 @@ async def run_fsp_ui(
 
             chart.draw_curve(
                 name=name,
-                data=shm.array,
+                shm=shm,
                 overlay=True,
                 color='default_light',
                 array_key=name,
                 **conf.get('chart_kwargs', {})
             )
-            # specially store ref to shm for lookup in display loop
-            chart._flows[name].shm = shm
 
         else:
             # create a new sub-chart widget for this fsp
             chart = linkedsplits.add_plot(
                 name=name,
-                array=shm.array,
+                shm=shm,
 
                 array_key=name,
                 sidepane=sidepane,
@@ -270,12 +264,6 @@ async def run_fsp_ui(
                 # settings passed down to ``ChartPlotWidget``
                 **conf.get('chart_kwargs', {})
             )
-
-            # XXX: ONLY for sub-chart fsps, overlays have their
-            # data looked up from the chart's internal array set.
-            # TODO: we must get a data view api going STAT!!
-            chart._shm = shm
-            chart._flows[chart.data_key].shm = shm
 
             # should **not** be the same sub-chart widget
             assert chart.name != linkedsplits.chart.name
@@ -626,7 +614,7 @@ async def open_vlm_displays(
         shm = ohlcv
         chart = linked.add_plot(
             name='volume',
-            array=shm.array,
+            shm=shm,
 
             array_key='volume',
             sidepane=sidepane,
@@ -639,7 +627,6 @@ async def open_vlm_displays(
             # the curve item internals are pretty convoluted.
             style='step',
         )
-        chart._flows['volume'].shm = ohlcv
 
         # force 0 to always be in view
         def maxmin(
@@ -666,11 +653,6 @@ async def open_vlm_displays(
         # chart.hideAxis('right')
         # chart.showAxis('left')
 
-        # XXX: ONLY for sub-chart fsps, overlays have their
-        # data looked up from the chart's internal array set.
-        # TODO: we must get a data view api going STAT!!
-        chart._shm = shm
-
         # send back new chart to caller
         task_status.started(chart)
 
@@ -685,9 +667,9 @@ async def open_vlm_displays(
 
         last_val_sticky.update_from_data(-1, value)
 
-        vlm_curve = chart.update_graphics_from_array(
+        vlm_curve = chart.update_graphics_from_flow(
             'volume',
-            shm.array,
+            # shm.array,
         )
 
         # size view to data once at outset
@@ -795,9 +777,8 @@ async def open_vlm_displays(
                         color = 'bracket'
 
                     curve, _ = chart.draw_curve(
-                        # name='dolla_vlm',
                         name=name,
-                        data=shm.array,
+                        shm=shm,
                         array_key=name,
                         overlay=pi,
                         color=color,
@@ -812,7 +793,6 @@ async def open_vlm_displays(
                     # ``.draw_curve()``.
                     flow = chart._flows[name]
                     assert flow.plot is pi
-                    flow.shm = shm
 
             chart_curves(
                 fields,
@@ -847,7 +827,9 @@ async def open_vlm_displays(
             # liquidity events (well at least on low OHLC periods - 1s).
             vlm_curve.hide()
             chart.removeItem(vlm_curve)
-            chart._flows.pop('volume')
+            vflow = chart._flows['volume']
+            vflow.render = False
+
             # avoid range sorting on volume once disabled
             chart.view.disable_auto_yrange()
 

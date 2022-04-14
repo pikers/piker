@@ -254,13 +254,13 @@ class ContentsLabels:
     def update_labels(
         self,
         index: int,
-        # array_name: str,
 
     ) -> None:
-        # for name, (label, update) in self._labels.items():
         for chart, name, label, update in self._labels:
 
-            array = chart._arrays[name]
+            flow = chart._flows[name]
+            array = flow.shm.array
+
             if not (
                 index >= 0
                 and index < array[-1]['index']
@@ -268,8 +268,6 @@ class ContentsLabels:
                 # out of range
                 print('WTF out of range?')
                 continue
-
-            # array = chart._arrays[name]
 
             # call provided update func with data point
             try:
@@ -472,9 +470,12 @@ class Cursor(pg.GraphicsObject):
     ) -> LineDot:
         # if this plot contains curves add line dot "cursors" to denote
         # the current sample under the mouse
+        main_flow = plot._flows[plot.name]
+        # read out last index
+        i = main_flow.shm.array[-1]['index']
         cursor = LineDot(
             curve,
-            index=plot._arrays[plot.name][-1]['index'],
+            index=i,
             plot=plot
         )
         plot.addItem(cursor)
