@@ -492,9 +492,9 @@ class ChartView(ViewBox):
             log.debug("Max zoom bruh...")
             return
 
-        if ev.delta() < 0 and vl >= len(chart._arrays[chart.name]) + 666:
-            log.debug("Min zoom bruh...")
-            return
+        # if ev.delta() < 0 and vl >= len(chart._flows[chart.name].shm.array) + 666:
+        #     log.debug("Min zoom bruh...")
+        #     return
 
         # actual scaling factor
         s = 1.015 ** (ev.delta() * -1 / 20)  # self.state['wheelScaleFactor'])
@@ -777,9 +777,15 @@ class ChartView(ViewBox):
 
         # calculate max, min y values in viewable x-range from data.
         # Make sure min bars/datums on screen is adhered.
-        else:
-            br = bars_range or chart.bars_range()
-            profiler(f'got bars range: {br}')
+        # else:
+            # TODO: eventually we should point to the
+            # ``FlowsTable`` (or wtv) which should perform
+            # the group operations?
+
+            # flow = chart._flows[name or chart.name]
+            # br = bars_range or chart.bars_range()
+            # br = bars_range or chart.bars_range()
+            # profiler(f'got bars range: {br}')
 
             # TODO: maybe should be a method on the
             # chart widget/item?
@@ -829,6 +835,8 @@ class ChartView(ViewBox):
             )
             self.setYRange(ylow, yhigh)
             profiler(f'set limits: {(ylow, yhigh)}')
+
+        profiler.finish()
 
     def enable_auto_yrange(
         self,
@@ -890,7 +898,7 @@ class ChartView(ViewBox):
         graphics items which are our children.
 
         '''
-        graphics = list(self._chart._graphics.values())
+        graphics = [f.graphics for f in self._chart._flows.values()]
         if not graphics:
             return 0
 
@@ -903,44 +911,49 @@ class ChartView(ViewBox):
 
     def maybe_downsample_graphics(self):
 
+        profiler = pg.debug.Profiler(
+            disabled=not pg_profile_enabled(),
+            gt=3,
+        )
+
         uppx = self.x_uppx()
-        if (
+        if not (
             # we probably want to drop this once we are "drawing in
             # view" for downsampled flows..
             uppx and uppx > 16
             and self._ic is not None
         ):
+
+            # TODO: a faster single-loop-iterator way of doing this XD
+            chart = self._chart
+            linked = self.linkedsplits
+            plots = linked.subplots | {chart.name: chart}
+            for chart_name, chart in plots.items():
+                for name, flow in chart._flows.items():
+
+                    if not flow.render:
+                        continue
+
+                    graphics = flow.graphics
+
+                    use_vr = False
+                    if isinstance(graphics, BarItems):
+                        use_vr = True
+
+                    # pass in no array which will read and render from the last
+                    # passed array (normally provided by the display loop.)
+                    chart.update_graphics_from_flow(
+                        name,
+                        use_vr=use_vr,
+
+                        # gets passed down into graphics obj
+                        profiler=profiler,
+                    )
+
+                    profiler(f'range change updated {chart_name}:{name}')
+        else:
             # don't bother updating since we're zoomed out bigly and
             # in a pan-interaction, in which case we shouldn't be
             # doing view-range based rendering (at least not yet).
             # print(f'{uppx} exiting early!')
-            return
-
-        profiler = pg.debug.Profiler(
-            disabled=not pg_profile_enabled(),
-            gt=3,
-            delayed=True,
-        )
-
-        # TODO: a faster single-loop-iterator way of doing this XD
-        chart = self._chart
-        linked = self.linkedsplits
-        plots = linked.subplots | {chart.name: chart}
-        for chart_name, chart in plots.items():
-            for name, flow in chart._flows.items():
-                graphics = flow.graphics
-
-                use_vr = False
-                if isinstance(graphics, BarItems):
-                    use_vr = True
-
-                # pass in no array which will read and render from the last
-                # passed array (normally provided by the display loop.)
-                chart.update_graphics_from_array(
-                    name,
-                    use_vr=use_vr,
-                    profiler=profiler,
-                )
-                profiler(f'range change updated {chart_name}:{name}')
-
-        profiler.finish()
+            profiler(f'dowsampling skipped - not in uppx range {uppx} <= 16')
