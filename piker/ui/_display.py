@@ -290,6 +290,7 @@ async def graphics_update_loop(
 def graphics_update_cycle(
     ds: DisplayState,
     wap_in_history: bool = False,
+    trigger_all: bool = False,  # flag used by prepend history updates
 
 ) -> None:
 
@@ -307,10 +308,6 @@ def graphics_update_cycle(
     tick_margin = vars['tick_margin']
 
     for sym, quote in ds.quotes.items():
-        brange, mx_in_view, mn_in_view, mx_vlm_in_view = ds.maxmin()
-        l, lbar, rbar, r = brange
-        mx = mx_in_view + tick_margin
-        mn = mn_in_view - tick_margin
 
         # NOTE: vlm may be written by the ``brokerd`` backend
         # event though a tick sample is not emitted.
@@ -333,13 +330,39 @@ def graphics_update_cycle(
             )
         vars['i_last'] = i_step
 
+        (
+            brange,
+            mx_in_view,
+            mn_in_view,
+            mx_vlm_in_view,
+        ) = ds.maxmin()
+
+        l, lbar, rbar, r = brange
+        mx = mx_in_view + tick_margin
+        mn = mn_in_view - tick_margin
+        liv = r > i_step  # the last datum is in view
+
+        # don't real-time "shift" the curve to the
+        # left under the following conditions:
+        if (
+            (
+                i_diff > 0  # no new sample step
+                and liv
+            )
+            or trigger_all
+        ):
+            # TODO: we should track and compute whether the last
+            # pixel in a curve should show new data based on uppx
+            # and then iff update curves and shift?
+            chart.increment_view(steps=i_diff)
+
         if vlm_chart:
             vlm_chart.update_curve_from_array('volume', array)
             ds.vlm_sticky.update_from_data(*array[-1][['index', 'volume']])
 
             if (
-                mx_vlm_in_view != vars['last_mx_vlm']
-                or mx_vlm_in_view > vars['last_mx_vlm']
+                mx_vlm_in_view > vars['last_mx_vlm']
+                or trigger_all
             ):
                 # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
                 vlm_chart.view._set_yrange(
