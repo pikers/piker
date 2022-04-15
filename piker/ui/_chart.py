@@ -356,9 +356,11 @@ class LinkedSplits(QWidget):
 
         self._symbol: Symbol = None
 
-    def graphics_cycle(self) -> None:
+    def graphics_cycle(self, **kwargs) -> None:
         from . import _display
-        return _display.graphics_update_cycle(self.display_state)
+        ds = self.display_state
+        if ds:
+            return _display.graphics_update_cycle(ds, **kwargs)
 
     @property
     def symbol(self) -> Symbol:

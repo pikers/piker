@@ -50,7 +50,6 @@ from ._forms import (
     mk_form,
     open_form_input_handling,
 )
-from . import _display
 from ..fsp._api import maybe_mk_fsp_shm, Fsp
 from ..fsp import cascade
 from ..fsp._volume import (
@@ -442,7 +441,13 @@ class FspAdmin:
             async with stream.subscribe() as stream:
                 async for msg in stream:
                     if msg == 'update':
-                        self.linked.graphics_cycle()
+                        # if the chart isn't hidden try to update
+                        # the data on screen.
+                        if not self.linked.isHidden():
+                            log.info(f'Re-syncing graphics for fsp: {ns_path}')
+                            self.linked.graphics_cycle(trigger_all=True)
+                    else:
+                        log.info(f'recved unexpected fsp engine msg: {msg}')
 
             await complete.wait()
 
