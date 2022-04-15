@@ -2444,8 +2444,8 @@ async def data_reset_hack(
     try:
         import i3ipc
     except ImportError:
-        return False
         log.warning('IB data hack no-supported on ur platformz')
+        return False
 
     i3 = i3ipc.Connection()
     t = i3.get_tree()
