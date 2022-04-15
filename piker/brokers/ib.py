@@ -1519,13 +1519,13 @@ async def get_bars(
                     ('history', hist_ev),
                     # ('live', live_ev),
                 ]:
-                    with trio.move_on_after(22) as cs:
-                        await ev.wait()
-                        log.info(f"{name} DATA RESET")
+                    # with trio.move_on_after(22) as cs:
+                    await ev.wait()
+                    log.info(f"{name} DATA RESET")
 
-                    if cs.cancelled_caught:
-                        log.warning("reset hack failed on first try?")
-                        # await tractor.breakpoint()
+                    # if cs.cancelled_caught:
+                    #     log.warning("reset hack failed on first try?")
+                    #     await tractor.breakpoint()
 
                 fails += 1
                 continue
@@ -1583,7 +1583,7 @@ async def backfill_bars(
     # on that until we have the `marketstore` daemon in place in which
     # case the shm size will be driven by user config and available sys
     # memory.
-    count: int = 16,
+    count: int = 100,
 
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
