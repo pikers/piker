@@ -37,7 +37,6 @@ import asyncio
 from pprint import pformat
 import inspect
 import logging
-import platform
 from random import randint
 import time
 
@@ -1583,7 +1582,7 @@ async def backfill_bars(
     # on that until we have the `marketstore` daemon in place in which
     # case the shm size will be driven by user config and available sys
     # memory.
-    count: int = 100,
+    count: int = 16,
 
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
@@ -1602,11 +1601,6 @@ async def backfill_bars(
 
         # async with open_history_client(fqsn) as proxy:
         async with open_client_proxy() as proxy:
-
-            if platform.system() == 'Windows':
-                log.warning(
-                    'Decreasing history query count to 4 since, windows...')
-                count = 4
 
             out, fails = await get_bars(proxy, fqsn)
 
