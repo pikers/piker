@@ -60,7 +60,7 @@ setup(
         'ib_insync',
 
         # numerics
-        'arrow',  # better datetimes
+        'pendulum', # easier datetimes
         'bidict',  # 2 way map
         'cython',
         'numpy',

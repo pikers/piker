@@ -25,7 +25,7 @@ import time
 
 from trio_typing import TaskStatus
 import trio
-import arrow
+import pendulum
 import asks
 from fuzzywuzzy import process as fuzzy
 import numpy as np
@@ -401,8 +401,8 @@ class Client:
         as_np: bool = True,
     ) -> dict:
         if since is None:
-            since = arrow.utcnow().floor('minute').shift(
-                minutes=-count).timestamp()
+            since = pendulum.now('UTC').start_of('minute').subtract(
+                minutes=count).timestamp()
 
         # UTC 2017-07-02 12:53:20 is oldest seconds value
         since = str(max(1499000000, since))

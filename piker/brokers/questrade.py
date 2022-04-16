@@ -19,7 +19,6 @@ Questrade API backend.
 """
 from __future__ import annotations
 import inspect
-import contextlib
 import time
 from datetime import datetime
 from functools import partial
@@ -32,7 +31,7 @@ from typing import (
     Callable,
 )
 
-import arrow
+import pendulum
 import trio
 import tractor
 from async_generator import asynccontextmanager
@@ -46,7 +45,6 @@ from .._cacheables import open_cached_client, async_lifo_cache
 from .. import config
 from ._util import resproc, BrokerError, SymbolNotFound
 from ..log import get_logger, colorize_json, get_console_log
-from . import get_brokermod
 
 
 log = get_logger(__name__)
@@ -601,12 +599,16 @@ class Client:
         sid = sids[symbol]
 
         # get last market open end time
-        est_end = now = arrow.utcnow().to('US/Eastern').floor('minute')
+        est_end = now = pendulum.now('UTC').in_timezoe(
+            'America/New_York').start_of('minute')
+
         # on non-paid feeds we can't retreive the first 15 mins
         wd = now.isoweekday()
         if wd > 5:
             quotes = await self.quote([symbol])
-            est_end = arrow.get(quotes[0]['lastTradeTime'])
+            est_end = pendulum.parse(
+                quotes[0]['lastTradeTime']
+            )
             if est_end.hour == 0:
                 # XXX don't bother figuring out extended hours for now
                 est_end = est_end.replace(hour=17)

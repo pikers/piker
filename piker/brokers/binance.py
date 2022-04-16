@@ -27,7 +27,7 @@ import time
 
 import trio
 from trio_typing import TaskStatus
-import arrow
+import pendulum
 import asks
 from fuzzywuzzy import process as fuzzy
 import numpy as np
@@ -132,7 +132,7 @@ class OHLC:
     bar_wap: float = 0.0
 
 
-# convert arrow timestamp to unixtime in miliseconds
+# convert datetime obj timestamp to unixtime in milliseconds
 def binance_timestamp(when):
     return int((when.timestamp() * 1000) + (when.microsecond / 1000))
 
@@ -230,11 +230,11 @@ class Client:
 
         if start_time is None:
             start_time = binance_timestamp(
-                arrow.utcnow().floor('minute').shift(minutes=-limit)
+                pendulum.now('UTC').start_of('minute').subtract(minutes=limit)
             )
 
         if end_time is None:
-            end_time = binance_timestamp(arrow.utcnow())
+            end_time = binance_timestamp(pendulum.now('UTC'))
 
         # https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
         bars = await self._api(
