@@ -19,6 +19,7 @@ Binance backend
 
 """
 from contextlib import asynccontextmanager as acm
+from datetime import datetime
 from typing import (
     Any, Union, Optional,
     AsyncGenerator, Callable,
@@ -221,20 +222,22 @@ class Client:
     async def bars(
         self,
         symbol: str,
-        start_time: int = None,
-        end_time: int = None,
+        start_dt: Optional[datetime] = None,
+        end_dt: Optional[datetime] = None,
         limit: int = 1000,  # <- max allowed per query
         as_np: bool = True,
 
     ) -> dict:
 
-        if start_time is None:
-            start_time = binance_timestamp(
-                pendulum.now('UTC').start_of('minute').subtract(minutes=limit)
-            )
+        if end_dt is None:
+            end_dt = pendulum.now('UTC')
 
-        if end_time is None:
-            end_time = binance_timestamp(pendulum.now('UTC'))
+        if start_dt is None:
+            start_dt = end_dt.start_of(
+                'minute').subtract(minutes=limit)
+
+        start_time = binance_timestamp(start_dt)
+        end_time = binance_timestamp(end_dt)
 
         # https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
         bars = await self._api(
@@ -379,7 +382,27 @@ async def open_history_client(
 
     # TODO implement history getter for the new storage layer.
     async with open_cached_client('binance') as client:
-        yield client
+
+        async def get_ohlc(
+            end_dt: Optional[datetime] = None,
+            start_dt: Optional[datetime] = None,
+
+        ) -> tuple[
+            np.ndarray,
+            datetime,  # start
+            datetime,  # end
+        ]:
+
+            array = await client.bars(
+                symbol,
+                start_dt=start_dt,
+                end_dt=end_dt,
+            )
+            start_dt = pendulum.from_timestamp(array[0]['time'])
+            end_dt = pendulum.from_timestamp(array[-1]['time'])
+            return array, start_dt, end_dt
+
+        yield get_ohlc
 
 
 async def backfill_bars(
