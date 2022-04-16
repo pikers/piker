@@ -19,7 +19,7 @@ High level chart-widget apis.
 
 '''
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import Qt
@@ -63,6 +63,8 @@ from ._interaction import ChartView
 from ._forms import FieldsForm
 from ._overlay import PlotItemOverlay
 
+if TYPE_CHECKING:
+    from ._display import DisplayState
 
 log = get_logger(__name__)
 
@@ -230,6 +232,7 @@ class GodWidget(QWidget):
             # chart is already in memory so just focus it
             linkedsplits.show()
             linkedsplits.focus()
+            linkedsplits.graphics_cycle()
             await trio.sleep(0)
 
             # resume feeds *after* rendering chart view asap
@@ -346,7 +349,18 @@ class LinkedSplits(QWidget):
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.addWidget(self.splitter)
 
+        # chart-local graphics state that can be passed to
+        # a ``graphic_update_cycle()`` call by any task wishing to
+        # update the UI for a given "chart instance".
+        self.display_state: Optional[DisplayState] = None
+
         self._symbol: Symbol = None
+
+    def graphics_cycle(self, **kwargs) -> None:
+        from . import _display
+        ds = self.display_state
+        if ds:
+            return _display.graphics_update_cycle(ds, **kwargs)
 
     @property
     def symbol(self) -> Symbol:
