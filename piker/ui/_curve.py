@@ -290,9 +290,9 @@ class FastAppendCurve(pg.GraphicsObject):
 
         # XXX: lol brutal, the internals of `CurvePoint` (inherited by
         # our `LineDot`) required ``.getData()`` to work..
-        self.xData = x
-        self.yData = y
-        self._x, self._y = x, y
+        # self.xData = x
+        # self.yData = y
+        # self._x, self._y = x, y
 
         if view_range:
             profiler(f'view range slice {view_range}')
@@ -328,7 +328,7 @@ class FastAppendCurve(pg.GraphicsObject):
 
             # x_last = x_iv[-1]
             # y_last = y_iv[-1]
-            self._last_vr = view_range
+            # self._last_vr = view_range
 
             # self.disable_cache()
             # flip_cache = True

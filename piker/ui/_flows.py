@@ -22,6 +22,7 @@ graphics primitives with underlying FSP related data structures for fast
 incremental update.
 
 '''
+from __future__ import annotations
 from typing import (
     Optional,
     Callable,
@@ -36,8 +37,16 @@ from ..data._sharedmem import (
     ShmArray,
     # attach_shm_array
 )
-from ._ohlc import BarItems
-
+from ._ohlc import (
+    BarItems,
+    gen_qpath,
+)
+from ._curve import (
+    FastAppendCurve,
+)
+from ._compression import (
+    ohlc_flatten,
+)
 
 # class FlowsTable(msgspec.Struct):
 #     '''
@@ -47,6 +56,20 @@ from ._ohlc import BarItems
 
 #     '''
 #     flows: dict[str, np.ndarray] = {}
+
+# @classmethod
+# def from_token(
+#     cls,
+#     shm_token: tuple[
+#         str,
+#         str,
+#         tuple[str, str],
+#     ],
+
+# ) -> Renderer:
+
+#     shm = attach_shm_array(token)
+#     return cls(shm)
 
 
 class Flow(msgspec.Struct):  # , frozen=True):
@@ -61,16 +84,28 @@ class Flow(msgspec.Struct):  # , frozen=True):
     '''
     name: str
     plot: pg.PlotItem
+    graphics: pg.GraphicsObject
+    _shm: ShmArray
+
     is_ohlc: bool = False
     render: bool = True  # toggle for display loop
 
-    graphics: pg.GraphicsObject
+    _last_uppx: float = 0
+    _in_ds: bool = False
+
+    _graphics_tranform_fn: Optional[Callable[ShmArray, np.ndarray]] = None
+
+    # map from uppx -> (downsampled data, incremental graphics)
+    _render_table: dict[
+        Optional[int],
+        tuple[Renderer, pg.GraphicsItem],
+    ] = {}
 
     # TODO: hackery to be able to set a shm later
     # but whilst also allowing this type to hashable,
     # likely will require serializable token that is used to attach
     # to the underlying shm ref after startup?
-    _shm: Optional[ShmArray] = None  # currently, may be filled in "later"
+    # _shm: Optional[ShmArray] = None  # currently, may be filled in "later"
 
     # last read from shm (usually due to an update call)
     _last_read: Optional[np.ndarray] = None
@@ -219,7 +254,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
         '''
         # shm read and slice to view
-        xfirst, xlast, array, ivl, ivr, in_view = self.read()
+        read = xfirst, xlast, array, ivl, ivr, in_view = self.read()
 
         if (
             not in_view.size
@@ -227,10 +262,48 @@ class Flow(msgspec.Struct):  # , frozen=True):
         ):
             return self.graphics
 
-        array_key = array_key or self.name
-
         graphics = self.graphics
         if isinstance(graphics, BarItems):
+
+            # ugh, not luvin dis, should we have just a designated
+            # instance var?
+            r = self._render_table.get('src')
+            if not r:
+                r = Renderer(
+                    flow=self,
+                    draw=gen_qpath,  # TODO: rename this to something with ohlc
+                    last_read=read,
+                )
+                self._render_table['src'] = (r, graphics)
+
+                ds_curve_r = Renderer(
+                    flow=self,
+                    draw=gen_qpath,  # TODO: rename this to something with ohlc
+                    last_read=read,
+                    prerender_fn=ohlc_flatten,
+                )
+
+                # baseline "line" downsampled OHLC curve that should
+                # kick on only when we reach a certain uppx threshold.
+                self._render_table[0] = (
+                    ds_curve_r,
+                    FastAppendCurve(
+                        y=y,
+                        x=x,
+                        name='OHLC',
+                        color=self._color,
+                    ),
+                )
+
+            # do checks for whether or not we require downsampling:
+            # - if we're **not** downsampling then we simply want to
+            #   render the bars graphics curve and update..
+            # - if insteam we are in a downsamplig state then we to
+            #   update our pre-downsample-ready data and then pass that
+            #   new data the downsampler algo for incremental update.
+            else:
+                # do incremental update
+
             graphics.update_from_array(
                 array,
                 in_view,
@@ -239,7 +312,55 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 **kwargs,
             )
 
+            # generate and apply path to graphics obj
+            graphics.path, last = r.render(only_in_view=True)
+            graphics.draw_last(last)
+
         else:
+            # should_ds = False
+            # should_redraw = False
+
+            # # downsampling incremental state checking
+            # uppx = bars.x_uppx()
+            # px_width = bars.px_width()
+            # uppx_diff = (uppx - self._last_uppx)
+
+            # if self.renderer is None:
+            #     self.renderer = Renderer(
+            #         flow=self,
+
+            # if not self._in_ds:
+            #     # in not currently marked as downsampling graphics
+            #     # then only draw the full bars graphic for datums "in
+            #     # view".
+
+            # # check for downsampling conditions
+            # if (
+            #     # std m4 downsample conditions
+            #     px_width
+            #     and uppx_diff >= 4
+            #     or uppx_diff <= -3
+            #     or self._step_mode and abs(uppx_diff) >= 4
+
+            # ):
+            #     log.info(
+            #         f'{self._name} sampler change: {self._last_uppx} -> {uppx}'
+            #     )
+            #     self._last_uppx = uppx
+            #     should_ds = True
+
+            # elif (
+            #     uppx <= 2
+            #     and self._in_ds
+            # ):
+            #     # we should de-downsample back to our original
+            #     # source data so we clear our path data in prep
+            #     # to generate a new one from original source data.
+            #     should_redraw = True
+            #     should_ds = False
+
+            array_key = array_key or self.name
+
             graphics.update_from_array(
                 x=array['index'],
                 y=array[array_key],
@@ -253,51 +374,80 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
         return graphics
 
-        # @classmethod
-        # def from_token(
-        #     cls,
-        #     shm_token: tuple[
-        #         str,
-        #         str,
-        #         tuple[str, str],
-        #     ],
 
-        # ) -> PathRenderer:
+class Renderer(msgspec.Struct):
 
-        #     shm = attach_shm_array(token)
-        #     return cls(shm)
+    flow: Flow
 
+    # called to render path graphics
+    draw: Callable[np.ndarray, QPainterPath]
 
-class PathRenderer(msgspec.Struct):
+    # called on input data but before
+    prerender_fn: Optional[Callable[ShmArray, np.ndarray]] = None
+
+    prepend_fn: Optional[Callable[QPainterPath, QPainterPath]] = None
+    append_fn: Optional[Callable[QPainterPath, QPainterPath]] = None
+
+    # last array view read
+    last_read: Optional[np.ndarray] = None
 
     # output graphics rendering
     path: Optional[QPainterPath] = None
 
-    last_read_src_array: np.ndarray
-    # called on input data but before
-    prerender_fn: Callable[ShmArray, np.ndarray]
+    # def diff(
+    #     self,
+    #     latest_read: tuple[np.ndarray],
 
-    def diff(
-        self,
-    ) -> dict[str, np.ndarray]:
-        ...
-
-    def update(self) -> QPainterPath:
-        '''
-        Incrementally update the internal path graphics from
-        updates in shm data and deliver the new (sub)-path
-        generated.
-
-        '''
-        ...
-
+    # ) -> tuple[np.ndarray]:
+    #     # blah blah blah
+    #     # do diffing for prepend, append and last entry
+    #     return (
+    #         to_prepend
+    #         to_append
+    #         last,
+    #     )
 
     def render(
         self,
+
+        # only render datums "in view" of the ``ChartView``
+        only_in_view: bool = True,
 
     ) -> list[QPainterPath]:
         '''
         Render the current graphics path(s)
 
         '''
-        ...
+        # do full source data render to path
+        xfirst, xlast, array, ivl, ivr, in_view = self.last_read
+
+        if only_in_view:
+            # get latest data from flow shm
+            self.last_read = (
+                xfirst, xlast, array, ivl, ivr, in_view
+            ) = self.flow.read()
+
+            array = in_view
+
+        if self.path is None or in_view:
+            # redraw the entire source data if we have either of:
+            # - no prior path graphic rendered or,
+            # - we always intend to re-render the data only in view
+
+            if self.prerender_fn:
+                array = self.prerender_fn(array)
+
+            hist, last = array[:-1], array[-1]
+
+            # call path render func on history
+            self.path = self.draw(hist)
+
+        elif self.path:
+            print(f'inremental update not supported yet {self.flow.name}')
+            # TODO: do incremental update
+            # prepend, append, last = self.diff(self.flow.read())
+
+            # do path generation for each segment
+            # and then push into graphics object.
+
+        return self.path, last

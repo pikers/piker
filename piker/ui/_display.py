@@ -435,7 +435,6 @@ def graphics_update_cycle(
                 for curve_name, flow in vlm_chart._flows.items():
 
                     if not flow.render:
-                        print(f'skipping flow {curve_name}?')
                         continue
 
                     update_fsp_chart(
