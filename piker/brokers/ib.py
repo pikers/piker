@@ -295,6 +295,10 @@ class Client:
         global _enters
         # log.info(f'REQUESTING BARS {_enters} @ end={end_dt}')
         print(f'REQUESTING BARS {_enters} @ end={end_dt}')
+
+        if not end_dt:
+            end_dt = ''
+
         _enters += 1
 
         contract = await self.find_contract(fqsn)
@@ -1546,8 +1550,8 @@ async def open_history_client(
     async with open_client_proxy() as proxy:
 
         async def get_hist(
-            end_dt: str,
-            start_dt: str = '',
+            end_dt: Optional[datetime] = None,
+            start_dt: Optional[datetime] = None,
 
         ) -> tuple[np.ndarray, str]:
 
