@@ -46,7 +46,7 @@ log = get_logger(__name__)
 
 def bar_from_ohlc_row(
     row: np.ndarray,
-    w: float
+    w: float = 0.43
 
 ) -> tuple[QLineF]:
     '''
@@ -158,8 +158,9 @@ def path_arrays_from_ohlc(
 
 def gen_qpath(
     data: np.ndarray,
-    start: int,  # XXX: do we need this?
-    w: float,
+    start: int = 0,  # XXX: do we need this?
+    # 0.5 is no overlap between arms, 1.0 is full overlap
+    w: float = 0.43,
     path: Optional[QtGui.QPainterPath] = None,
 
 ) -> QtGui.QPainterPath:
@@ -310,7 +311,7 @@ class BarItems(pg.GraphicsObject):
         self._pi.addItem(curve)
         self._ds_line = curve
 
-        self._ds_xrange = (index[0], index[-1])
+        # self._ds_xrange = (index[0], index[-1])
 
         # trigger render
         # https://doc.qt.io/qt-5/qgraphicsitem.html#update
@@ -358,7 +359,7 @@ class BarItems(pg.GraphicsObject):
 
         # index = self.start_index
         istart, istop = self._xrange
-        ds_istart, ds_istop = self._ds_xrange
+        # ds_istart, ds_istop = self._ds_xrange
 
         index = ohlc['index']
         first_index, last_index = index[0], index[-1]
@@ -435,9 +436,6 @@ class BarItems(pg.GraphicsObject):
 
             # stop here since we don't need to update bars path any more
             # as we delegate to the downsample line with updates.
-            profiler.finish()
-            # print('terminating early')
-            return
 
         else:
             # we should be in bars mode
@@ -606,7 +604,7 @@ class BarItems(pg.GraphicsObject):
             if flip_cache:
                 self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
-            profiler.finish()
+            # profiler.finish()
 
     def boundingRect(self):
         # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
