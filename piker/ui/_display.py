@@ -398,9 +398,11 @@ def graphics_update_cycle(
             )
 
             if (
-                (xpx < update_uppx or i_diff > 0)
+                (
+                    xpx < update_uppx or i_diff > 0
+                    and liv
+                )
                 or trigger_all
-                and liv
             ):
                 # TODO: make it so this doesn't have to be called
                 # once the $vlm is up?
@@ -494,6 +496,7 @@ def graphics_update_cycle(
         if (
             xpx < update_uppx
             or i_diff > 0
+            or trigger_all
         ):
             chart.update_graphics_from_array(
                 chart.name,
