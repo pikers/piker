@@ -389,11 +389,13 @@ async def manage_history(
         # a required backend func this must block until shm is
         # filled with first set of ohlc bars
         await bus.nursery.start(
-            start_backfill,
-            mod,
-            bfqsn,
-            shm,
-            do_legacy=True,
+            partial(
+                start_backfill,
+                mod,
+                bfqsn,
+                shm,
+                do_legacy=True,
+            )
         )
 
         # yield back after client connect with filled shm
