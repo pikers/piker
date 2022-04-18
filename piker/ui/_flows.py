@@ -302,6 +302,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
             #   update our pre-downsample-ready data and then pass that
             #   new data the downsampler algo for incremental update.
             else:
+                pass
                 # do incremental update
 
             graphics.update_from_array(
@@ -416,6 +417,14 @@ class Renderer(msgspec.Struct):
     ) -> list[QPainterPath]:
         '''
         Render the current graphics path(s)
+
+        There are (at least) 3 stages from source data to graphics data:
+        - a data transform (which can be stored in additional shm)
+        - a graphics transform which converts discrete basis data to
+          a `float`-basis view-coords graphics basis. (eg. ``ohlc_flatten()``,
+          ``step_path_arrays_from_1d()``, etc.)
+
+        - blah blah blah (from notes)
 
         '''
         # do full source data render to path
