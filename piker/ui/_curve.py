@@ -44,6 +44,7 @@ from ..log import get_logger
 log = get_logger(__name__)
 
 
+# TODO: numba this instead..
 def step_path_arrays_from_1d(
     x: np.ndarray,
     y: np.ndarray,
@@ -119,8 +120,8 @@ class FastAppendCurve(pg.GraphicsObject):
     def __init__(
         self,
 
-        x: np.ndarray,
-        y: np.ndarray,
+        x: np.ndarray = None,
+        y: np.ndarray = None,
         *args,
 
         step_mode: bool = False,
@@ -461,6 +462,7 @@ class FastAppendCurve(pg.GraphicsObject):
         ):
             new_x = x[-append_length - 2:-1]
             new_y = y[-append_length - 2:-1]
+            profiler('sliced append path')
 
             if self._step_mode:
                 new_x, new_y = step_path_arrays_from_1d(
@@ -474,7 +476,12 @@ class FastAppendCurve(pg.GraphicsObject):
                 new_x = new_x[1:]
                 new_y = new_y[1:]
 
-            profiler('diffed append arrays')
+                profiler('generated step data')
+
+            else:
+                profiler(
+                    f'diffed array input, append_length={append_length}'
+                )
 
             if should_ds:
                 new_x, new_y = self.downsample(
@@ -491,6 +498,7 @@ class FastAppendCurve(pg.GraphicsObject):
                 finiteCheck=False,
                 path=self.fast_path,
             )
+            profiler(f'generated append qpath')
 
             if self.use_fpath:
                 # an attempt at trying to make append-updates faster..
