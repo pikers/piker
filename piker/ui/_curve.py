@@ -337,9 +337,6 @@ class FastAppendCurve(pg.GraphicsObject):
         else:
             self._xrange = x[0], x[-1]
 
-        x_last = x[-1]
-        y_last = y[-1]
-
         # check for downsampling conditions
         if (
             # std m4 downsample conditions
@@ -498,7 +495,7 @@ class FastAppendCurve(pg.GraphicsObject):
                 finiteCheck=False,
                 path=self.fast_path,
             )
-            profiler(f'generated append qpath')
+            profiler('generated append qpath')
 
             if self.use_fpath:
                 # an attempt at trying to make append-updates faster..
@@ -537,6 +534,28 @@ class FastAppendCurve(pg.GraphicsObject):
             # self.disable_cache()
             # flip_cache = True
 
+        self.draw_last(x, y)
+        profiler('draw last segment')
+
+        # trigger redraw of path
+        # do update before reverting to cache mode
+        # self.prepareGeometryChange()
+        self.update()
+        profiler('.update()')
+
+        # if flip_cache:
+        #     # XXX: seems to be needed to avoid artifacts (see above).
+        #     self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+
+    def draw_last(
+        self,
+        x: np.ndarray,
+        y: np.ndarray,
+
+    ) -> None:
+        x_last = x[-1]
+        y_last = y[-1]
+
         # draw the "current" step graphic segment so it lines up with
         # the "middle" of the current (OHLC) sample.
         if self._step_mode:
@@ -556,20 +575,8 @@ class FastAppendCurve(pg.GraphicsObject):
         else:
             self._last_line = QLineF(
                 x[-2], y[-2],
-                x[-1], y_last
+                x_last, y_last
             )
-
-        profiler('draw last segment')
-
-        # trigger redraw of path
-        # do update before reverting to cache mode
-        # self.prepareGeometryChange()
-        self.update()
-        profiler('.update()')
-
-        # if flip_cache:
-        #     # XXX: seems to be needed to avoid artifacts (see above).
-        #     self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
     # XXX: lol brutal, the internals of `CurvePoint` (inherited by
     # our `LineDot`) required ``.getData()`` to work..
