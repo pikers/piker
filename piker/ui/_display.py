@@ -96,28 +96,17 @@ def chart_maxmin(
     Compute max and min datums "in view" for range limits.
 
     '''
-    array = ohlcv_shm.array
-    ifirst = array[0]['index']
-
     last_bars_range = chart.bars_range()
-    l, lbar, rbar, r = last_bars_range
-    in_view = array[lbar - ifirst:rbar - ifirst + 1]
+    out = chart.maxmin()
 
-    if not in_view.size:
-        log.warning('Resetting chart to data')
-        chart.default_view()
+    if out is None:
         return (last_bars_range, 0, 0, 0)
 
-    mx, mn = (
-        np.nanmax(in_view['high']),
-        np.nanmin(in_view['low'],)
-    )
+    mn, mx = out
 
     mx_vlm_in_view = 0
     if vlm_chart:
-        mx_vlm_in_view = np.max(
-            in_view['volume']
-        )
+        _, mx_vlm_in_view = vlm_chart.maxmin()
 
     return (
         last_bars_range,
