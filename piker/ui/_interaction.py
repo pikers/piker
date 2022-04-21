@@ -492,7 +492,10 @@ class ChartView(ViewBox):
             log.debug("Max zoom bruh...")
             return
 
-        # if ev.delta() < 0 and vl >= len(chart._flows[chart.name].shm.array) + 666:
+        # if (
+        #     ev.delta() < 0
+        #     and vl >= len(chart._flows[chart.name].shm.array) + 666
+        # ):
         #     log.debug("Min zoom bruh...")
         #     return
 
@@ -748,6 +751,7 @@ class ChartView(ViewBox):
 
         '''
         profiler = pg.debug.Profiler(
+            msg=f'`ChartView._set_yrange()`: `{self.name}`',
             disabled=not pg_profile_enabled(),
             gt=ms_slower_then,
             delayed=True,
@@ -815,6 +819,7 @@ class ChartView(ViewBox):
 
                 if yrange is None:
                     log.warning(f'No yrange provided for {self.name}!?')
+                    print(f"WTF NO YRANGE {self.name}")
                     return
 
             ylow, yhigh = yrange
@@ -851,11 +856,6 @@ class ChartView(ViewBox):
         if src_vb is None:
             src_vb = self
 
-        # such that when a linked chart changes its range
-        # this local view is also automatically changed and
-        # resized to data.
-        src_vb.sigXRangeChanged.connect(self._set_yrange)
-
         # splitter(s) resizing
         src_vb.sigResized.connect(self._set_yrange)
 
@@ -876,11 +876,6 @@ class ChartView(ViewBox):
         self,
     ) -> None:
 
-        # self._chart._static_yrange = 'axis'
-
-        self.sigXRangeChanged.disconnect(
-            self._set_yrange,
-        )
         self.sigResized.disconnect(
             self._set_yrange,
         )
@@ -911,18 +906,20 @@ class ChartView(ViewBox):
 
     def maybe_downsample_graphics(self):
 
-        profiler = pg.debug.Profiler(
-            disabled=not pg_profile_enabled(),
-            gt=3,
-        )
-
         uppx = self.x_uppx()
         if not (
             # we probably want to drop this once we are "drawing in
             # view" for downsampled flows..
-            uppx and uppx > 16
+            uppx and uppx > 6
             and self._ic is not None
         ):
+            profiler = pg.debug.Profiler(
+                msg=f'ChartView.maybe_downsample_graphics() for {self.name}',
+                disabled=not pg_profile_enabled(),
+                # delayed=True,
+                gt=3,
+                # gt=ms_slower_then,
+            )
 
             # TODO: a faster single-loop-iterator way of doing this XD
             chart = self._chart
@@ -931,7 +928,12 @@ class ChartView(ViewBox):
             for chart_name, chart in plots.items():
                 for name, flow in chart._flows.items():
 
-                    if not flow.render:
+                    if (
+                        not flow.render
+
+                        # XXX: super important to be aware of this.
+                        # or not flow.graphics.isVisible()
+                    ):
                         continue
 
                     graphics = flow.graphics
@@ -947,13 +949,17 @@ class ChartView(ViewBox):
                         use_vr=use_vr,
 
                         # gets passed down into graphics obj
-                        profiler=profiler,
+                        # profiler=profiler,
                     )
 
                     profiler(f'range change updated {chart_name}:{name}')
-        else:
-            # don't bother updating since we're zoomed out bigly and
-            # in a pan-interaction, in which case we shouldn't be
-            # doing view-range based rendering (at least not yet).
-            # print(f'{uppx} exiting early!')
-            profiler(f'dowsampling skipped - not in uppx range {uppx} <= 16')
+
+            profiler.finish()
+        # else:
+        #     # don't bother updating since we're zoomed out bigly and
+        #     # in a pan-interaction, in which case we shouldn't be
+        #     # doing view-range based rendering (at least not yet).
+        #     # print(f'{uppx} exiting early!')
+        #     profiler(f'dowsampling skipped - not in uppx range {uppx} <= 16')
+
+        # profiler.finish()
