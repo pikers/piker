@@ -183,16 +183,16 @@ class FastAppendCurve(pg.GraphicsObject):
         # interactions slower (such as zooming) and if so maybe if/when
         # we implement a "history" mode for the view we disable this in
         # that mode?
-        if step_mode:
-            # don't enable caching by default for the case where the
-            # only thing drawn is the "last" line segment which can
-            # have a weird artifact where it won't be fully drawn to its
-            # endpoint (something we saw on trade rate curves)
-            self.setCacheMode(
-                QGraphicsItem.DeviceCoordinateCache
-            )
+        # if step_mode:
+        # don't enable caching by default for the case where the
+        # only thing drawn is the "last" line segment which can
+        # have a weird artifact where it won't be fully drawn to its
+        # endpoint (something we saw on trade rate curves)
+        self.setCacheMode(
+            QGraphicsItem.DeviceCoordinateCache
+        )
 
-        self.update()
+        # self.update()
 
     # TODO: probably stick this in a new parent
     # type which will contain our own version of
@@ -313,7 +313,7 @@ class FastAppendCurve(pg.GraphicsObject):
         uppx_diff = (uppx - self._last_uppx)
 
         new_sample_rate = False
-        should_ds = False
+        should_ds = self._in_ds
         showing_src_data = self._in_ds
         should_redraw = False
 
@@ -330,11 +330,27 @@ class FastAppendCurve(pg.GraphicsObject):
             x_out, y_out = x_iv[:-1], y_iv[:-1]
             profiler(f'view range slice {view_range}')
 
+            ivl, ivr = view_range
+
+            probably_zoom_change = False
+            last_vr = self._vr
+            if last_vr:
+                livl, livr = last_vr
+                if (
+                    ivl < livl
+                    or (ivr - livr) > 2
+                ):
+                    probably_zoom_change = True
+
             if (
-                view_range != self._vr
-                and append_length > 1
+                view_range != last_vr
+                and (
+                    append_length > 1
+                    or probably_zoom_change
+                )
             ):
                 should_redraw = True
+                # print("REDRAWING BRUH")
 
             self._vr = view_range
 
@@ -371,6 +387,7 @@ class FastAppendCurve(pg.GraphicsObject):
             self._last_uppx = uppx
             new_sample_rate = True
             showing_src_data = False
+            should_redraw = True
             should_ds = True
 
         elif (
@@ -504,13 +521,14 @@ class FastAppendCurve(pg.GraphicsObject):
                     f'diffed array input, append_length={append_length}'
                 )
 
-            if should_ds:
-                new_x, new_y = self.downsample(
-                    new_x,
-                    new_y,
-                    **should_ds,
-                )
-                profiler(f'fast path downsample redraw={should_ds}')
+            # if should_ds:
+            #     new_x, new_y = self.downsample(
+            #         new_x,
+            #         new_y,
+            #         px_width,
+            #         uppx,
+            #     )
+            #     profiler(f'fast path downsample redraw={should_ds}')
 
             append_path = pg.functions.arrayToQPath(
                 new_x,
