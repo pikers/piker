@@ -160,7 +160,12 @@ async def broadcast(
             log.error(
                 f'{stream._ctx.chan.uid} dropped connection'
             )
-            subs.remove(stream)
+            try:
+                subs.remove(stream)
+            except ValueError:
+                log.warning(
+                    f'{stream._ctx.chan.uid} sub already removed!?'
+                )
 
 
 @tractor.context
