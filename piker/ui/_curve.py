@@ -138,6 +138,7 @@ class FastAppendCurve(pg.GraphicsObject):
         # brutaaalll, see comments within..
         self._y = self.yData = y
         self._x = self.xData = x
+        self._vr: Optional[tuple] = None
 
         self._name = name
         self.path: Optional[QtGui.QPainterPath] = None
@@ -287,6 +288,17 @@ class FastAppendCurve(pg.GraphicsObject):
             istart, istop = self._xrange
         else:
             self._xrange = istart, istop = x[0], x[-1]
+
+        # compute the length diffs between the first/last index entry in
+        # the input data and the last indexes we have on record from the
+        # last time we updated the curve index.
+        prepend_length = int(istart - x[0])
+        append_length = int(x[-1] - istop)
+
+        # this is the diff-mode, "data"-rendered index
+        # tracking var..
+        self._xrange = x[0], x[-1]
+
         # print(f"xrange: {self._xrange}")
 
         # XXX: lol brutal, the internals of `CurvePoint` (inherited by
@@ -295,37 +307,36 @@ class FastAppendCurve(pg.GraphicsObject):
         # self.yData = y
         # self._x, self._y = x, y
 
-        if view_range:
-            profiler(f'view range slice {view_range}')
-
         # downsampling incremental state checking
         uppx = self.x_uppx()
         px_width = self.px_width()
         uppx_diff = (uppx - self._last_uppx)
 
+        new_sample_rate = False
         should_ds = False
+        showing_src_data = self._in_ds
         should_redraw = False
 
         # if a view range is passed, plan to draw the
         # source ouput that's "in view" of the chart.
-        if view_range and not self._in_ds:
+        if (
+            view_range
+            # and not self._in_ds
+            # and not prepend_length > 0
+        ):
             # print(f'{self._name} vr: {view_range}')
 
             # by default we only pull data up to the last (current) index
             x_out, y_out = x_iv[:-1], y_iv[:-1]
+            profiler(f'view range slice {view_range}')
 
-            # step mode: draw flat top discrete "step"
-            # over the index space for each datum.
-            if self._step_mode:
-                # TODO: numba this bish
-                x_out, y_out = step_path_arrays_from_1d(
-                    x_out,
-                    y_out
-                )
-                profiler('generated step arrays')
+            if (
+                view_range != self._vr
+                and append_length > 1
+            ):
+                should_redraw = True
 
-            should_redraw = True
-            profiler('sliced in-view array history')
+            self._vr = view_range
 
             # x_last = x_iv[-1]
             # y_last = y_iv[-1]
@@ -335,7 +346,15 @@ class FastAppendCurve(pg.GraphicsObject):
             # flip_cache = True
 
         else:
-            self._xrange = x[0], x[-1]
+            # if (
+            #     not view_range
+            #     or self._in_ds
+            # ):
+            # by default we only pull data up to the last (current) index
+            x_out, y_out = x[:-1], y[:-1]
+
+            if prepend_length > 0:
+                should_redraw = True
 
         # check for downsampling conditions
         if (
@@ -350,6 +369,8 @@ class FastAppendCurve(pg.GraphicsObject):
                 f'{self._name} sampler change: {self._last_uppx} -> {uppx}'
             )
             self._last_uppx = uppx
+            new_sample_rate = True
+            showing_src_data = False
             should_ds = True
 
         elif (
@@ -360,49 +381,47 @@ class FastAppendCurve(pg.GraphicsObject):
             # source data so we clear our path data in prep
             # to generate a new one from original source data.
             should_redraw = True
+            new_sample_rate = True
             should_ds = False
-
-        # compute the length diffs between the first/last index entry in
-        # the input data and the last indexes we have on record from the
-        # last time we updated the curve index.
-        prepend_length = int(istart - x[0])
-        append_length = int(x[-1] - istop)
+            showing_src_data = True
 
         # no_path_yet = self.path is None
         if (
             self.path is None
             or should_redraw
-            or should_ds
+            or new_sample_rate
             or prepend_length > 0
         ):
-            if (
-                not view_range
-                or self._in_ds
-            ):
-                # by default we only pull data up to the last (current) index
-                x_out, y_out = x[:-1], y[:-1]
+            # if (
+            #     not view_range
+            #     or self._in_ds
+            # ):
+            #     # by default we only pull data up to the last (current) index
+            #     x_out, y_out = x[:-1], y[:-1]
 
-                # step mode: draw flat top discrete "step"
-                # over the index space for each datum.
-                if self._step_mode:
-                    x_out, y_out = step_path_arrays_from_1d(
-                        x_out,
-                        y_out,
-                    )
-                    # TODO: numba this bish
-                    profiler('generated step arrays')
+            # step mode: draw flat top discrete "step"
+            # over the index space for each datum.
+            if self._step_mode:
+                x_out, y_out = step_path_arrays_from_1d(
+                    x_out,
+                    y_out,
+                )
+                # TODO: numba this bish
+                profiler('generated step arrays')
 
             if should_redraw:
-                profiler('path reversion to non-ds')
                 if self.path:
+                    # print(f'CLEARING PATH {self._name}')
                     self.path.clear()
 
                 if self.fast_path:
                     self.fast_path.clear()
 
-            if should_redraw and not should_ds:
-                if self._in_ds:
-                    log.info(f'DEDOWN -> {self._name}')
+                profiler('cleared paths due to `should_redraw` set')
+
+            if new_sample_rate and showing_src_data:
+                # if self._in_ds:
+                log.info(f'DEDOWN -> {self._name}')
 
                 self._in_ds = False
 
@@ -423,7 +442,12 @@ class FastAppendCurve(pg.GraphicsObject):
                 finiteCheck=False,
                 path=self.path,
             )
-            profiler('generated fresh path')
+            profiler(
+                'generated fresh path\n'
+                f'should_redraw: {should_redraw}\n'
+                f'should_ds: {should_ds}\n'
+                f'new_sample_rate: {new_sample_rate}\n'
+            )
             # profiler(f'DRAW PATH IN VIEW -> {self._name}')
 
             # reserve mem allocs see:
@@ -455,7 +479,7 @@ class FastAppendCurve(pg.GraphicsObject):
 
         elif (
             append_length > 0
-            and not view_range
+            # and not view_range
         ):
             new_x = x[-append_length - 2:-1]
             new_y = y[-append_length - 2:-1]
@@ -696,7 +720,7 @@ class FastAppendCurve(pg.GraphicsObject):
 
         if path:
             p.drawPath(path)
-            profiler('.drawPath(path)')
+            profiler(f'.drawPath(path): {path.capacity()}')
 
         fp = self.fast_path
         if fp:
