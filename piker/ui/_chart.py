@@ -1283,7 +1283,7 @@ class ChartPlotWidget(pg.PlotWidget):
             flow is None
         ):
             log.error(f"flow {flow_key} doesn't exist in chart {self.name} !?")
-            res = 0, 0
+            key = res = 0, 0
 
         else:
             first, l, lbar, rbar, r, last = bars_range or flow.datums_range()
@@ -1291,11 +1291,11 @@ class ChartPlotWidget(pg.PlotWidget):
 
             key = round(lbar), round(rbar)
             res = flow.maxmin(*key)
-            profiler(f'yrange mxmn: {key} -> {res}')
             if res == (None, None):
                 log.error(
                     f"{flow_key} no mxmn for bars_range => {key} !?"
                 )
                 res = 0, 0
 
+        profiler(f'yrange mxmn: {key} -> {res}')
         return res
