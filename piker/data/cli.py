@@ -148,7 +148,7 @@ def storesh(
             enable_modules=['piker.data._ahab'],
         ):
             symbol = symbols[0]
-            await tsdb_history_update(symbol)
+            await tsdb_history_update()
 
     trio.run(main)
 
