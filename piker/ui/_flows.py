@@ -37,7 +37,7 @@ from PyQt5.QtGui import QPainterPath
 
 from ..data._sharedmem import (
     ShmArray,
-    open_shm_array,
+    # open_shm_array,
 )
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._ohlc import (
@@ -48,7 +48,7 @@ from ._curve import (
     FastAppendCurve,
 )
 from ._compression import (
-    ohlc_flatten,
+    # ohlc_flatten,
     ds_m4,
 )
 from ..log import get_logger
@@ -103,15 +103,15 @@ def rowarr_to_path(
     )
 
 
-def ohlc_flat_view(
+def mk_ohlc_flat_copy(
     ohlc_shm: ShmArray,
 
     # XXX: we bind this in currently..
-    x_basis: np.ndarray,
+    # x_basis: np.ndarray,
 
     # vr: Optional[slice] = None,
 
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     '''
     Return flattened-non-copy view into an OHLC shm array.
 
@@ -127,8 +127,8 @@ def ohlc_flat_view(
     )
     # breakpoint()
     y = unstructured.flatten()
-    x = x_basis[:y.size]
-    return x, y
+    # x = x_basis[:y.size]
+    return y
 
 
 class Flow(msgspec.Struct):  # , frozen=True):
@@ -151,7 +151,8 @@ class Flow(msgspec.Struct):  # , frozen=True):
     render: bool = True  # toggle for display loop
     flat: Optional[ShmArray] = None
     x_basis: Optional[np.ndarray] = None
-    _iflat: int = 0
+    _iflat_last: int = 0
+    _iflat_first: int = 0
 
     _last_uppx: float = 0
     _in_ds: bool = False
@@ -344,7 +345,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
         graphics = self.graphics
         if isinstance(graphics, BarItems):
 
-            fields = ['open', 'high', 'low', 'close']
             # if no source data renderer exists create one.
             r = self._src_r
             if not r:
@@ -356,49 +356,11 @@ class Flow(msgspec.Struct):  # , frozen=True):
                     last_read=read,
                 )
 
-                # create a flattened view onto the OHLC array
-                # which can be read as a line-style format
-                shm = self.shm
-
-                # flat = self.flat = self.shm.unstruct_view(fields)
-                self.flat = self.shm.ustruct(fields)
-                self._iflat = self.shm._last.value
-
-                # import pdbpp
-                # pdbpp.set_trace()
-                # assert len(flat._array) == len(self.shm._array[fields])
-
-                x = self.x_basis = (
-                    np.broadcast_to(
-                        shm._array['index'][:, None],
-                        (
-                            shm._array.size,
-                            # 4,  # only ohlc
-                            self.flat.shape[1],
-                        ),
-                    ) + np.array([-0.5, 0, 0, 0.5])
-                )
-
-                # fshm = self.flat = open_shm_array(
-                #     f'{self.name}_flat',
-                #     dtype=flattened.dtype,
-                #     size=flattened.size,
-                # )
-                # fshm.push(flattened)
-
-                # print(f'unstruct diff: {time.time() - start}')
-                # profiler('read unstr view bars to line')
-                # start = self.flat._first.value
-
                 ds_curve_r = Renderer(
                     flow=self,
 
                     # just swap in the flat view
-                    data_t=lambda array: self.flat.array,
-                    # data_t=partial(
-                    #     ohlc_flat_view,
-                    #     self.shm,
-                    # ),
+                    # data_t=lambda array: self.flat.array,
                     last_read=read,
                     draw_path=partial(
                         rowarr_to_path,
@@ -435,12 +397,14 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 should_line
                 and uppx < x_gt
             ):
+                print('FLIPPING TO BARS')
                 should_line = False
 
             elif (
                 not should_line
                 and uppx >= x_gt
             ):
+                print('FLIPPING TO LINE')
                 should_line = True
 
             profiler(f'ds logic complete line={should_line}')
@@ -448,32 +412,98 @@ class Flow(msgspec.Struct):  # , frozen=True):
             # do graphics updates
             if should_line:
 
+                fields = ['open', 'high', 'low', 'close']
+                if self.flat is None:
+                    # create a flattened view onto the OHLC array
+                    # which can be read as a line-style format
+                    shm = self.shm
+
+                    # flat = self.flat = self.shm.unstruct_view(fields)
+                    self.flat = self.shm.ustruct(fields)
+                    first = self._iflat_first = self.shm._first.value
+                    last = self._iflat_last = self.shm._last.value
+
+                    # write pushed data to flattened copy
+                    self.flat[first:last] = rfn.structured_to_unstructured(
+                        self.shm.array[fields]
+                    )
+
+                    # generate an flat-interpolated x-domain
+                    self.x_basis = (
+                        np.broadcast_to(
+                            shm._array['index'][:, None],
+                            (
+                                shm._array.size,
+                                # 4,  # only ohlc
+                                self.flat.shape[1],
+                            ),
+                        ) + np.array([-0.5, 0, 0, 0.5])
+                    )
+                    assert self.flat.any()
+
+                # print(f'unstruct diff: {time.time() - start}')
+                # profiler('read unstr view bars to line')
+                # start = self.flat._first.value
                 # update flatted ohlc copy
-                iflat, ishm = self._iflat, self.shm._last.value
-                to_update = rfn.structured_to_unstructured(
-                    self.shm._array[iflat:ishm][fields]
+                (
+                    iflat_first,
+                    iflat,
+                    ishm_last,
+                    ishm_first,
+                ) = (
+                    self._iflat_first,
+                    self._iflat_last,
+                    self.shm._last.value,
+                    self.shm._first.value
                 )
 
-                # print(to_update)
-                self.flat[iflat:ishm][:] = to_update
+                # check for shm prepend updates since last read.
+                if iflat_first != ishm_first:
+
+                    # write newly prepended data to flattened copy
+                    self.flat[
+                        ishm_first:iflat_first
+                    ] = rfn.structured_to_unstructured(
+                        self.shm.array[fields][:iflat_first]
+                    )
+                    self._iflat_first = ishm_first
+
+                #     # flat = self.flat = self.shm.unstruct_view(fields)
+                #     self.flat = self.shm.ustruct(fields)
+                #     # self._iflat_last = self.shm._last.value
+
+                #     # self._iflat_first = self.shm._first.value
+                #     # do an update for the most recent prepend
+                #     # index
+                #     iflat = ishm_first
+
+                to_update = rfn.structured_to_unstructured(
+                    self.shm._array[iflat:ishm_last][fields]
+                )
+
+                self.flat[iflat:ishm_last][:] = to_update
                 profiler('updated ustruct OHLC data')
 
-                y_flat = self.flat[:ishm]
-                x_flat = self.x_basis[:ishm]
+                # slice out up-to-last step contents
+                y_flat = self.flat[ishm_first:ishm_last]
+                x_flat = self.x_basis[ishm_first:ishm_last]
 
-                self._iflat = ishm
+                # update local last-index tracking
+                self._iflat_last = ishm_last
 
+                # reshape to 1d for graphics rendering
                 y = y_flat.reshape(-1)
                 x = x_flat.reshape(-1)
                 profiler('flattened ustruct OHLC data')
 
+                # do all the same for only in-view data
                 y_iv_flat = y_flat[ivl:ivr]
                 x_iv_flat = x_flat[ivl:ivr]
-
                 y_iv = y_iv_flat.reshape(-1)
                 x_iv = x_iv_flat.reshape(-1)
                 profiler('flattened ustruct in-view OHLC data')
 
+                # legacy full-recompute-everytime method
                 # x, y = ohlc_flatten(array)
                 # x_iv, y_iv = ohlc_flatten(in_view)
                 # profiler('flattened OHLC data')
@@ -486,6 +516,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                     view_range=(ivl, ivr),  # hack
                     profiler=profiler,
                 )
+                curve.show()
                 profiler('updated ds curve')
 
             else:
