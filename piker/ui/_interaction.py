@@ -20,7 +20,6 @@ Chart view box primitives
 """
 from __future__ import annotations
 from contextlib import asynccontextmanager
-# import itertools
 import time
 from typing import Optional, Callable
 
@@ -907,54 +906,59 @@ class ChartView(ViewBox):
     def maybe_downsample_graphics(self):
 
         uppx = self.x_uppx()
-        if not (
-            # we probably want to drop this once we are "drawing in
-            # view" for downsampled flows..
-            uppx and uppx > 6
-            and self._ic is not None
-        ):
-            profiler = pg.debug.Profiler(
-                msg=f'ChartView.maybe_downsample_graphics() for {self.name}',
-                disabled=not pg_profile_enabled(),
-                # delayed=True,
-                gt=3,
-                # gt=ms_slower_then,
-            )
+        # if not (
+        #     # we probably want to drop this once we are "drawing in
+        #     # view" for downsampled flows..
+        #     uppx and uppx > 6
+        #     and self._ic is not None
+        # ):
+        profiler = pg.debug.Profiler(
+            msg=f'ChartView.maybe_downsample_graphics() for {self.name}',
+            disabled=not pg_profile_enabled(),
 
-            # TODO: a faster single-loop-iterator way of doing this XD
-            chart = self._chart
-            linked = self.linkedsplits
-            plots = linked.subplots | {chart.name: chart}
-            for chart_name, chart in plots.items():
-                for name, flow in chart._flows.items():
+            # XXX: important to avoid not seeing underlying
+            # ``.update_graphics_from_flow()`` nested profiling likely
+            # due to the way delaying works and garbage collection of
+            # the profiler in the delegated method calls.
+            delayed=False,
+            # gt=3,
+            # gt=ms_slower_then,
+        )
 
-                    if (
-                        not flow.render
+        # TODO: a faster single-loop-iterator way of doing this XD
+        chart = self._chart
+        linked = self.linkedsplits
+        plots = linked.subplots | {chart.name: chart}
+        for chart_name, chart in plots.items():
+            for name, flow in chart._flows.items():
 
-                        # XXX: super important to be aware of this.
-                        # or not flow.graphics.isVisible()
-                    ):
-                        continue
+                if (
+                    not flow.render
 
-                    graphics = flow.graphics
+                    # XXX: super important to be aware of this.
+                    # or not flow.graphics.isVisible()
+                ):
+                    continue
 
-                    use_vr = False
-                    if isinstance(graphics, BarItems):
-                        use_vr = True
+                graphics = flow.graphics
 
-                    # pass in no array which will read and render from the last
-                    # passed array (normally provided by the display loop.)
-                    chart.update_graphics_from_flow(
-                        name,
-                        use_vr=use_vr,
+                # use_vr = False
+                # if isinstance(graphics, BarItems):
+                #     use_vr = True
 
-                        # gets passed down into graphics obj
-                        # profiler=profiler,
-                    )
+                # pass in no array which will read and render from the last
+                # passed array (normally provided by the display loop.)
+                chart.update_graphics_from_flow(
+                    name,
+                    use_vr=True,
 
-                    profiler(f'range change updated {chart_name}:{name}')
+                    # gets passed down into graphics obj
+                    # profiler=profiler,
+                )
 
-            profiler.finish()
+                profiler(f'range change updated {chart_name}:{name}')
+
+        profiler.finish()
         # else:
         #     # don't bother updating since we're zoomed out bigly and
         #     # in a pan-interaction, in which case we shouldn't be
