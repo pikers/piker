@@ -188,11 +188,7 @@ class FastAppendCurve(pg.GraphicsObject):
         # only thing drawn is the "last" line segment which can
         # have a weird artifact where it won't be fully drawn to its
         # endpoint (something we saw on trade rate curves)
-        self.setCacheMode(
-            QGraphicsItem.DeviceCoordinateCache
-        )
-
-        # self.update()
+        self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
     # TODO: probably stick this in a new parent
     # type which will contain our own version of
@@ -423,6 +419,9 @@ class FastAppendCurve(pg.GraphicsObject):
                     x_out,
                     y_out,
                 )
+                # self.disable_cache()
+                # flip_cache = True
+
                 # TODO: numba this bish
                 profiler('generated step arrays')
 
@@ -513,6 +512,9 @@ class FastAppendCurve(pg.GraphicsObject):
                 # appended path graphic.
                 new_x = new_x[1:]
                 new_y = new_y[1:]
+
+                # self.disable_cache()
+                # flip_cache = True
 
                 profiler('generated step data')
 
