@@ -104,7 +104,9 @@ def chart_maxmin(
 
     mx_vlm_in_view = 0
     if vlm_chart:
-        _, mx_vlm_in_view = vlm_chart.maxmin()
+        out = vlm_chart.maxmin()
+        if out:
+            _, mx_vlm_in_view = out
 
     return (
         last_bars_range,
