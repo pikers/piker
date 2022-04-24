@@ -46,6 +46,7 @@ from ._ohlc import (
 )
 from ._curve import (
     FastAppendCurve,
+    step_path_arrays_from_1d,
 )
 from ._compression import (
     # ohlc_flatten,
@@ -149,8 +150,8 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
     is_ohlc: bool = False
     render: bool = True  # toggle for display loop
-    flat: Optional[ShmArray] = None
-    x_basis: Optional[np.ndarray] = None
+    gy: Optional[ShmArray] = None
+    gx: Optional[np.ndarray] = None
     _iflat_last: int = 0
     _iflat_first: int = 0
 
@@ -360,7 +361,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                     flow=self,
 
                     # just swap in the flat view
-                    # data_t=lambda array: self.flat.array,
+                    # data_t=lambda array: self.gy.array,
                     last_read=read,
                     draw_path=partial(
                         rowarr_to_path,
@@ -413,37 +414,37 @@ class Flow(msgspec.Struct):  # , frozen=True):
             if should_line:
 
                 fields = ['open', 'high', 'low', 'close']
-                if self.flat is None:
+                if self.gy is None:
                     # create a flattened view onto the OHLC array
                     # which can be read as a line-style format
                     shm = self.shm
 
-                    # flat = self.flat = self.shm.unstruct_view(fields)
-                    self.flat = self.shm.ustruct(fields)
+                    # flat = self.gy = self.shm.unstruct_view(fields)
+                    self.gy = self.shm.ustruct(fields)
                     first = self._iflat_first = self.shm._first.value
                     last = self._iflat_last = self.shm._last.value
 
                     # write pushed data to flattened copy
-                    self.flat[first:last] = rfn.structured_to_unstructured(
+                    self.gy[first:last] = rfn.structured_to_unstructured(
                         self.shm.array[fields]
                     )
 
                     # generate an flat-interpolated x-domain
-                    self.x_basis = (
+                    self.gx = (
                         np.broadcast_to(
                             shm._array['index'][:, None],
                             (
                                 shm._array.size,
                                 # 4,  # only ohlc
-                                self.flat.shape[1],
+                                self.gy.shape[1],
                             ),
                         ) + np.array([-0.5, 0, 0, 0.5])
                     )
-                    assert self.flat.any()
+                    assert self.gy.any()
 
                 # print(f'unstruct diff: {time.time() - start}')
                 # profiler('read unstr view bars to line')
-                # start = self.flat._first.value
+                # start = self.gy._first.value
                 # update flatted ohlc copy
                 (
                     iflat_first,
@@ -461,15 +462,15 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 if iflat_first != ishm_first:
 
                     # write newly prepended data to flattened copy
-                    self.flat[
+                    self.gy[
                         ishm_first:iflat_first
                     ] = rfn.structured_to_unstructured(
                         self.shm.array[fields][:iflat_first]
                     )
                     self._iflat_first = ishm_first
 
-                #     # flat = self.flat = self.shm.unstruct_view(fields)
-                #     self.flat = self.shm.ustruct(fields)
+                #     # flat = self.gy = self.shm.unstruct_view(fields)
+                #     self.gy = self.shm.ustruct(fields)
                 #     # self._iflat_last = self.shm._last.value
 
                 #     # self._iflat_first = self.shm._first.value
@@ -481,12 +482,12 @@ class Flow(msgspec.Struct):  # , frozen=True):
                     self.shm._array[iflat:ishm_last][fields]
                 )
 
-                self.flat[iflat:ishm_last][:] = to_update
+                self.gy[iflat:ishm_last][:] = to_update
                 profiler('updated ustruct OHLC data')
 
                 # slice out up-to-last step contents
-                y_flat = self.flat[ishm_first:ishm_last]
-                x_flat = self.x_basis[ishm_first:ishm_last]
+                y_flat = self.gy[ishm_first:ishm_last]
+                x_flat = self.gx[ishm_first:ishm_last]
 
                 # update local last-index tracking
                 self._iflat_last = ishm_last
@@ -577,16 +578,139 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 # graphics.draw_last(last)
 
         else:
-            # ``FastAppendCurve`` case:
 
             array_key = array_key or self.name
 
-            graphics.update_from_array(
-                x=array['index'],
-                y=array[array_key],
+            # ``FastAppendCurve`` case:
+            if graphics._step_mode and self.gy is None:
 
-                x_iv=in_view['index'],
-                y_iv=in_view[array_key],
+                # create a flattened view onto the OHLC array
+                # which can be read as a line-style format
+                shm = self.shm
+
+                # fields = ['index', array_key]
+                i = shm._array['index']
+                out = shm._array[array_key]
+
+                self.gx, self.gy = step_path_arrays_from_1d(i, out)
+
+                # flat = self.gy = self.shm.unstruct_view(fields)
+                # self.gy = self.shm.ustruct(fields)
+                # first = self._iflat_first = self.shm._first.value
+                # last = self._iflat_last = self.shm._last.value
+
+                # # write pushed data to flattened copy
+                # self.gy[first:last] = rfn.structured_to_unstructured(
+                #     self.shm.array[fields]
+                # )
+
+                    # # generate an flat-interpolated x-domain
+                    # self.gx = (
+                    #     np.broadcast_to(
+                    #         shm._array['index'][:, None],
+                    #         (
+                    #             shm._array.size,
+                    #             # 4,  # only ohlc
+                    #             self.gy.shape[1],
+                    #         ),
+                    #     ) + np.array([-0.5, 0, 0, 0.5])
+                    # )
+                    # assert self.gy.any()
+
+                # print(f'unstruct diff: {time.time() - start}')
+                # profiler('read unstr view bars to line')
+                # start = self.gy._first.value
+                # update flatted ohlc copy
+
+            if graphics._step_mode:
+                (
+                    iflat_first,
+                    iflat,
+                    ishm_last,
+                    ishm_first,
+                ) = (
+                    self._iflat_first,
+                    self._iflat_last,
+                    self.shm._last.value,
+                    self.shm._first.value
+                )
+
+                # check for shm prepend updates since last read.
+                if iflat_first != ishm_first:
+
+                    # write newly prepended data to flattened copy
+                    _gx, self.gy[
+                        ishm_first:iflat_first
+                    ] = step_path_arrays_from_1d(
+                        self.shm.array['index'][:iflat_first],
+                        self.shm.array[array_key][:iflat_first],
+                    )
+                    self._iflat_first = ishm_first
+                #     # flat = self.gy = self.shm.unstruct_view(fields)
+                #     self.gy = self.shm.ustruct(fields)
+                #     # self._iflat_last = self.shm._last.value
+
+                #     # self._iflat_first = self.shm._first.value
+                #     # do an update for the most recent prepend
+                #     # index
+                #     iflat = ishm_first
+                if iflat != ishm_last:
+                    _x, to_update = step_path_arrays_from_1d(
+                        self.shm._array[iflat:ishm_last]['index'],
+                        self.shm._array[iflat:ishm_last][array_key],
+                    )
+
+                    # to_update = rfn.structured_to_unstructured(
+                    #     self.shm._array[iflat:ishm_last][fields]
+                    # )
+
+                    # import pdbpp
+                    # pdbpp.set_trace()
+                    self.gy[iflat:ishm_last-1] = to_update
+                    self.gy[-1] = 0
+                    print(f'updating step curve {to_update}')
+                    profiler('updated step curve data')
+
+                # slice out up-to-last step contents
+                x_step = self.gx[ishm_first:ishm_last]
+                x = x_step.reshape(-1)
+                y_step = self.gy[ishm_first:ishm_last]
+                y = y_step.reshape(-1)
+                profiler('sliced step data')
+
+                # update local last-index tracking
+                self._iflat_last = ishm_last
+
+                # reshape to 1d for graphics rendering
+                # y = y_flat.reshape(-1)
+                # x = x_flat.reshape(-1)
+
+                # do all the same for only in-view data
+                y_iv = y_step[ivl:ivr].reshape(-1)
+                x_iv = x_step[ivl:ivr].reshape(-1)
+                # y_iv = y_iv_flat.reshape(-1)
+                # x_iv = x_iv_flat.reshape(-1)
+                profiler('flattened ustruct in-view OHLC data')
+
+                # legacy full-recompute-everytime method
+                # x, y = ohlc_flatten(array)
+                # x_iv, y_iv = ohlc_flatten(in_view)
+                # profiler('flattened OHLC data')
+                graphics.reset_cache()
+
+            else:
+                x = array['index']
+                y = array[array_key]
+                x_iv = in_view['index']
+                y_iv = in_view[array_key]
+
+            graphics.update_from_array(
+                x=x,
+                y=y,
+
+                x_iv=x_iv,
+                y_iv=y_iv,
+
                 view_range=(ivl, ivr) if use_vr else None,
 
                 **kwargs
