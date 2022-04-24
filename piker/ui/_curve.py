@@ -58,36 +58,55 @@ def step_path_arrays_from_1d(
     '''
     y_out = y.copy()
     x_out = x.copy()
-    x2 = np.empty(
-        # the data + 2 endpoints on either end for
-        # "termination of the path".
-        (len(x) + 1, 2),
-        # we want to align with OHLC or other sampling style
-        # bars likely so we need fractinal values
-        dtype=float,
-    )
-    x2[0] = x[0] - 0.5
-    x2[1] = x[0] + 0.5
-    x2[1:] = x[:, np.newaxis] + 0.5
+
+    # x2 = np.empty(
+    #     # the data + 2 endpoints on either end for
+    #     # "termination of the path".
+    #     (len(x) + 1, 2),
+    #     # we want to align with OHLC or other sampling style
+    #     # bars likely so we need fractinal values
+    #     dtype=float,
+    # )
+
+    x2 = np.broadcast_to(
+        x[:, None],
+        (
+            x_out.size,
+            # 4,  # only ohlc
+            2,
+        ),
+    ) + np.array([-0.5, 0.5])
+
+    # x2[0] = x[0] - 0.5
+    # x2[1] = x[0] + 0.5
+    # x2[0, 0] = x[0] - 0.5
+    # x2[0, 1] = x[0] + 0.5
+    # x2[1:] = x[:, np.newaxis] + 0.5
+    # import pdbpp
+    # pdbpp.set_trace()
 
     # flatten to 1-d
-    x_out = x2.reshape(x2.size)
+    # x_out = x2.reshape(x2.size)
+    x_out = x2
 
     # we create a 1d with 2 extra indexes to
     # hold the start and (current) end value for the steps
     # on either end
     y2 = np.empty((len(y), 2), dtype=y.dtype)
     y2[:] = y[:, np.newaxis]
+    y2[-1] = 0
 
-    y_out = np.empty(
-        2*len(y) + 2,
-        dtype=y.dtype
-    )
+    y_out = y2
+
+#     y_out = np.empty(
+#         2*len(y) + 2,
+#         dtype=y.dtype
+#     )
 
     # flatten and set 0 endpoints
-    y_out[1:-1] = y2.reshape(y2.size)
-    y_out[0] = 0
-    y_out[-1] = 0
+    # y_out[1:-1] = y2.reshape(y2.size)
+    # y_out[0] = 0
+    # y_out[-1] = 0
 
     if not include_endpoints:
         return x_out[:-1], y_out[:-1]
@@ -414,16 +433,16 @@ class FastAppendCurve(pg.GraphicsObject):
 
             # step mode: draw flat top discrete "step"
             # over the index space for each datum.
-            if self._step_mode:
-                x_out, y_out = step_path_arrays_from_1d(
-                    x_out,
-                    y_out,
-                )
-                # self.disable_cache()
-                # flip_cache = True
+            # if self._step_mode:
+            #     x_out, y_out = step_path_arrays_from_1d(
+            #         x_out,
+            #         y_out,
+            #     )
+            #     # self.disable_cache()
+            #     # flip_cache = True
 
-                # TODO: numba this bish
-                profiler('generated step arrays')
+            #     # TODO: numba this bish
+            #     profiler('generated step arrays')
 
             if should_redraw:
                 if self.path:
@@ -501,27 +520,26 @@ class FastAppendCurve(pg.GraphicsObject):
             new_y = y[-append_length - 2:-1]
             profiler('sliced append path')
 
-            if self._step_mode:
-                new_x, new_y = step_path_arrays_from_1d(
-                    new_x,
-                    new_y,
-                )
-                # [1:] since we don't need the vertical line normally at
-                # the beginning of the step curve taking the first (x,
-                # y) poing down to the x-axis **because** this is an
-                # appended path graphic.
-                new_x = new_x[1:]
-                new_y = new_y[1:]
+            # if self._step_mode:
+            #     new_x, new_y = step_path_arrays_from_1d(
+            #         new_x,
+            #         new_y,
+            #     )
+            #     # [1:] since we don't need the vertical line normally at
+            #     # the beginning of the step curve taking the first (x,
+            #     # y) poing down to the x-axis **because** this is an
+            #     # appended path graphic.
+            #     new_x = new_x[1:]
+            #     new_y = new_y[1:]
 
-                # self.disable_cache()
-                # flip_cache = True
+            #     # self.disable_cache()
+            #     # flip_cache = True
 
-                profiler('generated step data')
+            #     profiler('generated step data')
 
-            else:
-                profiler(
-                    f'diffed array input, append_length={append_length}'
-                )
+            profiler(
+                f'diffed array input, append_length={append_length}'
+            )
 
             # if should_ds:
             #     new_x, new_y = self.downsample(
@@ -654,6 +672,10 @@ class FastAppendCurve(pg.GraphicsObject):
 
         # self.disable_cache()
         # self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+
+    def reset_cache(self) -> None:
+        self.disable_cache()
+        self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
     def disable_cache(self) -> None:
         '''
