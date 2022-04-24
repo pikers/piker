@@ -1559,7 +1559,7 @@ async def open_history_client(
 
             # TODO: add logic here to handle tradable hours and only grab
             # valid bars in the range
-            if out == (None, None):
+            if out is None:
                 # could be trying to retreive bars over weekend
                 log.error(f"Can't grab bars starting at {end_dt}!?!?")
                 raise NoData(f'{end_dt}')
