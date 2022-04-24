@@ -394,7 +394,7 @@ async def manage_history(
                 mod,
                 bfqsn,
                 shm,
-                do_legacy=True,
+                # do_legacy=True,
             )
         )
 
