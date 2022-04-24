@@ -43,8 +43,8 @@ log = get_logger(__name__)
 # latency (in terms of perceived lag in cross hair) so really be sure
 # there's an improvement if you want to change it!
 
-_mouse_rate_limit = 120  # TODO; should we calc current screen refresh rate?
-_debounce_delay = 1 / 40
+_mouse_rate_limit = 60  # TODO; should we calc current screen refresh rate?
+_debounce_delay = 0
 _ch_label_opac = 1
 
 
