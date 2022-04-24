@@ -259,7 +259,7 @@ class FastAppendCurve(pg.GraphicsObject):
             y,
             px_width=px_width,
             uppx=uppx,
-            log_scale=bool(uppx)
+            # log_scale=bool(uppx)
         )
         x = np.broadcast_to(x[:, None], y.shape)
         # x = (x + np.array([-0.43, 0, 0, 0.43])).flatten()
@@ -391,9 +391,9 @@ class FastAppendCurve(pg.GraphicsObject):
         if (
             # std m4 downsample conditions
             px_width
-            and uppx_diff >= 4
-            or uppx_diff <= -3
-            or self._step_mode and abs(uppx_diff) >= 4
+            and uppx_diff >= 1
+            or uppx_diff <= -1
+            or self._step_mode and abs(uppx_diff) >= 2
 
         ):
             log.info(
@@ -460,7 +460,7 @@ class FastAppendCurve(pg.GraphicsObject):
 
                 self._in_ds = False
 
-            elif should_ds and px_width:
+            elif should_ds and px_width and uppx:
                 x_out, y_out = self.downsample(
                     x_out,
                     y_out,
