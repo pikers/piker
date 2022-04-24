@@ -37,6 +37,7 @@ from trio.abc import ReceiveChannel
 from trio_typing import TaskStatus
 import tractor
 from pydantic import BaseModel
+import pendulum
 import numpy as np
 
 from ..brokers import get_brokermod
@@ -260,10 +261,21 @@ async def start_backfill(
         # let caller unblock and deliver latest history frame
         task_status.started(shm)
 
+        if last_tsdb_dt is None:
+            # maybe a better default (they don't seem to define epoch?!)
+            last_tsdb_dt = pendulum.yesterday()
+
+
         # pull new history frames until we hit latest
         # already in the tsdb
-        # while start_dt > last_tsdb_dt:
-        while True:
+        mx_fills = 16
+        count = 0
+        while (
+            start_dt > last_tsdb_dt
+            and count > mx_fills
+        ):
+        # while True:
+            count += 1
             array, start_dt, end_dt = await hist(end_dt=start_dt)
             to_push = diff_history(
                 array,
