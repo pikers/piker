@@ -45,74 +45,77 @@ log = get_logger(__name__)
 
 
 # TODO: numba this instead..
-def step_path_arrays_from_1d(
-    x: np.ndarray,
-    y: np.ndarray,
-    include_endpoints: bool = False,
+# def step_path_arrays_from_1d(
+#     x: np.ndarray,
+#     y: np.ndarray,
+#     include_endpoints: bool = True,
 
-) -> (np.ndarray, np.ndarray):
-    '''
-    Generate a "step mode" curve aligned with OHLC style bars
-    such that each segment spans each bar (aka "centered" style).
+# ) -> (np.ndarray, np.ndarray):
+#     '''
+#     Generate a "step mode" curve aligned with OHLC style bars
+#     such that each segment spans each bar (aka "centered" style).
 
-    '''
-    y_out = y.copy()
-    x_out = x.copy()
+#     '''
+#     # y_out = y.copy()
+#     # x_out = x.copy()
 
-    # x2 = np.empty(
-    #     # the data + 2 endpoints on either end for
-    #     # "termination of the path".
-    #     (len(x) + 1, 2),
-    #     # we want to align with OHLC or other sampling style
-    #     # bars likely so we need fractinal values
-    #     dtype=float,
-    # )
+#     # x2 = np.empty(
+#     #     # the data + 2 endpoints on either end for
+#     #     # "termination of the path".
+#     #     (len(x) + 1, 2),
+#     #     # we want to align with OHLC or other sampling style
+#     #     # bars likely so we need fractinal values
+#     #     dtype=float,
+#     # )
 
-    x2 = np.broadcast_to(
-        x[:, None],
-        (
-            x_out.size,
-            # 4,  # only ohlc
-            2,
-        ),
-    ) + np.array([-0.5, 0.5])
+#     x2 = np.broadcast_to(
+#         x[:, None],
+#         (
+#             x.size + 1,
+#             # 4,  # only ohlc
+#             2,
+#         ),
+#     ) + np.array([-0.5, 0.5])
 
-    # x2[0] = x[0] - 0.5
-    # x2[1] = x[0] + 0.5
-    # x2[0, 0] = x[0] - 0.5
-    # x2[0, 1] = x[0] + 0.5
-    # x2[1:] = x[:, np.newaxis] + 0.5
-    # import pdbpp
-    # pdbpp.set_trace()
+#     # x2[0] = x[0] - 0.5
+#     # x2[1] = x[0] + 0.5
+#     # x2[0, 0] = x[0] - 0.5
+#     # x2[0, 1] = x[0] + 0.5
+#     # x2[1:] = x[:, np.newaxis] + 0.5
+#     # import pdbpp
+#     # pdbpp.set_trace()
 
-    # flatten to 1-d
-    # x_out = x2.reshape(x2.size)
-    x_out = x2
+#     # flatten to 1-d
+#     # x_out = x2.reshape(x2.size)
+#     # x_out = x2
 
-    # we create a 1d with 2 extra indexes to
-    # hold the start and (current) end value for the steps
-    # on either end
-    y2 = np.empty((len(y), 2), dtype=y.dtype)
-    y2[:] = y[:, np.newaxis]
-    y2[-1] = 0
-
-    y_out = y2
-
-#     y_out = np.empty(
-#         2*len(y) + 2,
-#         dtype=y.dtype
+#     # we create a 1d with 2 extra indexes to
+#     # hold the start and (current) end value for the steps
+#     # on either end
+#     y2 = np.empty(
+#         (len(y) + 1, 2),
+#         dtype=y.dtype,
 #     )
+#     y2[:] = y[:, np.newaxis]
+#     # y2[-1] = 0
 
-    # flatten and set 0 endpoints
-    # y_out[1:-1] = y2.reshape(y2.size)
-    # y_out[0] = 0
-    # y_out[-1] = 0
+#     # y_out = y2
 
-    if not include_endpoints:
-        return x_out[:-1], y_out[:-1]
+# #     y_out = np.empty(
+# #         2*len(y) + 2,
+# #         dtype=y.dtype
+# #     )
 
-    else:
-        return x_out, y_out
+#     # flatten and set 0 endpoints
+#     # y_out[1:-1] = y2.reshape(y2.size)
+#     # y_out[0] = 0
+#     # y_out[-1] = 0
+
+#     if not include_endpoints:
+#         return x2[:-1], y2[:-1]
+
+#     else:
+#         return x2, y2
 
 
 _line_styles: dict[str, int] = {
@@ -158,6 +161,8 @@ class FastAppendCurve(pg.GraphicsObject):
         self._y = self.yData = y
         self._x = self.xData = x
         self._vr: Optional[tuple] = None
+        self._avr: Optional[tuple] = None
+        self._br = None
 
         self._name = name
         self.path: Optional[QtGui.QPainterPath] = None
@@ -171,6 +176,7 @@ class FastAppendCurve(pg.GraphicsObject):
 
         # self._xrange: tuple[int, int] = self.dataBounds(ax=0)
         self._xrange: Optional[tuple[int, int]] = None
+        # self._x_iv_range = None
 
         # self._last_draw = time.time()
         self._in_ds: bool = False
@@ -283,6 +289,10 @@ class FastAppendCurve(pg.GraphicsObject):
 
         view_range: Optional[tuple[int, int]] = None,
         profiler: Optional[pg.debug.Profiler] = None,
+        draw_last: bool = True,
+        slice_to_head: int = -1,
+        do_append: bool = True,
+        should_redraw: bool = False,
 
     ) -> QtGui.QPainterPath:
         '''
@@ -297,7 +307,7 @@ class FastAppendCurve(pg.GraphicsObject):
             disabled=not pg_profile_enabled(),
             gt=ms_slower_then,
         )
-        # flip_cache = False
+        flip_cache = False
 
         if self._xrange:
             istart, istop = self._xrange
@@ -330,7 +340,7 @@ class FastAppendCurve(pg.GraphicsObject):
         new_sample_rate = False
         should_ds = self._in_ds
         showing_src_data = self._in_ds
-        should_redraw = False
+        # should_redraw = False
 
         # if a view range is passed, plan to draw the
         # source ouput that's "in view" of the chart.
@@ -342,32 +352,60 @@ class FastAppendCurve(pg.GraphicsObject):
             # print(f'{self._name} vr: {view_range}')
 
             # by default we only pull data up to the last (current) index
-            x_out, y_out = x_iv[:-1], y_iv[:-1]
+            x_out, y_out = x_iv[:slice_to_head], y_iv[:slice_to_head]
             profiler(f'view range slice {view_range}')
 
-            ivl, ivr = view_range
+            vl, vr = view_range
 
-            probably_zoom_change = False
+            # last_ivr = self._x_iv_range
+            # ix_iv, iy_iv = self._x_iv_range = (x_iv[0], x_iv[-1])
+
+            zoom_or_append = False
             last_vr = self._vr
+            last_ivr = self._avr
+
             if last_vr:
-                livl, livr = last_vr
+                # relative slice indices
+                lvl, lvr = last_vr
+                # abs slice indices
+                al, ar = last_ivr
+
+                # append_length = int(x[-1] - istop)
+                # append_length = int(x_iv[-1] - ar)
+
+                # left_change = abs(x_iv[0] - al) >= 1
+                # right_change = abs(x_iv[-1] - ar) >= 1
+
                 if (
-                    ivl < livl
-                    or (ivr - livr) > 2
+                    # likely a zoom view change
+                    (vr - lvr) > 2 or vl < lvl
+                    # append / prepend update
+                    # we had an append update where the view range
+                    # didn't change but the data-viewed (shifted)
+                    # underneath, so we need to redraw.
+                    # or left_change and right_change and last_vr == view_range
+
+                        # not (left_change and right_change) and ivr
+                    # (
+                    # or abs(x_iv[ivr] - livr) > 1
                 ):
-                    probably_zoom_change = True
+                    zoom_or_append = True
+
+            # if last_ivr:
+            #     liivl, liivr = last_ivr
 
             if (
                 view_range != last_vr
                 and (
                     append_length > 1
-                    or probably_zoom_change
+                    or zoom_or_append
                 )
             ):
                 should_redraw = True
                 # print("REDRAWING BRUH")
 
             self._vr = view_range
+            self._avr = x_iv[0], x_iv[slice_to_head]
 
             # x_last = x_iv[-1]
             # y_last = y_iv[-1]
@@ -382,7 +420,7 @@ class FastAppendCurve(pg.GraphicsObject):
             #     or self._in_ds
             # ):
             # by default we only pull data up to the last (current) index
-            x_out, y_out = x[:-1], y[:-1]
+            x_out, y_out = x[:slice_to_head], y[:slice_to_head]
 
             if prepend_length > 0:
                 should_redraw = True
@@ -434,12 +472,12 @@ class FastAppendCurve(pg.GraphicsObject):
             # step mode: draw flat top discrete "step"
             # over the index space for each datum.
             # if self._step_mode:
+            #     self.disable_cache()
+            #     flip_cache = True
             #     x_out, y_out = step_path_arrays_from_1d(
             #         x_out,
             #         y_out,
             #     )
-            #     # self.disable_cache()
-            #     # flip_cache = True
 
             #     # TODO: numba this bish
             #     profiler('generated step arrays')
@@ -460,7 +498,7 @@ class FastAppendCurve(pg.GraphicsObject):
 
                 self._in_ds = False
 
-            elif should_ds and px_width and uppx:
+            elif should_ds and uppx and px_width > 1:
                 x_out, y_out = self.downsample(
                     x_out,
                     y_out,
@@ -477,11 +515,9 @@ class FastAppendCurve(pg.GraphicsObject):
                 finiteCheck=False,
                 path=self.path,
             )
+            self.prepareGeometryChange()
             profiler(
-                'generated fresh path\n'
-                f'should_redraw: {should_redraw}\n'
-                f'should_ds: {should_ds}\n'
-                f'new_sample_rate: {new_sample_rate}\n'
+                f'generated fresh path. (should_redraw: {should_redraw} should_ds: {should_ds} new_sample_rate: {new_sample_rate})'
             )
             # profiler(f'DRAW PATH IN VIEW -> {self._name}')
 
@@ -514,26 +550,29 @@ class FastAppendCurve(pg.GraphicsObject):
 
         elif (
             append_length > 0
+            and do_append
+            and not should_redraw
             # and not view_range
         ):
-            new_x = x[-append_length - 2:-1]
-            new_y = y[-append_length - 2:-1]
+            print(f'{self._name} append len: {append_length}')
+            new_x = x[-append_length - 2:slice_to_head]
+            new_y = y[-append_length - 2:slice_to_head]
             profiler('sliced append path')
 
             # if self._step_mode:
-            #     new_x, new_y = step_path_arrays_from_1d(
-            #         new_x,
-            #         new_y,
-            #     )
-            #     # [1:] since we don't need the vertical line normally at
-            #     # the beginning of the step curve taking the first (x,
-            #     # y) poing down to the x-axis **because** this is an
-            #     # appended path graphic.
-            #     new_x = new_x[1:]
-            #     new_y = new_y[1:]
+            # #     new_x, new_y = step_path_arrays_from_1d(
+            # #         new_x,
+            # #         new_y,
+            # #     )
+            # #     # [1:] since we don't need the vertical line normally at
+            # #     # the beginning of the step curve taking the first (x,
+            # #     # y) poing down to the x-axis **because** this is an
+            # #     # appended path graphic.
+            # #     new_x = new_x[1:]
+            # #     new_y = new_y[1:]
 
-            #     # self.disable_cache()
-            #     # flip_cache = True
+            #     self.disable_cache()
+            #     flip_cache = True
 
             #     profiler('generated step data')
 
@@ -563,7 +602,7 @@ class FastAppendCurve(pg.GraphicsObject):
                 # an attempt at trying to make append-updates faster..
                 if self.fast_path is None:
                     self.fast_path = append_path
-                    self.fast_path.reserve(int(6e3))
+                    # self.fast_path.reserve(int(6e3))
                 else:
                     self.fast_path.connectPath(append_path)
                     size = self.fast_path.capacity()
@@ -596,18 +635,19 @@ class FastAppendCurve(pg.GraphicsObject):
             # self.disable_cache()
             # flip_cache = True
 
-        self.draw_last(x, y)
-        profiler('draw last segment')
+        if draw_last:
+            self.draw_last(x, y)
+            profiler('draw last segment')
+
+
+        # if flip_cache:
+        # #     # XXX: seems to be needed to avoid artifacts (see above).
+        #     self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
         # trigger redraw of path
         # do update before reverting to cache mode
-        # self.prepareGeometryChange()
         self.update()
         profiler('.update()')
-
-        # if flip_cache:
-        #     # XXX: seems to be needed to avoid artifacts (see above).
-        #     self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
     def draw_last(
         self,
@@ -624,10 +664,14 @@ class FastAppendCurve(pg.GraphicsObject):
             self._last_line = QLineF(
                 x_last - 0.5, 0,
                 x_last + 0.5, 0,
+                # x_last, 0,
+                # x_last, 0,
             )
             self._last_step_rect = QRectF(
                 x_last - 0.5, 0,
                 x_last + 0.5, y_last
+                # x_last, 0,
+                # x_last, y_last
             )
             # print(
             #     f"path br: {self.path.boundingRect()}",
@@ -639,6 +683,8 @@ class FastAppendCurve(pg.GraphicsObject):
                 x[-2], y[-2],
                 x_last, y_last
             )
+
+        self.update()
 
     # XXX: lol brutal, the internals of `CurvePoint` (inherited by
     # our `LineDot`) required ``.getData()`` to work..
@@ -685,7 +731,7 @@ class FastAppendCurve(pg.GraphicsObject):
         # XXX: pretty annoying but, without this there's little
         # artefacts on the append updates to the curve...
         self.setCacheMode(QtWidgets.QGraphicsItem.NoCache)
-        self.prepareGeometryChange()
+        # self.prepareGeometryChange()
 
     def boundingRect(self):
         '''
@@ -705,6 +751,7 @@ class FastAppendCurve(pg.GraphicsObject):
 
         '''
         hb = self.path.controlPointRect()
+        # hb = self.path.boundingRect()
         hb_size = hb.size()
 
         fp = self.fast_path
@@ -713,17 +760,47 @@ class FastAppendCurve(pg.GraphicsObject):
             hb_size = fhb.size() + hb_size
         # print(f'hb_size: {hb_size}')
 
+        # if self._last_step_rect:
+        #     hb_size += self._last_step_rect.size()
+
+        # if self._line:
+        #     br = self._last_step_rect.bottomRight()
+
+        # tl = QPointF(
+        #     # self._vr[0],
+        #     # hb.topLeft().y(),
+        #     # 0,
+        #     # hb_size.height() + 1
+        # )
+
+        # if self._last_step_rect:
+        #     br = self._last_step_rect.bottomRight()
+
+        # else:
+        # hb_size += QSizeF(1, 1)
         w = hb_size.width() + 1
         h = hb_size.height() + 1
+
+        # br = QPointF(
+        #     self._vr[-1],
+        #     # tl.x() + w,
+        #     tl.y() + h,
+        # )
 
         br = QRectF(
 
             # top left
+            # hb.topLeft()
+            # tl,
             QPointF(hb.topLeft()),
 
+            # br,
             # total size
+            # QSizeF(hb_size)
+            # hb_size,
             QSizeF(w, h)
         )
+        self._br = br
         # print(f'bounding rect: {br}')
         return br
 
@@ -740,6 +817,7 @@ class FastAppendCurve(pg.GraphicsObject):
             disabled=not pg_profile_enabled(),
             gt=ms_slower_then,
         )
+        self.prepareGeometryChange()
 
         if (
             self._step_mode
