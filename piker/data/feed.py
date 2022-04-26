@@ -226,18 +226,18 @@ async def start_backfill(
     shm: ShmArray,
 
     last_tsdb_dt: Optional[datetime] = None,
-    do_legacy: bool = False,
+    # do_legacy: bool = False,
 
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
 ) -> int:
 
-    if do_legacy:
-        return await mod.backfill_bars(
-            bfqsn,
-            shm,
-            task_status=task_status,
-        )
+    # if do_legacy:
+    #     return await mod.backfill_bars(
+    #         bfqsn,
+    #         shm,
+    #         task_status=task_status,
+    #     )
 
     async with mod.open_history_client(bfqsn) as hist:
 
@@ -263,16 +263,16 @@ async def start_backfill(
 
         if last_tsdb_dt is None:
             # maybe a better default (they don't seem to define epoch?!)
-            last_tsdb_dt = pendulum.yesterday()
+            last_tsdb_dt = pendulum.now().subtract(days=1)
 
 
         # pull new history frames until we hit latest
-        # already in the tsdb
+        # already in the tsdb or a max count.
         mx_fills = 16
         count = 0
         while (
             start_dt > last_tsdb_dt
-            and count > mx_fills
+            # and count < mx_fills
         ):
         # while True:
             count += 1
@@ -286,6 +286,7 @@ async def start_backfill(
                 # XXX: hacky, just run indefinitely
                 last_tsdb_dt=None,
             )
+            print("fPULLING {count}")
             log.info(f'Pushing {to_push.size} to shm!')
 
             # bail on shm allocation overrun
