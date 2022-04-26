@@ -41,7 +41,7 @@ log = get_logger(__name__)
 # how  much is probably dependent on lifestyle
 _secs_in_day = int(60 * 60 * 24)
 # we try for 3 times but only on a run-every-other-day kinda week.
-_default_size = 10 * _secs_in_day
+_default_size = 20 * _secs_in_day
 # where to start the new data append index
 _rt_buffer_start = int(9*_secs_in_day)
 
