@@ -53,7 +53,7 @@ from ._ohlc import (
 )
 from ._curve import (
     FastAppendCurve,
-    step_path_arrays_from_1d,
+    # step_path_arrays_from_1d,
 )
 from ._compression import (
     # ohlc_flatten,
