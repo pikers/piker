@@ -856,7 +856,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def default_view(
         self,
-        bars_from_y: int = 5000,
+        bars_from_y: int = 3000,
 
     ) -> None:
         '''
