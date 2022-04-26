@@ -34,10 +34,9 @@ import trio
 
 from ..log import get_logger
 from .._profile import pg_profile_enabled, ms_slower_then
-from ._style import _min_points_to_show
+# from ._style import _min_points_to_show
 from ._editors import SelectRect
 from . import _event
-from ._ohlc import BarItems
 
 
 log = get_logger(__name__)
@@ -485,11 +484,11 @@ class ChartView(ViewBox):
 
         # don't zoom more then the min points setting
         l, lbar, rbar, r = chart.bars_range()
-        vl = r - l
+        # vl = r - l
 
-        if ev.delta() > 0 and vl <= _min_points_to_show:
-            log.debug("Max zoom bruh...")
-            return
+        # if ev.delta() > 0 and vl <= _min_points_to_show:
+        #     log.debug("Max zoom bruh...")
+        #     return
 
         # if (
         #     ev.delta() < 0
@@ -570,6 +569,17 @@ class ChartView(ViewBox):
 
             self._resetTarget()
             self.scaleBy(s, focal)
+
+            # XXX: without this is seems as though sometimes
+            # when zooming in from far out (and maybe vice versa?)
+            # the signal isn't being fired enough since if you pan
+            # just after you'll see further downsampling code run
+            # (pretty noticeable on the OHLC ds curve) but with this
+            # that never seems to happen? Only question is how much this
+            # "double work" is causing latency when these missing event
+            # fires don't happen?
+            self.maybe_downsample_graphics()
+
             self.sigRangeChangedManually.emit(mask)
 
             # self._ic.set()
@@ -736,7 +746,7 @@ class ChartView(ViewBox):
 
         # flag to prevent triggering sibling charts from the same linked
         # set from recursion errors.
-        autoscale_linked_plots: bool = True,
+        autoscale_linked_plots: bool = False,
         name: Optional[str] = None,
         # autoscale_overlays: bool = False,
 
@@ -804,7 +814,7 @@ class ChartView(ViewBox):
             #     for chart in plots:
             #         if chart and not chart._static_yrange:
             #             chart.cv._set_yrange(
-            #                 bars_range=br,
+            #                 # bars_range=br,
             #                 autoscale_linked_plots=False,
             #             )
             #     profiler('autoscaled linked plots')
@@ -858,9 +868,6 @@ class ChartView(ViewBox):
         # splitter(s) resizing
         src_vb.sigResized.connect(self._set_yrange)
 
-        # mouse wheel doesn't emit XRangeChanged
-        src_vb.sigRangeChangedManually.connect(self._set_yrange)
-
         # TODO: a smarter way to avoid calling this needlessly?
         # 2 things i can think of:
         # - register downsample-able graphics specially and only
@@ -871,9 +878,15 @@ class ChartView(ViewBox):
             self.maybe_downsample_graphics
         )
 
-    def disable_auto_yrange(
-        self,
-    ) -> None:
+        # mouse wheel doesn't emit XRangeChanged
+        src_vb.sigRangeChangedManually.connect(self._set_yrange)
+
+        # src_vb.sigXRangeChanged.connect(self._set_yrange)
+        # src_vb.sigXRangeChanged.connect(
+        #     self.maybe_downsample_graphics
+        # )
+
+    def disable_auto_yrange(self) -> None:
 
         self.sigResized.disconnect(
             self._set_yrange,
@@ -884,6 +897,11 @@ class ChartView(ViewBox):
         self.sigRangeChangedManually.disconnect(
             self._set_yrange,
         )
+
+        # self.sigXRangeChanged.disconnect(self._set_yrange)
+        # self.sigXRangeChanged.disconnect(
+        #     self.maybe_downsample_graphics
+        # )
 
     def x_uppx(self) -> float:
         '''
@@ -905,13 +923,6 @@ class ChartView(ViewBox):
 
     def maybe_downsample_graphics(self):
 
-        uppx = self.x_uppx()
-        # if not (
-        #     # we probably want to drop this once we are "drawing in
-        #     # view" for downsampled flows..
-        #     uppx and uppx > 6
-        #     and self._ic is not None
-        # ):
         profiler = pg.debug.Profiler(
             msg=f'ChartView.maybe_downsample_graphics() for {self.name}',
             disabled=not pg_profile_enabled(),
@@ -922,7 +933,7 @@ class ChartView(ViewBox):
             # the profiler in the delegated method calls.
             delayed=False,
             # gt=3,
-            # gt=ms_slower_then,
+            gt=ms_slower_then,
         )
 
         # TODO: a faster single-loop-iterator way of doing this XD
@@ -940,12 +951,6 @@ class ChartView(ViewBox):
                 ):
                     continue
 
-                graphics = flow.graphics
-
-                # use_vr = False
-                # if isinstance(graphics, BarItems):
-                #     use_vr = True
-
                 # pass in no array which will read and render from the last
                 # passed array (normally provided by the display loop.)
                 chart.update_graphics_from_flow(
@@ -953,17 +958,9 @@ class ChartView(ViewBox):
                     use_vr=True,
 
                     # gets passed down into graphics obj
-                    # profiler=profiler,
+                    profiler=profiler,
                 )
 
                 profiler(f'range change updated {chart_name}:{name}')
 
         profiler.finish()
-        # else:
-        #     # don't bother updating since we're zoomed out bigly and
-        #     # in a pan-interaction, in which case we shouldn't be
-        #     # doing view-range based rendering (at least not yet).
-        #     # print(f'{uppx} exiting early!')
-        #     profiler(f'dowsampling skipped - not in uppx range {uppx} <= 16')
-
-        # profiler.finish()
