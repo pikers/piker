@@ -329,7 +329,7 @@ def graphics_update_cycle(
     vars = ds.vars
     tick_margin = vars['tick_margin']
 
-    update_uppx = 6
+    update_uppx = 16
 
     for sym, quote in ds.quotes.items():
 
@@ -390,7 +390,8 @@ def graphics_update_cycle(
 
             if (
                 (
-                    xpx < update_uppx or i_diff > 0
+                    xpx < update_uppx
+                    or i_diff > 0
                     and liv
                 )
                 or trigger_all
@@ -399,7 +400,6 @@ def graphics_update_cycle(
                 # once the $vlm is up?
                 vlm_chart.update_graphics_from_flow(
                     'volume',
-
                     # UGGGh, see ``maxmin()`` impl in `._fsp` for
                     # the overlayed plotitems... we need a better
                     # bay to invoke a maxmin per overlay..
@@ -433,6 +433,7 @@ def graphics_update_cycle(
                         flow,
                         curve_name,
                         array_key=curve_name,
+                        do_append=xpx < update_uppx,
                     )
                     # is this even doing anything?
                     # (pretty sure it's the real-time
@@ -494,6 +495,7 @@ def graphics_update_cycle(
         ):
             chart.update_graphics_from_flow(
                 chart.name,
+                do_append=xpx < update_uppx,
             )
 
         # iterate in FIFO order per tick-frame
