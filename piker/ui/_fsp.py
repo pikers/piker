@@ -75,6 +75,7 @@ def update_fsp_chart(
     flow,
     graphics_name: str,
     array_key: Optional[str],
+    **kwargs,
 
 ) -> None:
 
@@ -96,6 +97,7 @@ def update_fsp_chart(
     chart.update_graphics_from_flow(
         graphics_name,
         array_key=array_key or graphics_name,
+        **kwargs,
     )
 
     # XXX: re: ``array_key``: fsp func names must be unique meaning we
@@ -884,10 +886,10 @@ async def open_vlm_displays(
 
         # built-in vlm fsps
         for target, conf in {
-            tina_vwap: {
-                'overlay': 'ohlc',  # overlays with OHLCV (main) chart
-                'anchor': 'session',
-            },
+            # tina_vwap: {
+            #     'overlay': 'ohlc',  # overlays with OHLCV (main) chart
+            #     'anchor': 'session',
+            # },
         }.items():
             started = await admin.open_fsp_chart(
                 target,
