@@ -385,7 +385,12 @@ async def uniform_rate_send(
 
         if left_to_sleep > 0:
             with trio.move_on_after(left_to_sleep) as cs:
-                sym, last_quote = await quote_stream.receive()
+                try:
+                    sym, last_quote = await quote_stream.receive()
+                except trio.EndOfChannel:
+                    log.exception(f"feed for {stream} ended?")
+                    break
+
                 diff = time.time() - last_send
 
                 if not first_quote:
