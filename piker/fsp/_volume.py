@@ -309,7 +309,7 @@ async def flow_rates(
 
         if period > 1:
             trade_rate_wma = _wma(
-                dvlm_shm.array['trade_count'],
+                dvlm_shm.array['trade_count'][-period:],
                 period,
                 weights=weights,
             )
@@ -332,7 +332,7 @@ async def flow_rates(
 
         if period > 1:
             dark_trade_rate_wma = _wma(
-                dvlm_shm.array['dark_trade_count'],
+                dvlm_shm.array['dark_trade_count'][-period:],
                 period,
                 weights=weights,
             )
