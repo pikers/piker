@@ -429,10 +429,7 @@ class FastAppendCurve(pg.GraphicsObject):
         if (
             # std m4 downsample conditions
             px_width
-            and uppx_diff >= 1
-            or uppx_diff <= -1
-            or self._step_mode and abs(uppx_diff) >= 2
-
+            and abs(uppx_diff) >= 1
         ):
             log.info(
                 f'{self._name} sampler change: {self._last_uppx} -> {uppx}'
