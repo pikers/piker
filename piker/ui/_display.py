@@ -63,7 +63,7 @@ from ..log import get_logger
 log = get_logger(__name__)
 
 # TODO: load this from a config.toml!
-_quote_throttle_rate: int = 12  # Hz
+_quote_throttle_rate: int = 22  # Hz
 
 
 # a working tick-type-classes template
