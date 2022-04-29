@@ -689,15 +689,17 @@ async def display_symbol_data(
         # plot historical vwap if available
         wap_in_history = False
 
-        if brokermod._show_wap_in_history:
+        # XXX: FOR SOME REASON THIS IS CAUSING HANGZ!?!
+        # if brokermod._show_wap_in_history:
 
-            if 'bar_wap' in bars.dtype.fields:
-                wap_in_history = True
-                chart.draw_curve(
-                    name='bar_wap',
-                    data=bars,
-                    add_label=False,
-                )
+        #     if 'bar_wap' in bars.dtype.fields:
+        #         wap_in_history = True
+        #         chart.draw_curve(
+        #             name='bar_wap',
+        #             shm=ohlcv,
+        #             color='default_light',
+        #             add_label=False,
+        #         )
 
         # size view to data once at outset
         chart.cv._set_yrange()
