@@ -1482,7 +1482,9 @@ async def get_bars(
 
             if 'No market data permissions for' in msg:
                 # TODO: signalling for no permissions searches
-                raise NoData(f'Symbol: {fqsn}')
+                raise NoData(
+                    f'Symbol: {fqsn}',
+                )
                 break
 
             elif (
@@ -1562,7 +1564,10 @@ async def open_history_client(
             if out is None:
                 # could be trying to retreive bars over weekend
                 log.error(f"Can't grab bars starting at {end_dt}!?!?")
-                raise NoData(f'{end_dt}')
+                raise NoData(
+                    f'{end_dt}',
+                    frame_size=2000,
+                )
 
             bars, bars_array, first_dt, last_dt = out
 
