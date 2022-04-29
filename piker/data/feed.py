@@ -67,6 +67,10 @@ from ._sampling import (
     sample_and_broadcast,
     uniform_rate_send,
 )
+from ..brokers._util import (
+    NoData,
+    DataUnavailable,
+)
 
 
 log = get_logger(__name__)
@@ -273,7 +277,19 @@ async def start_backfill(
             # and count < mx_fills
         ):
             count += 1
-            array, start_dt, end_dt = await hist(end_dt=start_dt)
+            try:
+                array, start_dt, end_dt = await hist(end_dt=start_dt)
+
+            except NoData:
+                # decrement by the diff in time last delivered.
+                end_dt = start_dt.subtract(seconds=(end_dt - start_dt).seconds)
+                continue
+
+            except DataUnavailable:
+                # broker is being a bish and we can't pull
+                # any more..
+                break
+
             to_push = diff_history(
                 array,
                 start_dt,
