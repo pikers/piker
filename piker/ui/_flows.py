@@ -320,7 +320,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
         render: bool = True,
         array_key: Optional[str] = None,
 
-        profiler=None,
+        profiler: Optional[pg.debug.Profiler] = None,
 
         **kwargs,
 
@@ -524,7 +524,10 @@ class Flow(msgspec.Struct):  # , frozen=True):
                     view_range=(ivl, ivr),  # hack
                     profiler=profiler,
                     # should_redraw=False,
-                    # do_append=False,
+
+                    # NOTE: already passed through by display loop?
+                    # do_append=uppx < 16,
+                    **kwargs,
                 )
                 curve.show()
                 profiler('updated ds curve')
@@ -589,6 +592,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
         else:
             # ``FastAppendCurve`` case:
             array_key = array_key or self.name
+            uppx = graphics.x_uppx()
 
             if graphics._step_mode and self.gy is None:
                 self._iflat_first = self.shm._first.value
@@ -834,7 +838,9 @@ class Flow(msgspec.Struct):  # , frozen=True):
                     slice_to_head=-2,
 
                     should_redraw=bool(append_diff),
-                    # do_append=False,
+
+                    # NOTE: already passed through by display loop?
+                    # do_append=uppx < 16,
 
                     **kwargs
                 )
@@ -866,6 +872,8 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
                     view_range=(ivl, ivr) if use_vr else None,
 
+                    # NOTE: already passed through by display loop?
+                    # do_append=uppx < 16,
                     **kwargs
                 )
 
