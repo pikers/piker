@@ -51,6 +51,25 @@ class NoData(BrokerError):
         self.frame_size: int = 1000
 
 
+class DataUnavailable(BrokerError):
+    '''
+    Signal storage requests to terminate.
+
+    '''
+    # TODO: add in a reason that can be displayed in the
+    # UI (for eg. `kraken` is bs and you should complain
+    # to them that you can't pull more OHLC data..)
+
+
+class DataThrottle(BrokerError):
+    '''
+    Broker throttled request rate for data.
+
+    '''
+    # TODO: add in throttle metrics/feedback
+
+
+
 def resproc(
     resp: asks.response_objects.Response,
     log: logging.Logger,
