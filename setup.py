@@ -77,6 +77,14 @@ setup(
         # tsdbs
         'pymarketstore',
     ],
+    extras_require={
+
+        # serialization
+        'tsdb': [
+            'docker',
+        ],
+
+    },
     tests_require=['pytest'],
     python_requires=">=3.9",  # literally for ``datetime.datetime.fromisoformat``...
     keywords=["async", "trading", "finance", "quant", "charting"],
