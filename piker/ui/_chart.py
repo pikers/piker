@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -22,7 +22,11 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import (
+    Qt,
+    QLineF,
+    # QPointF,
+)
 from PyQt5.QtWidgets import (
     QFrame,
     QWidget,
@@ -30,10 +34,11 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QSplitter,
 )
+import msgspec
 import numpy as np
+# from pydantic import BaseModel
 import pyqtgraph as pg
 import trio
-from pydantic import BaseModel
 
 from ._axes import (
     DynamicDateAxis,
@@ -52,15 +57,17 @@ from ._style import (
     CHART_MARGINS,
     _xaxis_at,
     _min_points_to_show,
-    _bars_from_right_in_follow_mode,
-    _bars_to_left_in_follow_mode,
 )
 from ..data.feed import Feed
 from ..data._source import Symbol
-from ..data._sharedmem import ShmArray
+from ..data._sharedmem import (
+    ShmArray,
+    # _Token,
+)
 from ..log import get_logger
 from ._interaction import ChartView
 from ._forms import FieldsForm
+from .._profile import pg_profile_enabled, ms_slower_then
 from ._overlay import PlotItemOverlay
 
 if TYPE_CHECKING:
@@ -238,6 +245,12 @@ class GodWidget(QWidget):
             # resume feeds *after* rendering chart view asap
             chart.resume_all_feeds()
 
+            # TODO: we need a check to see if the chart
+            # last had the xlast in view, if so then shift so it's
+            # still in view, if the user was viewing history then
+            # do nothing yah?
+            chart.default_view()
+
         self.linkedsplits = linkedsplits
         symbol = linkedsplits.symbol
         if symbol is not None:
@@ -376,12 +389,15 @@ class LinkedSplits(QWidget):
         '''
         ln = len(self.subplots)
 
+        # proportion allocated to consumer subcharts
         if not prop:
-            # proportion allocated to consumer subcharts
-            if ln < 2:
-                prop = 1/3
-            elif ln >= 2:
-                prop = 3/8
+            prop = 3/8*5/8
+
+            # if ln < 2:
+            #     prop = 3/8*5/8
+
+            # elif ln >= 2:
+            #     prop = 3/8
 
         major = 1 - prop
         min_h_ind = int((self.height() * prop) / ln)
@@ -642,31 +658,6 @@ class LinkedSplits(QWidget):
                 cpw.sidepane.setMaximumWidth(sp_w)
 
 
-# class FlowsTable(pydantic.BaseModel):
-#     '''
-#     Data-AGGRegate: high level API onto multiple (categorized)
-#     ``Flow``s with high level processing routines for
-#     multi-graphics computations and display.
-
-#     '''
-#     flows: dict[str, np.ndarray] = {}
-
-
-class Flow(BaseModel):
-    '''
-    (FinancialSignal-)Flow compound type which wraps a real-time
-    graphics (curve) and its backing data stream together for high level
-    access and control.
-
-    '''
-    class Config:
-        arbitrary_types_allowed = True
-
-    name: str
-    plot: pg.PlotItem
-    shm: Optional[ShmArray] = None  # may be filled in "later"
-
-
 class ChartPlotWidget(pg.PlotWidget):
     '''
     ``GraphicsView`` subtype containing a single ``PlotItem``.
@@ -821,17 +812,72 @@ class ChartPlotWidget(pg.PlotWidget):
         return int(vr.left()), int(vr.right())
 
     def bars_range(self) -> tuple[int, int, int, int]:
-        """Return a range tuple for the bars present in view.
-        """
+        '''
+        Return a range tuple for the bars present in view.
+
+        '''
         l, r = self.view_range()
         array = self._arrays[self.name]
-        lbar = max(l, array[0]['index'])
-        rbar = min(r, array[-1]['index'])
+        start, stop = self._xrange = (
+            array[0]['index'],
+            array[-1]['index'],
+        )
+        lbar = max(l, start)
+        rbar = min(r, stop)
         return l, lbar, rbar, r
+
+    def curve_width_pxs(
+        self,
+    ) -> float:
+        _, lbar, rbar, _ = self.bars_range()
+        return self.view.mapViewToDevice(
+            QLineF(lbar, 0, rbar, 0)
+        ).length()
+
+    def pre_l1_xs(self) -> tuple[float, float]:
+        '''
+        Return the view x-coord for the value just before
+        the L1 labels on the y-axis as well as the length
+        of that L1 label from the y-axis.
+
+        '''
+        line_end, marker_right, yaxis_x = self.marker_right_points()
+        view = self.view
+        line = view.mapToView(
+            QLineF(line_end, 0, yaxis_x, 0)
+        )
+        return line.x1(), line.length()
+
+    def marker_right_points(
+        self,
+        marker_size: int = 20,
+
+    ) -> (float, float, float):
+        '''
+        Return x-dimension, y-axis-aware, level-line marker oriented scene
+        values.
+
+        X values correspond to set the end of a level line, end of
+        a paried level line marker, and the right most side of the "right"
+        axis respectively.
+
+        '''
+        # TODO: compute some sensible maximum value here
+        # and use a humanized scheme to limit to that length.
+        l1_len = self._max_l1_line_len
+        ryaxis = self.getAxis('right')
+
+        r_axis_x = ryaxis.pos().x()
+        up_to_l1_sc = r_axis_x - l1_len - 10
+
+        marker_right = up_to_l1_sc - (1.375 * 2 * marker_size)
+        line_end = marker_right - (6/16 * marker_size)
+
+        return line_end, marker_right, r_axis_x
 
     def default_view(
         self,
-        index: int = -1,
+        steps_on_screen: Optional[int] = None
 
     ) -> None:
         '''
@@ -839,13 +885,38 @@ class ChartPlotWidget(pg.PlotWidget):
 
         '''
         try:
-            xlast = self._arrays[self.name][index]['index']
+            index = self._arrays[self.name]['index']
         except IndexError:
             log.warning(f'array for {self.name} not loaded yet?')
             return
 
-        begin = xlast - _bars_to_left_in_follow_mode
-        end = xlast + _bars_from_right_in_follow_mode
+        xfirst, xlast = index[0], index[-1]
+        l, lbar, rbar, r = self.bars_range()
+
+        marker_pos, l1_len = self.pre_l1_xs()
+        end = xlast + l1_len + 1
+
+        if (
+            rbar < 0
+            or l < xfirst
+            or (rbar - lbar) < 6
+        ):
+            # set fixed bars count on screen that approx includes as
+            # many bars as possible before a downsample line is shown.
+            begin = xlast - round(6116 / 6)
+
+        else:
+            begin = end - (r - l)
+
+        # for debugging
+        # print(
+        #     f'bars range: {brange}\n'
+        #     f'xlast: {xlast}\n'
+        #     f'marker pos: {marker_pos}\n'
+        #     f'l1 len: {l1_len}\n'
+        #     f'begin: {begin}\n'
+        #     f'end: {end}\n'
+        # )
 
         # remove any custom user yrange setttings
         if self._static_yrange == 'axis':
@@ -858,10 +929,16 @@ class ChartPlotWidget(pg.PlotWidget):
             padding=0,
         )
         view._set_yrange()
+        self.view.maybe_downsample_graphics()
+        try:
+            self.linked.graphics_cycle()
+        except IndexError:
+            pass
 
     def increment_view(
         self,
         steps: int = 1,
+        vb: Optional[ChartView] = None,
 
     ) -> None:
         """
@@ -870,7 +947,8 @@ class ChartPlotWidget(pg.PlotWidget):
 
         """
         l, r = self.view_range()
-        self.view.setXRange(
+        view = vb or self.view
+        view.setXRange(
             min=l + steps,
             max=r + steps,
 
@@ -892,8 +970,10 @@ class ChartPlotWidget(pg.PlotWidget):
 
         '''
         graphics = BarItems(
+            self.linked,
             self.plotItem,
-            pen_color=self.pen_color
+            pen_color=self.pen_color,
+            name=name,
         )
 
         # adds all bar/candle graphics objects for each data point in
@@ -905,6 +985,14 @@ class ChartPlotWidget(pg.PlotWidget):
 
         data_key = array_key or name
         self._graphics[data_key] = graphics
+
+        self._flows[data_key] = Flow(
+            name=name,
+            plot=self.plotItem,
+            is_ohlc=True,
+            graphics=graphics,
+        )
+
         self._add_sticky(name, bg_color='davies')
 
         return graphics, data_key
@@ -945,6 +1033,7 @@ class ChartPlotWidget(pg.PlotWidget):
         )
         pi.hideButtons()
 
+        # cv.enable_auto_yrange(self.view)
         cv.enable_auto_yrange()
 
         # compose this new plot's graphics with the current chart's
@@ -975,6 +1064,7 @@ class ChartPlotWidget(pg.PlotWidget):
         overlay: bool = False,
         color: Optional[str] = None,
         add_label: bool = True,
+        pi: Optional[pg.PlotItem] = None,
 
         **pdi_kwargs,
 
@@ -1002,12 +1092,6 @@ class ChartPlotWidget(pg.PlotWidget):
             # on data reads and makes graphics rendering no faster
             # clipToView=True,
 
-            # TODO: see how this handles with custom ohlcv bars graphics
-            # and/or if we can implement something similar for OHLC graphics
-            # autoDownsample=True,
-            # downsample=60,
-            # downsampleMethod='subsample',
-
             **pdi_kwargs,
         )
 
@@ -1025,7 +1109,14 @@ class ChartPlotWidget(pg.PlotWidget):
         self._graphics[name] = curve
         self._arrays[data_key] = data
 
-        pi = self.plotItem
+        pi = pi or self.plotItem
+
+        self._flows[data_key] = Flow(
+            name=name,
+            plot=pi,
+            is_ohlc=False,
+            graphics=curve,
+        )
 
         # TODO: this probably needs its own method?
         if overlay:
@@ -1035,10 +1126,6 @@ class ChartPlotWidget(pg.PlotWidget):
                             f'{overlay} must be from `.plotitem_overlay()`'
                         )
                 pi = overlay
-
-            # anchor_at = ('bottom', 'left')
-            self._flows[name] = Flow(name=name, plot=pi)
-
         else:
             # anchor_at = ('top', 'left')
 
@@ -1046,7 +1133,17 @@ class ChartPlotWidget(pg.PlotWidget):
             # (we need something that avoids clutter on x-axis).
             self._add_sticky(name, bg_color=color)
 
+        # NOTE: this is more or less the RENDER call that tells Qt to
+        # start showing the generated graphics-curves. This is kind of
+        # of edge-triggered call where once added any
+        # ``QGraphicsItem.update()`` calls are automatically displayed.
+        # Our internal graphics objects have their own "update from
+        # data" style method API that allows for real-time updates on
+        # the next render cycle; just note a lot of the real-time
+        # updates are implicit and require a bit of digging to
+        # understand.
         pi.addItem(curve)
+
         return curve, data_key
 
     # TODO: make this a ctx mngr
@@ -1078,29 +1175,16 @@ class ChartPlotWidget(pg.PlotWidget):
         )
         return last
 
-    def update_ohlc_from_array(
+    def update_graphics_from_array(
         self,
-
         graphics_name: str,
-        array: np.ndarray,
-        **kwargs,
 
-    ) -> pg.GraphicsObject:
-        '''
-        Update the named internal graphics from ``array``.
-
-        '''
-        self._arrays[self.name] = array
-        graphics = self._graphics[graphics_name]
-        graphics.update_from_array(array, **kwargs)
-        return graphics
-
-    def update_curve_from_array(
-        self,
-
-        graphics_name: str,
-        array: np.ndarray,
+        array: Optional[np.ndarray] = None,
         array_key: Optional[str] = None,
+
+        use_vr: bool = True,
+        render: bool = True,
+
         **kwargs,
 
     ) -> pg.GraphicsObject:
@@ -1108,31 +1192,63 @@ class ChartPlotWidget(pg.PlotWidget):
         Update the named internal graphics from ``array``.
 
         '''
-        assert len(array)
+        if array is not None:
+            assert len(array)
+
         data_key = array_key or graphics_name
-
         if graphics_name not in self._flows:
-            self._arrays[self.name] = array
-        else:
+            data_key = self.name
+
+        if array is not None:
+            # write array to internal graphics table
             self._arrays[data_key] = array
+        else:
+            array = self._arrays[data_key]
 
-        curve = self._graphics[graphics_name]
+        # array key and graphics "name" might be different..
+        graphics = self._graphics[graphics_name]
 
-        # NOTE: back when we weren't implementing the curve graphics
-        # ourselves you'd have updates using this method:
-        # curve.setData(y=array[graphics_name], x=array['index'], **kwargs)
+        # compute "in-view" indices
+        l, lbar, rbar, r = self.bars_range()
+        indexes = array['index']
+        ifirst = indexes[0]
+        ilast = indexes[-1]
 
-        # NOTE: graphics **must** implement a diff based update
-        # operation where an internal ``FastUpdateCurve._xrange`` is
-        # used to determine if the underlying path needs to be
-        # pre/ap-pended.
-        curve.update_from_array(
-            x=array['index'],
-            y=array[data_key],
-            **kwargs
-        )
+        lbar_i = max(l, ifirst) - ifirst
+        rbar_i = min(r, ilast) - ifirst
 
-        return curve
+        # TODO: we could do it this way as well no?
+        # to_draw = array[lbar - ifirst:(rbar - ifirst) + 1]
+        in_view = array[lbar_i: rbar_i + 1]
+
+        if (
+            not in_view.size
+            or not render
+        ):
+            return graphics
+
+        if isinstance(graphics, BarItems):
+            graphics.update_from_array(
+                array,
+                in_view,
+                view_range=(lbar_i, rbar_i) if use_vr else None,
+
+                **kwargs,
+            )
+
+        else:
+            graphics.update_from_array(
+                x=array['index'],
+                y=array[data_key],
+
+                x_iv=in_view['index'],
+                y_iv=in_view[data_key],
+                view_range=(lbar_i, rbar_i) if use_vr else None,
+
+                **kwargs
+            )
+
+        return graphics
 
     # def _label_h(self, yhigh: float, ylow: float) -> float:
     #     # compute contents label "height" in view terms
@@ -1163,6 +1279,9 @@ class ChartPlotWidget(pg.PlotWidget):
 
     #     print(f"bounds (ylow, yhigh): {(ylow, yhigh)}")
 
+    # TODO: pretty sure we can just call the cursor
+    # directly not? i don't wee why we need special "signal proxies"
+    # for this lul..
     def enterEvent(self, ev):  # noqa
         # pg.PlotWidget.enterEvent(self, ev)
         self.sig_mouse_enter.emit(self)
@@ -1187,6 +1306,22 @@ class ChartPlotWidget(pg.PlotWidget):
         else:
             return ohlc['index'][-1]
 
+    def in_view(
+        self,
+        array: np.ndarray,
+
+    ) -> np.ndarray:
+        '''
+        Slice an input struct array providing only datums
+        "in view" of this chart.
+
+        '''
+        l, lbar, rbar, r = self.bars_range()
+        ifirst = array[0]['index']
+        # slice data by offset from the first index
+        # available in the passed datum set.
+        return array[lbar - ifirst:(rbar - ifirst) + 1]
+
     def maxmin(
         self,
         name: Optional[str] = None,
@@ -1199,46 +1334,131 @@ class ChartPlotWidget(pg.PlotWidget):
         If ``bars_range`` is provided use that range.
 
         '''
-        l, lbar, rbar, r = bars_range or self.bars_range()
-        # TODO: logic to check if end of bars in view
-        # extra = view_len - _min_points_to_show
-        # begin = self._arrays['ohlc'][0]['index'] - extra
-        # # end = len(self._arrays['ohlc']) - 1 + extra
-        # end = self._arrays['ohlc'][-1]['index'] - 1 + extra
+        profiler = pg.debug.Profiler(
+            msg=f'`{str(self)}.maxmin()` loop cycle for: `{self.name}`',
+            disabled=not pg_profile_enabled(),
+            gt=ms_slower_then,
+            delayed=True,
+        )
 
-        # bars_len = rbar - lbar
-        # log.debug(
-        #     f"\nl: {l}, lbar: {lbar}, rbar: {rbar}, r: {r}\n"
-        #     f"view_len: {view_len}, bars_len: {bars_len}\n"
-        #     f"begin: {begin}, end: {end}, extra: {extra}"
-        # )
+        l, lbar, rbar, r = bars_range or self.bars_range()
+        profiler(f'{self.name} got bars range')
 
         # TODO: here we should instead look up the ``Flow.shm.array``
         # and read directly from shm to avoid copying to memory first
         # and then reading it again here.
-        a = self._arrays.get(name or self.name)
-        if a is None:
-            return None
-
-        ifirst = a[0]['index']
-        bars = a[lbar - ifirst:(rbar - ifirst) + 1]
-
-        if not len(bars):
-            # likely no data loaded yet or extreme scrolling?
-            log.error(f"WTF bars_range = {lbar}:{rbar}")
-            return
-
+        flow_key = name or self.name
+        flow = self._flows.get(flow_key)
         if (
-            self.data_key == self.linked.symbol.key
+            flow is None
         ):
-            # ohlc sampled bars hi/lo lookup
-            ylow = np.nanmin(bars['low'])
-            yhigh = np.nanmax(bars['high'])
+            log.error(f"flow {flow_key} doesn't exist in chart {self.name} !?")
+            res = 0, 0
 
         else:
-            view = bars[name or self.data_key]
-            ylow = np.nanmin(view)
-            yhigh = np.nanmax(view)
+            key = round(lbar), round(rbar)
+            res = flow.maxmin(*key)
+            profiler(f'yrange mxmn: {key} -> {res}')
+            if res == (None, None):
+                log.error(
+                    f"{flow_key} no mxmn for bars_range => {key} !?"
+                )
+                res = 0, 0
 
-        # print(f'{(ylow, yhigh)}')
-        return ylow, yhigh
+        return res
+
+
+# class FlowsTable(pydantic.BaseModel):
+#     '''
+#     Data-AGGRegate: high level API onto multiple (categorized)
+#     ``Flow``s with high level processing routines for
+#     multi-graphics computations and display.
+
+#     '''
+#     flows: dict[str, np.ndarray] = {}
+
+
+class Flow(msgspec.Struct):  # , frozen=True):
+    '''
+    (FinancialSignal-)Flow compound type which wraps a real-time
+    graphics (curve) and its backing data stream together for high level
+    access and control.
+
+    The intention is for this type to eventually be capable of shm-passing
+    of incrementally updated graphics stream data between actors.
+
+    '''
+    name: str
+    plot: pg.PlotItem
+    is_ohlc: bool = False
+    graphics: pg.GraphicsObject
+
+    # TODO: hackery to be able to set a shm later
+    # but whilst also allowing this type to hashable,
+    # likely will require serializable token that is used to attach
+    # to the underlying shm ref after startup?
+    _shm: Optional[ShmArray] = None  # currently, may be filled in "later"
+
+    # cache of y-range values per x-range input.
+    _mxmns: dict[tuple[int, int], tuple[float, float]] = {}
+
+    @property
+    def shm(self) -> ShmArray:
+        return self._shm
+
+    @shm.setter
+    def shm(self, shm: ShmArray) -> ShmArray:
+        self._shm = shm
+
+    def maxmin(
+        self,
+        lbar,
+        rbar,
+
+    ) -> tuple[float, float]:
+        '''
+        Compute the cached max and min y-range values for a given
+        x-range determined by ``lbar`` and ``rbar``.
+
+        '''
+        rkey = (lbar, rbar)
+        cached_result = self._mxmns.get(rkey)
+        if cached_result:
+            return cached_result
+
+        shm = self.shm
+        if shm is None:
+            mxmn = None
+
+        else:  # new block for profiling?..
+            arr = shm.array
+
+            # build relative indexes into shm array
+            # TODO: should we just add/use a method
+            # on the shm to do this?
+            ifirst = arr[0]['index']
+            slice_view = arr[
+                lbar - ifirst:
+                (rbar - ifirst) + 1
+            ]
+
+            if not slice_view.size:
+                mxmn = None
+
+            else:
+                if self.is_ohlc:
+                    ylow = np.min(slice_view['low'])
+                    yhigh = np.max(slice_view['high'])
+
+                else:
+                    view = slice_view[self.name]
+                    ylow = np.min(view)
+                    yhigh = np.max(view)
+
+                mxmn = ylow, yhigh
+
+            if mxmn is not None:
+                # cache new mxmn result
+                self._mxmns[rkey] = mxmn
+
+            return mxmn

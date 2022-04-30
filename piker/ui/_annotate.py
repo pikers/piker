@@ -26,8 +26,6 @@ from PyQt5.QtWidgets import QGraphicsPathItem
 from pyqtgraph import Point, functions as fn, Color
 import numpy as np
 
-from ._anchors import marker_right_points
-
 
 def mk_marker_path(
 
@@ -116,7 +114,7 @@ class LevelMarker(QGraphicsPathItem):
 
         self.get_level = get_level
         self._on_paint = on_paint
-        self.scene_x = lambda: marker_right_points(chart)[1]
+        self.scene_x = lambda: chart.marker_right_points()[1]
         self.level: float = 0
         self.keep_in_view = keep_in_view
 
@@ -169,7 +167,7 @@ class LevelMarker(QGraphicsPathItem):
         vr = view.state['viewRange']
         ymn, ymx = vr[1]
 
-        # _, marker_right, _ = marker_right_points(line._chart)
+        # _, marker_right, _ = line._chart.marker_right_points()
         x = self.scene_x()
 
         if self.style == '>|':  # short style, points "down-to" line

@@ -261,7 +261,10 @@ async def cascade(
     destination shm array buffer.
 
     '''
-    profiler = pg.debug.Profiler(delayed=False, disabled=False)
+    profiler = pg.debug.Profiler(
+        delayed=False,
+        disabled=False
+    )
 
     if loglevel:
         get_console_log(loglevel)

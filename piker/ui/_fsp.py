@@ -72,11 +72,15 @@ def has_vlm(ohlcv: ShmArray) -> bool:
 
 def update_fsp_chart(
     chart: ChartPlotWidget,
-    shm: ShmArray,
+    flow,
     graphics_name: str,
     array_key: Optional[str],
 
 ) -> None:
+
+    shm = flow.shm
+    if not shm:
+        return
 
     array = shm.array
     last_row = try_read(array)
@@ -89,7 +93,7 @@ def update_fsp_chart(
     # update graphics
     # NOTE: this does a length check internally which allows it
     # staying above the last row check below..
-    chart.update_curve_from_array(
+    chart.update_graphics_from_array(
         graphics_name,
         array,
         array_key=array_key or graphics_name,
@@ -246,7 +250,6 @@ async def run_fsp_ui(
                 overlay=True,
                 color='default_light',
                 array_key=name,
-                separate_axes=conf.get('separate_axes', False),
                 **conf.get('chart_kwargs', {})
             )
             # specially store ref to shm for lookup in display loop
@@ -272,6 +275,7 @@ async def run_fsp_ui(
             # data looked up from the chart's internal array set.
             # TODO: we must get a data view api going STAT!!
             chart._shm = shm
+            chart._flows[chart.data_key].shm = shm
 
             # should **not** be the same sub-chart widget
             assert chart.name != linkedsplits.chart.name
@@ -283,7 +287,7 @@ async def run_fsp_ui(
         # first UI update, usually from shm pushed history
         update_fsp_chart(
             chart,
-            shm,
+            chart._flows[array_key],
             name,
             array_key=array_key,
         )
@@ -426,6 +430,7 @@ class FspAdmin:
             ) as (ctx, last_index),
             ctx.open_stream() as stream,
         ):
+
             # register output data
             self._registry[
                 (fqsn, ns_path)
@@ -634,6 +639,7 @@ async def open_vlm_displays(
             # the curve item internals are pretty convoluted.
             style='step',
         )
+        chart._flows['volume'].shm = ohlcv
 
         # force 0 to always be in view
         def maxmin(
@@ -679,7 +685,7 @@ async def open_vlm_displays(
 
         last_val_sticky.update_from_data(-1, value)
 
-        vlm_curve = chart.update_curve_from_array(
+        vlm_curve = chart.update_graphics_from_array(
             'volume',
             shm.array,
         )
@@ -756,19 +762,14 @@ async def open_vlm_displays(
                 'dark_trade_rate',
             ]
 
-            # add custom auto range handler
-            dvlm_pi.vb._maxmin = partial(
+            group_mxmn = partial(
                 maxmin,
                 # keep both regular and dark vlm in view
                 names=fields + dvlm_rate_fields,
             )
 
-            # TODO: is there a way to "sync" the dual axes such that only
-            # one curve is needed?
-            # hide the original vlm curve since the $vlm one is now
-            # displayed and the curves are effectively the same minus
-            # liquidity events (well at least on low OHLC periods - 1s).
-            vlm_curve.hide()
+            # add custom auto range handler
+            dvlm_pi.vb._maxmin = group_mxmn
 
             # use slightly less light (then bracket) gray
             # for volume from "main exchange" and a more "bluey"
@@ -802,13 +803,16 @@ async def open_vlm_displays(
                         color=color,
                         step_mode=step_mode,
                         style=style,
+                        pi=pi,
                     )
 
                     # TODO: we need a better API to do this..
                     # specially store ref to shm for lookup in display loop
                     # since only a placeholder of `None` is entered in
                     # ``.draw_curve()``.
-                    chart._flows[name].shm = shm
+                    flow = chart._flows[name]
+                    assert flow.plot is pi
+                    flow.shm = shm
 
             chart_curves(
                 fields,
@@ -835,6 +839,17 @@ async def open_vlm_displays(
                 dvlm_pi,
                 fr_shm,
             )
+
+            # TODO: is there a way to "sync" the dual axes such that only
+            # one curve is needed?
+            # hide the original vlm curve since the $vlm one is now
+            # displayed and the curves are effectively the same minus
+            # liquidity events (well at least on low OHLC periods - 1s).
+            vlm_curve.hide()
+            chart.removeItem(vlm_curve)
+            chart._flows.pop('volume')
+            # avoid range sorting on volume once disabled
+            chart.view.disable_auto_yrange()
 
             # Trade rate overlay
             # XXX: requires an additional overlay for
@@ -875,7 +890,10 @@ async def open_vlm_displays(
                 style='dash',
             )
 
-            for pi in (dvlm_pi, tr_pi):
+            for pi in (
+                dvlm_pi,
+                tr_pi,
+            ):
                 for name, axis_info in pi.axes.items():
                     # lol this sux XD
                     axis = axis_info['item']

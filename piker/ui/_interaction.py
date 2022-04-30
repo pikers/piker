@@ -20,6 +20,7 @@ Chart view box primitives
 """
 from __future__ import annotations
 from contextlib import asynccontextmanager
+# import itertools
 import time
 from typing import Optional, Callable
 
@@ -33,9 +34,11 @@ import numpy as np
 import trio
 
 from ..log import get_logger
+from .._profile import pg_profile_enabled, ms_slower_then
 from ._style import _min_points_to_show
 from ._editors import SelectRect
 from . import _event
+from ._ohlc import BarItems
 
 
 log = get_logger(__name__)
@@ -318,6 +321,7 @@ async def handle_viewmode_mouse(
         ):
             # when in order mode, submit execution
             # msg.event.accept()
+            # breakpoint()
             view.order_mode.submit_order()
 
 
@@ -356,13 +360,13 @@ class ChartView(ViewBox):
     ):
         super().__init__(
             parent=parent,
+            name=name,
             # TODO: look into the default view padding
             # support that might replace somem of our
             # ``ChartPlotWidget._set_yrange()`
             # defaultPadding=0.,
             **kwargs
         )
-
         # for "known y-range style"
         self._static_yrange = static_yrange
         self._maxmin = None
@@ -384,6 +388,34 @@ class ChartView(ViewBox):
         self.order_mode: bool = False
 
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
+        self._ic = None
+
+    def start_ic(
+        self,
+    ) -> None:
+        '''
+        Signal the beginning of a click-drag interaction
+        to any interested task waiters.
+
+        '''
+        if self._ic is None:
+            self.chart.pause_all_feeds()
+            self._ic = trio.Event()
+
+    def signal_ic(
+        self,
+        *args,
+
+    ) -> None:
+        '''
+        Signal the end of a click-drag interaction
+        to any waiters.
+
+        '''
+        if self._ic:
+            self._ic.set()
+            self._ic = None
+            self.chart.resume_all_feeds()
 
     @asynccontextmanager
     async def open_async_input_handler(
@@ -435,7 +467,8 @@ class ChartView(ViewBox):
         axis=None,
         relayed_from: ChartView = None,
     ):
-        '''Override "center-point" location for scrolling.
+        '''
+        Override "center-point" location for scrolling.
 
         This is an override of the ``ViewBox`` method simply changing
         the center of the zoom to be the y-axis.
@@ -536,6 +569,11 @@ class ChartView(ViewBox):
             self._resetTarget()
             self.scaleBy(s, focal)
             self.sigRangeChangedManually.emit(mask)
+
+            # self._ic.set()
+            # self._ic = None
+            # self.chart.resume_all_feeds()
+
             ev.accept()
 
     def mouseDragEvent(
@@ -618,6 +656,11 @@ class ChartView(ViewBox):
                 # XXX: WHY
                 ev.accept()
 
+                self.start_ic()
+                # if self._ic is None:
+                #     self.chart.pause_all_feeds()
+                #     self._ic = trio.Event()
+
                 if axis == 1:
                     self.chart._static_yrange = 'axis'
 
@@ -634,6 +677,12 @@ class ChartView(ViewBox):
                     self.translateBy(x=x, y=y)
 
                 self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
+
+                if ev.isFinish():
+                    self.signal_ic()
+                    # self._ic.set()
+                    # self._ic = None
+                    # self.chart.resume_all_feeds()
 
         # WEIRD "RIGHT-CLICK CENTER ZOOM" MODE
         elif button & QtCore.Qt.RightButton:
@@ -698,6 +747,11 @@ class ChartView(ViewBox):
         data set.
 
         '''
+        profiler = pg.debug.Profiler(
+            disabled=not pg_profile_enabled(),
+            gt=ms_slower_then,
+            delayed=True,
+        )
         set_range = True
         chart = self._chart
 
@@ -725,31 +779,41 @@ class ChartView(ViewBox):
         # Make sure min bars/datums on screen is adhered.
         else:
             br = bars_range or chart.bars_range()
+            profiler(f'got bars range: {br}')
 
             # TODO: maybe should be a method on the
             # chart widget/item?
-            if autoscale_linked_plots:
-                # avoid recursion by sibling plots
-                linked = self.linkedsplits
-                plots = list(linked.subplots.copy().values())
-                main = linked.chart
-                if main:
-                    plots.append(main)
+            # if False:
+            # if autoscale_linked_plots:
+            #     # avoid recursion by sibling plots
+            #     linked = self.linkedsplits
+            #     plots = list(linked.subplots.copy().values())
+            #     main = linked.chart
+            #     if main:
+            #         plots.append(main)
 
-                for chart in plots:
-                    if chart and not chart._static_yrange:
-                        chart.cv._set_yrange(
-                            bars_range=br,
-                            autoscale_linked_plots=False,
-                        )
+            #     for chart in plots:
+            #         if chart and not chart._static_yrange:
+            #             chart.cv._set_yrange(
+            #                 bars_range=br,
+            #                 autoscale_linked_plots=False,
+            #             )
+            #     profiler('autoscaled linked plots')
 
         if set_range:
 
-            yrange = self._maxmin()
-            if yrange is None:
-                return
+            if not yrange:
+                # XXX: only compute the mxmn range
+                # if none is provided as input!
+                yrange = self._maxmin()
+
+                if yrange is None:
+                    log.warning(f'No yrange provided for {self.name}!?')
+                    return
 
             ylow, yhigh = yrange
+
+            profiler(f'maxmin(): {yrange}')
 
             # view margins: stay within a % of the "true range"
             diff = yhigh - ylow
@@ -764,9 +828,11 @@ class ChartView(ViewBox):
                 yMax=yhigh,
             )
             self.setYRange(ylow, yhigh)
+            profiler(f'set limits: {(ylow, yhigh)}')
 
     def enable_auto_yrange(
-        vb: ChartView,
+        self,
+        src_vb: Optional[ChartView] = None,
 
     ) -> None:
         '''
@@ -774,13 +840,107 @@ class ChartView(ViewBox):
         based on data contents and ``ViewBox`` state.
 
         '''
-        vb.sigXRangeChanged.connect(vb._set_yrange)
+        if src_vb is None:
+            src_vb = self
+
+        # such that when a linked chart changes its range
+        # this local view is also automatically changed and
+        # resized to data.
+        src_vb.sigXRangeChanged.connect(self._set_yrange)
+
+        # splitter(s) resizing
+        src_vb.sigResized.connect(self._set_yrange)
+
         # mouse wheel doesn't emit XRangeChanged
-        vb.sigRangeChangedManually.connect(vb._set_yrange)
-        vb.sigResized.connect(vb._set_yrange)  # splitter(s) resizing
+        src_vb.sigRangeChangedManually.connect(self._set_yrange)
+
+        # TODO: a smarter way to avoid calling this needlessly?
+        # 2 things i can think of:
+        # - register downsample-able graphics specially and only
+        #   iterate those.
+        # - only register this when certain downsampleable graphics are
+        #   "added to scene".
+        src_vb.sigRangeChangedManually.connect(
+            self.maybe_downsample_graphics
+        )
 
     def disable_auto_yrange(
         self,
     ) -> None:
 
-        self._chart._static_yrange = 'axis'
+        # self._chart._static_yrange = 'axis'
+
+        self.sigXRangeChanged.disconnect(
+            self._set_yrange,
+        )
+        self.sigResized.disconnect(
+            self._set_yrange,
+        )
+        self.sigRangeChangedManually.disconnect(
+            self.maybe_downsample_graphics
+        )
+        self.sigRangeChangedManually.disconnect(
+            self._set_yrange,
+        )
+
+    def x_uppx(self) -> float:
+        '''
+        Return the "number of x units" within a single
+        pixel currently being displayed for relevant
+        graphics items which are our children.
+
+        '''
+        graphics = list(self._chart._graphics.values())
+        if not graphics:
+            return 0
+
+        for graphic in graphics:
+            xvec = graphic.pixelVectors()[0]
+            if xvec:
+                return xvec.x()
+        else:
+            return 0
+
+    def maybe_downsample_graphics(self):
+
+        uppx = self.x_uppx()
+        if (
+            # we probably want to drop this once we are "drawing in
+            # view" for downsampled flows..
+            uppx and uppx > 16
+            and self._ic is not None
+        ):
+            # don't bother updating since we're zoomed out bigly and
+            # in a pan-interaction, in which case we shouldn't be
+            # doing view-range based rendering (at least not yet).
+            # print(f'{uppx} exiting early!')
+            return
+
+        profiler = pg.debug.Profiler(
+            disabled=not pg_profile_enabled(),
+            gt=3,
+            delayed=True,
+        )
+
+        # TODO: a faster single-loop-iterator way of doing this XD
+        chart = self._chart
+        linked = self.linkedsplits
+        plots = linked.subplots | {chart.name: chart}
+        for chart_name, chart in plots.items():
+            for name, flow in chart._flows.items():
+                graphics = flow.graphics
+
+                use_vr = False
+                if isinstance(graphics, BarItems):
+                    use_vr = True
+
+                # pass in no array which will read and render from the last
+                # passed array (normally provided by the display loop.)
+                chart.update_graphics_from_array(
+                    name,
+                    use_vr=use_vr,
+                    profiler=profiler,
+                )
+                profiler(f'range change updated {chart_name}:{name}')
+
+        profiler.finish()
