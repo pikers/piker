@@ -323,7 +323,7 @@ async def start_backfill(
                 # broker is being a bish and we can't pull
                 # any more..
                 log.warning('backend halted on data deliver !?!?')
-                # break
+                return input_end_dt, None
 
             to_push = diff_history(
                 array,
@@ -361,6 +361,11 @@ async def start_backfill(
             # Then iterate over the return values, as they become available
             # (i.e., not necessarily in the original order)
             async for input_end_dt, outcome in outcomes:
+
+                # no data available case..
+                if outcome is None:
+                    break
+
                 try:
                     out = outcome.unwrap()
                 except Exception:
