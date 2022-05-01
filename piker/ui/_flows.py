@@ -377,8 +377,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
                 )
                 curve = FastAppendCurve(
-                    # y=y,
-                    # x=x,
                     name='OHLC',
                     color=graphics._color,
                 )
@@ -610,7 +608,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
                     (i.size, 2),
                 ) + np.array([-0.5, 0.5])
 
-
                 # self.gy = np.broadcast_to(
                 #     out[:, None], (out.size, 2),
                 # )
@@ -619,36 +616,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
                 # start y at origin level
                 self.gy[0, 0] = 0
-
-                # self.gx, self.gy = step_path_arrays_from_1d(i, out)
-
-                # flat = self.gy = self.shm.unstruct_view(fields)
-                # self.gy = self.shm.ustruct(fields)
-                # first = self._iflat_first = self.shm._first.value
-                # last = self._iflat_last = self.shm._last.value
-
-                # # write pushed data to flattened copy
-                # self.gy[first:last] = rfn.structured_to_unstructured(
-                #     self.shm.array[fields]
-                # )
-
-                    # # generate an flat-interpolated x-domain
-                    # self.gx = (
-                    #     np.broadcast_to(
-                    #         shm._array['index'][:, None],
-                    #         (
-                    #             shm._array.size,
-                    #             # 4,  # only ohlc
-                    #             self.gy.shape[1],
-                    #         ),
-                    #     ) + np.array([-0.5, 0, 0, 0.5])
-                    # )
-                    # assert self.gy.any()
-
-                # print(f'unstruct diff: {time.time() - start}')
-                # profiler('read unstr view bars to line')
-                # start = self.gy._first.value
-                # update flatted ohlc copy
 
             if graphics._step_mode:
                 (
@@ -670,8 +637,11 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
                     print(f'prepend {array_key}')
 
-                    i_prepend = self.shm._array['index'][ishm_first:iflat_first]
-                    y_prepend = self.shm._array[array_key][ishm_first:iflat_first]
+                    # i_prepend = self.shm._array['index'][
+                    #   ishm_first:iflat_first]
+                    y_prepend = self.shm._array[array_key][
+                        ishm_first:iflat_first
+                    ]
 
                     y2_prepend = np.broadcast_to(
                         y_prepend[:, None], (y_prepend.size, 2),
@@ -679,66 +649,19 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
                     # write newly prepended data to flattened copy
                     self.gy[ishm_first:iflat_first] = y2_prepend
-                    # ] = step_path_arrays_from_1d(
-                    # ] = step_path_arrays_from_1d(
-                    #     i_prepend,
-                    #     y_prepend,
-                    # )
                     self._iflat_first = ishm_first
 
-                #     # flat = self.gy = self.shm.unstruct_view(fields)
-                #     self.gy = self.shm.ustruct(fields)
-                #     # self._iflat_last = self.shm._last.value
-
-                #     # self._iflat_first = self.shm._first.value
-                #     # do an update for the most recent prepend
-                #     # index
-                #     iflat = ishm_first
                 append_diff = ishm_last - iflat
-                # if iflat != ishm_last:
                 if append_diff:
 
                     # slice up to the last datum since last index/append update
-                    new_x = self.shm._array[il:ishm_last]['index']#.copy()
-                    new_y = self.shm._array[il:ishm_last][array_key]#.copy()
-
-                    # _x, to_update = step_path_arrays_from_1d(new_x, new_y)
-
-                    # new_x2 = = np.broadcast_to(
-                    #     new_x2[:, None],
-                    #     (new_x2.size, 2),
-                    # ) + np.array([-0.5, 0.5])
+                    # new_x = self.shm._array[il:ishm_last]['index']
+                    new_y = self.shm._array[il:ishm_last][array_key]
 
                     new_y2 = np.broadcast_to(
                         new_y[:, None], (new_y.size, 2),
                     )
-                    # new_y2 = np.empty((len(new_y), 2), dtype=new_y.dtype)
-                    # new_y2[:] = new_y[:, np.newaxis]
-
-                    # import pdbpp
-                    # pdbpp.set_trace()
-
-                    # print(
-                    #     f'updating step curve {to_update}\n'
-                    #     f'last array val: {new_x}, {new_y}'
-                    # )
-
-                    # to_update = rfn.structured_to_unstructured(
-                    #     self.shm._array[iflat:ishm_last][fields]
-                    # )
-
-                    # if not to_update.any():
-                    # if new_y.any() and not to_update.any():
-                    #     import pdbpp
-                    #     pdbpp.set_trace()
-
-                    # print(f'{array_key} new values new_x:{new_x}, new_y:{new_y}')
-                    # head, last = to_update[:-1], to_update[-1]
                     self.gy[il:ishm_last] = new_y2
-
-                    gy = self.gy[il:ishm_last]
-
-                    # self.gy[-1] = to_update[-1]
                     profiler('updated step curve data')
 
                     # print(
@@ -752,42 +675,22 @@ class Flow(msgspec.Struct):  # , frozen=True):
                     # update local last-index tracking
                     self._iflat_last = ishm_last
 
-                # (
-                #     iflat_first,
-                #     iflat,
-                #     ishm_last,
-                #     ishm_first,
-                # ) = (
-                #     self._iflat_first,
-                #     self._iflat_last,
-                #     self.shm._last.value,
-                #     self.shm._first.value
-                # )
-                # graphics.draw_last(last['index'], last[array_key])
-
                 # slice out up-to-last step contents
                 x_step = self.gx[ishm_first:ishm_last+2]
-                # x_step[-1] = last['index']
-                # x_step[-1] = last['index']
-                # to 1d
+                # shape to 1d
                 x = x_step.reshape(-1)
 
                 y_step = self.gy[ishm_first:ishm_last+2]
                 lasts = self.shm.array[['index', array_key]]
                 last = lasts[array_key][-1]
                 y_step[-1] = last
-                # to 1d
+                # shape to 1d
                 y = y_step.reshape(-1)
-                # y[-1] = 0
 
                 # s = 6
                 # print(f'lasts: {x[-2*s:]}, {y[-2*s:]}')
 
                 profiler('sliced step data')
-
-                # reshape to 1d for graphics rendering
-                # y = y_flat.reshape(-1)
-                # x = x_flat.reshape(-1)
 
                 # do all the same for only in-view data
                 ys_iv = y_step[ivl:ivr+1]
@@ -800,8 +703,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 #     f'xs_iv: {xs_iv[-s:]}\n'
                 #     f'x_iv: {x_iv[-s:]}\n'
                 # )
-                # y_iv = y_iv_flat.reshape(-1)
-                # x_iv = x_iv_flat.reshape(-1)
                 profiler('flattened ustruct in-view OHLC data')
 
                 # legacy full-recompute-everytime method
@@ -814,14 +715,10 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 graphics._last_line = QLineF(
                     x_last - 0.5, 0,
                     x_last + 0.5, 0,
-                    # x_last, 0,
-                    # x_last, 0,
                 )
                 graphics._last_step_rect = QRectF(
                     x_last - 0.5, 0,
                     x_last + 0.5, y_last,
-                    # x_last, 0,
-                    # x_last, y_last
                 )
                 # graphics.update()
 
@@ -852,8 +749,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 #     f"full br: {graphics._br}\n",
                 # )
 
-                # graphics.boundingRect()
-
             else:
                 x = array['index']
                 y = array[array_key]
@@ -861,7 +756,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 y_iv = in_view[array_key]
 
                 # graphics.draw_last(x, y)
-                profiler('draw last segment {array_key}')
+                profiler(f'draw last segment {array_key}')
 
                 graphics.update_from_array(
                     x=x,
