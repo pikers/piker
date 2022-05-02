@@ -366,7 +366,7 @@ def graphics_update_cycle(
         mx = mx_in_view + tick_margin
         mn = mn_in_view - tick_margin
         profiler('maxmin call')
-        liv = r > i_step  # the last datum is in view
+        liv = r >= i_step  # the last datum is in view
 
         # don't real-time "shift" the curve to the
         # left unless we get one of the following:
@@ -374,7 +374,6 @@ def graphics_update_cycle(
             (
                 i_diff > 0  # no new sample step
                 and xpx < 4  # chart is zoomed out very far
-                and r >= i_step  # the last datum isn't in view
                 and liv
             )
             or trigger_all
@@ -589,6 +588,7 @@ def graphics_update_cycle(
                 main_vb._ic is None
                 or not main_vb._ic.is_set()
             ):
+                # print(f'updating range due to mxmn')
                 main_vb._set_yrange(
                     # TODO: we should probably scale
                     # the view margin based on the size
@@ -599,7 +599,8 @@ def graphics_update_cycle(
                     yrange=(mn, mx),
                 )
 
-            vars['last_mx'], vars['last_mn'] = mx, mn
+        # XXX: update this every draw cycle to make L1-always-in-view work.
+        vars['last_mx'], vars['last_mn'] = mx, mn
 
         # run synchronous update on all linked flows
         for curve_name, flow in chart._flows.items():
