@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Any
 import decimal
 
+from bidict import bidict
 import numpy as np
 from pydantic import BaseModel
 # from numba import from_dtype
@@ -47,16 +48,16 @@ base_ohlc_dtype = np.dtype(ohlc_fields)
 # https://github.com/numba/numba/issues/4511
 # numba_ohlc_dtype = from_dtype(base_ohlc_dtype)
 
-# map time frame "keys" to minutes values
-tf_in_1m = {
-    '1m': 1,
-    '5m':  5,
-    '15m': 15,
-    '30m':  30,
-    '1h': 60,
-    '4h': 240,
-    '1d': 1440,
-}
+# map time frame "keys" to seconds values
+tf_in_1s = bidict({
+    1: '1s',
+    60: '1m',
+    60*5: '5m',
+    60*15: '15m',
+    60*30: '30m',
+    60*60: '1h',
+    60*60*24: '1d',
+})
 
 
 def mk_fqsn(
