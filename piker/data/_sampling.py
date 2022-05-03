@@ -146,13 +146,21 @@ async def broadcast(
     # a given sample period.
     subs = sampler.subscribers.get(delay_s, ())
 
+    last = -1
+
     if shm is None:
-        lowest = min(sampler.ohlcv_shms.keys())
-        shm = sampler.ohlcv_shms[lowest][0]
+        periods = sampler.ohlcv_shms.keys()
+        # if this is an update triggered by a history update there
+        # might not actually be any sampling bus setup since there's
+        # no "live feed" active yet.
+        if periods:
+            lowest = min(periods)
+            shm = sampler.ohlcv_shms[lowest][0]
+            last = shm._last.value
 
     for stream in subs:
         try:
-            await stream.send({'index': shm._last.value})
+            await stream.send({'index': last})
         except (
             trio.BrokenResourceError,
             trio.ClosedResourceError
