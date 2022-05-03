@@ -351,7 +351,7 @@ class ShmArray:
             # tries to access ``.array`` (which due to the index
             # overlap will be empty). Pretty sure we've fixed it now
             # but leaving this here as a reminder.
-            if prepend and update_first:
+            if prepend and update_first and length:
                 assert index < self._first.value
 
             if (
