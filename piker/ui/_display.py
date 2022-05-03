@@ -29,6 +29,7 @@ from typing import Optional, Any, Callable
 import numpy as np
 import tractor
 import trio
+import pendulum
 import pyqtgraph as pg
 
 from .. import brokers
@@ -47,6 +48,7 @@ from ._fsp import (
     open_vlm_displays,
 )
 from ..data._sharedmem import ShmArray
+from ..data._source import tf_in_1s
 from ._forms import (
     FieldsForm,
     mk_order_pane_layout,
@@ -664,11 +666,17 @@ async def display_symbol_data(
         symbol = feed.symbols[sym]
         fqsn = symbol.front_fqsn()
 
+        times = bars['time']
+        end = pendulum.from_timestamp(times[-1])
+        start = pendulum.from_timestamp(times[times != times[-1]][-1])
+        step_size_s = (end - start).seconds
+        tf_key = tf_in_1s[step_size_s]
+
         # load in symbol's ohlc data
         godwidget.window.setWindowTitle(
             f'{fqsn} '
             f'tick:{symbol.tick_size} '
-            f'step:1s '
+            f'step:{tf_key} '
         )
 
         linked = godwidget.linkedsplits
