@@ -407,14 +407,27 @@ async def start_backfill(
                 )
 
                 # reset dtrange gen to new start point
-                next_end = iter_dts_gen.send(start_dt)
-                log.info(
-                    f'Reset frame index to start at {start_dt}\n'
-                    f'Was at {next_end}'
-                )
+                try:
+                    next_end = iter_dts_gen.send(start_dt)
+                    log.info(
+                        f'Reset frame index to start at {start_dt}\n'
+                        f'Was at {next_end}'
+                    )
 
-                # TODO: can we avoid this?
-                earliest_end_dt = start_dt
+                    # NOTE: manually set "earliest end datetime" index-value
+                    # to avoid the request loop getting confused about
+                    # new frames that are earlier in history - i.e. this
+                    # **is not** the case of out-of-order frames from
+                    # an async batch request.
+                    earliest_end_dt = start_dt
+
+                except StopIteration:
+                    # gen already terminated meaning we probably already
+                    # exhausted it via frame requests.
+                    log.info(
+                        f"Datetime index already exhausted, can't reset.."
+                    )
+
 
             to_push = diff_history(
                 array,
