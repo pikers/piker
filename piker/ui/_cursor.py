@@ -191,6 +191,9 @@ class ContentsLabel(pg.LabelItem):
 
         self.setText(
             "<b>i</b>:{index}<br/>"
+            # NB: these fields must be indexed in the correct order via
+            # the slice syntax below.
+            "<b>epoch</b>:{}<br/>"
             "<b>O</b>:{}<br/>"
             "<b>H</b>:{}<br/>"
             "<b>L</b>:{}<br/>"
@@ -198,7 +201,15 @@ class ContentsLabel(pg.LabelItem):
             "<b>V</b>:{}<br/>"
             "<b>wap</b>:{}".format(
                 *array[index - first][
-                    ['open', 'high', 'low', 'close', 'volume', 'bar_wap']
+                    [
+                        'time',
+                        'open',
+                        'high',
+                        'low',
+                        'close',
+                        'volume',
+                        'bar_wap',
+                    ]
                 ],
                 name=name,
                 index=index,
