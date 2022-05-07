@@ -308,10 +308,11 @@ async def start_backfill(
         frames = {}
 
         def iter_dts(start: datetime):
+
             while True:
 
                 hist_period = pendulum.period(
-                    start.subtract(seconds=step_size_s),
+                    start,
                     last_tsdb_dt,
                 )
                 dtrange = hist_period.range('seconds', frame_size_s)
@@ -323,8 +324,6 @@ async def start_backfill(
                     # if caller sends a new start date, reset to that
                     if start is not None:
                         log.warning(f'Resetting date range: {start}')
-                        # import pdbpp
-                        # pdbpp.set_trace()
                         break
                 else:
                     # from while
