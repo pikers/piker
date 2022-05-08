@@ -494,7 +494,6 @@ async def tsdb_history_update(
     ):
         profiler(f'opened feed for {fqsn}')
 
-
         to_append = feed.shm.array
         to_prepend = None
 
@@ -511,6 +510,9 @@ async def tsdb_history_update(
             # hist diffing
             if tsdb_arrays:
                 onesec = tsdb_arrays[1]
+
+                # these aren't currently used but can be referenced from
+                # within the embedded ipython shell below.
                 to_append = ohlcv[ohlcv['time'] > onesec['Epoch'][-1]]
                 to_prepend = ohlcv[ohlcv['time'] < onesec['Epoch'][0]]
 
