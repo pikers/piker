@@ -128,7 +128,6 @@ async def open_docker(
     finally:
         if client:
             client.close()
-            # client.api._custom_adapter.close()
             for c in client.containers.list():
                 c.kill()
 
@@ -210,7 +209,6 @@ class Container:
             return True
 
         except docker.errors.APIError as err:
-            # _err = err
             if 'is not running' in err.explanation:
                 return False
 
@@ -223,17 +221,13 @@ class Container:
 
         with trio.move_on_after(0.5) as cs:
             cs.shield = True
-            # print('PROCESSINGN LOGS')
             await self.process_logs_until('initiating graceful shutdown')
-            # print('SHUTDOWN REPORTED BY CONTAINER')
             await self.process_logs_until('exiting...',)
 
         for _ in range(10):
             with trio.move_on_after(0.5) as cs:
                 cs.shield = True
-                # print('waiting on EXITING')
                 await self.process_logs_until('exiting...',)
-                # print('got EXITING')
                 break
 
             if cs.cancelled_caught:
@@ -280,7 +274,7 @@ async def open_marketstored(
         5993:5993 alpacamarkets/marketstore:latest
 
     '''
-    log = get_console_log('info', name=__name__)
+    get_console_log('info', name=__name__)
 
     async with open_docker() as client:
 
@@ -335,33 +329,12 @@ async def open_marketstored(
 
         await ctx.started((cntr.cntr.id, os.getpid()))
 
-        # async with ctx.open_stream() as stream:
-
         try:
 
             # TODO: we might eventually want a proxy-style msg-prot here
             # to allow remote control of containers without needing
             # callers to have root perms?
             await trio.sleep_forever()
-
-            # await cntr.cancel()
-            # with trio.CancelScope(shield=True):
-            #     # block for the expected "teardown log msg"..
-            #     # await cntr.process_logs_until('exiting...',)
-
-            #     # only msg should be to signal killing the
-            #     # container and this super daemon.
-            #     msg = await stream.receive()
-            #     # print("GOT CANCEL MSG")
-
-            #     cid = msg['cancel']
-            #     log.cancel(f'Cancelling container {cid}')
-
-            #     # print("CANCELLING CONTAINER")
-            #     await cntr.cancel()
-
-            #     # print("SENDING ACK")
-            #     await stream.send('ack')
 
         except (
             BaseException,
@@ -371,7 +344,6 @@ async def open_marketstored(
 
             with trio.CancelScope(shield=True):
                 await cntr.cancel()
-                # await stream.send('ack')
 
             raise
 
@@ -426,15 +398,6 @@ async def start_ahab(
                 cid, pid = first
 
                 await trio.sleep_forever()
-                # async with ctx.open_stream() as stream:
-                #     try:
-                #         # run till cancelled
-                #         await trio.sleep_forever()
-                #     finally:
-                #         with trio.CancelScope(shield=True):
-                #             # print('SENDING CANCEL TO MARKETSTORED')
-                #             await stream.send({'cancel': (cid, pid)})
-                #         assert await stream.receive() == 'ack'
 
     # since we demoted root perms in this parent
     # we'll get a perms error on proc cleanup in
@@ -445,7 +408,6 @@ async def start_ahab(
     # TODO: we could also consider adding
     # a ``tractor.ZombieDetected`` or something that we could raise
     # if we find the child didn't terminate.
-    # await tractor.breakpoint()
     except PermissionError:
         log.warning('Failed to cancel root permsed container')
 
@@ -458,12 +420,3 @@ async def start_ahab(
                 return
         else:
             raise
-
-
-async def main():
-    await start_ahab()
-    await trio.sleep_forever()
-
-
-if __name__ == '__main__':
-    trio.run(main)
