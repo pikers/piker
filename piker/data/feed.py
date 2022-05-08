@@ -221,12 +221,19 @@ def diff_history(
         # write to shm.
         if (
             s_diff < 0
-            and abs(s_diff) < len(array)
         ):
-            # the + 1 is because ``last_tsdb_dt`` is pulled from
-            # the last row entry for the ``'time'`` field retreived
-            # from the tsdb.
-            to_push = array[abs(s_diff)+1:]
+            if abs(s_diff) < len(array):
+                # the + 1 is because ``last_tsdb_dt`` is pulled from
+                # the last row entry for the ``'time'`` field retreived
+                # from the tsdb.
+                to_push = array[abs(s_diff)+1:]
+
+            else:
+                # pass back only the portion of the array that is
+                # greater then the last time stamp in the tsdb.
+                time = array['time']
+                to_push = array[time >= last_tsdb_dt.timestamp()]
+
             log.info(
                 f'Pushing partial frame {to_push.size} to shm'
             )
