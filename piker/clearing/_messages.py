@@ -242,7 +242,7 @@ class BrokerdError(BaseModel):
 
     # if no brokerd order request was actually submitted (eg. we errored
     # at the ``pikerd`` layer) then there will be ``reqid`` allocated.
-    reqid: Union[int, str] = ''
+    reqid: Optional[Union[int, str]] = None
 
     symbol: str
     reason: str
