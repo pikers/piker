@@ -435,12 +435,16 @@ class FspAdmin:
             # wait for graceful shutdown signal
             async with stream.subscribe() as stream:
                 async for msg in stream:
-                    if msg == 'update':
+                    info = msg.get('fsp_update')
+                    if info:
                         # if the chart isn't hidden try to update
                         # the data on screen.
                         if not self.linked.isHidden():
                             log.info(f'Re-syncing graphics for fsp: {ns_path}')
-                            self.linked.graphics_cycle(trigger_all=True)
+                            self.linked.graphics_cycle(
+                                trigger_all=True,
+                                prepend_update_index=info['first'],
+                            )
                     else:
                         log.info(f'recved unexpected fsp engine msg: {msg}')
 

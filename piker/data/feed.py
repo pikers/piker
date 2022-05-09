@@ -795,6 +795,15 @@ async def manage_history(
 
                     # manually trigger step update to update charts/fsps
                     # which need an incremental update.
+                    # NOTE: the way this works is super duper
+                    # un-intuitive right now:
+                    # - the broadcaster fires a msg to the fsp subsystem.
+                    # - fsp subsys then checks for a sample step diff and
+                    #   possibly recomputes prepended history.
+                    # - the fsp then sends back to the parent actor
+                    #   (usually a chart showing graphics for said fsp)
+                    #   which tells the chart to conduct a manual full
+                    #   graphics loop cycle.
                     for delay_s in sampler.subscribers:
                         await broadcast(delay_s)
 

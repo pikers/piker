@@ -369,7 +369,12 @@ async def cascade(
                     # always trigger UI refresh after history update,
                     # see ``piker.ui._fsp.FspAdmin.open_chain()`` and
                     # ``piker.ui._display.trigger_update()``.
-                    await client_stream.send('update')
+                    await client_stream.send({
+                        'fsp_update': {
+                            'key': dst_shm_token,
+                            'first': dst._first.value,
+                            'last': dst._last.value,
+                    }})
                     return tracker, index
 
                 def is_synced(

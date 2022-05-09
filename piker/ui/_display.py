@@ -309,6 +309,7 @@ def graphics_update_cycle(
     ds: DisplayState,
     wap_in_history: bool = False,
     trigger_all: bool = False,  # flag used by prepend history updates
+    prepend_update_index: Optional[int] = None,
 
 ) -> None:
     # TODO: eventually optimize this whole graphics stack with ``numba``
@@ -367,6 +368,17 @@ def graphics_update_cycle(
         mn = mn_in_view - tick_margin
         profiler('maxmin call')
         liv = r >= i_step  # the last datum is in view
+
+        if (
+            prepend_update_index is not None
+            and lbar > prepend_update_index
+        ):
+            # on a history update (usually from the FSP subsys)
+            # if the segment of history that is being prepended
+            # isn't in view there is no reason to do a graphics
+            # update.
+            log.debug('Skipping prepend graphics cycle: frame not in view')
+            return
 
         # don't real-time "shift" the curve to the
         # left unless we get one of the following:
@@ -639,7 +651,7 @@ async def display_symbol_data(
     )
 
     # historical data fetch
-    brokermod = brokers.get_brokermod(provider)
+    # brokermod = brokers.get_brokermod(provider)
 
     # ohlc_status_done = sbar.open_status(
     #     'retreiving OHLC history.. ',

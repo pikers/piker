@@ -142,11 +142,17 @@ async def broadcast(
     shm: Optional[ShmArray] = None,
 
 ) -> None:
-    # broadcast the buffer index step to any subscribers for
-    # a given sample period.
+    '''
+    Broadcast the given ``shm: ShmArray``'s buffer index step to any
+    subscribers for a given sample period.
+
+    The sent msg will include the first and last index which slice into
+    the buffer's non-empty data.
+
+    '''
     subs = sampler.subscribers.get(delay_s, ())
 
-    last = -1
+    first = last = -1
 
     if shm is None:
         periods = sampler.ohlcv_shms.keys()
@@ -156,11 +162,16 @@ async def broadcast(
         if periods:
             lowest = min(periods)
             shm = sampler.ohlcv_shms[lowest][0]
+            first = shm._first.value
             last = shm._last.value
 
     for stream in subs:
         try:
-            await stream.send({'index': last})
+            await stream.send({
+                'first': first,
+                'last': last,
+                'index': last,
+            })
         except (
             trio.BrokenResourceError,
             trio.ClosedResourceError
