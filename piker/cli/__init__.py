@@ -1,7 +1,25 @@
-"""
+# piker: trading gear for hackers
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of pikers)
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+'''
 CLI commons.
-"""
+
+'''
 import os
+from pprint import pformat
 
 import click
 import trio
@@ -59,12 +77,15 @@ def pikerd(loglevel, host, tl, pdb, tsdb):
 
                 from piker.data._ahab import start_ahab
                 log.info('Spawning `marketstore` supervisor')
-                ctn_ready = await n.start(
+                ctn_ready, config, (cid, pid) = await n.start(
                     start_ahab,
                     'marketstored',
                 )
-                await ctn_ready.wait()
-                log.info('`marketstore` container:{uid} up')
+                log.info(
+                    f'`marketstored` up pid:{pid}\n'
+                    f'container up cid:{cid} live with config:\n'
+                    f'{pformat(config)}'
+                )
 
             await trio.sleep_forever()
 

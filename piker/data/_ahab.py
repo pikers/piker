@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -21,7 +21,7 @@ Supervisor for docker with included specific-image service helpers.
 import os
 from typing import (
     Optional,
-    # Any,
+    Any,
 )
 from contextlib import asynccontextmanager as acm
 
@@ -39,8 +39,13 @@ from .. import config
 
 log = get_logger(__name__)
 
+_config = {
+    'grpc_listen_port': 5995,
+    'ws_listen_port': 5993,
+    'log_level': 'debug',
+}
 
-_config = '''
+_yaml_config = '''
 # piker's ``marketstore`` config.
 
 # mount this config using:
@@ -49,9 +54,9 @@ _config = '''
 # 5993:5993 alpacamarkets/marketstore:latest
 
 root_directory: data
-listen_port: 5993
-grpc_listen_port: 5995
-log_level: debug
+listen_port: {ws_listen_port}
+grpc_listen_port: {grpc_listen_port}
+log_level: {log_level}
 queryable: true
 stop_grace_period: 0
 wal_rotate_interval: 5
@@ -76,7 +81,7 @@ triggers:
     # config:
     #     filter: "nasdaq"
 
-'''
+'''.format(**_config)
 
 
 class DockerNotStarted(Exception):
@@ -350,7 +355,12 @@ async def open_marketstored(
 
 async def start_ahab(
     service_name: str,
-    task_status: TaskStatus[trio.Event] = trio.TASK_STATUS_IGNORED,
+    task_status: TaskStatus[
+        tuple[
+            trio.Event,
+            dict[str, Any],
+        ],
+    ] = trio.TASK_STATUS_IGNORED,
 
 ) -> None:
     '''
@@ -389,13 +399,17 @@ async def start_ahab(
                     )[2]  # named user's uid
                 )
 
-            task_status.started(cn_ready)
-
             async with portal.open_context(
                 open_marketstored,
             ) as (ctx, first):
 
                 cid, pid = first
+
+                task_status.started((
+                    cn_ready,
+                    _config,
+                    (cid, pid),
+                ))
 
                 await trio.sleep_forever()
 
