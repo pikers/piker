@@ -33,7 +33,10 @@ from tractor.msg import NamespacePath
 import docker
 import json
 from docker.models.containers import Container as DockerContainer
-from docker.errors import DockerException, APIError
+from docker.errors import (
+    DockerException,
+    APIError,
+)
 from requests.exceptions import ConnectionError, ReadTimeout
 
 from ..log import get_logger, get_console_log
@@ -44,6 +47,10 @@ log = get_logger(__name__)
 
 class DockerNotStarted(Exception):
     'Prolly you dint start da daemon bruh'
+
+
+class ContainerError(RuntimeError):
+    'Error reported via app-container logging level'
 
 
 @acm
@@ -147,6 +154,10 @@ class Container:
                         await tractor.breakpoint()
 
                     getattr(log, level, log.error)(f'{msg}')
+
+                    # print(f'level: {level}')
+                    if level in ('error', 'fatal'):
+                        raise ContainerError(msg)
 
                 if patt in msg:
                     return True
