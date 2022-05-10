@@ -24,7 +24,6 @@ incremental update.
 '''
 from __future__ import annotations
 from functools import partial
-import time
 from typing import (
     Optional,
     Callable,
@@ -38,7 +37,7 @@ from PyQt5.QtGui import QPainterPath
 
 from ..data._sharedmem import (
     ShmArray,
-    # attach_shm_array
+    open_shm_array,
 )
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._ohlc import (
@@ -152,6 +151,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
     render: bool = True  # toggle for display loop
     flat: Optional[ShmArray] = None
     x_basis: Optional[np.ndarray] = None
+    _iflat: int = 0
 
     _last_uppx: float = 0
     _in_ds: bool = False
@@ -344,6 +344,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
         graphics = self.graphics
         if isinstance(graphics, BarItems):
 
+            fields = ['open', 'high', 'low', 'close']
             # if no source data renderer exists create one.
             r = self._src_r
             if not r:
@@ -357,17 +358,37 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
                 # create a flattened view onto the OHLC array
                 # which can be read as a line-style format
-                # shm = self.shm
-                # self.flat = shm.unstruct_view(['open', 'high', 'low', 'close'])
+                shm = self.shm
+
+                # flat = self.flat = self.shm.unstruct_view(fields)
+                self.flat = self.shm.ustruct(fields)
+                self._iflat = self.shm._last.value
+
                 # import pdbpp
                 # pdbpp.set_trace()
-                # x = self.x_basis = (
-                #     np.broadcast_to(
-                #         shm._array['index'][:, None],
-                #         # self.flat._array.shape,
-                #         self.flat.shape,
-                #     ) + np.array([-0.5, 0, 0, 0.5])
+                # assert len(flat._array) == len(self.shm._array[fields])
+
+                x = self.x_basis = (
+                    np.broadcast_to(
+                        shm._array['index'][:, None],
+                        (
+                            shm._array.size,
+                            # 4,  # only ohlc
+                            self.flat.shape[1],
+                        ),
+                    ) + np.array([-0.5, 0, 0, 0.5])
+                )
+
+                # fshm = self.flat = open_shm_array(
+                #     f'{self.name}_flat',
+                #     dtype=flattened.dtype,
+                #     size=flattened.size,
                 # )
+                # fshm.push(flattened)
+
+                # print(f'unstruct diff: {time.time() - start}')
+                # profiler('read unstr view bars to line')
+                # start = self.flat._first.value
 
                 ds_curve_r = Renderer(
                     flow=self,
@@ -407,7 +428,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
             # - if we're **not** downsampling then we simply want to
             #   render the bars graphics curve and update..
             # - if insteam we are in a downsamplig state then we to
-            x_gt = 8
+            x_gt = 6
             uppx = curve.x_uppx()
             in_line = should_line = curve.isVisible()
             if (
@@ -426,37 +447,43 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
             # do graphics updates
             if should_line:
-                # start = time.time()
-                # y = self.shm.unstruct_view(
-                #     ['open', 'high', 'low', 'close'],
-                # )
-                # print(f'unstruct diff: {time.time() - start}')
-                # profiler('read unstr view bars to line')
-                # # start = self.flat._first.value
 
-                # x = self.x_basis[:y.size].flatten()
-                # y = y.flatten()
-                # profiler('flattening bars to line')
-                # path, last = dsc_r.render(read)
-                # x, flat = ohlc_flat_view(
-                #     ohlc_shm=self.shm,
-                #     x_basis=x_basis,
-                # )
-                # y = y.flatten()
-                # y_iv = y[ivl:ivr].flatten()
-                # x_iv = x[ivl:ivr].flatten()
-                # assert y.size == x.size
+                # update flatted ohlc copy
+                iflat, ishm = self._iflat, self.shm._last.value
+                to_update = rfn.structured_to_unstructured(
+                    self.shm._array[iflat:ishm][fields]
+                )
 
-                x, y = self.flat = ohlc_flatten(array)
-                x_iv, y_iv = ohlc_flatten(in_view)
-                profiler('flattened OHLC data')
+                # print(to_update)
+                self.flat[iflat:ishm][:] = to_update
+                profiler('updated ustruct OHLC data')
+
+                y_flat = self.flat[:ishm]
+                x_flat = self.x_basis[:ishm]
+
+                self._iflat = ishm
+
+                y = y_flat.reshape(-1)
+                x = x_flat.reshape(-1)
+                profiler('flattened ustruct OHLC data')
+
+                y_iv_flat = y_flat[ivl:ivr]
+                x_iv_flat = x_flat[ivl:ivr]
+
+                y_iv = y_iv_flat.reshape(-1)
+                x_iv = x_iv_flat.reshape(-1)
+                profiler('flattened ustruct in-view OHLC data')
+
+                # x, y = ohlc_flatten(array)
+                # x_iv, y_iv = ohlc_flatten(in_view)
+                # profiler('flattened OHLC data')
 
                 curve.update_from_array(
                     x,
                     y,
                     x_iv=x_iv,
-                   y_iv=y_iv,
-                    view_range=None,  # hack
+                    y_iv=y_iv,
+                    view_range=(ivl, ivr),  # hack
                     profiler=profiler,
                 )
                 profiler('updated ds curve')
@@ -477,7 +504,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 # graphics.setCacheMode(QtWidgets.QGraphicsItem.NoCache)
                 # graphics.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
-                graphics.prepareGeometryChange()
+                # graphics.prepareGeometryChange()
                 graphics.update()
 
             if (
@@ -632,7 +659,7 @@ class Renderer(msgspec.Struct):
 
         '''
         # do full source data render to path
-        last_read = (
+        (
             xfirst, xlast, array,
             ivl, ivr, in_view,
         ) = self.last_read
