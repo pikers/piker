@@ -249,7 +249,7 @@ async def start_backfill(
 
     last_tsdb_dt: Optional[datetime] = None,
     storage: Optional[Storage] = None,
-    write_tsdb: bool = False,
+    write_tsdb: bool = True,
 
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
