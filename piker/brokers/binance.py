@@ -402,7 +402,7 @@ async def open_history_client(
             end_dt = pendulum.from_timestamp(array[-1]['time'])
             return array, start_dt, end_dt
 
-        yield get_ohlc, {'erlangs': 4, 'rate': 4}
+        yield get_ohlc, {'erlangs': 3, 'rate': 3}
 
 
 async def backfill_bars(
