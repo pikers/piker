@@ -131,6 +131,16 @@ def start_marketstore(
 
     get_console_log('info', name=__name__)
 
+    yml_file = os.path.join(config._config_dir, 'mkts.yml')
+    if not os.path.isfile(yml_file):
+        log.warning(
+            f'No `marketstore` config exists?: {yml_file}\n'
+            'Generating new file from template:\n'
+            f'{_yaml_config}\n'
+        )
+        with open(yml_file, 'w') as yf:
+            yf.write(_yaml_config)
+
     # create a mount from user's local piker config dir into container
     config_dir_mnt = docker.types.Mount(
         target='/etc',
