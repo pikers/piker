@@ -83,9 +83,10 @@ def pikerd(loglevel, host, tl, pdb, tsdb):
 
                 )
                 log.info(
-                    f'`marketstored` up pid:{pid}\n'
-                    f'container up cid:{cid} live with config:\n'
-                    f'{pformat(config)}'
+                    f'`marketstore` up!\n'
+                    f'`marketstored` pid: {pid}\n'
+                    f'docker container id: {cid}\n'
+                    f'config: {pformat(config)}'
                 )
 
             await trio.sleep_forever()
