@@ -21,6 +21,7 @@ Supervisor for docker with included specific-image service helpers.
 import os
 from typing import (
     Optional,
+    Callable,
     Any,
 )
 from contextlib import asynccontextmanager as acm
@@ -28,6 +29,7 @@ from contextlib import asynccontextmanager as acm
 import trio
 from trio_typing import TaskStatus
 import tractor
+from tractor.msg import NamespacePath
 import docker
 import json
 from docker.models.containers import Container as DockerContainer
@@ -38,50 +40,6 @@ from ..log import get_logger, get_console_log
 from .. import config
 
 log = get_logger(__name__)
-
-_config = {
-    'grpc_listen_port': 5995,
-    'ws_listen_port': 5993,
-    'log_level': 'debug',
-}
-
-_yaml_config = '''
-# piker's ``marketstore`` config.
-
-# mount this config using:
-# sudo docker run --mount \
-# type=bind,source="$HOME/.config/piker/",target="/etc" -i -p \
-# 5993:5993 alpacamarkets/marketstore:latest
-
-root_directory: data
-listen_port: {ws_listen_port}
-grpc_listen_port: {grpc_listen_port}
-log_level: {log_level}
-queryable: true
-stop_grace_period: 0
-wal_rotate_interval: 5
-stale_threshold: 5
-enable_add: true
-enable_remove: false
-
-triggers:
-  - module: ondiskagg.so
-    on: "*/1Sec/OHLCV"
-    config:
-        # filter: "nasdaq"
-        destinations:
-            - 1Min
-            - 5Min
-            - 15Min
-            - 1H
-            - 1D
-
-  - module: stream.so
-    on: '*/*/*'
-    # config:
-    #     filter: "nasdaq"
-
-'''.format(**_config)
 
 
 class DockerNotStarted(Exception):
@@ -263,63 +221,22 @@ class Container:
 
 
 @tractor.context
-async def open_marketstored(
+async def open_ahabd(
     ctx: tractor.Context,
+    endpoint: str,  # ns-pointer str-msg-type
+
     **kwargs,
 
 ) -> None:
-    '''
-    Start and supervise a marketstore instance with its config bind-mounted
-    in from the piker config directory on the system.
-
-    The equivalent cli cmd to this code is:
-
-        sudo docker run --mount \
-        type=bind,source="$HOME/.config/piker/",target="/etc" -i -p \
-        5993:5993 alpacamarkets/marketstore:latest
-
-    '''
     get_console_log('info', name=__name__)
 
     async with open_docker() as client:
 
-        # create a mount from user's local piker config dir into container
-        config_dir_mnt = docker.types.Mount(
-            target='/etc',
-            source=config._config_dir,
-            type='bind',
-        )
-
-        # create a user config subdir where the marketstore
-        # backing filesystem database can be persisted.
-        persistent_data_dir = os.path.join(
-            config._config_dir, 'data',
-        )
-        if not os.path.isdir(persistent_data_dir):
-            os.mkdir(persistent_data_dir)
-
-        data_dir_mnt = docker.types.Mount(
-            target='/data',
-            source=persistent_data_dir,
-            type='bind',
-        )
-
-        dcntr: DockerContainer = client.containers.run(
-            'alpacamarkets/marketstore:latest',
-            # do we need this for cmds?
-            # '-i',
-
-            # '-p 5993:5993',
-            ports={
-                '5993/tcp': 5993,  # jsonrpc
-                '5995/tcp': 5995,  # grpc
-            },
-            mounts=[config_dir_mnt, data_dir_mnt],
-            detach=True,
-            # stop_signal='SIGINT',
-            init=True,
-            # remove=True,
-        )
+        # TODO: eventually offer a config-oriented API to do the mounts,
+        # params, etc. passing to ``Containter.run()``?
+        # call into endpoint for container config/init
+        ep_func = NamespacePath(endpoint).load_ref()
+        dcntr, cntr_config = ep_func(client)
         cntr = Container(dcntr)
 
         with trio.move_on_after(1):
@@ -332,7 +249,11 @@ async def open_marketstored(
                     'Failed to start `marketstore` check logs deats'
                 )
 
-        await ctx.started((cntr.cntr.id, os.getpid()))
+        await ctx.started((
+            cntr.cntr.id,
+            os.getpid(),
+            cntr_config,
+        ))
 
         try:
 
@@ -355,6 +276,7 @@ async def open_marketstored(
 
 async def start_ahab(
     service_name: str,
+    endpoint: Callable[docker.DockerClient, DockerContainer],
     task_status: TaskStatus[
         tuple[
             trio.Event,
@@ -400,14 +322,15 @@ async def start_ahab(
                 )
 
             async with portal.open_context(
-                open_marketstored,
+                open_ahabd,
+                endpoint=str(NamespacePath.from_ref(endpoint)),
             ) as (ctx, first):
 
-                cid, pid = first
+                cid, pid, cntr_config = first
 
                 task_status.started((
                     cn_ready,
-                    _config,
+                    cntr_config,
                     (cid, pid),
                 ))
 

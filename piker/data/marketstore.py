@@ -23,6 +23,7 @@
 - todo: tick sequence stream-cloning for testing
 
 '''
+from __future__ import annotations
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
 from pprint import pformat
@@ -30,6 +31,7 @@ from typing import (
     Any,
     Optional,
     Union,
+    TYPE_CHECKING,
 )
 import time
 from math import isnan
@@ -49,11 +51,128 @@ from anyio_marketstore import (
 import pendulum
 import purerpc
 
+if TYPE_CHECKING:
+    import docker
+    from ._ahab import DockerContainer
+
 from .feed import maybe_open_feed
 from ..log import get_logger, get_console_log
 
 
 log = get_logger(__name__)
+
+
+# container level config
+_config = {
+    'grpc_listen_port': 5995,
+    'ws_listen_port': 5993,
+    'log_level': 'debug',
+}
+
+_yaml_config = '''
+# piker's ``marketstore`` config.
+
+# mount this config using:
+# sudo docker run --mount \
+# type=bind,source="$HOME/.config/piker/",target="/etc" -i -p \
+# 5993:5993 alpacamarkets/marketstore:latest
+
+root_directory: data
+listen_port: {ws_listen_port}
+grpc_listen_port: {grpc_listen_port}
+log_level: {log_level}
+queryable: true
+stop_grace_period: 0
+wal_rotate_interval: 5
+stale_threshold: 5
+enable_add: true
+enable_remove: false
+
+triggers:
+  - module: ondiskagg.so
+    on: "*/1Sec/OHLCV"
+    config:
+        # filter: "nasdaq"
+        destinations:
+            - 1Min
+            - 5Min
+            - 15Min
+            - 1H
+            - 1D
+
+  - module: stream.so
+    on: '*/*/*'
+    # config:
+    #     filter: "nasdaq"
+
+'''.format(**_config)
+
+
+def start_marketstore(
+    client: docker.DockerClient,
+
+    **kwargs,
+
+) -> tuple[DockerContainer, dict[str, Any]]:
+    '''
+    Start and supervise a marketstore instance with its config bind-mounted
+    in from the piker config directory on the system.
+
+    The equivalent cli cmd to this code is:
+
+        sudo docker run --mount \
+        type=bind,source="$HOME/.config/piker/",target="/etc" -i -p \
+        5993:5993 alpacamarkets/marketstore:latest
+
+    '''
+    import os
+    import docker
+    from .. import config
+
+    get_console_log('info', name=__name__)
+
+    # create a mount from user's local piker config dir into container
+    config_dir_mnt = docker.types.Mount(
+        target='/etc',
+        source=config._config_dir,
+        type='bind',
+    )
+
+    # create a user config subdir where the marketstore
+    # backing filesystem database can be persisted.
+    persistent_data_dir = os.path.join(
+        config._config_dir, 'data',
+    )
+    if not os.path.isdir(persistent_data_dir):
+        os.mkdir(persistent_data_dir)
+
+    data_dir_mnt = docker.types.Mount(
+        target='/data',
+        source=persistent_data_dir,
+        type='bind',
+    )
+
+    dcntr: DockerContainer = client.containers.run(
+        'alpacamarkets/marketstore:latest',
+        # do we need this for cmds?
+        # '-i',
+
+        # '-p 5993:5993',
+        ports={
+            '5993/tcp': 5993,  # jsonrpc / ws?
+            '5995/tcp': 5995,  # grpc
+        },
+        mounts=[
+            config_dir_mnt,
+            data_dir_mnt,
+        ],
+        detach=True,
+        # stop_signal='SIGINT',
+        init=True,
+        # remove=True,
+    )
+    return dcntr, _config
+
 
 _tick_tbk_ids: tuple[str, str] = ('1Sec', 'TICK')
 _tick_tbk: str = '{}/' + '/'.join(_tick_tbk_ids)
