@@ -57,6 +57,8 @@ from ib_insync.wrapper import Wrapper
 from ib_insync.client import Client as ib_Client
 from fuzzywuzzy import process as fuzzy
 import numpy as np
+import pendulum
+
 
 from .. import config
 from ..log import get_logger, get_console_log
@@ -295,6 +297,10 @@ class Client:
         global _enters
         # log.info(f'REQUESTING BARS {_enters} @ end={end_dt}')
         print(f'REQUESTING BARS {_enters} @ end={end_dt}')
+
+        if not end_dt:
+            end_dt = ''
+
         _enters += 1
 
         contract = await self.find_contract(fqsn)
@@ -1438,8 +1444,6 @@ async def get_bars(
     a ``MethoProxy``.
 
     '''
-    import pendulum
-
     fails = 0
     bars: Optional[list] = None
     first_dt: datetime = None
@@ -1467,7 +1471,9 @@ async def get_bars(
             time = bars_array['time']
             assert time[-1] == last_dt.timestamp()
             assert time[0] == first_dt.timestamp()
-            log.info(f'bars retreived for dts {first_dt}:{last_dt}')
+            log.info(
+                f'{len(bars)} bars retreived for {first_dt} -> {last_dt}'
+            )
 
             return (bars, bars_array, first_dt, last_dt), fails
 
@@ -1478,21 +1484,30 @@ async def get_bars(
 
             if 'No market data permissions for' in msg:
                 # TODO: signalling for no permissions searches
-                raise NoData(f'Symbol: {fqsn}')
-                break
+                raise NoData(
+                    f'Symbol: {fqsn}',
+                )
 
             elif (
                 err.code == 162
                 and 'HMDS query returned no data' in err.message
             ):
-                # try to decrement start point and look further back
-                end_dt = last_dt = last_dt.subtract(seconds=2000)
+                # XXX: this is now done in the storage mgmt layer
+                # and we shouldn't implicitly decrement the frame dt
+                # index since the upper layer may be doing so
+                # concurrently and we don't want to be delivering frames
+                # that weren't asked for.
                 log.warning(
-                    f'No data found ending @ {end_dt}\n'
-                    f'Starting another request for {end_dt}'
+                    f'NO DATA found ending @ {end_dt}\n'
                 )
 
-                continue
+                # try to decrement start point and look further back
+                # end_dt = last_dt = last_dt.subtract(seconds=2000)
+
+                raise NoData(
+                    f'Symbol: {fqsn}',
+                    frame_size=2000,
+                )
 
             elif _pacing in msg:
 
@@ -1546,8 +1561,8 @@ async def open_history_client(
     async with open_client_proxy() as proxy:
 
         async def get_hist(
-            end_dt: str,
-            start_dt: str = '',
+            end_dt: Optional[datetime] = None,
+            start_dt: Optional[datetime] = None,
 
         ) -> tuple[np.ndarray, str]:
 
@@ -1558,7 +1573,10 @@ async def open_history_client(
             if out == (None, None):
                 # could be trying to retreive bars over weekend
                 log.error(f"Can't grab bars starting at {end_dt}!?!?")
-                raise NoData(f'{end_dt}')
+                raise NoData(
+                    f'{end_dt}',
+                    frame_size=2000,
+                )
 
             bars, bars_array, first_dt, last_dt = out
 
@@ -1569,7 +1587,12 @@ async def open_history_client(
 
             return bars_array, first_dt, last_dt
 
-        yield get_hist
+        # TODO: it seems like we can do async queries for ohlc
+        # but getting the order right still isn't working and I'm not
+        # quite sure why.. needs some tinkering and probably
+        # a lookthrough of the ``ib_insync`` machinery, for eg. maybe
+        # we have to do the batch queries on the `asyncio` side?
+        yield get_hist, {'erlangs': 1, 'rate': 6}
 
 
 async def backfill_bars(
@@ -1831,6 +1854,7 @@ async def stream_quotes(
         symbol=sym,
     )
     first_quote = normalize(first_ticker)
+    # print(f'first quote: {first_quote}')
 
     def mk_init_msgs() -> dict[str, dict]:
         # pass back some symbol info like min_tick, trading_hours, etc.

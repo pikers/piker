@@ -33,7 +33,41 @@ class SymbolNotFound(BrokerError):
 
 
 class NoData(BrokerError):
-    "Symbol data not permitted"
+    '''
+    Symbol data not permitted or no data
+    for time range found.
+
+    '''
+    def __init__(
+        self,
+        *args,
+        frame_size: int = 1000,
+
+    ) -> None:
+        super().__init__(*args)
+
+        # when raised, machinery can check if the backend
+        # set a "frame size" for doing datetime calcs.
+        self.frame_size: int = 1000
+
+
+class DataUnavailable(BrokerError):
+    '''
+    Signal storage requests to terminate.
+
+    '''
+    # TODO: add in a reason that can be displayed in the
+    # UI (for eg. `kraken` is bs and you should complain
+    # to them that you can't pull more OHLC data..)
+
+
+class DataThrottle(BrokerError):
+    '''
+    Broker throttled request rate for data.
+
+    '''
+    # TODO: add in throttle metrics/feedback
+
 
 
 def resproc(
@@ -50,12 +84,12 @@ def resproc(
     if not resp.status_code == 200:
         raise BrokerError(resp.body)
     try:
-        json = resp.json()
+        msg = resp.json()
     except json.decoder.JSONDecodeError:
         log.exception(f"Failed to process {resp}:\n{resp.text}")
         raise BrokerError(resp.text)
 
     if log_resp:
-        log.debug(f"Received json contents:\n{colorize_json(json)}")
+        log.debug(f"Received json contents:\n{colorize_json(msg)}")
 
-    return json if return_json else resp
+    return msg if return_json else resp

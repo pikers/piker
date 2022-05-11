@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -30,11 +30,13 @@ orig_win_id = t.find_focused().window
 # for tws
 win_names: list[str] = [
     'Interactive Brokers',  # tws running in i3
-    'IB Gateway.',  # gw running in i3
+    'IB Gateway',  # gw running in i3
+    # 'IB',  # gw running in i3 (newer version?)
 ]
 
 for name in win_names:
-    results = t.find_named(name)
+    results = t.find_titled(name)
+    print(f'results for {name}: {results}')
     if results:
         con = results[0]
         print(f'Resetting data feed for {name}')
@@ -47,22 +49,32 @@ for name in win_names:
         # https://github.com/rr-/pyxdotool
         # https://github.com/ShaneHutter/pyxdotool
         # https://github.com/cphyc/pyxdotool
-        subprocess.call([
-            'xdotool',
-            'windowactivate', '--sync', win_id,
 
-            # move mouse to bottom left of window (where there should
-            # be nothing to click).
-            'mousemove_relative', '--sync', str(w-4), str(h-4),
+        # TODO: only run the reconnect (2nd) kc on a detected
+        # disconnect?
+        for key_combo, timeout in [
+            # only required if we need a connection reset.
+            # ('ctrl+alt+r', 12),
+            # data feed reset.
+            ('ctrl+alt+f', 6)
+        ]:
+            subprocess.call([
+                'xdotool',
+                'windowactivate', '--sync', win_id,
 
-            # NOTE: we may need to stick a `--retry 3` in here..
-            'click', '--window', win_id, '--repeat', '3', '1',
+                # move mouse to bottom left of window (where there should
+                # be nothing to click).
+                'mousemove_relative', '--sync', str(w-4), str(h-4),
 
-            # hackzorzes
-            'key', 'ctrl+alt+f',
-            ],
-            timeout=1,
-        )
+                # NOTE: we may need to stick a `--retry 3` in here..
+                'click', '--window', win_id,
+                '--repeat', '3', '1',
+
+                # hackzorzes
+                'key', key_combo,
+                ],
+                timeout=timeout,
+            )
 
 # re-activate and focus original window
 subprocess.call([

@@ -167,6 +167,7 @@ def _wma(
 
     assert length == len(weights)
 
+    # lol, for long sequences this is nutso slow and expensive..
     return np.convolve(signal, weights, 'valid')
 
 

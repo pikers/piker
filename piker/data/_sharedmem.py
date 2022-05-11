@@ -22,7 +22,6 @@ from __future__ import annotations
 from sys import byteorder
 from typing import Optional
 from multiprocessing.shared_memory import SharedMemory, _USE_POSIX
-from multiprocessing import resource_tracker as mantracker
 
 if _USE_POSIX:
     from _posixshmem import shm_unlink
@@ -30,6 +29,7 @@ if _USE_POSIX:
 import tractor
 import numpy as np
 from pydantic import BaseModel
+from numpy.lib import recfunctions as rfn
 
 from ..log import get_logger
 from ._source import base_iohlc_dtype
@@ -40,32 +40,39 @@ log = get_logger(__name__)
 
 # how  much is probably dependent on lifestyle
 _secs_in_day = int(60 * 60 * 24)
-# we try for 3 times but only on a run-every-other-day kinda week.
-_default_size = 10 * _secs_in_day
+# we try for a buncha times, but only on a run-every-other-day kinda week.
+_days_worth = 16
+_default_size = _days_worth * _secs_in_day
 # where to start the new data append index
-_rt_buffer_start = int(9*_secs_in_day)
+_rt_buffer_start = int((_days_worth - 1) * _secs_in_day)
 
 
-# Tell the "resource tracker" thing to fuck off.
-class ManTracker(mantracker.ResourceTracker):
-    def register(self, name, rtype):
-        pass
+def cuckoff_mantracker():
 
-    def unregister(self, name, rtype):
-        pass
+    from multiprocessing import resource_tracker as mantracker
 
-    def ensure_running(self):
-        pass
+    # Tell the "resource tracker" thing to fuck off.
+    class ManTracker(mantracker.ResourceTracker):
+        def register(self, name, rtype):
+            pass
+
+        def unregister(self, name, rtype):
+            pass
+
+        def ensure_running(self):
+            pass
+
+    # "know your land and know your prey"
+    # https://www.dailymotion.com/video/x6ozzco
+    mantracker._resource_tracker = ManTracker()
+    mantracker.register = mantracker._resource_tracker.register
+    mantracker.ensure_running = mantracker._resource_tracker.ensure_running
+    # ensure_running = mantracker._resource_tracker.ensure_running
+    mantracker.unregister = mantracker._resource_tracker.unregister
+    mantracker.getfd = mantracker._resource_tracker.getfd
 
 
-# "know your land and know your prey"
-# https://www.dailymotion.com/video/x6ozzco
-mantracker._resource_tracker = ManTracker()
-mantracker.register = mantracker._resource_tracker.register
-mantracker.ensure_running = mantracker._resource_tracker.ensure_running
-ensure_running = mantracker._resource_tracker.ensure_running
-mantracker.unregister = mantracker._resource_tracker.unregister
-mantracker.getfd = mantracker._resource_tracker.getfd
+cuckoff_mantracker()
 
 
 class SharedInt:
@@ -191,7 +198,11 @@ class ShmArray:
         self._post_init: bool = False
 
         # pushing data does not write the index (aka primary key)
-        self._write_fields = list(shmarr.dtype.fields.keys())[1:]
+        dtype = shmarr.dtype
+        if dtype.fields:
+            self._write_fields = list(shmarr.dtype.fields.keys())[1:]
+        else:
+            self._write_fields = None
 
     # TODO: ringbuf api?
 
@@ -237,6 +248,48 @@ class ShmArray:
 
         return a
 
+    def ustruct(
+        self,
+        fields: Optional[list[str]] = None,
+
+        # type that all field values will be cast to
+        # in the returned view.
+        common_dtype: np.dtype = np.float,
+
+    ) -> np.ndarray:
+
+        array = self._array
+
+        if fields:
+            selection = array[fields]
+            # fcount = len(fields)
+        else:
+            selection = array
+            # fcount = len(array.dtype.fields)
+
+        # XXX: manual ``.view()`` attempt that also doesn't work.
+        # uview = selection.view(
+        #     dtype='<f16',
+        # ).reshape(-1, 4, order='A')
+
+        # assert len(selection) == len(uview)
+
+        u = rfn.structured_to_unstructured(
+            selection,
+            # dtype=float,
+            copy=True,
+        )
+
+        # unstruct = np.ndarray(u.shape, dtype=a.dtype, buffer=shm.buf)
+        # array[:] = a[:]
+        return u
+        # return ShmArray(
+        #     shmarr=u,
+        #     first=self._first,
+        #     last=self._last,
+        #     shm=self._shm
+        # )
+
     def last(
         self,
         length: int = 1,
@@ -255,6 +308,7 @@ class ShmArray:
 
         field_map: Optional[dict[str, str]] = None,
         prepend: bool = False,
+        update_first: bool = True,
         start: Optional[int] = None,
 
     ) -> int:
@@ -267,16 +321,18 @@ class ShmArray:
 
         '''
         length = len(data)
-        index = start if start is not None else self._last.value
 
         if prepend:
-            index = self._first.value - length
+            index = (start or self._first.value) - length
 
             if index < 0:
                 raise ValueError(
                     f'Array size of {self._len} was overrun during prepend.\n'
                     f'You have passed {abs(index)} too many datums.'
                 )
+
+        else:
+            index = start if start is not None else self._last.value
 
         end = index + length
 
@@ -295,12 +351,17 @@ class ShmArray:
             # tries to access ``.array`` (which due to the index
             # overlap will be empty). Pretty sure we've fixed it now
             # but leaving this here as a reminder.
-            if prepend:
+            if prepend and update_first and length:
                 assert index < self._first.value
 
-            if index < self._first.value:
+            if (
+                index < self._first.value
+                and update_first
+            ):
+                assert prepend, 'prepend=True not passed but index decreased?'
                 self._first.value = index
-            else:
+
+            elif not prepend:
                 self._last.value = end
 
             self._post_init = True
@@ -336,6 +397,7 @@ class ShmArray:
                 f"Input array has unknown field(s): {only_in_theirs}"
             )
 
+    # TODO: support "silent" prepends that don't update ._first.value?
     def prepend(
         self,
         data: np.ndarray,
@@ -386,7 +448,11 @@ def open_shm_array(
         create=True,
         size=a.nbytes
     )
-    array = np.ndarray(a.shape, dtype=a.dtype, buffer=shm.buf)
+    array = np.ndarray(
+        a.shape,
+        dtype=a.dtype,
+        buffer=shm.buf
+    )
     array[:] = a[:]
     array.setflags(write=int(not readonly))
 

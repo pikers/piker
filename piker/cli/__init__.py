@@ -1,7 +1,25 @@
-"""
+# piker: trading gear for hackers
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of pikers)
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+'''
 CLI commons.
-"""
+
+'''
 import os
+from pprint import pformat
 
 import click
 import trio
@@ -16,29 +34,22 @@ from .. import config
 log = get_logger('cli')
 DEFAULT_BROKER = 'questrade'
 
-_config_dir = click.get_app_dir('piker')
-_watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
-_context_defaults = dict(
-    default_map={
-        # Questrade specific quote poll rates
-        'monitor': {
-            'rate': 3,
-        },
-        'optschain': {
-            'rate': 1,
-        },
-    }
-)
-
 
 @click.command()
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--tl', is_flag=True, help='Enable tractor logging')
 @click.option('--pdb', is_flag=True, help='Enable tractor debug mode')
 @click.option('--host', '-h', default='127.0.0.1', help='Host address to bind')
-def pikerd(loglevel, host, tl, pdb):
-    """Spawn the piker broker-daemon.
-    """
+@click.option(
+    '--tsdb',
+    is_flag=True,
+    help='Enable local ``marketstore`` instance'
+)
+def pikerd(loglevel, host, tl, pdb, tsdb):
+    '''
+    Spawn the piker broker-daemon.
+
+    '''
     from .._daemon import open_pikerd
     log = get_console_log(loglevel)
 
@@ -52,13 +63,38 @@ def pikerd(loglevel, host, tl, pdb):
         ))
 
     async def main():
-        async with open_pikerd(loglevel=loglevel, debug_mode=pdb):
+
+        async with (
+            open_pikerd(
+                loglevel=loglevel,
+                debug_mode=pdb,
+            ),  # normally delivers a ``Services`` handle
+            trio.open_nursery() as n,
+        ):
+            if tsdb:
+                from piker.data._ahab import start_ahab
+                from piker.data.marketstore import start_marketstore
+
+                log.info('Spawning `marketstore` supervisor')
+                ctn_ready, config, (cid, pid) = await n.start(
+                    start_ahab,
+                    'marketstored',
+                    start_marketstore,
+
+                )
+                log.info(
+                    f'`marketstore` up!\n'
+                    f'`marketstored` pid: {pid}\n'
+                    f'docker container id: {cid}\n'
+                    f'config: {pformat(config)}'
+                )
+
             await trio.sleep_forever()
 
     trio.run(main)
 
 
-@click.group(context_settings=_context_defaults)
+@click.group(context_settings=config._context_defaults)
 @click.option(
     '--brokers', '-b',
     default=[DEFAULT_BROKER],
@@ -87,8 +123,8 @@ def cli(ctx, brokers, loglevel, tl, configdir):
         'loglevel': loglevel,
         'tractorloglevel': None,
         'log': get_console_log(loglevel),
-        'confdir': _config_dir,
-        'wl_path': _watchlists_data_path,
+        'confdir': config._config_dir,
+        'wl_path': config._watchlists_data_path,
     })
 
     # allow enabling same loglevel in ``tractor`` machinery

@@ -22,14 +22,16 @@ financial data flows.
 from __future__ import annotations
 from collections import Counter
 import time
+from typing import TYPE_CHECKING, Optional
 
 import tractor
 import trio
 from trio_typing import TaskStatus
 
-from ._sharedmem import ShmArray
 from ..log import get_logger
 
+if TYPE_CHECKING:
+    from ._sharedmem import ShmArray
 
 log = get_logger(__name__)
 
@@ -88,6 +90,7 @@ async def increment_ohlc_buffer(
 
     total_s = 0  # total seconds counted
     lowest = min(sampler.ohlcv_shms.keys())
+    lowest_shm = sampler.ohlcv_shms[lowest][0]
     ad = lowest - 0.001
 
     with trio.CancelScope() as cs:
@@ -131,21 +134,41 @@ async def increment_ohlc_buffer(
                     # write to the buffer
                     shm.push(last)
 
-            # broadcast the buffer index step to any subscribers for
-            # a given sample period.
-            subs = sampler.subscribers.get(delay_s, ())
+            await broadcast(delay_s, shm=lowest_shm)
 
-            for stream in subs:
-                try:
-                    await stream.send({'index': shm._last.value})
-                except (
-                    trio.BrokenResourceError,
-                    trio.ClosedResourceError
-                ):
-                    log.error(
-                        f'{stream._ctx.chan.uid} dropped connection'
-                    )
-                    subs.remove(stream)
+
+async def broadcast(
+    delay_s: int,
+    shm: Optional[ShmArray] = None,
+
+) -> None:
+    # broadcast the buffer index step to any subscribers for
+    # a given sample period.
+    subs = sampler.subscribers.get(delay_s, ())
+
+    last = -1
+
+    if shm is None:
+        periods = sampler.ohlcv_shms.keys()
+        # if this is an update triggered by a history update there
+        # might not actually be any sampling bus setup since there's
+        # no "live feed" active yet.
+        if periods:
+            lowest = min(periods)
+            shm = sampler.ohlcv_shms[lowest][0]
+            last = shm._last.value
+
+    for stream in subs:
+        try:
+            await stream.send({'index': last})
+        except (
+            trio.BrokenResourceError,
+            trio.ClosedResourceError
+        ):
+            log.error(
+                f'{stream._ctx.chan.uid} dropped connection'
+            )
+            subs.remove(stream)
 
 
 @tractor.context
@@ -365,7 +388,12 @@ async def uniform_rate_send(
 
         if left_to_sleep > 0:
             with trio.move_on_after(left_to_sleep) as cs:
-                sym, last_quote = await quote_stream.receive()
+                try:
+                    sym, last_quote = await quote_stream.receive()
+                except trio.EndOfChannel:
+                    log.exception(f"feed for {stream} ended?")
+                    break
+
                 diff = time.time() - last_send
 
                 if not first_quote:

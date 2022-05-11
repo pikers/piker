@@ -20,27 +20,36 @@ Data feed apis and infra.
 This module is enabled for ``brokerd`` daemons.
 
 """
+from __future__ import annotations
 from dataclasses import dataclass, field
+from datetime import datetime
 from contextlib import asynccontextmanager
 from functools import partial
+from pprint import pformat
 from types import ModuleType
 from typing import (
     Any,
     AsyncIterator, Optional,
+    Generator,
     Awaitable,
+    TYPE_CHECKING,
 )
 
 import trio
 from trio.abc import ReceiveChannel
 from trio_typing import TaskStatus
+import trimeter
 import tractor
 from pydantic import BaseModel
+import pendulum
+import numpy as np
 
 from ..brokers import get_brokermod
 from .._cacheables import maybe_open_context
 from ..log import get_logger, get_console_log
 from .._daemon import (
     maybe_spawn_brokerd,
+    check_for_service,
 )
 from ._sharedmem import (
     maybe_open_shm_array,
@@ -56,12 +65,19 @@ from ._source import (
 from ..ui import _search
 from ._sampling import (
     sampler,
+    broadcast,
     increment_ohlc_buffer,
     iter_ohlc_periods,
     sample_and_broadcast,
     uniform_rate_send,
 )
+from ..brokers._util import (
+    NoData,
+    DataUnavailable,
+)
 
+if TYPE_CHECKING:
+    from .marketstore import Storage
 
 log = get_logger(__name__)
 
@@ -124,7 +140,7 @@ class _FeedsBus(BaseModel):
 
     # def cancel_task(
     #     self,
-    #     task: trio.lowlevel.Task
+    #     task: trio.lowlevel.Task,
     # ) -> bool:
     #     ...
 
@@ -188,6 +204,442 @@ async def _setup_persistent_brokerd(
         await trio.sleep_forever()
 
 
+def diff_history(
+    array,
+    start_dt,
+    end_dt,
+    last_tsdb_dt: Optional[datetime] = None
+
+) -> np.ndarray:
+
+    to_push = array
+
+    if last_tsdb_dt:
+        s_diff = (start_dt - last_tsdb_dt).seconds
+
+        # if we detect a partial frame's worth of data
+        # that is new, slice out only that history and
+        # write to shm.
+        if (
+            s_diff < 0
+        ):
+            if abs(s_diff) < len(array):
+                # the + 1 is because ``last_tsdb_dt`` is pulled from
+                # the last row entry for the ``'time'`` field retreived
+                # from the tsdb.
+                to_push = array[abs(s_diff)+1:]
+
+            else:
+                # pass back only the portion of the array that is
+                # greater then the last time stamp in the tsdb.
+                time = array['time']
+                to_push = array[time >= last_tsdb_dt.timestamp()]
+
+            log.info(
+                f'Pushing partial frame {to_push.size} to shm'
+            )
+
+    return to_push
+
+
+async def start_backfill(
+    mod: ModuleType,
+    bfqsn: str,
+    shm: ShmArray,
+
+    last_tsdb_dt: Optional[datetime] = None,
+    storage: Optional[Storage] = None,
+    write_tsdb: bool = True,
+
+    task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
+
+) -> int:
+
+    async with mod.open_history_client(bfqsn) as (hist, config):
+
+        # get latest query's worth of history all the way
+        # back to what is recorded in the tsdb
+        array, start_dt, end_dt = await hist(end_dt=None)
+
+        times = array['time']
+
+        # sample period step size in seconds
+        step_size_s = (
+            pendulum.from_timestamp(times[-1]) -
+            pendulum.from_timestamp(times[-2])
+        ).seconds
+
+        # "frame"'s worth of sample period steps in seconds
+        frame_size_s = len(array) * step_size_s
+
+        to_push = diff_history(
+            array,
+            start_dt,
+            end_dt,
+            last_tsdb_dt=last_tsdb_dt,
+        )
+
+        log.info(f'Pushing {to_push.size} to shm!')
+        shm.push(to_push)
+
+        for delay_s in sampler.subscribers:
+            await broadcast(delay_s)
+
+        # signal that backfilling to tsdb's end datum is complete
+        bf_done = trio.Event()
+
+        # let caller unblock and deliver latest history frame
+        task_status.started((shm, start_dt, end_dt, bf_done))
+
+        if last_tsdb_dt is None:
+            # maybe a better default (they don't seem to define epoch?!)
+
+            # based on the sample step size load a certain amount
+            # history
+            if step_size_s == 1:
+                last_tsdb_dt = pendulum.now().subtract(days=2)
+
+            elif step_size_s == 60:
+                last_tsdb_dt = pendulum.now().subtract(years=2)
+
+            else:
+                raise ValueError(
+                    '`piker` only needs to support 1m and 1s sampling '
+                    'but ur api is trying to deliver a longer '
+                    f'timeframe of {step_size_s} ' 'seconds.. so ye, dun '
+                    'do dat bruh.'
+                )
+
+        # configure async query throttling
+        erlangs = config.get('erlangs', 1)
+        rate = config.get('rate', 1)
+        frames = {}
+
+        def iter_dts(start: datetime):
+
+            while True:
+
+                hist_period = pendulum.period(
+                    start,
+                    last_tsdb_dt,
+                )
+                dtrange = list(hist_period.range('seconds', frame_size_s))
+                log.debug(f'New datetime index:\n{pformat(dtrange)}')
+
+                for end_dt in dtrange:
+                    log.warning(f'Yielding next frame start {end_dt}')
+                    start = yield end_dt
+
+                    # if caller sends a new start date, reset to that
+                    if start is not None:
+                        log.warning(f'Resetting date range: {start}')
+                        break
+                else:
+                    # from while
+                    return
+
+        # pull new history frames until we hit latest
+        # already in the tsdb or a max count.
+        count = 0
+
+        # NOTE: when gaps are detected in the retreived history (by
+        # comparisor of the end - start versus the expected "frame size"
+        # in seconds) we need a way to alert the async request code not
+        # to continue to query for data "within the gap". This var is
+        # set in such cases such that further requests in that period
+        # are discarded and further we reset the "datetimem query frame
+        # index" in such cases to avoid needless noop requests.
+        earliest_end_dt: Optional[datetime] = start_dt
+
+        async def get_ohlc_frame(
+            input_end_dt: datetime,
+            iter_dts_gen: Generator[datetime],
+
+        ) -> np.ndarray:
+
+            nonlocal count, frames, earliest_end_dt, frame_size_s
+            count += 1
+
+            if input_end_dt > earliest_end_dt:
+                # if a request comes in for an inter-gap frame we
+                # discard it since likely this request is still
+                # lingering from before the reset of ``iter_dts()`` via
+                # ``.send()`` below.
+                log.info(f'Discarding request history ending @ {input_end_dt}')
+
+                # signals to ``trimeter`` loop to discard and
+                # ``continue`` in it's schedule loop.
+                return None
+
+            try:
+                log.info(
+                    f'Requesting {step_size_s}s frame ending in {input_end_dt}'
+                )
+                array, start_dt, end_dt = await hist(end_dt=input_end_dt)
+                assert array['time'][0] == start_dt.timestamp()
+
+            except NoData:
+                log.warning(
+                    f'NO DATA for {frame_size_s}s frame @ {input_end_dt} ?!?'
+                )
+                return None  # discard signal
+
+            except DataUnavailable as duerr:
+                # broker is being a bish and we can't pull
+                # any more..
+                log.warning('backend halted on data deliver !?!?')
+
+                # ugh, what's a better way?
+                # TODO: fwiw, we probably want a way to signal a throttle
+                # condition (eg. with ib) so that we can halt the
+                # request loop until the condition is resolved?
+                return duerr
+
+            diff = end_dt - start_dt
+            frame_time_diff_s = diff.seconds
+            expected_frame_size_s = frame_size_s + step_size_s
+
+            if frame_time_diff_s > expected_frame_size_s:
+
+                # XXX: query result includes a start point prior to our
+                # expected "frame size" and thus is likely some kind of
+                # history gap (eg. market closed period, outage, etc.)
+                # so indicate to the request loop that this gap is
+                # expected by both,
+                # - resetting the ``iter_dts()`` generator to start at
+                #   the new start point delivered in this result
+                # - setting the non-locally scoped ``earliest_end_dt``
+                #   to this new value so that the request loop doesn't
+                #   get tripped up thinking there's an out of order
+                #   request-result condition.
+
+                log.warning(
+                    f'History frame ending @ {end_dt} appears to have a gap:\n'
+                    f'{diff} ~= {frame_time_diff_s} seconds'
+                )
+
+                # reset dtrange gen to new start point
+                try:
+                    next_end = iter_dts_gen.send(start_dt)
+                    log.info(
+                        f'Reset frame index to start at {start_dt}\n'
+                        f'Was at {next_end}'
+                    )
+
+                    # NOTE: manually set "earliest end datetime" index-value
+                    # to avoid the request loop getting confused about
+                    # new frames that are earlier in history - i.e. this
+                    # **is not** the case of out-of-order frames from
+                    # an async batch request.
+                    earliest_end_dt = start_dt
+
+                except StopIteration:
+                    # gen already terminated meaning we probably already
+                    # exhausted it via frame requests.
+                    log.info(
+                        "Datetime index already exhausted, can't reset.."
+                    )
+
+            to_push = diff_history(
+                array,
+                start_dt,
+                end_dt,
+                last_tsdb_dt=last_tsdb_dt,
+            )
+            ln = len(to_push)
+            if ln:
+                log.info(f'{ln} bars for {start_dt} -> {end_dt}')
+                frames[input_end_dt.timestamp()] = (to_push, start_dt, end_dt)
+                return to_push, start_dt, end_dt
+
+            else:
+                log.warning(
+                    f'{ln} BARS TO PUSH after diff?!: {start_dt} -> {end_dt}'
+                )
+                return None
+
+        # initial dt index starts at the start of the first query result
+        idts = iter_dts(start_dt)
+
+        async with trimeter.amap(
+            partial(
+                get_ohlc_frame,
+                # we close in the ``iter_dt()`` gen in so we can send
+                # reset signals as needed for gap dection in the
+                # history.
+                iter_dts_gen=idts,
+            ),
+            idts,
+
+            capture_outcome=True,
+            include_value=True,
+
+            # better technical names bruv...
+            max_at_once=erlangs,
+            max_per_second=rate,
+
+        ) as outcomes:
+
+            # Then iterate over the return values, as they become available
+            # (i.e., not necessarily in the original order)
+            async for input_end_dt, outcome in outcomes:
+
+                try:
+                    out = outcome.unwrap()
+
+                    if out is None:
+                        # skip signal
+                        continue
+
+                    elif isinstance(out, DataUnavailable):
+                        # no data available case signal.. so just kill
+                        # further requests and basically just stop
+                        # trying...
+                        break
+
+                except Exception:
+                    log.exception('uhh trimeter bail')
+                    raise
+                else:
+                    to_push, start_dt, end_dt = out
+
+                if not len(to_push):
+                    # diff returned no new data (i.e. we probablyl hit
+                    # the ``last_tsdb_dt`` point).
+                    # TODO: raise instead?
+                    log.warning(f'No history for range {start_dt} -> {end_dt}')
+                    continue
+
+                # pipeline-style pull frames until we need to wait for
+                # the next in order to arrive.
+                # i = end_dts.index(input_end_dt)
+                # print(f'latest end_dt {end_dt} found at index {i}')
+
+                epochs = list(reversed(sorted(frames)))
+                for epoch in epochs:
+
+                    start = shm.array['time'][0]
+                    last_shm_prepend_dt = pendulum.from_timestamp(start)
+                    earliest_frame_queue_dt = pendulum.from_timestamp(epoch)
+
+                    diff = start - epoch
+
+                    if diff < 0:
+                        log.warning(
+                            'Discarding out of order frame:\n'
+                            f'{earliest_frame_queue_dt}'
+                        )
+                        frames.pop(epoch)
+                        continue
+                        # await tractor.breakpoint()
+
+                    if diff > step_size_s:
+
+                        if earliest_end_dt < earliest_frame_queue_dt:
+                            # XXX: an expected gap was encountered (see
+                            # logic in ``get_ohlc_frame()``, so allow
+                            # this frame through to the storage layer.
+                            log.warning(
+                                f'Expected history gap of {diff}s:\n'
+                                f'{earliest_frame_queue_dt} <- '
+                                f'{earliest_end_dt}'
+                            )
+
+                        elif (
+                            erlangs > 1
+                        ):
+                            # we don't yet have the next frame to push
+                            # so break back to the async request loop
+                            # while we wait for more async frame-results
+                            # to arrive.
+                            if len(frames) >= erlangs:
+                                log.warning(
+                                    'Frame count in async-queue is greater '
+                                    'then erlangs?\n'
+                                    'There seems to be a gap between:\n'
+                                    f'{earliest_frame_queue_dt} <- '
+                                    f'{last_shm_prepend_dt}\n'
+                                    'Conducting manual call for frame ending: '
+                                    f'{last_shm_prepend_dt}'
+                                )
+                                (
+                                    to_push,
+                                    start_dt,
+                                    end_dt,
+                                ) = await get_ohlc_frame(
+                                        input_end_dt=last_shm_prepend_dt,
+                                        iter_dts_gen=idts,
+                                )
+                                last_epoch = to_push['time'][-1]
+                                diff = start - last_epoch
+
+                                if diff > step_size_s:
+                                    await tractor.breakpoint()
+                                    raise DataUnavailable(
+                                        'An awkward frame was found:\n'
+                                        f'{start_dt} -> {end_dt}:\n{to_push}'
+                                    )
+
+                                else:
+                                    frames[last_epoch] = (
+                                        to_push, start_dt, end_dt)
+                                    break
+
+                            expect_end = pendulum.from_timestamp(start)
+                            expect_start = expect_end.subtract(
+                                seconds=frame_size_s)
+                            log.warning(
+                                'waiting on out-of-order history frame:\n'
+                                f'{expect_end - expect_start}'
+                            )
+                            break
+
+                    to_push, start_dt, end_dt = frames.pop(epoch)
+                    ln = len(to_push)
+
+                    # bail gracefully on shm allocation overrun/full condition
+                    try:
+                        shm.push(to_push, prepend=True)
+                    except ValueError:
+                        log.info(
+                            f'Shm buffer overrun on: {start_dt} -> {end_dt}?'
+                        )
+                        break
+
+                    log.info(
+                        f'Shm pushed {ln} frame:\n'
+                        f'{start_dt} -> {end_dt}'
+                    )
+                    # keep track of most recent "prepended" ``start_dt``
+                    # both for detecting gaps and ensuring async
+                    # frame-result order.
+                    earliest_end_dt = start_dt
+
+                    if (
+                        storage is not None
+                        and write_tsdb
+                    ):
+                        log.info(
+                            f'Writing {ln} frame to storage:\n'
+                            f'{start_dt} -> {end_dt}'
+                        )
+                        await storage.write_ohlcv(
+                            f'{bfqsn}.{mod.name}',  # lul..
+                            to_push,
+                        )
+
+                # TODO: can we only trigger this if the respective
+                # history in "in view"?!?
+                # XXX: extremely important, there can be no checkpoints
+                # in the block above to avoid entering new ``frames``
+                # values while we're pipelining the current ones to
+                # memory...
+                for delay_s in sampler.subscribers:
+                    await broadcast(delay_s)
+
+        bf_done.set()
+
+
 async def manage_history(
     mod: ModuleType,
     bus: _FeedsBus,
@@ -216,50 +668,180 @@ async def manage_history(
         # we expect the sub-actor to write
         readonly=False,
     )
+    # TODO: history validation
+    if not opened:
+        raise RuntimeError(
+            "Persistent shm for sym was already open?!"
+        )
 
-    if opened:
+    log.info('Scanning for existing `marketstored`')
+
+    is_up = await check_for_service('marketstored')
+
+    # for now only do backfilling if no tsdb can be found
+    do_legacy_backfill = not is_up and opened
+
+    bfqsn = fqsn.replace('.' + mod.name, '')
+    open_history_client = getattr(mod, 'open_history_client', None)
+
+    if is_up and opened and open_history_client:
+
+        log.info('Found existing `marketstored`')
+        from . import marketstore
+        async with marketstore.open_storage_client(
+            fqsn,
+        ) as storage:
+
+            # TODO: this should be used verbatim for the pure
+            # shm backfiller approach below.
+
+            # start history anal and load missing new data via backend.
+            series, _, last_tsdb_dt = await storage.load(fqsn)
+
+            broker, symbol, expiry = unpack_fqsn(fqsn)
+            (
+                shm,
+                latest_start_dt,
+                latest_end_dt,
+                bf_done,
+            ) = await bus.nursery.start(
+                partial(
+                    start_backfill,
+                    mod,
+                    bfqsn,
+                    shm,
+                    last_tsdb_dt=last_tsdb_dt,
+                    storage=storage,
+                )
+            )
+
+            # if len(shm.array) < 2:
+            # TODO: there's an edge case here to solve where if the last
+            # frame before market close (at least on ib) was pushed and
+            # there was only "1 new" row pushed from the first backfill
+            # query-iteration, then the sample step sizing calcs will
+            # break upstream from here since you can't diff on at least
+            # 2 steps... probably should also add logic to compute from
+            # the tsdb series and stash that somewhere as meta data on
+            # the shm buffer?.. no se.
+
+            task_status.started(shm)
+            some_data_ready.set()
+
+            await bf_done.wait()
+            # do diff against last start frame of history and only fill
+            # in from the tsdb an allotment that allows for most recent
+            # to be loaded into mem *before* tsdb data.
+            if last_tsdb_dt:
+                dt_diff_s = (
+                    latest_start_dt - last_tsdb_dt
+                ).seconds
+            else:
+                dt_diff_s = 0
+
+            # await trio.sleep_forever()
+            # TODO: see if there's faster multi-field reads:
+            # https://numpy.org/doc/stable/user/basics.rec.html#accessing-multiple-fields
+            # re-index  with a `time` and index field
+            prepend_start = shm._first.value
+
+            # sanity check on most-recent-data loading
+            assert prepend_start > dt_diff_s
+
+            history = list(series.values())
+            if history:
+                fastest = history[0]
+                to_push = fastest[:prepend_start]
+
+                shm.push(
+                    to_push,
+
+                    # insert the history pre a "days worth" of samples
+                    # to leave some real-time buffer space at the end.
+                    prepend=True,
+                    # update_first=False,
+                    # start=prepend_start,
+                    field_map=marketstore.ohlc_key_map,
+                )
+
+                # load as much from storage into shm as space will
+                # allow according to user's shm size settings.
+                count = 0
+                end = fastest['Epoch'][0]
+
+                while shm._first.value > 0:
+                    count += 1
+                    series = await storage.read_ohlcv(
+                        fqsn,
+                        end=end,
+                    )
+                    history = list(series.values())
+                    fastest = history[0]
+                    end = fastest['Epoch'][0]
+                    prepend_start -= len(to_push)
+                    to_push = fastest[:prepend_start]
+
+                    shm.push(
+                        to_push,
+
+                        # insert the history pre a "days worth" of samples
+                        # to leave some real-time buffer space at the end.
+                        prepend=True,
+                        # update_first=False,
+                        # start=prepend_start,
+                        field_map=marketstore.ohlc_key_map,
+                    )
+
+                    # manually trigger step update to update charts/fsps
+                    # which need an incremental update.
+                    for delay_s in sampler.subscribers:
+                        await broadcast(delay_s)
+
+                    if count > 6:
+                        break
+
+                log.info(f'Loaded {to_push.shape} datums from storage')
+
+                # TODO: write new data to tsdb to be ready to for next read.
+
+    if do_legacy_backfill:
+        # do a legacy incremental backfill from the provider.
         log.info('No existing `marketstored` found..')
 
         # start history backfill task ``backfill_bars()`` is
         # a required backend func this must block until shm is
         # filled with first set of ohlc bars
-        _ = await bus.nursery.start(mod.backfill_bars, fqsn, shm)
-
-    # yield back after client connect with filled shm
-    task_status.started(shm)
-
-    # indicate to caller that feed can be delivered to
-    # remote requesting client since we've loaded history
-    # data that can be used.
-    some_data_ready.set()
-
-    # detect sample step size for sampled historical data
-    times = shm.array['time']
-    delay_s = times[-1] - times[times != times[-1]][-1]
-
-    # begin real-time updates of shm and tsb once the feed
-    # goes live.
-    await feed_is_live.wait()
-
-    if opened:
-        sampler.ohlcv_shms.setdefault(delay_s, []).append(shm)
-
-        # start shm incrementing for OHLC sampling at the current
-        # detected sampling period if one dne.
-        if sampler.incrementers.get(delay_s) is None:
-            await bus.start_task(
-                increment_ohlc_buffer,
-                delay_s,
+        await bus.nursery.start(
+            partial(
+                start_backfill,
+                mod,
+                bfqsn,
+                shm,
             )
+        )
 
+        # yield back after client connect with filled shm
+        task_status.started(shm)
+
+        # indicate to caller that feed can be delivered to
+        # remote requesting client since we've loaded history
+        # data that can be used.
+        some_data_ready.set()
+
+    # history retreival loop depending on user interaction and thus
+    # a small RPC-prot for remotely controllinlg what data is loaded
+    # for viewing.
     await trio.sleep_forever()
 
 
 async def allocate_persistent_feed(
     bus: _FeedsBus,
+
     brokername: str,
     symbol: str,
+
     loglevel: str,
+    start_stream: bool = True,
 
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
@@ -277,6 +859,7 @@ async def allocate_persistent_feed(
     - a real-time streaming task which connec
 
     '''
+    # load backend module
     try:
         mod = get_brokermod(brokername)
     except ImportError:
@@ -319,7 +902,7 @@ async def allocate_persistent_feed(
         manage_history,
         mod,
         bus,
-        bfqsn,
+        '.'.join((bfqsn, brokername)),
         some_data_ready,
         feed_is_live,
     )
@@ -333,7 +916,10 @@ async def allocate_persistent_feed(
     # true fqsn
     fqsn = '.'.join((bfqsn, brokername))
     # add a fqsn entry that includes the ``.<broker>`` suffix
+    # and an entry that includes the broker-specific fqsn (including
+    # any new suffixes or elements as injected by the backend).
     init_msg[fqsn] = msg
+    init_msg[bfqsn] = msg
 
     # TODO: pretty sure we don't need this? why not just leave 1s as
     # the fastest "sample period" since we'll probably always want that
@@ -347,13 +933,14 @@ async def allocate_persistent_feed(
     await some_data_ready.wait()
 
     # append ``.<broker>`` suffix to each quote symbol
-    bsym = symbol + f'.{brokername}'
+    acceptable_not_fqsn_with_broker_suffix = symbol + f'.{brokername}'
+
     generic_first_quotes = {
-        bsym: first_quote,
+        acceptable_not_fqsn_with_broker_suffix: first_quote,
         fqsn: first_quote,
     }
 
-    bus.feeds[symbol] = bus.feeds[fqsn] = (
+    bus.feeds[symbol] = bus.feeds[bfqsn] = (
         init_msg,
         generic_first_quotes,
     )
@@ -363,8 +950,24 @@ async def allocate_persistent_feed(
     # task_status.started((init_msg,  generic_first_quotes))
     task_status.started()
 
-    # backend will indicate when real-time quotes have begun.
+    if not start_stream:
+        await trio.sleep_forever()
+
+    # begin real-time updates of shm and tsb once the feed goes live and
+    # the backend will indicate when real-time quotes have begun.
     await feed_is_live.wait()
+
+    # start shm incrementer task for OHLC style sampling
+    # at the current detected step period.
+    times = shm.array['time']
+    delay_s = times[-1] - times[times != times[-1]][-1]
+
+    sampler.ohlcv_shms.setdefault(delay_s, []).append(shm)
+    if sampler.incrementers.get(delay_s) is None:
+        await bus.start_task(
+            increment_ohlc_buffer,
+            delay_s,
+        )
 
     sum_tick_vlm: bool = init_msg.get(
         'shm_write_opts', {}
@@ -388,7 +991,7 @@ async def open_feed_bus(
 
     ctx: tractor.Context,
     brokername: str,
-    symbol: str,
+    symbol: str,  # normally expected to the broker-specific fqsn
     loglevel: str,
     tick_throttle:  Optional[float] = None,
     start_stream: bool = True,
@@ -410,7 +1013,9 @@ async def open_feed_bus(
     # TODO: check for any stale shm entries for this symbol
     # (after we also group them in a nice `/dev/shm/piker/` subdir).
     # ensure we are who we think we are
-    assert 'brokerd' in tractor.current_actor().name
+    servicename = tractor.current_actor().name
+    assert 'brokerd' in servicename
+    assert brokername in servicename
 
     bus = get_feed_bus(brokername)
 
@@ -420,7 +1025,7 @@ async def open_feed_bus(
     entry = bus.feeds.get(symbol)
     if entry is None:
         # allocate a new actor-local stream bus which
-        # will persist for this `brokerd`.
+        # will persist for this `brokerd`'s service lifetime.
         async with bus.task_lock:
             await bus.nursery.start(
                 partial(
@@ -428,13 +1033,12 @@ async def open_feed_bus(
 
                     bus=bus,
                     brokername=brokername,
-
                     # here we pass through the selected symbol in native
                     # "format" (i.e. upper vs. lowercase depending on
                     # provider).
                     symbol=symbol,
-
                     loglevel=loglevel,
+                    start_stream=start_stream,
                 )
             )
             # TODO: we can remove this?
@@ -450,7 +1054,7 @@ async def open_feed_bus(
     # true fqsn
     fqsn = '.'.join([bfqsn, brokername])
     assert fqsn in first_quotes
-    assert bus.feeds[fqsn]
+    assert bus.feeds[bfqsn]
 
     # broker-ambiguous symbol (provided on cli - eg. mnq.globex.ib)
     bsym = symbol + f'.{brokername}'
