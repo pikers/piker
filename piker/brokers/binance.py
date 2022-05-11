@@ -452,8 +452,8 @@ async def stream_quotes(
 
             # XXX: after manually inspecting the response format we
             # just directly pick out the info we need
-            si['price_tick_size'] = syminfo.filters[0]['tickSize']
-            si['lot_tick_size'] = syminfo.filters[2]['stepSize']
+            si['price_tick_size'] = float(syminfo.filters[0]['tickSize'])
+            si['lot_tick_size'] = float(syminfo.filters[2]['stepSize'])
             si['asset_type'] = 'crypto'
 
         symbol = symbols[0]
