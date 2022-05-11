@@ -2143,6 +2143,19 @@ async def trades_dialogue(
                 accounts.add(msg.account)
                 all_positions.append(msg.dict())
 
+        # the account has no open positions (pps) so
+        # we just deliver the accounts def for now?
+        for value in client.ib.accountValues():
+            account = value.account
+            if account not in accounts_def.inverse:
+                log.warning(
+                    f'Client {client} defines an unknown account '
+                    '(not in brokers.toml):\n'
+                    f'{account}'
+                )
+            else:
+                accounts.add(accounts_def.inverse[account])
+
         await ctx.started((
             all_positions,
             tuple(name for name in accounts_def if name in accounts),
