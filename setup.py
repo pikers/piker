@@ -51,9 +51,12 @@ setup(
         # async
         'trio',
         'trio-websocket',
-        # 'tractor',  # from github currently
         'msgspec',  # performant IPC messaging
         'async_generator',
+
+        # from github currently (see requirements.txt)
+        # 'trimeter',  # not released yet..
+        # 'tractor',
 
         # brokers
         'asks==2.4.8',
