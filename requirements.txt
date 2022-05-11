@@ -11,3 +11,7 @@
 
 # our async client for ``marketstore`` (the tsdb)
 -e git+https://github.com/pikers/anyio-marketstore.git@master#egg=anyio-marketstore
+
+
+# ``trimeter`` for asysnc history fetching
+-e git+https://github.com/python-trio/trimeter.git@master#egg=trimeter
