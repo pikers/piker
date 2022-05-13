@@ -46,7 +46,10 @@ from ..data._sharedmem import (
     ShmArray,
     # open_shm_array,
 )
-from .._profile import pg_profile_enabled, ms_slower_then
+from .._profile import (
+    pg_profile_enabled,
+    ms_slower_then,
+)
 from ._ohlc import (
     BarItems,
     gen_qpath,
@@ -331,11 +334,13 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
         '''
 
-        profiler = profiler or pg.debug.Profiler(
+        # profiler = profiler or pg.debug.Profiler(
+        profiler = pg.debug.Profiler(
             msg=f'Flow.update_graphics() for {self.name}',
             disabled=not pg_profile_enabled(),
-            gt=ms_slower_then,
-            delayed=True,
+            # disabled=False,
+            ms_threshold=4,
+            # ms_threshold=ms_slower_then,
         )
         # shm read and slice to view
         read = (
@@ -591,6 +596,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
             # ``FastAppendCurve`` case:
             array_key = array_key or self.name
             uppx = graphics.x_uppx()
+            profiler('read uppx')
 
             if graphics._step_mode and self.gy is None:
                 self._iflat_first = self.shm._first.value
@@ -616,6 +622,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
                 # start y at origin level
                 self.gy[0, 0] = 0
+                profiler('generated step mode data')
 
             if graphics._step_mode:
                 (
@@ -631,6 +638,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 )
 
                 il = max(iflat - 1, 0)
+                profiler('read step mode incr update indices')
 
                 # check for shm prepend updates since last read.
                 if iflat_first != ishm_first:
@@ -650,6 +658,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                     # write newly prepended data to flattened copy
                     self.gy[ishm_first:iflat_first] = y2_prepend
                     self._iflat_first = ishm_first
+                    profiler('prepended step mode history')
 
                 append_diff = ishm_last - iflat
                 if append_diff:
@@ -679,6 +688,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 x_step = self.gx[ishm_first:ishm_last+2]
                 # shape to 1d
                 x = x_step.reshape(-1)
+                profiler('sliced step x')
 
                 y_step = self.gy[ishm_first:ishm_last+2]
                 lasts = self.shm.array[['index', array_key]]
@@ -690,7 +700,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 # s = 6
                 # print(f'lasts: {x[-2*s:]}, {y[-2*s:]}')
 
-                profiler('sliced step data')
+                profiler('sliced step y')
 
                 # do all the same for only in-view data
                 ys_iv = y_step[ivl:ivr+1]
@@ -703,7 +713,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 #     f'xs_iv: {xs_iv[-s:]}\n'
                 #     f'x_iv: {x_iv[-s:]}\n'
                 # )
-                profiler('flattened ustruct in-view OHLC data')
+                profiler('sliced in view step data')
 
                 # legacy full-recompute-everytime method
                 # x, y = ohlc_flatten(array)
@@ -738,9 +748,11 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
                     # NOTE: already passed through by display loop?
                     # do_append=uppx < 16,
+                    profiler=profiler,
 
                     **kwargs
                 )
+                profiler('updated step mode curve')
                 # graphics.reset_cache()
                 # print(
                 #     f"path br: {graphics.path.boundingRect()}\n",
@@ -754,9 +766,9 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 y = array[array_key]
                 x_iv = in_view['index']
                 y_iv = in_view[array_key]
+                profiler('sliced input arrays')
 
                 # graphics.draw_last(x, y)
-                profiler(f'draw last segment {array_key}')
 
                 graphics.update_from_array(
                     x=x,
@@ -769,8 +781,10 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
                     # NOTE: already passed through by display loop?
                     # do_append=uppx < 16,
+                    profiler=profiler,
                     **kwargs
                 )
+                profiler(f'`graphics.update_from_array()` complete')
 
         return graphics
 
