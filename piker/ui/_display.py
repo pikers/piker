@@ -54,10 +54,10 @@ from ._forms import (
     mk_order_pane_layout,
 )
 from .order_mode import open_order_mode
-# from .._profile import (
-#     pg_profile_enabled,
-#     ms_slower_then,
-# )
+from .._profile import (
+    pg_profile_enabled,
+    ms_slower_then,
+)
 from ..log import get_logger
 
 log = get_logger(__name__)
@@ -319,9 +319,12 @@ def graphics_update_cycle(
 
     profiler = pg.debug.Profiler(
         msg=f'Graphics loop cycle for: `{chart.name}`',
-        disabled=True,  # not pg_profile_enabled(),
-        gt=1/12 * 1e3,
-        # gt=ms_slower_then,
+        delayed=True,
+        # disabled=not pg_profile_enabled(),
+        disabled=True,
+        ms_threshold=ms_slower_then,
+
+        # ms_threshold=1/12 * 1e3,
     )
 
     # unpack multi-referenced components
@@ -366,7 +369,9 @@ def graphics_update_cycle(
         l, lbar, rbar, r = brange
         mx = mx_in_view + tick_margin
         mn = mn_in_view - tick_margin
-        profiler('maxmin call')
+
+        profiler('`ds.maxmin()` call')
+
         liv = r >= i_step  # the last datum is in view
 
         if (
@@ -394,6 +399,7 @@ def graphics_update_cycle(
             # pixel in a curve should show new data based on uppx
             # and then iff update curves and shift?
             chart.increment_view(steps=i_diff)
+            profiler('view incremented')
 
         if vlm_chart:
             # always update y-label
@@ -425,6 +431,7 @@ def graphics_update_cycle(
                     # connected to update accompanying overlay
                     # graphics..
                 )
+                profiler('`vlm_chart.update_graphics_from_flow()`')
 
                 if (
                     mx_vlm_in_view != vars['last_mx_vlm']
@@ -433,6 +440,7 @@ def graphics_update_cycle(
                     vlm_chart.view._set_yrange(
                         yrange=yrange,
                     )
+                    profiler('`vlm_chart.view._set_yrange()`')
                     # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
                     vars['last_mx_vlm'] = mx_vlm_in_view
 
