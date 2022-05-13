@@ -272,8 +272,6 @@ class FastAppendCurve(pg.GraphicsObject):
         x = (x + np.array([-0.5, 0, 0, 0.5])).flatten()
         y = y.flatten()
 
-        # presumably?
-        self._in_ds = True
         return x, y
 
     def update_from_array(
@@ -305,7 +303,7 @@ class FastAppendCurve(pg.GraphicsObject):
         profiler = profiler or pg.debug.Profiler(
             msg=f'FastAppendCurve.update_from_array(): `{self._name}`',
             disabled=not pg_profile_enabled(),
-            gt=ms_slower_then,
+            ms_threshold=ms_slower_then,
         )
         flip_cache = False
 
@@ -342,6 +340,10 @@ class FastAppendCurve(pg.GraphicsObject):
         showing_src_data = self._in_ds
         # should_redraw = False
 
+        # by default we only pull data up to the last (current) index
+        x_out_full = x_out = x[:slice_to_head]
+        y_out_full = y_out = y[:slice_to_head]
+
         # if a view range is passed, plan to draw the
         # source ouput that's "in view" of the chart.
         if (
@@ -358,7 +360,7 @@ class FastAppendCurve(pg.GraphicsObject):
             vl, vr = view_range
 
             # last_ivr = self._x_iv_range
-            # ix_iv, iy_iv = self._x_iv_range = (x_iv[0], x_iv[-1])
+           # ix_iv, iy_iv = self._x_iv_range = (x_iv[0], x_iv[-1])
 
             zoom_or_append = False
             last_vr = self._vr
@@ -414,16 +416,8 @@ class FastAppendCurve(pg.GraphicsObject):
             # self.disable_cache()
             # flip_cache = True
 
-        else:
-            # if (
-            #     not view_range
-            #     or self._in_ds
-            # ):
-            # by default we only pull data up to the last (current) index
-            x_out, y_out = x[:slice_to_head], y[:slice_to_head]
-
-            if prepend_length > 0:
-                should_redraw = True
+        if prepend_length > 0:
+            should_redraw = True
 
         # check for downsampling conditions
         if (
@@ -459,30 +453,10 @@ class FastAppendCurve(pg.GraphicsObject):
             or new_sample_rate
             or prepend_length > 0
         ):
-            # if (
-            #     not view_range
-            #     or self._in_ds
-            # ):
-            #     # by default we only pull data up to the last (current) index
-            #     x_out, y_out = x[:-1], y[:-1]
-
-            # step mode: draw flat top discrete "step"
-            # over the index space for each datum.
-            # if self._step_mode:
-            #     self.disable_cache()
-            #     flip_cache = True
-            #     x_out, y_out = step_path_arrays_from_1d(
-            #         x_out,
-            #         y_out,
-            #     )
-
-            #     # TODO: numba this bish
-            #     profiler('generated step arrays')
-
             if should_redraw:
                 if self.path:
-                    # print(f'CLEARING PATH {self._name}')
                     self.path.clear()
+                    profiler('cleared paths due to `should_redraw=True`')
 
                 if self.fast_path:
                     self.fast_path.clear()
@@ -555,23 +529,6 @@ class FastAppendCurve(pg.GraphicsObject):
             new_x = x[-append_length - 2:slice_to_head]
             new_y = y[-append_length - 2:slice_to_head]
             profiler('sliced append path')
-
-            # if self._step_mode:
-            # #     new_x, new_y = step_path_arrays_from_1d(
-            # #         new_x,
-            # #         new_y,
-            # #     )
-            # #     # [1:] since we don't need the vertical line normally at
-            # #     # the beginning of the step curve taking the first (x,
-            # #     # y) poing down to the x-axis **because** this is an
-            # #     # appended path graphic.
-            # #     new_x = new_x[1:]
-            # #     new_y = new_y[1:]
-
-            #     self.disable_cache()
-            #     flip_cache = True
-
-            #     profiler('generated step data')
 
             profiler(
                 f'diffed array input, append_length={append_length}'
@@ -812,7 +769,7 @@ class FastAppendCurve(pg.GraphicsObject):
         profiler = pg.debug.Profiler(
             msg=f'FastAppendCurve.paint(): `{self._name}`',
             disabled=not pg_profile_enabled(),
-            gt=ms_slower_then,
+            ms_threshold=ms_slower_then,
         )
         self.prepareGeometryChange()
 
