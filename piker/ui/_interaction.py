@@ -762,7 +762,7 @@ class ChartView(ViewBox):
         profiler = pg.debug.Profiler(
             msg=f'`ChartView._set_yrange()`: `{self.name}`',
             disabled=not pg_profile_enabled(),
-            gt=ms_slower_then,
+            ms_threshold=ms_slower_then,
             delayed=True,
         )
         set_range = True
@@ -833,7 +833,7 @@ class ChartView(ViewBox):
 
             ylow, yhigh = yrange
 
-            profiler(f'maxmin(): {yrange}')
+            profiler(f'callback ._maxmin(): {yrange}')
 
             # view margins: stay within a % of the "true range"
             diff = yhigh - ylow
@@ -932,8 +932,8 @@ class ChartView(ViewBox):
             # due to the way delaying works and garbage collection of
             # the profiler in the delegated method calls.
             delayed=False,
-            # gt=3,
-            gt=ms_slower_then,
+            ms_threshold=6,
+            # ms_threshold=ms_slower_then,
         )
 
         # TODO: a faster single-loop-iterator way of doing this XD
@@ -958,9 +958,7 @@ class ChartView(ViewBox):
                     use_vr=True,
 
                     # gets passed down into graphics obj
-                    profiler=profiler,
+                    # profiler=profiler,
                 )
 
-                profiler(f'range change updated {chart_name}:{name}')
-
-        profiler.finish()
+                profiler(f'<{chart_name}>.update_graphics_from_flow({name})')

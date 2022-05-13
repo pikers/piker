@@ -1268,9 +1268,9 @@ class ChartPlotWidget(pg.PlotWidget):
 
         '''
         profiler = pg.debug.Profiler(
-            msg=f'`{str(self)}.maxmin()` loop cycle for: `{self.name}`',
+            msg=f'`{str(self)}.maxmin(name={name})`: `{self.name}`',
             disabled=not pg_profile_enabled(),
-            gt=ms_slower_then,
+            ms_threshold=ms_slower_then,
             delayed=True,
         )
 

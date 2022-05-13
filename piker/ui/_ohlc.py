@@ -170,7 +170,7 @@ def gen_qpath(
     profiler = pg.debug.Profiler(
         msg='gen_qpath ohlc',
         disabled=not pg_profile_enabled(),
-        gt=ms_slower_then,
+        ms_threshold=ms_slower_then,
     )
 
     x, y, c = path_arrays_from_ohlc(
@@ -353,7 +353,7 @@ class BarItems(pg.GraphicsObject):
     #     '''
     #     profiler = profiler or pg.debug.Profiler(
     #         disabled=not pg_profile_enabled(),
-    #         gt=ms_slower_then,
+    #         ms_threshold=ms_slower_then,
     #         delayed=True,
     #     )
 
@@ -718,7 +718,7 @@ class BarItems(pg.GraphicsObject):
 
         profiler = pg.debug.Profiler(
             disabled=not pg_profile_enabled(),
-            gt=ms_slower_then,
+            ms_threshold=ms_slower_then,
         )
 
         # p.setCompositionMode(0)
