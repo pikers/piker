@@ -113,34 +113,6 @@ def rowarr_to_path(
     )
 
 
-def mk_ohlc_flat_copy(
-    ohlc_shm: ShmArray,
-
-    # XXX: we bind this in currently..
-    # x_basis: np.ndarray,
-
-    # vr: Optional[slice] = None,
-
-) -> tuple[np.ndarray, np.ndarray]:
-    '''
-    Return flattened-non-copy view into an OHLC shm array.
-
-    '''
-    ohlc = ohlc_shm._array[['open', 'high', 'low', 'close']]
-    # if vr:
-    #     ohlc = ohlc[vr]
-    #     x = x_basis[vr]
-
-    unstructured = rfn.structured_to_unstructured(
-        ohlc,
-        copy=False,
-    )
-    # breakpoint()
-    y = unstructured.flatten()
-    # x = x_basis[:y.size]
-    return y
-
-
 def render_baritems(
     flow: Flow,
     graphics: BarItems,
