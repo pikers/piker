@@ -14,14 +14,26 @@ secret = ""
 [ib]
 host = "127.0.0.1"
 
+# when clients are being scanned this determines
+# which clients are preferred to be used for data
+# feeds based on the order of account names, if
+# detected as active on an API client.
+prefer_data_account = [
+    'paper',
+    'margin',
+    'ira',
+]
+
+# the order in which ports will be scanned
+# (by the `brokerd` daemon-actor)
+# is determined # by the line order here.
 ports.gw = 4002
 ports.tws = 7497
 ports.order = ["gw", "tws",]
 
+# the order in which accounts will be selectable
+# in the order mode UI (if found via clients during
+# API-app scanning)when a new symbol is loaded.
+accounts.paper = "XX0000000"
 accounts.margin = "X0000000"
 accounts.ira = "X0000000"
-accounts.paper = "XX0000000"
-
-# the order in which accounts will be selected (if found through
-# `brokerd`) when a new symbol is loaded
-accounts_order = ['paper', 'margin', 'ira']
