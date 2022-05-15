@@ -226,3 +226,31 @@ def ohlc_to_line(
         x_out,
         y_out,
     )
+
+
+def to_step_format(
+    shm: ShmArray,
+    data_field: str,
+    index_field: str = 'index',
+
+) -> tuple[int, np.ndarray, np.ndarray]:
+    '''
+    Convert an input 1d shm array to a "step array" format
+    for use by path graphics generation.
+
+    '''
+    first = shm._first.value
+    i = shm._array['index'].copy()
+    out = shm._array[data_field].copy()
+
+    x_out = np.broadcast_to(
+        i[:, None],
+        (i.size, 2),
+    ) + np.array([-0.5, 0.5])
+
+    y_out = np.empty((len(out), 2), dtype=out.dtype)
+    y_out[:] = out[:, np.newaxis]
+
+    # start y at origin level
+    y_out[0, 0] = 0
+    return first, x_out, y_out
