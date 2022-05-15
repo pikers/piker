@@ -22,11 +22,15 @@ from typing import (
 )
 
 import numpy as np
+from numpy.lib import recfunctions as rfn
 from numba import njit, float64, int64  # , optional
 import pyqtgraph as pg
 from PyQt5 import QtGui
 # from PyQt5.QtCore import QLineF, QPointF
 
+from ..data._sharedmem import (
+    ShmArray,
+)
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._compression import (
     # ohlc_flatten,
@@ -176,3 +180,49 @@ def gen_ohlc_qpath(
     profiler("generate path with arrayToQPath")
 
     return path
+
+
+def ohlc_to_line(
+    ohlc_shm: ShmArray,
+    fields: list[str] = ['open', 'high', 'low', 'close']
+
+) -> tuple[
+    int,  # flattened first index
+    int,  # flattened last index
+    np.ndarray,
+    np.ndarray,
+]:
+    '''
+    Convert an input struct-array holding OHLC samples into a pair of
+    flattened x, y arrays with the same size (datums wise) as the source
+    data.
+
+    '''
+    y_out = ohlc_shm.ustruct(fields)
+    first = ohlc_shm._first.value
+    last = ohlc_shm._last.value
+
+    # write pushed data to flattened copy
+    y_out[first:last] = rfn.structured_to_unstructured(
+        ohlc_shm.array[fields]
+    )
+
+    # generate an flat-interpolated x-domain
+    x_out = (
+        np.broadcast_to(
+            ohlc_shm._array['index'][:, None],
+            (
+                ohlc_shm._array.size,
+                # 4,  # only ohlc
+                y_out.shape[1],
+            ),
+        ) + np.array([-0.5, 0, 0, 0.5])
+    )
+    assert y_out.any()
+
+    return (
+        first,
+        last,
+        x_out,
+        y_out,
+    )

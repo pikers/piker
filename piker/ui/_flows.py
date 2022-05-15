@@ -52,13 +52,13 @@ from .._profile import (
 )
 from ._pathops import (
     gen_ohlc_qpath,
+    ohlc_to_line,
 )
 from ._ohlc import (
     BarItems,
 )
 from ._curve import (
     FastAppendCurve,
-    # step_path_arrays_from_1d,
 )
 from ..log import get_logger
 
@@ -426,29 +426,34 @@ class Flow(msgspec.Struct):  # , frozen=True):
                     # create a flattened view onto the OHLC array
                     # which can be read as a line-style format
                     shm = self.shm
+                    (
+                        self._iflat_first,
+                        self._iflat_last,
+                        self.gx,
+                        self.gy,
+                    ) = ohlc_to_line(shm)
 
-                    # flat = self.gy = self.shm.unstruct_view(fields)
-                    self.gy = self.shm.ustruct(fields)
-                    first = self._iflat_first = self.shm._first.value
-                    last = self._iflat_last = self.shm._last.value
+                    # self.gy = self.shm.ustruct(fields)
+                    # first = self._iflat_first = self.shm._first.value
+                    # last = self._iflat_last = self.shm._last.value
 
-                    # write pushed data to flattened copy
-                    self.gy[first:last] = rfn.structured_to_unstructured(
-                        self.shm.array[fields]
-                    )
+                    # # write pushed data to flattened copy
+                    # self.gy[first:last] = rfn.structured_to_unstructured(
+                    #     self.shm.array[fields]
+                    # )
 
-                    # generate an flat-interpolated x-domain
-                    self.gx = (
-                        np.broadcast_to(
-                            shm._array['index'][:, None],
-                            (
-                                shm._array.size,
-                                # 4,  # only ohlc
-                                self.gy.shape[1],
-                            ),
-                        ) + np.array([-0.5, 0, 0, 0.5])
-                    )
-                    assert self.gy.any()
+                    # # generate an flat-interpolated x-domain
+                    # self.gx = (
+                    #     np.broadcast_to(
+                    #         shm._array['index'][:, None],
+                    #         (
+                    #             shm._array.size,
+                    #             # 4,  # only ohlc
+                    #             self.gy.shape[1],
+                    #         ),
+                    #     ) + np.array([-0.5, 0, 0, 0.5])
+                    # )
+                    # assert self.gy.any()
 
                 # print(f'unstruct diff: {time.time() - start}')
                 # profiler('read unstr view bars to line')
