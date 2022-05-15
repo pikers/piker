@@ -23,7 +23,6 @@ from operator import attrgetter
 from operator import itemgetter
 
 import click
-import pandas as pd
 import trio
 import tractor
 
@@ -47,8 +46,10 @@ _watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
 @click.argument('kwargs', nargs=-1)
 @click.pass_obj
 def api(config, meth, kwargs, keys):
-    """Make a broker-client API method call
-    """
+    '''
+    Make a broker-client API method call
+
+    '''
     # global opts
     broker = config['brokers'][0]
 
@@ -79,13 +80,13 @@ def api(config, meth, kwargs, keys):
 
 
 @cli.command()
-@click.option('--df-output', '-df', flag_value=True,
-              help='Output in `pandas.DataFrame` format')
 @click.argument('tickers', nargs=-1, required=True)
 @click.pass_obj
-def quote(config, tickers, df_output):
-    """Print symbol quotes to the console
-    """
+def quote(config, tickers):
+    '''
+    Print symbol quotes to the console
+
+    '''
     # global opts
     brokermod = config['brokermods'][0]
 
@@ -100,28 +101,19 @@ def quote(config, tickers, df_output):
             if ticker not in syms:
                 brokermod.log.warn(f"Could not find symbol {ticker}?")
 
-    if df_output:
-        cols = next(filter(bool, quotes)).copy()
-        cols.pop('symbol')
-        df = pd.DataFrame(
-            (quote or {} for quote in quotes),
-            columns=cols,
-        )
-        click.echo(df)
-    else:
-        click.echo(colorize_json(quotes))
+    click.echo(colorize_json(quotes))
 
 
 @cli.command()
-@click.option('--df-output', '-df', flag_value=True,
-              help='Output in `pandas.DataFrame` format')
 @click.option('--count', '-c', default=1000,
               help='Number of bars to retrieve')
 @click.argument('symbol', required=True)
 @click.pass_obj
-def bars(config, symbol, count, df_output):
-    """Retreive 1m bars for symbol and print on the console
-    """
+def bars(config, symbol, count):
+    '''
+    Retreive 1m bars for symbol and print on the console
+
+    '''
     # global opts
     brokermod = config['brokermods'][0]
 
@@ -133,7 +125,7 @@ def bars(config, symbol, count, df_output):
             brokermod,
             symbol,
             count=count,
-            as_np=df_output
+            as_np=False,
         )
     )
 
@@ -141,10 +133,7 @@ def bars(config, symbol, count, df_output):
         log.error(f"No quotes could be found for {symbol}?")
         return
 
-    if df_output:
-        click.echo(pd.DataFrame(bars))
-    else:
-        click.echo(colorize_json(bars))
+    click.echo(colorize_json(bars))
 
 
 @cli.command()
@@ -156,8 +145,10 @@ def bars(config, symbol, count, df_output):
 @click.argument('name', nargs=1, required=True)
 @click.pass_obj
 def record(config, rate, name, dhost, filename):
-    """Record client side quotes to a file on disk
-    """
+    '''
+    Record client side quotes to a file on disk
+
+    '''
     # global opts
     brokermod = config['brokermods'][0]
     loglevel = config['loglevel']
@@ -195,8 +186,10 @@ def record(config, rate, name, dhost, filename):
 @click.argument('symbol', required=True)
 @click.pass_context
 def contracts(ctx, loglevel, broker, symbol, ids):
-    """Get list of all option contracts for symbol
-    """
+    '''
+    Get list of all option contracts for symbol
+
+    '''
     brokermod = get_brokermod(broker)
     get_console_log(loglevel)
 
@@ -213,14 +206,14 @@ def contracts(ctx, loglevel, broker, symbol, ids):
 
 
 @cli.command()
-@click.option('--df-output', '-df', flag_value=True,
-              help='Output in `pandas.DataFrame` format')
 @click.option('--date', '-d', help='Contracts expiry date')
 @click.argument('symbol', required=True)
 @click.pass_obj
-def optsquote(config, symbol, df_output, date):
-    """Retreive symbol option quotes on the console
-    """
+def optsquote(config, symbol, date):
+    '''
+    Retreive symbol option quotes on the console
+
+    '''
     # global opts
     brokermod = config['brokermods'][0]
 
@@ -233,22 +226,17 @@ def optsquote(config, symbol, df_output, date):
         log.error(f"No option quotes could be found for {symbol}?")
         return
 
-    if df_output:
-        df = pd.DataFrame(
-            (quote.values() for quote in quotes),
-            columns=quotes[0].keys(),
-        )
-        click.echo(df)
-    else:
-        click.echo(colorize_json(quotes))
+    click.echo(colorize_json(quotes))
 
 
 @cli.command()
 @click.argument('tickers', nargs=-1, required=True)
 @click.pass_obj
 def symbol_info(config, tickers):
-    """Print symbol quotes to the console
-    """
+    '''
+    Print symbol quotes to the console
+
+    '''
     # global opts
     brokermod = config['brokermods'][0]
 
@@ -270,8 +258,10 @@ def symbol_info(config, tickers):
 @click.argument('pattern', required=True)
 @click.pass_obj
 def search(config, pattern):
-    """Search for symbols from broker backend(s).
-    """
+    '''
+    Search for symbols from broker backend(s).
+
+    '''
     # global opts
     brokermods = config['brokermods']
 

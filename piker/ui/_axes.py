@@ -19,10 +19,10 @@ Chart axes graphics and behavior.
 
 """
 from functools import lru_cache
-from typing import List, Tuple, Optional, Callable
+from typing import Optional, Callable
 from math import floor
 
-import pandas as pd
+import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
@@ -103,7 +103,7 @@ class Axis(pg.AxisItem):
     def size_to_values(self) -> None:
         pass
 
-    def txt_offsets(self) -> Tuple[int, int]:
+    def txt_offsets(self) -> tuple[int, int]:
         return tuple(self.style['tickTextOffset'])
 
 
@@ -218,9 +218,9 @@ class DynamicDateAxis(Axis):
 
     def _indexes_to_timestrs(
         self,
-        indexes: List[int],
+        indexes: list[int],
 
-    ) -> List[str]:
+    ) -> list[str]:
 
         chart = self.linkedsplits.chart
         bars = chart._arrays[chart.name]
@@ -241,10 +241,17 @@ class DynamicDateAxis(Axis):
         )]
 
         # TODO: **don't** have this hard coded shift to EST
-        dts = pd.to_datetime(epochs, unit='s')  # - 4*pd.offsets.Hour()
+        # delay = times[-1] - times[-2]
+        dts = np.array(epochs, dtype='datetime64[s]')
 
-        delay = times[-1] - times[-2]
-        return dts.strftime(self.tick_tpl[delay])
+        # see units listing:
+        # https://numpy.org/devdocs/reference/arrays.datetime.html#datetime-units
+        return list(np.datetime_as_string(dts))
+
+        # TODO: per timeframe formatting?
+        # - we probably need this based on zoom now right?
+        # prec = self.np_dt_precision[delay]
+        # return dts.strftime(self.tick_tpl[delay])
 
     def tickStrings(
         self,
@@ -430,7 +437,7 @@ class XAxisLabel(AxisLabel):
         | QtCore.Qt.AlignCenter
     )
 
-    def size_hint(self) -> Tuple[float, float]:
+    def size_hint(self) -> tuple[float, float]:
         # size to parent axis height
         return self._parent.height(), None
 
@@ -444,11 +451,11 @@ class XAxisLabel(AxisLabel):
 
         timestrs = self._parent._indexes_to_timestrs([int(value)])
 
-        if not timestrs.any():
+        if not len(timestrs):
             return
 
         pad = 1*' '
-        self.label_str = pad + timestrs[0] + pad
+        self.label_str = pad + str(timestrs[0]) + pad
 
         _, y_offset = self._parent.txt_offsets()
 
@@ -509,7 +516,7 @@ class YAxisLabel(AxisLabel):
         if getattr(self._parent, 'txt_offsets', False):
             self.x_offset, y_offset = self._parent.txt_offsets()
 
-    def size_hint(self) -> Tuple[float, float]:
+    def size_hint(self) -> tuple[float, float]:
         # size to parent axis width(-ish)
         wsh = self._dpifont.boundingRect(' ').height() / 2
         return (

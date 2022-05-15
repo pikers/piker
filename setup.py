@@ -68,7 +68,6 @@ setup(
         'cython',
         'numpy',
         'numba',
-        'pandas',
 
         # UI
         'PyQt5',
