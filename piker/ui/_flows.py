@@ -789,37 +789,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
         return graphics
 
 
-def xy_downsample(
-    x,
-    y,
-    px_width,
-    uppx,
-
-    x_spacer: float = 0.5,
-
-) -> tuple[np.ndarray, np.ndarray]:
-
-    # downsample whenever more then 1 pixels per datum can be shown.
-    # always refresh data bounds until we get diffing
-    # working properly, see above..
-    bins, x, y = ds_m4(
-        x,
-        y,
-        px_width=px_width,
-        uppx=uppx,
-        log_scale=bool(uppx)
-    )
-
-    # flatten output to 1d arrays suitable for path-graphics generation.
-    x = np.broadcast_to(x[:, None], y.shape)
-    x = (x + np.array(
-        [-x_spacer, 0, 0, x_spacer]
-    )).flatten()
-    y = y.flatten()
-
-    return x, y
-
-
 class Renderer(msgspec.Struct):
 
     flow: Flow

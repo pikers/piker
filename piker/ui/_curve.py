@@ -34,10 +34,11 @@ from PyQt5.QtCore import (
 
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._style import hcolor
-from ._compression import (
-    # ohlc_to_m4_line,
-    ds_m4,
-)
+# from ._compression import (
+#     # ohlc_to_m4_line,
+#     ds_m4,
+# )
+from ._pathops import xy_downsample
 from ..log import get_logger
 
 
@@ -173,32 +174,6 @@ class FastAppendCurve(pg.GraphicsObject):
         return vb.mapViewToDevice(
             QLineF(lbar, 0, rbar, 0)
         ).length()
-
-    def downsample(
-        self,
-        x,
-        y,
-        px_width,
-        uppx,
-
-    ) -> tuple[np.ndarray, np.ndarray]:
-
-        # downsample whenever more then 1 pixels per datum can be shown.
-        # always refresh data bounds until we get diffing
-        # working properly, see above..
-        bins, x, y = ds_m4(
-            x,
-            y,
-            px_width=px_width,
-            uppx=uppx,
-            # log_scale=bool(uppx)
-        )
-        x = np.broadcast_to(x[:, None], y.shape)
-        # x = (x + np.array([-0.43, 0, 0, 0.43])).flatten()
-        x = (x + np.array([-0.5, 0, 0, 0.5])).flatten()
-        y = y.flatten()
-
-        return x, y
 
     def update_from_array(
         self,
@@ -396,7 +371,8 @@ class FastAppendCurve(pg.GraphicsObject):
                 self._in_ds = False
 
             elif should_ds and uppx and px_width > 1:
-                x_out, y_out = self.downsample(
+
+                x_out, y_out = xy_downsample(
                     x_out,
                     y_out,
                     px_width,
@@ -461,7 +437,7 @@ class FastAppendCurve(pg.GraphicsObject):
             )
 
             # if should_ds:
-            #     new_x, new_y = self.downsample(
+            #     new_x, new_y = xy_downsample(
             #         new_x,
             #         new_y,
             #         px_width,
