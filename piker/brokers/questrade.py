@@ -35,7 +35,6 @@ import pendulum
 import trio
 import tractor
 from async_generator import asynccontextmanager
-import pandas as pd
 import numpy as np
 import wrapt
 import asks
@@ -669,7 +668,7 @@ def get_OHLCV(
     """
     del bar['end']
     del bar['VWAP']
-    bar['start'] = pd.Timestamp(bar['start']).value/10**9
+    bar['start'] = pendulum.from_timestamp(bar['start']) / 10**9
     return tuple(bar.values())
 
 
