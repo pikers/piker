@@ -40,7 +40,6 @@ from bidict import bidict
 import msgpack
 import pyqtgraph as pg
 import numpy as np
-import pandas as pd
 import tractor
 from trio_websocket import open_websocket_url
 from anyio_marketstore import (
@@ -268,7 +267,7 @@ def quote_to_marketstore_structarray(
     '''
     if last_fill:
         # new fill bby
-        now = timestamp(last_fill)
+        now = int(pendulum.parse(last_fill).timestamp)
     else:
         # this should get inserted upstream by the broker-client to
         # subtract from IPC latency
@@ -296,15 +295,6 @@ def quote_to_marketstore_structarray(
         array_input.append(val)
 
     return np.array([tuple(array_input)], dtype=_quote_dt)
-
-
-def timestamp(date, **kwargs) -> int:
-    '''
-    Return marketstore compatible 'Epoch' integer in nanoseconds
-    from a date formatted str.
-
-    '''
-    return int(pd.Timestamp(date, **kwargs).value)
 
 
 @acm
