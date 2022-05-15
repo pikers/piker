@@ -156,7 +156,7 @@ def path_arrays_from_ohlc(
     return x, y, c
 
 
-def gen_qpath(
+def gen_ohlc_qpath(
     data: np.ndarray,
     start: int = 0,  # XXX: do we need this?
     # 0.5 is no overlap between arms, 1.0 is full overlap
@@ -274,7 +274,7 @@ class BarItems(pg.GraphicsObject):
 
         '''
         hist, last = ohlc[:-1], ohlc[-1]
-        self.path = gen_qpath(hist, start, self.w)
+        self.path = gen_ohlc_qpath(hist, start, self.w)
 
         # save graphics for later reference and keep track
         # of current internal "last index"

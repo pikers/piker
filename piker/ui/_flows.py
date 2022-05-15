@@ -52,7 +52,7 @@ from .._profile import (
 )
 from ._ohlc import (
     BarItems,
-    gen_qpath,
+    gen_ohlc_qpath,
 )
 from ._curve import (
     FastAppendCurve,
@@ -365,7 +365,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 r = self._src_r = Renderer(
                     flow=self,
                     # TODO: rename this to something with ohlc
-                    draw_path=gen_qpath,
+                    draw_path=gen_ohlc_qpath,
                     last_read=read,
                 )
 
