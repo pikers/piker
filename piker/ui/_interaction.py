@@ -931,7 +931,6 @@ class ChartView(ViewBox):
             # ``.update_graphics_from_flow()`` nested profiling likely
             # due to the way delaying works and garbage collection of
             # the profiler in the delegated method calls.
-            delayed=False,
             ms_threshold=6,
             # ms_threshold=ms_slower_then,
         )
