@@ -48,19 +48,17 @@ from ..data._sharedmem import (
 )
 from .._profile import (
     pg_profile_enabled,
-    ms_slower_then,
+    # ms_slower_then,
+)
+from ._pathops import (
+    gen_ohlc_qpath,
 )
 from ._ohlc import (
     BarItems,
-    gen_ohlc_qpath,
 )
 from ._curve import (
     FastAppendCurve,
     # step_path_arrays_from_1d,
-)
-from ._compression import (
-    # ohlc_flatten,
-    ds_m4,
 )
 from ..log import get_logger
 
@@ -784,7 +782,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                     profiler=profiler,
                     **kwargs
                 )
-                profiler(f'`graphics.update_from_array()` complete')
+                profiler('`graphics.update_from_array()` complete')
 
         return graphics
 

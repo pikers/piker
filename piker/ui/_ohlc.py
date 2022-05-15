@@ -25,7 +25,6 @@ from typing import (
 
 import numpy as np
 import pyqtgraph as pg
-from numba import njit, float64, int64  # , optional
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QLineF, QPointF
 # from numba import types as ntypes
@@ -36,6 +35,7 @@ from ._style import hcolor
 from ..log import get_logger
 from ._curve import FastAppendCurve
 from ._compression import ohlc_flatten
+from ._pathops import gen_ohlc_qpath
 
 if TYPE_CHECKING:
     from ._chart import LinkedSplits
@@ -82,119 +82,6 @@ def bar_from_ohlc_row(
     c = QLineF(index, close, index + w, close)
 
     return [hl, o, c]
-
-
-@njit(
-    # TODO: for now need to construct this manually for readonly arrays, see
-    # https://github.com/numba/numba/issues/4511
-    # ntypes.tuple((float64[:], float64[:], float64[:]))(
-    #     numba_ohlc_dtype[::1],  # contiguous
-    #     int64,
-    #     optional(float64),
-    # ),
-    nogil=True
-)
-def path_arrays_from_ohlc(
-    data: np.ndarray,
-    start: int64,
-    bar_gap: float64 = 0.43,
-
-) -> np.ndarray:
-    '''
-    Generate an array of lines objects from input ohlc data.
-
-    '''
-    size = int(data.shape[0] * 6)
-
-    x = np.zeros(
-        # data,
-        shape=size,
-        dtype=float64,
-    )
-    y, c = x.copy(), x.copy()
-
-    # TODO: report bug for assert @
-    # /home/goodboy/repos/piker/env/lib/python3.8/site-packages/numba/core/typing/builtins.py:991
-    for i, q in enumerate(data[start:], start):
-
-        # TODO: ask numba why this doesn't work..
-        # open, high, low, close, index = q[
-        #     ['open', 'high', 'low', 'close', 'index']]
-
-        open = q['open']
-        high = q['high']
-        low = q['low']
-        close = q['close']
-        index = float64(q['index'])
-
-        istart = i * 6
-        istop = istart + 6
-
-        # x,y detail the 6 points which connect all vertexes of a ohlc bar
-        x[istart:istop] = (
-            index - bar_gap,
-            index,
-            index,
-            index,
-            index,
-            index + bar_gap,
-        )
-        y[istart:istop] = (
-            open,
-            open,
-            low,
-            high,
-            close,
-            close,
-        )
-
-        # specifies that the first edge is never connected to the
-        # prior bars last edge thus providing a small "gap"/"space"
-        # between bars determined by ``bar_gap``.
-        c[istart:istop] = (1, 1, 1, 1, 1, 0)
-
-    return x, y, c
-
-
-def gen_ohlc_qpath(
-    data: np.ndarray,
-    start: int = 0,  # XXX: do we need this?
-    # 0.5 is no overlap between arms, 1.0 is full overlap
-    w: float = 0.43,
-    path: Optional[QtGui.QPainterPath] = None,
-
-) -> QtGui.QPainterPath:
-
-    path_was_none = path is None
-
-    profiler = pg.debug.Profiler(
-        msg='gen_qpath ohlc',
-        disabled=not pg_profile_enabled(),
-        ms_threshold=ms_slower_then,
-    )
-
-    x, y, c = path_arrays_from_ohlc(
-        data,
-        start,
-        bar_gap=w,
-    )
-    profiler("generate stream with numba")
-
-    # TODO: numba the internals of this!
-    path = pg.functions.arrayToQPath(
-        x,
-        y,
-        connect=c,
-        path=path,
-    )
-
-    # avoid mem allocs if possible
-    if path_was_none:
-        path.reserve(path.capacity())
-
-    profiler("generate path with arrayToQPath")
-
-    return path
 
 
 class BarItems(pg.GraphicsObject):
