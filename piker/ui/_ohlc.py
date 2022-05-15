@@ -27,8 +27,6 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QLineF, QPointF
-# from numba import types as ntypes
-# from ..data._source import numba_ohlc_dtype
 
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._style import hcolor
