@@ -1791,7 +1791,7 @@ async def _setup_quote_stream(
     to_trio.send_nowait(None)
 
     async with load_aio_clients() as accts2clients:
-        client = get_preferred_data_client(accts2clients)
+        caccount_name, client = get_preferred_data_client(accts2clients)
         contract = contract or (await client.find_contract(symbol))
         ticker: Ticker = client.ib.reqMktData(contract, ','.join(opts))
 
