@@ -187,8 +187,6 @@ class BarItems(pg.GraphicsObject):
         #   curve that does not release mem allocs:
         #   https://doc.qt.io/qt-5/qpainterpath.html#clear
         curve = FastAppendCurve(
-            y=y,
-            x=x,
             name='OHLC',
             color=self._color,
         )

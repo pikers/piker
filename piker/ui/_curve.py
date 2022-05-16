@@ -68,9 +68,6 @@ class FastAppendCurve(pg.GraphicsObject):
     '''
     def __init__(
         self,
-
-        x: np.ndarray = None,
-        y: np.ndarray = None,
         *args,
 
         step_mode: bool = False,
@@ -85,8 +82,8 @@ class FastAppendCurve(pg.GraphicsObject):
     ) -> None:
 
         # brutaaalll, see comments within..
-        self._y = self.yData = y
-        self._x = self.xData = x
+        self.yData = None
+        self.xData = None
         self._vr: Optional[tuple] = None
         self._avr: Optional[tuple] = None
         self._br = None
@@ -206,7 +203,7 @@ class FastAppendCurve(pg.GraphicsObject):
             disabled=not pg_profile_enabled(),
             ms_threshold=ms_slower_then,
         )
-        flip_cache = False
+        # flip_cache = False
 
         if self._xrange:
             istart, istop = self._xrange
@@ -227,9 +224,8 @@ class FastAppendCurve(pg.GraphicsObject):
 
         # XXX: lol brutal, the internals of `CurvePoint` (inherited by
         # our `LineDot`) required ``.getData()`` to work..
-        # self.xData = x
-        # self.yData = y
-        # self._x, self._y = x, y
+        self.xData = x
+        self.yData = y
 
         # downsampling incremental state checking
         uppx = self.x_uppx()
@@ -261,7 +257,7 @@ class FastAppendCurve(pg.GraphicsObject):
             vl, vr = view_range
 
             # last_ivr = self._x_iv_range
-           # ix_iv, iy_iv = self._x_iv_range = (x_iv[0], x_iv[-1])
+            # ix_iv, iy_iv = self._x_iv_range = (x_iv[0], x_iv[-1])
 
             zoom_or_append = False
             last_vr = self._vr
@@ -390,7 +386,9 @@ class FastAppendCurve(pg.GraphicsObject):
             )
             self.prepareGeometryChange()
             profiler(
-                f'generated fresh path. (should_redraw: {should_redraw} should_ds: {should_ds} new_sample_rate: {new_sample_rate})'
+                'generated fresh path. '
+                f'(should_redraw: {should_redraw} '
+                f'should_ds: {should_ds} new_sample_rate: {new_sample_rate})'
             )
             # profiler(f'DRAW PATH IN VIEW -> {self._name}')
 
@@ -495,7 +493,6 @@ class FastAppendCurve(pg.GraphicsObject):
             self.draw_last(x, y)
             profiler('draw last segment')
 
-
         # if flip_cache:
         # #     # XXX: seems to be needed to avoid artifacts (see above).
         #     self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
@@ -545,7 +542,7 @@ class FastAppendCurve(pg.GraphicsObject):
     # XXX: lol brutal, the internals of `CurvePoint` (inherited by
     # our `LineDot`) required ``.getData()`` to work..
     def getData(self):
-        return self._x, self._y
+        return self.xData, self.yData
 
     # TODO: drop the above after ``Cursor`` re-work
     def get_arrays(self) -> tuple[np.ndarray, np.ndarray]:

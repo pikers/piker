@@ -1075,8 +1075,6 @@ class ChartPlotWidget(pg.PlotWidget):
         # yah, we wrote our own B)
         data = shm.array
         curve = FastAppendCurve(
-            y=data[data_key],
-            x=data['index'],
             # antialias=True,
             name=name,
 
