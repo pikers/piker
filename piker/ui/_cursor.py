@@ -98,9 +98,11 @@ class LineDot(pg.CurvePoint):
         ev: QtCore.QEvent,
 
     ) -> bool:
-        if not isinstance(
-            ev, QtCore.QDynamicPropertyChangeEvent
-        ) or self.curve() is None:
+
+        if (
+            not isinstance(ev, QtCore.QDynamicPropertyChangeEvent)
+            or self.curve() is None
+        ):
             return False
 
         # TODO: get rid of this ``.getData()`` and
@@ -115,7 +117,10 @@ class LineDot(pg.CurvePoint):
             i = round(index - x[0])
             if i > 0 and i < len(y):
                 newPos = (index, y[i])
-                QtWidgets.QGraphicsItem.setPos(self, *newPos)
+                QtWidgets.QGraphicsItem.setPos(
+                    self,
+                    *newPos,
+                )
                 return True
 
         return False
