@@ -230,8 +230,8 @@ _ohlcv_dt = [
     # ohlcv sampling
     ('Open', 'f4'),
     ('High', 'f4'),
-    ('Low', 'i8'),
-    ('Close', 'i8'),
+    ('Low', 'f4'),
+    ('Close', 'f4'),
     ('Volume', 'f4'),
 ]
 
@@ -547,6 +547,17 @@ class Storage:
                 if err:
                     raise MarketStoreError(err)
 
+    # XXX: currently the only way to do this is through the CLI:
+
+    # sudo ./marketstore connect --dir ~/.config/piker/data
+    # >> \show mnq.globex.20220617.ib/1Sec/OHLCV 2022-05-15
+    # and this seems to block and use up mem..
+    # >> \trim mnq.globex.20220617.ib/1Sec/OHLCV 2022-05-15
+
+    # relevant source code for this is here:
+    # https://github.com/alpacahq/marketstore/blob/master/cmd/connect/session/trim.go#L14
+    # def delete_range(self, start_dt, end_dt) -> None:
+    #     ...
 
 @acm
 async def open_storage_client(
