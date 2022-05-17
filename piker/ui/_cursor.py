@@ -108,20 +108,20 @@ class LineDot(pg.CurvePoint):
         # TODO: get rid of this ``.getData()`` and
         # make a more pythonic api to retreive backing
         # numpy arrays...
-        (x, y) = self.curve().getData()
-        index = self.property('index')
-        # first = self._plot._arrays['ohlc'][0]['index']
-        # first = x[0]
-        # i = index - first
-        if index:
-            i = round(index - x[0])
-            if i > 0 and i < len(y):
-                newPos = (index, y[i])
-                QtWidgets.QGraphicsItem.setPos(
-                    self,
-                    *newPos,
-                )
-                return True
+        # (x, y) = self.curve().getData()
+        # index = self.property('index')
+        # # first = self._plot._arrays['ohlc'][0]['index']
+        # # first = x[0]
+        # # i = index - first
+        # if index:
+        #     i = round(index - x[0])
+        #     if i > 0 and i < len(y):
+        #         newPos = (index, y[i])
+        #         QtWidgets.QGraphicsItem.setPos(
+        #             self,
+        #             *newPos,
+        #         )
+        #         return True
 
         return False
 
