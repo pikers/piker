@@ -41,7 +41,6 @@ from ._compression import (
 def xy_downsample(
     x,
     y,
-    px_width,
     uppx,
 
     x_spacer: float = 0.5,
@@ -54,9 +53,7 @@ def xy_downsample(
     bins, x, y = ds_m4(
         x,
         y,
-        px_width=px_width,
-        uppx=uppx,
-        # log_scale=bool(uppx)
+        uppx,
     )
 
     # flatten output to 1d arrays suitable for path-graphics generation.
