@@ -86,7 +86,7 @@ class FastAppendCurve(pg.GraphicsObject):
         self.xData = None
         self._vr: Optional[tuple] = None
         self._avr: Optional[tuple] = None
-        self._br = None
+        self._last_cap: int = 0
 
         self._name = name
         self.path: Optional[QtGui.QPainterPath] = None
@@ -238,8 +238,8 @@ class FastAppendCurve(pg.GraphicsObject):
         # should_redraw = False
 
         # by default we only pull data up to the last (current) index
-        x_out_full = x_out = x[:slice_to_head]
-        y_out_full = y_out = y[:slice_to_head]
+        x_out = x[:slice_to_head]
+        y_out = y[:slice_to_head]
 
         # if a view range is passed, plan to draw the
         # source ouput that's "in view" of the chart.
@@ -319,8 +319,7 @@ class FastAppendCurve(pg.GraphicsObject):
         # check for downsampling conditions
         if (
             # std m4 downsample conditions
-            px_width
-            and abs(uppx_diff) >= 1
+            abs(uppx_diff) >= 1
         ):
             log.info(
                 f'{self._name} sampler change: {self._last_uppx} -> {uppx}'
@@ -366,12 +365,11 @@ class FastAppendCurve(pg.GraphicsObject):
 
                 self._in_ds = False
 
-            elif should_ds and uppx and px_width > 1:
+            elif should_ds and uppx > 1:
 
                 x_out, y_out = xy_downsample(
                     x_out,
                     y_out,
-                    px_width,
                     uppx,
                 )
                 profiler(f'FULL PATH downsample redraw={should_ds}')
@@ -438,7 +436,6 @@ class FastAppendCurve(pg.GraphicsObject):
             #     new_x, new_y = xy_downsample(
             #         new_x,
             #         new_y,
-            #         px_width,
             #         uppx,
             #     )
             #     profiler(f'fast path downsample redraw={should_ds}')
@@ -489,9 +486,9 @@ class FastAppendCurve(pg.GraphicsObject):
             # self.disable_cache()
             # flip_cache = True
 
-        if draw_last:
-            self.draw_last(x, y)
-            profiler('draw last segment')
+        # if draw_last:
+        #     self.draw_last(x, y)
+        #     profiler('draw last segment')
 
         # if flip_cache:
         # #     # XXX: seems to be needed to avoid artifacts (see above).
@@ -543,10 +540,6 @@ class FastAppendCurve(pg.GraphicsObject):
     # our `LineDot`) required ``.getData()`` to work..
     def getData(self):
         return self.xData, self.yData
-
-    # TODO: drop the above after ``Cursor`` re-work
-    def get_arrays(self) -> tuple[np.ndarray, np.ndarray]:
-        return self._x, self._y
 
     def clear(self):
         '''
@@ -653,7 +646,6 @@ class FastAppendCurve(pg.GraphicsObject):
             # hb_size,
             QSizeF(w, h)
         )
-        self._br = br
         # print(f'bounding rect: {br}')
         return br
 
@@ -690,6 +682,11 @@ class FastAppendCurve(pg.GraphicsObject):
             p.setPen(self._pen)
 
         path = self.path
+
+        # cap = path.capacity()
+        # if cap != self._last_cap:
+        #     print(f'NEW CAPACITY: {self._last_cap} -> {cap}')
+        #     self._last_cap = cap
 
         if path:
             p.drawPath(path)
