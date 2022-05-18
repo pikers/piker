@@ -843,6 +843,9 @@ class Flow(msgspec.Struct):  # , frozen=True):
         # - determine downsampling ops if needed
         # - (incrementally) update ``QPainterPath``
 
+        path = graphics.path
+        fast_path = graphics.fast_path
+
         if (
             use_vr
             # and not self._in_ds
@@ -940,21 +943,19 @@ class Flow(msgspec.Struct):  # , frozen=True):
             should_ds = False
             showing_src_data = True
 
-        # no_path_yet = self.path is None
-        fast_path = graphics.fast_path
         if (
-            graphics.path is None
+            path is None
             or should_redraw
             or new_sample_rate
             or prepend_length > 0
         ):
             if should_redraw:
-                if graphics.path:
-                    graphics.path.clear()
+                if path:
+                    path.clear()
                     profiler('cleared paths due to `should_redraw=True`')
 
-                if graphics.fast_path:
-                    graphics.fast_path.clear()
+                if fast_path:
+                    fast_path.clear()
 
                 profiler('cleared paths due to `should_redraw` set')
 
@@ -976,12 +977,12 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 profiler(f'FULL PATH downsample redraw={should_ds}')
                 self._in_ds = True
 
-            graphics.path = pg.functions.arrayToQPath(
+            path = pg.functions.arrayToQPath(
                 x_out,
                 y_out,
                 connect='all',
                 finiteCheck=False,
-                path=graphics.path,
+                path=path,
             )
             graphics.prepareGeometryChange()
             profiler(
@@ -1047,7 +1048,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 new_y,
                 connect='all',
                 finiteCheck=False,
-                path=graphics.fast_path,
+                path=fast_path,
             )
             profiler('generated append qpath')
 
@@ -1055,8 +1056,8 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 print("USING FPATH")
                 # an attempt at trying to make append-updates faster..
                 if fast_path is None:
-                    graphics.fast_path = append_path
-                    # self.fast_path.reserve(int(6e3))
+                    fast_path = append_path
+                    # fast_path.reserve(int(6e3))
                 else:
                     fast_path.connectPath(append_path)
                     size = fast_path.capacity()
@@ -1073,31 +1074,16 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 profiler(f'connected history path w size: {size}')
                 graphics.path.connectPath(append_path)
 
-        # graphics.update_from_array(
-        #     x=x,
-        #     y=y,
-
-        #     x_iv=x_iv,
-        #     y_iv=y_iv,
-
-        #     view_range=(ivl, ivr) if use_vr else None,
-
-        #     # NOTE: already passed through by display loop.
-        #     # do_append=uppx < 16,
-        #     do_append=do_append,
-
-        #     slice_to_head=slice_to_head,
-        #     should_redraw=should_redraw,
-        #     profiler=profiler,
-        #     **kwargs
-        # )
-
         if draw_last:
             graphics.draw_last(x, y)
             profiler('draw last segment')
 
         graphics.update()
         profiler('.update()')
+
+        # assign output paths to graphicis obj
+        graphics.path = path
+        graphics.fast_path = fast_path
 
         profiler('`graphics.update_from_array()` complete')
         return graphics
