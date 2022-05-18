@@ -207,8 +207,6 @@ class FastAppendCurve(pg.GraphicsObject):
                 x_last, y_last
             )
 
-        self.update()
-
     # XXX: lol brutal, the internals of `CurvePoint` (inherited by
     # our `LineDot`) required ``.getData()`` to work..
     def getData(self):
