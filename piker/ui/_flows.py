@@ -739,20 +739,15 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
         # ``FastAppendCurve`` case:
         array_key = array_key or self.name
+        shm = self.shm
 
+        # update config
         new_sample_rate = False
         should_ds = self._in_ds
         showing_src_data = self._in_ds
-
-        # draw_last: bool = True
+        draw_last: bool = True
         slice_to_head: int = -1
         should_redraw: bool = False
-
-        shm = self.shm
-
-        # if a view range is passed, plan to draw the
-        # source ouput that's "in view" of the chart.
-        view_range = (ivl, ivr) if use_vr else None
 
         if out is not None:
             # hack to handle ds curve from bars above
@@ -828,6 +823,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
             )
 
             should_redraw = bool(append_diff)
+            draw_last = False
 
             # graphics.reset_cache()
             # print(
@@ -841,10 +837,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
         # the input data and the last indexes we have on record from the
         # last time we updated the curve index.
         prepend_length, append_length = r.diff(read)
-        # print((prepend_length, append_length))
-
-        # old_prepend_length = int(istart - x[0])
-        # old_append_length = int(x[-1] - istop)
 
         # MAIN RENDER LOGIC:
         # - determine in view data and redraw on range change
@@ -852,10 +844,14 @@ class Flow(msgspec.Struct):  # , frozen=True):
         # - (incrementally) update ``QPainterPath``
 
         if (
-            view_range
+            use_vr
             # and not self._in_ds
             # and not prepend_length > 0
         ):
+
+            # if a view range is passed, plan to draw the
+            # source ouput that's "in view" of the chart.
+            view_range = (ivl, ivr)
             # print(f'{self._name} vr: {view_range}')
 
             # by default we only pull data up to the last (current) index
@@ -1096,8 +1092,9 @@ class Flow(msgspec.Struct):  # , frozen=True):
         #     **kwargs
         # )
 
-        graphics.draw_last(x, y)
-        profiler('draw last segment')
+        if draw_last:
+            graphics.draw_last(x, y)
+            profiler('draw last segment')
 
         graphics.update()
         profiler('.update()')
