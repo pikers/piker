@@ -33,7 +33,6 @@ from ..data._sharedmem import (
 )
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._compression import (
-    # ohlc_flatten,
     ds_m4,
 )
 
@@ -140,43 +139,24 @@ def path_arrays_from_ohlc(
 
 def gen_ohlc_qpath(
     data: np.ndarray,
+    array_key: str,  # we ignore this
+
     start: int = 0,  # XXX: do we need this?
     # 0.5 is no overlap between arms, 1.0 is full overlap
     w: float = 0.43,
-    path: Optional[QtGui.QPainterPath] = None,
 
 ) -> QtGui.QPainterPath:
+    '''
+    More or less direct proxy to ``path_arrays_from_ohlc()``
+    but with closed in kwargs for line spacing.
 
-    path_was_none = path is None
-
-    profiler = pg.debug.Profiler(
-        msg='gen_qpath ohlc',
-        disabled=not pg_profile_enabled(),
-        ms_threshold=ms_slower_then,
-    )
-
+    '''
     x, y, c = path_arrays_from_ohlc(
         data,
         start,
         bar_gap=w,
     )
-    profiler("generate stream with numba")
-
-    # TODO: numba the internals of this!
-    path = pg.functions.arrayToQPath(
-        x,
-        y,
-        connect=c,
-        path=path,
-    )
-
-    # avoid mem allocs if possible
-    if path_was_none:
-        path.reserve(path.capacity())
-
-    profiler("generate path with arrayToQPath")
-
-    return path
+    return x, y, c
 
 
 def ohlc_to_line(
