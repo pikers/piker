@@ -23,7 +23,7 @@ incremental update.
 
 '''
 from __future__ import annotations
-from functools import partial
+# from functools import partial
 from typing import (
     Optional,
     Callable,
@@ -54,6 +54,7 @@ from ._pathops import (
     gen_ohlc_qpath,
     ohlc_to_line,
     to_step_format,
+    xy_downsample,
 )
 from ._ohlc import (
     BarItems,
@@ -152,18 +153,18 @@ def render_baritems(
             last_read=read,
         )
 
-        ds_curve_r = Renderer(
-            flow=self,
+        # ds_curve_r = Renderer(
+        #     flow=self,
 
-            # just swap in the flat view
-            # data_t=lambda array: self.gy.array,
-            last_read=read,
-            draw_path=partial(
-                rowarr_to_path,
-                x_basis=None,
-            ),
+        #     # just swap in the flat view
+        #     # data_t=lambda array: self.gy.array,
+        #     last_read=read,
+        #     draw_path=partial(
+        #         rowarr_to_path,
+        #         x_basis=None,
+        #     ),
 
-        )
+        # )
         curve = FastAppendCurve(
             name='OHLC',
             color=graphics._color,
@@ -173,12 +174,14 @@ def render_baritems(
 
         # baseline "line" downsampled OHLC curve that should
         # kick on only when we reach a certain uppx threshold.
-        self._render_table[0] = (
-            ds_curve_r,
-            curve,
-        )
+        self._render_table[0] = curve
+        # (
+        #     # ds_curve_r,
+        #     curve,
+        # )
 
-    dsc_r, curve = self._render_table[0]
+    curve = self._render_table[0]
+    # dsc_r, curve = self._render_table[0]
 
     # do checks for whether or not we require downsampling:
     # - if we're **not** downsampling then we simply want to
@@ -276,19 +279,20 @@ def render_baritems(
         profiler('flattened ustruct in-view OHLC data')
 
         # pass into curve graphics processing
-        curve.update_from_array(
-            x,
-            y,
-            x_iv=x_iv,
-            y_iv=y_iv,
-            view_range=(ivl, ivr),  # hack
-            profiler=profiler,
-            # should_redraw=False,
+        # curve.update_from_array(
+        #     x,
+        #     y,
+        #     x_iv=x_iv,
+        #     y_iv=y_iv,
+        #     view_range=(ivl, ivr),  # hack
+        #     profiler=profiler,
+        #     # should_redraw=False,
 
-            # NOTE: already passed through by display loop?
-            # do_append=uppx < 16,
-            **kwargs,
-        )
+        #     # NOTE: already passed through by display loop?
+        #     # do_append=uppx < 16,
+        #     **kwargs,
+        # )
+        # curve.draw_last(x, y)
         curve.show()
         profiler('updated ds curve')
 
@@ -349,6 +353,130 @@ def render_baritems(
         # )
         # graphics.draw_last(last)
 
+    if should_line:
+        return (
+            curve,
+            x,
+            y,
+            x_iv,
+            y_iv,
+        )
+
+
+def update_step_data(
+    flow: Flow,
+    shm: ShmArray,
+    ivl: int,
+    ivr: int,
+    array_key: str,
+    iflat_first: int,
+    iflat: int,
+    profiler: pg.debug.Profiler,
+
+) -> tuple:
+
+    self = flow
+    (
+        # iflat_first,
+        # iflat,
+        ishm_last,
+        ishm_first,
+    ) = (
+        # self._iflat_first,
+        # self._iflat_last,
+        shm._last.value,
+        shm._first.value
+    )
+    il = max(iflat - 1, 0)
+    profiler('read step mode incr update indices')
+
+    # check for shm prepend updates since last read.
+    if iflat_first != ishm_first:
+
+        print(f'prepend {array_key}')
+
+        # i_prepend = self.shm._array['index'][
+        #   ishm_first:iflat_first]
+        y_prepend = self.shm._array[array_key][
+            ishm_first:iflat_first
+        ]
+
+        y2_prepend = np.broadcast_to(
+            y_prepend[:, None], (y_prepend.size, 2),
+        )
+
+        # write newly prepended data to flattened copy
+        self.gy[ishm_first:iflat_first] = y2_prepend
+        self._iflat_first = ishm_first
+        profiler('prepended step mode history')
+
+    append_diff = ishm_last - iflat
+    if append_diff:
+
+        # slice up to the last datum since last index/append update
+        # new_x = self.shm._array[il:ishm_last]['index']
+        new_y = self.shm._array[il:ishm_last][array_key]
+
+        new_y2 = np.broadcast_to(
+            new_y[:, None], (new_y.size, 2),
+        )
+        self.gy[il:ishm_last] = new_y2
+        profiler('updated step curve data')
+
+        # print(
+        #     f'append size: {append_diff}\n'
+        #     f'new_x: {new_x}\n'
+        #     f'new_y: {new_y}\n'
+        #     f'new_y2: {new_y2}\n'
+        #     f'new gy: {gy}\n'
+        # )
+
+        # update local last-index tracking
+        self._iflat_last = ishm_last
+
+    # slice out up-to-last step contents
+    x_step = self.gx[ishm_first:ishm_last+2]
+    # shape to 1d
+    x = x_step.reshape(-1)
+    profiler('sliced step x')
+
+    y_step = self.gy[ishm_first:ishm_last+2]
+    lasts = self.shm.array[['index', array_key]]
+    last = lasts[array_key][-1]
+    y_step[-1] = last
+    # shape to 1d
+    y = y_step.reshape(-1)
+
+    # s = 6
+    # print(f'lasts: {x[-2*s:]}, {y[-2*s:]}')
+
+    profiler('sliced step y')
+
+    # do all the same for only in-view data
+    ys_iv = y_step[ivl:ivr+1]
+    xs_iv = x_step[ivl:ivr+1]
+    y_iv = ys_iv.reshape(ys_iv.size)
+    x_iv = xs_iv.reshape(xs_iv.size)
+    # print(
+    #     f'ys_iv : {ys_iv[-s:]}\n'
+    #     f'y_iv: {y_iv[-s:]}\n'
+    #     f'xs_iv: {xs_iv[-s:]}\n'
+    #     f'x_iv: {x_iv[-s:]}\n'
+    # )
+    profiler('sliced in view step data')
+
+    # legacy full-recompute-everytime method
+    # x, y = ohlc_flatten(array)
+    # x_iv, y_iv = ohlc_flatten(in_view)
+    # profiler('flattened OHLC data')
+    return (
+        x,
+        y,
+        x_iv,
+        y_iv,
+        append_diff,
+    )
+
 
 class Flow(msgspec.Struct):  # , frozen=True):
     '''
@@ -368,11 +496,19 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
     is_ohlc: bool = False
     render: bool = True  # toggle for display loop
+
+    # pre-graphics formatted data
     gy: Optional[ShmArray] = None
     gx: Optional[np.ndarray] = None
+    # pre-graphics update indices
     _iflat_last: int = 0
     _iflat_first: int = 0
 
+    # view-range incremental state
+    _vr: Optional[tuple] = None
+    _avr: Optional[tuple] = None
+
+    # downsampling state
     _last_uppx: float = 0
     _in_ds: bool = False
 
@@ -495,7 +631,11 @@ class Flow(msgspec.Struct):  # , frozen=True):
             start, l, lbar, rbar, r, end,
         )
 
-    def read(self) -> tuple[
+    def read(
+        self,
+        array_field: Optional[str] = None,
+
+    ) -> tuple[
             int, int, np.ndarray,
             int, int, np.ndarray,
     ]:
@@ -512,6 +652,9 @@ class Flow(msgspec.Struct):  # , frozen=True):
         # for master shm index.
         lbar_i = max(l, ifirst) - ifirst
         rbar_i = min(r, ilast) - ifirst
+
+        if array_field:
+            array = array[array_field]
 
         # TODO: we could do it this way as well no?
         # to_draw = array[lbar - ifirst:(rbar - ifirst) + 1]
@@ -532,6 +675,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
         array_key: Optional[str] = None,
 
         profiler: Optional[pg.debug.Profiler] = None,
+        do_append: bool = True,
 
         **kwargs,
 
@@ -557,15 +701,20 @@ class Flow(msgspec.Struct):  # , frozen=True):
         ) = self.read()
         profiler('read src shm data')
 
+        graphics = self.graphics
+
         if (
             not in_view.size
             or not render
         ):
-            return self.graphics
+            return graphics
 
-        graphics = self.graphics
+        out: Optional[tuple] = None
         if isinstance(graphics, BarItems):
-            render_baritems(
+            # XXX: special case where we change out graphics
+            # to a line after a certain uppx threshold.
+            # render_baritems(
+            out = render_baritems(
                 self,
                 graphics,
                 read,
@@ -573,14 +722,74 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 **kwargs,
             )
 
-        else:
-            # ``FastAppendCurve`` case:
-            array_key = array_key or self.name
-            uppx = graphics.x_uppx()
-            profiler(f'read uppx {uppx}')
+            if out is None:
+                return graphics
 
-            if graphics._step_mode and self.gy is None:
-                shm = self.shm
+            # return graphics
+
+        r = self._src_r
+        if not r:
+            # just using for ``.diff()`` atm..
+            r = self._src_r = Renderer(
+                flow=self,
+                # TODO: rename this to something with ohlc
+                # draw_path=gen_ohlc_qpath,
+                last_read=read,
+            )
+
+        # ``FastAppendCurve`` case:
+        array_key = array_key or self.name
+
+        new_sample_rate = False
+        should_ds = self._in_ds
+        showing_src_data = self._in_ds
+
+        # draw_last: bool = True
+        slice_to_head: int = -1
+        should_redraw: bool = False
+
+        shm = self.shm
+
+        # if a view range is passed, plan to draw the
+        # source ouput that's "in view" of the chart.
+        view_range = (ivl, ivr) if use_vr else None
+
+        if out is not None:
+            # hack to handle ds curve from bars above
+            (
+                graphics,  # curve
+                x,
+                y,
+                x_iv,
+                y_iv,
+            ) = out
+
+        else:
+            # full input data
+            x = array['index']
+            y = array[array_key]
+
+            # inview data
+            x_iv = in_view['index']
+            y_iv = in_view[array_key]
+
+        # downsampling incremental state checking
+        uppx = graphics.x_uppx()
+        # px_width = graphics.px_width()
+        uppx_diff = (uppx - self._last_uppx)
+        profiler(f'diffed uppx {uppx}')
+
+        x_last = x[-1]
+        y_last = y[-1]
+
+        slice_to_head = -1
+
+        profiler('sliced input arrays')
+
+        if graphics._step_mode:
+            slice_to_head = -2
+
+            if self.gy is None:
                 (
                     self._iflat_first,
                     self.gx,
@@ -591,177 +800,324 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 )
                 profiler('generated step mode data')
 
-            if graphics._step_mode:
-                (
-                    iflat_first,
-                    iflat,
-                    ishm_last,
-                    ishm_first,
-                ) = (
-                    self._iflat_first,
-                    self._iflat_last,
-                    self.shm._last.value,
-                    self.shm._first.value
+            (
+                x,
+                y,
+                x_iv,
+                y_iv,
+                append_diff,
+
+            ) = update_step_data(
+                self,
+                shm,
+                ivl,
+                ivr,
+                array_key,
+                self._iflat_first,
+                self._iflat_last,
+                profiler,
+            )
+
+            graphics._last_line = QLineF(
+                x_last - 0.5, 0,
+                x_last + 0.5, 0,
+            )
+            graphics._last_step_rect = QRectF(
+                x_last - 0.5, 0,
+                x_last + 0.5, y_last,
+            )
+
+            should_redraw = bool(append_diff)
+
+            # graphics.reset_cache()
+            # print(
+            #     f"path br: {graphics.path.boundingRect()}\n",
+            #     # f"fast path br: {graphics.fast_path.boundingRect()}",
+            #     f"last rect br: {graphics._last_step_rect}\n",
+            #     f"full br: {graphics._br}\n",
+            # )
+
+        # compute the length diffs between the first/last index entry in
+        # the input data and the last indexes we have on record from the
+        # last time we updated the curve index.
+        prepend_length, append_length = r.diff(read)
+        # print((prepend_length, append_length))
+
+        # old_prepend_length = int(istart - x[0])
+        # old_append_length = int(x[-1] - istop)
+
+        # MAIN RENDER LOGIC:
+        # - determine in view data and redraw on range change
+        # - determine downsampling ops if needed
+        # - (incrementally) update ``QPainterPath``
+
+        if (
+            view_range
+            # and not self._in_ds
+            # and not prepend_length > 0
+        ):
+            # print(f'{self._name} vr: {view_range}')
+
+            # by default we only pull data up to the last (current) index
+            x_out = x_iv[:slice_to_head]
+            y_out = y_iv[:slice_to_head]
+            profiler(f'view range slice {view_range}')
+
+            vl, vr = view_range
+
+            zoom_or_append = False
+            last_vr = self._vr
+            last_ivr = self._avr
+
+            # incremental in-view data update.
+            if last_vr:
+                # relative slice indices
+                lvl, lvr = last_vr
+                # abs slice indices
+                al, ar = last_ivr
+
+                # append_length = int(x[-1] - istop)
+                # append_length = int(x_iv[-1] - ar)
+
+                # left_change = abs(x_iv[0] - al) >= 1
+                # right_change = abs(x_iv[-1] - ar) >= 1
+
+                if (
+                    # likely a zoom view change
+                    (vr - lvr) > 2 or vl < lvl
+                    # append / prepend update
+                    # we had an append update where the view range
+                    # didn't change but the data-viewed (shifted)
+                    # underneath, so we need to redraw.
+                    # or left_change and right_change and last_vr == view_range
+
+                        # not (left_change and right_change) and ivr
+                    # (
+                    # or abs(x_iv[ivr] - livr) > 1
+                ):
+                    zoom_or_append = True
+
+            # if last_ivr:
+            #     liivl, liivr = last_ivr
+
+            if (
+                view_range != last_vr
+                and (
+                    append_length > 1
+                    or zoom_or_append
                 )
+            ):
+                should_redraw = True
+                # print("REDRAWING BRUH")
 
-                il = max(iflat - 1, 0)
-                profiler('read step mode incr update indices')
+            self._vr = view_range
+            self._avr = x_iv[0], x_iv[slice_to_head]
 
-                # check for shm prepend updates since last read.
-                if iflat_first != ishm_first:
+        if prepend_length > 0:
+            should_redraw = True
 
-                    print(f'prepend {array_key}')
+        # check for downsampling conditions
+        if (
+            # std m4 downsample conditions
+            # px_width
+            # and abs(uppx_diff) >= 1
+            abs(uppx_diff) >= 1
+        ):
+            log.info(
+                f'{array_key} sampler change: {self._last_uppx} -> {uppx}'
+            )
+            self._last_uppx = uppx
+            new_sample_rate = True
+            showing_src_data = False
+            should_redraw = True
+            should_ds = True
 
-                    # i_prepend = self.shm._array['index'][
-                    #   ishm_first:iflat_first]
-                    y_prepend = self.shm._array[array_key][
-                        ishm_first:iflat_first
-                    ]
+        elif (
+            uppx <= 2
+            and self._in_ds
+        ):
+            # we should de-downsample back to our original
+            # source data so we clear our path data in prep
+            # to generate a new one from original source data.
+            should_redraw = True
+            new_sample_rate = True
+            should_ds = False
+            showing_src_data = True
 
-                    y2_prepend = np.broadcast_to(
-                        y_prepend[:, None], (y_prepend.size, 2),
-                    )
+        # no_path_yet = self.path is None
+        fast_path = graphics.fast_path
+        if (
+            graphics.path is None
+            or should_redraw
+            or new_sample_rate
+            or prepend_length > 0
+        ):
+            if should_redraw:
+                if graphics.path:
+                    graphics.path.clear()
+                    profiler('cleared paths due to `should_redraw=True`')
 
-                    # write newly prepended data to flattened copy
-                    self.gy[ishm_first:iflat_first] = y2_prepend
-                    self._iflat_first = ishm_first
-                    profiler('prepended step mode history')
+                if graphics.fast_path:
+                    graphics.fast_path.clear()
 
-                append_diff = ishm_last - iflat
-                if append_diff:
+                profiler('cleared paths due to `should_redraw` set')
 
-                    # slice up to the last datum since last index/append update
-                    # new_x = self.shm._array[il:ishm_last]['index']
-                    new_y = self.shm._array[il:ishm_last][array_key]
+            if new_sample_rate and showing_src_data:
+                # if self._in_ds:
+                log.info(f'DEDOWN -> {self.name}')
 
-                    new_y2 = np.broadcast_to(
-                        new_y[:, None], (new_y.size, 2),
-                    )
-                    self.gy[il:ishm_last] = new_y2
-                    profiler('updated step curve data')
+                self._in_ds = False
 
-                    # print(
-                    #     f'append size: {append_diff}\n'
-                    #     f'new_x: {new_x}\n'
-                    #     f'new_y: {new_y}\n'
-                    #     f'new_y2: {new_y2}\n'
-                    #     f'new gy: {gy}\n'
-                    # )
+            # elif should_ds and uppx and px_width > 1:
+            elif should_ds and uppx > 1:
 
-                    # update local last-index tracking
-                    self._iflat_last = ishm_last
-
-                # slice out up-to-last step contents
-                x_step = self.gx[ishm_first:ishm_last+2]
-                # shape to 1d
-                x = x_step.reshape(-1)
-                profiler('sliced step x')
-
-                y_step = self.gy[ishm_first:ishm_last+2]
-                lasts = self.shm.array[['index', array_key]]
-                last = lasts[array_key][-1]
-                y_step[-1] = last
-                # shape to 1d
-                y = y_step.reshape(-1)
-
-                # s = 6
-                # print(f'lasts: {x[-2*s:]}, {y[-2*s:]}')
-
-                profiler('sliced step y')
-
-                # do all the same for only in-view data
-                ys_iv = y_step[ivl:ivr+1]
-                xs_iv = x_step[ivl:ivr+1]
-                y_iv = ys_iv.reshape(ys_iv.size)
-                x_iv = xs_iv.reshape(xs_iv.size)
-                # print(
-                #     f'ys_iv : {ys_iv[-s:]}\n'
-                #     f'y_iv: {y_iv[-s:]}\n'
-                #     f'xs_iv: {xs_iv[-s:]}\n'
-                #     f'x_iv: {x_iv[-s:]}\n'
-                # )
-                profiler('sliced in view step data')
-
-                # legacy full-recompute-everytime method
-                # x, y = ohlc_flatten(array)
-                # x_iv, y_iv = ohlc_flatten(in_view)
-                # profiler('flattened OHLC data')
-
-                x_last = array['index'][-1]
-                y_last = array[array_key][-1]
-                graphics._last_line = QLineF(
-                    x_last - 0.5, 0,
-                    x_last + 0.5, 0,
+                x_out, y_out = xy_downsample(
+                    x_out,
+                    y_out,
+                    uppx,
+                    # px_width,
                 )
-                graphics._last_step_rect = QRectF(
-                    x_last - 0.5, 0,
-                    x_last + 0.5, y_last,
-                )
-                # graphics.update()
+                profiler(f'FULL PATH downsample redraw={should_ds}')
+                self._in_ds = True
 
-                graphics.update_from_array(
-                    x=x,
-                    y=y,
+            graphics.path = pg.functions.arrayToQPath(
+                x_out,
+                y_out,
+                connect='all',
+                finiteCheck=False,
+                path=graphics.path,
+            )
+            graphics.prepareGeometryChange()
+            profiler(
+                'generated fresh path. '
+                f'(should_redraw: {should_redraw} '
+                f'should_ds: {should_ds} new_sample_rate: {new_sample_rate})'
+            )
+            # profiler(f'DRAW PATH IN VIEW -> {self.name}')
 
-                    x_iv=x_iv,
-                    y_iv=y_iv,
+            # reserve mem allocs see:
+            # - https://doc.qt.io/qt-5/qpainterpath.html#reserve
+            # - https://doc.qt.io/qt-5/qpainterpath.html#capacity
+            # - https://doc.qt.io/qt-5/qpainterpath.html#clear
+            # XXX: right now this is based on had hoc checks on a
+            # hidpi 3840x2160 4k monitor but we should optimize for
+            # the target display(s) on the sys.
+            # if no_path_yet:
+            #     graphics.path.reserve(int(500e3))
 
-                    view_range=(ivl, ivr) if use_vr else None,
+        # TODO: get this piecewise prepend working - right now it's
+        # giving heck on vwap...
+        # elif prepend_length:
+        #     breakpoint()
 
-                    draw_last=False,
-                    slice_to_head=-2,
+        #     prepend_path = pg.functions.arrayToQPath(
+        #         x[0:prepend_length],
+        #         y[0:prepend_length],
+        #         connect='all'
+        #     )
 
-                    should_redraw=bool(append_diff),
+        #     # swap prepend path in "front"
+        #     old_path = graphics.path
+        #     graphics.path = prepend_path
+        #     # graphics.path.moveTo(new_x[0], new_y[0])
+        #     graphics.path.connectPath(old_path)
 
-                    # NOTE: already passed through by display loop?
-                    # do_append=uppx < 16,
-                    profiler=profiler,
+        elif (
+            append_length > 0
+            and do_append
+            and not should_redraw
+            # and not view_range
+        ):
+            print(f'{self.name} append len: {append_length}')
+            new_x = x[-append_length - 2:slice_to_head]
+            new_y = y[-append_length - 2:slice_to_head]
+            profiler('sliced append path')
 
-                    **kwargs
-                )
-                profiler('updated step mode curve')
-                # graphics.reset_cache()
-                # print(
-                #     f"path br: {graphics.path.boundingRect()}\n",
-                #     # f"fast path br: {graphics.fast_path.boundingRect()}",
-                #     f"last rect br: {graphics._last_step_rect}\n",
-                #     f"full br: {graphics._br}\n",
-                # )
+            profiler(
+                f'diffed array input, append_length={append_length}'
+            )
 
+            # if should_ds:
+            #     new_x, new_y = xy_downsample(
+            #         new_x,
+            #         new_y,
+            #         px_width,
+            #         uppx,
+            #     )
+            #     profiler(f'fast path downsample redraw={should_ds}')
+
+            append_path = pg.functions.arrayToQPath(
+                new_x,
+                new_y,
+                connect='all',
+                finiteCheck=False,
+                path=graphics.fast_path,
+            )
+            profiler('generated append qpath')
+
+            if graphics.use_fpath:
+                print("USING FPATH")
+                # an attempt at trying to make append-updates faster..
+                if fast_path is None:
+                    graphics.fast_path = append_path
+                    # self.fast_path.reserve(int(6e3))
+                else:
+                    fast_path.connectPath(append_path)
+                    size = fast_path.capacity()
+                    profiler(f'connected fast path w size: {size}')
+
+                    # print(f"append_path br: {append_path.boundingRect()}")
+                    # graphics.path.moveTo(new_x[0], new_y[0])
+                    # path.connectPath(append_path)
+
+                    # XXX: lol this causes a hang..
+                    # graphics.path = graphics.path.simplified()
             else:
-                x = array['index']
-                y = array[array_key]
-                x_iv = in_view['index']
-                y_iv = in_view[array_key]
-                profiler('sliced input arrays')
+                size = graphics.path.capacity()
+                profiler(f'connected history path w size: {size}')
+                graphics.path.connectPath(append_path)
 
-                # graphics.draw_last(x, y)
+        # graphics.update_from_array(
+        #     x=x,
+        #     y=y,
 
-                graphics.update_from_array(
-                    x=x,
-                    y=y,
+        #     x_iv=x_iv,
+        #     y_iv=y_iv,
 
-                    x_iv=x_iv,
-                    y_iv=y_iv,
+        #     view_range=(ivl, ivr) if use_vr else None,
 
-                    view_range=(ivl, ivr) if use_vr else None,
+        #     # NOTE: already passed through by display loop.
+        #     # do_append=uppx < 16,
+        #     do_append=do_append,
 
-                    # NOTE: already passed through by display loop?
-                    # do_append=uppx < 16,
-                    profiler=profiler,
-                    **kwargs
-                )
-                profiler('`graphics.update_from_array()` complete')
+        #     slice_to_head=slice_to_head,
+        #     should_redraw=should_redraw,
+        #     profiler=profiler,
+        #     **kwargs
+        # )
 
+        graphics.draw_last(x, y)
+        profiler('draw last segment')
+
+        graphics.update()
+        profiler('.update()')
+
+        profiler('`graphics.update_from_array()` complete')
         return graphics
 
 
 class Renderer(msgspec.Struct):
 
     flow: Flow
+    # last array view read
+    last_read: Optional[tuple] = None
 
     # called to render path graphics
-    draw_path: Callable[np.ndarray, QPainterPath]
+    draw_path: Optional[Callable[np.ndarray, QPainterPath]] = None
+
+    # output graphics rendering, the main object
+    # processed in ``QGraphicsObject.paint()``
+    path: Optional[QPainterPath] = None
 
     # called on input data but before any graphics format
     # conversions or processing.
@@ -778,25 +1134,66 @@ class Renderer(msgspec.Struct):
     prepend_fn: Optional[Callable[QPainterPath, QPainterPath]] = None
     append_fn: Optional[Callable[QPainterPath, QPainterPath]] = None
 
-    # last array view read
-    last_read: Optional[np.ndarray] = None
+    # incremental update state(s)
+    # _in_ds: bool = False
+    # _last_uppx: float = 0
+    _last_vr: Optional[tuple[float, float]] = None
+    _last_ivr: Optional[tuple[float, float]] = None
 
-    # output graphics rendering, the main object
-    # processed in ``QGraphicsObject.paint()``
-    path: Optional[QPainterPath] = None
+    def diff(
+        self,
+        new_read: tuple[np.ndarray],
 
-    # def diff(
-    #     self,
-    #     latest_read: tuple[np.ndarray],
+    ) -> tuple[np.ndarray]:
 
-    # ) -> tuple[np.ndarray]:
-    #     # blah blah blah
-    #     # do diffing for prepend, append and last entry
-    #     return (
-    #         to_prepend
-    #         to_append
-    #         last,
-    #     )
+        (
+            last_xfirst,
+            last_xlast,
+            last_array,
+            last_ivl, last_ivr,
+            last_in_view,
+        ) = self.last_read
+
+        # TODO: can the renderer just call ``Flow.read()`` directly?
+        # unpack latest source data read
+        (
+            xfirst,
+            xlast,
+            array,
+            ivl,
+            ivr,
+            in_view,
+        ) = new_read
+
+        # compute the length diffs between the first/last index entry in
+        # the input data and the last indexes we have on record from the
+        # last time we updated the curve index.
+        prepend_length = int(last_xfirst - xfirst)
+        append_length = int(xlast - last_xlast)
+
+        # TODO: eventually maybe we can implement some kind of
+        # transform on the ``QPainterPath`` that will more or less
+        # detect the diff in "elements" terms?
+        # update state
+        self.last_read = new_read
+
+        # blah blah blah
+        # do diffing for prepend, append and last entry
+        return (
+            prepend_length,
+            append_length,
+            # last,
+        )
+
+    def draw_path(
+        self,
+        should_redraw: bool = False,
+    ) -> QPainterPath:
+
+        if should_redraw:
+            if self.path:
+                self.path.clear()
+                # profiler('cleared paths due to `should_redraw=True`')
 
     def render(
         self,
@@ -819,11 +1216,30 @@ class Renderer(msgspec.Struct):
         - blah blah blah (from notes)
 
         '''
-        # do full source data render to path
+        # get graphics info
+
+        # TODO: can the renderer just call ``Flow.read()`` directly?
+        # unpack latest source data read
         (
-            xfirst, xlast, array,
-            ivl, ivr, in_view,
-        ) = self.last_read
+            xfirst,
+            xlast,
+            array,
+            ivl,
+            ivr,
+            in_view,
+        ) = new_read
+
+        (
+            prepend_length,
+            append_length,
+        ) = self.diff(new_read)
+
+        # do full source data render to path
+
+        # x = array['index']
+        # y = array#[array_key]
+        # x_iv = in_view['index']
+        # y_iv = in_view#[array_key]
 
         if only_in_view:
             array = in_view
@@ -832,7 +1248,10 @@ class Renderer(msgspec.Struct):
             #     xfirst, xlast, array, ivl, ivr, in_view
             # ) = new_read
 
-        if self.path is None or only_in_view:
+        if (
+            self.path is None
+            or only_in_view
+        ):
             # redraw the entire source data if we have either of:
             # - no prior path graphic rendered or,
             # - we always intend to re-render the data only in view

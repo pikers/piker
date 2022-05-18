@@ -172,332 +172,332 @@ class FastAppendCurve(pg.GraphicsObject):
             QLineF(lbar, 0, rbar, 0)
         ).length()
 
-    def update_from_array(
-        self,
+    # def update_from_array(
+    #     self,
 
-        # full array input history
-        x: np.ndarray,
-        y: np.ndarray,
+    #     # full array input history
+    #     x: np.ndarray,
+    #     y: np.ndarray,
 
-        # pre-sliced array data that's "in view"
-        x_iv: np.ndarray,
-        y_iv: np.ndarray,
+    #     # pre-sliced array data that's "in view"
+    #     x_iv: np.ndarray,
+    #     y_iv: np.ndarray,
 
-        view_range: Optional[tuple[int, int]] = None,
-        profiler: Optional[pg.debug.Profiler] = None,
-        draw_last: bool = True,
-        slice_to_head: int = -1,
-        do_append: bool = True,
-        should_redraw: bool = False,
+    #     view_range: Optional[tuple[int, int]] = None,
+    #     profiler: Optional[pg.debug.Profiler] = None,
+    #     draw_last: bool = True,
+    #     slice_to_head: int = -1,
+    #     do_append: bool = True,
+    #     should_redraw: bool = False,
 
-    ) -> QtGui.QPainterPath:
-        '''
-        Update curve from input 2-d data.
+    # ) -> QtGui.QPainterPath:
+    #     '''
+    #     Update curve from input 2-d data.
 
-        Compare with a cached "x-range" state and (pre/a)ppend based on
-        a length diff.
+    #     Compare with a cached "x-range" state and (pre/a)ppend based on
+    #     a length diff.
 
-        '''
-        profiler = profiler or pg.debug.Profiler(
-            msg=f'FastAppendCurve.update_from_array(): `{self._name}`',
-            disabled=not pg_profile_enabled(),
-            ms_threshold=ms_slower_then,
-        )
-        # flip_cache = False
+    #     '''
+    #     profiler = profiler or pg.debug.Profiler(
+    #         msg=f'FastAppendCurve.update_from_array(): `{self._name}`',
+    #         disabled=not pg_profile_enabled(),
+    #         ms_threshold=ms_slower_then,
+    #     )
+    #     # flip_cache = False
 
-        if self._xrange:
-            istart, istop = self._xrange
-        else:
-            self._xrange = istart, istop = x[0], x[-1]
+    #     if self._xrange:
+    #         istart, istop = self._xrange
+    #     else:
+    #         self._xrange = istart, istop = x[0], x[-1]
 
-        # compute the length diffs between the first/last index entry in
-        # the input data and the last indexes we have on record from the
-        # last time we updated the curve index.
-        prepend_length = int(istart - x[0])
-        append_length = int(x[-1] - istop)
+    #     # compute the length diffs between the first/last index entry in
+    #     # the input data and the last indexes we have on record from the
+    #     # last time we updated the curve index.
+    #     prepend_length = int(istart - x[0])
+    #     append_length = int(x[-1] - istop)
 
-        # this is the diff-mode, "data"-rendered index
-        # tracking var..
-        self._xrange = x[0], x[-1]
+    #     # this is the diff-mode, "data"-rendered index
+    #     # tracking var..
+    #     self._xrange = x[0], x[-1]
 
-        # print(f"xrange: {self._xrange}")
+    #     # print(f"xrange: {self._xrange}")
 
-        # XXX: lol brutal, the internals of `CurvePoint` (inherited by
-        # our `LineDot`) required ``.getData()`` to work..
-        self.xData = x
-        self.yData = y
+    #     # XXX: lol brutal, the internals of `CurvePoint` (inherited by
+    #     # our `LineDot`) required ``.getData()`` to work..
+    #     self.xData = x
+    #     self.yData = y
 
-        # downsampling incremental state checking
-        uppx = self.x_uppx()
-        px_width = self.px_width()
-        uppx_diff = (uppx - self._last_uppx)
+    #     # downsampling incremental state checking
+    #     uppx = self.x_uppx()
+    #     px_width = self.px_width()
+    #     uppx_diff = (uppx - self._last_uppx)
 
-        new_sample_rate = False
-        should_ds = self._in_ds
-        showing_src_data = self._in_ds
-        # should_redraw = False
+    #     new_sample_rate = False
+    #     should_ds = self._in_ds
+    #     showing_src_data = self._in_ds
+    #     # should_redraw = False
 
-        # by default we only pull data up to the last (current) index
-        x_out = x[:slice_to_head]
-        y_out = y[:slice_to_head]
+    #     # by default we only pull data up to the last (current) index
+    #     x_out = x[:slice_to_head]
+    #     y_out = y[:slice_to_head]
 
-        # if a view range is passed, plan to draw the
-        # source ouput that's "in view" of the chart.
-        if (
-            view_range
-            # and not self._in_ds
-            # and not prepend_length > 0
-        ):
-            # print(f'{self._name} vr: {view_range}')
+    #     # if a view range is passed, plan to draw the
+    #     # source ouput that's "in view" of the chart.
+    #     if (
+    #         view_range
+    #         # and not self._in_ds
+    #         # and not prepend_length > 0
+    #     ):
+    #         # print(f'{self._name} vr: {view_range}')
 
-            # by default we only pull data up to the last (current) index
-            x_out, y_out = x_iv[:slice_to_head], y_iv[:slice_to_head]
-            profiler(f'view range slice {view_range}')
+    #         # by default we only pull data up to the last (current) index
+    #         x_out, y_out = x_iv[:slice_to_head], y_iv[:slice_to_head]
+    #         profiler(f'view range slice {view_range}')
 
-            vl, vr = view_range
+    #         vl, vr = view_range
 
-            # last_ivr = self._x_iv_range
-            # ix_iv, iy_iv = self._x_iv_range = (x_iv[0], x_iv[-1])
+    #         # last_ivr = self._x_iv_range
+    #         # ix_iv, iy_iv = self._x_iv_range = (x_iv[0], x_iv[-1])
 
-            zoom_or_append = False
-            last_vr = self._vr
-            last_ivr = self._avr
+    #         zoom_or_append = False
+    #         last_vr = self._vr
+    #         last_ivr = self._avr
 
-            if last_vr:
-                # relative slice indices
-                lvl, lvr = last_vr
-                # abs slice indices
-                al, ar = last_ivr
+    #         if last_vr:
+    #             # relative slice indices
+    #             lvl, lvr = last_vr
+    #             # abs slice indices
+    #             al, ar = last_ivr
 
-                # append_length = int(x[-1] - istop)
-                # append_length = int(x_iv[-1] - ar)
+    #             # append_length = int(x[-1] - istop)
+    #             # append_length = int(x_iv[-1] - ar)
 
-                # left_change = abs(x_iv[0] - al) >= 1
-                # right_change = abs(x_iv[-1] - ar) >= 1
+    #             # left_change = abs(x_iv[0] - al) >= 1
+    #             # right_change = abs(x_iv[-1] - ar) >= 1
 
-                if (
-                    # likely a zoom view change
-                    (vr - lvr) > 2 or vl < lvl
-                    # append / prepend update
-                    # we had an append update where the view range
-                    # didn't change but the data-viewed (shifted)
-                    # underneath, so we need to redraw.
-                    # or left_change and right_change and last_vr == view_range
+    #             if (
+    #                 # likely a zoom view change
+    #                 (vr - lvr) > 2 or vl < lvl
+    #                 # append / prepend update
+    #                 # we had an append update where the view range
+    #                 # didn't change but the data-viewed (shifted)
+    #                 # underneath, so we need to redraw.
+    #                 # or left_change and right_change and last_vr == view_range
 
-                        # not (left_change and right_change) and ivr
-                    # (
-                    # or abs(x_iv[ivr] - livr) > 1
-                ):
-                    zoom_or_append = True
+    #                     # not (left_change and right_change) and ivr
+    #                 # (
+    #                 # or abs(x_iv[ivr] - livr) > 1
+    #             ):
+    #                 zoom_or_append = True
 
-            # if last_ivr:
-            #     liivl, liivr = last_ivr
+    #         # if last_ivr:
+    #         #     liivl, liivr = last_ivr
 
-            if (
-                view_range != last_vr
-                and (
-                    append_length > 1
-                    or zoom_or_append
-                )
-            ):
-                should_redraw = True
-                # print("REDRAWING BRUH")
+    #         if (
+    #             view_range != last_vr
+    #             and (
+    #                 append_length > 1
+    #                 or zoom_or_append
+    #             )
+    #         ):
+    #             should_redraw = True
+    #             # print("REDRAWING BRUH")
 
-            self._vr = view_range
-            self._avr = x_iv[0], x_iv[slice_to_head]
+    #         self._vr = view_range
+    #         self._avr = x_iv[0], x_iv[slice_to_head]
 
-            # x_last = x_iv[-1]
-            # y_last = y_iv[-1]
-            # self._last_vr = view_range
+    #         # x_last = x_iv[-1]
+    #         # y_last = y_iv[-1]
+    #         # self._last_vr = view_range
 
-            # self.disable_cache()
-            # flip_cache = True
+    #         # self.disable_cache()
+    #         # flip_cache = True
 
-        if prepend_length > 0:
-            should_redraw = True
+    #     if prepend_length > 0:
+    #         should_redraw = True
 
-        # check for downsampling conditions
-        if (
-            # std m4 downsample conditions
-            abs(uppx_diff) >= 1
-        ):
-            log.info(
-                f'{self._name} sampler change: {self._last_uppx} -> {uppx}'
-            )
-            self._last_uppx = uppx
-            new_sample_rate = True
-            showing_src_data = False
-            should_redraw = True
-            should_ds = True
+    #     # check for downsampling conditions
+    #     if (
+    #         # std m4 downsample conditions
+    #         abs(uppx_diff) >= 1
+    #     ):
+    #         log.info(
+    #             f'{self._name} sampler change: {self._last_uppx} -> {uppx}'
+    #         )
+    #         self._last_uppx = uppx
+    #         new_sample_rate = True
+    #         showing_src_data = False
+    #         should_redraw = True
+    #         should_ds = True
 
-        elif (
-            uppx <= 2
-            and self._in_ds
-        ):
-            # we should de-downsample back to our original
-            # source data so we clear our path data in prep
-            # to generate a new one from original source data.
-            should_redraw = True
-            new_sample_rate = True
-            should_ds = False
-            showing_src_data = True
+    #     elif (
+    #         uppx <= 2
+    #         and self._in_ds
+    #     ):
+    #         # we should de-downsample back to our original
+    #         # source data so we clear our path data in prep
+    #         # to generate a new one from original source data.
+    #         should_redraw = True
+    #         new_sample_rate = True
+    #         should_ds = False
+    #         showing_src_data = True
 
-        # no_path_yet = self.path is None
-        if (
-            self.path is None
-            or should_redraw
-            or new_sample_rate
-            or prepend_length > 0
-        ):
-            if should_redraw:
-                if self.path:
-                    self.path.clear()
-                    profiler('cleared paths due to `should_redraw=True`')
+    #     # no_path_yet = self.path is None
+    #     if (
+    #         self.path is None
+    #         or should_redraw
+    #         or new_sample_rate
+    #         or prepend_length > 0
+    #     ):
+    #         if should_redraw:
+    #             if self.path:
+    #                 self.path.clear()
+    #                 profiler('cleared paths due to `should_redraw=True`')
 
-                if self.fast_path:
-                    self.fast_path.clear()
+    #             if self.fast_path:
+    #                 self.fast_path.clear()
 
-                profiler('cleared paths due to `should_redraw` set')
+    #             profiler('cleared paths due to `should_redraw` set')
 
-            if new_sample_rate and showing_src_data:
-                # if self._in_ds:
-                log.info(f'DEDOWN -> {self._name}')
+    #         if new_sample_rate and showing_src_data:
+    #             # if self._in_ds:
+    #             log.info(f'DEDOWN -> {self._name}')
 
-                self._in_ds = False
+    #             self._in_ds = False
 
-            elif should_ds and uppx > 1:
+    #         elif should_ds and uppx > 1:
 
-                x_out, y_out = xy_downsample(
-                    x_out,
-                    y_out,
-                    uppx,
-                )
-                profiler(f'FULL PATH downsample redraw={should_ds}')
-                self._in_ds = True
+    #             x_out, y_out = xy_downsample(
+    #                 x_out,
+    #                 y_out,
+    #                 uppx,
+    #             )
+    #             profiler(f'FULL PATH downsample redraw={should_ds}')
+    #             self._in_ds = True
 
-            self.path = pg.functions.arrayToQPath(
-                x_out,
-                y_out,
-                connect='all',
-                finiteCheck=False,
-                path=self.path,
-            )
-            self.prepareGeometryChange()
-            profiler(
-                'generated fresh path. '
-                f'(should_redraw: {should_redraw} '
-                f'should_ds: {should_ds} new_sample_rate: {new_sample_rate})'
-            )
-            # profiler(f'DRAW PATH IN VIEW -> {self._name}')
+    #         self.path = pg.functions.arrayToQPath(
+    #             x_out,
+    #             y_out,
+    #             connect='all',
+    #             finiteCheck=False,
+    #             path=self.path,
+    #         )
+    #         self.prepareGeometryChange()
+    #         profiler(
+    #             'generated fresh path. '
+    #             f'(should_redraw: {should_redraw} '
+    #             f'should_ds: {should_ds} new_sample_rate: {new_sample_rate})'
+    #         )
+    #         # profiler(f'DRAW PATH IN VIEW -> {self._name}')
 
-            # reserve mem allocs see:
-            # - https://doc.qt.io/qt-5/qpainterpath.html#reserve
-            # - https://doc.qt.io/qt-5/qpainterpath.html#capacity
-            # - https://doc.qt.io/qt-5/qpainterpath.html#clear
-            # XXX: right now this is based on had hoc checks on a
-            # hidpi 3840x2160 4k monitor but we should optimize for
-            # the target display(s) on the sys.
-            # if no_path_yet:
-            #     self.path.reserve(int(500e3))
+    #         # reserve mem allocs see:
+    #         # - https://doc.qt.io/qt-5/qpainterpath.html#reserve
+    #         # - https://doc.qt.io/qt-5/qpainterpath.html#capacity
+    #         # - https://doc.qt.io/qt-5/qpainterpath.html#clear
+    #         # XXX: right now this is based on had hoc checks on a
+    #         # hidpi 3840x2160 4k monitor but we should optimize for
+    #         # the target display(s) on the sys.
+    #         # if no_path_yet:
+    #         #     self.path.reserve(int(500e3))
 
-        # TODO: get this piecewise prepend working - right now it's
-        # giving heck on vwap...
-        # elif prepend_length:
-        #     breakpoint()
+    #     # TODO: get this piecewise prepend working - right now it's
+    #     # giving heck on vwap...
+    #     # elif prepend_length:
+    #     #     breakpoint()
 
-        #     prepend_path = pg.functions.arrayToQPath(
-        #         x[0:prepend_length],
-        #         y[0:prepend_length],
-        #         connect='all'
-        #     )
+    #     #     prepend_path = pg.functions.arrayToQPath(
+    #     #         x[0:prepend_length],
+    #     #         y[0:prepend_length],
+    #     #         connect='all'
+    #     #     )
 
-        #     # swap prepend path in "front"
-        #     old_path = self.path
-        #     self.path = prepend_path
-        #     # self.path.moveTo(new_x[0], new_y[0])
-        #     self.path.connectPath(old_path)
+    #     #     # swap prepend path in "front"
+    #     #     old_path = self.path
+    #     #     self.path = prepend_path
+    #     #     # self.path.moveTo(new_x[0], new_y[0])
+    #     #     self.path.connectPath(old_path)
 
-        elif (
-            append_length > 0
-            and do_append
-            and not should_redraw
-            # and not view_range
-        ):
-            print(f'{self._name} append len: {append_length}')
-            new_x = x[-append_length - 2:slice_to_head]
-            new_y = y[-append_length - 2:slice_to_head]
-            profiler('sliced append path')
+    #     elif (
+    #         append_length > 0
+    #         and do_append
+    #         and not should_redraw
+    #         # and not view_range
+    #     ):
+    #         print(f'{self._name} append len: {append_length}')
+    #         new_x = x[-append_length - 2:slice_to_head]
+    #         new_y = y[-append_length - 2:slice_to_head]
+    #         profiler('sliced append path')
 
-            profiler(
-                f'diffed array input, append_length={append_length}'
-            )
+    #         profiler(
+    #             f'diffed array input, append_length={append_length}'
+    #         )
 
-            # if should_ds:
-            #     new_x, new_y = xy_downsample(
-            #         new_x,
-            #         new_y,
-            #         uppx,
-            #     )
-            #     profiler(f'fast path downsample redraw={should_ds}')
+    #         # if should_ds:
+    #         #     new_x, new_y = xy_downsample(
+    #         #         new_x,
+    #         #         new_y,
+    #         #         uppx,
+    #         #     )
+    #         #     profiler(f'fast path downsample redraw={should_ds}')
 
-            append_path = pg.functions.arrayToQPath(
-                new_x,
-                new_y,
-                connect='all',
-                finiteCheck=False,
-                path=self.fast_path,
-            )
-            profiler('generated append qpath')
+    #         append_path = pg.functions.arrayToQPath(
+    #             new_x,
+    #             new_y,
+    #             connect='all',
+    #             finiteCheck=False,
+    #             path=self.fast_path,
+    #         )
+    #         profiler('generated append qpath')
 
-            if self.use_fpath:
-                # an attempt at trying to make append-updates faster..
-                if self.fast_path is None:
-                    self.fast_path = append_path
-                    # self.fast_path.reserve(int(6e3))
-                else:
-                    self.fast_path.connectPath(append_path)
-                    size = self.fast_path.capacity()
-                    profiler(f'connected fast path w size: {size}')
+    #         if self.use_fpath:
+    #             # an attempt at trying to make append-updates faster..
+    #             if self.fast_path is None:
+    #                 self.fast_path = append_path
+    #                 # self.fast_path.reserve(int(6e3))
+    #             else:
+    #                 self.fast_path.connectPath(append_path)
+    #                 size = self.fast_path.capacity()
+    #                 profiler(f'connected fast path w size: {size}')
 
-                    # print(f"append_path br: {append_path.boundingRect()}")
-                    # self.path.moveTo(new_x[0], new_y[0])
-                    # path.connectPath(append_path)
+    #                 # print(f"append_path br: {append_path.boundingRect()}")
+    #                 # self.path.moveTo(new_x[0], new_y[0])
+    #                 # path.connectPath(append_path)
 
-                    # XXX: lol this causes a hang..
-                    # self.path = self.path.simplified()
-            else:
-                size = self.path.capacity()
-                profiler(f'connected history path w size: {size}')
-                self.path.connectPath(append_path)
+    #                 # XXX: lol this causes a hang..
+    #                 # self.path = self.path.simplified()
+    #         else:
+    #             size = self.path.capacity()
+    #             profiler(f'connected history path w size: {size}')
+    #             self.path.connectPath(append_path)
 
-            # other merging ideas:
-            # https://stackoverflow.com/questions/8936225/how-to-merge-qpainterpaths
-            # path.addPath(append_path)
-            # path.closeSubpath()
+    #         # other merging ideas:
+    #         # https://stackoverflow.com/questions/8936225/how-to-merge-qpainterpaths
+    #         # path.addPath(append_path)
+    #         # path.closeSubpath()
 
-            # TODO: try out new work from `pyqtgraph` main which
-            # should repair horrid perf:
-            # https://github.com/pyqtgraph/pyqtgraph/pull/2032
-            # ok, nope still horrible XD
-            # if self._fill:
-            #     # XXX: super slow set "union" op
-            #     self.path = self.path.united(append_path).simplified()
+    #         # TODO: try out new work from `pyqtgraph` main which
+    #         # should repair horrid perf:
+    #         # https://github.com/pyqtgraph/pyqtgraph/pull/2032
+    #         # ok, nope still horrible XD
+    #         # if self._fill:
+    #         #     # XXX: super slow set "union" op
+    #         #     self.path = self.path.united(append_path).simplified()
 
-            # self.disable_cache()
-            # flip_cache = True
+    #         # self.disable_cache()
+    #         # flip_cache = True
 
-        # if draw_last:
-        #     self.draw_last(x, y)
-        #     profiler('draw last segment')
+    #     # if draw_last:
+    #     #     self.draw_last(x, y)
+    #     #     profiler('draw last segment')
 
-        # if flip_cache:
-        # #     # XXX: seems to be needed to avoid artifacts (see above).
-        #     self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+    #     # if flip_cache:
+    #     # #     # XXX: seems to be needed to avoid artifacts (see above).
+    #     #     self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
-        # trigger redraw of path
-        # do update before reverting to cache mode
-        self.update()
-        profiler('.update()')
+    #     # trigger redraw of path
+    #     # do update before reverting to cache mode
+    #     self.update()
+    #     profiler('.update()')
 
     def draw_last(
         self,
