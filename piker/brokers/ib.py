@@ -520,7 +520,7 @@ class Client:
         # XXX UPDATE: we can probably do the tick/trades scraping
         # inside our eventkit handler instead to bypass this entirely?
 
-        if 'ib' in pattern:
+        if '.ib' in pattern:
             from ..data._source import unpack_fqsn
             broker, symbol, expiry = unpack_fqsn(pattern)
         else:
@@ -536,11 +536,7 @@ class Client:
             symbol, _, expiry = symbol.rpartition('.')
 
         # use heuristics to figure out contract "type"
-        try:
-            sym, exch = symbol.upper().rsplit('.', maxsplit=1)
-        except ValueError:
-            # likely there's an embedded `.` for a forex pair
-            breakpoint()
+        sym, exch = symbol.upper().rsplit('.', maxsplit=1)
 
         qualify: bool = True
 
