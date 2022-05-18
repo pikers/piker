@@ -146,62 +146,6 @@ class BarItems(pg.GraphicsObject):
         self._dsi: tuple[int, int] = 0, 0
         self._xs_in_px: float = 0
 
-    def draw_from_data(
-        self,
-        ohlc: np.ndarray,
-        start: int = 0,
-
-    ) -> QtGui.QPainterPath:
-        '''
-        Draw OHLC datum graphics from a ``np.ndarray``.
-
-        This routine is usually only called to draw the initial history.
-
-        '''
-        hist, last = ohlc[:-1], ohlc[-1]
-        self.path = gen_ohlc_qpath(hist, start, self.w)
-
-        # save graphics for later reference and keep track
-        # of current internal "last index"
-        # self.start_index = len(ohlc)
-        index = ohlc['index']
-        self._xrange = (index[0], index[-1])
-        # self._yrange = (
-        #     np.nanmax(ohlc['high']),
-        #     np.nanmin(ohlc['low']),
-        # )
-
-        # up to last to avoid double draw of last bar
-        self._last_bar_lines = bar_from_ohlc_row(last, self.w)
-
-        x, y = self._ds_line_xy = ohlc_flatten(ohlc)
-
-        # TODO: figuring out the most optimial size for the ideal
-        # curve-path by,
-        # - calcing the display's max px width `.screen()`
-        # - drawing a curve and figuring out it's capacity:
-        #   https://doc.qt.io/qt-5/qpainterpath.html#capacity
-        # - reserving that cap for each curve-mapped-to-shm with
-
-        # - leveraging clearing when needed to redraw the entire
-        #   curve that does not release mem allocs:
-        #   https://doc.qt.io/qt-5/qpainterpath.html#clear
-        curve = FastAppendCurve(
-            name='OHLC',
-            color=self._color,
-        )
-        curve.hide()
-        self._pi.addItem(curve)
-        self._ds_line = curve
-
-        # self._ds_xrange = (index[0], index[-1])
-
-        # trigger render
-        # https://doc.qt.io/qt-5/qgraphicsitem.html#update
-        self.update()
-
-        return self.path
-
     def x_uppx(self) -> int:
         if self._ds_line:
             return self._ds_line.x_uppx()

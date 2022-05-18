@@ -979,11 +979,6 @@ class ChartPlotWidget(pg.PlotWidget):
             graphics=graphics,
         )
 
-        # TODO: i think we can eventually remove this if
-        # we write the ``Flow.update_graphics()`` method right?
-        # draw after to allow self.scene() to work...
-        graphics.draw_from_data(shm.array)
-
         self._add_sticky(name, bg_color='davies')
 
         return graphics, data_key
