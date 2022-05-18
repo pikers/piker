@@ -825,14 +825,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
             should_redraw = bool(append_diff)
             draw_last = False
 
-            # graphics.reset_cache()
-            # print(
-            #     f"path br: {graphics.path.boundingRect()}\n",
-            #     # f"fast path br: {graphics.fast_path.boundingRect()}",
-            #     f"last rect br: {graphics._last_step_rect}\n",
-            #     f"full br: {graphics._br}\n",
-            # )
-
         # compute the length diffs between the first/last index entry in
         # the input data and the last indexes we have on record from the
         # last time we updated the curve index.
@@ -848,8 +840,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
         if (
             use_vr
-            # and not self._in_ds
-            # and not prepend_length > 0
         ):
 
             # if a view range is passed, plan to draw the
@@ -875,9 +865,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 # abs slice indices
                 al, ar = last_ivr
 
-                # append_length = int(x[-1] - istop)
-                # append_length = int(x_iv[-1] - ar)
-
                 # left_change = abs(x_iv[0] - al) >= 1
                 # right_change = abs(x_iv[-1] - ar) >= 1
 
@@ -896,9 +883,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 ):
                     zoom_or_append = True
 
-            # if last_ivr:
-            #     liivl, liivr = last_ivr
-
             if (
                 view_range != last_vr
                 and (
@@ -915,11 +899,8 @@ class Flow(msgspec.Struct):  # , frozen=True):
         if prepend_length > 0:
             should_redraw = True
 
-        # check for downsampling conditions
+        # check for and set std m4 downsample conditions
         if (
-            # std m4 downsample conditions
-            # px_width
-            # and abs(uppx_diff) >= 1
             abs(uppx_diff) >= 1
         ):
             log.info(
@@ -965,14 +946,12 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
                 self._in_ds = False
 
-            # elif should_ds and uppx and px_width > 1:
             elif should_ds and uppx > 1:
 
                 x_out, y_out = xy_downsample(
                     x_out,
                     y_out,
                     uppx,
-                    # px_width,
                 )
                 profiler(f'FULL PATH downsample redraw={should_ds}')
                 self._in_ds = True
@@ -1023,7 +1002,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
             append_length > 0
             and do_append
             and not should_redraw
-            # and not view_range
         ):
             print(f'{self.name} append len: {append_length}')
             new_x = x[-append_length - 2:slice_to_head]
