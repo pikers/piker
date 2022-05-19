@@ -510,13 +510,10 @@ class Flow(msgspec.Struct):  # , frozen=True):
     # pre-graphics formatted data
     gy: Optional[ShmArray] = None
     gx: Optional[np.ndarray] = None
+
     # pre-graphics update indices
     _iflat_last: int = 0
     _iflat_first: int = 0
-
-    # view-range incremental state
-    _vr: Optional[tuple] = None
-    _avr: Optional[tuple] = None
 
     # downsampling state
     _last_uppx: float = 0
@@ -551,13 +548,12 @@ class Flow(msgspec.Struct):  # , frozen=True):
     # private ``._shm`` attr?
     @shm.setter
     def shm(self, shm: ShmArray) -> ShmArray:
-        print(f'{self.name} DO NOT SET SHM THIS WAY!?')
         self._shm = shm
 
     def maxmin(
         self,
-        lbar,
-        rbar,
+        lbar: int,
+        rbar: int,
 
     ) -> tuple[float, float]:
         '''
@@ -813,8 +809,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
             # full input data
             x = array['index']
             y = array[array_key]
-            x_last = x[-1]
-            y_last = y[-1]
 
             # inview data
             x_iv = in_view['index']
@@ -849,6 +843,8 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 profiler,
             )
 
+            x_last = x[-1]
+            y_last = y[-1]
             graphics._last_line = QLineF(
                 x_last - 0.5, 0,
                 x_last + 0.5, 0,
@@ -898,9 +894,11 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
             slice_to_head=slice_to_head,
             do_append=do_append,
-            graphics=graphics,
         )
+        # TODO: does this actuallly help us in any way (prolly should
+        # look at the source / ask ogi).
         # graphics.prepareGeometryChange()
+
         # assign output paths to graphicis obj
         graphics.path = r.path
         graphics.fast_path = r.fast_path
@@ -931,15 +929,9 @@ def by_index_and_key(
     x = array['index']
     y = array[array_key]
 
-    # # inview data
-    # x_iv = in_view['index']
-    # y_iv = in_view[array_key]
-
     return tuple({
         'x': x,
         'y': y,
-        # 'x_iv': x_iv,
-        # 'y_iv': y_iv,
         'connect': 'all',
     }.values())
 
@@ -951,9 +943,6 @@ class Renderer(msgspec.Struct):
     last_read: Optional[tuple] = None
     format_xy: Callable[np.ndarray, tuple[np.ndarray]] = by_index_and_key
 
-    # called to render path graphics
-    # draw_path: Optional[Callable[np.ndarray, QPainterPath]] = None
-
     # output graphics rendering, the main object
     # processed in ``QGraphicsObject.paint()``
     path: Optional[QPainterPath] = None
@@ -961,18 +950,18 @@ class Renderer(msgspec.Struct):
 
     # called on input data but before any graphics format
     # conversions or processing.
-    data_t: Optional[Callable[ShmArray, np.ndarray]] = None
-    data_t_shm: Optional[ShmArray] = None
+    format_data: Optional[Callable[ShmArray, np.ndarray]] = None
 
+    # XXX: just ideas..
     # called on the final data (transform) output to convert
     # to "graphical data form" a format that can be passed to
     # the ``.draw()`` implementation.
-    graphics_t: Optional[Callable[ShmArray, np.ndarray]] = None
-    graphics_t_shm: Optional[ShmArray] = None
+    # graphics_t: Optional[Callable[ShmArray, np.ndarray]] = None
+    # graphics_t_shm: Optional[ShmArray] = None
 
     # path graphics update implementation methods
-    prepend_fn: Optional[Callable[QPainterPath, QPainterPath]] = None
-    append_fn: Optional[Callable[QPainterPath, QPainterPath]] = None
+    # prepend_fn: Optional[Callable[QPainterPath, QPainterPath]] = None
+    # append_fn: Optional[Callable[QPainterPath, QPainterPath]] = None
 
     # downsampling state
     _last_uppx: float = 0
@@ -982,21 +971,20 @@ class Renderer(msgspec.Struct):
     _last_vr: Optional[tuple[float, float]] = None
     _last_ivr: Optional[tuple[float, float]] = None
 
-    # view-range incremental state
-    _vr: Optional[tuple] = None
-    _avr: Optional[tuple] = None
-
     def diff(
         self,
         new_read: tuple[np.ndarray],
 
-    ) -> tuple[np.ndarray]:
-
+    ) -> tuple[
+        np.ndarray,
+        np.ndarray,
+    ]:
         (
             last_xfirst,
             last_xlast,
             last_array,
-            last_ivl, last_ivr,
+            last_ivl,
+            last_ivr,
             last_in_view,
         ) = self.last_read
 
@@ -1028,14 +1016,7 @@ class Renderer(msgspec.Struct):
         return (
             prepend_length,
             append_length,
-            # last,
         )
-
-    # def gen_path_data(
-    #     self,
-    #     redraw: bool = False,
-    # ) -> np.ndarray:
-    #     ...
 
     def draw_path(
         self,
@@ -1104,7 +1085,6 @@ class Renderer(msgspec.Struct):
 
         # only render datums "in view" of the ``ChartView``
         use_vr: bool = True,
-        graphics: Optional[pg.GraphicObject] = None,
 
     ) -> list[QPainterPath]:
         '''
@@ -1153,22 +1133,31 @@ class Renderer(msgspec.Struct):
             hist = array[:slice_to_head]
             # last = array[slice_to_head]
 
+            # maybe allocate shm for data transform output
+            # if self.format_data is None:
+            #     fshm = self.flow.shm
+
+            #     shm, opened = maybe_open_shm_array(
+            #         f'{self.flow.name}_data_t',
+            #         # TODO: create entry for each time frame
+            #         dtype=array.dtype,
+            #         readonly=False,
+            #     )
+            #     assert opened
+            #     shm.push(array)
+            #     self.data_t_shm = shm
+
+            # xy-path data transform: convert source data to a format
+            # able to be passed to a `QPainterPath` rendering routine.
+            # expected to be incrementally updates and later rendered to
+            # a more graphics native format.
+            # if self.data_t:
+            #     array = self.data_t(array)
             (
                 x_out,
                 y_out,
-                # x_iv,
-                # y_iv,
                 connect,
             ) = self.format_xy(hist, array_key)
-
-            # print(f'{array_key} len x,y: {(len(x_out), len(y_out))}')
-#             # full input data
-#             x = array['index']
-#             y = array[array_key]
-
-#             # inview data
-#             x_iv = in_view['index']
-#             y_iv = in_view[array_key]
 
         profiler('sliced input arrays')
 
@@ -1185,17 +1174,13 @@ class Renderer(msgspec.Struct):
             view_range = (ivl, ivr)
             # print(f'{self._name} vr: {view_range}')
 
-            # by default we only pull data up to the last (current) index
-            # x_out = x_iv[:slice_to_head]
-            # y_out = y_iv[:slice_to_head]
-
             profiler(f'view range slice {view_range}')
 
             vl, vr = view_range
 
             zoom_or_append = False
-            last_vr = self._vr
-            last_ivr = self._avr
+            last_vr = self._last_vr
+            last_ivr = self._last_ivr
 
             # incremental in-view data update.
             if last_vr:
@@ -1216,7 +1201,7 @@ class Renderer(msgspec.Struct):
                     # underneath, so we need to redraw.
                     # or left_change and right_change and last_vr == view_range
 
-                        # not (left_change and right_change) and ivr
+                    # not (left_change and right_change) and ivr
                     # (
                     # or abs(x_iv[ivr] - livr) > 1
                 ):
@@ -1232,40 +1217,28 @@ class Renderer(msgspec.Struct):
                 should_redraw = True
                 # print("REDRAWING BRUH")
 
-            self._vr = view_range
+            self._last_vr = view_range
             if len(x_out):
-                self._avr = x_out[0], x_out[slice_to_head]
+                self._last_ivr = x_out[0], x_out[slice_to_head]
 
         if prepend_length > 0:
             should_redraw = True
 
-        # # last datums
-        # x_last = x_out[-1]
-        # y_last = y_out[-1]
-
         path = self.path
         fast_path = self.fast_path
 
+        # redraw the entire source data if we have either of:
+        # - no prior path graphic rendered or,
+        # - we always intend to re-render the data only in view
         if (
             path is None
             or should_redraw
             or new_sample_rate
             or prepend_length > 0
         ):
-            # if should_redraw:
-            #     if path:
-            #         path.clear()
-            #         profiler('cleared paths due to `should_redraw=True`')
-
-            #     if fast_path:
-            #         fast_path.clear()
-
-            #     profiler('cleared paths due to `should_redraw` set')
 
             if new_sample_rate and showing_src_data:
-                # if self._in_ds:
                 log.info(f'DEDOWN -> {array_key}')
-
                 self._in_ds = False
 
             elif should_ds and uppx > 1:
@@ -1277,8 +1250,6 @@ class Renderer(msgspec.Struct):
                 )
                 profiler(f'FULL PATH downsample redraw={should_ds}')
                 self._in_ds = True
-            # else:
-            #     print(f"NOT DOWNSAMPLING {array_key}")
 
             path = self.draw_path(
                 x=x_out,
@@ -1287,15 +1258,6 @@ class Renderer(msgspec.Struct):
                 path=path,
                 redraw=True,
             )
-            # path = pg.functions.arrayToQPath(
-            #     x_out,
-            #     y_out,
-            #     connect='all',
-            #     finiteCheck=False,
-            #     path=path,
-            # )
-            if graphics:
-                graphics.prepareGeometryChange()
 
             profiler(
                 'generated fresh path. '
@@ -1350,15 +1312,8 @@ class Renderer(msgspec.Struct):
                 connect=connect,
                 # path=fast_path,
             )
-
-            # append_path = pg.functions.arrayToQPath(
-            #     connect='all',
-            #     finiteCheck=False,
-            #     path=fast_path,
-            # )
             profiler('generated append qpath')
 
-            # if graphics.use_fpath:
             if use_fpath:
                 print("USING FPATH")
                 # an attempt at trying to make append-updates faster..
@@ -1381,51 +1336,6 @@ class Renderer(msgspec.Struct):
                 profiler(f'connected history path w size: {size}')
                 path.connectPath(append_path)
 
-        # if use_vr:
-        #     array = in_view
-            # # get latest data from flow shm
-            # self.last_read = (
-            #     xfirst, xlast, array, ivl, ivr, in_view
-            # ) = new_read
-
-        # if (
-        #     self.path is None
-        #     or use_vr
-        # ):
-            # redraw the entire source data if we have either of:
-            # - no prior path graphic rendered or,
-            # - we always intend to re-render the data only in view
-
-            # data transform: convert source data to a format
-            # expected to be incrementally updates and later rendered
-            # to a more graphics native format.
-            # if self.data_t:
-            #     array = self.data_t(array)
-
-                # maybe allocate shm for data transform output
-                # if self.data_t_shm is None:
-                #     fshm = self.flow.shm
-
-                #     shm, opened = maybe_open_shm_array(
-                #         f'{self.flow.name}_data_t',
-                #         # TODO: create entry for each time frame
-                #         dtype=array.dtype,
-                #         readonly=False,
-                #     )
-                #     assert opened
-                #     shm.push(array)
-                #     self.data_t_shm = shm
-
-        # elif self.path:
-        #     print(f'inremental update not supported yet {self.flow.name}')
-            # TODO: do incremental update
-            # prepend, append, last = self.diff(self.flow.read())
-
-            # do path generation for each segment
-            # and then push into graphics object.
-
-        # call path render func on history
-        # self.path = self.draw_path(hist)
         self.path = path
         self.fast_path = fast_path
 
