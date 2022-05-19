@@ -925,15 +925,7 @@ def by_index_and_key(
     np.ndarray,
     np.ndarray,
 ]:
-    # full input data
-    x = array['index']
-    y = array[array_key]
-
-    return tuple({
-        'x': x,
-        'y': y,
-        'connect': 'all',
-    }.values())
+    return array['index'], array[array_key], 'all'
 
 
 class Renderer(msgspec.Struct):
@@ -941,7 +933,12 @@ class Renderer(msgspec.Struct):
     flow: Flow
     # last array view read
     last_read: Optional[tuple] = None
-    format_xy: Callable[np.ndarray, tuple[np.ndarray]] = by_index_and_key
+
+    # default just returns index, and named array from data
+    format_xy: Callable[
+        [np.ndarray, str],
+        tuple[np.ndarray]
+    ] = by_index_and_key
 
     # output graphics rendering, the main object
     # processed in ``QGraphicsObject.paint()``
