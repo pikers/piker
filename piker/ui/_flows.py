@@ -809,6 +809,8 @@ class Flow(msgspec.Struct):  # , frozen=True):
             # full input data
             x = array['index']
             y = array[array_key]
+            x_last = x[-1]
+            y_last = y[-1]
 
             # inview data
             x_iv = in_view['index']
@@ -825,7 +827,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 )
                 profiler('generated step mode data')
 
-            (
+            out = (
                 x,
                 y,
                 x_iv,
@@ -842,9 +844,9 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 self._iflat_last,
                 profiler,
             )
+            input_data = out[:-1]
 
-            x_last = x[-1]
-            y_last = y[-1]
+            w = 0.5
             graphics._last_line = QLineF(
                 x_last - 0.5, 0,
                 x_last + 0.5, 0,
@@ -856,12 +858,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
             should_redraw = bool(append_diff)
             draw_last = False
-            input_data = (
-                x,
-                y,
-                x_iv,
-                y_iv,
-            )
 
         # compute the length diffs between the first/last index entry in
         # the input data and the last indexes we have on record from the
