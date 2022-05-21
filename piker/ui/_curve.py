@@ -121,6 +121,7 @@ class FastAppendCurve(pg.GraphicsObject):
 
         self._last_line: Optional[QLineF] = None
         self._last_step_rect: Optional[QRectF] = None
+        self._last_w: float = 1
 
         # flat-top style histogram-like discrete curve
         self._step_mode: bool = step_mode
@@ -183,29 +184,11 @@ class FastAppendCurve(pg.GraphicsObject):
 
         # draw the "current" step graphic segment so it lines up with
         # the "middle" of the current (OHLC) sample.
-        if self._step_mode:
-            self._last_line = QLineF(
-                x_last - 0.5, 0,
-                x_last + 0.5, 0,
-                # x_last, 0,
-                # x_last, 0,
-            )
-            self._last_step_rect = QRectF(
-                x_last - 0.5, 0,
-                x_last + 0.5, y_last
-                # x_last, 0,
-                # x_last, y_last
-            )
-            # print(
-            #     f"path br: {self.path.boundingRect()}",
-            #     f"fast path br: {self.fast_path.boundingRect()}",
-            #     f"last rect br: {self._last_step_rect}",
-            # )
-        else:
-            self._last_line = QLineF(
-                x[-2], y[-2],
-                x_last, y_last
-            )
+        self._last_line = QLineF(
+            x[-2], y[-2],
+            x_last, y_last
+        )
+        # self._last_w = x_last - x[-2]
 
     # XXX: lol brutal, the internals of `CurvePoint` (inherited by
     # our `LineDot`) required ``.getData()`` to work..
@@ -290,13 +273,20 @@ class FastAppendCurve(pg.GraphicsObject):
         #     # hb_size.height() + 1
         # )
 
-        # if self._last_step_rect:
         #     br = self._last_step_rect.bottomRight()
 
-        # else:
-        # hb_size += QSizeF(1, 1)
-        w = hb_size.width() + 1
-        h = hb_size.height() + 1
+        w = hb_size.width()
+        h = hb_size.height()
+
+        if not self._last_step_rect:
+            # only on a plane line do we include
+            # and extra index step's worth of width
+            # since in the step case the end of the curve
+            # actually terminates earlier so we don't need
+            # this for the last step.
+            w += self._last_w
+            ll = self._last_line
+            h += ll.y2() - ll.y1()
 
         # br = QPointF(
         #     self._vr[-1],
