@@ -274,8 +274,9 @@ class BarItems(pg.GraphicsObject):
         # lead to any perf gains other then when zoomed in to less bars
         # in view.
         p.setPen(self.last_bar_pen)
-        p.drawLines(*tuple(filter(bool, self._last_bar_lines)))
-        profiler('draw last bar')
+        if self._last_bar_lines:
+            p.drawLines(*tuple(filter(bool, self._last_bar_lines)))
+            profiler('draw last bar')
 
         p.setPen(self.bars_pen)
         p.drawPath(self.path)
