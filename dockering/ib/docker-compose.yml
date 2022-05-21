@@ -1,0 +1,51 @@
+# rework from the original @
+# https://github.com/waytrade/ib-gateway-docker/blob/master/docker-compose.yml
+version: "3.5"
+
+services:
+  ib-gateway:
+    # other image tags available:
+    # https://github.com/waytrade/ib-gateway-docker#supported-tags
+    image: waytrade/ib-gateway:981.3j
+    restart: always
+    network_mode: 'host'
+
+    volumes:
+      - type: bind
+        source: ./jts.ini
+        target: /root/Jts/jts.ini
+        # don't let IBC clobber this file for
+        # the main reason of not having a stupid
+        # timezone set..
+        read_only: true
+
+      # force our own IBC config
+      - type: bind
+        source: ./ibc.ini
+        target: /root/ibc/config.ini
+
+      # force our noop script - socat isn't needed in host mode.
+      - type: bind
+        source: ./fork_ports_delayed.sh
+        target: /root/scripts/fork_ports_delayed.sh
+
+    environment:
+      TWS_USERID: ${TWS_USERID}
+      TWS_PASSWORD: ${TWS_PASSWORD}
+      TRADING_MODE: ${TRADING_MODE:-paper}
+      VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD:-}
+
+    ports:
+      - target: 4002
+        host_ip: 127.0.0.1
+        published: 4002
+        protocol: tcp
+
+      # original mappings for use in non-host-mode
+      # which we won't really need going forward since
+      # ideally we just pick the port to have ib-gw listen
+      # on **when** we spawn the container - i.e. everything
+      # will be driven by a ``brokers.toml`` def.
+      # - "127.0.0.1:4001:4001"
+      # - "127.0.0.1:4002:4002"
+      # - "127.0.0.1:5900:5900"
