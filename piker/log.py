@@ -25,10 +25,13 @@ from pygments import highlight, lexers, formatters
 
 # Makes it so we only see the full module name when using ``__name__``
 # without the extra "piker." prefix.
-_proj_name = 'piker'
+_proj_name: str = 'piker'
 
 
-def get_logger(name: str = None) -> logging.Logger:
+def get_logger(
+    name: str = None,
+
+) -> logging.Logger:
     '''Return the package log or a sub-log for `name` if provided.
     '''
     return tractor.log.get_logger(name=name, _root_name=_proj_name)
