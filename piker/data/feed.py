@@ -40,6 +40,7 @@ from trio.abc import ReceiveChannel
 from trio_typing import TaskStatus
 import trimeter
 import tractor
+from tractor.trionics import maybe_open_context
 from pydantic import BaseModel
 import pendulum
 import numpy as np
