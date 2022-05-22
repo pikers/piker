@@ -29,6 +29,13 @@ services:
         source: ./fork_ports_delayed.sh
         target: /root/scripts/fork_ports_delayed.sh
 
+    # NOTE:to fill these out, define an `.env` file in the same dir as
+    # this compose file which looks something like:
+    # TWS_USERID='myuser'
+    # TWS_PASSWORD='guest'
+    # TRADING_MODE=paper (or live)
+    # VNC_SERVER_PASSWORD='diggity'
+
     environment:
       TWS_USERID: ${TWS_USERID}
       TWS_PASSWORD: ${TWS_PASSWORD}
