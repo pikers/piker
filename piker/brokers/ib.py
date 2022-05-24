@@ -2531,6 +2531,33 @@ async def data_reset_hack(
         - integration with ``ib-gw`` run in docker + Xorg?
 
     '''
+
+    async def vnc_click_hack(
+        reset_type: str = 'data'
+    ) -> None:
+        '''
+        Reset the data or netowork connection for the VNC attached
+        ib gateway using magic combos.
+
+        '''
+        key = {'data': 'f', 'connection': 'r'}[reset_type]
+
+        import asyncvnc
+
+        async with asyncvnc.connect(
+            'localhost',
+            port=5900,
+            force_video_mode='rgba',
+        ) as client:
+
+            client.mouse.click()
+            client.keyboard.press('Ctrl', 'Alt', key)  # keys are stacked
+
+    await tractor.to_asyncio.run_task(vnc_click_hack)
+
+    # we don't really need the ``xdotool`` approach any more B)
+    return
+
     # TODO: see if we can find which window is mapped to which process?
     # for eg. if we can launch a paper account with docker and then find
     # the pid of it, can we send keycommands to that container somehow?
