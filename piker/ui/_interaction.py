@@ -570,6 +570,13 @@ class ChartView(ViewBox):
             self._resetTarget()
             self.scaleBy(s, focal)
 
+            # XXX: the order of the next 2 lines i'm pretty sure
+            # matters, we want the resize to trigger before the graphics
+            # update, but i gotta feelin that because this one is signal
+            # based (and thus not necessarily sync invoked right away)
+            # that calling the resize method manually might work better.
+            self.sigRangeChangedManually.emit(mask)
+
             # XXX: without this is seems as though sometimes
             # when zooming in from far out (and maybe vice versa?)
             # the signal isn't being fired enough since if you pan
@@ -579,12 +586,6 @@ class ChartView(ViewBox):
             # "double work" is causing latency when these missing event
             # fires don't happen?
             self.maybe_downsample_graphics()
-
-            self.sigRangeChangedManually.emit(mask)
-
-            # self._ic.set()
-            # self._ic = None
-            # self.chart.resume_all_feeds()
 
             ev.accept()
 
@@ -746,7 +747,7 @@ class ChartView(ViewBox):
 
         # flag to prevent triggering sibling charts from the same linked
         # set from recursion errors.
-        autoscale_linked_plots: bool = False,
+        autoscale_linked_plots: bool = True,
         name: Optional[str] = None,
         # autoscale_overlays: bool = False,
 
@@ -759,6 +760,7 @@ class ChartView(ViewBox):
         data set.
 
         '''
+        # print(f'YRANGE ON {self.name}')
         profiler = pg.debug.Profiler(
             msg=f'`ChartView._set_yrange()`: `{self.name}`',
             disabled=not pg_profile_enabled(),
@@ -788,42 +790,11 @@ class ChartView(ViewBox):
         elif yrange is not None:
             ylow, yhigh = yrange
 
-        # calculate max, min y values in viewable x-range from data.
-        # Make sure min bars/datums on screen is adhered.
-        # else:
-            # TODO: eventually we should point to the
-            # ``FlowsTable`` (or wtv) which should perform
-            # the group operations?
-
-            # flow = chart._flows[name or chart.name]
-            # br = bars_range or chart.bars_range()
-            # br = bars_range or chart.bars_range()
-            # profiler(f'got bars range: {br}')
-
-            # TODO: maybe should be a method on the
-            # chart widget/item?
-            # if False:
-            # if autoscale_linked_plots:
-            #     # avoid recursion by sibling plots
-            #     linked = self.linkedsplits
-            #     plots = list(linked.subplots.copy().values())
-            #     main = linked.chart
-            #     if main:
-            #         plots.append(main)
-
-            #     for chart in plots:
-            #         if chart and not chart._static_yrange:
-            #             chart.cv._set_yrange(
-            #                 # bars_range=br,
-            #                 autoscale_linked_plots=False,
-            #             )
-            #     profiler('autoscaled linked plots')
-
         if set_range:
 
+            # XXX: only compute the mxmn range
+            # if none is provided as input!
             if not yrange:
-                # XXX: only compute the mxmn range
-                # if none is provided as input!
                 yrange = self._maxmin()
 
                 if yrange is None:
@@ -849,6 +820,25 @@ class ChartView(ViewBox):
             )
             self.setYRange(ylow, yhigh)
             profiler(f'set limits: {(ylow, yhigh)}')
+
+        # TODO: maybe should be a method on the
+        # chart widget/item?
+        if autoscale_linked_plots:
+            # avoid recursion by sibling plots
+            linked = self.linkedsplits
+            plots = list(linked.subplots.copy().values())
+            main = linked.chart
+            if main:
+                plots.append(main)
+
+            # print(f'autoscaling linked: {plots}')
+            for chart in plots:
+                if chart and not chart._static_yrange:
+                    chart.cv._set_yrange(
+                        # bars_range=br,
+                        autoscale_linked_plots=False,
+                    )
+            profiler('autoscaled linked plots')
 
         profiler.finish()
 
