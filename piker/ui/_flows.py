@@ -1281,8 +1281,7 @@ class Renderer(msgspec.Struct):
             and do_append
             and not should_redraw
         ):
-            # print(f'{self.name} append len: {append_length}')
-            print(f'{array_key} append len: {append_length}')
+            # print(f'{array_key} append len: {append_length}')
             new_x = x_out[-append_length - 2:]  # slice_to_head]
             new_y = y_out[-append_length - 2:]  # slice_to_head]
             profiler('sliced append path')
@@ -1308,7 +1307,6 @@ class Renderer(msgspec.Struct):
             profiler('generated append qpath')
 
             if use_fpath:
-                print("USING FPATH")
                 # an attempt at trying to make append-updates faster..
                 if fast_path is None:
                     fast_path = append_path
