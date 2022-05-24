@@ -29,6 +29,12 @@ services:
         source: ./fork_ports_delayed.sh
         target: /root/scripts/fork_ports_delayed.sh
 
+      # force our noop script - socat isn't needed in host mode.
+      - type: bind
+        source: ./run_x11_vnc.sh
+        target: /root/scripts/run_x11_vnc.sh
+        read_only: true
+
     # NOTE:to fill these out, define an `.env` file in the same dir as
     # this compose file which looks something like:
     # TWS_USERID='myuser'
