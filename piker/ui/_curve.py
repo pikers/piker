@@ -286,7 +286,7 @@ class FastAppendCurve(pg.GraphicsObject):
             # this for the last step.
             w += self._last_w
             ll = self._last_line
-            h += ll.y2() - ll.y1()
+            h += 1 #ll.y2() - ll.y1()
 
         # br = QPointF(
         #     self._vr[-1],
