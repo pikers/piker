@@ -168,11 +168,10 @@ def gen_ohlc_qpath(
 
 def ohlc_to_line(
     ohlc_shm: ShmArray,
+    data_field: str,
     fields: list[str] = ['open', 'high', 'low', 'close']
 
 ) -> tuple[
-    int,  # flattened first index
-    int,  # flattened last index
     np.ndarray,
     np.ndarray,
 ]:
@@ -205,8 +204,6 @@ def ohlc_to_line(
     assert y_out.any()
 
     return (
-        first,
-        last,
         x_out,
         y_out,
     )
