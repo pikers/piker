@@ -721,6 +721,12 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 last_read=read,
             )
 
+        # ds update config
+        new_sample_rate: bool = False
+        should_redraw: bool = False
+        should_ds: bool = r._in_ds
+        showing_src_data: bool = not r._in_ds
+
         if graphics._step_mode:
 
             r.allocate_xy = to_step_format
@@ -753,12 +759,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
             # should_redraw = bool(append_diff)
             draw_last = False
-
-        # ds update config
-        new_sample_rate: bool = False
-        should_redraw: bool = False
-        should_ds: bool = r._in_ds
-        showing_src_data: bool = not r._in_ds
 
         # downsampling incremental state checking
         # check for and set std m4 downsample conditions
