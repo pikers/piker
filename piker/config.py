@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -16,6 +16,7 @@
 
 """
 Broker configuration mgmt.
+
 """
 import platform
 import sys
@@ -50,7 +51,7 @@ def get_app_dir(app_name, roaming=True, force_posix=False):
     Unix (POSIX):
       ``~/.foo-bar``
     Win XP (roaming):
-      ``C:\Documents and Settings\<user>\Local Settings\Application Data\Foo Bar``
+      ``C:\Documents and Settings\<user>\Local Settings\Application Data\Foo``
     Win XP (not roaming):
       ``C:\Documents and Settings\<user>\Application Data\Foo Bar``
     Win 7 (roaming):
@@ -81,7 +82,8 @@ def get_app_dir(app_name, roaming=True, force_posix=False):
             folder = os.path.expanduser("~")
         return os.path.join(folder, app_name)
     if force_posix:
-        return os.path.join(os.path.expanduser("~/.{}".format(_posixify(app_name))))
+        return os.path.join(
+            os.path.expanduser("~/.{}".format(_posixify(app_name))))
     if sys.platform == "darwin":
         return os.path.join(
             os.path.expanduser("~/Library/Application Support"), app_name
@@ -107,7 +109,12 @@ if _parent_user:
         ]
     )
 
-_file_name = 'brokers.toml'
+_conf_names: set[str] = {
+    'brokers',
+    'trades',
+    'watchlists',
+}
+
 _watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
 _context_defaults = dict(
     default_map={
@@ -129,23 +136,43 @@ def _override_config_dir(
     _config_dir = path
 
 
-def get_broker_conf_path():
+def _conf_fn_w_ext(
+    name: str,
+) -> str:
+    # change this if we ever change the config file format.
+    return f'{name}.toml'
+
+
+def get_conf_path(
+    conf_name: str = 'brokers',
+
+) -> str:
     """Return the default config path normally under
     ``~/.config/piker`` on linux.
 
     Contains files such as:
     - brokers.toml
     - watchlists.toml
+    - trades.toml
+
+    # maybe coming soon ;)
     - signals.toml
     - strats.toml
 
     """
-    return os.path.join(_config_dir, _file_name)
+    assert conf_name in _conf_names
+    fn = _conf_fn_w_ext(conf_name)
+    return os.path.join(
+        _config_dir,
+        fn,
+    )
 
 
 def repodir():
-    """Return the abspath to the repo directory.
-    """
+    '''
+    Return the abspath to the repo directory.
+
+    '''
     dirpath = os.path.abspath(
         # we're 3 levels down in **this** module file
         dirname(dirname(os.path.realpath(__file__)))
@@ -154,16 +181,27 @@ def repodir():
 
 
 def load(
+    conf_name: str = 'brokers',
     path: str = None
+
 ) -> (dict, str):
-    """Load broker config.
-    """
-    path = path or get_broker_conf_path()
+    '''
+    Load config file by name.
+
+    '''
+    path = path or get_conf_path(conf_name)
     if not os.path.isfile(path):
-        shutil.copyfile(
-            os.path.join(repodir(), 'config', 'brokers.toml'),
-            path,
+        fn = _conf_fn_w_ext(conf_name)
+
+        template = os.path.join(
+            repodir(),
+            'config',
+            fn
         )
+        # try to copy in a template config to the user's directory
+        # if one exists.
+        if os.path.isfile(template):
+            shutil.copyfile(template, path)
 
     config = toml.load(path)
     log.debug(f"Read config file {path}")
@@ -172,13 +210,17 @@ def load(
 
 def write(
     config: dict,  # toml config as dict
+    name: str = 'brokers',
     path: str = None,
+
 ) -> None:
-    """Write broker config to disk.
+    ''''
+    Write broker config to disk.
 
     Create a ``brokers.ini`` file if one does not exist.
-    """
-    path = path or get_broker_conf_path()
+
+    '''
+    path = path or get_conf_path(name)
     dirname = os.path.dirname(path)
     if not os.path.isdir(dirname):
         log.debug(f"Creating config dir {_config_dir}")
@@ -188,7 +230,10 @@ def write(
         raise ValueError(
             "Watch out you're trying to write a blank config!")
 
-    log.debug(f"Writing config file {path}")
+    log.debug(
+        f"Writing config `{name}` file to:\n"
+        f"{path}"
+    )
     with open(path, 'w') as cf:
         return toml.dump(config, cf)
 
@@ -218,4 +263,5 @@ def load_accounts(
 
     # our default paper engine entry
     accounts['paper'] = None
+
     return accounts
