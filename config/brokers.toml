@@ -26,6 +26,13 @@ ports = [
     7497,  # tws
 ]
 
+# XXX: for a paper account the flex web query service
+# is not supported so you have to manually download
+# and XML report and put it in a location that can be
+# accessed by the ``brokerd.ib`` backend code for parsing.
+flex_token = '666666666666666666666666'
+flex_trades_query_id = '666666'  # live account
+
 # when clients are being scanned this determines
 # which clients are preferred to be used for data
 # feeds based on the order of account names, if
