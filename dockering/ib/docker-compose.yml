@@ -48,11 +48,11 @@ services:
       TRADING_MODE: ${TRADING_MODE:-paper}
       VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD:-}
 
-    ports:
-      - target: 4002
-        host_ip: 127.0.0.1
-        published: 4002
-        protocol: tcp
+    # ports:
+    #   - target: 4002
+    #     host_ip: 127.0.0.1
+    #     published: 4002
+    #     protocol: tcp
 
       # original mappings for use in non-host-mode
       # which we won't really need going forward since
