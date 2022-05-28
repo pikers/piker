@@ -18,6 +18,7 @@
 Fast, smooth, sexy curves.
 
 """
+from contextlib import contextmanager as cm
 from typing import Optional
 
 import numpy as np
@@ -38,7 +39,6 @@ from ._style import hcolor
 #     # ohlc_to_m4_line,
 #     ds_m4,
 # )
-from ._pathops import xy_downsample
 from ..log import get_logger
 
 
@@ -216,22 +216,11 @@ class FastAppendCurve(pg.GraphicsObject):
                 # self.fast_path.clear()
                 self.fast_path = None
 
-        # self.disable_cache()
-        # self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
-
+    @cm
     def reset_cache(self) -> None:
-        self.disable_cache()
-        self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
-
-    def disable_cache(self) -> None:
-        '''
-        Disable the use of the pixel coordinate cache and trigger a geo event.
-
-        '''
-        # XXX: pretty annoying but, without this there's little
-        # artefacts on the append updates to the curve...
         self.setCacheMode(QtWidgets.QGraphicsItem.NoCache)
-        # self.prepareGeometryChange()
+        yield
+        self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
     def boundingRect(self):
         '''
@@ -285,8 +274,8 @@ class FastAppendCurve(pg.GraphicsObject):
             # actually terminates earlier so we don't need
             # this for the last step.
             w += self._last_w
-            ll = self._last_line
-            h += 1 #ll.y2() - ll.y1()
+            # ll = self._last_line
+            h += 1  # ll.y2() - ll.y1()
 
         # br = QPointF(
         #     self._vr[-1],
