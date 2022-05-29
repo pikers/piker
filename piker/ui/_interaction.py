@@ -747,9 +747,8 @@ class ChartView(ViewBox):
 
         # flag to prevent triggering sibling charts from the same linked
         # set from recursion errors.
-        autoscale_linked_plots: bool = True,
+        autoscale_linked_plots: bool = False,
         name: Optional[str] = None,
-        # autoscale_overlays: bool = False,
 
     ) -> None:
         '''
@@ -760,7 +759,7 @@ class ChartView(ViewBox):
         data set.
 
         '''
-        # print(f'YRANGE ON {self.name}')
+        # log.info(f'YRANGE ON {self.name}')
         profiler = pg.debug.Profiler(
             msg=f'`ChartView._set_yrange()`: `{self.name}`',
             disabled=not pg_profile_enabled(),
@@ -795,7 +794,8 @@ class ChartView(ViewBox):
             # XXX: only compute the mxmn range
             # if none is provided as input!
             if not yrange:
-                yrange = self._maxmin()
+                yrange = self._maxmin(
+                    )
 
                 if yrange is None:
                     log.warning(f'No yrange provided for {self.name}!?')
@@ -820,25 +820,6 @@ class ChartView(ViewBox):
             )
             self.setYRange(ylow, yhigh)
             profiler(f'set limits: {(ylow, yhigh)}')
-
-        # TODO: maybe should be a method on the
-        # chart widget/item?
-        if autoscale_linked_plots:
-            # avoid recursion by sibling plots
-            linked = self.linkedsplits
-            plots = list(linked.subplots.copy().values())
-            main = linked.chart
-            if main:
-                plots.append(main)
-
-            # print(f'autoscaling linked: {plots}')
-            for chart in plots:
-                if chart and not chart._static_yrange:
-                    chart.cv._set_yrange(
-                        # bars_range=br,
-                        autoscale_linked_plots=False,
-                    )
-            profiler('autoscaled linked plots')
 
         profiler.finish()
 
@@ -911,7 +892,10 @@ class ChartView(ViewBox):
         else:
             return 0
 
-    def maybe_downsample_graphics(self):
+    def maybe_downsample_graphics(
+        self,
+        autoscale_linked_plots: bool = True,
+    ):
 
         profiler = pg.debug.Profiler(
             msg=f'ChartView.maybe_downsample_graphics() for {self.name}',
@@ -945,9 +929,17 @@ class ChartView(ViewBox):
                 chart.update_graphics_from_flow(
                     name,
                     use_vr=True,
-
-                    # gets passed down into graphics obj
-                    # profiler=profiler,
                 )
+
+                # for each overlay on this chart auto-scale the
+                # y-range to max-min values.
+                if autoscale_linked_plots:
+                    overlay = chart.pi_overlay
+                    if overlay:
+                        for pi in overlay.overlays:
+                            pi.vb._set_yrange(
+                                # bars_range=br,
+                            )
+                    profiler('autoscaled linked plots')
 
                 profiler(f'<{chart_name}>.update_graphics_from_flow({name})')
