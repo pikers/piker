@@ -759,9 +759,10 @@ class ChartView(ViewBox):
         data set.
 
         '''
-        # log.info(f'YRANGE ON {self.name}')
+        name = self.name
+        # print(f'YRANGE ON {name}')
         profiler = pg.debug.Profiler(
-            msg=f'`ChartView._set_yrange()`: `{self.name}`',
+            msg=f'`ChartView._set_yrange()`: `{name}`',
             disabled=not pg_profile_enabled(),
             ms_threshold=ms_slower_then,
             delayed=True,
@@ -794,12 +795,12 @@ class ChartView(ViewBox):
             # XXX: only compute the mxmn range
             # if none is provided as input!
             if not yrange:
-                yrange = self._maxmin(
-                    )
+                # flow = chart._flows[name]
+                yrange = self._maxmin()
 
                 if yrange is None:
-                    log.warning(f'No yrange provided for {self.name}!?')
-                    print(f"WTF NO YRANGE {self.name}")
+                    log.warning(f'No yrange provided for {name}!?')
+                    print(f"WTF NO YRANGE {name}")
                     return
 
             ylow, yhigh = yrange
@@ -894,7 +895,7 @@ class ChartView(ViewBox):
 
     def maybe_downsample_graphics(
         self,
-        autoscale_linked_plots: bool = True,
+        autoscale_overlays: bool = True,
     ):
 
         profiler = pg.debug.Profiler(
@@ -933,7 +934,7 @@ class ChartView(ViewBox):
 
                 # for each overlay on this chart auto-scale the
                 # y-range to max-min values.
-                if autoscale_linked_plots:
+                if autoscale_overlays:
                     overlay = chart.pi_overlay
                     if overlay:
                         for pi in overlay.overlays:
