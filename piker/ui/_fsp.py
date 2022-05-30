@@ -635,7 +635,7 @@ async def open_vlm_displays(
         )
 
         # force 0 to always be in view
-        def maxmin(
+        def multi_maxmin(
             names: list[str],
 
         ) -> tuple[float, float]:
@@ -651,7 +651,7 @@ async def open_vlm_displays(
 
             return 0, mx
 
-        chart.view.maxmin = partial(maxmin, names=['volume'])
+        chart.view.maxmin = partial(multi_maxmin, names=['volume'])
 
         # TODO: fix the x-axis label issue where if you put
         # the axis on the left it's totally not lined up...
@@ -741,19 +741,20 @@ async def open_vlm_displays(
                'dolla_vlm',
                'dark_vlm',
             ]
-            dvlm_rate_fields = [
-                'dvlm_rate',
-                'dark_dvlm_rate',
-            ]
+            # dvlm_rate_fields = [
+            #     'dvlm_rate',
+            #     'dark_dvlm_rate',
+            # ]
             trade_rate_fields = [
                 'trade_rate',
                 'dark_trade_rate',
             ]
 
             group_mxmn = partial(
-                maxmin,
+                multi_maxmin,
                 # keep both regular and dark vlm in view
-                names=fields + dvlm_rate_fields,
+                names=fields,
+                # names=fields + dvlm_rate_fields,
             )
 
             # add custom auto range handler
@@ -820,11 +821,11 @@ async def open_vlm_displays(
             )
             await started.wait()
 
-            chart_curves(
-                dvlm_rate_fields,
-                dvlm_pi,
-                fr_shm,
-            )
+            # chart_curves(
+            #     dvlm_rate_fields,
+            #     dvlm_pi,
+            #     fr_shm,
+            # )
 
             # TODO: is there a way to "sync" the dual axes such that only
             # one curve is needed?
@@ -862,7 +863,7 @@ async def open_vlm_displays(
             )
             # add custom auto range handler
             tr_pi.vb.maxmin = partial(
-                maxmin,
+                multi_maxmin,
                 # keep both regular and dark vlm in view
                 names=trade_rate_fields,
             )
