@@ -1251,7 +1251,9 @@ class ChartPlotWidget(pg.PlotWidget):
     def maxmin(
         self,
         name: Optional[str] = None,
-        bars_range: Optional[tuple[int, int, int, int]] = None,
+        bars_range: Optional[tuple[
+            int, int, int, int, int, int
+        ]] = None,
 
     ) -> tuple[float, float]:
         '''
@@ -1260,6 +1262,7 @@ class ChartPlotWidget(pg.PlotWidget):
         If ``bars_range`` is provided use that range.
 
         '''
+        # print(f'Chart[{self.name}].maxmin()')
         profiler = pg.debug.Profiler(
             msg=f'`{str(self)}.maxmin(name={name})`: `{self.name}`',
             disabled=not pg_profile_enabled(),
@@ -1279,7 +1282,14 @@ class ChartPlotWidget(pg.PlotWidget):
             key = res = 0, 0
 
         else:
-            first, l, lbar, rbar, r, last = bars_range or flow.datums_range()
+            (
+                first,
+                l,
+                lbar,
+                rbar,
+                r,
+                last,
+            ) = bars_range or flow.datums_range()
             profiler(f'{self.name} got bars range')
 
             key = round(lbar), round(rbar)
