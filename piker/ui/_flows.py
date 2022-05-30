@@ -570,7 +570,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
         draw_last: bool = True
         slice_to_head: int = -1
-        # input_data = None
 
         should_redraw: bool = False
 
@@ -616,7 +615,8 @@ class Flow(msgspec.Struct):  # , frozen=True):
         should_ds: bool = r._in_ds
         showing_src_data: bool = not r._in_ds
 
-        if getattr(graphics, '_step_mode', False):
+        step_mode = getattr(graphics, '_step_mode', False)
+        if step_mode:
 
             r.allocate_xy = to_step_format
             r.update_xy = update_step_xy
@@ -636,16 +636,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
             x_last = x[-1]
             y_last = y[-1]
 
-            w = 0.5
-            graphics._last_line = QLineF(
-                x_last - w, 0,
-                x_last + w, 0,
-            )
-            graphics._last_step_rect = QRectF(
-                x_last - w, 0,
-                x_last + w, y_last,
-            )
-            draw_last = False
+            draw_last = True
 
         # downsampling incremental state checking
         # check for and set std m4 downsample conditions
@@ -660,10 +651,11 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 f'{array_key} sampler change: {self._last_uppx} -> {uppx}'
             )
             self._last_uppx = uppx
+
             new_sample_rate = True
             showing_src_data = False
-            should_redraw = True
             should_ds = True
+            should_redraw = True
 
         elif (
             uppx <= 2
@@ -672,17 +664,17 @@ class Flow(msgspec.Struct):  # , frozen=True):
             # we should de-downsample back to our original
             # source data so we clear our path data in prep
             # to generate a new one from original source data.
-            should_redraw = True
             new_sample_rate = True
-            should_ds = False
             showing_src_data = True
+            should_ds = False
+            should_redraw = True
 
         # MAIN RENDER LOGIC:
         # - determine in view data and redraw on range change
         # - determine downsampling ops if needed
         # - (incrementally) update ``QPainterPath``
 
-        path, data = r.render(
+        path, data, reset = r.render(
             read,
             array_key,
             profiler,
@@ -702,29 +694,49 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
             **rkwargs,
         )
-        # TODO: does this actuallly help us in any way (prolly should
-        # look at the source / ask ogi).
-        # graphics.prepareGeometryChange()
 
-        # assign output paths to graphicis obj
-        graphics.path = r.path
-        graphics.fast_path = r.fast_path
+        # XXX: SUPER UGGGHHH... without this we get stale cache
+        # graphics that don't update until you downsampler again..
+        if reset:
+            with graphics.reset_cache():
+                # assign output paths to graphicis obj
+                graphics.path = r.path
+                graphics.fast_path = r.fast_path
+        else:
+            # assign output paths to graphicis obj
+            graphics.path = r.path
+            graphics.fast_path = r.fast_path
 
         if draw_last and not bars:
-            # TODO: how to handle this draw last stuff..
-            x = data['index']
-            y = data[array_key]
-            graphics.draw_last(x, y)
+            # default line draw last call
+            if not step_mode:
+                with graphics.reset_cache():
+                    x = data['index']
+                    y = data[array_key]
+                    graphics.draw_last(x, y)
+
+            else:
+                w = 0.5
+                graphics._last_line = QLineF(
+                    x_last - w, 0,
+                    x_last + w, 0,
+                )
+                graphics._last_step_rect = QRectF(
+                    x_last - w, 0,
+                    x_last + w, y_last,
+                )
+
+                # TODO: does this actuallly help us in any way (prolly should
+                # look at the source / ask ogi). I think it avoid artifacts on
+                # wheel-scroll downsampling curve updates?
+                graphics.update()
+                profiler('.prepareGeometryChange()')
 
         elif bars and draw_last:
             draw_last()
+            graphics.update()
+            profiler('.update()')
 
-        profiler('draw last segment')
-
-        graphics.update()
-        profiler('.update()')
-
-        profiler('`graphics.update_from_array()` complete')
         return graphics
 
 
@@ -1009,8 +1021,8 @@ class Renderer(msgspec.Struct):
 
         if use_vr:
             array = in_view
-        else:
-            ivl, ivr = xfirst, xlast
+        # else:
+        #     ivl, ivr = xfirst, xlast
 
         hist = array[:slice_to_head]
 
@@ -1069,24 +1081,22 @@ class Renderer(msgspec.Struct):
                 ):
                     zoom_or_append = True
 
-            if (
-                view_range != last_vr
-                and (
-                    append_length > 1
-                    or zoom_or_append
-                )
-            ):
-                should_redraw = True
-
             self._last_vr = view_range
             if len(x_out):
                 self._last_ivr = x_out[0], x_out[slice_to_head]
 
-        if prepend_length > 0:
+        # redraw conditions
+        if (
+            prepend_length > 0
+            or new_sample_rate
+            or append_length > 0
+            or zoom_or_append
+        ):
             should_redraw = True
 
         path = self.path
         fast_path = self.fast_path
+        reset = False
 
         # redraw the entire source data if we have either of:
         # - no prior path graphic rendered or,
@@ -1094,10 +1104,8 @@ class Renderer(msgspec.Struct):
         if (
             path is None
             or should_redraw
-            or new_sample_rate
-            or prepend_length > 0
         ):
-            # print("REDRAWING BRUH")
+            # print(f"{self.flow.name} -> REDRAWING BRUH")
             if new_sample_rate and showing_src_data:
                 log.info(f'DEDOWN -> {array_key}')
                 self._in_ds = False
@@ -1109,6 +1117,7 @@ class Renderer(msgspec.Struct):
                     y_out,
                     uppx,
                 )
+                reset = True
                 profiler(f'FULL PATH downsample redraw={should_ds}')
                 self._in_ds = True
 
@@ -1203,4 +1212,4 @@ class Renderer(msgspec.Struct):
         # update diff state since we've now rendered paths.
         self.last_read = new_read
 
-        return self.path, array
+        return self.path, array, reset
