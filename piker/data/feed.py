@@ -338,7 +338,7 @@ async def start_backfill(
                 log.debug(f'New datetime index:\n{pformat(dtrange)}')
 
                 for end_dt in dtrange:
-                    log.warning(f'Yielding next frame start {end_dt}')
+                    log.info(f'Yielding next frame start {end_dt}')
                     start = yield end_dt
 
                     # if caller sends a new start date, reset to that
@@ -722,6 +722,7 @@ async def manage_history(
                     bfqsn,
                     shm,
                     last_tsdb_dt=last_tsdb_dt,
+                    tsdb_is_up=True,
                     storage=storage,
                 )
             )
