@@ -939,6 +939,7 @@ class ChartView(ViewBox):
                     if overlay:
                         for pi in overlay.overlays:
                             pi.vb._set_yrange(
+                                # TODO: get the range once up front...
                                 # bars_range=br,
                             )
                     profiler('autoscaled linked plots')
