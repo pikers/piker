@@ -32,7 +32,7 @@ import trio
 import pendulum
 import pyqtgraph as pg
 
-from .. import brokers
+# from .. import brokers
 from ..data.feed import open_feed
 from ._axes import YAxisLabel
 from ._chart import (
@@ -263,6 +263,7 @@ async def graphics_update_loop(
         'vars': {
             'tick_margin': tick_margin,
             'i_last': i_last,
+            'i_last_append': i_last,
             'last_mx_vlm': last_mx_vlm,
             'last_mx': last_mx,
             'last_mn': last_mn,
@@ -320,8 +321,8 @@ def graphics_update_cycle(
     profiler = pg.debug.Profiler(
         msg=f'Graphics loop cycle for: `{chart.name}`',
         delayed=True,
-        # disabled=not pg_profile_enabled(),
-        disabled=True,
+        disabled=not pg_profile_enabled(),
+        # disabled=True,
         ms_threshold=ms_slower_then,
 
         # ms_threshold=1/12 * 1e3,
@@ -340,7 +341,7 @@ def graphics_update_cycle(
     for sym, quote in ds.quotes.items():
 
         # compute the first available graphic's x-units-per-pixel
-        xpx = vlm_chart.view.x_uppx()
+        uppx = vlm_chart.view.x_uppx()
 
         # NOTE: vlm may be written by the ``brokerd`` backend
         # event though a tick sample is not emitted.
@@ -359,13 +360,32 @@ def graphics_update_cycle(
         i_diff = i_step - vars['i_last']
         vars['i_last'] = i_step
 
+        append_diff = i_step - vars['i_last_append']
+
+        # update the "last datum" (aka extending the flow graphic with
+        # new data) only if the number of unit steps is >= the number of
+        # such unit steps per pixel (aka uppx). Iow, if the zoom level
+        # is such that a datum(s) update to graphics wouldn't span
+        # to a new pixel, we don't update yet.
+        do_append = (append_diff >= uppx)
+        if do_append:
+            vars['i_last_append'] = i_step
+
+        do_rt_update = uppx < update_uppx
+        # print(
+        #     f'append_diff:{append_diff}\n'
+        #     f'uppx:{uppx}\n'
+        #     f'do_append: {do_append}'
+        # )
+
+        # TODO: we should only run mxmn when we know
+        # an update is due via ``do_append`` above.
         (
             brange,
             mx_in_view,
             mn_in_view,
             mx_vlm_in_view,
         ) = ds.maxmin()
-
         l, lbar, rbar, r = brange
         mx = mx_in_view + tick_margin
         mn = mn_in_view - tick_margin
@@ -389,8 +409,9 @@ def graphics_update_cycle(
         # left unless we get one of the following:
         if (
             (
-                i_diff > 0  # no new sample step
-                and xpx < 4  # chart is zoomed out very far
+                # i_diff > 0  # no new sample step
+                do_append
+                # and uppx < 4  # chart is zoomed out very far
                 and liv
             )
             or trigger_all
@@ -399,6 +420,10 @@ def graphics_update_cycle(
             # pixel in a curve should show new data based on uppx
             # and then iff update curves and shift?
             chart.increment_view(steps=i_diff)
+
+            if vlm_chart:
+                vlm_chart.increment_view(steps=i_diff)
+
             profiler('view incremented')
 
         if vlm_chart:
@@ -409,8 +434,8 @@ def graphics_update_cycle(
 
             if (
                 (
-                    xpx < update_uppx
-                    or i_diff > 0
+                    do_rt_update
+                    or do_append
                     and liv
                 )
                 or trigger_all
@@ -454,14 +479,15 @@ def graphics_update_cycle(
                         flow,
                         curve_name,
                         array_key=curve_name,
-                        do_append=xpx < update_uppx,
+                        # do_append=uppx < update_uppx,
+                        do_append=do_append,
                     )
                     # is this even doing anything?
                     # (pretty sure it's the real-time
                     # resizing from last quote?)
                     fvb = flow.plot.vb
                     fvb._set_yrange(
-                        autoscale_linked_plots=False,
+                        # autoscale_linked_plots=False,
                         name=curve_name,
                     )
 
@@ -510,13 +536,17 @@ def graphics_update_cycle(
 
         # update ohlc sampled price bars
         if (
-            xpx < update_uppx
-            or i_diff > 0
+            do_rt_update
+            or do_append
             or trigger_all
         ):
+            # TODO: we should always update the "last" datum
+            # since the current range should at least be updated
+            # to it's max/min on the last pixel.
             chart.update_graphics_from_flow(
                 chart.name,
-                do_append=xpx < update_uppx,
+                # do_append=uppx < update_uppx,
+                do_append=do_append,
             )
 
         # iterate in FIFO order per tick-frame
