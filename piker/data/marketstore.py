@@ -639,12 +639,13 @@ async def tsdb_history_update(
             tsdb_arrays = await storage.read_ohlcv(fqsn)
             # hist diffing
             if tsdb_arrays:
-                onesec = tsdb_arrays[1]
-
-                # these aren't currently used but can be referenced from
-                # within the embedded ipython shell below.
-                to_append = ohlcv[ohlcv['time'] > onesec['Epoch'][-1]]
-                to_prepend = ohlcv[ohlcv['time'] < onesec['Epoch'][0]]
+                for secs in (1, 60):
+                    ts = tsdb_arrays.get(secs)
+                    if ts is not None and len(ts):
+                        # these aren't currently used but can be referenced from
+                        # within the embedded ipython shell below.
+                        to_append = ohlcv[ohlcv['time'] > ts['Epoch'][-1]]
+                        to_prepend = ohlcv[ohlcv['time'] < ts['Epoch'][0]]
 
             profiler('Finished db arrays diffs')
 
