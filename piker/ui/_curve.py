@@ -160,23 +160,6 @@ class FastAppendCurve(pg.GraphicsObject):
             QLineF(lbar, 0, rbar, 0)
         ).length()
 
-    def draw_last(
-        self,
-        x: np.ndarray,
-        y: np.ndarray,
-
-    ) -> None:
-        x_last = x[-1]
-        y_last = y[-1]
-
-        # draw the "current" step graphic segment so it lines up with
-        # the "middle" of the current (OHLC) sample.
-        self._last_line = QLineF(
-            x[-2], y[-2],
-            x_last, y_last
-        )
-        # self._last_w = x_last - x[-2]
-
     # XXX: lol brutal, the internals of `CurvePoint` (inherited by
     # our `LineDot`) required ``.getData()`` to work..
     def getData(self):

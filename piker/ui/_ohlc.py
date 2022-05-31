@@ -32,8 +32,6 @@ from .._profile import pg_profile_enabled, ms_slower_then
 from ._style import hcolor
 from ..log import get_logger
 from ._curve import FastAppendCurve
-from ._compression import ohlc_flatten
-from ._pathops import gen_ohlc_qpath
 
 if TYPE_CHECKING:
     from ._chart import LinkedSplits
@@ -147,44 +145,6 @@ class BarItems(pg.GraphicsObject):
             return self._ds_line.x_uppx()
         else:
             return 0
-
-    def draw_last(
-        self,
-        last: np.ndarray,
-
-    ) -> None:
-        # generate new lines objects for updatable "current bar"
-        self._last_bar_lines = bar_from_ohlc_row(last, self.w)
-
-        # last bar update
-        i, o, h, l, last, v = last[
-            ['index', 'open', 'high', 'low', 'close', 'volume']
-        ]
-        # assert i == self.start_index - 1
-        # assert i == last_index
-        body, larm, rarm = self._last_bar_lines
-
-        # XXX: is there a faster way to modify this?
-        rarm.setLine(rarm.x1(), last, rarm.x2(), last)
-
-        # writer is responsible for changing open on "first" volume of bar
-        larm.setLine(larm.x1(), o, larm.x2(), o)
-
-        if l != h:  # noqa
-
-            if body is None:
-                body = self._last_bar_lines[0] = QLineF(i, l, i, h)
-            else:
-                # update body
-                body.setLine(i, l, i, h)
-
-            # XXX: pretty sure this is causing an issue where the bar has
-            # a large upward move right before the next sample and the body
-            # is getting set to None since the next bar is flat but the shm
-            # array index update wasn't read by the time this code runs. Iow
-            # we're doing this removal of the body for a bar index that is
-            # now out of date / from some previous sample. It's weird
-            # though because i've seen it do this to bars i - 3 back?
 
     def boundingRect(self):
         # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
