@@ -84,8 +84,6 @@ class FastAppendCurve(pg.GraphicsObject):
         # brutaaalll, see comments within..
         self.yData = None
         self.xData = None
-        # self._vr: Optional[tuple] = None
-        # self._avr: Optional[tuple] = None
         self._last_cap: int = 0
 
         self._name = name
@@ -97,14 +95,6 @@ class FastAppendCurve(pg.GraphicsObject):
         # TODO: we can probably just dispense with the parent since
         # we're basically only using the pen setting now...
         super().__init__(*args, **kwargs)
-
-        # self._xrange: tuple[int, int] = self.dataBounds(ax=0)
-        # self._xrange: Optional[tuple[int, int]] = None
-        # self._x_iv_range = None
-
-        # self._last_draw = time.time()
-        # self._in_ds: bool = False
-        # self._last_uppx: float = 0
 
         # all history of curve is drawn in single px thickness
         pen = pg.mkPen(hcolor(color))
@@ -161,9 +151,6 @@ class FastAppendCurve(pg.GraphicsObject):
 
         vr = self.viewRect()
         l, r = int(vr.left()), int(vr.right())
-
-        # if not self._xrange:
-        #     return 0
 
         start, stop = self._xrange
         lbar = max(l, start)

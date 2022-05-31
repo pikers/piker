@@ -358,19 +358,9 @@ class Flow(msgspec.Struct):  # , frozen=True):
     is_ohlc: bool = False
     render: bool = True  # toggle for display loop
 
-    # pre-graphics formatted data
-    gy: Optional[np.ndarray] = None
-    gx: Optional[np.ndarray] = None
-
-    # pre-graphics update indices
-    _iflat_last: int = 0
-    _iflat_first: int = 0
-
     # downsampling state
     _last_uppx: float = 0
     _in_ds: bool = False
-
-    _graphics_tranform_fn: Optional[Callable[ShmArray, np.ndarray]] = None
 
     # map from uppx -> (downsampled data, incremental graphics)
     _src_r: Optional[Renderer] = None
@@ -717,6 +707,8 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
             else:
                 w = 0.5
+                # lol, commenting this makes step curves
+                # all "black" for me :eyeroll:..
                 graphics._last_line = QLineF(
                     x_last - w, 0,
                     x_last + w, 0,

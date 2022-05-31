@@ -129,11 +129,7 @@ class BarItems(pg.GraphicsObject):
         self.fast_path = QtGui.QPainterPath()
 
         self._xrange: tuple[int, int]
-        # self._yrange: tuple[float, float]
         self._vrange = None
-
-        # TODO: don't render the full backing array each time
-        # self._path_data = None
         self._last_bar_lines: Optional[tuple[QLineF, ...]] = None
 
         # track the current length of drawable lines within the larger array
@@ -212,16 +208,6 @@ class BarItems(pg.GraphicsObject):
             hb.bottomRight(),
         )
 
-        # fp = self.fast_path
-        # if fp:
-        #     fhb = fp.controlPointRect()
-        #     print((hb_tl, hb_br))
-        #     print(fhb)
-        #     hb_tl, hb_br = (
-        #         fhb.topLeft() + hb.topLeft(),
-        #         fhb.bottomRight() + hb.bottomRight(),
-        #     )
-
         # need to include last bar height or BR will be off
         mx_y = hb_br.y()
         mn_y = hb_tl.y()
@@ -281,7 +267,3 @@ class BarItems(pg.GraphicsObject):
         p.setPen(self.bars_pen)
         p.drawPath(self.path)
         profiler(f'draw history path: {self.path.capacity()}')
-
-        # if self.fast_path:
-        #     p.drawPath(self.fast_path)
-        #     profiler('draw fast path')
