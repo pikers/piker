@@ -282,7 +282,6 @@ class FastAppendCurve(pg.GraphicsObject):
             disabled=not pg_profile_enabled(),
             ms_threshold=ms_slower_then,
         )
-        self.prepareGeometryChange()
 
         if (
             self._step_mode
