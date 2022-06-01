@@ -256,7 +256,8 @@ def render_baritems(
             reset: bool,
         ) -> None:
             lasts = src_data[-2:]
-            x, y = lasts['index'], lasts['close']
+            x = lasts['index']
+            y = lasts['close']
 
             # draw the "current" step graphic segment so it
             # lines up with the "middle" of the current
@@ -717,7 +718,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
         # - determine downsampling ops if needed
         # - (incrementally) update ``QPainterPath``
 
-        path, data, reset = r.render(
+        out = r.render(
             read,
             array_key,
             profiler,
@@ -737,6 +738,12 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
             **rkwargs,
         )
+
+        if not out:
+            log.warning(f'{self.name} failed to render!?')
+            return graphics
+
+        path, data, reset = out
 
         # XXX: SUPER UGGGHHH... without this we get stale cache
         # graphics that don't update until you downsampler again..
@@ -974,7 +981,7 @@ class Renderer(msgspec.Struct):
             # the target display(s) on the sys.
             # if no_path_yet:
             #     graphics.path.reserve(int(500e3))
-            path=path,  # path re-use / reserving
+            # path=path,  # path re-use / reserving
         )
 
         # avoid mem allocs if possible
@@ -1113,6 +1120,9 @@ class Renderer(msgspec.Struct):
 
         # xy-path data transform: convert source data to a format
         # able to be passed to a `QPainterPath` rendering routine.
+        if not len(hist):
+            return
+
         x_out, y_out, connect = self.format_xy(
             self,
             # TODO: hist here should be the pre-sliced
