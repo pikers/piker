@@ -80,7 +80,9 @@ def mk_check(
 
         return check_lt
 
-    raise ValueError('trigger: {trigger_price}, last: {known_last}')
+    raise ValueError(
+        f'trigger: {trigger_price}, last: {known_last}'
+    )
 
 
 @dataclass
