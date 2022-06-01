@@ -33,6 +33,7 @@ from typing import (
     Generator,
     Awaitable,
     TYPE_CHECKING,
+    Union,
 )
 
 import trio
@@ -117,7 +118,13 @@ class _FeedsBus(BaseModel):
     # https://github.com/samuelcolvin/pydantic/issues/2816
     _subscribers: dict[
         str,
-        list[tuple[tractor.MsgStream, Optional[float]]]
+        list[
+            tuple[
+                Union[tractor.MsgStream, trio.MemorySendChannel],
+                tractor.Context,
+                Optional[float],  # tick throttle in Hz
+            ]
+        ]
     ] = {}
 
     async def start_task(
@@ -1118,10 +1125,10 @@ async def open_feed_bus(
                 recv,
                 stream,
             )
-            sub = (send, tick_throttle)
+            sub = (send, ctx, tick_throttle)
 
         else:
-            sub = (stream, tick_throttle)
+            sub = (stream, ctx, tick_throttle)
 
         subs = bus._subscribers[bfqsn]
         subs.append(sub)
