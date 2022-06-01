@@ -336,7 +336,8 @@ async def sample_and_broadcast(
                                     key = id(stream)
                                     overruns[key] += 1
                                     log.warning(
-                                        f'Feed overrun {bus.brokername} -> '
+                                        f'Feed overrun {broker_symbol}'
+                                        '@{bus.brokername} -> '
                                         f'feed @ {tick_throttle} Hz'
                                     )
                                     if overruns[key] > 6:
@@ -375,11 +376,12 @@ async def sample_and_broadcast(
                     trio.ClosedResourceError,
                     trio.EndOfChannel,
                 ):
-                    ctx = getattr(stream, '_ctx', None)
+                    chan = ctx.chan
                     if ctx:
                         log.warning(
-                            f'{ctx.chan.uid} dropped  '
-                            '`brokerd`-quotes-feed connection'
+                            'Dropped `brokerd`-quotes-feed connection:\n'
+                            f'{broker_symbol}:'
+                            f'{ctx.cid}@{chan.uid}'
                         )
                     if tick_throttle:
                         assert stream._closed
@@ -392,7 +394,11 @@ async def sample_and_broadcast(
                     try:
                         subs.remove((stream, tick_throttle))
                     except ValueError:
-                        log.error(f'{stream} was already removed from subs!?')
+                        log.error(
+                            f'Stream was already removed from subs!?\n'
+                            f'{broker_symbol}:'
+                            f'{ctx.cid}@{chan.uid}'
+                        )
 
 
 # TODO: a less naive throttler, here's some snippets:
