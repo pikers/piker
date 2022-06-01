@@ -1592,21 +1592,27 @@ async def get_bars(
                 #     # 'Market data farm connection is OK:usfuture'
                 #     'Market data farm connection is OK:usfarm'
                 # )
-                # TODO: some kinda resp here that indicates success
-                # otherwise retry?
+
                 # port = proxy._aio_ns.ib.client.port
                 await data_reset_hack()
 
-                # TODO: a while loop here if we timeout?
-                for name, ev in [
-                    ('history', hist_ev),
-                    # ('live', live_ev),
-                ]:
-                    await ev.wait()
-                    log.info(f"{name} DATA RESET")
+                # try to wait on the reset event(s) to arrive, a timeout
+                # will trigger a retry up to 6 times (for now).
+                for i in range(6):
+                    with trio.move_on_after(6) as cs:
+                        for name, ev in [
+                            ('history', hist_ev),
+                            # ('live', live_ev),
+                        ]:
+                            await ev.wait()
+                            log.info(f"{name} DATA RESET")
+                            break
 
-                fails += 1
-                continue
+                        fails += 1
+                        if cs.cancelled_caught:
+                            log.warning(f'Data reset hack failed, retrying {i}...')
+
+                        continue
 
             else:
                 raise
@@ -2554,7 +2560,6 @@ async def data_reset_hack(
         async with asyncvnc.connect(
             'localhost',
             port=5900,
-            force_video_mode='rgba',
         ) as client:
 
             client.mouse.click()
