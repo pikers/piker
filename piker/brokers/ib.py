@@ -1588,29 +1588,55 @@ async def get_bars(
                 hist_ev = proxy.status_event(
                     'HMDS data farm connection is OK:ushmds'
                 )
-                # live_ev = proxy.status_event(
-                #     # 'Market data farm connection is OK:usfuture'
-                #     'Market data farm connection is OK:usfarm'
-                # )
 
-                # port = proxy._aio_ns.ib.client.port
-                await data_reset_hack()
+                # XXX: other event messages we might want to try and
+                # wait for but i wasn't able to get any of this
+                # reliable..
+                # reconnect_start = proxy.status_event(
+                #     'Market data farm is connecting:usfuture'
+                # )
+                # live_ev = proxy.status_event(
+                #     'Market data farm connection is OK:usfuture'
+                # )
 
                 # try to wait on the reset event(s) to arrive, a timeout
                 # will trigger a retry up to 6 times (for now).
-                for i in range(6):
-                    with trio.move_on_after(6) as cs:
+                tries: int = 6
+                reset_type: str = 'data'
+                resends: int = 0
+
+                for i in range(1, tries):
+
+                    log.warning(f'Sending reset request {reset_type}')
+                    await data_reset_hack(reset_type=reset_type)
+                    reset_type = 'data'
+
+                    with trio.move_on_after(3) as cs:
                         for name, ev in [
+                            # TODO: not sure if waiting on other events
+                            # is all that useful here or not. in theory
+                            # you could wait on one of the ones above
+                            # first to verify the reset request was
+                            # sent?
                             ('history', hist_ev),
-                            # ('live', live_ev),
                         ]:
                             await ev.wait()
                             log.info(f"{name} DATA RESET")
                             break
 
+                    if cs.cancelled_caught:
                         fails += 1
-                        if cs.cancelled_caught:
-                            log.warning(f'Data reset hack failed, retrying {i}...')
+                        log.warning(
+                            f'Data reset {name} timeout, retrying {i}.'
+                        )
+
+                        if resends > 1:
+                            # on each 3rd timeout, do a full connection
+                            # reset instead.
+                            reset_type = 'connection'
+                            resends = 0
+                        else:
+                            resends += 1
 
                         continue
 
@@ -2219,7 +2245,6 @@ async def trades_dialogue(
             assert account in accounts_def
             accounts.add(account)
 
-        # for client in _client_cache.values():
         for client in aioclients.values():
             for pos in client.positions():
 
@@ -2560,8 +2585,15 @@ async def data_reset_hack(
         async with asyncvnc.connect(
             'localhost',
             port=5900,
+            password='ibcansmbz',
         ) as client:
 
+            # move to middle of screen
+            # 640x1800
+            client.mouse.move(
+                x=100,
+                y=100,
+            )
             client.mouse.click()
             client.keyboard.press('Ctrl', 'Alt', key)  # keys are stacked
 
