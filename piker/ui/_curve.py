@@ -55,15 +55,28 @@ _line_styles: dict[str, int] = {
 
 class FastAppendCurve(pg.GraphicsObject):
     '''
-    A faster, append friendly version of ``pyqtgraph.PlotCurveItem``
-    built for real-time data updates.
+    A faster, simpler, append friendly version of
+    ``pyqtgraph.PlotCurveItem`` built for highly customizable real-time
+    updates.
 
-    The main difference is avoiding regeneration of the entire
-    historical path where possible and instead only updating the "new"
-    segment(s) via a ``numpy`` array diff calc. Further the "last"
-    graphic segment is drawn independently such that near-term (high
-    frequency) discrete-time-sampled style updates don't trigger a full
-    path redraw.
+    This type is a much stripped down version of a ``pyqtgraph`` style "graphics object" in
+    the sense that the internal lower level graphics which are drawn in the ``.paint()`` method
+    are actually rendered outside of this class entirely and instead are assigned as state
+    (instance vars) here and then drawn during a Qt graphics cycle.
+
+    The main motivation for this more modular, composed design is that
+    lower level graphics data can be rendered in different threads and
+    then read and drawn in this main thread without having to worry
+    about dealing with Qt's concurrency primitives. See
+    ``piker.ui._flows.Renderer`` for details and logic related to lower
+    level path generation and incremental update. The main differences in
+    the path generation code include:
+
+    - avoiding regeneration of the entire historical path where possible and instead
+      only updating the "new" segment(s) via a ``numpy`` array diff calc.
+    - here, the "last" graphics datum-segment is drawn independently
+      such that near-term (high frequency) discrete-time-sampled style
+      updates don't trigger a full path redraw.
 
     '''
     def __init__(
@@ -89,6 +102,9 @@ class FastAppendCurve(pg.GraphicsObject):
         self._name = name
         self.path: Optional[QtGui.QPainterPath] = None
 
+        # additional path used for appends which tries to avoid
+        # triggering an update/redraw of the presumably larger
+        # historical ``.path`` above.
         self.use_fpath = use_fpath
         self.fast_path: Optional[QtGui.QPainterPath] = None
 
@@ -119,11 +135,13 @@ class FastAppendCurve(pg.GraphicsObject):
         # self._fill = True
         self._brush = pg.functions.mkBrush(hcolor(fill_color or color))
 
+        # NOTE: this setting seems to mostly prevent redraws on mouse
+        # interaction which is a huge boon for avg interaction latency.
+
         # TODO: one question still remaining is if this makes trasform
         # interactions slower (such as zooming) and if so maybe if/when
         # we implement a "history" mode for the view we disable this in
         # that mode?
-        # if step_mode:
         # don't enable caching by default for the case where the
         # only thing drawn is the "last" line segment which can
         # have a weird artifact where it won't be fully drawn to its
