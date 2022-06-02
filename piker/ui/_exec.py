@@ -49,10 +49,6 @@ from . import _style
 log = get_logger(__name__)
 
 # pyqtgraph global config
-# might as well enable this for now?
-pg.useOpenGL = True
-pg.enableExperimental = True
-
 # engage core tweaks that give us better response
 # latency then the average pg user
 _do_overrides()
