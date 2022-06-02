@@ -2,6 +2,7 @@
 
 x11vnc \
     -ncache_cr \
+    -listen localhost \
     -display :1 \
     -forever \
     -shared \
