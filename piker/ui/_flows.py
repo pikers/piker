@@ -254,6 +254,7 @@ def render_baritems(
             src_data: np.ndarray,
             render_data: np.ndarray,
             reset: bool,
+
         ) -> None:
             lasts = src_data[-2:]
             x = lasts['index']
@@ -276,10 +277,12 @@ def render_baritems(
             src_data: np.ndarray,
             render_data: np.ndarray,
             reset: bool,
+
         ) -> None:
             last = src_data[-1]
+
             # generate new lines objects for updatable "current bar"
-            graphics._last_bar_lines = bar_from_ohlc_row(last, graphics.w)
+            graphics._last_bar_lines = bar_from_ohlc_row(last)
 
             # last bar update
             i, o, h, l, last, v = last[
