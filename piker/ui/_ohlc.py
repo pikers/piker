@@ -31,7 +31,6 @@ from PyQt5.QtCore import QLineF, QPointF
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._style import hcolor
 from ..log import get_logger
-from ._curve import FastAppendCurve
 
 if TYPE_CHECKING:
     from ._chart import LinkedSplits
@@ -42,6 +41,7 @@ log = get_logger(__name__)
 
 def bar_from_ohlc_row(
     row: np.ndarray,
+    # 0.5 is no overlap between arms, 1.0 is full overlap
     w: float = 0.43
 
 ) -> tuple[QLineF]:
@@ -87,9 +87,6 @@ class BarItems(pg.GraphicsObject):
     '''
     sigPlotChanged = QtCore.pyqtSignal(object)
 
-    # 0.5 is no overlap between arms, 1.0 is full overlap
-    w: float = 0.43
-
     def __init__(
         self,
         linked: LinkedSplits,
@@ -109,42 +106,13 @@ class BarItems(pg.GraphicsObject):
         self.last_bar_pen = pg.mkPen(hcolor(last_bar_color), width=2)
         self._name = name
 
-        self._ds_line_xy: Optional[
-            tuple[np.ndarray, np.ndarray]
-        ] = None
-
-        # NOTE: this prevents redraws on mouse interaction which is
-        # a huge boon for avg interaction latency.
-
-        # TODO: one question still remaining is if this makes trasform
-        # interactions slower (such as zooming) and if so maybe if/when
-        # we implement a "history" mode for the view we disable this in
-        # that mode?
         self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
-
-        self._pi = plotitem
         self.path = QtGui.QPainterPath()
-        self.fast_path = QtGui.QPainterPath()
-
-        self._xrange: tuple[int, int]
-        self._vrange = None
         self._last_bar_lines: Optional[tuple[QLineF, ...]] = None
 
-        # track the current length of drawable lines within the larger array
-        self.start_index: int = 0
-        self.stop_index: int = 0
-
-        # downsampler-line state
-        self._in_ds: bool = False
-        self._ds_line: Optional[FastAppendCurve] = None
-        self._dsi: tuple[int, int] = 0, 0
-        self._xs_in_px: float = 0
-
     def x_uppx(self) -> int:
-        if self._ds_line:
-            return self._ds_line.x_uppx()
-        else:
-            return 0
+        # we expect the downsample curve report this.
+        return 0
 
     def boundingRect(self):
         # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
@@ -202,9 +170,6 @@ class BarItems(pg.GraphicsObject):
         w: QtWidgets.QWidget
 
     ) -> None:
-
-        if self._in_ds:
-            return
 
         profiler = pg.debug.Profiler(
             disabled=not pg_profile_enabled(),
