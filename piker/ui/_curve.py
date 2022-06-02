@@ -53,7 +53,7 @@ _line_styles: dict[str, int] = {
 }
 
 
-class FastAppendCurve(pg.GraphicsObject):
+class Curve(pg.GraphicsObject):
     '''
     A faster, simpler, append friendly version of
     ``pyqtgraph.PlotCurveItem`` built for highly customizable real-time
@@ -296,7 +296,7 @@ class FastAppendCurve(pg.GraphicsObject):
     ) -> None:
 
         profiler = pg.debug.Profiler(
-            msg=f'FastAppendCurve.paint(): `{self._name}`',
+            msg=f'Curve.paint(): `{self._name}`',
             disabled=not pg_profile_enabled(),
             ms_threshold=ms_slower_then,
         )

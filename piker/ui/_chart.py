@@ -50,7 +50,7 @@ from ._cursor import (
 from ..data._sharedmem import ShmArray
 from ._l1 import L1Labels
 from ._ohlc import BarItems
-from ._curve import FastAppendCurve
+from ._curve import Curve
 from ._style import (
     hcolor,
     CHART_MARGINS,
@@ -1069,7 +1069,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # yah, we wrote our own B)
         data = shm.array
-        curve = FastAppendCurve(
+        curve = Curve(
             # antialias=True,
             name=name,
 

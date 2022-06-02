@@ -60,7 +60,7 @@ from ._ohlc import (
     bar_from_ohlc_row,
 )
 from ._curve import (
-    FastAppendCurve,
+    Curve,
 )
 from ..log import get_logger
 
@@ -175,7 +175,7 @@ def render_baritems(
             format_xy=ohlc_flat_to_xy,
         )
 
-        curve = FastAppendCurve(
+        curve = Curve(
             name=f'{flow.name}_ds_ohlc',
             color=bars._color,
         )
@@ -661,7 +661,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                     last_read=read,
                 )
 
-        # ``FastAppendCurve`` case:
+        # ``Curve`` case:
         array_key = array_key or self.name
         # print(array_key)
 
