@@ -34,13 +34,6 @@ import numpy as np
 from numpy.lib import recfunctions as rfn
 import pyqtgraph as pg
 from PyQt5.QtGui import QPainterPath
-from PyQt5.QtCore import (
-    # Qt,
-    QLineF,
-    # QSizeF,
-    QRectF,
-    # QPointF,
-)
 
 from ..data._sharedmem import (
     ShmArray,
@@ -57,10 +50,12 @@ from ._pathops import (
 )
 from ._ohlc import (
     BarItems,
-    bar_from_ohlc_row,
+    # bar_from_ohlc_row,
 )
 from ._curve import (
     Curve,
+    StepCurve,
+    FlattenedOHLC,
 )
 from ..log import get_logger
 
@@ -175,7 +170,7 @@ def render_baritems(
             format_xy=ohlc_flat_to_xy,
         )
 
-        curve = Curve(
+        curve = FlattenedOHLC(
             name=f'{flow.name}_ds_ohlc',
             color=bars._color,
         )
@@ -244,84 +239,10 @@ def render_baritems(
         bars.show()
         bars.update()
 
-    draw_last = False
-
-    if should_line:
-
-        def draw_last_flattened_ohlc_line(
-            graphics: pg.GraphicsObject,
-            path: QPainterPath,
-            src_data: np.ndarray,
-            render_data: np.ndarray,
-            reset: bool,
-
-        ) -> None:
-            lasts = src_data[-2:]
-            x = lasts['index']
-            y = lasts['close']
-
-            # draw the "current" step graphic segment so it
-            # lines up with the "middle" of the current
-            # (OHLC) sample.
-            graphics._last_line = QLineF(
-                x[-2], y[-2],
-                x[-1], y[-1]
-            )
-
-        draw_last = draw_last_flattened_ohlc_line
-
-    else:
-        def draw_last_ohlc_bar(
-            graphics: pg.GraphicsObject,
-            path: QPainterPath,
-            src_data: np.ndarray,
-            render_data: np.ndarray,
-            reset: bool,
-
-        ) -> None:
-            last = src_data[-1]
-
-            # generate new lines objects for updatable "current bar"
-            graphics._last_bar_lines = bar_from_ohlc_row(last)
-
-            # last bar update
-            i, o, h, l, last, v = last[
-                ['index', 'open', 'high', 'low', 'close', 'volume']
-            ]
-            # assert i == graphics.start_index - 1
-            # assert i == last_index
-            body, larm, rarm = graphics._last_bar_lines
-
-            # XXX: is there a faster way to modify this?
-            rarm.setLine(rarm.x1(), last, rarm.x2(), last)
-
-            # writer is responsible for changing open on "first" volume of bar
-            larm.setLine(larm.x1(), o, larm.x2(), o)
-
-            if l != h:  # noqa
-
-                if body is None:
-                    body = graphics._last_bar_lines[0] = QLineF(i, l, i, h)
-                else:
-                    # update body
-                    body.setLine(i, l, i, h)
-
-                # XXX: pretty sure this is causing an issue where the
-                # bar has a large upward move right before the next
-                # sample and the body is getting set to None since the
-                # next bar is flat but the shm array index update wasn't
-                # read by the time this code runs. Iow we're doing this
-                # removal of the body for a bar index that is now out of
-                # date / from some previous sample. It's weird though
-                # because i've seen it do this to bars i - 3 back?
-
-        draw_last = draw_last_ohlc_bar
-
     return (
         graphics,
         r,
         {'read_from_key': False},
-        draw_last,
         should_line,
         changed_to_line,
     )
@@ -411,10 +332,10 @@ class Flow(msgspec.Struct):  # , frozen=True):
     '''
     name: str
     plot: pg.PlotItem
-    graphics: pg.GraphicsObject
+    graphics: Curve
     _shm: ShmArray
 
-    draw_last_datum: Optional[
+    draw_last: Optional[
         Callable[
             [np.ndarray, str],
             tuple[np.ndarray]
@@ -597,12 +518,9 @@ class Flow(msgspec.Struct):  # , frozen=True):
         render to graphics.
 
         '''
-
-        # profiler = profiler or pg.debug.Profiler(
         profiler = pg.debug.Profiler(
             msg=f'Flow.update_graphics() for {self.name}',
             disabled=not pg_profile_enabled(),
-            # disabled=False,
             ms_threshold=4,
             # ms_threshold=ms_slower_then,
         )
@@ -623,13 +541,9 @@ class Flow(msgspec.Struct):  # , frozen=True):
             # print('exiting early')
             return graphics
 
-        draw_last: bool = True
         slice_to_head: int = -1
-
         should_redraw: bool = False
-
         rkwargs = {}
-        bars = False
 
         if isinstance(graphics, BarItems):
             # XXX: special case where we change out graphics
@@ -638,7 +552,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 graphics,
                 r,
                 rkwargs,
-                draw_last,
                 should_line,
                 changed_to_line,
             ) = render_baritems(
@@ -648,7 +561,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 profiler,
                 **kwargs,
             )
-            bars = True
+            # bars = True
             should_redraw = changed_to_line or not should_line
 
         else:
@@ -661,7 +574,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                     last_read=read,
                 )
 
-        # ``Curve`` case:
+        # ``Curve`` derivative case(s):
         array_key = array_key or self.name
         # print(array_key)
 
@@ -670,20 +583,19 @@ class Flow(msgspec.Struct):  # , frozen=True):
         should_ds: bool = r._in_ds
         showing_src_data: bool = not r._in_ds
 
-        step_mode = getattr(graphics, '_step_mode', False)
+        # step_mode = getattr(graphics, '_step_mode', False)
+        step_mode = isinstance(graphics, StepCurve)
         if step_mode:
 
             r.allocate_xy = to_step_format
             r.update_xy = update_step_xy
             r.format_xy = step_to_xy
 
-            slice_to_head = -2
-
             # TODO: append logic inside ``.render()`` isn't
-            # corrent yet for step curves.. remove this to see it.
+            # correct yet for step curves.. remove this to see it.
             should_redraw = True
-
-            draw_last = True
+            # draw_last = True
+            slice_to_head = -2
 
         # downsampling incremental state checking
         # check for and set std m4 downsample conditions
@@ -760,77 +672,23 @@ class Flow(msgspec.Struct):  # , frozen=True):
             graphics.path = r.path
             graphics.fast_path = r.fast_path
 
-        if draw_last and not bars:
+        graphics.draw_last_datum(
+            path,
+            src_array,
+            data,
+            reset,
+            array_key,
+        )
 
-            if not step_mode:
+        # TODO: is this ever better?
+        # graphics.prepareGeometryChange()
+        # profiler('.prepareGeometryChange()')
 
-                def draw_last_line(
-                    graphics: pg.GraphicsObject,
-                    path: QPainterPath,
-                    src_data: np.ndarray,
-                    render_data: np.ndarray,
-                    reset: bool,
-
-                ) -> None:
-                    # default line draw last call
-                    with graphics.reset_cache():
-                        x = render_data['index']
-                        y = render_data[array_key]
-                        x_last = x[-1]
-                        y_last = y[-1]
-
-                        # draw the "current" step graphic segment so it
-                        # lines up with the "middle" of the current
-                        # (OHLC) sample.
-                        graphics._last_line = QLineF(
-                            x[-2], y[-2],
-                            x_last, y_last
-                        )
-
-                draw_last_line(graphics, path, src_array, data, reset)
-
-            else:
-
-                def draw_last_step(
-                    graphics: pg.GraphicsObject,
-                    path: QPainterPath,
-                    src_data: np.ndarray,
-                    render_data: np.ndarray,
-                    reset: bool,
-
-                ) -> None:
-                    w = 0.5
-                    # TODO: remove this and instead place all step curve
-                    # updating into pre-path data render callbacks.
-                    # full input data
-                    x = src_array['index']
-                    y = src_array[array_key]
-                    x_last = x[-1]
-                    y_last = y[-1]
-
-                    # lol, commenting this makes step curves
-                    # all "black" for me :eyeroll:..
-                    graphics._last_line = QLineF(
-                        x_last - w, 0,
-                        x_last + w, 0,
-                    )
-                    graphics._last_step_rect = QRectF(
-                        x_last - w, 0,
-                        x_last + w, y_last,
-                    )
-
-                draw_last_step(graphics, path, src_array, data, reset)
-
-            # TODO: does this actuallly help us in any way (prolly should
-            # look at the source / ask ogi). I think it avoid artifacts on
-            # wheel-scroll downsampling curve updates?
-            graphics.update()
-            profiler('.prepareGeometryChange()')
-
-        elif bars and draw_last:
-            draw_last(graphics, path, src_array, data, reset)
-            graphics.update()
-            profiler('.update()')
+        # TODO: does this actuallly help us in any way (prolly should
+        # look at the source / ask ogi). I think it avoid artifacts on
+        # wheel-scroll downsampling curve updates?
+        graphics.update()
+        profiler('.update()')
 
         return graphics
 

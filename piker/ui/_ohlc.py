@@ -27,6 +27,7 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QLineF, QPointF
+from PyQt5.QtGui import QPainterPath
 
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._style import hcolor
@@ -85,8 +86,6 @@ class BarItems(pg.GraphicsObject):
     "Price range" bars graphics rendered from a OHLC sampled sequence.
 
     '''
-    sigPlotChanged = QtCore.pyqtSignal(object)
-
     def __init__(
         self,
         linked: LinkedSplits,
@@ -107,7 +106,7 @@ class BarItems(pg.GraphicsObject):
         self._name = name
 
         self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
-        self.path = QtGui.QPainterPath()
+        self.path = QPainterPath()
         self._last_bar_lines: Optional[tuple[QLineF, ...]] = None
 
     def x_uppx(self) -> int:
@@ -192,3 +191,48 @@ class BarItems(pg.GraphicsObject):
         p.setPen(self.bars_pen)
         p.drawPath(self.path)
         profiler(f'draw history path: {self.path.capacity()}')
+
+    def draw_last_datum(
+        self,
+        path: QPainterPath,
+        src_data: np.ndarray,
+        render_data: np.ndarray,
+        reset: bool,
+        array_key: str,
+
+    ) -> None:
+        last = src_data[-1]
+
+        # generate new lines objects for updatable "current bar"
+        self._last_bar_lines = bar_from_ohlc_row(last)
+
+        # last bar update
+        i, o, h, l, last, v = last[
+            ['index', 'open', 'high', 'low', 'close', 'volume']
+        ]
+        # assert i == graphics.start_index - 1
+        # assert i == last_index
+        body, larm, rarm = self._last_bar_lines
+
+        # XXX: is there a faster way to modify this?
+        rarm.setLine(rarm.x1(), last, rarm.x2(), last)
+
+        # writer is responsible for changing open on "first" volume of bar
+        larm.setLine(larm.x1(), o, larm.x2(), o)
+
+        if l != h:  # noqa
+
+            if body is None:
+                body = self._last_bar_lines[0] = QLineF(i, l, i, h)
+            else:
+                # update body
+                body.setLine(i, l, i, h)
+
+            # XXX: pretty sure this is causing an issue where the
+            # bar has a large upward move right before the next
+            # sample and the body is getting set to None since the
+            # next bar is flat but the shm array index update wasn't
+            # read by the time this code runs. Iow we're doing this
+            # removal of the body for a bar index that is now out of
+            # date / from some previous sample. It's weird though
+            # because i've seen it do this to bars i - 3 back?

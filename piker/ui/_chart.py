@@ -50,7 +50,10 @@ from ._cursor import (
 from ..data._sharedmem import ShmArray
 from ._l1 import L1Labels
 from ._ohlc import BarItems
-from ._curve import Curve
+from ._curve import (
+    Curve,
+    StepCurve,
+)
 from ._style import (
     hcolor,
     CHART_MARGINS,
@@ -1051,6 +1054,7 @@ class ChartPlotWidget(pg.PlotWidget):
         color: Optional[str] = None,
         add_label: bool = True,
         pi: Optional[pg.PlotItem] = None,
+        step_mode: bool = False,
 
         **pdi_kwargs,
 
@@ -1067,28 +1071,17 @@ class ChartPlotWidget(pg.PlotWidget):
 
         data_key = array_key or name
 
-        # yah, we wrote our own B)
-        data = shm.array
-        curve = Curve(
-            # antialias=True,
+        curve_type = {
+            None: Curve,
+            'step': StepCurve,
+            # TODO:
+            # 'bars': BarsItems
+        }['step' if step_mode else None]
+
+        curve = curve_type(
             name=name,
-
-            # XXX: pretty sure this is just more overhead
-            # on data reads and makes graphics rendering no faster
-            # clipToView=True,
-
             **pdi_kwargs,
         )
-
-        # XXX: see explanation for different caching modes:
-        # https://stackoverflow.com/a/39410081
-        # seems to only be useful if we don't re-generate the entire
-        # QPainterPath every time
-        # curve.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
-
-        # don't ever use this - it's a colossal nightmare of artefacts
-        # and is disastrous for performance.
-        # curve.setCacheMode(QtWidgets.QGraphicsItem.ItemCoordinateCache)
 
         pi = pi or self.plotItem
 

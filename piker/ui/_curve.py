@@ -19,20 +19,24 @@ Fast, smooth, sexy curves.
 
 """
 from contextlib import contextmanager as cm
-from typing import Optional
+from typing import Optional, Callable
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt5 import QtGui, QtWidgets
+from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QGraphicsItem
 from PyQt5.QtCore import (
     Qt,
     QLineF,
     QSizeF,
     QRectF,
+    # QRect,
     QPointF,
 )
-
+from PyQt5.QtGui import (
+    QPainter,
+    QPainterPath,
+)
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._style import hcolor
 # from ._compression import (
@@ -59,10 +63,12 @@ class Curve(pg.GraphicsObject):
     ``pyqtgraph.PlotCurveItem`` built for highly customizable real-time
     updates.
 
-    This type is a much stripped down version of a ``pyqtgraph`` style "graphics object" in
-    the sense that the internal lower level graphics which are drawn in the ``.paint()`` method
-    are actually rendered outside of this class entirely and instead are assigned as state
-    (instance vars) here and then drawn during a Qt graphics cycle.
+    This type is a much stripped down version of a ``pyqtgraph`` style
+    "graphics object" in the sense that the internal lower level
+    graphics which are drawn in the ``.paint()`` method are actually
+    rendered outside of this class entirely and instead are assigned as
+    state (instance vars) here and then drawn during a Qt graphics
+    cycle.
 
     The main motivation for this more modular, composed design is that
     lower level graphics data can be rendered in different threads and
@@ -72,13 +78,20 @@ class Curve(pg.GraphicsObject):
     level path generation and incremental update. The main differences in
     the path generation code include:
 
-    - avoiding regeneration of the entire historical path where possible and instead
-      only updating the "new" segment(s) via a ``numpy`` array diff calc.
+    - avoiding regeneration of the entire historical path where possible
+      and instead only updating the "new" segment(s) via a ``numpy``
+      array diff calc.
     - here, the "last" graphics datum-segment is drawn independently
       such that near-term (high frequency) discrete-time-sampled style
       updates don't trigger a full path redraw.
 
     '''
+
+    # sub-type customization methods
+    sub_br: Optional[Callable] = None
+    sub_paint: Optional[Callable] = None
+    declare_paintables: Optional[Callable] = None
+
     def __init__(
         self,
         *args,
@@ -94,19 +107,20 @@ class Curve(pg.GraphicsObject):
 
     ) -> None:
 
+        self._name = name
+
         # brutaaalll, see comments within..
         self.yData = None
         self.xData = None
-        self._last_cap: int = 0
 
-        self._name = name
-        self.path: Optional[QtGui.QPainterPath] = None
+        # self._last_cap: int = 0
+        self.path: Optional[QPainterPath] = None
 
         # additional path used for appends which tries to avoid
         # triggering an update/redraw of the presumably larger
         # historical ``.path`` above.
         self.use_fpath = use_fpath
-        self.fast_path: Optional[QtGui.QPainterPath] = None
+        self.fast_path: Optional[QPainterPath] = None
 
         # TODO: we can probably just dispense with the parent since
         # we're basically only using the pen setting now...
@@ -125,12 +139,12 @@ class Curve(pg.GraphicsObject):
         # self.last_step_pen = pg.mkPen(hcolor(color), width=2)
         self.last_step_pen = pg.mkPen(pen, width=2)
 
-        self._last_line: Optional[QLineF] = None
-        self._last_step_rect: Optional[QRectF] = None
+        # self._last_line: Optional[QLineF] = None
+        self._last_line = QLineF()
         self._last_w: float = 1
 
         # flat-top style histogram-like discrete curve
-        self._step_mode: bool = step_mode
+        # self._step_mode: bool = step_mode
 
         # self._fill = True
         self._brush = pg.functions.mkBrush(hcolor(fill_color or color))
@@ -147,6 +161,21 @@ class Curve(pg.GraphicsObject):
         # have a weird artifact where it won't be fully drawn to its
         # endpoint (something we saw on trade rate curves)
         self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+
+        # XXX: see explanation for different caching modes:
+        # https://stackoverflow.com/a/39410081
+        # seems to only be useful if we don't re-generate the entire
+        # QPainterPath every time
+        # curve.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
+
+        # don't ever use this - it's a colossal nightmare of artefacts
+        # and is disastrous for performance.
+        # curve.setCacheMode(QtWidgets.QGraphicsItem.ItemCoordinateCache)
+
+        # allow sub-type customization
+        declare = self.declare_paintables
+        if declare:
+            declare()
 
     # TODO: probably stick this in a new parent
     # type which will contain our own version of
@@ -215,7 +244,7 @@ class Curve(pg.GraphicsObject):
         Compute and then cache our rect.
         '''
         if self.path is None:
-            return QtGui.QPainterPath().boundingRect()
+            return QPainterPath().boundingRect()
         else:
             # dynamically override this method after initial
             # path is created to avoid requiring the above None check
@@ -227,14 +256,15 @@ class Curve(pg.GraphicsObject):
         Post init ``.boundingRect()```.
 
         '''
-        hb = self.path.controlPointRect()
         # hb = self.path.boundingRect()
+        hb = self.path.controlPointRect()
         hb_size = hb.size()
 
         fp = self.fast_path
         if fp:
             fhb = fp.controlPointRect()
             hb_size = fhb.size() + hb_size
+
         # print(f'hb_size: {hb_size}')
 
         # if self._last_step_rect:
@@ -255,7 +285,13 @@ class Curve(pg.GraphicsObject):
         w = hb_size.width()
         h = hb_size.height()
 
-        if not self._last_step_rect:
+        sbr = self.sub_br
+        if sbr:
+            w, h = self.sub_br(w, h)
+        else:
+            # assume plain line graphic and use
+            # default unit step in each direction.
+
             # only on a plane line do we include
             # and extra index step's worth of width
             # since in the step case the end of the curve
@@ -289,7 +325,7 @@ class Curve(pg.GraphicsObject):
 
     def paint(
         self,
-        p: QtGui.QPainter,
+        p: QPainter,
         opt: QtWidgets.QStyleOptionGraphicsItem,
         w: QtWidgets.QWidget
 
@@ -301,25 +337,16 @@ class Curve(pg.GraphicsObject):
             ms_threshold=ms_slower_then,
         )
 
-        if (
-            self._step_mode
-            and self._last_step_rect
-        ):
-            brush = self._brush
+        sub_paint = self.sub_paint
+        if sub_paint:
+            sub_paint(p, profiler)
 
-            # p.drawLines(*tuple(filter(bool, self._last_step_lines)))
-            # p.drawRect(self._last_step_rect)
-            p.fillRect(self._last_step_rect, brush)
-            profiler('.fillRect()')
-
-        if self._last_line:
-            p.setPen(self.last_step_pen)
-            p.drawLine(self._last_line)
-            profiler('.drawLine()')
-            p.setPen(self._pen)
+        p.setPen(self.last_step_pen)
+        p.drawLine(self._last_line)
+        profiler('.drawLine()')
+        p.setPen(self._pen)
 
         path = self.path
-
         # cap = path.capacity()
         # if cap != self._last_cap:
         #     print(f'NEW CAPACITY: {self._last_cap} -> {cap}')
@@ -341,3 +368,116 @@ class Curve(pg.GraphicsObject):
         # if self._fill:
         #     brush = self.opts['brush']
         #     p.fillPath(self.path, brush)
+
+    def draw_last_datum(
+        self,
+        path: QPainterPath,
+        src_data: np.ndarray,
+        render_data: np.ndarray,
+        reset: bool,
+        array_key: str,
+
+    ) -> None:
+        # default line draw last call
+        with self.reset_cache():
+            x = render_data['index']
+            y = render_data[array_key]
+
+            x_last = x[-1]
+            y_last = y[-1]
+
+            # draw the "current" step graphic segment so it
+            # lines up with the "middle" of the current
+            # (OHLC) sample.
+            self._last_line = QLineF(
+                x[-2], y[-2],
+                x_last, y_last
+            )
+
+
+# TODO: this should probably be a "downsampled" curve type
+# that draws a bar-style (but for the px column) last graphics
+# element such that the current datum in view can be shown
+# (via it's max / min) even when highly zoomed out.
+class FlattenedOHLC(Curve):
+
+    def draw_last_datum(
+        self,
+        path: QPainterPath,
+        src_data: np.ndarray,
+        render_data: np.ndarray,
+        reset: bool,
+        array_key: str,
+
+    ) -> None:
+        lasts = src_data[-2:]
+        x = lasts['index']
+        y = lasts['close']
+
+        # draw the "current" step graphic segment so it
+        # lines up with the "middle" of the current
+        # (OHLC) sample.
+        self._last_line = QLineF(
+            x[-2], y[-2],
+            x[-1], y[-1]
+        )
+
+
+class StepCurve(Curve):
+
+    def declare_paintables(
+        self,
+    ) -> None:
+        self._last_step_rect = QRectF()
+
+    def draw_last_datum(
+        self,
+        path: QPainterPath,
+        src_data: np.ndarray,
+        render_data: np.ndarray,
+        reset: bool,
+        array_key: str,
+
+        w: float = 0.5,
+
+    ) -> None:
+
+        # TODO: remove this and instead place all step curve
+        # updating into pre-path data render callbacks.
+        # full input data
+        x = src_data['index']
+        y = src_data[array_key]
+
+        x_last = x[-1]
+        y_last = y[-1]
+
+        # lol, commenting this makes step curves
+        # all "black" for me :eyeroll:..
+        self._last_line = QLineF(
+            x_last - w, 0,
+            x_last + w, 0,
+        )
+        self._last_step_rect = QRectF(
+            x_last - w, 0,
+            x_last + w, y_last,
+        )
+
+    def sub_paint(
+        self,
+        p: QPainter,
+        profiler: pg.debug.Profiler,
+
+    ) -> None:
+        # p.drawLines(*tuple(filter(bool, self._last_step_lines)))
+        # p.drawRect(self._last_step_rect)
+        p.fillRect(self._last_step_rect, self._brush)
+        profiler('.fillRect()')
+
+    def sub_br(
+        self,
+        path_w: float,
+        path_h: float,
+
+    ) -> (float, float):
+        # passthrough
+        return path_w, path_h
