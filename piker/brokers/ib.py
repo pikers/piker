@@ -2584,8 +2584,8 @@ async def data_reset_hack(
 
         async with asyncvnc.connect(
             'localhost',
-            port=5900,
-            password='ibcansmbz',
+            port=3003,
+            # password='ibcansmbz',
         ) as client:
 
             # move to middle of screen
