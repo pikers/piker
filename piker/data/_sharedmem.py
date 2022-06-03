@@ -20,6 +20,7 @@ NumPy compatible shared memory buffers for real-time IPC streaming.
 """
 from __future__ import annotations
 from sys import byteorder
+import time
 from typing import Optional
 from multiprocessing.shared_memory import SharedMemory, _USE_POSIX
 
@@ -546,7 +547,21 @@ def attach_shm_array(
     # https://stackoverflow.com/a/11103289
 
     # attach to array buffer and view as per dtype
-    shm = SharedMemory(name=key)
+    _err: Optional[Exception] = None
+    for _ in range(3):
+        try:
+            shm = SharedMemory(
+                name=key,
+                create=False,
+            )
+            break
+        except OSError as oserr:
+            _err = oserr
+            time.sleep(0.1)
+    else:
+        if _err:
+            raise _err
+
     shmarr = np.ndarray(
         (size,),
         dtype=token.dtype,
