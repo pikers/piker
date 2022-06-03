@@ -200,16 +200,26 @@ class BarItems(pg.GraphicsObject):
         reset: bool,
         array_key: str,
 
+        fields: list[str] = [
+            'index',
+            'open',
+            'high',
+            'low',
+            'close',
+        ],
+
     ) -> None:
-        last = src_data[-1]
+
+        # relevant fields
+        ohlc = src_data[fields]
+        last_row = ohlc[-1:]
+
+        # individual values
+        last_row = i, o, h, l, last = ohlc[-1]
 
         # generate new lines objects for updatable "current bar"
-        self._last_bar_lines = bar_from_ohlc_row(last)
+        self._last_bar_lines = bar_from_ohlc_row(last_row)
 
-        # last bar update
-        i, o, h, l, last, v = last[
-            ['index', 'open', 'high', 'low', 'close', 'volume']
-        ]
         # assert i == graphics.start_index - 1
         # assert i == last_index
         body, larm, rarm = self._last_bar_lines
@@ -236,3 +246,5 @@ class BarItems(pg.GraphicsObject):
             # removal of the body for a bar index that is now out of
             # date / from some previous sample. It's weird though
             # because i've seen it do this to bars i - 3 back?
+
+        return ohlc['index'], ohlc['close']

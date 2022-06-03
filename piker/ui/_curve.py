@@ -383,16 +383,15 @@ class Curve(pg.GraphicsObject):
             x = render_data['index']
             y = render_data[array_key]
 
-            x_last = x[-1]
-            y_last = y[-1]
-
             # draw the "current" step graphic segment so it
             # lines up with the "middle" of the current
             # (OHLC) sample.
             self._last_line = QLineF(
                 x[-2], y[-2],
-                x_last, y_last
+                x[-1], y[-1],
             )
+
+        return x, y
 
 
 # TODO: this should probably be a "downsampled" curve type
@@ -421,6 +420,7 @@ class FlattenedOHLC(Curve):
             x[-2], y[-2],
             x[-1], y[-1]
         )
+        return x, y
 
 
 class StepCurve(Curve):
@@ -461,6 +461,7 @@ class StepCurve(Curve):
             x_last - w, 0,
             x_last + w, y_last,
         )
+        return x, y
 
     def sub_paint(
         self,
