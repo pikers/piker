@@ -654,6 +654,19 @@ def graphics_update_cycle(
 
         # run synchronous update on all linked flows
         for curve_name, flow in chart._flows.items():
+
+            if (
+                not (do_rt_update or do_append)
+                and liv
+                # even if we're downsampled bigly
+                # draw the last datum in the final
+                # px column to give the user the mx/mn
+                # range of that set.
+            ):
+                # always update the last datum-element
+                # graphic for all flows
+                flow.draw_last(array_key=curve_name)
+
             # TODO: should the "main" (aka source) flow be special?
             if curve_name == chart.data_key:
                 continue

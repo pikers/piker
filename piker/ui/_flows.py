@@ -34,6 +34,7 @@ import numpy as np
 from numpy.lib import recfunctions as rfn
 import pyqtgraph as pg
 from PyQt5.QtGui import QPainterPath
+from PyQt5.QtCore import QLineF
 
 from ..data._sharedmem import (
     ShmArray,
@@ -335,12 +336,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
     graphics: Curve
     _shm: ShmArray
 
-    draw_last: Optional[
-        Callable[
-            [np.ndarray, str],
-            tuple[np.ndarray]
-        ]
-    ] = None
     is_ohlc: bool = False
     render: bool = True  # toggle for display loop
 
@@ -594,7 +589,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
             # TODO: append logic inside ``.render()`` isn't
             # correct yet for step curves.. remove this to see it.
             should_redraw = True
-            # draw_last = True
             slice_to_head = -2
 
         # downsampling incremental state checking
@@ -690,7 +684,46 @@ class Flow(msgspec.Struct):  # , frozen=True):
         graphics.update()
         profiler('.update()')
 
+        # track downsampled state
+        self._in_ds = r._in_ds
+
         return graphics
+
+    def draw_last(
+        self,
+        array_key: Optional[str] = None,
+
+    ) -> None:
+
+        # shm read and slice to view
+        (
+            xfirst, xlast, src_array,
+            ivl, ivr, in_view,
+        ) = self.read()
+
+        g = self.graphics
+        array_key = array_key or self.name
+        x, y = g.draw_last_datum(
+            g.path,
+            src_array,
+            src_array,
+            False,  # never reset path
+            array_key,
+        )
+
+        if self._in_ds:
+            # we only care about the last pixel's
+            # worth of data since that's all the screen
+            # can represent on the last column where
+            # the most recent datum is being drawn.
+            uppx = self._last_uppx
+            y = y[-uppx:]
+            ymn, ymx = y.min(), y.max()
+            # print(f'drawing uppx={uppx} mxmn line: {ymn}, {ymx}')
+            g._last_line = QLineF(
+                x[-2], ymn,
+                x[-1], ymx,
+            )
 
 
 def by_index_and_key(
