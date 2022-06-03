@@ -9,6 +9,7 @@ x11vnc \
     -logappend /var/log/x11vnc.log \
     -bg \
     -noipv6 \
+    -autoport 3003 \
     # can't use this because of ``asyncvnc`` issue:
     # https://github.com/barneygale/asyncvnc/issues/1
     # -passwd "$VNC_SERVER_PASSWORD"
