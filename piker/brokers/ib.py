@@ -780,23 +780,29 @@ class Client:
 
         ) -> None:
 
-            log.error(errorString)
             reason = errorString
 
             if reqId == -1:
                 # it's a general event?
                 key = 'event'
+                log.info(errorString)
+
             else:
                 key = 'error'
+                log.error(errorString)
 
             try:
                 to_trio.send_nowait((
                     key,
 
                     # error "object"
-                    {'reqid': reqId,
-                     'reason': reason,
-                     'contract': contract}
+                    {
+                        'type': key,
+                        'reqid': reqId,
+                        'reason': reason,
+                        'error_code': errorCode,
+                        'contract': contract,
+                    }
                 ))
             except trio.BrokenResourceError:
                 # XXX: eventkit's ``Event.emit()`` for whatever redic
@@ -2248,6 +2254,7 @@ async def trades_dialogue(
                     recv_trade_updates,
                     client=client,
                 ) as (first, trade_event_stream):
+
                     task_status.started(trade_event_stream)
                     await trio.sleep_forever()
 
