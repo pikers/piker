@@ -287,7 +287,6 @@ class MainWindow(QtGui.QMainWindow):
             app = QtGui.QApplication.instance()
             geo = self.current_screen().geometry()
             h, w = geo.height(), geo.width()
-            self.setMaximumSize(w, h)
             # use approx 1/3 of the area of the screen by default
             self._size = round(w * .666), round(h * .666)
 
