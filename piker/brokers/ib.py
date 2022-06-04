@@ -1601,17 +1601,17 @@ async def get_bars(
 
                 # try to wait on the reset event(s) to arrive, a timeout
                 # will trigger a retry up to 6 times (for now).
-                tries: int = 6
-                reset_type: str = 'data'
-                resends: int = 0
+                tries: int = 3
+                timeout: float = 10
 
+                # try 3 time with a data reset then fail over to
+                # a connection reset.
                 for i in range(1, tries):
 
-                    log.warning(f'Sending reset request {reset_type}')
-                    await data_reset_hack(reset_type=reset_type)
-                    reset_type = 'data'
+                    log.warning('Sending DATA RESET request')
+                    await data_reset_hack(reset_type='data')
 
-                    with trio.move_on_after(3) as cs:
+                    with trio.move_on_after(timeout) as cs:
                         for name, ev in [
                             # TODO: not sure if waiting on other events
                             # is all that useful here or not. in theory
@@ -1630,15 +1630,27 @@ async def get_bars(
                             f'Data reset {name} timeout, retrying {i}.'
                         )
 
-                        if resends > 1:
-                            # on each 3rd timeout, do a full connection
-                            # reset instead.
-                            reset_type = 'connection'
-                            resends = 0
-                        else:
-                            resends += 1
-
                         continue
+                else:
+
+                    log.warning('Sending CONNECTION RESET')
+                    await data_reset_hack(reset_type='connection')
+
+                    with trio.move_on_after(timeout) as cs:
+                        for name, ev in [
+                            # TODO: not sure if waiting on other events
+                            # is all that useful here or not. in theory
+                            # you could wait on one of the ones above
+                            # first to verify the reset request was
+                            # sent?
+                            ('history', hist_ev),
+                        ]:
+                            await ev.wait()
+                            log.info(f"{name} DATA RESET")
+
+                    if cs.cancelled_caught:
+                        fails += 1
+                        log.warning('Data CONNECTION RESET timeout!?')
 
             else:
                 raise
@@ -2591,8 +2603,8 @@ async def data_reset_hack(
             # move to middle of screen
             # 640x1800
             client.mouse.move(
-                x=100,
-                y=100,
+                x=500,
+                y=500,
             )
             client.mouse.click()
             client.keyboard.press('Ctrl', 'Alt', key)  # keys are stacked
