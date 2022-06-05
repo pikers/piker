@@ -883,14 +883,7 @@ async def recv_trade_updates(
     # let the engine run and stream
     await client.ib.disconnectedEvent
 
-
-# default config ports
-_tws_port: int = 7497
-_gw_port: int = 4002
-_try_ports = [
-    _gw_port,
-    _tws_port
-]
+# per-actor API ep caching
 _client_cache: dict[tuple[str, int], Client] = {}
 _scan_ignore: set[tuple[str, int]] = set()
 
@@ -951,22 +944,20 @@ async def load_aio_clients(
         raise ValueError(
             'Specify only one of `host` or `hosts` in `brokers.toml` config')
 
-    ports = conf.get(
+    try_ports = conf.get(
         'ports',
 
         # default order is to check for gw first
-        {
-            'gw': 4002,
-            'tws': 7497,
-        }
+        [4002, 7497,]
     )
-    order = ports.pop('order', None)
-    if order:
-        log.warning('`ports.order` section in `brokers.toml` is deprecated')
+    if isinstance(try_ports, dict):
+        log.warning(
+            '`ib.ports` in `brokers.toml` should be a `list` NOT a `dict`'
+        )
+        try_ports = list(ports.values())
 
     _err = None
     accounts_def = config.load_accounts(['ib'])
-    try_ports = list(ports.values())
     ports = try_ports if port is None else [port]
     combos = list(itertools.product(hosts, ports))
     accounts_found: dict[str, Client] = {}
