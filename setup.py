@@ -62,6 +62,7 @@ setup(
         # brokers
         'asks==2.4.8',
         'ib_insync',
+        'cryptofeed',
 
         # numerics
         'pendulum', # easier datetimes
