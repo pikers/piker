@@ -1601,7 +1601,7 @@ async def get_bars(
 
                 # try to wait on the reset event(s) to arrive, a timeout
                 # will trigger a retry up to 6 times (for now).
-                tries: int = 3
+                tries: int = 2
                 timeout: float = 10
 
                 # try 3 time with a data reset then fail over to
