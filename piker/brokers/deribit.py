@@ -109,9 +109,12 @@ class KLinesResult(BaseModel):
     volume: List[float]
 
 class KLines(BaseModel):
-    id: int
     jsonrpc: str = '2.0'
-    result: KLinesResult 
+    result: KLinesResult
+    usIn: int 
+    usOut: int 
+    usDiff: int 
+    testnet: bool
 
 
 # convert datetime obj timestamp to unixtime in milliseconds
@@ -200,11 +203,13 @@ class Client:
 
     async def bars(
         self,
-        instrument: str,
+        symbol: str,
         start_dt: Optional[datetime] = None,
         end_dt: Optional[datetime] = None,
+        limit: int = 1000,
         as_np: bool = True,
     ) -> dict:
+        instrument = symbol
 
         if end_dt is None:
             end_dt = pendulum.now('UTC')

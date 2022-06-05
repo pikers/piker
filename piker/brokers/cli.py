@@ -40,23 +40,31 @@ _watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
 
 
 @cli.command()
-@click.option('--loglevel', '-l', default='info', help='Logging level')
 @click.argument('broker', nargs=1, required=True)
 @click.pass_obj
-def brokercheck(config, loglevel, broker):
+def brokercheck(config, broker):
     '''
     Test broker apis for completeness.
 
     '''
-    log = get_console_log(loglevel)
+    OK = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+
+    def print_ok(s: str, **kwargs):
+        print(OK + s + ENDC, **kwargs)
+
+    def print_error(s: str, **kwargs):
+        print(FAIL + s + ENDC, **kwargs)
 
     async def run_method(client, meth_name: str, **kwargs):
-        log.info(f'checking client for method \'{meth_name}\'...')
+        print(f'checking client for method \'{meth_name}\'...', end='', flush=True)
         method = getattr(client, meth_name, None)
         assert method
-        log.info('found!, running...')
+        print_ok('found!, running...', end='', flush=True)
         result = await method(**kwargs)
-        log.info(f'done! result: {type(result)}')
+        print_ok(f'done! result: {type(result)}')
         return result
 
     async def run_test(broker_name: str):
@@ -65,13 +73,13 @@ def brokercheck(config, loglevel, broker):
         passed = 0
         failed = 0
         
-        log.info(f'getting client...')
+        print(f'getting client...', end='', flush=True)
         if not hasattr(brokermod, 'get_client'):
-            log.error('fail! no \'get_client\' context manager found.')
+            print_error('fail! no \'get_client\' context manager found.')
             return
 
         async with brokermod.get_client() as client:
-            log.info(f'done! inside client context.')
+            print_ok(f'done! inside client context.')
 
             # check for methods present on brokermod
             method_list = [
@@ -83,13 +91,14 @@ def brokercheck(config, loglevel, broker):
             ]
 
             for method in method_list:
-                log.info(
-                    f'checking brokermod for method \'{method}\'...')
+                print(
+                    f'checking brokermod for method \'{method}\'...',
+                    end='', flush=True)
                 if not hasattr(brokermod, method):
-                    log.error(f'fail! method \'{method}\' not found.')
+                    print_error(f'fail! method \'{method}\' not found.')
                     failed += 1
                 else:
-                    log.info('done!')
+                    print_ok('done!')
                     passed += 1
 
                 total += 1
@@ -119,12 +128,12 @@ def brokercheck(config, loglevel, broker):
                     passed += 1
 
                 except AssertionError:
-                    log.error(f'fail! method \'{method_name}\' not found.')
+                    print_error(f'fail! method \'{method_name}\' not found.')
                     failed += 1
 
                 total += 1
 
-            log.info(f'total: {total}, passed: {passed}, failed: {failed}')
+            print(f'total: {total}, passed: {passed}, failed: {failed}')
 
     trio.run(run_test, broker)
 
