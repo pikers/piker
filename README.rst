@@ -138,7 +138,7 @@ provider support
 ****************
 for live data feeds the in-progress set of supported brokers is:
 
-- IB_ via ``ib_insync``
+- IB_ via ``ib_insync``, also see our `container docs`_
 - binance_ and kraken_ for crypto over their public websocket API
 - questrade_ (ish) which comes with effectively free L1
 
@@ -150,6 +150,7 @@ coming soon...
 if you want your broker supported and they have an API let us know.
 
 .. _IB: https://interactivebrokers.github.io/tws-api/index.html
+.. _container docs: https://github.com/pikers/piker/tree/master/dockering/ib
 .. _questrade: https://www.questrade.com/api/documentation
 .. _kraken: https://www.kraken.com/features/api#public-market-data
 .. _binance: https://github.com/pikers/piker/pull/182
