@@ -40,6 +40,97 @@ _watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
 
 
 @cli.command()
+@click.option('--loglevel', '-l', default='info', help='Logging level')
+@click.argument('broker', nargs=1, required=True)
+@click.pass_obj
+def brokercheck(config, loglevel, broker):
+    '''
+    Test broker apis for completeness.
+
+    '''
+    log = get_console_log(loglevel)
+
+    async def run_method(client, meth_name: str, **kwargs):
+        log.info(f'checking client for method \'{meth_name}\'...')
+        method = getattr(client, meth_name, None)
+        assert method
+        log.info('found!, running...')
+        result = await method(**kwargs)
+        log.info(f'done! result: {type(result)}')
+        return result
+
+    async def run_test(broker_name: str):
+        brokermod = get_brokermod(broker_name)
+        total = 0
+        passed = 0
+        failed = 0
+        
+        log.info(f'getting client...')
+        if not hasattr(brokermod, 'get_client'):
+            log.error('fail! no \'get_client\' context manager found.')
+            return
+
+        async with brokermod.get_client() as client:
+            log.info(f'done! inside client context.')
+
+            # check for methods present on brokermod
+            method_list = [
+                'stream_messages',
+                'open_history_client',
+                'backfill_bars',
+                'stream_quotes',
+                'open_symbol_search'
+            ]
+
+            for method in method_list:
+                log.info(
+                    f'checking brokermod for method \'{method}\'...')
+                if not hasattr(brokermod, method):
+                    log.error(f'fail! method \'{method}\' not found.')
+                    failed += 1
+                else:
+                    log.info('done!')
+                    passed += 1
+
+                total += 1
+
+            # check for methods present con brokermod.Client and their
+            # results
+
+            syms = await run_method(client, 'symbol_info')
+            total += 1
+            
+            if len(syms) == 0:
+                raise BaseException('Empty Symbol list?')
+
+            passed += 1
+
+            first_sym = tuple(syms.keys())[0]
+
+            method_list = [
+                ('cache_symbols', {}),
+                ('search_symbols', {'pattern': first_sym[:-1]}),
+                ('bars', {'symbol': first_sym})
+            ]
+            
+            for method_name, method_kwargs in method_list:
+                try:
+                    await run_method(client, method_name, **method_kwargs)
+                    passed += 1
+
+                except AssertionError:
+                    log.error(f'fail! method \'{method_name}\' not found.')
+                    failed += 1
+
+                total += 1
+
+            log.info(f'total: {total}, passed: {passed}, failed: {failed}')
+
+    trio.run(run_test, broker)
+
+
+
+@cli.command()
 @click.option('--keys', '-k', multiple=True,
               help='Return results only for these keys')
 @click.argument('meth', nargs=1)
@@ -192,6 +283,8 @@ def contracts(ctx, loglevel, broker, symbol, ids):
     '''
     brokermod = get_brokermod(broker)
     get_console_log(loglevel)
+
+
 
     contracts = trio.run(partial(core.contracts, brokermod, symbol))
     if not ids:
