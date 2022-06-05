@@ -1,5 +1,6 @@
 #!/bin/sh
 
+# start VNC server
 x11vnc \
     -ncache_cr \
     -listen localhost \
