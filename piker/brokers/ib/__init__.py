@@ -32,13 +32,13 @@ Sub-modules within break into the core functionalities:
 """
 from .client import (
     get_client,
-    trades_dialogue,
 )
 from .feed import (
     open_history_client,
     open_symbol_search,
     stream_quotes,
 )
+from .broker import trades_dialogue
 
 __all__ = [
     'get_client',
@@ -53,6 +53,7 @@ __all__ = [
 __enable_modules__: list[str] = [
     'client',
     'feed',
+    'broker',
 ]
 
 # passed to ``tractor.ActorNursery.start_actor()``
