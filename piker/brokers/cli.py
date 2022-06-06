@@ -93,11 +93,20 @@ def brokercheck(config, broker):
         #     '_spawn_kwargs',
         #     {},
         # )
+
+        # TODO: eventually avoid this hack for `ib` XD
+        import inspect
+        get_client = brokermod.get_client
+        if 'is_brokercheck' in inspect.signature(get_client).parameters:
+            kwargs = {'is_brokercheck': True}
+        else:
+            kwargs = {}
+
         async with (
             # TODO: in theory we can actually spawn a local `brokerd`
             # and then try to make some basic feed queries?
             # maybe_open_runtime(**extra_tractor_kwargs),
-            brokermod.get_client(is_brokercheck=True) as client,
+            brokermod.get_client(**kwargs) as client,
         ):
             print_ok('done! inside client context.')
 
