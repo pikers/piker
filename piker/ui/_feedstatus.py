@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 # from PyQt5.QtCore import Qt
 
 from ._style import _font, _font_small
-from ..calc import humanize
+# from ..calc import humanize
 from ._label import FormatLabel
 
 if TYPE_CHECKING:
@@ -49,15 +49,21 @@ def mk_feed_label(
     a feed control protocol.
 
     '''
-    msg = """
+    status = feed.status
+    assert status
+
+    msg = dedent("""
         actor: **{actor_name}**\n
         |_ @**{host}:{port}**\n
-        |_ throttle_hz: **{throttle_rate}**\n
-        |_ shm: **{shm}**\n
-        """
+    """)
+
+    for key, val in status.items():
+        if key in ('host', 'port', 'actor_name'):
+            continue
+        msg += f'\n|_ {key}: **{{{key}}}**\n'
 
     feed_label = FormatLabel(
-        fmt_str=dedent(msg),
+        fmt_str=msg,
         # |_ streams: **{symbols}**\n
         font=_font.font,
         font_size=_font_small.px_size,
@@ -72,20 +78,6 @@ def mk_feed_label(
         # feed_label.height()
     )
 
-    # fill in brokerd feed info
-    host, port = feed.portal.channel.raddr
-    if host == '127.0.0.1':
-        host = 'localhost'
-    mpshm = feed.shm._shm
-    shmstr = f'{humanize(mpshm.size)}'
-
-    feed_label.format(
-        actor_name=feed.portal.channel.uid[0],
-        host=host,
-        port=port,
-        # symbols=len(feed.symbols),
-        shm=shmstr,
-        throttle_rate=feed.throttle_rate,
-    )
+    feed_label.format(**feed.status)
 
     return feed_label

@@ -46,6 +46,7 @@ import numpy as np
 
 from ..brokers import get_brokermod
 from .._cacheables import maybe_open_context
+from ..calc import humanize
 from ..log import get_logger, get_console_log
 from .._daemon import (
     maybe_spawn_brokerd,
@@ -1183,10 +1184,10 @@ class Feed:
     shm: ShmArray
     mod: ModuleType
     first_quotes: dict  # symbol names to first quote dicts
-
     _portal: tractor.Portal
-
     stream: trio.abc.ReceiveChannel[dict[str, Any]]
+    status: dict[str, Any]
+
     throttle_rate: Optional[int] = None
 
     _trade_stream: Optional[AsyncIterator[dict[str, Any]]] = None
@@ -1327,8 +1328,23 @@ async def open_feed(
             first_quotes=first_quotes,
             stream=stream,
             _portal=portal,
+            status={},
             throttle_rate=tick_throttle,
         )
+
+        # fill out "status info" that the UI can show
+        host, port = feed.portal.channel.raddr
+        if host == '127.0.0.1':
+            host = 'localhost'
+
+        feed.status.update({
+            'actor_name': feed.portal.channel.uid[0],
+            'host': host,
+            'port': port,
+            'shm': f'{humanize(feed.shm._shm.size)}',
+            'throttle_rate': feed.throttle_rate,
+        })
+        feed.status.update(init_msg.pop('status', {}))
 
         for sym, data in init_msg.items():
             si = data['symbol_info']
