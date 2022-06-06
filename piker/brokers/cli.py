@@ -21,11 +21,15 @@ import os
 from functools import partial
 from operator import attrgetter
 from operator import itemgetter
+from typing import (
+    Any,
+)
 
 import click
 import trio
 import tractor
 
+# from .._daemon import maybe_open_runtime
 from ..cli import cli
 from .. import watchlists as wl
 from ..log import get_console_log, colorize_json, get_logger
@@ -58,44 +62,65 @@ def brokercheck(config, broker):
     def print_error(s: str, **kwargs):
         print(FAIL + s + ENDC, **kwargs)
 
-    async def run_method(client, meth_name: str, **kwargs):
+    async def run_method(
+        client,
+        meth_name: str,
+        **kwargs,
+
+    ) -> Any:
         print(f'checking client for method \'{meth_name}\'...', end='', flush=True)
         method = getattr(client, meth_name, None)
-        assert method
+        assert method, f'.{meth_name} does not exist for {client}!'
         print_ok('found!, running...', end='', flush=True)
         result = await method(**kwargs)
         print_ok(f'done! result: {type(result)}')
         return result
 
     async def run_test(broker_name: str):
+
         brokermod = get_brokermod(broker_name)
         total = 0
         passed = 0
         failed = 0
-        
-        print(f'getting client...', end='', flush=True)
+
+        print('getting client...', end='', flush=True)
         if not hasattr(brokermod, 'get_client'):
             print_error('fail! no \'get_client\' context manager found.')
             return
 
-        async with brokermod.get_client() as client:
-            print_ok(f'done! inside client context.')
+        # extra_tractor_kwargs = getattr(
+        #     brokermod,
+        #     '_spawn_kwargs',
+        #     {},
+        # )
+        async with (
+            # TODO: in theory we can actually spawn a local `brokerd`
+            # and then try to make some basic feed queries?
+            # maybe_open_runtime(**extra_tractor_kwargs),
+            brokermod.get_client(is_brokercheck=True) as client,
+        ):
+            print_ok('done! inside client context.')
 
             # check for methods present on brokermod
             method_list = [
-                'stream_messages',
+                # not required eps i'm pretty sure?
+                # 'backfill_bars',
+                # 'stream_messages',
+
                 'open_history_client',
-                'backfill_bars',
                 'stream_quotes',
-                'open_symbol_search'
+                'open_symbol_search',
+                'trades_dialogue',
             ]
 
             for method in method_list:
                 print(
-                    f'checking brokermod for method \'{method}\'...',
-                    end='', flush=True)
+                    f"checking brokermod for method '{method}'...",
+                    end='',
+                    flush=True,
+                )
                 if not hasattr(brokermod, method):
-                    print_error(f'fail! method \'{method}\' not found.')
+                    print_error(f"fail! method '{method}' not found.")
                     failed += 1
                 else:
                     print_ok('done!')
@@ -103,35 +128,41 @@ def brokercheck(config, broker):
 
                 total += 1
 
-            # check for methods present con brokermod.Client and their
-            # results
+            # check for methods present con brokermod.Client and attempt
+            # to use them and gather output results.
 
-            syms = await run_method(client, 'symbol_info')
-            total += 1
-            
-            if len(syms) == 0:
-                raise BaseException('Empty Symbol list?')
-
-            passed += 1
-
-            first_sym = tuple(syms.keys())[0]
-
-            method_list = [
-                ('cache_symbols', {}),
-                ('search_symbols', {'pattern': first_sym[:-1]}),
-                ('bars', {'symbol': first_sym})
-            ]
-            
-            for method_name, method_kwargs in method_list:
-                try:
-                    await run_method(client, method_name, **method_kwargs)
-                    passed += 1
-
-                except AssertionError:
-                    print_error(f'fail! method \'{method_name}\' not found.')
-                    failed += 1
+            symbol_info = getattr(client, 'symbol_info', None)
+            if symbol_info:
+                syms = await run_method(
+                    client,
+                    'symbol_info',
+                )
 
                 total += 1
+
+                if len(syms) == 0:
+                    raise BaseException('Empty Symbol list?')
+
+                passed += 1
+
+                first_sym = tuple(syms.keys())[0]
+
+                method_list = [
+                    ('cache_symbols', {}),
+                    ('search_symbols', {'pattern': first_sym[:-1]}),
+                    ('bars', {'symbol': first_sym})
+                ]
+
+                for method_name, method_kwargs in method_list:
+                    try:
+                        await run_method(client, method_name, **method_kwargs)
+                        passed += 1
+
+                    except AssertionError:
+                        print_error(f'fail! method \'{method_name}\' not found.')
+                        failed += 1
+
+                    total += 1
 
             print(f'total: {total}, passed: {passed}, failed: {failed}')
 
