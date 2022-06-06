@@ -13,4 +13,4 @@ x11vnc \
     -autoport 3003 \
     # can't use this because of ``asyncvnc`` issue:
     # https://github.com/barneygale/asyncvnc/issues/1
-    # -passwd "$VNC_SERVER_PASSWORD"
+    # -passwd 'ibcansmbz'

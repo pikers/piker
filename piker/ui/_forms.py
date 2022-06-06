@@ -750,12 +750,12 @@ def mk_order_pane_layout(
         parent=parent,
         fields_schema={
             'account': {
-                'label': '**account**:',
+                'label': '**accnt**:',
                 'type': 'select',
                 'default_value': ['paper'],
             },
             'size_unit': {
-                'label': '**allocate**:',
+                'label': '**alloc**:',
                 'type': 'select',
                 'default_value': [
                     '$ size',

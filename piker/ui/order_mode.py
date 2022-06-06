@@ -30,6 +30,7 @@ import uuid
 from pydantic import BaseModel
 import tractor
 import trio
+from PyQt5.QtCore import Qt
 
 from .. import config
 from ..clearing._client import open_ems, OrderBook
@@ -37,6 +38,7 @@ from ..clearing._allocate import (
     mk_allocator,
     Position,
 )
+from ._style import _font
 from ..data._source import Symbol
 from ..data.feed import Feed
 from ..log import get_logger
@@ -46,7 +48,8 @@ from ._position import (
     PositionTracker,
     SettingsPane,
 )
-from ._label import FormatLabel
+from ._forms import FieldsForm
+# from ._label import FormatLabel
 from ._window import MultiStatus
 from ..clearing._messages import Order, BrokerdPosition
 from ._forms import open_form_input_handling
@@ -639,63 +642,21 @@ async def open_order_mode(
                 pp_tracker.hide_info()
 
         # setup order mode sidepane widgets
-        form = chart.sidepane
-        vbox = form.vbox
-
-        from textwrap import dedent
-
-        from PyQt5.QtCore import Qt
-
-        from ._style import _font, _font_small
-        from ..calc import humanize
-
-        feed_label = FormatLabel(
-            fmt_str=dedent("""
-            actor: **{actor_name}**\n
-            |_ @**{host}:{port}**\n
-            |_ throttle_hz: **{throttle_rate}**\n
-            |_ streams: **{symbols}**\n
-            |_ shm: **{shm}**\n
-            """),
-            font=_font.font,
-            font_size=_font_small.px_size,
-            font_color='default_lightest',
-        )
-
-        form.feed_label = feed_label
-
-        # add feed info label to top
-        vbox.insertWidget(
-            0,
-            feed_label,
-            alignment=Qt.AlignBottom,
-        )
-        # vbox.setAlignment(feed_label, Qt.AlignBottom)
-        # vbox.setAlignment(Qt.AlignBottom)
-        _ = chart.height() - (
-            form.height() +
-            form.fill_bar.height()
-            # feed_label.height()
-        )
-        vbox.setSpacing(
+        form: FieldsForm = chart.sidepane
+        form.vbox.setSpacing(
             int((1 + 5/8)*_font.px_size)
         )
 
-        # fill in brokerd feed info
-        host, port = feed.portal.channel.raddr
-        if host == '127.0.0.1':
-            host = 'localhost'
-        mpshm = feed.shm._shm
-        shmstr = f'{humanize(mpshm.size)}'
-        form.feed_label.format(
-            actor_name=feed.portal.channel.uid[0],
-            host=host,
-            port=port,
-            symbols=len(feed.symbols),
-            shm=shmstr,
-            throttle_rate=feed.throttle_rate,
+        from ._feedstatus import mk_feed_label
+
+        feed_label = mk_feed_label(
+            form,
+            feed,
+            chart,
         )
 
+        # XXX: we set this because?
+        form.feed_label = feed_label
         order_pane = SettingsPane(
             form=form,
             # XXX: ugh, so hideous...
@@ -705,6 +666,11 @@ async def open_order_mode(
             limit_label=form.top_label,
         )
         order_pane.set_accounts(list(trackers.keys()))
+
+        form.vbox.addWidget(
+            feed_label,
+            alignment=Qt.AlignBottom,
+        )
 
         # update pp icons
         for name, tracker in trackers.items():
