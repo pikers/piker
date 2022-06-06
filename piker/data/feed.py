@@ -47,7 +47,6 @@ import pendulum
 import numpy as np
 
 from ..brokers import get_brokermod
-from .._cacheables import maybe_open_context
 from ..calc import humanize
 from ..log import get_logger, get_console_log
 from .._daemon import (
