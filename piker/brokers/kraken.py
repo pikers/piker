@@ -21,6 +21,7 @@ Kraken backend.
 from contextlib import asynccontextmanager as acm
 from dataclasses import asdict, field
 from datetime import datetime
+from pprint import pformat
 from typing import Any, Optional, AsyncIterator, Callable, Union
 import time
 
@@ -569,7 +570,10 @@ async def handle_order_requests(
     order: BrokerdOrder
 
     async for request_msg in ems_order_stream:
-        log.info(f'Received order request {request_msg}')
+        log.info(
+            'Received order request:\n'
+            f'{pformat(request_msg)}'
+        )
 
         action = request_msg['action']
 
@@ -628,6 +632,7 @@ async def handle_order_requests(
                     # update the internal pairing of oid to krakens
                     # txid with the new txid that is returned on edit
                     reqid = resp['result']['txid']
+
                 # deliver ack that order has been submitted to broker routing
                 await ems_order_stream.send(
                     BrokerdOrderAck(
@@ -788,7 +793,10 @@ async def trades_dialogue(
         # Get websocket token for authenticated data stream
         # Assert that a token was actually received.
         resp = await client.endpoint('GetWebSocketsToken', {})
+
+        # lol wtf is this..
         assert resp['error'] == []
+
         token = resp['result']['token']
 
         async with (

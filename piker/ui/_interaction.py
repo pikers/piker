@@ -20,7 +20,6 @@ Chart view box primitives
 """
 from __future__ import annotations
 from contextlib import asynccontextmanager
-# import itertools
 import time
 from typing import Optional, Callable
 
@@ -35,10 +34,9 @@ import trio
 
 from ..log import get_logger
 from .._profile import pg_profile_enabled, ms_slower_then
-from ._style import _min_points_to_show
+# from ._style import _min_points_to_show
 from ._editors import SelectRect
 from . import _event
-from ._ohlc import BarItems
 
 
 log = get_logger(__name__)
@@ -486,15 +484,18 @@ class ChartView(ViewBox):
 
         # don't zoom more then the min points setting
         l, lbar, rbar, r = chart.bars_range()
-        vl = r - l
+        # vl = r - l
 
-        if ev.delta() > 0 and vl <= _min_points_to_show:
-            log.debug("Max zoom bruh...")
-            return
+        # if ev.delta() > 0 and vl <= _min_points_to_show:
+        #     log.debug("Max zoom bruh...")
+        #     return
 
-        if ev.delta() < 0 and vl >= len(chart._arrays[chart.name]) + 666:
-            log.debug("Min zoom bruh...")
-            return
+        # if (
+        #     ev.delta() < 0
+        #     and vl >= len(chart._flows[chart.name].shm.array) + 666
+        # ):
+        #     log.debug("Min zoom bruh...")
+        #     return
 
         # actual scaling factor
         s = 1.015 ** (ev.delta() * -1 / 20)  # self.state['wheelScaleFactor'])
@@ -568,11 +569,23 @@ class ChartView(ViewBox):
 
             self._resetTarget()
             self.scaleBy(s, focal)
+
+            # XXX: the order of the next 2 lines i'm pretty sure
+            # matters, we want the resize to trigger before the graphics
+            # update, but i gotta feelin that because this one is signal
+            # based (and thus not necessarily sync invoked right away)
+            # that calling the resize method manually might work better.
             self.sigRangeChangedManually.emit(mask)
 
-            # self._ic.set()
-            # self._ic = None
-            # self.chart.resume_all_feeds()
+            # XXX: without this is seems as though sometimes
+            # when zooming in from far out (and maybe vice versa?)
+            # the signal isn't being fired enough since if you pan
+            # just after you'll see further downsampling code run
+            # (pretty noticeable on the OHLC ds curve) but with this
+            # that never seems to happen? Only question is how much this
+            # "double work" is causing latency when these missing event
+            # fires don't happen?
+            self.maybe_downsample_graphics()
 
             ev.accept()
 
@@ -734,9 +747,8 @@ class ChartView(ViewBox):
 
         # flag to prevent triggering sibling charts from the same linked
         # set from recursion errors.
-        autoscale_linked_plots: bool = True,
+        autoscale_linked_plots: bool = False,
         name: Optional[str] = None,
-        # autoscale_overlays: bool = False,
 
     ) -> None:
         '''
@@ -747,9 +759,12 @@ class ChartView(ViewBox):
         data set.
 
         '''
+        name = self.name
+        # print(f'YRANGE ON {name}')
         profiler = pg.debug.Profiler(
+            msg=f'`ChartView._set_yrange()`: `{name}`',
             disabled=not pg_profile_enabled(),
-            gt=ms_slower_then,
+            ms_threshold=ms_slower_then,
             delayed=True,
         )
         set_range = True
@@ -775,45 +790,22 @@ class ChartView(ViewBox):
         elif yrange is not None:
             ylow, yhigh = yrange
 
-        # calculate max, min y values in viewable x-range from data.
-        # Make sure min bars/datums on screen is adhered.
-        else:
-            br = bars_range or chart.bars_range()
-            profiler(f'got bars range: {br}')
-
-            # TODO: maybe should be a method on the
-            # chart widget/item?
-            # if False:
-            # if autoscale_linked_plots:
-            #     # avoid recursion by sibling plots
-            #     linked = self.linkedsplits
-            #     plots = list(linked.subplots.copy().values())
-            #     main = linked.chart
-            #     if main:
-            #         plots.append(main)
-
-            #     for chart in plots:
-            #         if chart and not chart._static_yrange:
-            #             chart.cv._set_yrange(
-            #                 bars_range=br,
-            #                 autoscale_linked_plots=False,
-            #             )
-            #     profiler('autoscaled linked plots')
-
         if set_range:
 
+            # XXX: only compute the mxmn range
+            # if none is provided as input!
             if not yrange:
-                # XXX: only compute the mxmn range
-                # if none is provided as input!
+                # flow = chart._flows[name]
                 yrange = self._maxmin()
 
                 if yrange is None:
-                    log.warning(f'No yrange provided for {self.name}!?')
+                    log.warning(f'No yrange provided for {name}!?')
+                    print(f"WTF NO YRANGE {name}")
                     return
 
             ylow, yhigh = yrange
 
-            profiler(f'maxmin(): {yrange}')
+            profiler(f'callback ._maxmin(): {yrange}')
 
             # view margins: stay within a % of the "true range"
             diff = yhigh - ylow
@@ -830,6 +822,8 @@ class ChartView(ViewBox):
             self.setYRange(ylow, yhigh)
             profiler(f'set limits: {(ylow, yhigh)}')
 
+        profiler.finish()
+
     def enable_auto_yrange(
         self,
         src_vb: Optional[ChartView] = None,
@@ -843,16 +837,8 @@ class ChartView(ViewBox):
         if src_vb is None:
             src_vb = self
 
-        # such that when a linked chart changes its range
-        # this local view is also automatically changed and
-        # resized to data.
-        src_vb.sigXRangeChanged.connect(self._set_yrange)
-
         # splitter(s) resizing
         src_vb.sigResized.connect(self._set_yrange)
-
-        # mouse wheel doesn't emit XRangeChanged
-        src_vb.sigRangeChangedManually.connect(self._set_yrange)
 
         # TODO: a smarter way to avoid calling this needlessly?
         # 2 things i can think of:
@@ -864,15 +850,16 @@ class ChartView(ViewBox):
             self.maybe_downsample_graphics
         )
 
-    def disable_auto_yrange(
-        self,
-    ) -> None:
+        # mouse wheel doesn't emit XRangeChanged
+        src_vb.sigRangeChangedManually.connect(self._set_yrange)
 
-        # self._chart._static_yrange = 'axis'
+        # src_vb.sigXRangeChanged.connect(self._set_yrange)
+        # src_vb.sigXRangeChanged.connect(
+        #     self.maybe_downsample_graphics
+        # )
 
-        self.sigXRangeChanged.disconnect(
-            self._set_yrange,
-        )
+    def disable_auto_yrange(self) -> None:
+
         self.sigResized.disconnect(
             self._set_yrange,
         )
@@ -883,6 +870,11 @@ class ChartView(ViewBox):
             self._set_yrange,
         )
 
+        # self.sigXRangeChanged.disconnect(self._set_yrange)
+        # self.sigXRangeChanged.disconnect(
+        #     self.maybe_downsample_graphics
+        # )
+
     def x_uppx(self) -> float:
         '''
         Return the "number of x units" within a single
@@ -890,7 +882,7 @@ class ChartView(ViewBox):
         graphics items which are our children.
 
         '''
-        graphics = list(self._chart._graphics.values())
+        graphics = [f.graphics for f in self._chart._flows.values()]
         if not graphics:
             return 0
 
@@ -901,25 +893,21 @@ class ChartView(ViewBox):
         else:
             return 0
 
-    def maybe_downsample_graphics(self):
-
-        uppx = self.x_uppx()
-        if (
-            # we probably want to drop this once we are "drawing in
-            # view" for downsampled flows..
-            uppx and uppx > 16
-            and self._ic is not None
-        ):
-            # don't bother updating since we're zoomed out bigly and
-            # in a pan-interaction, in which case we shouldn't be
-            # doing view-range based rendering (at least not yet).
-            # print(f'{uppx} exiting early!')
-            return
+    def maybe_downsample_graphics(
+        self,
+        autoscale_overlays: bool = True,
+    ):
 
         profiler = pg.debug.Profiler(
+            msg=f'ChartView.maybe_downsample_graphics() for {self.name}',
             disabled=not pg_profile_enabled(),
-            gt=3,
-            delayed=True,
+
+            # XXX: important to avoid not seeing underlying
+            # ``.update_graphics_from_flow()`` nested profiling likely
+            # due to the way delaying works and garbage collection of
+            # the profiler in the delegated method calls.
+            ms_threshold=6,
+            # ms_threshold=ms_slower_then,
         )
 
         # TODO: a faster single-loop-iterator way of doing this XD
@@ -928,19 +916,32 @@ class ChartView(ViewBox):
         plots = linked.subplots | {chart.name: chart}
         for chart_name, chart in plots.items():
             for name, flow in chart._flows.items():
-                graphics = flow.graphics
 
-                use_vr = False
-                if isinstance(graphics, BarItems):
-                    use_vr = True
+                if (
+                    not flow.render
+
+                    # XXX: super important to be aware of this.
+                    # or not flow.graphics.isVisible()
+                ):
+                    continue
 
                 # pass in no array which will read and render from the last
                 # passed array (normally provided by the display loop.)
-                chart.update_graphics_from_array(
+                chart.update_graphics_from_flow(
                     name,
-                    use_vr=use_vr,
-                    profiler=profiler,
+                    use_vr=True,
                 )
-                profiler(f'range change updated {chart_name}:{name}')
 
-        profiler.finish()
+                # for each overlay on this chart auto-scale the
+                # y-range to max-min values.
+                if autoscale_overlays:
+                    overlay = chart.pi_overlay
+                    if overlay:
+                        for pi in overlay.overlays:
+                            pi.vb._set_yrange(
+                                # TODO: get the range once up front...
+                                # bars_range=br,
+                            )
+                    profiler('autoscaled linked plots')
+
+                profiler(f'<{chart_name}>.update_graphics_from_flow({name})')

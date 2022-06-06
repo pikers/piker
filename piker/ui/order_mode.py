@@ -873,7 +873,9 @@ async def process_trades_and_update_ui(
                 mode.lines.remove_line(uuid=oid)
 
         # each clearing tick is responded individually
-        elif resp in ('broker_filled',):
+        elif resp in (
+            'broker_filled',
+        ):
 
             known_order = book._sent_orders.get(oid)
             if not known_order:

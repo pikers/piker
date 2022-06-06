@@ -138,50 +138,20 @@ def ohlc_flatten(
     return x, flat
 
 
-def ohlc_to_m4_line(
-    ohlc: np.ndarray,
-    px_width: int,
-
-    downsample: bool = False,
-    uppx: Optional[float] = None,
-    pretrace: bool = False,
-
-) -> tuple[np.ndarray, np.ndarray]:
-    '''
-    Convert an OHLC struct-array to a m4 downsampled 1-d array.
-
-    '''
-    xpts, flat = ohlc_flatten(
-        ohlc,
-        use_mxmn=pretrace,
-    )
-
-    if downsample:
-        bins, x, y = ds_m4(
-            xpts,
-            flat,
-            px_width=px_width,
-            uppx=uppx,
-            log_scale=bool(uppx)
-        )
-        x = np.broadcast_to(x[:, None], y.shape)
-        x = (x + np.array([-0.43, 0, 0, 0.43])).flatten()
-        y = y.flatten()
-
-        return x, y
-    else:
-        return xpts, flat
-
-
 def ds_m4(
     x: np.ndarray,
     y: np.ndarray,
+    # units-per-pixel-x(dimension)
+    uppx: float,
 
-    # this is the width of the data in view
-    # in display-device-local pixel units.
-    px_width: int,
-    uppx: Optional[float] = None,
-    log_scale: bool = True,
+    # XXX: troll zone / easter egg..
+    # want to mess with ur pal, pass in the actual
+    # pixel width here instead of uppx-proper (i.e. pass
+    # in our ``pg.GraphicsObject`` derivative's ``.px_width()``
+    # gto mega-trip-out ur bud). Hint, it used to be implemented
+    # (wrongly) using "pixel width", so check the git history ;)
+
+    xrange: Optional[float] = None,
 
 ) -> tuple[int, np.ndarray, np.ndarray]:
     '''
@@ -208,52 +178,49 @@ def ds_m4(
     # "i didn't show it in the sample code, but it's accounted for
     # in the start and end indices and number of bins"
 
-    # optionally log-scale down the "supposed pxs on screen"
-    # as the units-per-px (uppx) get's large.
-    if log_scale:
-        assert uppx, 'You must provide a `uppx` value to use log scaling!'
-
-        # scaler = 2**7 / (1 + math.log(uppx, 2))
-        scaler = round(
-            max(
-                # NOTE: found that a 16x px width brought greater
-                # detail, likely due to dpi scaling?
-                # px_width=px_width * 16,
-                2**7 / (1 + math.log(uppx, 2)),
-                1
-            )
-        )
-        px_width *= scaler
-
-    assert px_width > 1  # width of screen in pxs?
+    # should never get called unless actually needed
+    assert uppx > 1
 
     # NOTE: if we didn't pre-slice the data to downsample
     # you could in theory pass these as the slicing params,
     # do we care though since we can always just pre-slice the
     # input?
     x_start = x[0]  # x value start/lowest in domain
-    x_end = x[-1]  # x end value/highest in domain
+
+    if xrange is None:
+        x_end = x[-1]  # x end value/highest in domain
+        xrange = (x_end - x_start)
 
     # XXX: always round up on the input pixels
-    px_width = math.ceil(px_width)
+    # lnx = len(x)
+    # uppx *= max(4 / (1 + math.log(uppx, 2)), 1)
 
-    x_range = x_end - x_start
+    pxw = math.ceil(xrange / uppx)
 
-    # ratio of indexed x-value to width of raster in pixels.
-    # this is more or less, uppx: units-per-pixel.
-    w = x_range / float(px_width)
+    # scale up the frame "width" directly with uppx
+    w = uppx
 
     # ensure we make more then enough
     # frames (windows) for the output pixel
-    frames = px_width
+    frames = pxw
 
     # if we have more and then exact integer's
     # (uniform quotient output) worth of datum-domain-points
     # per windows-frame, add one more window to ensure
     # we have room for all output down-samples.
-    pts_per_pixel, r = divmod(len(x), frames)
+    pts_per_pixel, r = divmod(xrange, frames)
     if r:
+        # while r:
         frames += 1
+        pts_per_pixel, r = divmod(xrange, frames)
+
+    # print(
+    #     f'uppx: {uppx}\n'
+    #     f'xrange: {xrange}\n'
+    #     f'pxw: {pxw}\n'
+    #     f'frames: {frames}\n'
+    # )
+    assert frames >= (xrange / uppx)
 
     # call into ``numba``
     nb, i_win, y_out = _m4(

@@ -22,7 +22,7 @@ financial data flows.
 from __future__ import annotations
 from collections import Counter
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Union
 
 import tractor
 import trio
@@ -32,6 +32,7 @@ from ..log import get_logger
 
 if TYPE_CHECKING:
     from ._sharedmem import ShmArray
+    from .feed import _FeedsBus
 
 log = get_logger(__name__)
 
@@ -142,11 +143,17 @@ async def broadcast(
     shm: Optional[ShmArray] = None,
 
 ) -> None:
-    # broadcast the buffer index step to any subscribers for
-    # a given sample period.
+    '''
+    Broadcast the given ``shm: ShmArray``'s buffer index step to any
+    subscribers for a given sample period.
+
+    The sent msg will include the first and last index which slice into
+    the buffer's non-empty data.
+
+    '''
     subs = sampler.subscribers.get(delay_s, ())
 
-    last = -1
+    first = last = -1
 
     if shm is None:
         periods = sampler.ohlcv_shms.keys()
@@ -156,11 +163,16 @@ async def broadcast(
         if periods:
             lowest = min(periods)
             shm = sampler.ohlcv_shms[lowest][0]
+            first = shm._first.value
             last = shm._last.value
 
     for stream in subs:
         try:
-            await stream.send({'index': last})
+            await stream.send({
+                'first': first,
+                'last': last,
+                'index': last,
+            })
         except (
             trio.BrokenResourceError,
             trio.ClosedResourceError
@@ -168,7 +180,12 @@ async def broadcast(
             log.error(
                 f'{stream._ctx.chan.uid} dropped connection'
             )
-            subs.remove(stream)
+            try:
+                subs.remove(stream)
+            except ValueError:
+                log.warning(
+                    f'{stream._ctx.chan.uid} sub already removed!?'
+                )
 
 
 @tractor.context
@@ -203,7 +220,7 @@ async def iter_ohlc_periods(
 
 async def sample_and_broadcast(
 
-    bus: '_FeedsBus',  # noqa
+    bus: _FeedsBus,  # noqa
     shm: ShmArray,
     quote_stream: trio.abc.ReceiveChannel,
     brokername: str,
@@ -282,7 +299,13 @@ async def sample_and_broadcast(
             # end up triggering backpressure which which will
             # eventually block this producer end of the feed and
             # thus other consumers still attached.
-            subs = bus._subscribers[broker_symbol.lower()]
+            subs: list[
+                tuple[
+                    Union[tractor.MsgStream, trio.MemorySendChannel],
+                    tractor.Context,
+                    Optional[float],  # tick throttle in Hz
+                ]
+            ] = bus._subscribers[broker_symbol.lower()]
 
             # NOTE: by default the broker backend doesn't append
             # it's own "name" into the fqsn schema (but maybe it
@@ -291,7 +314,7 @@ async def sample_and_broadcast(
             bsym = f'{broker_symbol}.{brokername}'
             lags: int = 0
 
-            for (stream, tick_throttle) in subs:
+            for (stream, ctx, tick_throttle) in subs:
 
                 try:
                     with trio.move_on_after(0.2) as cs:
@@ -303,25 +326,41 @@ async def sample_and_broadcast(
                                     (bsym, quote)
                                 )
                             except trio.WouldBlock:
-                                ctx = getattr(stream, '_ctx', None)
+                                chan = ctx.chan
                                 if ctx:
                                     log.warning(
                                         f'Feed overrun {bus.brokername} ->'
-                                        f'{ctx.channel.uid} !!!'
+                                        f'{chan.uid} !!!'
                                     )
                                 else:
                                     key = id(stream)
                                     overruns[key] += 1
                                     log.warning(
-                                        f'Feed overrun {bus.brokername} -> '
+                                        f'Feed overrun {broker_symbol}'
+                                        '@{bus.brokername} -> '
                                         f'feed @ {tick_throttle} Hz'
                                     )
                                     if overruns[key] > 6:
-                                        log.warning(
-                                            f'Dropping consumer {stream}'
-                                        )
-                                        await stream.aclose()
-                                        raise trio.BrokenResourceError
+                                        # TODO: should we check for the
+                                        # context being cancelled? this
+                                        # could happen but the
+                                        # channel-ipc-pipe is still up.
+                                        if not chan.connected():
+                                            log.warning(
+                                                'Dropping broken consumer:\n'
+                                                f'{broker_symbol}:'
+                                                f'{ctx.cid}@{chan.uid}'
+                                            )
+                                            await stream.aclose()
+                                            raise trio.BrokenResourceError
+                                        else:
+                                            log.warning(
+                                                'Feed getting overrun bro!\n'
+                                                f'{broker_symbol}:'
+                                                f'{ctx.cid}@{chan.uid}'
+                                            )
+                                            continue
+
                         else:
                             await stream.send(
                                 {bsym: quote}
@@ -337,11 +376,12 @@ async def sample_and_broadcast(
                     trio.ClosedResourceError,
                     trio.EndOfChannel,
                 ):
-                    ctx = getattr(stream, '_ctx', None)
+                    chan = ctx.chan
                     if ctx:
                         log.warning(
-                            f'{ctx.chan.uid} dropped  '
-                            '`brokerd`-quotes-feed connection'
+                            'Dropped `brokerd`-quotes-feed connection:\n'
+                            f'{broker_symbol}:'
+                            f'{ctx.cid}@{chan.uid}'
                         )
                     if tick_throttle:
                         assert stream._closed
@@ -354,7 +394,11 @@ async def sample_and_broadcast(
                     try:
                         subs.remove((stream, tick_throttle))
                     except ValueError:
-                        log.error(f'{stream} was already removed from subs!?')
+                        log.error(
+                            f'Stream was already removed from subs!?\n'
+                            f'{broker_symbol}:'
+                            f'{ctx.cid}@{chan.uid}'
+                        )
 
 
 # TODO: a less naive throttler, here's some snippets:
@@ -466,6 +510,7 @@ async def uniform_rate_send(
             # if the feed consumer goes down then drop
             # out of this rate limiter
             log.warning(f'{stream} closed')
+            await stream.aclose()
             return
 
         # reset send cycle state

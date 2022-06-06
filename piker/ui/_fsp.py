@@ -75,6 +75,7 @@ def update_fsp_chart(
     flow,
     graphics_name: str,
     array_key: Optional[str],
+    **kwargs,
 
 ) -> None:
 
@@ -93,10 +94,10 @@ def update_fsp_chart(
     # update graphics
     # NOTE: this does a length check internally which allows it
     # staying above the last row check below..
-    chart.update_graphics_from_array(
+    chart.update_graphics_from_flow(
         graphics_name,
-        array,
         array_key=array_key or graphics_name,
+        **kwargs,
     )
 
     # XXX: re: ``array_key``: fsp func names must be unique meaning we
@@ -106,9 +107,6 @@ def update_fsp_chart(
     # read from last calculated value and update any label
     last_val_sticky = chart._ysticks.get(graphics_name)
     if last_val_sticky:
-        # array = shm.array[array_key]
-        # if len(array):
-        #     value = array[-1]
         last = last_row[array_key]
         last_val_sticky.update_from_data(-1, last)
 
@@ -246,20 +244,18 @@ async def run_fsp_ui(
 
             chart.draw_curve(
                 name=name,
-                data=shm.array,
+                shm=shm,
                 overlay=True,
                 color='default_light',
                 array_key=name,
                 **conf.get('chart_kwargs', {})
             )
-            # specially store ref to shm for lookup in display loop
-            chart._flows[name].shm = shm
 
         else:
             # create a new sub-chart widget for this fsp
             chart = linkedsplits.add_plot(
                 name=name,
-                array=shm.array,
+                shm=shm,
 
                 array_key=name,
                 sidepane=sidepane,
@@ -270,12 +266,6 @@ async def run_fsp_ui(
                 # settings passed down to ``ChartPlotWidget``
                 **conf.get('chart_kwargs', {})
             )
-
-            # XXX: ONLY for sub-chart fsps, overlays have their
-            # data looked up from the chart's internal array set.
-            # TODO: we must get a data view api going STAT!!
-            chart._shm = shm
-            chart._flows[chart.data_key].shm = shm
 
             # should **not** be the same sub-chart widget
             assert chart.name != linkedsplits.chart.name
@@ -445,12 +435,16 @@ class FspAdmin:
             # wait for graceful shutdown signal
             async with stream.subscribe() as stream:
                 async for msg in stream:
-                    if msg == 'update':
+                    info = msg.get('fsp_update')
+                    if info:
                         # if the chart isn't hidden try to update
                         # the data on screen.
                         if not self.linked.isHidden():
                             log.info(f'Re-syncing graphics for fsp: {ns_path}')
-                            self.linked.graphics_cycle(trigger_all=True)
+                            self.linked.graphics_cycle(
+                                trigger_all=True,
+                                prepend_update_index=info['first'],
+                            )
                     else:
                         log.info(f'recved unexpected fsp engine msg: {msg}')
 
@@ -626,7 +620,7 @@ async def open_vlm_displays(
         shm = ohlcv
         chart = linked.add_plot(
             name='volume',
-            array=shm.array,
+            shm=shm,
 
             array_key='volume',
             sidepane=sidepane,
@@ -639,10 +633,9 @@ async def open_vlm_displays(
             # the curve item internals are pretty convoluted.
             style='step',
         )
-        chart._flows['volume'].shm = ohlcv
 
         # force 0 to always be in view
-        def maxmin(
+        def multi_maxmin(
             names: list[str],
 
         ) -> tuple[float, float]:
@@ -658,18 +651,13 @@ async def open_vlm_displays(
 
             return 0, mx
 
-        chart.view.maxmin = partial(maxmin, names=['volume'])
+        chart.view.maxmin = partial(multi_maxmin, names=['volume'])
 
         # TODO: fix the x-axis label issue where if you put
         # the axis on the left it's totally not lined up...
         # show volume units value on LHS (for dinkus)
         # chart.hideAxis('right')
         # chart.showAxis('left')
-
-        # XXX: ONLY for sub-chart fsps, overlays have their
-        # data looked up from the chart's internal array set.
-        # TODO: we must get a data view api going STAT!!
-        chart._shm = shm
 
         # send back new chart to caller
         task_status.started(chart)
@@ -685,9 +673,9 @@ async def open_vlm_displays(
 
         last_val_sticky.update_from_data(-1, value)
 
-        vlm_curve = chart.update_graphics_from_array(
+        vlm_curve = chart.update_graphics_from_flow(
             'volume',
-            shm.array,
+            # shm.array,
         )
 
         # size view to data once at outset
@@ -753,19 +741,20 @@ async def open_vlm_displays(
                'dolla_vlm',
                'dark_vlm',
             ]
-            dvlm_rate_fields = [
-                'dvlm_rate',
-                'dark_dvlm_rate',
-            ]
+            # dvlm_rate_fields = [
+            #     'dvlm_rate',
+            #     'dark_dvlm_rate',
+            # ]
             trade_rate_fields = [
                 'trade_rate',
                 'dark_trade_rate',
             ]
 
             group_mxmn = partial(
-                maxmin,
+                multi_maxmin,
                 # keep both regular and dark vlm in view
-                names=fields + dvlm_rate_fields,
+                names=fields,
+                # names=fields + dvlm_rate_fields,
             )
 
             # add custom auto range handler
@@ -795,9 +784,8 @@ async def open_vlm_displays(
                         color = 'bracket'
 
                     curve, _ = chart.draw_curve(
-                        # name='dolla_vlm',
                         name=name,
-                        data=shm.array,
+                        shm=shm,
                         array_key=name,
                         overlay=pi,
                         color=color,
@@ -812,7 +800,6 @@ async def open_vlm_displays(
                     # ``.draw_curve()``.
                     flow = chart._flows[name]
                     assert flow.plot is pi
-                    flow.shm = shm
 
             chart_curves(
                 fields,
@@ -834,11 +821,11 @@ async def open_vlm_displays(
             )
             await started.wait()
 
-            chart_curves(
-                dvlm_rate_fields,
-                dvlm_pi,
-                fr_shm,
-            )
+            # chart_curves(
+            #     dvlm_rate_fields,
+            #     dvlm_pi,
+            #     fr_shm,
+            # )
 
             # TODO: is there a way to "sync" the dual axes such that only
             # one curve is needed?
@@ -847,7 +834,9 @@ async def open_vlm_displays(
             # liquidity events (well at least on low OHLC periods - 1s).
             vlm_curve.hide()
             chart.removeItem(vlm_curve)
-            chart._flows.pop('volume')
+            vflow = chart._flows['volume']
+            vflow.render = False
+
             # avoid range sorting on volume once disabled
             chart.view.disable_auto_yrange()
 
@@ -874,7 +863,7 @@ async def open_vlm_displays(
             )
             # add custom auto range handler
             tr_pi.vb.maxmin = partial(
-                maxmin,
+                multi_maxmin,
                 # keep both regular and dark vlm in view
                 names=trade_rate_fields,
             )
@@ -902,10 +891,10 @@ async def open_vlm_displays(
 
         # built-in vlm fsps
         for target, conf in {
-            tina_vwap: {
-                'overlay': 'ohlc',  # overlays with OHLCV (main) chart
-                'anchor': 'session',
-            },
+            # tina_vwap: {
+            #     'overlay': 'ohlc',  # overlays with OHLCV (main) chart
+            #     'anchor': 'session',
+            # },
         }.items():
             started = await admin.open_fsp_chart(
                 target,

@@ -33,7 +33,7 @@ ohlc_fields = [
     ('high', float),
     ('low', float),
     ('close', float),
-    ('volume', int),
+    ('volume', float),
     ('bar_wap', float),
 ]
 

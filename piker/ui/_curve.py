@@ -18,81 +18,35 @@
 Fast, smooth, sexy curves.
 
 """
-from typing import Optional
+from contextlib import contextmanager as cm
+from typing import Optional, Callable
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt5 import QtGui, QtWidgets
+from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QGraphicsItem
 from PyQt5.QtCore import (
     Qt,
     QLineF,
     QSizeF,
     QRectF,
+    # QRect,
     QPointF,
 )
-
+from PyQt5.QtGui import (
+    QPainter,
+    QPainterPath,
+)
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._style import hcolor
-from ._compression import (
-    # ohlc_to_m4_line,
-    ds_m4,
-)
+# from ._compression import (
+#     # ohlc_to_m4_line,
+#     ds_m4,
+# )
 from ..log import get_logger
 
 
 log = get_logger(__name__)
-
-
-def step_path_arrays_from_1d(
-    x: np.ndarray,
-    y: np.ndarray,
-    include_endpoints: bool = False,
-
-) -> (np.ndarray, np.ndarray):
-    '''
-    Generate a "step mode" curve aligned with OHLC style bars
-    such that each segment spans each bar (aka "centered" style).
-
-    '''
-    y_out = y.copy()
-    x_out = x.copy()
-    x2 = np.empty(
-        # the data + 2 endpoints on either end for
-        # "termination of the path".
-        (len(x) + 1, 2),
-        # we want to align with OHLC or other sampling style
-        # bars likely so we need fractinal values
-        dtype=float,
-    )
-    x2[0] = x[0] - 0.5
-    x2[1] = x[0] + 0.5
-    x2[1:] = x[:, np.newaxis] + 0.5
-
-    # flatten to 1-d
-    x_out = x2.reshape(x2.size)
-
-    # we create a 1d with 2 extra indexes to
-    # hold the start and (current) end value for the steps
-    # on either end
-    y2 = np.empty((len(y), 2), dtype=y.dtype)
-    y2[:] = y[:, np.newaxis]
-
-    y_out = np.empty(
-        2*len(y) + 2,
-        dtype=y.dtype
-    )
-
-    # flatten and set 0 endpoints
-    y_out[1:-1] = y2.reshape(y2.size)
-    y_out[0] = 0
-    y_out[-1] = 0
-
-    if not include_endpoints:
-        return x_out[:-1], y_out[:-1]
-
-    else:
-        return x_out, y_out
 
 
 _line_styles: dict[str, int] = {
@@ -103,24 +57,43 @@ _line_styles: dict[str, int] = {
 }
 
 
-class FastAppendCurve(pg.GraphicsObject):
+class Curve(pg.GraphicsObject):
     '''
-    A faster, append friendly version of ``pyqtgraph.PlotCurveItem``
-    built for real-time data updates.
+    A faster, simpler, append friendly version of
+    ``pyqtgraph.PlotCurveItem`` built for highly customizable real-time
+    updates.
 
-    The main difference is avoiding regeneration of the entire
-    historical path where possible and instead only updating the "new"
-    segment(s) via a ``numpy`` array diff calc. Further the "last"
-    graphic segment is drawn independently such that near-term (high
-    frequency) discrete-time-sampled style updates don't trigger a full
-    path redraw.
+    This type is a much stripped down version of a ``pyqtgraph`` style
+    "graphics object" in the sense that the internal lower level
+    graphics which are drawn in the ``.paint()`` method are actually
+    rendered outside of this class entirely and instead are assigned as
+    state (instance vars) here and then drawn during a Qt graphics
+    cycle.
+
+    The main motivation for this more modular, composed design is that
+    lower level graphics data can be rendered in different threads and
+    then read and drawn in this main thread without having to worry
+    about dealing with Qt's concurrency primitives. See
+    ``piker.ui._flows.Renderer`` for details and logic related to lower
+    level path generation and incremental update. The main differences in
+    the path generation code include:
+
+    - avoiding regeneration of the entire historical path where possible
+      and instead only updating the "new" segment(s) via a ``numpy``
+      array diff calc.
+    - here, the "last" graphics datum-segment is drawn independently
+      such that near-term (high frequency) discrete-time-sampled style
+      updates don't trigger a full path redraw.
 
     '''
+
+    # sub-type customization methods
+    sub_br: Optional[Callable] = None
+    sub_paint: Optional[Callable] = None
+    declare_paintables: Optional[Callable] = None
+
     def __init__(
         self,
-
-        x: np.ndarray,
-        y: np.ndarray,
         *args,
 
         step_mode: bool = False,
@@ -134,26 +107,24 @@ class FastAppendCurve(pg.GraphicsObject):
 
     ) -> None:
 
-        # brutaaalll, see comments within..
-        self._y = self.yData = y
-        self._x = self.xData = x
-
         self._name = name
-        self.path: Optional[QtGui.QPainterPath] = None
 
+        # brutaaalll, see comments within..
+        self.yData = None
+        self.xData = None
+
+        # self._last_cap: int = 0
+        self.path: Optional[QPainterPath] = None
+
+        # additional path used for appends which tries to avoid
+        # triggering an update/redraw of the presumably larger
+        # historical ``.path`` above.
         self.use_fpath = use_fpath
-        self.fast_path: Optional[QtGui.QPainterPath] = None
+        self.fast_path: Optional[QPainterPath] = None
 
         # TODO: we can probably just dispense with the parent since
         # we're basically only using the pen setting now...
         super().__init__(*args, **kwargs)
-
-        # self._xrange: tuple[int, int] = self.dataBounds(ax=0)
-        self._xrange: Optional[tuple[int, int]] = None
-
-        # self._last_draw = time.time()
-        self._in_ds: bool = False
-        self._last_uppx: float = 0
 
         # all history of curve is drawn in single px thickness
         pen = pg.mkPen(hcolor(color))
@@ -168,29 +139,43 @@ class FastAppendCurve(pg.GraphicsObject):
         # self.last_step_pen = pg.mkPen(hcolor(color), width=2)
         self.last_step_pen = pg.mkPen(pen, width=2)
 
-        self._last_line: Optional[QLineF] = None
-        self._last_step_rect: Optional[QRectF] = None
+        # self._last_line: Optional[QLineF] = None
+        self._last_line = QLineF()
+        self._last_w: float = 1
 
         # flat-top style histogram-like discrete curve
-        self._step_mode: bool = step_mode
+        # self._step_mode: bool = step_mode
 
         # self._fill = True
         self._brush = pg.functions.mkBrush(hcolor(fill_color or color))
+
+        # NOTE: this setting seems to mostly prevent redraws on mouse
+        # interaction which is a huge boon for avg interaction latency.
 
         # TODO: one question still remaining is if this makes trasform
         # interactions slower (such as zooming) and if so maybe if/when
         # we implement a "history" mode for the view we disable this in
         # that mode?
-        if step_mode:
-            # don't enable caching by default for the case where the
-            # only thing drawn is the "last" line segment which can
-            # have a weird artifact where it won't be fully drawn to its
-            # endpoint (something we saw on trade rate curves)
-            self.setCacheMode(
-                QGraphicsItem.DeviceCoordinateCache
-            )
+        # don't enable caching by default for the case where the
+        # only thing drawn is the "last" line segment which can
+        # have a weird artifact where it won't be fully drawn to its
+        # endpoint (something we saw on trade rate curves)
+        self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
-        self.update()
+        # XXX: see explanation for different caching modes:
+        # https://stackoverflow.com/a/39410081
+        # seems to only be useful if we don't re-generate the entire
+        # QPainterPath every time
+        # curve.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
+
+        # don't ever use this - it's a colossal nightmare of artefacts
+        # and is disastrous for performance.
+        # curve.setCacheMode(QtWidgets.QGraphicsItem.ItemCoordinateCache)
+
+        # allow sub-type customization
+        declare = self.declare_paintables
+        if declare:
+            declare()
 
     # TODO: probably stick this in a new parent
     # type which will contain our own version of
@@ -214,9 +199,6 @@ class FastAppendCurve(pg.GraphicsObject):
         vr = self.viewRect()
         l, r = int(vr.left()), int(vr.right())
 
-        if not self._xrange:
-            return 0
-
         start, stop = self._xrange
         lbar = max(l, start)
         rbar = min(r, stop)
@@ -225,352 +207,10 @@ class FastAppendCurve(pg.GraphicsObject):
             QLineF(lbar, 0, rbar, 0)
         ).length()
 
-    def downsample(
-        self,
-        x,
-        y,
-        px_width,
-        uppx,
-
-    ) -> tuple[np.ndarray, np.ndarray]:
-
-        # downsample whenever more then 1 pixels per datum can be shown.
-        # always refresh data bounds until we get diffing
-        # working properly, see above..
-        bins, x, y = ds_m4(
-            x,
-            y,
-            px_width=px_width,
-            uppx=uppx,
-            log_scale=bool(uppx)
-        )
-        x = np.broadcast_to(x[:, None], y.shape)
-        # x = (x + np.array([-0.43, 0, 0, 0.43])).flatten()
-        x = (x + np.array([-0.5, 0, 0, 0.5])).flatten()
-        y = y.flatten()
-
-        # presumably?
-        self._in_ds = True
-        return x, y
-
-    def update_from_array(
-        self,
-
-        # full array input history
-        x: np.ndarray,
-        y: np.ndarray,
-
-        # pre-sliced array data that's "in view"
-        x_iv: np.ndarray,
-        y_iv: np.ndarray,
-
-        view_range: Optional[tuple[int, int]] = None,
-        profiler: Optional[pg.debug.Profiler] = None,
-
-    ) -> QtGui.QPainterPath:
-        '''
-        Update curve from input 2-d data.
-
-        Compare with a cached "x-range" state and (pre/a)ppend based on
-        a length diff.
-
-        '''
-        profiler = profiler or pg.debug.Profiler(
-            msg=f'FastAppendCurve.update_from_array(): `{self._name}`',
-            disabled=not pg_profile_enabled(),
-            gt=ms_slower_then,
-        )
-        # flip_cache = False
-
-        if self._xrange:
-            istart, istop = self._xrange
-        else:
-            self._xrange = istart, istop = x[0], x[-1]
-        # print(f"xrange: {self._xrange}")
-
-        # XXX: lol brutal, the internals of `CurvePoint` (inherited by
-        # our `LineDot`) required ``.getData()`` to work..
-        self.xData = x
-        self.yData = y
-        self._x, self._y = x, y
-
-        if view_range:
-            profiler(f'view range slice {view_range}')
-
-        # downsampling incremental state checking
-        uppx = self.x_uppx()
-        px_width = self.px_width()
-        uppx_diff = (uppx - self._last_uppx)
-
-        should_ds = False
-        should_redraw = False
-
-        # if a view range is passed, plan to draw the
-        # source ouput that's "in view" of the chart.
-        if view_range and not self._in_ds:
-            # print(f'{self._name} vr: {view_range}')
-
-            # by default we only pull data up to the last (current) index
-            x_out, y_out = x_iv[:-1], y_iv[:-1]
-
-            # step mode: draw flat top discrete "step"
-            # over the index space for each datum.
-            if self._step_mode:
-                # TODO: numba this bish
-                x_out, y_out = step_path_arrays_from_1d(
-                    x_out,
-                    y_out
-                )
-                profiler('generated step arrays')
-
-            should_redraw = True
-            profiler('sliced in-view array history')
-
-            # x_last = x_iv[-1]
-            # y_last = y_iv[-1]
-            self._last_vr = view_range
-
-            # self.disable_cache()
-            # flip_cache = True
-
-        else:
-            self._xrange = x[0], x[-1]
-
-        x_last = x[-1]
-        y_last = y[-1]
-
-        # check for downsampling conditions
-        if (
-            # std m4 downsample conditions
-            px_width
-            and uppx_diff >= 4
-            or uppx_diff <= -3
-            or self._step_mode and abs(uppx_diff) >= 4
-
-        ):
-            log.info(
-                f'{self._name} sampler change: {self._last_uppx} -> {uppx}'
-            )
-            self._last_uppx = uppx
-            should_ds = True
-
-        elif (
-            uppx <= 2
-            and self._in_ds
-        ):
-            # we should de-downsample back to our original
-            # source data so we clear our path data in prep
-            # to generate a new one from original source data.
-            should_redraw = True
-            should_ds = False
-
-        # compute the length diffs between the first/last index entry in
-        # the input data and the last indexes we have on record from the
-        # last time we updated the curve index.
-        prepend_length = int(istart - x[0])
-        append_length = int(x[-1] - istop)
-
-        # no_path_yet = self.path is None
-        if (
-            self.path is None
-            or should_redraw
-            or should_ds
-            or prepend_length > 0
-        ):
-            if (
-                not view_range
-                or self._in_ds
-            ):
-                # by default we only pull data up to the last (current) index
-                x_out, y_out = x[:-1], y[:-1]
-
-                # step mode: draw flat top discrete "step"
-                # over the index space for each datum.
-                if self._step_mode:
-                    x_out, y_out = step_path_arrays_from_1d(
-                        x_out,
-                        y_out,
-                    )
-                    # TODO: numba this bish
-                    profiler('generated step arrays')
-
-            if should_redraw:
-                profiler('path reversion to non-ds')
-                if self.path:
-                    self.path.clear()
-
-                if self.fast_path:
-                    self.fast_path.clear()
-
-            if should_redraw and not should_ds:
-                if self._in_ds:
-                    log.info(f'DEDOWN -> {self._name}')
-
-                self._in_ds = False
-
-            elif should_ds and px_width:
-                x_out, y_out = self.downsample(
-                    x_out,
-                    y_out,
-                    px_width,
-                    uppx,
-                )
-                profiler(f'FULL PATH downsample redraw={should_ds}')
-                self._in_ds = True
-
-            self.path = pg.functions.arrayToQPath(
-                x_out,
-                y_out,
-                connect='all',
-                finiteCheck=False,
-                path=self.path,
-            )
-            profiler('generated fresh path')
-            # profiler(f'DRAW PATH IN VIEW -> {self._name}')
-
-            # reserve mem allocs see:
-            # - https://doc.qt.io/qt-5/qpainterpath.html#reserve
-            # - https://doc.qt.io/qt-5/qpainterpath.html#capacity
-            # - https://doc.qt.io/qt-5/qpainterpath.html#clear
-            # XXX: right now this is based on had hoc checks on a
-            # hidpi 3840x2160 4k monitor but we should optimize for
-            # the target display(s) on the sys.
-            # if no_path_yet:
-            #     self.path.reserve(int(500e3))
-
-        # TODO: get this piecewise prepend working - right now it's
-        # giving heck on vwap...
-        # elif prepend_length:
-        #     breakpoint()
-
-        #     prepend_path = pg.functions.arrayToQPath(
-        #         x[0:prepend_length],
-        #         y[0:prepend_length],
-        #         connect='all'
-        #     )
-
-        #     # swap prepend path in "front"
-        #     old_path = self.path
-        #     self.path = prepend_path
-        #     # self.path.moveTo(new_x[0], new_y[0])
-        #     self.path.connectPath(old_path)
-
-        elif (
-            append_length > 0
-            and not view_range
-        ):
-            new_x = x[-append_length - 2:-1]
-            new_y = y[-append_length - 2:-1]
-
-            if self._step_mode:
-                new_x, new_y = step_path_arrays_from_1d(
-                    new_x,
-                    new_y,
-                )
-                # [1:] since we don't need the vertical line normally at
-                # the beginning of the step curve taking the first (x,
-                # y) poing down to the x-axis **because** this is an
-                # appended path graphic.
-                new_x = new_x[1:]
-                new_y = new_y[1:]
-
-            profiler('diffed append arrays')
-
-            if should_ds:
-                new_x, new_y = self.downsample(
-                    new_x,
-                    new_y,
-                    **should_ds,
-                )
-                profiler(f'fast path downsample redraw={should_ds}')
-
-            append_path = pg.functions.arrayToQPath(
-                new_x,
-                new_y,
-                connect='all',
-                finiteCheck=False,
-                path=self.fast_path,
-            )
-
-            if self.use_fpath:
-                # an attempt at trying to make append-updates faster..
-                if self.fast_path is None:
-                    self.fast_path = append_path
-                    self.fast_path.reserve(int(6e3))
-                else:
-                    self.fast_path.connectPath(append_path)
-                    size = self.fast_path.capacity()
-                    profiler(f'connected fast path w size: {size}')
-
-                    # print(f"append_path br: {append_path.boundingRect()}")
-                    # self.path.moveTo(new_x[0], new_y[0])
-                    # path.connectPath(append_path)
-
-                    # XXX: lol this causes a hang..
-                    # self.path = self.path.simplified()
-            else:
-                size = self.path.capacity()
-                profiler(f'connected history path w size: {size}')
-                self.path.connectPath(append_path)
-
-            # other merging ideas:
-            # https://stackoverflow.com/questions/8936225/how-to-merge-qpainterpaths
-            # path.addPath(append_path)
-            # path.closeSubpath()
-
-            # TODO: try out new work from `pyqtgraph` main which
-            # should repair horrid perf:
-            # https://github.com/pyqtgraph/pyqtgraph/pull/2032
-            # ok, nope still horrible XD
-            # if self._fill:
-            #     # XXX: super slow set "union" op
-            #     self.path = self.path.united(append_path).simplified()
-
-            # self.disable_cache()
-            # flip_cache = True
-
-        # draw the "current" step graphic segment so it lines up with
-        # the "middle" of the current (OHLC) sample.
-        if self._step_mode:
-            self._last_line = QLineF(
-                x_last - 0.5, 0,
-                x_last + 0.5, 0,
-            )
-            self._last_step_rect = QRectF(
-                x_last - 0.5, 0,
-                x_last + 0.5, y_last
-            )
-            # print(
-            #     f"path br: {self.path.boundingRect()}",
-            #     f"fast path br: {self.fast_path.boundingRect()}",
-            #     f"last rect br: {self._last_step_rect}",
-            # )
-        else:
-            self._last_line = QLineF(
-                x[-2], y[-2],
-                x[-1], y_last
-            )
-
-        profiler('draw last segment')
-
-        # trigger redraw of path
-        # do update before reverting to cache mode
-        # self.prepareGeometryChange()
-        self.update()
-        profiler('.update()')
-
-        # if flip_cache:
-        #     # XXX: seems to be needed to avoid artifacts (see above).
-        #     self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
-
     # XXX: lol brutal, the internals of `CurvePoint` (inherited by
     # our `LineDot`) required ``.getData()`` to work..
     def getData(self):
-        return self._x, self._y
-
-    # TODO: drop the above after ``Cursor`` re-work
-    def get_arrays(self) -> tuple[np.ndarray, np.ndarray]:
-        return self._x, self._y
+        return self.xData, self.yData
 
     def clear(self):
         '''
@@ -593,25 +233,18 @@ class FastAppendCurve(pg.GraphicsObject):
                 # self.fast_path.clear()
                 self.fast_path = None
 
-        # self.disable_cache()
-        # self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
-
-    def disable_cache(self) -> None:
-        '''
-        Disable the use of the pixel coordinate cache and trigger a geo event.
-
-        '''
-        # XXX: pretty annoying but, without this there's little
-        # artefacts on the append updates to the curve...
+    @cm
+    def reset_cache(self) -> None:
         self.setCacheMode(QtWidgets.QGraphicsItem.NoCache)
-        self.prepareGeometryChange()
+        yield
+        self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
     def boundingRect(self):
         '''
         Compute and then cache our rect.
         '''
         if self.path is None:
-            return QtGui.QPainterPath().boundingRect()
+            return QPainterPath().boundingRect()
         else:
             # dynamically override this method after initial
             # path is created to avoid requiring the above None check
@@ -623,6 +256,7 @@ class FastAppendCurve(pg.GraphicsObject):
         Post init ``.boundingRect()```.
 
         '''
+        # hb = self.path.boundingRect()
         hb = self.path.controlPointRect()
         hb_size = hb.size()
 
@@ -630,17 +264,60 @@ class FastAppendCurve(pg.GraphicsObject):
         if fp:
             fhb = fp.controlPointRect()
             hb_size = fhb.size() + hb_size
+
         # print(f'hb_size: {hb_size}')
 
-        w = hb_size.width() + 1
-        h = hb_size.height() + 1
+        # if self._last_step_rect:
+        #     hb_size += self._last_step_rect.size()
+
+        # if self._line:
+        #     br = self._last_step_rect.bottomRight()
+
+        # tl = QPointF(
+        #     # self._vr[0],
+        #     # hb.topLeft().y(),
+        #     # 0,
+        #     # hb_size.height() + 1
+        # )
+
+        #     br = self._last_step_rect.bottomRight()
+
+        w = hb_size.width()
+        h = hb_size.height()
+
+        sbr = self.sub_br
+        if sbr:
+            w, h = self.sub_br(w, h)
+        else:
+            # assume plain line graphic and use
+            # default unit step in each direction.
+
+            # only on a plane line do we include
+            # and extra index step's worth of width
+            # since in the step case the end of the curve
+            # actually terminates earlier so we don't need
+            # this for the last step.
+            w += self._last_w
+            # ll = self._last_line
+            h += 1  # ll.y2() - ll.y1()
+
+        # br = QPointF(
+        #     self._vr[-1],
+        #     # tl.x() + w,
+        #     tl.y() + h,
+        # )
 
         br = QRectF(
 
             # top left
+            # hb.topLeft()
+            # tl,
             QPointF(hb.topLeft()),
 
+            # br,
             # total size
+            # QSizeF(hb_size)
+            # hb_size,
             QSizeF(w, h)
         )
         # print(f'bounding rect: {br}')
@@ -648,40 +325,36 @@ class FastAppendCurve(pg.GraphicsObject):
 
     def paint(
         self,
-        p: QtGui.QPainter,
+        p: QPainter,
         opt: QtWidgets.QStyleOptionGraphicsItem,
         w: QtWidgets.QWidget
 
     ) -> None:
 
         profiler = pg.debug.Profiler(
-            msg=f'FastAppendCurve.paint(): `{self._name}`',
+            msg=f'Curve.paint(): `{self._name}`',
             disabled=not pg_profile_enabled(),
-            gt=ms_slower_then,
+            ms_threshold=ms_slower_then,
         )
 
-        if (
-            self._step_mode
-            and self._last_step_rect
-        ):
-            brush = self._brush
+        sub_paint = self.sub_paint
+        if sub_paint:
+            sub_paint(p, profiler)
 
-            # p.drawLines(*tuple(filter(bool, self._last_step_lines)))
-            # p.drawRect(self._last_step_rect)
-            p.fillRect(self._last_step_rect, brush)
-            profiler('.fillRect()')
-
-        if self._last_line:
-            p.setPen(self.last_step_pen)
-            p.drawLine(self._last_line)
-            profiler('.drawLine()')
-            p.setPen(self._pen)
+        p.setPen(self.last_step_pen)
+        p.drawLine(self._last_line)
+        profiler('.drawLine()')
+        p.setPen(self._pen)
 
         path = self.path
+        # cap = path.capacity()
+        # if cap != self._last_cap:
+        #     print(f'NEW CAPACITY: {self._last_cap} -> {cap}')
+        #     self._last_cap = cap
 
         if path:
             p.drawPath(path)
-            profiler('.drawPath(path)')
+            profiler(f'.drawPath(path): {path.capacity()}')
 
         fp = self.fast_path
         if fp:
@@ -695,3 +368,117 @@ class FastAppendCurve(pg.GraphicsObject):
         # if self._fill:
         #     brush = self.opts['brush']
         #     p.fillPath(self.path, brush)
+
+    def draw_last_datum(
+        self,
+        path: QPainterPath,
+        src_data: np.ndarray,
+        render_data: np.ndarray,
+        reset: bool,
+        array_key: str,
+
+    ) -> None:
+        # default line draw last call
+        with self.reset_cache():
+            x = render_data['index']
+            y = render_data[array_key]
+
+            # draw the "current" step graphic segment so it
+            # lines up with the "middle" of the current
+            # (OHLC) sample.
+            self._last_line = QLineF(
+                x[-2], y[-2],
+                x[-1], y[-1],
+            )
+
+        return x, y
+
+
+# TODO: this should probably be a "downsampled" curve type
+# that draws a bar-style (but for the px column) last graphics
+# element such that the current datum in view can be shown
+# (via it's max / min) even when highly zoomed out.
+class FlattenedOHLC(Curve):
+
+    def draw_last_datum(
+        self,
+        path: QPainterPath,
+        src_data: np.ndarray,
+        render_data: np.ndarray,
+        reset: bool,
+        array_key: str,
+
+    ) -> None:
+        lasts = src_data[-2:]
+        x = lasts['index']
+        y = lasts['close']
+
+        # draw the "current" step graphic segment so it
+        # lines up with the "middle" of the current
+        # (OHLC) sample.
+        self._last_line = QLineF(
+            x[-2], y[-2],
+            x[-1], y[-1]
+        )
+        return x, y
+
+
+class StepCurve(Curve):
+
+    def declare_paintables(
+        self,
+    ) -> None:
+        self._last_step_rect = QRectF()
+
+    def draw_last_datum(
+        self,
+        path: QPainterPath,
+        src_data: np.ndarray,
+        render_data: np.ndarray,
+        reset: bool,
+        array_key: str,
+
+        w: float = 0.5,
+
+    ) -> None:
+
+        # TODO: remove this and instead place all step curve
+        # updating into pre-path data render callbacks.
+        # full input data
+        x = src_data['index']
+        y = src_data[array_key]
+
+        x_last = x[-1]
+        y_last = y[-1]
+
+        # lol, commenting this makes step curves
+        # all "black" for me :eyeroll:..
+        self._last_line = QLineF(
+            x_last - w, 0,
+            x_last + w, 0,
+        )
+        self._last_step_rect = QRectF(
+            x_last - w, 0,
+            x_last + w, y_last,
+        )
+        return x, y
+
+    def sub_paint(
+        self,
+        p: QPainter,
+        profiler: pg.debug.Profiler,
+
+    ) -> None:
+        # p.drawLines(*tuple(filter(bool, self._last_step_lines)))
+        # p.drawRect(self._last_step_rect)
+        p.fillRect(self._last_step_rect, self._brush)
+        profiler('.fillRect()')
+
+    def sub_br(
+        self,
+        path_w: float,
+        path_h: float,
+
+    ) -> (float, float):
+        # passthrough
+        return path_w, path_h

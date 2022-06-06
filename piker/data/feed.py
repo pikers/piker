@@ -33,6 +33,7 @@ from typing import (
     Generator,
     Awaitable,
     TYPE_CHECKING,
+    Union,
 )
 
 import trio
@@ -40,12 +41,12 @@ from trio.abc import ReceiveChannel
 from trio_typing import TaskStatus
 import trimeter
 import tractor
+from tractor.trionics import maybe_open_context
 from pydantic import BaseModel
 import pendulum
 import numpy as np
 
 from ..brokers import get_brokermod
-from .._cacheables import maybe_open_context
 from ..calc import humanize
 from ..log import get_logger, get_console_log
 from .._daemon import (
@@ -116,7 +117,13 @@ class _FeedsBus(BaseModel):
     # https://github.com/samuelcolvin/pydantic/issues/2816
     _subscribers: dict[
         str,
-        list[tuple[tractor.MsgStream, Optional[float]]]
+        list[
+            tuple[
+                Union[tractor.MsgStream, trio.MemorySendChannel],
+                tractor.Context,
+                Optional[float],  # tick throttle in Hz
+            ]
+        ]
     ] = {}
 
     async def start_task(
@@ -228,7 +235,7 @@ def diff_history(
                 # the + 1 is because ``last_tsdb_dt`` is pulled from
                 # the last row entry for the ``'time'`` field retreived
                 # from the tsdb.
-                to_push = array[abs(s_diff)+1:]
+                to_push = array[abs(s_diff) + 1:]
 
             else:
                 # pass back only the portion of the array that is
@@ -251,6 +258,7 @@ async def start_backfill(
     last_tsdb_dt: Optional[datetime] = None,
     storage: Optional[Storage] = None,
     write_tsdb: bool = True,
+    tsdb_is_up: bool = False,
 
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
@@ -266,8 +274,8 @@ async def start_backfill(
 
         # sample period step size in seconds
         step_size_s = (
-            pendulum.from_timestamp(times[-1]) -
-            pendulum.from_timestamp(times[-2])
+            pendulum.from_timestamp(times[-1])
+            - pendulum.from_timestamp(times[-2])
         ).seconds
 
         # "frame"'s worth of sample period steps in seconds
@@ -292,24 +300,32 @@ async def start_backfill(
         # let caller unblock and deliver latest history frame
         task_status.started((shm, start_dt, end_dt, bf_done))
 
+        # based on the sample step size, maybe load a certain amount history
         if last_tsdb_dt is None:
-            # maybe a better default (they don't seem to define epoch?!)
-
-            # based on the sample step size load a certain amount
-            # history
-            if step_size_s == 1:
-                last_tsdb_dt = pendulum.now().subtract(days=2)
-
-            elif step_size_s == 60:
-                last_tsdb_dt = pendulum.now().subtract(years=2)
-
-            else:
+            if step_size_s not in (1, 60):
                 raise ValueError(
                     '`piker` only needs to support 1m and 1s sampling '
                     'but ur api is trying to deliver a longer '
                     f'timeframe of {step_size_s} ' 'seconds.. so ye, dun '
-                    'do dat bruh.'
+                    'do dat brudder.'
                 )
+
+            # when no tsdb "last datum" is provided, we just load
+            # some near-term history.
+            periods = {
+                1: {'days': 1},
+                60: {'days': 14},
+            }
+
+            if tsdb_is_up:
+                # do a decently sized backfill and load it into storage.
+                periods = {
+                    1: {'days': 6},
+                    60: {'years': 2},
+                }
+
+            kwargs = periods[step_size_s]
+            last_tsdb_dt = start_dt.subtract(**kwargs)
 
         # configure async query throttling
         erlangs = config.get('erlangs', 1)
@@ -328,7 +344,7 @@ async def start_backfill(
                 log.debug(f'New datetime index:\n{pformat(dtrange)}')
 
                 for end_dt in dtrange:
-                    log.warning(f'Yielding next frame start {end_dt}')
+                    log.info(f'Yielding next frame start {end_dt}')
                     start = yield end_dt
 
                     # if caller sends a new start date, reset to that
@@ -568,8 +584,8 @@ async def start_backfill(
                                     start_dt,
                                     end_dt,
                                 ) = await get_ohlc_frame(
-                                        input_end_dt=last_shm_prepend_dt,
-                                        iter_dts_gen=idts,
+                                    input_end_dt=last_shm_prepend_dt,
+                                    iter_dts_gen=idts,
                                 )
                                 last_epoch = to_push['time'][-1]
                                 diff = start - last_epoch
@@ -712,6 +728,7 @@ async def manage_history(
                     bfqsn,
                     shm,
                     last_tsdb_dt=last_tsdb_dt,
+                    tsdb_is_up=True,
                     storage=storage,
                 )
             )
@@ -795,6 +812,15 @@ async def manage_history(
 
                     # manually trigger step update to update charts/fsps
                     # which need an incremental update.
+                    # NOTE: the way this works is super duper
+                    # un-intuitive right now:
+                    # - the broadcaster fires a msg to the fsp subsystem.
+                    # - fsp subsys then checks for a sample step diff and
+                    #   possibly recomputes prepended history.
+                    # - the fsp then sends back to the parent actor
+                    #   (usually a chart showing graphics for said fsp)
+                    #   which tells the chart to conduct a manual full
+                    #   graphics loop cycle.
                     for delay_s in sampler.subscribers:
                         await broadcast(delay_s)
 
@@ -994,7 +1020,7 @@ async def open_feed_bus(
     brokername: str,
     symbol: str,  # normally expected to the broker-specific fqsn
     loglevel: str,
-    tick_throttle:  Optional[float] = None,
+    tick_throttle: Optional[float] = None,
     start_stream: bool = True,
 
 ) -> None:
@@ -1098,10 +1124,10 @@ async def open_feed_bus(
                 recv,
                 stream,
             )
-            sub = (send, tick_throttle)
+            sub = (send, ctx, tick_throttle)
 
         else:
-            sub = (stream, tick_throttle)
+            sub = (stream, ctx, tick_throttle)
 
         subs = bus._subscribers[bfqsn]
         subs.append(sub)
@@ -1255,7 +1281,7 @@ async def install_brokerd_search(
                 # a backend module?
                 pause_period=getattr(
                     brokermod, '_search_conf', {}
-                    ).get('pause_period', 0.0616),
+                ).get('pause_period', 0.0616),
             ):
                 yield
 

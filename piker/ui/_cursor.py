@@ -43,8 +43,8 @@ log = get_logger(__name__)
 # latency (in terms of perceived lag in cross hair) so really be sure
 # there's an improvement if you want to change it!
 
-_mouse_rate_limit = 120  # TODO; should we calc current screen refresh rate?
-_debounce_delay = 1 / 40
+_mouse_rate_limit = 60  # TODO; should we calc current screen refresh rate?
+_debounce_delay = 0
 _ch_label_opac = 1
 
 
@@ -98,25 +98,30 @@ class LineDot(pg.CurvePoint):
         ev: QtCore.QEvent,
 
     ) -> bool:
-        if not isinstance(
-            ev, QtCore.QDynamicPropertyChangeEvent
-        ) or self.curve() is None:
+
+        if (
+            not isinstance(ev, QtCore.QDynamicPropertyChangeEvent)
+            or self.curve() is None
+        ):
             return False
 
         # TODO: get rid of this ``.getData()`` and
         # make a more pythonic api to retreive backing
         # numpy arrays...
-        (x, y) = self.curve().getData()
-        index = self.property('index')
-        # first = self._plot._arrays['ohlc'][0]['index']
-        # first = x[0]
-        # i = index - first
-        if index:
-            i = round(index - x[0])
-            if i > 0 and i < len(y):
-                newPos = (index, y[i])
-                QtWidgets.QGraphicsItem.setPos(self, *newPos)
-                return True
+        # (x, y) = self.curve().getData()
+        # index = self.property('index')
+        # # first = self._plot._arrays['ohlc'][0]['index']
+        # # first = x[0]
+        # # i = index - first
+        # if index:
+        #     i = round(index - x[0])
+        #     if i > 0 and i < len(y):
+        #         newPos = (index, y[i])
+        #         QtWidgets.QGraphicsItem.setPos(
+        #             self,
+        #             *newPos,
+        #         )
+        #         return True
 
         return False
 
@@ -254,13 +259,13 @@ class ContentsLabels:
     def update_labels(
         self,
         index: int,
-        # array_name: str,
 
     ) -> None:
-        # for name, (label, update) in self._labels.items():
         for chart, name, label, update in self._labels:
 
-            array = chart._arrays[name]
+            flow = chart._flows[name]
+            array = flow.shm.array
+
             if not (
                 index >= 0
                 and index < array[-1]['index']
@@ -268,8 +273,6 @@ class ContentsLabels:
                 # out of range
                 print('WTF out of range?')
                 continue
-
-            # array = chart._arrays[name]
 
             # call provided update func with data point
             try:
@@ -472,9 +475,12 @@ class Cursor(pg.GraphicsObject):
     ) -> LineDot:
         # if this plot contains curves add line dot "cursors" to denote
         # the current sample under the mouse
+        main_flow = plot._flows[plot.name]
+        # read out last index
+        i = main_flow.shm.array[-1]['index']
         cursor = LineDot(
             curve,
-            index=plot._arrays[plot.name][-1]['index'],
+            index=i,
             plot=plot
         )
         plot.addItem(cursor)

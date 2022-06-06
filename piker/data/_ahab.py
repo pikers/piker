@@ -98,8 +98,6 @@ async def open_docker(
     finally:
         if client:
             client.close()
-            for c in client.containers.list():
-                c.kill()
 
 
 class Container:

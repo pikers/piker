@@ -32,7 +32,7 @@ import trio
 import pendulum
 import pyqtgraph as pg
 
-from .. import brokers
+# from .. import brokers
 from ..data.feed import open_feed
 from ._axes import YAxisLabel
 from ._chart import (
@@ -54,16 +54,16 @@ from ._forms import (
     mk_order_pane_layout,
 )
 from .order_mode import open_order_mode
-# from .._profile import (
-#     pg_profile_enabled,
-#     ms_slower_then,
-# )
+from .._profile import (
+    pg_profile_enabled,
+    ms_slower_then,
+)
 from ..log import get_logger
 
 log = get_logger(__name__)
 
 # TODO: load this from a config.toml!
-_quote_throttle_rate: int = 12  # Hz
+_quote_throttle_rate: int = 22  # Hz
 
 
 # a working tick-type-classes template
@@ -96,28 +96,19 @@ def chart_maxmin(
     Compute max and min datums "in view" for range limits.
 
     '''
-    array = ohlcv_shm.array
-    ifirst = array[0]['index']
-
     last_bars_range = chart.bars_range()
-    l, lbar, rbar, r = last_bars_range
-    in_view = array[lbar - ifirst:rbar - ifirst + 1]
+    out = chart.maxmin()
 
-    if not in_view.size:
-        log.warning('Resetting chart to data')
-        chart.default_view()
+    if out is None:
         return (last_bars_range, 0, 0, 0)
 
-    mx, mn = (
-        np.nanmax(in_view['high']),
-        np.nanmin(in_view['low'],)
-    )
+    mn, mx = out
 
     mx_vlm_in_view = 0
     if vlm_chart:
-        mx_vlm_in_view = np.max(
-            in_view['volume']
-        )
+        out = vlm_chart.maxmin()
+        if out:
+            _, mx_vlm_in_view = out
 
     return (
         last_bars_range,
@@ -272,6 +263,7 @@ async def graphics_update_loop(
         'vars': {
             'tick_margin': tick_margin,
             'i_last': i_last,
+            'i_last_append': i_last,
             'last_mx_vlm': last_mx_vlm,
             'last_mx': last_mx,
             'last_mn': last_mn,
@@ -318,6 +310,7 @@ def graphics_update_cycle(
     ds: DisplayState,
     wap_in_history: bool = False,
     trigger_all: bool = False,  # flag used by prepend history updates
+    prepend_update_index: Optional[int] = None,
 
 ) -> None:
     # TODO: eventually optimize this whole graphics stack with ``numba``
@@ -327,9 +320,12 @@ def graphics_update_cycle(
 
     profiler = pg.debug.Profiler(
         msg=f'Graphics loop cycle for: `{chart.name}`',
-        disabled=True,  # not pg_profile_enabled(),
-        gt=1/12 * 1e3,
-        # gt=ms_slower_then,
+        delayed=True,
+        disabled=not pg_profile_enabled(),
+        # disabled=True,
+        ms_threshold=ms_slower_then,
+
+        # ms_threshold=1/12 * 1e3,
     )
 
     # unpack multi-referenced components
@@ -340,12 +336,12 @@ def graphics_update_cycle(
     vars = ds.vars
     tick_margin = vars['tick_margin']
 
-    update_uppx = 6
+    update_uppx = 16
 
     for sym, quote in ds.quotes.items():
 
         # compute the first available graphic's x-units-per-pixel
-        xpx = vlm_chart.view.x_uppx()
+        uppx = vlm_chart.view.x_uppx()
 
         # NOTE: vlm may be written by the ``brokerd`` backend
         # event though a tick sample is not emitted.
@@ -364,26 +360,58 @@ def graphics_update_cycle(
         i_diff = i_step - vars['i_last']
         vars['i_last'] = i_step
 
+        append_diff = i_step - vars['i_last_append']
+
+        # update the "last datum" (aka extending the flow graphic with
+        # new data) only if the number of unit steps is >= the number of
+        # such unit steps per pixel (aka uppx). Iow, if the zoom level
+        # is such that a datum(s) update to graphics wouldn't span
+        # to a new pixel, we don't update yet.
+        do_append = (append_diff >= uppx)
+        if do_append:
+            vars['i_last_append'] = i_step
+
+        do_rt_update = uppx < update_uppx
+        # print(
+        #     f'append_diff:{append_diff}\n'
+        #     f'uppx:{uppx}\n'
+        #     f'do_append: {do_append}'
+        # )
+
+        # TODO: we should only run mxmn when we know
+        # an update is due via ``do_append`` above.
         (
             brange,
             mx_in_view,
             mn_in_view,
             mx_vlm_in_view,
         ) = ds.maxmin()
-
         l, lbar, rbar, r = brange
         mx = mx_in_view + tick_margin
         mn = mn_in_view - tick_margin
-        profiler('maxmin call')
-        liv = r > i_step  # the last datum is in view
+
+        profiler('`ds.maxmin()` call')
+
+        liv = r >= i_step  # the last datum is in view
+
+        if (
+            prepend_update_index is not None
+            and lbar > prepend_update_index
+        ):
+            # on a history update (usually from the FSP subsys)
+            # if the segment of history that is being prepended
+            # isn't in view there is no reason to do a graphics
+            # update.
+            log.debug('Skipping prepend graphics cycle: frame not in view')
+            return
 
         # don't real-time "shift" the curve to the
         # left unless we get one of the following:
         if (
             (
-                i_diff > 0  # no new sample step
-                and xpx < 4  # chart is zoomed out very far
-                and r >= i_step  # the last datum isn't in view
+                # i_diff > 0  # no new sample step
+                do_append
+                # and uppx < 4  # chart is zoomed out very far
                 and liv
             )
             or trigger_all
@@ -393,6 +421,11 @@ def graphics_update_cycle(
             # and then iff update curves and shift?
             chart.increment_view(steps=i_diff)
 
+            if vlm_chart:
+                vlm_chart.increment_view(steps=i_diff)
+
+            profiler('view incremented')
+
         if vlm_chart:
             # always update y-label
             ds.vlm_sticky.update_from_data(
@@ -401,17 +434,16 @@ def graphics_update_cycle(
 
             if (
                 (
-                    xpx < update_uppx or i_diff > 0
+                    do_rt_update
+                    or do_append
                     and liv
                 )
                 or trigger_all
             ):
                 # TODO: make it so this doesn't have to be called
                 # once the $vlm is up?
-                vlm_chart.update_graphics_from_array(
+                vlm_chart.update_graphics_from_flow(
                     'volume',
-                    array,
-
                     # UGGGh, see ``maxmin()`` impl in `._fsp` for
                     # the overlayed plotitems... we need a better
                     # bay to invoke a maxmin per overlay..
@@ -424,6 +456,7 @@ def graphics_update_cycle(
                     # connected to update accompanying overlay
                     # graphics..
                 )
+                profiler('`vlm_chart.update_graphics_from_flow()`')
 
                 if (
                     mx_vlm_in_view != vars['last_mx_vlm']
@@ -432,22 +465,29 @@ def graphics_update_cycle(
                     vlm_chart.view._set_yrange(
                         yrange=yrange,
                     )
+                    profiler('`vlm_chart.view._set_yrange()`')
                     # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
                     vars['last_mx_vlm'] = mx_vlm_in_view
 
                 for curve_name, flow in vlm_chart._flows.items():
+
+                    if not flow.render:
+                        continue
+
                     update_fsp_chart(
                         vlm_chart,
                         flow,
                         curve_name,
                         array_key=curve_name,
+                        # do_append=uppx < update_uppx,
+                        do_append=do_append,
                     )
                     # is this even doing anything?
                     # (pretty sure it's the real-time
                     # resizing from last quote?)
                     fvb = flow.plot.vb
                     fvb._set_yrange(
-                        autoscale_linked_plots=False,
+                        # autoscale_linked_plots=False,
                         name=curve_name,
                     )
 
@@ -496,13 +536,17 @@ def graphics_update_cycle(
 
         # update ohlc sampled price bars
         if (
-            xpx < update_uppx
-            or i_diff > 0
+            do_rt_update
+            or do_append
             or trigger_all
         ):
-            chart.update_graphics_from_array(
+            # TODO: we should always update the "last" datum
+            # since the current range should at least be updated
+            # to it's max/min on the last pixel.
+            chart.update_graphics_from_flow(
                 chart.name,
-                array,
+                # do_append=uppx < update_uppx,
+                do_append=do_append,
             )
 
         # iterate in FIFO order per tick-frame
@@ -515,8 +559,9 @@ def graphics_update_cycle(
             # tick frames to determine the y-range for chart
             # auto-scaling.
             # TODO: we need a streaming minmax algo here, see def above.
-            mx = max(price + tick_margin, mx)
-            mn = min(price - tick_margin, mn)
+            if liv:
+                mx = max(price + tick_margin, mx)
+                mn = min(price - tick_margin, mn)
 
             if typ in clear_types:
 
@@ -539,9 +584,8 @@ def graphics_update_cycle(
 
                 if wap_in_history:
                     # update vwap overlay line
-                    chart.update_graphics_from_array(
+                    chart.update_graphics_from_flow(
                         'bar_wap',
-                        array,
                     )
 
             # L1 book label-line updates
@@ -557,7 +601,7 @@ def graphics_update_cycle(
 
                 if (
                     label is not None
-                    # and liv
+                    and liv
                 ):
                     label.update_fields(
                         {'level': price, 'size': size}
@@ -571,7 +615,7 @@ def graphics_update_cycle(
                 typ in _tick_groups['asks']
                 # TODO: instead we could check if the price is in the
                 # y-view-range?
-                # and liv
+                and liv
             ):
                 l1.ask_label.update_fields({'level': price, 'size': size})
 
@@ -579,7 +623,7 @@ def graphics_update_cycle(
                 typ in _tick_groups['bids']
                 # TODO: instead we could check if the price is in the
                 # y-view-range?
-                # and liv
+                and liv
             ):
                 l1.bid_label.update_fields({'level': price, 'size': size})
 
@@ -594,6 +638,7 @@ def graphics_update_cycle(
                 main_vb._ic is None
                 or not main_vb._ic.is_set()
             ):
+                # print(f'updating range due to mxmn')
                 main_vb._set_yrange(
                     # TODO: we should probably scale
                     # the view margin based on the size
@@ -604,10 +649,24 @@ def graphics_update_cycle(
                     yrange=(mn, mx),
                 )
 
-            vars['last_mx'], vars['last_mn'] = mx, mn
+        # XXX: update this every draw cycle to make L1-always-in-view work.
+        vars['last_mx'], vars['last_mn'] = mx, mn
 
         # run synchronous update on all linked flows
         for curve_name, flow in chart._flows.items():
+
+            if (
+                not (do_rt_update or do_append)
+                and liv
+                # even if we're downsampled bigly
+                # draw the last datum in the final
+                # px column to give the user the mx/mn
+                # range of that set.
+            ):
+                # always update the last datum-element
+                # graphic for all flows
+                flow.draw_last(array_key=curve_name)
+
             # TODO: should the "main" (aka source) flow be special?
             if curve_name == chart.data_key:
                 continue
@@ -643,7 +702,7 @@ async def display_symbol_data(
     )
 
     # historical data fetch
-    brokermod = brokers.get_brokermod(provider)
+    # brokermod = brokers.get_brokermod(provider)
 
     # ohlc_status_done = sbar.open_status(
     #     'retreiving OHLC history.. ',
@@ -692,31 +751,30 @@ async def display_symbol_data(
         # create main OHLC chart
         chart = linked.plot_ohlc_main(
             symbol,
-            bars,
+            ohlcv,
             sidepane=pp_pane,
         )
+        chart.default_view()
         chart._feeds[symbol.key] = feed
         chart.setFocus()
 
         # plot historical vwap if available
         wap_in_history = False
 
-        if brokermod._show_wap_in_history:
+        # XXX: FOR SOME REASON THIS IS CAUSING HANGZ!?!
+        # if brokermod._show_wap_in_history:
 
-            if 'bar_wap' in bars.dtype.fields:
-                wap_in_history = True
-                chart.draw_curve(
-                    name='bar_wap',
-                    data=bars,
-                    add_label=False,
-                )
+        #     if 'bar_wap' in bars.dtype.fields:
+        #         wap_in_history = True
+        #         chart.draw_curve(
+        #             name='bar_wap',
+        #             shm=ohlcv,
+        #             color='default_light',
+        #             add_label=False,
+        #         )
 
         # size view to data once at outset
         chart.cv._set_yrange()
-
-        # TODO: a data view api that makes this less shit
-        chart._shm = ohlcv
-        chart._flows[chart.data_key].shm = ohlcv
 
         # NOTE: we must immediately tell Qt to show the OHLC chart
         # to avoid a race where the subplots get added/shown to
@@ -780,6 +838,5 @@ async def display_symbol_data(
                 sbar._status_groups[loading_sym_key][1]()
 
                 # let the app run.. bby
-                chart.default_view()
                 # linked.graphics_cycle()
                 await trio.sleep_forever()
