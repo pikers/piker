@@ -948,13 +948,13 @@ async def load_aio_clients(
         'ports',
 
         # default order is to check for gw first
-        [4002, 7497,]
+        [4002, 7497]
     )
     if isinstance(try_ports, dict):
         log.warning(
             '`ib.ports` in `brokers.toml` should be a `list` NOT a `dict`'
         )
-        try_ports = list(ports.values())
+        try_ports = list(try_ports.values())
 
     _err = None
     accounts_def = config.load_accounts(['ib'])
@@ -1725,8 +1725,6 @@ async def backfill_bars(
 
     with trio.CancelScope() as cs:
 
-        # async with open_history_client(fqsn) as proxy:
-        # async with open_client_proxy() as proxy:
         async with open_data_client() as proxy:
 
             out, fails = await get_bars(proxy, fqsn)
@@ -1961,6 +1959,11 @@ async def stream_quotes(
         # print(f'first quote: {first_quote}')
 
         def mk_init_msgs() -> dict[str, dict]:
+            '''
+            Collect a bunch of meta-data useful for feed startup and
+            pack in a `dict`-msg.
+
+            '''
             # pass back some symbol info like min_tick, trading_hours, etc.
             syminfo = asdict(details)
             syminfo.update(syminfo['contract'])
@@ -1982,6 +1985,9 @@ async def stream_quotes(
             # a float
             syminfo['lot_tick_size'] = 0.0
 
+            ibclient = proxy._aio_ns.ib.client
+            host, port = ibclient.host, ibclient.port
+
             # TODO: for loop through all symbols passed in
             init_msgs = {
                 # pass back token, and bool, signalling if we're the writer
@@ -1989,7 +1995,11 @@ async def stream_quotes(
                 sym: {
                     'symbol_info': syminfo,
                     'fqsn': first_quote['fqsn'],
-                }
+                },
+                'status': {
+                    'data_ep': f'{host}:{port}',
+                },
+
             }
             return init_msgs
 
