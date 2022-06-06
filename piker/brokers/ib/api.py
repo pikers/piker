@@ -1248,6 +1248,7 @@ async def open_client_proxy(
 
 @acm
 async def get_client(
+    is_brokercheck: bool = False,
     **kwargs,
 
 ) -> Client:
@@ -1256,6 +1257,11 @@ async def get_client(
     a method proxy to it.
 
     '''
+    # hack for `piker brokercheck ib`..
+    if is_brokercheck:
+        yield Client
+        return
+
     from .feed import open_data_client
 
     # TODO: the IPC via portal relay layer for when this current
