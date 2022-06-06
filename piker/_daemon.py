@@ -426,9 +426,19 @@ async def spawn_brokerd(
 
     # ask `pikerd` to spawn a new sub-actor and manage it under its
     # actor nursery
+    modpath = brokermod.__name__
+    broker_enable = [modpath]
+    for submodname in getattr(
+        brokermod,
+        '__enable_modules__',
+        [],
+    ):
+        subpath = f'{modpath}.{submodname}'
+        broker_enable.append(subpath)
+
     portal = await _services.actor_n.start_actor(
         dname,
-        enable_modules=_data_mods + [brokermod.__name__],
+        enable_modules=_data_mods + broker_enable,
         loglevel=loglevel,
         debug_mode=_services.debug_mode,
         **tractor_kwargs

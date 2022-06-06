@@ -15,11 +15,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-Interactive Brokers API backend.
-
-Note the client runs under an ``asyncio`` loop (since ``ib_insync`` is
-built on it) and thus actor aware API calls must be spawned with
-``infected_aio==True``.
+``ib`` core API client machinery; mostly sane wrapping around
+``ib_insync``.
 
 """
 from __future__ import annotations
@@ -61,12 +58,12 @@ import numpy as np
 import pendulum
 
 
-from .. import config
-from ..log import get_logger, get_console_log
-from ..data._source import base_ohlc_dtype
-from ..data._sharedmem import ShmArray
-from ._util import SymbolNotFound, NoData
-from ..clearing._messages import (
+from piker import config
+from piker.log import get_logger, get_console_log
+from piker.data._source import base_ohlc_dtype
+from piker.data._sharedmem import ShmArray
+from .._util import SymbolNotFound, NoData
+from piker.clearing._messages import (
     BrokerdOrder, BrokerdOrderAck, BrokerdStatus,
     BrokerdPosition, BrokerdCancel,
     BrokerdFill, BrokerdError,
@@ -75,10 +72,7 @@ from ..clearing._messages import (
 
 log = get_logger(__name__)
 
-# passed to ``tractor.ActorNursery.start_actor()``
-_spawn_kwargs = {
-    'infect_asyncio': True,
-}
+
 _time_units = {
     's': ' sec',
     'm': ' mins',
@@ -116,12 +110,6 @@ _show_wap_in_history: bool = False
 _search_conf = {
     'pause_period': 6 / 16,
 }
-
-
-# annotation to let backend agnostic code
-# know if ``brokerd`` should be spawned with
-# ``tractor``'s aio mode.
-_infect_asyncio: bool = True
 
 
 # overrides to sidestep pretty questionable design decisions in
