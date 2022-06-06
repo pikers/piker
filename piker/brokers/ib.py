@@ -1353,6 +1353,7 @@ async def open_client_proxy(
 
 @acm
 async def get_client(
+    is_brokercheck: bool = False,
     **kwargs,
 
 ) -> Client:
@@ -1361,6 +1362,10 @@ async def get_client(
     a method proxy to it.
 
     '''
+    if is_brokercheck:
+        yield Client
+        return
+
     # TODO: the IPC via portal relay layer for when this current
     # actor isn't in aio mode.
     async with open_data_client() as proxy:
