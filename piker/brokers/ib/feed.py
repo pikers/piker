@@ -40,7 +40,7 @@ from trio_typing import TaskStatus
 
 from piker.data._sharedmem import ShmArray
 from .._util import SymbolNotFound, NoData
-from .client import (
+from .api import (
     _adhoc_futes_set,
     log,
     load_aio_clients,

@@ -56,7 +56,7 @@ from piker.clearing._messages import (
     BrokerdFill,
     BrokerdError,
 )
-from .client import (
+from .api import (
     _adhoc_futes_set,
     log,
     get_config,

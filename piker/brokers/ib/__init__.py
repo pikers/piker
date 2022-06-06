@@ -30,7 +30,7 @@ Sub-modules within break into the core functionalities:
   tracking..
 
 """
-from .client import (
+from .api import (
     get_client,
 )
 from .feed import (
@@ -51,7 +51,7 @@ __all__ = [
 
 # tractor RPC enable arg
 __enable_modules__: list[str] = [
-    'client',
+    'api',
     'feed',
     'broker',
 ]
