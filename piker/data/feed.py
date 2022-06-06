@@ -700,6 +700,7 @@ async def manage_history(
 
     bfqsn = fqsn.replace('.' + mod.name, '')
     open_history_client = getattr(mod, 'open_history_client', None)
+    assert open_history_client
 
     if is_up and opened and open_history_client:
 

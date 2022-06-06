@@ -32,15 +32,27 @@ Sub-modules within break into the core functionalities:
 """
 from .client import (
     get_client,
+    trades_dialogue,
+)
+from .feed import (
     open_history_client,
     open_symbol_search,
     stream_quotes,
-    trades_dialogue,
 )
+
+__all__ = [
+    'get_client',
+    'trades_dialogue',
+    'open_history_client',
+    'open_symbol_search',
+    'stream_quotes',
+]
+
 
 # tractor RPC enable arg
 __enable_modules__: list[str] = [
     'client',
+    'feed',
 ]
 
 # passed to ``tractor.ActorNursery.start_actor()``
