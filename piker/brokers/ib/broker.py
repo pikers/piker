@@ -57,6 +57,7 @@ from piker.clearing._messages import (
     BrokerdError,
 )
 from .api import (
+    _accounts2clients,
     _adhoc_futes_set,
     log,
     get_config,
@@ -111,8 +112,6 @@ async def handle_order_requests(
     accounts_def: dict[str, str],
 
 ) -> None:
-
-    global _accounts2clients
 
     request_msg: dict
     async for request_msg in ems_order_stream:
@@ -271,7 +270,6 @@ async def trades_dialogue(
 
     accounts_def = config.load_accounts(['ib'])
 
-    global _accounts2clients
     global _client_cache
 
     # deliver positions to subscriber before anything else
@@ -283,7 +281,6 @@ async def trades_dialogue(
         trio.open_nursery() as nurse,
         open_client_proxies() as (proxies, aioclients),
     ):
-        # for account, client in _accounts2clients.items():
         for account, proxy in proxies.items():
 
             client = aioclients[account]
