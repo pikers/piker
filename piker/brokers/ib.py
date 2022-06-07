@@ -780,23 +780,29 @@ class Client:
 
         ) -> None:
 
-            log.error(errorString)
             reason = errorString
 
             if reqId == -1:
                 # it's a general event?
                 key = 'event'
+                log.info(errorString)
+
             else:
                 key = 'error'
+                log.error(errorString)
 
             try:
                 to_trio.send_nowait((
                     key,
 
                     # error "object"
-                    {'reqid': reqId,
-                     'reason': reason,
-                     'contract': contract}
+                    {
+                        'type': key,
+                        'reqid': reqId,
+                        'reason': reason,
+                        'error_code': errorCode,
+                        'contract': contract,
+                    }
                 ))
             except trio.BrokenResourceError:
                 # XXX: eventkit's ``Event.emit()`` for whatever redic
@@ -2248,6 +2254,7 @@ async def trades_dialogue(
                     recv_trade_updates,
                     client=client,
                 ) as (first, trade_event_stream):
+
                     task_status.started(trade_event_stream)
                     await trio.sleep_forever()
 
@@ -2614,3 +2621,79 @@ async def data_reset_hack(
 
     # we don't really need the ``xdotool`` approach any more B)
     return True
+
+
+def load_flex_trades(
+    path: Optional[str] = None,
+
+) -> dict[str, str]:
+
+    from pprint import pprint
+    from ib_insync import flexreport, util
+
+    conf = get_config()
+
+    if not path:
+        # load ``brokers.toml`` and try to get the flex
+        # token and query id that must be previously defined
+        # by the user.
+        token = conf.get('flex_token')
+        if not token:
+            raise ValueError(
+               'You must specify a ``flex_token`` field in your'
+               '`brokers.toml` in order load your trade log, see our'
+               'intructions for how to set this up here:\n'
+               'PUT LINK HERE!'
+            )
+
+        qid = conf['flex_trades_query_id']
+
+        # TODO: hack this into our logging
+        # system like we do with the API client..
+        util.logToConsole()
+
+        # TODO: rewrite the query part of this with async..httpx?
+        report = flexreport.FlexReport(
+            token=token,
+            queryId=qid,
+        )
+
+    else:
+        # XXX: another project we could potentially look at,
+        # https://pypi.org/project/ibflex/
+        report = flexreport.FlexReport(path=path)
+
+    trade_entries = report.extract('Trade')
+    trades = {
+        # XXX: LOL apparently ``toml`` has a bug
+        # where a section key error will show up in the write
+        # if you leave this as an ``int``?
+        str(t.__dict__['tradeID']): t.__dict__
+        for t in trade_entries
+    }
+
+    ln = len(trades)
+    log.info(f'Loaded {ln} trades from flex query')
+
+    trades_by_account = {}
+    for tid, trade in trades.items():
+        trades_by_account.setdefault(
+            # oddly for some so-called "BookTrade" entries
+            # this field seems to be blank, no cuckin clue.
+            # trade['ibExecID']
+            str(trade['accountId']), {}
+        )[tid] = trade
+
+    section = {'ib': trades_by_account}
+    pprint(section)
+
+    # TODO: load the config first and append in
+    # the new trades loaded here..
+    try:
+        config.write(section, 'trades')
+    except KeyError:
+        import pdbpp; pdbpp.set_trace()
+
+
+if __name__ == '__main__':
+    load_flex_trades()
