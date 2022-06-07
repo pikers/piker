@@ -555,36 +555,56 @@ def load_flex_trades(
         report = flexreport.FlexReport(path=path)
 
     trade_entries = report.extract('Trade')
-    trades = {
+
+    # get reverse map to user account names
+    accounts = conf['accounts'].inverse
+    trades_by_account = {}
+
+    for t in trade_entries:
+
         # XXX: LOL apparently ``toml`` has a bug
         # where a section key error will show up in the write
         # if you leave this as an ``int``?
-        str(t.__dict__['tradeID']): t.__dict__
-        for t in trade_entries
-    }
+        trade = t.__dict__
+        # oddly for some so-called "BookTrade" entries
+        # this field seems to be blank, no cuckin clue.
+        # trade['ibExecID']
+        tid = str(trade['tradeID'])
+        date = str(trade['tradeDate'])
+        acctid = accounts[str(trade['accountId'])]
+        trades_by_account.setdefault(
+            acctid, {}
+        ).setdefault(date, {})[tid] = trade
 
-    ln = len(trades)
+    ln = len(trades_by_account.values())
     log.info(f'Loaded {ln} trades from flex query')
 
-    trades_by_account = {}
-    for tid, trade in trades.items():
-        trades_by_account.setdefault(
-            # oddly for some so-called "BookTrade" entries
-            # this field seems to be blank, no cuckin clue.
-            # trade['ibExecID']
-            str(trade['accountId']), {}
-        )[tid] = trade
+    # section = {'ib': trades_by_account}
+    for acctid, trades_by_id in trades_by_account.items():
+        with config.open_trade_ledger('ib', acctid) as ledger:
+            ledger.update({'ib': trades_by_id})
 
-    section = {'ib': trades_by_account}
-    pprint(section)
+    # pprint(section)
 
     # TODO: load the config first and append in
     # the new trades loaded here..
-    try:
-        config.write(section, 'trades')
-    except KeyError:
-        import pdbpp; pdbpp.set_trace()  # noqa
+    # try:
+    #     config.write(section, 'trades')
+    # except KeyError:
+    #     import pdbpp; pdbpp.set_trace()  # noqa
 
 
 if __name__ == '__main__':
-    load_flex_trades()
+    import sys
+    import os
+
+    args = sys.argv
+    if len(args) > 1:
+        args = args[1:]
+        for arg in args:
+            path = os.path.abspath(arg)
+            load_flex_trades(path=path)
+    else:
+        # expect brokers.toml to have an entry and
+        # pull from the web service.
+        load_flex_trades()
