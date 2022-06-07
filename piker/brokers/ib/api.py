@@ -38,6 +38,7 @@ import time
 from types import SimpleNamespace
 
 
+from bidict import bidict
 import trio
 import tractor
 from tractor import to_asyncio
@@ -261,12 +262,11 @@ class Client:
 
         # NOTE: the ib.client here is "throttled" to 45 rps by default
 
-    async def trades(
-        self,
-        # api_only: bool = False,
+    async def trades(self) -> dict[str, Any]:
+        '''
+        Return list of trades from current session in ``dict``.
 
-    ) -> dict[str, Any]:
-
+        '''
         # orders = await self.ib.reqCompletedOrdersAsync(
         #     apiOnly=api_only
         # )
@@ -811,9 +811,22 @@ _scan_ignore: set[tuple[str, int]] = set()
 
 def get_config() -> dict[str, Any]:
 
-    conf, path = config.load()
-
+    conf, path = config.load('brokers')
     section = conf.get('ib')
+
+    accounts = section.get('accounts')
+    if not accounts:
+        raise ValueError(
+            'brokers.toml -> `ib.accounts` must be defined\n'
+            f'location: {path}'
+        )
+
+    names = list(accounts.keys())
+    accts = section['accounts'] = bidict(accounts)
+    log.info(
+        f'brokers.toml defines {len(accts)} accounts: '
+        f'{pformat(names)}'
+    )
 
     if section is None:
         log.warning(f'No config section found for ib in {path}')
