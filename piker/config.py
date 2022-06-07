@@ -18,9 +18,11 @@
 Broker configuration mgmt.
 
 """
+from contextlib import contextmanager as cm
 import platform
 import sys
 import os
+from os import path
 from os.path import dirname
 import shutil
 from typing import Optional
@@ -111,6 +113,7 @@ if _parent_user:
 
 _conf_names: set[str] = {
     'brokers',
+    'pp',
     'trades',
     'watchlists',
 }
@@ -147,19 +150,21 @@ def get_conf_path(
     conf_name: str = 'brokers',
 
 ) -> str:
-    """Return the default config path normally under
-    ``~/.config/piker`` on linux.
+    '''
+    Return the top-level default config path normally under
+    ``~/.config/piker`` on linux for a given ``conf_name``, the config
+    name.
 
     Contains files such as:
     - brokers.toml
+    - pp.toml
     - watchlists.toml
-    - trades.toml
 
     # maybe coming soon ;)
     - signals.toml
     - strats.toml
 
-    """
+    '''
     assert conf_name in _conf_names
     fn = _conf_fn_w_ext(conf_name)
     return os.path.join(
@@ -168,12 +173,57 @@ def get_conf_path(
     )
 
 
+@cm
+def open_trade_ledger(
+    broker: str,
+    account: str,
+
+) -> str:
+    '''
+    Indempotently create and read in a trade log file from the
+    ``<configuration_dir>/ledgers/`` directory.
+
+    Files are named per broker account of the form
+    ``<brokername>_<accountname>.toml``. The ``accountname`` here is the
+    name as defined in the user's ``brokers.toml`` config.
+
+    '''
+    ldir = path.join(_config_dir, 'ledgers')
+    if not path.isdir(ldir):
+        os.makedirs(ldir)
+
+    fname = f'trades_{broker}_{account}.toml'
+    tradesfile = path.join(ldir, fname)
+
+    if not path.isfile(tradesfile):
+        log.info(
+            f'Creating new local trades ledger: {tradesfile}'
+        )
+        with open(tradesfile, 'w') as cf:
+            pass  # touch
+    try:
+        with open(tradesfile, 'r') as cf:
+            ledger = toml.load(tradesfile)
+            cpy = ledger.copy()
+            yield cpy
+    finally:
+        if cpy != ledger:
+            # TODO: show diff output?
+            # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
+            print(f'Updating ledger for {tradesfile}:\n')
+            ledger.update(cpy)
+
+            # we write on close the mutated ledger data
+            with open(tradesfile, 'w') as cf:
+                return toml.dump(ledger, cf)
+
+
 def repodir():
     '''
     Return the abspath to the repo directory.
 
     '''
-    dirpath = os.path.abspath(
+    dirpath = path.abspath(
         # we're 3 levels down in **this** module file
         dirname(dirname(os.path.realpath(__file__)))
     )
