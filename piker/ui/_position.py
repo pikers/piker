@@ -19,6 +19,7 @@ Position info and display
 
 """
 from __future__ import annotations
+from copy import copy
 from dataclasses import dataclass
 from functools import partial
 from math import floor, copysign
@@ -476,7 +477,7 @@ class PositionTracker:
 
         self.alloc = alloc
         self.startup_pp = startup_pp
-        self.live_pp = startup_pp.copy()
+        self.live_pp = copy(startup_pp)
 
         view = chart.getViewBox()
 

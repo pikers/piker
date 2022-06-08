@@ -59,7 +59,8 @@ log = get_logger(__name__)
 
 
 class OrderDialog(BaseModel):
-    '''Trade dialogue meta-data describing the lifetime
+    '''
+    Trade dialogue meta-data describing the lifetime
     of an order submission to ``emsd`` from a chart.
 
     '''
@@ -87,7 +88,8 @@ def on_level_change_update_next_order_info(
     tracker: PositionTracker,
 
 ) -> None:
-    '''A callback applied for each level change to the line
+    '''
+    A callback applied for each level change to the line
     which will recompute the order size based on allocator
     settings. this is assigned inside
     ``OrderMode.line_from_order()``

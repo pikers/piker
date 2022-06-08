@@ -23,53 +23,11 @@ from typing import Optional
 
 from bidict import bidict
 from pydantic import BaseModel, validator
+from msgspec import Struct
 
 from ..data._source import Symbol
 from ._messages import BrokerdPosition, Status
-
-
-class Position(BaseModel):
-    '''
-    Basic pp (personal position) model with attached fills history.
-
-    This type should be IPC wire ready?
-
-    '''
-    symbol: Symbol
-
-    # last size and avg entry price
-    size: float
-    avg_price: float  # TODO: contextual pricing
-
-    # ordered record of known constituent trade messages
-    fills: list[Status] = []
-
-    def update_from_msg(
-        self,
-        msg: BrokerdPosition,
-
-    ) -> None:
-
-        # XXX: better place to do this?
-        symbol = self.symbol
-
-        lot_size_digits = symbol.lot_size_digits
-        avg_price, size = (
-            round(msg['avg_price'], ndigits=symbol.tick_size_digits),
-            round(msg['size'], ndigits=lot_size_digits),
-        )
-
-        self.avg_price = avg_price
-        self.size = size
-
-    @property
-    def dsize(self) -> float:
-        '''
-        The "dollar" size of the pp, normally in trading (fiat) unit
-        terms.
-
-        '''
-        return self.avg_price * self.size
+from ..pp import Position
 
 
 _size_units = bidict({
