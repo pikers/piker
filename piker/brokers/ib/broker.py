@@ -579,19 +579,9 @@ def load_flex_trades(
     ln = len(trades_by_account.values())
     log.info(f'Loaded {ln} trades from flex query')
 
-    # section = {'ib': trades_by_account}
     for acctid, trades_by_id in trades_by_account.items():
         with config.open_trade_ledger('ib', acctid) as ledger:
             ledger.update({'ib': trades_by_id})
-
-    # pprint(section)
-
-    # TODO: load the config first and append in
-    # the new trades loaded here..
-    # try:
-    #     config.write(section, 'trades')
-    # except KeyError:
-    #     import pdbpp; pdbpp.set_trace()  # noqa
 
 
 if __name__ == '__main__':
