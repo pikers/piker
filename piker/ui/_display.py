@@ -426,71 +426,6 @@ def graphics_update_cycle(
 
             profiler('view incremented')
 
-        if vlm_chart:
-            # always update y-label
-            ds.vlm_sticky.update_from_data(
-                *array[-1][['index', 'volume']]
-            )
-
-            if (
-                (
-                    do_rt_update
-                    or do_append
-                    and liv
-                )
-                or trigger_all
-            ):
-                # TODO: make it so this doesn't have to be called
-                # once the $vlm is up?
-                vlm_chart.update_graphics_from_flow(
-                    'volume',
-                    # UGGGh, see ``maxmin()`` impl in `._fsp` for
-                    # the overlayed plotitems... we need a better
-                    # bay to invoke a maxmin per overlay..
-                    render=False,
-                    # XXX: ^^^^ THIS IS SUPER IMPORTANT! ^^^^
-                    # without this, since we disable the
-                    # 'volume' (units) chart after the $vlm starts
-                    # up we need to be sure to enable this
-                    # auto-ranging otherwise there will be no handler
-                    # connected to update accompanying overlay
-                    # graphics..
-                )
-                profiler('`vlm_chart.update_graphics_from_flow()`')
-
-                if (
-                    mx_vlm_in_view != vars['last_mx_vlm']
-                ):
-                    yrange = (0, mx_vlm_in_view * 1.375)
-                    vlm_chart.view._set_yrange(
-                        yrange=yrange,
-                    )
-                    profiler('`vlm_chart.view._set_yrange()`')
-                    # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
-                    vars['last_mx_vlm'] = mx_vlm_in_view
-
-                for curve_name, flow in vlm_chart._flows.items():
-
-                    if not flow.render:
-                        continue
-
-                    update_fsp_chart(
-                        vlm_chart,
-                        flow,
-                        curve_name,
-                        array_key=curve_name,
-                        # do_append=uppx < update_uppx,
-                        do_append=do_append,
-                    )
-                    # is this even doing anything?
-                    # (pretty sure it's the real-time
-                    # resizing from last quote?)
-                    fvb = flow.plot.vb
-                    fvb._set_yrange(
-                        # autoscale_linked_plots=False,
-                        name=curve_name,
-                    )
-
         ticks_frame = quote.get('ticks', ())
 
         frames_by_type: dict[str, dict] = {}
@@ -540,14 +475,15 @@ def graphics_update_cycle(
             or do_append
             or trigger_all
         ):
-            # TODO: we should always update the "last" datum
-            # since the current range should at least be updated
-            # to it's max/min on the last pixel.
             chart.update_graphics_from_flow(
                 chart.name,
                 # do_append=uppx < update_uppx,
                 do_append=do_append,
             )
+
+        # NOTE: we always update the "last" datum
+        # since the current range should at least be updated
+        # to it's max/min on the last pixel.
 
         # iterate in FIFO order per tick-frame
         for typ, tick in lasts.items():
@@ -653,30 +589,115 @@ def graphics_update_cycle(
         vars['last_mx'], vars['last_mn'] = mx, mn
 
         # run synchronous update on all linked flows
+        # TODO: should the "main" (aka source) flow be special?
         for curve_name, flow in chart._flows.items():
+            # update any overlayed fsp flows
+            if curve_name != chart.data_key:
+                update_fsp_chart(
+                    chart,
+                    flow,
+                    curve_name,
+                    array_key=curve_name,
+                )
+
+            # even if we're downsampled bigly
+            # draw the last datum in the final
+            # px column to give the user the mx/mn
+            # range of that set.
+            if (
+                not do_append
+                # and not do_rt_update
+                and liv
+            ):
+                flow.draw_last(
+                    array_key=curve_name,
+                    only_last_uppx=True,
+                )
+
+        # volume chart logic..
+        # TODO: can we unify this with the above loop?
+        if vlm_chart:
+            # always update y-label
+            ds.vlm_sticky.update_from_data(
+                *array[-1][['index', 'volume']]
+            )
 
             if (
-                not (do_rt_update or do_append)
-                and liv
-                # even if we're downsampled bigly
-                # draw the last datum in the final
-                # px column to give the user the mx/mn
-                # range of that set.
+                (
+                    do_rt_update
+                    or do_append
+                    and liv
+                )
+                or trigger_all
             ):
-                # always update the last datum-element
-                # graphic for all flows
-                flow.draw_last(array_key=curve_name)
+                # TODO: make it so this doesn't have to be called
+                # once the $vlm is up?
+                vlm_chart.update_graphics_from_flow(
+                    'volume',
+                    # UGGGh, see ``maxmin()`` impl in `._fsp` for
+                    # the overlayed plotitems... we need a better
+                    # bay to invoke a maxmin per overlay..
+                    render=False,
+                    # XXX: ^^^^ THIS IS SUPER IMPORTANT! ^^^^
+                    # without this, since we disable the
+                    # 'volume' (units) chart after the $vlm starts
+                    # up we need to be sure to enable this
+                    # auto-ranging otherwise there will be no handler
+                    # connected to update accompanying overlay
+                    # graphics..
+                )
+                profiler('`vlm_chart.update_graphics_from_flow()`')
 
-            # TODO: should the "main" (aka source) flow be special?
-            if curve_name == chart.data_key:
-                continue
+                if (
+                    mx_vlm_in_view != vars['last_mx_vlm']
+                ):
+                    yrange = (0, mx_vlm_in_view * 1.375)
+                    vlm_chart.view._set_yrange(
+                        yrange=yrange,
+                    )
+                    profiler('`vlm_chart.view._set_yrange()`')
+                    # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
+                    vars['last_mx_vlm'] = mx_vlm_in_view
 
-            update_fsp_chart(
-                chart,
-                flow,
-                curve_name,
-                array_key=curve_name,
-            )
+            for curve_name, flow in vlm_chart._flows.items():
+
+                if (
+                    curve_name != 'volume' and
+                    flow.render and (
+                        liv and
+                        do_rt_update or do_append
+                    )
+                ):
+                    update_fsp_chart(
+                        vlm_chart,
+                        flow,
+                        curve_name,
+                        array_key=curve_name,
+                        # do_append=uppx < update_uppx,
+                        do_append=do_append,
+                    )
+                    # is this even doing anything?
+                    # (pretty sure it's the real-time
+                    # resizing from last quote?)
+                    fvb = flow.plot.vb
+                    fvb._set_yrange(
+                        name=curve_name,
+                    )
+
+                elif (
+                    curve_name != 'volume'
+                    and not do_append
+                    and liv
+                    and uppx >= 1
+                    # even if we're downsampled bigly
+                    # draw the last datum in the final
+                    # px column to give the user the mx/mn
+                    # range of that set.
+                ):
+                    # always update the last datum-element
+                    # graphic for all flows
+                    # print(f'drawing last {flow.name}')
+                    flow.draw_last(array_key=curve_name)
 
 
 async def display_symbol_data(

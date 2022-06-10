@@ -175,6 +175,7 @@ def render_baritems(
             name=f'{flow.name}_ds_ohlc',
             color=bars._color,
         )
+        flow.ds_graphics = curve
         curve.hide()
         self.plot.addItem(curve)
 
@@ -192,18 +193,20 @@ def render_baritems(
     uppx = curve.x_uppx()
     in_line = should_line = curve.isVisible()
     if (
-        should_line
+        in_line
         and uppx < x_gt
     ):
         # print('FLIPPING TO BARS')
         should_line = False
+        flow._in_ds = False
 
     elif (
-        not should_line
+        not in_line
         and uppx >= x_gt
     ):
         # print('FLIPPING TO LINE')
         should_line = True
+        flow._in_ds = True
 
     profiler(f'ds logic complete line={should_line}')
 
@@ -333,7 +336,13 @@ class Flow(msgspec.Struct):  # , frozen=True):
     '''
     name: str
     plot: pg.PlotItem
-    graphics: Curve
+    graphics: Union[Curve, BarItems]
+
+    # in some cases a flow may want to change its
+    # graphical "type" or, "form" when downsampling,
+    # normally this is just a plain line.
+    ds_graphics: Optional[Curve] = None
+
     _shm: ShmArray
 
     is_ohlc: bool = False
@@ -540,6 +549,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
         should_redraw: bool = False
         rkwargs = {}
 
+        should_line = False
         if isinstance(graphics, BarItems):
             # XXX: special case where we change out graphics
             # to a line after a certain uppx threshold.
@@ -556,8 +566,8 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 profiler,
                 **kwargs,
             )
-            # bars = True
             should_redraw = changed_to_line or not should_line
+            self._in_ds = should_line
 
         else:
             r = self._src_r
@@ -661,6 +671,17 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 # assign output paths to graphicis obj
                 graphics.path = r.path
                 graphics.fast_path = r.fast_path
+
+                # XXX: we don't need this right?
+                # graphics.draw_last_datum(
+                #     path,
+                #     src_array,
+                #     data,
+                #     reset,
+                #     array_key,
+                # )
+                # graphics.update()
+                # profiler('.update()')
         else:
             # assign output paths to graphicis obj
             graphics.path = r.path
@@ -673,16 +694,15 @@ class Flow(msgspec.Struct):  # , frozen=True):
             reset,
             array_key,
         )
-
-        # TODO: is this ever better?
-        # graphics.prepareGeometryChange()
-        # profiler('.prepareGeometryChange()')
+        graphics.update()
+        profiler('.update()')
 
         # TODO: does this actuallly help us in any way (prolly should
         # look at the source / ask ogi). I think it avoid artifacts on
         # wheel-scroll downsampling curve updates?
-        graphics.update()
-        profiler('.update()')
+        # TODO: is this ever better?
+        # graphics.prepareGeometryChange()
+        # profiler('.prepareGeometryChange()')
 
         # track downsampled state
         self._in_ds = r._in_ds
@@ -692,6 +712,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
     def draw_last(
         self,
         array_key: Optional[str] = None,
+        only_last_uppx: bool = False,
 
     ) -> None:
 
@@ -711,19 +732,34 @@ class Flow(msgspec.Struct):  # , frozen=True):
             array_key,
         )
 
-        if self._in_ds:
-            # we only care about the last pixel's
-            # worth of data since that's all the screen
-            # can represent on the last column where
-            # the most recent datum is being drawn.
+        # the renderer is downsampling we choose
+        # to always try and updadte a single (interpolating)
+        # line segment that spans and tries to display
+        # the las uppx's worth of datums.
+        # we only care about the last pixel's
+        # worth of data since that's all the screen
+        # can represent on the last column where
+        # the most recent datum is being drawn.
+        if self._in_ds or only_last_uppx:
+            dsg = self.ds_graphics or self.graphics
+
+            # XXX: pretty sure we don't need this?
+            # if isinstance(g, Curve):
+            #     with dsg.reset_cache():
             uppx = self._last_uppx
             y = y[-uppx:]
             ymn, ymx = y.min(), y.max()
             # print(f'drawing uppx={uppx} mxmn line: {ymn}, {ymx}')
-            g._last_line = QLineF(
-                x[-2], ymn,
+            dsg._last_line = QLineF(
+                x[-uppx], ymn,
                 x[-1], ymx,
             )
+            # print(f'updating DS curve {self.name}')
+            dsg.update()
+
+        else:
+            # print(f'updating NOT DS curve {self.name}')
+            g.update()
 
 
 def by_index_and_key(

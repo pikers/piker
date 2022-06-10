@@ -379,17 +379,17 @@ class Curve(pg.GraphicsObject):
 
     ) -> None:
         # default line draw last call
-        with self.reset_cache():
-            x = render_data['index']
-            y = render_data[array_key]
+        # with self.reset_cache():
+        x = render_data['index']
+        y = render_data[array_key]
 
-            # draw the "current" step graphic segment so it
-            # lines up with the "middle" of the current
-            # (OHLC) sample.
-            self._last_line = QLineF(
-                x[-2], y[-2],
-                x[-1], y[-1],
-            )
+        # draw the "current" step graphic segment so it
+        # lines up with the "middle" of the current
+        # (OHLC) sample.
+        self._last_line = QLineF(
+            x[-2], y[-2],
+            x[-1], y[-1],
+        )
 
         return x, y
 
