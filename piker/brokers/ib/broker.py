@@ -325,62 +325,11 @@ async def trades_dialogue(
         conf = get_config()
         for proxy in proxies.values():
             trade_entries = await proxy.trades()
-            # {
-            #     'commissionReport': CommissionReport(
-            #         execId='',
-            #         commission=0.0,
-            #         currency='',
-            #         realizedPNL=0.0,
-            #         yield_=0.0,
-            #         yieldRedemptionDate=0),
-            #     'contract': {
-            #         'comboLegs': [],
-            #         'comboLegsDescrip': '',
-            #         'conId': 477837024,
-            #         'currency': 'USD',
-            #         'deltaNeutralContract': None,
-            #         'exchange': 'GLOBEX',
-            #         'includeExpired': False,
-            #         'lastTradeDateOrContractMonth': '20220617',
-            #         'localSymbol': 'MNQM2',
-            #         'multiplier': '2',
-            #         'primaryExchange': '',
-            #         'right': '?',
-            #         'secId': '',
-            #         'secIdType': '',
-            #         'secType': 'FUT',
-            #         'strike': 0.0,
-            #         'symbol': 'MNQ',
-            #         'tradingClass': 'MNQ'
-            #     },
-            #     'execution': Execution(
-            #         execId='0000e1a7.62a2315f.01.01',
-            #         time=1654801166.0,
-            #         acctNumber='DU5612476',
-            #         exchange='GLOBEX',
-            #         side='BOT',
-            #         shares=1.0,
-            #         price=12443.5,
-            #         permId=778998556,
-            #         clientId=6116,
-            #         orderId=555,
-            #         liquidation=0,
-            #         cumQty=1.0,
-            #         avgPrice=12443.5,
-            #         orderRef='',
-            #         evRule='',
-            #         evMultiplier=0.0,
-            #         modelCode='',
-            #         lastLiquidity=1
-            #     ),
-            #     'time': 1654801166.0
-            # }
-            trades_by_account.update(
-                trades_to_records(
-                    conf['accounts'].inverse,
-                    trade_entries,
-                )
+            records = trades_to_records(
+                conf['accounts'].inverse,
+                trade_entries,
             )
+            trades_by_account.update(records)
 
         for acctid, trades_by_id in trades_by_account.items():
             with config.open_trade_ledger('ib', acctid) as ledger:
@@ -620,7 +569,7 @@ def norm_trade_records(
 
         # NOTE: for flex records the normal fields won't be available so
         # we have to do a lookup at some point to reverse map the conid
-        # to a fqsn.
+        # to a fqsn?
 
         # con = await proxy.get_con(conid)
 
@@ -661,6 +610,14 @@ def trades_to_records(
             acctid = accounts[str(entry['accountId'])]
 
         elif source_type == 'api':
+            # NOTE: example of schema we pull from the API client.
+            # {
+            #     'commissionReport': CommissionReport(...
+            #     'contract': {...
+            #     'execution': Execution(...
+            #     'time': 1654801166.0
+            # }
+
             entry = {}
             for section, obj in t.items():
                 match section:
