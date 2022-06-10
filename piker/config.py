@@ -113,7 +113,7 @@ if _parent_user:
 
 _conf_names: set[str] = {
     'brokers',
-    'pp',
+    'pps',
     'trades',
     'watchlists',
 }
@@ -240,6 +240,7 @@ def load(
 
     '''
     path = path or get_conf_path(conf_name)
+
     if not os.path.isfile(path):
         fn = _conf_fn_w_ext(conf_name)
 
@@ -252,6 +253,9 @@ def load(
         # if one exists.
         if os.path.isfile(template):
             shutil.copyfile(template, path)
+        else:
+            with open(path, 'w'):
+                pass  # touch
 
     config = toml.load(path)
     log.debug(f"Read config file {path}")
@@ -262,6 +266,7 @@ def write(
     config: dict,  # toml config as dict
     name: str = 'brokers',
     path: str = None,
+    **toml_kwargs,
 
 ) -> None:
     ''''
@@ -285,7 +290,11 @@ def write(
         f"{path}"
     )
     with open(path, 'w') as cf:
-        return toml.dump(config, cf)
+        return toml.dump(
+            config,
+            cf,
+            **toml_kwargs,
+        )
 
 
 def load_accounts(
