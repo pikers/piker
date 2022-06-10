@@ -289,7 +289,6 @@ def write(
 
 
 def load_accounts(
-
     providers: Optional[list[str]] = None
 
 ) -> bidict[str, Optional[str]]:
