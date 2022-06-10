@@ -31,6 +31,20 @@ from msgspec import Struct
 from . import config
 from .clearing._messages import BrokerdPosition, Status
 from .data._source import Symbol
+from .brokers import get_brokermod
+
+
+class TradeRecord(Struct):
+    fqsn: str  # normally fqsn
+    tid: Union[str, int]
+    size: float
+    price: float
+    cost: float  # commisions or other additional costs
+
+    # optional key normally derived from the broker
+    # backend which ensures the instrument-symbol this record
+    # is for is truly unique.
+    symkey: Optional[Union[str, int]] = None
 
 
 class Position(Struct):
@@ -47,7 +61,13 @@ class Position(Struct):
     avg_price: float  # TODO: contextual pricing
 
     # ordered record of known constituent trade messages
-    fills: list[Status] = []
+    fills: list[Union[str, int, Status]] = []
+
+    def to_dict(self):
+        return {
+            f: getattr(self, f)
+            for f in self.__struct_fields__
+        }
 
     def update_from_msg(
         self,
@@ -122,56 +142,76 @@ class Position(Struct):
         return new_size, self.avg_price
 
 
-def parse_pps(
+def update_pps(
+    brokername: str,
+    ledger: dict[str, Union[str, float]],
+    pps: Optional[dict[str, TradeRecord]] = None
+
+) -> dict[str, TradeRecord]:
+    '''
+    Compile a set of positions from a trades ledger.
+
+    '''
+    brokermod = get_brokermod(brokername)
+
+    pps: dict[str, Position] = pps or {}
+    records = brokermod.norm_trade_records(ledger)
+    for r in records:
+        key = r.symkey or r.fqsn
+        pp = pps.setdefault(
+            key,
+            Position(
+                Symbol.from_fqsn(r.fqsn, info={}),
+                size=0.0,
+                avg_price=0.0,
+            )
+        )
+
+        # lifo style average price calc
+        pp.lifo_update(r.size, r.price)
+        pp.fills.append(r.tid)
+
+    return pps
+
+
+async def load_pps_from_ledger(
 
     brokername: str,
     acctname: str,
 
-    ledger: Optional[dict[str, Union[str, float]]] = None,
-
 ) -> dict[str, Any]:
 
-    pps: dict[str, Position] = {}
+    with config.open_trade_ledger(
+        brokername,
+        acctname,
+    ) as ledger:
+        pass  # readonly
 
-    if not ledger:
-        with config.open_trade_ledger(
-            brokername,
-            acctname,
-        ) as ledger:
-            pass  # readonly
+    pps = update_pps(brokername, ledger)
 
-    by_date = ledger[brokername]
+    active_pps = {}
+    for k, pp in pps.items():
 
-    for date, by_id in by_date.items():
-        for tid, record in by_id.items():
+        if pp.size == 0:
+            continue
 
-            # ib specific record parsing
-            # date, time = record['dateTime']
-            # conid = record['condid']
-            # cost = record['cost']
-            # comms = record['ibCommission']
-            symbol = record['symbol']
-            price = record['tradePrice']
-            # action = record['buySell']
-
-            # NOTE: can be -ve on sells
-            size = float(record['quantity'])
-
-            pp = pps.setdefault(
-                symbol,
-                Position(
-                    Symbol(key=symbol),
-                    size=0.0,
-                    avg_price=0.0,
-                )
-            )
-
-            # LOFI style average price calc
-            pp.lifo_update(size, price)
+        active_pps[pp.symbol.front_fqsn()] = pp.to_dict()
+    # pprint({pp.symbol.front_fqsn(): pp.to_dict() for k, pp in pps.items()})
 
     from pprint import pprint
-    pprint(pps)
+    pprint(active_pps)
+    # pprint({pp.symbol.front_fqsn(): pp.to_dict() for k, pp in pps.items()})
+
+
+def update_pps_conf(
+    trade_records: list[TradeRecord],
+):
+    conf, path = config.load('pp')
+
 
 
 if __name__ == '__main__':
-    parse_pps('ib', 'algopaper')
+    import trio
+    trio.run(
+        load_pps_from_ledger, 'ib', 'algopaper',
+    )
