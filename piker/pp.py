@@ -144,24 +144,28 @@ class Position(Struct):
 
 def update_pps(
     brokername: str,
-    ledger: dict[str, Union[str, float]],
-    pps: Optional[dict[str, TradeRecord]] = None
+    records: dict[str, TradeRecord],
 
-) -> dict[str, TradeRecord]:
+    pps: Optional[dict[str, Position]] = None
+
+) -> dict[str, Position]:
     '''
     Compile a set of positions from a trades ledger.
 
     '''
-    brokermod = get_brokermod(brokername)
 
     pps: dict[str, Position] = pps or {}
-    records = brokermod.norm_trade_records(ledger)
+
+    # lifo update all pps from records
     for r in records:
         key = r.symkey or r.fqsn
         pp = pps.setdefault(
             key,
             Position(
-                Symbol.from_fqsn(r.fqsn, info={}),
+                Symbol.from_fqsn(
+                    r.fqsn,
+                    info={},
+                ),
                 size=0.0,
                 avg_price=0.0,
             )
@@ -171,10 +175,30 @@ def update_pps(
         pp.lifo_update(r.size, r.price)
         pp.fills.append(r.tid)
 
+    assert len(set(pp.fills)) == len(pp.fills)
     return pps
 
 
-async def load_pps_from_ledger(
+def _split_active(
+    pps: dict[str, Position],
+
+) -> tuple[dict, dict]:
+
+    active = {}
+    closed = {}
+
+    for k, pp in pps.items():
+        fqsn = pp.symbol.front_fqsn()
+        asdict = pp.to_dict()
+        if pp.size == 0:
+            closed[fqsn] = asdict
+        else:
+            active[fqsn] = asdict
+
+    return active, closed
+
+
+def load_pps_from_ledger(
 
     brokername: str,
     acctname: str,
@@ -187,31 +211,72 @@ async def load_pps_from_ledger(
     ) as ledger:
         pass  # readonly
 
-    pps = update_pps(brokername, ledger)
-
-    active_pps = {}
-    for k, pp in pps.items():
-
-        if pp.size == 0:
-            continue
-
-        active_pps[pp.symbol.front_fqsn()] = pp.to_dict()
-    # pprint({pp.symbol.front_fqsn(): pp.to_dict() for k, pp in pps.items()})
-
-    from pprint import pprint
-    pprint(active_pps)
-    # pprint({pp.symbol.front_fqsn(): pp.to_dict() for k, pp in pps.items()})
+    brokermod = get_brokermod(brokername)
+    records = brokermod.norm_trade_records(ledger)
+    pps = update_pps(
+        brokername,
+        records,
+    )
+    return _split_active(pps)
 
 
 def update_pps_conf(
-    trade_records: list[TradeRecord],
+    brokername: str,
+    acctid: str,
+    trade_records: Optional[list[TradeRecord]] = None,
 ):
-    conf, path = config.load('pp')
+    conf, path = config.load('pps')
+    brokersection = conf.setdefault(brokername, {})
+    entries = brokersection.setdefault(acctid, {})
 
+    if not entries:
+
+        # no pps entry yet for this broker/account
+        active, closed = load_pps_from_ledger(
+            brokername,
+            acctid,
+        )
+
+    elif trade_records:
+
+        # table for map-back to object form
+        pps = {}
+
+        # load ``pps.toml`` config entries back into object form.
+        for fqsn, entry in entries.items():
+            pps[fqsn] = Position(
+                Symbol.from_fqsn(fqsn, info={}),
+                size=entry['size'],
+                avg_price=entry['avg_price'],
+            )
+
+        pps = update_pps(
+            brokername,
+            trade_records,
+            pps=pps,
+        )
+        active, closed = _split_active(pps)
+
+    for fqsn in closed:
+        print(f'removing closed pp: {fqsn}')
+        entries.pop(fqsn, None)
+
+    for fqsn, pp_dict in active.items():
+        print(f'Updating active pp: {fqsn}')
+
+        # normalize to a simpler flat dict format
+        _ = pp_dict.pop('symbol')
+        entries[fqsn.rstrip(f'.{brokername}')] = pp_dict
+
+    config.write(
+        conf,
+        'pps',
+        encoder=config.toml.Encoder(preserve=True),
+    )
+
+    from pprint import pprint
+    pprint(conf)
 
 
 if __name__ == '__main__':
-    import trio
-    trio.run(
-        load_pps_from_ledger, 'ib', 'algopaper',
-    )
+    update_pps_conf('ib', 'algopaper')
