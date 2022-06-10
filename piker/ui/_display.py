@@ -24,7 +24,6 @@ graphics update methods via our custom ``pyqtgraph`` charting api.
 from dataclasses import dataclass
 from functools import partial
 import time
-from math import floor
 from typing import Optional, Any, Callable
 
 import numpy as np
@@ -368,7 +367,7 @@ def graphics_update_cycle(
         # such unit steps per pixel (aka uppx). Iow, if the zoom level
         # is such that a datum(s) update to graphics wouldn't span
         # to a new pixel, we don't update yet.
-        do_append = (append_diff >= floor(uppx))
+        do_append = (append_diff >= uppx)
         if do_append:
             vars['i_last_append'] = i_step
 
