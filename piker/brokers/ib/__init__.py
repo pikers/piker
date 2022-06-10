@@ -38,7 +38,10 @@ from .feed import (
     open_symbol_search,
     stream_quotes,
 )
-from .broker import trades_dialogue
+from .broker import (
+    trades_dialogue,
+    norm_trade_records,
+)
 
 __all__ = [
     'get_client',

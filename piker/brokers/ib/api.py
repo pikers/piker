@@ -483,6 +483,14 @@ class Client:
 
         return con
 
+    async def get_con(
+        self,
+        conid: int,
+    ) -> Contract:
+        return await self.ib.qualifyContractsAsync(
+            ibis.Contract(conId=conid)
+        )
+
     async def find_contract(
         self,
         pattern: str,
