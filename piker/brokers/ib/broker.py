@@ -48,6 +48,7 @@ from ib_insync.objects import Position
 import pendulum
 
 from piker import config
+from piker.pp import update_pps_conf
 from piker.pp import TradeRecord
 from piker.log import get_console_log
 from piker.clearing._messages import (
@@ -310,16 +311,16 @@ async def trades_dialogue(
             assert account in accounts_def
             accounts.add(account)
 
+        pp_msgs = {}
         for client in aioclients.values():
             for pos in client.positions():
 
                 msg = pack_position(pos)
                 msg.account = accounts_def.inverse[msg.account]
+                pp_msgs[msg.symbol] = msg
 
                 assert msg.account in accounts, (
                     f'Position for unknown account: {msg.account}')
-
-                all_positions.append(msg.dict())
 
         trades_by_account: dict = {}
         conf = get_config()
@@ -334,6 +335,33 @@ async def trades_dialogue(
         for acctid, trades_by_id in trades_by_account.items():
             with config.open_trade_ledger('ib', acctid) as ledger:
                 ledger.update(trades_by_id)
+
+            records = norm_trade_records(trades_by_id)
+            active = update_pps_conf('ib', acctid, records)
+            for fqsn, pp in active.items():
+
+                ibppmsg = pp_msgs[fqsn.rstrip('.ib')]
+                msg = BrokerdPosition(
+                    broker='ib',
+                    # account=acctid + '.ib',
+                    account=ibppmsg.account,
+                    # XXX: the `.ib` is stripped..?
+                    symbol=ibppmsg.symbol,
+                    currency=ibppmsg.currency,
+                    size=pp['size'],
+                    avg_price=pp['avg_price'],
+                )
+                assert ibppmsg.size == msg.size
+                if ibppmsg.avg_price != msg.avg_price:
+                    # TODO: make this a "propoganda" log level?
+                    log.warning(
+                        'The mega-cucks at IB want you to believe with their '
+                        '"FIFO" positioning the following:\n'
+                        f'"ib" mega-cucker avg price: {ibppmsg.avg_price}\n'
+                        f'piker, legitamous-ness, LIFO avg price: {msg.avg_price}'
+                    )
+
+                all_positions.append(msg.dict())
 
         # log.info(f'Loaded {len(trades)} from this session')
         # TODO: write trades to local ``trades.toml``
