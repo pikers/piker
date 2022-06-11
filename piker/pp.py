@@ -158,7 +158,7 @@ def update_pps(
 
     # lifo update all pps from records
     for r in records:
-        key = r.symkey or r.fqsn
+        key = r.fqsn or r.symkey
         pp = pps.setdefault(
             key,
             Position(
@@ -170,6 +170,10 @@ def update_pps(
                 avg_price=0.0,
             )
         )
+        # don't do updates for ledger records we already have
+        # included in the current pps state.
+        if r.tid in pp.fills:
+            continue
 
         # lifo style average price calc
         pp.lifo_update(r.size, r.price)
@@ -244,10 +248,17 @@ def update_pps_conf(
 
         # load ``pps.toml`` config entries back into object form.
         for fqsn, entry in entries.items():
-            pps[fqsn] = Position(
+            pps[f'{fqsn}.{brokername}'] = Position(
                 Symbol.from_fqsn(fqsn, info={}),
                 size=entry['size'],
                 avg_price=entry['avg_price'],
+
+                # XXX: super critical, we need to be sure to include
+                # all pps.toml fills to avoid reusing fills that were
+                # already included in the current incremental update
+                # state, since today's records may have already been
+                # processed!
+                fills=entry['fills'],
             )
 
         pps = update_pps(
@@ -271,11 +282,13 @@ def update_pps_conf(
     config.write(
         conf,
         'pps',
-        encoder=config.toml.Encoder(preserve=True),
+        # encoder=config.toml.Encoder(preserve=True),
     )
 
-    from pprint import pprint
-    pprint(conf)
+    return active
+
+    # from pprint import pprint
+    # pprint(conf)
 
 
 if __name__ == '__main__':
