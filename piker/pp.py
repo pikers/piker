@@ -21,7 +21,6 @@ that doesn't try to cuk most humans who prefer to not lose their moneys..
 
 '''
 from typing import (
-    Any,
     Optional,
     Union,
 )
@@ -153,14 +152,15 @@ def update_pps(
     Compile a set of positions from a trades ledger.
 
     '''
-
     pps: dict[str, Position] = pps or {}
 
     # lifo update all pps from records
     for r in records:
-        key = r.fqsn or r.symkey
+
         pp = pps.setdefault(
-            key,
+            r.fqsn or r.symkey,
+
+            # if no existing pp, allocate fresh one.
             Position(
                 Symbol.from_fqsn(
                     r.fqsn,
@@ -173,6 +173,11 @@ def update_pps(
         # don't do updates for ledger records we already have
         # included in the current pps state.
         if r.tid in pp.fills:
+            # NOTE: likely you'll see repeats of the same
+            # ``TradeRecord`` passed in here if/when you are restarting
+            # a ``brokerd.ib`` where the API will re-report trades from
+            # the current session, so we need to make sure we don't
+            # "double count" these in pp calculations.
             continue
 
         # lifo style average price calc
@@ -187,7 +192,16 @@ def _split_active(
     pps: dict[str, Position],
 
 ) -> tuple[dict, dict]:
+    '''
+    Split pps into those that are "active" (non-zero size) and "closed"
+    (zero size) and return in 2 dicts.
 
+    Returning the "closed" set is important for updating the pps state
+    in any ``pps.toml`` such that we remove entries which are no longer
+    part of any "VaR" set (well presumably, except of course your liquidity
+    asset could be full of "risk" XD ).
+
+    '''
     active = {}
     closed = {}
 
@@ -207,8 +221,14 @@ def load_pps_from_ledger(
     brokername: str,
     acctname: str,
 
-) -> dict[str, Any]:
+) -> tuple[dict, dict]:
+    '''
+    Open a ledger file by broker name and account and read in and
+    process any trade records into our normalized ``TradeRecord``
+    form and then pass these into the position processing routine
+    and deliver the two dict-sets of the active and closed pps.
 
+    '''
     with config.open_trade_ledger(
         brokername,
         acctname,
@@ -217,10 +237,8 @@ def load_pps_from_ledger(
 
     brokermod = get_brokermod(brokername)
     records = brokermod.norm_trade_records(ledger)
-    pps = update_pps(
-        brokername,
-        records,
-    )
+    pps = update_pps(brokername, records)
+
     return _split_active(pps)
 
 
@@ -282,13 +300,11 @@ def update_pps_conf(
     config.write(
         conf,
         'pps',
+        # TODO: make nested tables and/or inline tables work?
         # encoder=config.toml.Encoder(preserve=True),
     )
 
     return active
-
-    # from pprint import pprint
-    # pprint(conf)
 
 
 if __name__ == '__main__':

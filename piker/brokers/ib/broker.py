@@ -312,9 +312,14 @@ async def trades_dialogue(
             accounts.add(account)
 
         pp_msgs = {}
+
+        # process pp value reported from ib's system. we only use these
+        # to cross-check sizing since average pricing on their end uses
+        # the so called (bs) "FIFO" style which more or less results in
+        # a price that's not useful for traders who want to not lose
+        # money.. xb
         for client in aioclients.values():
             for pos in client.positions():
-
                 msg = pack_position(pos)
                 msg.account = accounts_def.inverse[msg.account]
                 pp_msgs[msg.symbol] = msg
@@ -322,8 +327,14 @@ async def trades_dialogue(
                 assert msg.account in accounts, (
                     f'Position for unknown account: {msg.account}')
 
+        # built-out piker pps from trade ledger, underneath using
+        # LIFO style breakeven pricing calcs.
         trades_by_account: dict = {}
         conf = get_config()
+
+        # retreive new trade executions from the last session
+        # and/or day's worth of trading and convert into trade
+        # records suitable for a local ledger file.
         for proxy in proxies.values():
             trade_entries = await proxy.trades()
             records = trades_to_records(
@@ -332,18 +343,27 @@ async def trades_dialogue(
             )
             trades_by_account.update(records)
 
+        # write recent session's trades to the user's (local) ledger
+        # file.
         for acctid, trades_by_id in trades_by_account.items():
             with config.open_trade_ledger('ib', acctid) as ledger:
                 ledger.update(trades_by_id)
 
+            # (incrementally) update the user's pps in mem and
+            # in the `pps.toml`.
             records = norm_trade_records(trades_by_id)
             active = update_pps_conf('ib', acctid, records)
+
+            # relay re-formatted pps as msgs to the ems.
             for fqsn, pp in active.items():
 
                 ibppmsg = pp_msgs[fqsn.rstrip('.ib')]
                 msg = BrokerdPosition(
                     broker='ib',
                     # account=acctid + '.ib',
+                    # XXX: ok so this is annoying, we're relaying
+                    # an account name with the backend suffix prefixed
+                    # but when reading accounts from ledgers 
                     account=ibppmsg.account,
                     # XXX: the `.ib` is stripped..?
                     symbol=ibppmsg.symbol,
@@ -614,6 +634,7 @@ def norm_trade_records(
 
 
 def trades_to_records(
+
     accounts: bidict,
     trade_entries: list[object],
     source_type: str = 'api',
