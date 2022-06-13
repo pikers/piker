@@ -20,17 +20,70 @@ that doesn't try to cuk most humans who prefer to not lose their moneys..
 (looking at you `ib` and shitzy friends)
 
 '''
+from contextlib import contextmanager as cm
+import os
+from os import path
 from typing import (
+    Any,
     Optional,
     Union,
 )
 
 from msgspec import Struct
+import toml
 
 from . import config
+from .brokers import get_brokermod
 from .clearing._messages import BrokerdPosition, Status
 from .data._source import Symbol
-from .brokers import get_brokermod
+from .log import get_logger
+
+log = get_logger(__name__)
+
+
+@cm
+def open_trade_ledger(
+    broker: str,
+    account: str,
+
+) -> str:
+    '''
+    Indempotently create and read in a trade log file from the
+    ``<configuration_dir>/ledgers/`` directory.
+
+    Files are named per broker account of the form
+    ``<brokername>_<accountname>.toml``. The ``accountname`` here is the
+    name as defined in the user's ``brokers.toml`` config.
+
+    '''
+    ldir = path.join(config._config_dir, 'ledgers')
+    if not path.isdir(ldir):
+        os.makedirs(ldir)
+
+    fname = f'trades_{broker}_{account}.toml'
+    tradesfile = path.join(ldir, fname)
+
+    if not path.isfile(tradesfile):
+        log.info(
+            f'Creating new local trades ledger: {tradesfile}'
+        )
+        with open(tradesfile, 'w') as cf:
+            pass  # touch
+    try:
+        with open(tradesfile, 'r') as cf:
+            ledger = toml.load(tradesfile)
+            cpy = ledger.copy()
+            yield cpy
+    finally:
+        if cpy != ledger:
+            # TODO: show diff output?
+            # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
+            print(f'Updating ledger for {tradesfile}:\n')
+            ledger.update(cpy)
+
+            # we write on close the mutated ledger data
+            with open(tradesfile, 'w') as cf:
+                return toml.dump(ledger, cf)
 
 
 class TradeRecord(Struct):
@@ -39,6 +92,8 @@ class TradeRecord(Struct):
     size: float
     price: float
     cost: float  # commisions or other additional costs
+
+    # dt: datetime
 
     # optional key normally derived from the broker
     # backend which ensures the instrument-symbol this record
@@ -105,6 +160,16 @@ class Position(Struct):
         self,
         size: float,
         price: float,
+
+        # TODO: idea: "real LIFO" dynamic positioning.
+        # - when a trade takes place where the pnl for
+        # the (set of) trade(s) is below the breakeven price
+        # it may be that the trader took a +ve pnl on a short(er)
+        # term trade in the same account.
+        # - in this case we could recalc the be price to
+        # be reverted back to it's prior value before the nearest term
+        # trade was opened.?
+        dynamic_breakeven_price: bool = False,
 
     ) -> (float, float):
         '''
@@ -191,7 +256,10 @@ def update_pps(
 def _split_active(
     pps: dict[str, Position],
 
-) -> tuple[dict, dict]:
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+]:
     '''
     Split pps into those that are "active" (non-zero size) and "closed"
     (zero size) and return in 2 dicts.
@@ -229,7 +297,7 @@ def load_pps_from_ledger(
     and deliver the two dict-sets of the active and closed pps.
 
     '''
-    with config.open_trade_ledger(
+    with open_trade_ledger(
         brokername,
         acctname,
     ) as ledger:
@@ -242,18 +310,34 @@ def load_pps_from_ledger(
     return _split_active(pps)
 
 
+def get_pps(
+    brokername: str,
+
+) -> dict[str, Any]:
+    '''
+    Read out broker-specific position entries from
+    incremental update file: ``pps.toml``.
+
+    '''
+    conf, path = config.load('pps')
+    return conf.setdefault(brokername, {})
+
+
 def update_pps_conf(
     brokername: str,
     acctid: str,
     trade_records: Optional[list[TradeRecord]] = None,
-):
+
+) -> dict[str, Position]:
+
     conf, path = config.load('pps')
     brokersection = conf.setdefault(brokername, {})
     entries = brokersection.setdefault(acctid, {})
 
     if not entries:
 
-        # no pps entry yet for this broker/account
+        # no pps entry yet for this broker/account so parse
+        # any available ledgers to build a pps state.
         active, closed = load_pps_from_ledger(
             brokername,
             acctid,
@@ -286,6 +370,9 @@ def update_pps_conf(
         )
         active, closed = _split_active(pps)
 
+    else:
+        raise ValueError('wut wut')
+
     for fqsn in closed:
         print(f'removing closed pp: {fqsn}')
         entries.pop(fqsn, None)
@@ -295,11 +382,16 @@ def update_pps_conf(
 
         # normalize to a simpler flat dict format
         _ = pp_dict.pop('symbol')
-        entries[fqsn.rstrip(f'.{brokername}')] = pp_dict
+
+        # XXX: ugh, it's cuz we push the section under
+        # the broker name.. maybe we need to rethink this?
+        brokerless_key = fqsn.rstrip(f'.{brokername}')
+        entries[brokerless_key] = pp_dict
 
     config.write(
         conf,
         'pps',
+
         # TODO: make nested tables and/or inline tables work?
         # encoder=config.toml.Encoder(preserve=True),
     )
@@ -308,4 +400,11 @@ def update_pps_conf(
 
 
 if __name__ == '__main__':
-    update_pps_conf('ib', 'algopaper')
+    import sys
+
+    args = sys.argv
+    assert len(args) > 1, 'Specifiy account(s) from `brokers.toml`'
+    args = args[1:]
+    for acctid in args:
+        broker, name = acctid.split('.')
+        update_pps_conf(broker, name)

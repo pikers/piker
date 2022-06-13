@@ -18,7 +18,6 @@
 Broker configuration mgmt.
 
 """
-from contextlib import contextmanager as cm
 import platform
 import sys
 import os
@@ -171,51 +170,6 @@ def get_conf_path(
         _config_dir,
         fn,
     )
-
-
-@cm
-def open_trade_ledger(
-    broker: str,
-    account: str,
-
-) -> str:
-    '''
-    Indempotently create and read in a trade log file from the
-    ``<configuration_dir>/ledgers/`` directory.
-
-    Files are named per broker account of the form
-    ``<brokername>_<accountname>.toml``. The ``accountname`` here is the
-    name as defined in the user's ``brokers.toml`` config.
-
-    '''
-    ldir = path.join(_config_dir, 'ledgers')
-    if not path.isdir(ldir):
-        os.makedirs(ldir)
-
-    fname = f'trades_{broker}_{account}.toml'
-    tradesfile = path.join(ldir, fname)
-
-    if not path.isfile(tradesfile):
-        log.info(
-            f'Creating new local trades ledger: {tradesfile}'
-        )
-        with open(tradesfile, 'w') as cf:
-            pass  # touch
-    try:
-        with open(tradesfile, 'r') as cf:
-            ledger = toml.load(tradesfile)
-            cpy = ledger.copy()
-            yield cpy
-    finally:
-        if cpy != ledger:
-            # TODO: show diff output?
-            # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
-            print(f'Updating ledger for {tradesfile}:\n')
-            ledger.update(cpy)
-
-            # we write on close the mutated ledger data
-            with open(tradesfile, 'w') as cf:
-                return toml.dump(ledger, cf)
 
 
 def repodir():
