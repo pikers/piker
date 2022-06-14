@@ -33,10 +33,10 @@ import trio
 from PyQt5.QtCore import Qt
 
 from .. import config
+from ..pp import Position
 from ..clearing._client import open_ems, OrderBook
 from ..clearing._allocate import (
     mk_allocator,
-    Position,
 )
 from ._style import _font
 from ..data._source import Symbol
@@ -607,6 +607,9 @@ async def open_order_mode(
                 symbol=symbol,
                 size=0,
                 avg_price=0,
+
+                # XXX: BLEH, do we care about this on the client side?
+                bsuid=symbol,
             )
             msg = pps_by_account.get(account_name)
             if msg:

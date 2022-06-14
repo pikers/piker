@@ -23,10 +23,9 @@ from typing import Optional
 
 from bidict import bidict
 from pydantic import BaseModel, validator
-from msgspec import Struct
+# from msgspec import Struct
 
 from ..data._source import Symbol
-from ._messages import BrokerdPosition, Status
 from ..pp import Position
 
 
@@ -202,7 +201,12 @@ class Allocator(BaseModel):
         if order_size < slot_size:
             # compute a fractional slots size to display
             slots_used = self.slots_used(
-                Position(symbol=sym, size=order_size, avg_price=price)
+                Position(
+                    symbol=sym,
+                    size=order_size,
+                    avg_price=price,
+                    bsuid=sym,
+                )
             )
 
         return {
