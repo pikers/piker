@@ -42,12 +42,17 @@ from bidict import bidict
 import trio
 import tractor
 from tractor import to_asyncio
+import ib_insync as ibis
 from ib_insync.wrapper import RequestError
 from ib_insync.contract import Contract, ContractDetails
 from ib_insync.order import Order
 from ib_insync.ticker import Ticker
-from ib_insync.objects import Position
-import ib_insync as ibis
+from ib_insync.objects import (
+    Position,
+    Fill,
+    Execution,
+    CommissionReport,
+)
 from ib_insync.wrapper import Wrapper
 from ib_insync.client import Client as ib_Client
 import numpy as np
@@ -264,23 +269,26 @@ class Client:
 
     async def trades(self) -> dict[str, Any]:
         '''
-        Return list of trades from current session in ``dict``.
+        Return list of trade-fills from current session in ``dict``.
 
         '''
-        # orders = await self.ib.reqCompletedOrdersAsync(
-        #     apiOnly=api_only
-        # )
-        fills = await self.ib.reqExecutionsAsync()
-        norm_fills = []
+        fills: list[Fill] = self.ib.fills()
+        norm_fills: list[dict] = []
         for fill in fills:
             fill = fill._asdict()  # namedtuple
-            for key, val in fill.copy().items():
-                if isinstance(val, Contract):
-                    fill[key] = asdict(val)
+            for key, val in fill.items():
+                match val:
+                    case Contract() | Execution() | CommissionReport():
+                        fill[key] = asdict(val)
 
             norm_fills.append(fill)
 
         return norm_fills
+
+    async def orders(self) -> list[Order]:
+        return await self.ib.reqAllOpenOrdersAsync(
+            apiOnly=False,
+        )
 
     async def bars(
         self,
@@ -1011,7 +1019,7 @@ async def load_aio_clients(
         for acct, client in _accounts2clients.items():
             log.info(f'Disconnecting {acct}@{client}')
             client.ib.disconnect()
-            _client_cache.pop((host, port))
+            _client_cache.pop((host, port), None)
 
 
 async def load_clients_for_trio(
