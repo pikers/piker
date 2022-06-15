@@ -121,7 +121,6 @@ class Position(Struct):
         float,  # cost
     ] = {}
 
-
     def to_dict(self):
         return {
             f: getattr(self, f)
@@ -292,7 +291,6 @@ def dump_active(
     closed = {}
 
     for k, pp in pps.items():
-        fqsn = pp.symbol.front_fqsn()
         asdict = pp.to_dict()
         if pp.size == 0:
             closed[k] = asdict
@@ -321,6 +319,10 @@ def load_pps_from_ledger(
     ) as ledger:
         pass  # readonly
 
+    if not ledger:
+        # null case, no ledger file with content
+        return {}, {}
+
     brokermod = get_brokermod(brokername)
     records = brokermod.norm_trade_records(ledger)
     pps = update_pps(records)
@@ -329,6 +331,7 @@ def load_pps_from_ledger(
 
 def get_pps(
     brokername: str,
+    acctids: Optional[set[str]] = set(),
 
 ) -> dict[str, Any]:
     '''
@@ -337,7 +340,33 @@ def get_pps(
 
     '''
     conf, path = config.load('pps')
-    return conf.setdefault(brokername, {})
+    brokersection = conf.setdefault(brokername, {})
+
+    all_active = {}
+
+    # try to load any ledgers if no section found
+    if not brokersection:
+        bconf, path = config.load('brokers')
+        accounts = bconf[brokername]['accounts']
+        for account in accounts:
+
+            # TODO: instead of this filter we could
+            # always send all known pps but just not audit
+            # them since an active client might not be up?
+            if (
+                acctids and
+                f'{brokername}.{account}' not in acctids
+            ):
+                continue
+
+            active = update_pps_conf(brokername, account)
+            all_active.update(active)
+
+        # reload pps after ledger updates
+        conf, path = config.load('pps')
+        brokersection = conf.setdefault(brokername, {})
+
+    return brokersection
 
 
 def update_pps_conf(
@@ -349,7 +378,7 @@ def update_pps_conf(
 
     conf, path = config.load('pps')
     brokersection = conf.setdefault(brokername, {})
-    accountsection = pps = brokersection.setdefault(acctid, {})
+    pps = brokersection.setdefault(acctid, {})
 
     if not pps:
         # no pps entry yet for this broker/account so parse
