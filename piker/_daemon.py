@@ -35,7 +35,7 @@ log = get_logger(__name__)
 
 _root_dname = 'pikerd'
 
-_registry_addr = ('127.0.0.1', 1616)
+_registry_addr = ('127.0.0.1', 6116)
 _tractor_kwargs: dict[str, Any] = {
     # use a different registry addr then tractor's default
     'arbiter_addr': _registry_addr
