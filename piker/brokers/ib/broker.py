@@ -380,6 +380,7 @@ async def trades_dialogue(
             accounts.add(account)
 
         cids2pps = {}
+        used_accounts = set()
 
         # process pp value reported from ib's system. we only use these
         # to cross-check sizing since average pricing on their end uses
@@ -390,7 +391,8 @@ async def trades_dialogue(
             for pos in client.positions():
 
                 cid, msg = pack_position(pos)
-                msg.account = accounts_def.inverse[msg.account]
+                acctid = msg.account = accounts_def.inverse[msg.account]
+                used_accounts.add(acctid)
                 cids2pps[cid] = msg
                 assert msg.account in accounts, (
                     f'Position for unknown account: {msg.account}')
@@ -404,12 +406,14 @@ async def trades_dialogue(
 
         # load all positions from `pps.toml`, cross check with ib's
         # positions data, and relay re-formatted pps as msgs to the ems.
-        for acctid, by_fqsn in pp.get_pps('ib').items():
+        for acctid, by_fqsn in pp.get_pps(
+            'ib', acctids=used_accounts,
+        ).items():
             for fqsn, posdict in by_fqsn.items():
                 ibppmsg = cids2pps[posdict['bsuid']]
                 msg = BrokerdPosition(
                     broker='ib',
-                    # account=acctid + '.ib',
+
                     # XXX: ok so this is annoying, we're relaying
                     # an account name with the backend suffix prefixed
                     # but when reading accounts from ledgers we don't
@@ -450,6 +454,10 @@ async def trades_dialogue(
                     )
 
                 all_positions.append(msg.dict())
+
+        if not all_positions and cids2pps:
+            raise RuntimeError(
+                'Positions report by ib but not found in `pps.toml` !?')
 
         # log.info(f'Loaded {len(trades)} from this session')
         # TODO: write trades to local ``trades.toml``
