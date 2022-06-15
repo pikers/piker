@@ -333,40 +333,33 @@ def get_pps(
     brokername: str,
     acctids: Optional[set[str]] = set(),
 
-) -> dict[str, Any]:
+) -> dict[str, dict[str, Position]]:
     '''
     Read out broker-specific position entries from
     incremental update file: ``pps.toml``.
 
     '''
     conf, path = config.load('pps')
-    brokersection = conf.setdefault(brokername, {})
-
     all_active = {}
 
     # try to load any ledgers if no section found
-    if not brokersection:
-        bconf, path = config.load('brokers')
-        accounts = bconf[brokername]['accounts']
-        for account in accounts:
+    bconf, path = config.load('brokers')
+    accounts = bconf[brokername]['accounts']
+    for account in accounts:
 
-            # TODO: instead of this filter we could
-            # always send all known pps but just not audit
-            # them since an active client might not be up?
-            if (
-                acctids and
-                f'{brokername}.{account}' not in acctids
-            ):
-                continue
+        # TODO: instead of this filter we could
+        # always send all known pps but just not audit
+        # them since an active client might not be up?
+        if (
+            acctids and
+            f'{brokername}.{account}' not in acctids
+        ):
+            continue
 
-            active = update_pps_conf(brokername, account)
-            all_active.update(active)
+        active = update_pps_conf(brokername, account)
+        all_active.setdefault(account, {}).update(active)
 
-        # reload pps after ledger updates
-        conf, path = config.load('pps')
-        brokersection = conf.setdefault(brokername, {})
-
-    return brokersection
+    return all_active
 
 
 def update_pps_conf(
@@ -432,6 +425,9 @@ def update_pps_conf(
         brokerless_key = fqsn.rstrip(f'.{brokername}')
         pp_entries[brokerless_key] = pp_dict
 
+    for fqsn in closed:
+        pp_objs.pop(fqsn, None)
+
     conf[brokername][acctid] = pp_entries
     config.write(
         conf,
@@ -441,7 +437,8 @@ def update_pps_conf(
         # encoder=config.toml.Encoder(preserve=True),
     )
 
-    return active
+    # deliver object form of all pps in table to caller
+    return pp_objs
 
 
 if __name__ == '__main__':
