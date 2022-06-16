@@ -750,8 +750,13 @@ class Flow(msgspec.Struct):  # , frozen=True):
             y = y[-uppx:]
             ymn, ymx = y.min(), y.max()
             # print(f'drawing uppx={uppx} mxmn line: {ymn}, {ymx}')
+            try:
+                iuppx = x[-uppx]
+            except IndexError:
+                iuppx = x
+
             dsg._last_line = QLineF(
-                x[-uppx], ymn,
+                iuppx, ymn,
                 x[-1], ymx,
             )
             # print(f'updating DS curve {self.name}')

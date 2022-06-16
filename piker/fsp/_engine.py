@@ -361,7 +361,7 @@ async def cascade(
                 ) -> tuple[TaskTracker, int]:
                     # TODO: adopt an incremental update engine/approach
                     # where possible here eventually!
-                    log.warning(f're-syncing fsp {func_name} to source')
+                    log.debug(f're-syncing fsp {func_name} to source')
                     tracker.cs.cancel()
                     await tracker.complete.wait()
                     tracker, index = await n.start(fsp_target)
