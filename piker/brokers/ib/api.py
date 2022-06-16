@@ -1048,9 +1048,6 @@ async def load_clients_for_trio(
             await asyncio.sleep(float('inf'))
 
 
-_proxies: dict[str, MethodProxy] = {}
-
-
 @acm
 async def open_client_proxies() -> tuple[
     dict[str, MethodProxy],
@@ -1073,13 +1070,14 @@ async def open_client_proxies() -> tuple[
         if cache_hit:
             log.info(f'Re-using cached clients: {clients}')
 
+        proxies = {}
         for acct_name, client in clients.items():
             proxy = await stack.enter_async_context(
                 open_client_proxy(client),
             )
-            _proxies[acct_name] = proxy
+            proxies[acct_name] = proxy
 
-        yield _proxies, clients
+        yield proxies, clients
 
 
 def get_preferred_data_client(
@@ -1228,11 +1226,13 @@ async def open_client_proxy(
     event_table = {}
 
     async with (
+
         to_asyncio.open_channel_from(
             open_aio_client_method_relay,
             client=client,
             event_consumers=event_table,
         ) as (first, chan),
+
         trio.open_nursery() as relay_n,
     ):
 
