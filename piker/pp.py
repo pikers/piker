@@ -69,11 +69,11 @@ def open_trade_ledger(
         )
         with open(tradesfile, 'w') as cf:
             pass  # touch
+    with open(tradesfile, 'r') as cf:
+        ledger = toml.load(tradesfile)
+        cpy = ledger.copy()
     try:
-        with open(tradesfile, 'r') as cf:
-            ledger = toml.load(tradesfile)
-            cpy = ledger.copy()
-            yield cpy
+        yield cpy
     finally:
         if cpy != ledger:
             # TODO: show diff output?
