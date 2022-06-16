@@ -440,7 +440,7 @@ class FspAdmin:
                         # if the chart isn't hidden try to update
                         # the data on screen.
                         if not self.linked.isHidden():
-                            log.info(f'Re-syncing graphics for fsp: {ns_path}')
+                            log.debug(f'Re-syncing graphics for fsp: {ns_path}')
                             self.linked.graphics_cycle(
                                 trigger_all=True,
                                 prepend_update_index=info['first'],
