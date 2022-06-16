@@ -332,6 +332,7 @@ def load_pps_from_ledger(
 def get_pps(
     brokername: str,
     acctids: Optional[set[str]] = set(),
+    key_by: Optional[str] = None,
 
 ) -> dict[str, dict[str, Position]]:
     '''
@@ -356,7 +357,7 @@ def get_pps(
         ):
             continue
 
-        active = update_pps_conf(brokername, account)
+        active = update_pps_conf(brokername, account, key_by=key_by)
         all_active.setdefault(account, {}).update(active)
 
     return all_active
@@ -366,6 +367,7 @@ def update_pps_conf(
     brokername: str,
     acctid: str,
     trade_records: Optional[list[Transaction]] = None,
+    key_by: Optional[str] = None,
 
 ) -> dict[str, Position]:
 
@@ -436,6 +438,9 @@ def update_pps_conf(
         # TODO: make nested tables and/or inline tables work?
         # encoder=config.toml.Encoder(preserve=True),
     )
+
+    if key_by:
+        pps_objs = {getattr(pp, key_by): pp for pp in pps_objs}
 
     # deliver object form of all pps in table to caller
     return pp_objs
