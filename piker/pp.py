@@ -23,6 +23,7 @@ that doesn't try to cuk most humans who prefer to not lose their moneys..
 from contextlib import contextmanager as cm
 import os
 from os import path
+import re
 from typing import (
     Any,
     Optional,
@@ -103,9 +104,8 @@ class Transaction(Struct):
 
 class Position(Struct):
     '''
-    Basic pp (personal position) model with attached fills history.
-
-    This type should be IPC wire ready?
+    Basic pp (personal/piker position) model with attached clearing
+    transaction history.
 
     '''
     symbol: Symbol
@@ -116,16 +116,32 @@ class Position(Struct):
     bsuid: str
 
     # ordered record of known constituent trade messages
-    fills: dict[
+    clears: dict[
         Union[str, int, Status],  # trade id
         float,  # cost
     ] = {}
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         return {
             f: getattr(self, f)
             for f in self.__struct_fields__
         }
+
+    def to_pretoml(self) -> dict:
+        d = self.to_dict()
+        clears = d.pop('clears')
+
+        # clears_list = []
+
+        inline_table = toml.TomlDecoder().get_empty_inline_table()
+        for tid, data in clears.items():
+            inline_table[tid] = data
+
+            # clears_list.append(inline_table)
+
+        # d['clears'] = clears_list
+        d['clears'] = inline_table
+        return d
 
     def update_from_msg(
         self,
@@ -243,7 +259,7 @@ def update_pps(
         )
         # don't do updates for ledger records we already have
         # included in the current pps state.
-        if r.tid in pp.fills:
+        if r.tid in pp.clears:
             # NOTE: likely you'll see repeats of the same
             # ``Transaction`` passed in here if/when you are restarting
             # a ``brokerd.ib`` where the API will re-report trades from
@@ -263,10 +279,10 @@ def update_pps(
             cost=2*r.cost,
         )
 
-        # track clearing costs
-        pp.fills[r.tid] = r.cost
+        # track clearing data
+        pp.clears[f'"{r.tid}"'] = {'cost': r.cost}
 
-    assert len(set(pp.fills)) == len(pp.fills)
+    assert len(set(pp.clears)) == len(pp.clears)
     return pps
 
 
@@ -291,7 +307,7 @@ def dump_active(
     closed = {}
 
     for k, pp in pps.items():
-        asdict = pp.to_dict()
+        asdict = pp.to_pretoml()
         if pp.size == 0:
             closed[k] = asdict
         else:
@@ -340,7 +356,11 @@ def get_pps(
     incremental update file: ``pps.toml``.
 
     '''
-    conf, path = config.load('pps')
+    conf, path = config.load(
+        'pps',
+        # load dicts as inlines to preserve compactness
+        # _dict=toml.decoder.InlineTableDict,
+    )
     all_active = {}
 
     # try to load any ledgers if no section found
@@ -361,6 +381,117 @@ def get_pps(
         all_active.setdefault(account, {}).update(active)
 
     return all_active
+
+
+class PpsEncoder(toml.TomlEncoder):
+    '''
+    Special "styled" encoder that makes a ``pps.toml`` redable and
+    compact by putting `.clears` tables inline and everything else
+    flat-ish.
+
+    '''
+    separator = ','
+
+    def dump_inline_table(self, section):
+        """Preserve inline table in its compact syntax instead of expanding
+        into subsection.
+        https://github.com/toml-lang/toml#user-content-inline-table
+        """
+        val_list = []
+        for k, v in section.items():
+            # if isinstance(v, toml.decoder.InlineTableDict):
+            if isinstance(v, dict):
+                val = self.dump_inline_table(v)
+            else:
+                val = str(self.dump_value(v))
+
+            val_list.append(k + " = " + val)
+
+        retval = "{ " + ", ".join(val_list) + " }"
+        return retval
+
+    def dump_sections(self, o, sup):
+        retstr = ""
+        if sup != "" and sup[-1] != ".":
+            sup += '.'
+        retdict = self._dict()
+        arraystr = ""
+        for section in o:
+            qsection = str(section)
+            value = o[section]
+
+            if not re.match(r'^[A-Za-z0-9_-]+$', section):
+                qsection = toml.encoder._dump_str(section)
+
+            # arrayoftables = False
+            if (
+                self.preserve
+                and isinstance(value, toml.decoder.InlineTableDict)
+            ):
+                retstr += (
+                    qsection
+                    +
+                    " = "
+                    +
+                    self.dump_inline_table(o[section])
+                    +
+                    '\n'  # only on the final terminating left brace
+                )
+
+            # XXX: this code i'm pretty sure is just blatantly bad
+            # and/or wrong..
+            # if isinstance(o[section], list):
+            #     for a in o[section]:
+            #         if isinstance(a, dict):
+            #             arrayoftables = True
+            # if arrayoftables:
+            #     for a in o[section]:
+            #         arraytabstr = "\n"
+            #         arraystr += "[[" + sup + qsection + "]]\n"
+            #         s, d = self.dump_sections(a, sup + qsection)
+            #         if s:
+            #             if s[0] == "[":
+            #                 arraytabstr += s
+            #             else:
+            #                 arraystr += s
+            #         while d:
+            #             newd = self._dict()
+            #             for dsec in d:
+            #                 s1, d1 = self.dump_sections(d[dsec], sup +
+            #                                             qsection + "." +
+            #                                             dsec)
+            #                 if s1:
+            #                     arraytabstr += ("[" + sup + qsection +
+            #                                     "." + dsec + "]\n")
+            #                     arraytabstr += s1
+            #                 for s1 in d1:
+            #                     newd[dsec + "." + s1] = d1[s1]
+            #             d = newd
+            #         arraystr += arraytabstr
+
+            elif isinstance(value, dict):
+                retdict[qsection] = o[section]
+
+            elif o[section] is not None:
+                retstr += (
+                    qsection
+                    +
+                    " = "
+                    +
+                    str(self.dump_value(o[section]))
+                )
+
+                # if not isinstance(value, dict):
+                if not isinstance(value, toml.decoder.InlineTableDict):
+                    # inline tables should not contain newlines:
+                    # https://toml.io/en/v1.0.0#inline-table
+                    retstr += '\n'
+
+            else:
+                raise ValueError(value)
+
+        retstr += arraystr
+        return (retstr, retdict)
 
 
 def update_pps_conf(
@@ -390,6 +521,14 @@ def update_pps_conf(
     # unmarshal/load ``pps.toml`` config entries into object form.
     pp_objs = {}
     for fqsn, entry in pps.items():
+
+        # convert clears sub-tables (only in this form
+        # for toml re-presentation) back into a master table.
+        clears = entry['clears']
+        # clears = {}
+        # for table in entry['clears']:
+        #     clears.update(table)
+
         pp_objs[fqsn] = Position(
             Symbol.from_fqsn(fqsn, info={}),
             size=entry['size'],
@@ -397,11 +536,11 @@ def update_pps_conf(
             bsuid=entry['bsuid'],
 
             # XXX: super critical, we need to be sure to include
-            # all pps.toml fills to avoid reusing fills that were
+            # all pps.toml clears to avoid reusing clears that were
             # already included in the current incremental update
             # state, since today's records may have already been
             # processed!
-            fills=entry['fills'],
+            clears=clears,
         )
 
     # update all pp objects from any (new) trade records which
@@ -431,16 +570,19 @@ def update_pps_conf(
         pp_objs.pop(fqsn, None)
 
     conf[brokername][acctid] = pp_entries
+
+    enc = PpsEncoder(preserve=True)
+    # TODO: why tf haven't they already done this for inline tables smh..
+    # enc.dump_funcs[dict] = enc.dump_inline_table
+
     config.write(
         conf,
         'pps',
-
-        # TODO: make nested tables and/or inline tables work?
-        # encoder=config.toml.Encoder(preserve=True),
+        encoder=enc,
     )
 
     if key_by:
-        pps_objs = {getattr(pp, key_by): pp for pp in pps_objs}
+        pp_objs = {getattr(pp, key_by): pp for pp in pp_objs}
 
     # deliver object form of all pps in table to caller
     return pp_objs
