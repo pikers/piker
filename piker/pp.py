@@ -140,20 +140,28 @@ class Position(Struct):
         d = self.to_dict()
         clears = d.pop('clears')
         expiry = d.pop('expiry')
+
         # if not expiry is None:
         #     breakpoint()
+
         if expiry:
             d['expiry'] = str(expiry)
-        # clears_list = []
 
-        inline_table = toml.TomlDecoder().get_empty_inline_table()
+        clears_list = []
+
         for tid, data in clears.items():
-            inline_table[f'{tid}'] = data
+            inline_table = toml.TomlDecoder().get_empty_inline_table()
+            # inline_table[f'{tid}'] = data
+            # inline_table = type('uhh', (dict, toml.decoder.InlineTableDict()), 
+            inline_table['tid'] = tid
 
-            # clears_list.append(inline_table)
+            for k, v in data.items():
+                inline_table[k] = v
 
-        # d['clears'] = clears_list
-        d['clears'] = inline_table
+            clears_list.append(inline_table)
+
+        d['clears'] = clears_list
+        # d['clears'] = inline_table
         return d
 
     def update_from_msg(
@@ -295,7 +303,9 @@ def update_pps(
         )
 
         # track clearing data
-        pp.clears[f'"{r.tid}"'] = {'cost': r.cost}
+        pp.clears[r.tid] = {
+            'cost': r.cost,
+        }
 
     assert len(set(pp.clears)) == len(pp.clears)
     return pps
@@ -415,6 +425,21 @@ class PpsEncoder(toml.TomlEncoder):
 
     '''
     separator = ','
+
+    def dump_list(self, v):
+        # breakpoint()
+        # super().dump_list(section)
+
+        retval = "[\n"
+        for u in v:
+            if isinstance(u, toml.decoder.InlineTableDict):
+                out = self.dump_inline_table(u)
+            else:
+                out = str(self.dump_value(u))
+
+            retval += " " + out + "," + "\n"
+        retval += "]"
+        return retval
 
     def dump_inline_table(self, section):
         """Preserve inline table in its compact syntax instead of expanding
@@ -549,15 +574,19 @@ def update_pps_conf(
 
             # convert clears sub-tables (only in this form
             # for toml re-presentation) back into a master table.
-            clears = entry['clears']
+            clears_list = entry['clears']
+
+            # index clears entries in "object" form by tid in a top
+            # level dict instead of a list (as is presented in our
+            # ``pps.toml``).
+            clears = {}
+            for clears_table in clears_list:
+                tid = clears_table.pop('tid')
+                clears[tid] = clears_table
+
             expiry = entry.get('expiry')
             if expiry:
                 expiry = pendulum.parse(expiry)
-
-            # clears = {}
-            # for k, v in clears.items():
-            #     print((k, v))
-                # clears.update(table)
 
             pp_objs[fqsn] = Position(
                 Symbol.from_fqsn(fqsn, info={}),
@@ -604,7 +633,8 @@ def update_pps_conf(
 
     enc = PpsEncoder(preserve=True)
     # TODO: why tf haven't they already done this for inline tables smh..
-    # enc.dump_funcs[dict] = enc.dump_inline_table
+    # table_bs_type = type(toml.TomlDecoder().get_empty_inline_table())
+    enc.dump_funcs[toml.decoder.InlineTableDict] = enc.dump_inline_table
 
     config.write(
         conf,
