@@ -186,7 +186,9 @@ def repodir():
 
 def load(
     conf_name: str = 'brokers',
-    path: str = None
+    path: str = None,
+
+    **tomlkws,
 
 ) -> (dict, str):
     '''
@@ -211,7 +213,7 @@ def load(
             with open(path, 'w'):
                 pass  # touch
 
-    config = toml.load(path)
+    config = toml.load(path, **tomlkws)
     log.debug(f"Read config file {path}")
     return config, path
 
