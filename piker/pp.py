@@ -125,7 +125,7 @@ class Position(Struct):
     # ordered record of known constituent trade messages
     clears: dict[
         Union[str, int, Status],  # trade id
-        float,  # cost
+        dict[str, Any],  # transaction history summaries
     ] = {}
 
     expiry: Optional[datetime] = None
@@ -137,12 +137,15 @@ class Position(Struct):
         }
 
     def to_pretoml(self) -> dict:
+        '''
+        Prep this position's data contents for export to toml including
+        re-structuring of the ``.clears`` table to an array of
+        inline-subtables for better ``pps.toml`` compactness.
+
+        '''
         d = self.to_dict()
         clears = d.pop('clears')
         expiry = d.pop('expiry')
-
-        # if not expiry is None:
-        #     breakpoint()
 
         if expiry:
             d['expiry'] = str(expiry)
@@ -151,8 +154,6 @@ class Position(Struct):
 
         for tid, data in clears.items():
             inline_table = toml.TomlDecoder().get_empty_inline_table()
-            # inline_table[f'{tid}'] = data
-            # inline_table = type('uhh', (dict, toml.decoder.InlineTableDict()), 
             inline_table['tid'] = tid
 
             for k, v in data.items():
@@ -161,7 +162,7 @@ class Position(Struct):
             clears_list.append(inline_table)
 
         d['clears'] = clears_list
-        # d['clears'] = inline_table
+
         return d
 
     def update_from_msg(
@@ -265,7 +266,7 @@ def update_pps(
     for r in records:
 
         pp = pps.setdefault(
-            r.fqsn or r.bsuid,
+            r.bsuid,
 
             # if no existing pp, allocate fresh one.
             Position(
@@ -417,6 +418,9 @@ def get_pps(
     return all_active
 
 
+# TODO: instead see if we can hack tomli and tomli-w to do the same:
+# - https://github.com/hukkin/tomli
+# - https://github.com/hukkin/tomli-w
 class PpsEncoder(toml.TomlEncoder):
     '''
     Special "styled" encoder that makes a ``pps.toml`` redable and
@@ -427,9 +431,11 @@ class PpsEncoder(toml.TomlEncoder):
     separator = ','
 
     def dump_list(self, v):
-        # breakpoint()
-        # super().dump_list(section)
+        '''
+        Dump an inline list with a newline after every element and
+        with consideration for denoted inline table types.
 
+        '''
         retval = "[\n"
         for u in v:
             if isinstance(u, toml.decoder.InlineTableDict):
@@ -543,14 +549,17 @@ class PpsEncoder(toml.TomlEncoder):
         return (retstr, retdict)
 
 
-def update_pps_conf(
+def load_pps_from_toml(
     brokername: str,
-    acctid: str,
-    trade_records: Optional[list[Transaction]] = None,
-    key_by: Optional[str] = None,
+    acctid: str
 
-) -> dict[str, Position]:
+) -> tuple[dict, dict[str, Position]]:
+    '''
+    Load and marshal to objects all pps from either an existing
+    ``pps.toml`` config, or from scratch from a ledger file when
+    none yet exists.
 
+    '''
     conf, path = config.load('pps')
     brokersection = conf.setdefault(brokername, {})
     pps = brokersection.setdefault(acctid, {})
@@ -603,6 +612,19 @@ def update_pps_conf(
                 clears=clears,
             )
 
+    return conf, pp_objs
+
+
+def update_pps_conf(
+    brokername: str,
+    acctid: str,
+    trade_records: Optional[list[Transaction]] = None,
+    key_by: Optional[str] = None,
+
+) -> dict[str, Position]:
+
+    conf, pp_objs = load_pps_from_toml(brokername, acctid)
+
     # update all pp objects from any (new) trade records which
     # were passed in (aka incremental update case).
     if trade_records:
@@ -615,24 +637,29 @@ def update_pps_conf(
 
     # dict-serialize all active pps
     pp_entries = {}
-    for fqsn, pp_dict in active.items():
-        print(f'Updating active pp: {fqsn}')
+
+    for bsuid, pp_dict in active.items():
 
         # normalize to a simpler flat dict format
-        _ = pp_dict.pop('symbol')
+        s = pp_dict.pop('symbol')
+        # TODO: we need to figure out how to have one top level
+        # listing venue here even when the backend isn't providing
+        # it via the trades ledger..
+        fqsn = s.front_fqsn()
 
+        print(f'Updating active pp: {fqsn}')
         # XXX: ugh, it's cuz we push the section under
         # the broker name.. maybe we need to rethink this?
         brokerless_key = fqsn.rstrip(f'.{brokername}')
         pp_entries[brokerless_key] = pp_dict
 
-    for fqsn in closed:
-        pp_objs.pop(fqsn, None)
+    for bsuid in closed:
+        pp_objs.pop(bsuid, None)
 
     conf[brokername][acctid] = pp_entries
 
-    enc = PpsEncoder(preserve=True)
     # TODO: why tf haven't they already done this for inline tables smh..
+    enc = PpsEncoder(preserve=True)
     # table_bs_type = type(toml.TomlDecoder().get_empty_inline_table())
     enc.dump_funcs[toml.decoder.InlineTableDict] = enc.dump_inline_table
 
