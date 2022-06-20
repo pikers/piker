@@ -640,6 +640,7 @@ class Client:
         ready = ticker.updateEvent
 
         # ensure a last price gets filled in before we deliver quote
+        warnset: bool = False
         for _ in range(100):
             if isnan(ticker.last):
 
@@ -650,17 +651,21 @@ class Client:
                 if ready in done:
                     break
                 else:
-                    log.warning(
-                        f'Quote for {symbol} timed out: market is closed?'
-                    )
+                    if not warnset:
+                        log.warning(
+                            f'Quote for {symbol} timed out: market is closed?'
+                        )
+                        warnset = True
 
             else:
                 log.info(f'Got first quote for {symbol}')
                 break
         else:
-            log.warning(
-                f'Symbol {symbol} is not returning a quote '
-                'it may be outside trading hours?')
+            if not warnset:
+                log.warning(
+                    f'Symbol {symbol} is not returning a quote '
+                    'it may be outside trading hours?')
+                warnset = True
 
         return contract, ticker, details
 
