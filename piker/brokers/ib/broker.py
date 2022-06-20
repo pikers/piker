@@ -801,9 +801,7 @@ def norm_trade_records(
     records: list[pp.Transaction] = []
 
     for tid, record in ledger.items():
-        # date, time = record['dateTime']
-        # cost = record['cost']
-        # action = record['buySell']
+
         conid = record.get('conId') or record['conid']
         comms = record.get('commission') or -1*record['ibCommission']
         price = record.get('price') or record['tradePrice']
@@ -956,6 +954,18 @@ def trades_to_records(
             # TODO: why isn't this showing seconds in the str?
             entry['date'] = str(dt)
             acctid = accounts[entry['acctNumber']]
+
+        if not tid:
+            # this is likely some kind of internal adjustment
+            # transaction, likely one of the following:
+            # - an expiry event that will show a "book trade" indicating
+            #   some adjustment to cash balances: zeroing or itm settle.
+            # - a manual cash balance position adjustment likely done by
+            #   the user from the accounts window in TWS where they can
+            #   manually set the avg price and size:
+            #   https://api.ibkr.com/lib/cstools/faq/web1/index.html#/tag/DTWS_ADJ_AVG_COST
+            log.warning(f'Skipping ID-less ledger entry:\n{pformat(entry)}')
+            continue
 
         trades_by_account.setdefault(
             acctid, {}

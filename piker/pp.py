@@ -572,7 +572,6 @@ def load_pps_from_toml(
             acctid,
         )
         if not pps:
-            breakpoint()
             log.warning(
                 f'No trade history could be loaded for {brokername}:{acctid}'
             )
