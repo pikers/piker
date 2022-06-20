@@ -127,10 +127,15 @@ def start_marketstore(
     import os
     import docker
     from .. import config
-
     get_console_log('info', name=__name__)
 
-    yml_file = os.path.join(config._config_dir, 'mkts.yml')
+    mktsdir = os.path.join(config._config_dir, 'marketstore')
+
+    # create when dne
+    if not os.path.isdir(mktsdir):
+        os.mkdir(mktsdir)
+
+    yml_file = os.path.join(mktsdir, 'mkts.yml')
     if not os.path.isfile(yml_file):
         log.warning(
             f'No `marketstore` config exists?: {yml_file}\n'
@@ -143,14 +148,14 @@ def start_marketstore(
     # create a mount from user's local piker config dir into container
     config_dir_mnt = docker.types.Mount(
         target='/etc',
-        source=config._config_dir,
+        source=mktsdir,
         type='bind',
     )
 
     # create a user config subdir where the marketstore
     # backing filesystem database can be persisted.
     persistent_data_dir = os.path.join(
-        config._config_dir, 'data',
+        mktsdir, 'data',
     )
     if not os.path.isdir(persistent_data_dir):
         os.mkdir(persistent_data_dir)
