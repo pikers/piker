@@ -373,7 +373,7 @@ def load_pps_from_ledger(
 
     if not ledger:
         # null case, no ledger file with content
-        return {}, {}
+        return {}
 
     brokermod = get_brokermod(brokername)
     records = brokermod.norm_trade_records(ledger)
@@ -572,6 +572,7 @@ def load_pps_from_toml(
             acctid,
         )
         if not pps:
+            breakpoint()
             log.warning(
                 f'No trade history could be loaded for {brokername}:{acctid}'
             )
