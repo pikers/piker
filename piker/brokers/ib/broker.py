@@ -551,13 +551,14 @@ async def emit_pp_update(
     # ib's positions data, and relay re-formatted pps as
     # msgs to the ems.
     by_acct = pp.get_pps('ib', acctids={acctid})
-    by_fqsn = by_acct[acctid.strip('ib.')]
+    acctname = acctid.strip('ib.')
+    by_fqsn = by_acct[acctname]
 
     for fqsn, p in by_fqsn.items():
         if p.bsuid == trade_entry['contract']['conId']:
             # should only be one right?
             msgs = await update_and_audit(
-                acctid,
+                acctname,
                 {fqsn: p},
                 cids2pps,
                 validate=False,
@@ -572,7 +573,7 @@ async def deliver_trade_events(
 
     trade_event_stream: trio.MemoryReceiveChannel,
     ems_stream: tractor.MsgStream,
-    accounts_def: dict[str, str],
+    accounts_def: dict[str, str],  # eg. `'ib.main'` -> `'DU999999'`
     cids2pps: dict[tuple[str, str], BrokerdPosition],
     proxies: dict[str, MethodProxy],
 
@@ -851,7 +852,7 @@ def norm_trade_records(
             dt.set(hour=tsdt.hour, minute=tsdt.minute, second=tsdt.second)
 
         else:
-            epoch_dt = pendulum.from_timestamp(record.get('time'))
+            # epoch_dt = pendulum.from_timestamp(record.get('time'))
             dt = pendulum.parse(date)
 
         # special handling of symbol extraction from
