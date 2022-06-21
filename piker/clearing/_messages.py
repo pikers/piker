@@ -258,6 +258,6 @@ class BrokerdPosition(BaseModel):
     broker: str
     account: str
     symbol: str
-    currency: str
     size: float
     avg_price: float
+    currency: str = ''
