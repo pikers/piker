@@ -217,8 +217,8 @@ async def get_bars(
                 )
 
             elif (
-                err.code == 162
-                and 'HMDS query returned no data' in err.message
+                err.code == 162 and
+                'HMDS query returned no data' in err.message
             ):
                 # XXX: this is now done in the storage mgmt layer
                 # and we shouldn't implicitly decrement the frame dt
@@ -236,6 +236,13 @@ async def get_bars(
                     f'Symbol: {fqsn}',
                     frame_size=2000,
                 )
+
+            # elif (
+            #     err.code == 162 and
+            #     'Trading TWS session is connected from a different IP address' in err.message
+            # ):
+            #     log.warning("ignoring ip address warning")
+            #     continue
 
             elif _pacing in msg:
 
