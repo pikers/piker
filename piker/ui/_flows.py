@@ -753,7 +753,9 @@ class Flow(msgspec.Struct):  # , frozen=True):
             try:
                 iuppx = x[-uppx]
             except IndexError:
-                iuppx = x
+                # we're less then an x-px wide so just grab the start
+                # datum index.
+                iuppx = x[0]
 
             dsg._last_line = QLineF(
                 iuppx, ymn,
