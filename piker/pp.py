@@ -310,13 +310,17 @@ def update_pps(
             cost=2*r.cost,
         )
 
-        # track clearing data
-        pp.clears[r.tid] = {
-            'cost': r.cost,
-            'price': r.price,
-            'size': r.size,
-            'dt': str(r.dt),
-        }
+        if pp.size == 0:
+            pp.clears.clear()
+
+        else:
+            # track clearing data
+            pp.clears[r.tid] = {
+                'cost': r.cost,
+                'price': r.price,
+                'size': r.size,
+                'dt': str(r.dt),
+            }
 
     assert len(set(pp.clears)) == len(pp.clears)
     return pps
