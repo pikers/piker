@@ -395,7 +395,12 @@ class Storage:
     ]:
 
         first_tsdb_dt, last_tsdb_dt = None, None
-        tsdb_arrays = await self.read_ohlcv(fqsn)
+        tsdb_arrays = await self.read_ohlcv(
+            fqsn,
+            # on first load we don't need to pull the max
+            # history per request size worth.
+            limit=3000,
+        )
         log.info(f'Loaded tsdb history {tsdb_arrays}')
 
         if tsdb_arrays:
@@ -413,6 +418,7 @@ class Storage:
         fqsn: str,
         timeframe: Optional[Union[int, str]] = None,
         end: Optional[int] = None,
+        limit: int = int(800e3),
 
     ) -> tuple[
         MarketstoreClient,
@@ -435,7 +441,7 @@ class Storage:
 
             # TODO: figure the max limit here given the
             # ``purepc`` msg size limit of purerpc: 33554432
-            limit=int(800e3),
+            limit=limit,
         )
 
         if timeframe is None:
