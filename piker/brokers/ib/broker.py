@@ -414,6 +414,12 @@ async def update_and_audit_msgs(
                 size=p.size,
                 avg_price=p.be_price,
             )
+            if validate and p.size:
+                raise ValueError(
+                    f'UNEXPECTED POSITION ib <-> piker ledger:\n'
+                    f'piker: {msg}\n'
+                    'YOU SHOULD FIGURE OUT WHY TF YOUR LEDGER IS OFF!?!?'
+                )
             msgs.append(msg)
 
     return msgs
