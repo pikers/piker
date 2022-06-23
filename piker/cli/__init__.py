@@ -83,9 +83,9 @@ def pikerd(loglevel, host, tl, pdb, tsdb):
 
                 )
                 log.info(
-                    f'`marketstore` up!\n'
-                    f'`marketstored` pid: {pid}\n'
-                    f'docker container id: {cid}\n'
+                    f'`marketstored` up!\n'
+                    f'pid: {pid}\n'
+                    f'container id: {cid[:12]}\n'
                     f'config: {pformat(config)}'
                 )
 
