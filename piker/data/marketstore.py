@@ -185,7 +185,14 @@ def start_marketstore(
         init=True,
         # remove=True,
     )
-    return dcntr, _config
+    return (
+        dcntr,
+        _config,
+
+        # expected startup and stop msgs
+        "launching tcp listener for all services...",
+        "exiting...",
+    )
 
 
 _tick_tbk_ids: tuple[str, str] = ('1Sec', 'TICK')
