@@ -25,6 +25,7 @@ from contextlib import contextmanager as cm
 # from pprint import pformat
 import os
 from os import path
+from math import copysign
 import re
 import time
 from typing import (
@@ -264,7 +265,7 @@ class Position(Struct):
             self.be_price = (
                 abs(size) * price  # weight of current exec
                 +
-                cost  # transaction cost
+                copysign(1, size)*cost  # transaction cost
                 +
                 self.be_price * abs(self.size)  # weight of previous pp
             ) / abs(new_size)
