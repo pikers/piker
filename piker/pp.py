@@ -236,7 +236,7 @@ class Position(Struct):
         # - in this case we could recalc the be price to
         # be reverted back to it's prior value before the nearest term
         # trade was opened.?
-        dynamic_breakeven_price: bool = False,
+        # dynamic_breakeven_price: bool = False,
 
     ) -> (float, float):
         '''
@@ -263,12 +263,14 @@ class Position(Struct):
             # the size increases not when it decreases (i.e. the
             # position is being made smaller)
             self.be_price = (
-                abs(size) * price  # weight of current exec
+                # weight of current exec = (size * price) + cost
+                (abs(size) * price)
                 +
-                copysign(1, size)*cost  # transaction cost
+                (copysign(1, new_size) * cost)  # transaction cost
                 +
+                # weight of existing be price
                 self.be_price * abs(self.size)  # weight of previous pp
-            ) / abs(new_size)
+            ) / abs(new_size)  # normalized by the new size: weighted mean.
 
         self.size = new_size
 
