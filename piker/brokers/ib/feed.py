@@ -916,17 +916,17 @@ async def open_symbol_search(
                     # trigger async request
                     await trio.sleep(0)
 
-                    # match against our ad-hoc set immediately
-                    adhoc_matches = fuzzy.extractBests(
-                        pattern,
-                        list(_adhoc_futes_set),
-                        score_cutoff=90,
-                    )
-                    log.info(f'fuzzy matched adhocs: {adhoc_matches}')
-                    adhoc_match_results = {}
-                    if adhoc_matches:
-                        # TODO: do we need to pull contract details?
-                        adhoc_match_results = {i[0]: {} for i in adhoc_matches}
+                    # # match against our ad-hoc set immediately
+                    # adhoc_matches = fuzzy.extractBests(
+                    #     pattern,
+                    #     list(_adhoc_futes_set),
+                    #     score_cutoff=90,
+                    # )
+                    # log.info(f'fuzzy matched adhocs: {adhoc_matches}')
+                    # adhoc_match_results = {}
+                    # if adhoc_matches:
+                    #     # TODO: do we need to pull contract details?
+                    #     adhoc_match_results = {i[0]: {} for i in adhoc_matches}
 
                 log.debug(f'fuzzy matching stocks {stock_results}')
                 stock_matches = fuzzy.extractBests(
@@ -935,7 +935,8 @@ async def open_symbol_search(
                     score_cutoff=50,
                 )
 
-                matches = adhoc_match_results | {
+                # matches = adhoc_match_results | {
+                matches = {
                     item[0]: {} for item in stock_matches
                 }
                 # TODO: we used to deliver contract details
