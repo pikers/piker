@@ -161,30 +161,23 @@ class NonShittyIB(ibis.IB):
         self.client.apiEnd += self.disconnectedEvent
 
 
-# map of symbols to contract ids
-_adhoc_cmdty_data_map = {
-    # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
-
-    # NOTE: some cmdtys/metals don't have trade data like gold/usd:
-    # https://groups.io/g/twsapi/message/44174
-    'XAUUSD': ({'conId': 69067924}, {'whatToShow': 'MIDPOINT'}),
-}
-
 _futes_venues = (
     'GLOBEX',
     'NYMEX',
     'CME',
     'CMECRYPTO',
+    'COMEX',
+    'CMDTY',  # special name case..
 )
 
 _adhoc_futes_set = {
 
     # equities
     'nq.globex',
-    'mnq.globex',
+    'mnq.globex',  # micro
 
     'es.globex',
-    'mes.globex',
+    'mes.globex',  # micro
 
     # cypto$
     'brr.cmecrypto',
@@ -201,12 +194,33 @@ _adhoc_futes_set = {
     # metals
     'xauusd.cmdty',  # gold spot
     'gc.nymex',
-    'mgc.nymex',
+    'mgc.nymex',  # micro
+
+    # oil & gas
+    'cl.nymex',
 
     'xagusd.cmdty',  # silver spot
     'ni.nymex',  # silver futes
     'qi.comex',  # mini-silver futes
 }
+
+
+# map of symbols to contract ids
+_adhoc_symbol_map = {
+    # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
+
+    # NOTE: some cmdtys/metals don't have trade data like gold/usd:
+    # https://groups.io/g/twsapi/message/44174
+    'XAUUSD': ({'conId': 69067924}, {'whatToShow': 'MIDPOINT'}),
+}
+for qsn in _adhoc_futes_set:
+    sym, venue = qsn.split('.')
+    assert venue.upper() in _futes_venues, f'{venue}'
+    _adhoc_symbol_map[sym.upper()] = (
+        {'exchange': venue},
+        {},
+    )
+
 
 # exchanges we don't support at the moment due to not knowing
 # how to do symbol-contract lookup correctly likely due
@@ -215,6 +229,7 @@ _exch_skip_list = {
     'ASX',  # aussie stocks
     'MEXI',  # mexican stocks
     'VALUE',  # no idea
+    'FUNDSERV',  # no idea
 }
 
 # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
@@ -569,7 +584,7 @@ class Client:
 
         # commodities
         elif exch == 'CMDTY':  # eg. XAUUSD.CMDTY
-            con_kwargs, bars_kwargs = _adhoc_cmdty_data_map[sym]
+            con_kwargs, bars_kwargs = _adhoc_symbol_map[sym]
             con = ibis.Commodity(**con_kwargs)
             con.bars_kwargs = bars_kwargs
 
