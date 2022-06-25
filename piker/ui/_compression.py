@@ -223,14 +223,20 @@ def ds_m4(
     assert frames >= (xrange / uppx)
 
     # call into ``numba``
-    nb, i_win, y_out = _m4(
+    (
+        nb,
+        x_out,
+        y_out,
+        ymn,
+        ymx,
+    ) = _m4(
         x,
         y,
 
         frames,
 
         # TODO: see func below..
-        # i_win,
+        # x_out,
         # y_out,
 
         # first index in x data to start at
@@ -243,10 +249,11 @@ def ds_m4(
     # filter out any overshoot in the input allocation arrays by
     # removing zero-ed tail entries which should start at a certain
     # index.
-    i_win = i_win[i_win != 0]
-    y_out = y_out[:i_win.size]
+    x_out = x_out[x_out != 0]
+    y_out = y_out[:x_out.size]
 
-    return nb, i_win, y_out
+    # print(f'M4 output ymn, ymx: {ymn},{ymx}')
+    return nb, x_out, y_out, ymn, ymx
 
 
 @jit(
@@ -260,8 +267,8 @@ def _m4(
 
     frames: int,
 
-    # TODO: using this approach by having the ``.zeros()`` alloc lines
-    # below, in put python was causing segs faults and alloc crashes..
+    # TODO: using this approach, having the ``.zeros()`` alloc lines
+    # below in pure python, there were segs faults and alloc crashes..
     # we might need to see how it behaves with shm arrays and consider
     # allocating them once at startup?
 
@@ -274,14 +281,22 @@ def _m4(
     x_start: int,
     step: float,
 
-) -> int:
-    # nbins = len(i_win)
-    # count = len(xs)
+) -> tuple[
+    int,
+    np.ndarray,
+    np.ndarray,
+    float,
+    float,
+]:
+    '''
+    Implementation of the m4 algorithm in ``numba``:
+    http://www.vldb.org/pvldb/vol7/p797-jugel.pdf
 
+    '''
     # these are pre-allocated and mutated by ``numba``
     # code in-place.
     y_out = np.zeros((frames, 4), ys.dtype)
-    i_win = np.zeros(frames, xs.dtype)
+    x_out = np.zeros(frames, xs.dtype)
 
     bincount = 0
     x_left = x_start
@@ -295,24 +310,33 @@ def _m4(
 
     # set all bins in the left-most entry to the starting left-most x value
     # (aka a row broadcast).
-    i_win[bincount] = x_left
+    x_out[bincount] = x_left
     # set all y-values to the first value passed in.
     y_out[bincount] = ys[0]
 
+    mx: float = 0
+    mn: float = np.inf
+
+    # compute OHLC style max / min values per window sized x-frame.
     for i in range(len(xs)):
+
         x = xs[i]
         y = ys[i]
+
         if x < x_left + step:   # the current window "step" is [bin, bin+1)
-            y_out[bincount, 1] = min(y, y_out[bincount, 1])
-            y_out[bincount, 2] = max(y, y_out[bincount, 2])
+            ymn = y_out[bincount, 1] = min(y, y_out[bincount, 1])
+            ymx = y_out[bincount, 2] = max(y, y_out[bincount, 2])
             y_out[bincount, 3] = y
+            mx = max(mx, ymx)
+            mn = min(mn, ymn)
+
         else:
             # Find the next bin
             while x >= x_left + step:
                 x_left += step
 
             bincount += 1
-            i_win[bincount] = x_left
+            x_out[bincount] = x_left
             y_out[bincount] = y
 
-    return bincount, i_win, y_out
+    return bincount, x_out, y_out, mn, mx
