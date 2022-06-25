@@ -337,6 +337,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
     name: str
     plot: pg.PlotItem
     graphics: Union[Curve, BarItems]
+    yrange: tuple[float, float] = None
 
     # in some cases a flow may want to change its
     # graphical "type" or, "form" when downsampling,
@@ -416,7 +417,13 @@ class Flow(msgspec.Struct):  # , frozen=True):
             if not slice_view.size:
                 mxmn = None
 
+            elif self.yrange:
+                # print(f'{self.name} using yrange: {self.yrange}')
+                mxmn = self.yrange
+
             else:
+                print(f'{self.name} MANUAL MAXMIN')
+                # return 0, 0
                 if self.is_ohlc:
                     ylow = np.min(slice_view['low'])
                     yhigh = np.max(slice_view['high'])
@@ -628,9 +635,12 @@ class Flow(msgspec.Struct):  # , frozen=True):
             # source data so we clear our path data in prep
             # to generate a new one from original source data.
             new_sample_rate = True
-            showing_src_data = True
             should_ds = False
             should_redraw = True
+
+            showing_src_data = True
+            # reset yrange to be computed from source data
+            self.yrange = None
 
         # MAIN RENDER LOGIC:
         # - determine in view data and redraw on range change
@@ -657,12 +667,19 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
             **rkwargs,
         )
+        if showing_src_data:
+            print(f"{self.name} SHOWING SOURCE")
+            # reset yrange to be computed from source data
+            self.yrange = None
 
         if not out:
             log.warning(f'{self.name} failed to render!?')
             return graphics
 
         path, data, reset = out
+
+        # if self.yrange:
+        #     print(f'flow {self.name} yrange from m4: {self.yrange}')
 
         # XXX: SUPER UGGGHHH... without this we get stale cache
         # graphics that don't update until you downsampler again..
@@ -1144,11 +1161,14 @@ class Renderer(msgspec.Struct):
 
             elif should_ds and uppx > 1:
 
-                x_out, y_out = xy_downsample(
+                x_out, y_out, ymn, ymx = xy_downsample(
                     x_out,
                     y_out,
                     uppx,
                 )
+                self.flow.yrange = ymn, ymx
+                # print(f'{self.flow.name} post ds: ymn, ymx: {ymn},{ymx}')
+
                 reset = True
                 profiler(f'FULL PATH downsample redraw={should_ds}')
                 self._in_ds = True
