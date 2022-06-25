@@ -49,12 +49,17 @@ def xy_downsample(
 
     x_spacer: float = 0.5,
 
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    float,
+    float,
+]:
 
     # downsample whenever more then 1 pixels per datum can be shown.
     # always refresh data bounds until we get diffing
     # working properly, see above..
-    bins, x, y = ds_m4(
+    bins, x, y, ymn, ymx = ds_m4(
         x,
         y,
         uppx,
@@ -67,7 +72,7 @@ def xy_downsample(
     )).flatten()
     y = y.flatten()
 
-    return x, y
+    return x, y, ymn, ymx
 
 
 @njit(
