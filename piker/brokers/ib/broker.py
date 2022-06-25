@@ -454,6 +454,14 @@ async def trades_dialogue(
     accounts = set()
     clients: list[tuple[Client, trio.MemoryReceiveChannel]] = []
 
+    # TODO: this causes a massive tractor bug when you run marketstored
+    # with ``--tsdb``... you should get:
+    # - first error the assertion
+    # - chart should get that error and die
+    # - pikerd goes to debugger again from trio nursery multi-error
+    # - hitting final control-c to kill daemon will lead to hang
+    # assert 0
+
     async with (
         trio.open_nursery() as nurse,
         open_client_proxies() as (proxies, aioclients),
