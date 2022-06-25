@@ -230,25 +230,26 @@ class GodWidget(QWidget):
             # - we'll probably want per-instrument/provider state here?
             #   change the order config form over to the new chart
 
-            # XXX: since the pp config is a singleton widget we have to
-            # also switch it over to the new chart's interal-layout
-            # self.linkedsplits.chart.qframe.hbox.removeWidget(self.pp_pane)
-            chart = linkedsplits.chart
-
             # chart is already in memory so just focus it
             linkedsplits.show()
             linkedsplits.focus()
             linkedsplits.graphics_cycle()
             await trio.sleep(0)
 
-            # resume feeds *after* rendering chart view asap
-            chart.resume_all_feeds()
+            # XXX: since the pp config is a singleton widget we have to
+            # also switch it over to the new chart's interal-layout
+            # self.linkedsplits.chart.qframe.hbox.removeWidget(self.pp_pane)
+            chart = linkedsplits.chart
 
-            # TODO: we need a check to see if the chart
-            # last had the xlast in view, if so then shift so it's
-            # still in view, if the user was viewing history then
-            # do nothing yah?
-            chart.default_view()
+            # resume feeds *after* rendering chart view asap
+            if chart:
+                chart.resume_all_feeds()
+
+                # TODO: we need a check to see if the chart
+                # last had the xlast in view, if so then shift so it's
+                # still in view, if the user was viewing history then
+                # do nothing yah?
+                chart.default_view()
 
         self.linkedsplits = linkedsplits
         symbol = linkedsplits.symbol
@@ -761,8 +762,12 @@ class ChartPlotWidget(pg.PlotWidget):
         self.pi_overlay: PlotItemOverlay = PlotItemOverlay(self.plotItem)
 
     def resume_all_feeds(self):
-        for feed in self._feeds.values():
-            self.linked.godwidget._root_n.start_soon(feed.resume)
+        try:
+            for feed in self._feeds.values():
+                self.linked.godwidget._root_n.start_soon(feed.resume)
+        except RuntimeError:
+            # TODO: cancel the qtractor runtime here?
+            raise
 
     def pause_all_feeds(self):
         for feed in self._feeds.values():
