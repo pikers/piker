@@ -416,10 +416,8 @@ def graphics_update_cycle(
             )
             or trigger_all
         ):
-            # TODO: we should track and compute whether the last
-            # pixel in a curve should show new data based on uppx
-            # and then iff update curves and shift?
             chart.increment_view(steps=i_diff)
+            # chart.increment_view(steps=i_diff + round(append_diff - uppx))
 
             if vlm_chart:
                 vlm_chart.increment_view(steps=i_diff)
