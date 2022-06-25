@@ -264,7 +264,7 @@ class PaperBoi:
             Symbol(key=symbol),
             size=pp_msg.size,
             be_price=pp_msg.avg_price,
-            uid=symbol.front_fqsn(),
+            bsuid=symbol,
         )
         pp_msg.size, pp_msg.avg_price = pp.lifo_update(size, price)
 
