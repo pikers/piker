@@ -650,8 +650,7 @@ async def open_vlm_displays(
                         mx = ymax
 
             return 0, mx
-
-        chart.view.maxmin = partial(multi_maxmin, names=['volume'])
+        # chart.view.maxmin = partial(multi_maxmin, names=['volume'])
 
         # TODO: fix the x-axis label issue where if you put
         # the axis on the left it's totally not lined up...
@@ -776,12 +775,16 @@ async def open_vlm_displays(
 
             ) -> None:
                 for name in names:
+
+                    render = False
+
                     if 'dark' in name:
                         color = dark_vlm_color
                     elif 'rate' in name:
                         color = vlm_color
                     else:
                         color = 'bracket'
+                        render = True
 
                     curve, _ = chart.draw_curve(
                         name=name,
@@ -799,6 +802,7 @@ async def open_vlm_displays(
                     # since only a placeholder of `None` is entered in
                     # ``.draw_curve()``.
                     flow = chart._flows[name]
+                    # flow.render = render
                     assert flow.plot is pi
 
             chart_curves(
