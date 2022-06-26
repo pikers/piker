@@ -211,10 +211,13 @@ class Container:
 
             try:
                 log.info(f'Polling for container shutdown:\n{cid}')
-                self.cntr.wait(
-                    timeout=0.1,
-                    condition='not-running',
-                )
+
+                if self.cntr.status not in {'exited', 'not-running'}:
+                    self.cntr.wait(
+                        timeout=0.1,
+                        condition='not-running',
+                    )
+
                 break
 
             except (
@@ -227,7 +230,7 @@ class Container:
                 docker.errors.APIError,
                 ConnectionError,
             ):
-                log.exception(f'Docker connection failure')
+                log.exception('Docker connection failure')
                 break
         else:
             delay = time.time() - start
@@ -273,8 +276,6 @@ async def open_ahabd(
 
         with trio.move_on_after(1):
             found = await cntr.process_logs_until(start_msg)
-                # "launching tcp listener for all services...",
-            # )
 
             if not found and cntr not in client.containers.list():
                 raise RuntimeError(
@@ -294,16 +295,9 @@ async def open_ahabd(
             # callers to have root perms?
             await trio.sleep_forever()
 
-        except (
-            BaseException,
-            # trio.Cancelled,
-            # KeyboardInterrupt,
-        ):
-
+        finally:
             with trio.CancelScope(shield=True):
                 await cntr.cancel(stop_msg)
-
-            raise
 
 
 async def start_ahab(
