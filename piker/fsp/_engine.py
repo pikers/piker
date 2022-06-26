@@ -114,7 +114,7 @@ async def fsp_compute(
         dict[str, np.ndarray],  # multi-output case
         np.ndarray,  # single output case
     ]
-    history_output = await out_stream.__anext__()
+    history_output = await anext(out_stream)
 
     func_name = func.__name__
     profiler(f'{func_name} generated history')
@@ -374,7 +374,8 @@ async def cascade(
                             'key': dst_shm_token,
                             'first': dst._first.value,
                             'last': dst._last.value,
-                    }})
+                        }
+                    })
                     return tracker, index
 
                 def is_synced(
