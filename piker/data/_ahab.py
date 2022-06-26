@@ -19,6 +19,7 @@ Supervisor for docker with included specific-image service helpers.
 
 '''
 import os
+import time
 from typing import (
     Optional,
     Callable,
@@ -186,45 +187,65 @@ class Container:
 
     async def cancel(
         self,
+        stop_msg: str,
     ) -> None:
 
         cid = self.cntr.id
+        # first try a graceful cancel
+        log.cancel(
+            f'SIGINT cancelling container: {cid}\n'
+            f'waiting on stop msg: "{stop_msg}"'
+        )
         self.try_signal('SIGINT')
 
-        with trio.move_on_after(0.5) as cs:
-            cs.shield = True
-            await self.process_logs_until('initiating graceful shutdown')
-            await self.process_logs_until('exiting...',)
+        start = time.time()
+        for _ in range(30):
 
-        for _ in range(10):
             with trio.move_on_after(0.5) as cs:
                 cs.shield = True
-                await self.process_logs_until('exiting...',)
+                await self.process_logs_until(stop_msg)
+
+                # if we aren't cancelled on above checkpoint then we
+                # assume we read the expected stop msg and terminated.
                 break
 
-            if cs.cancelled_caught:
-                # get out the big guns, bc apparently marketstore
-                # doesn't actually know how to terminate gracefully
-                # :eyeroll:...
-                self.try_signal('SIGKILL')
+            try:
+                log.info(f'Polling for container shutdown:\n{cid}')
 
-                try:
-                    log.info('Waiting on container shutdown: {cid}')
+                if self.cntr.status not in {'exited', 'not-running'}:
                     self.cntr.wait(
                         timeout=0.1,
                         condition='not-running',
                     )
-                    break
 
-                except (
-                    ReadTimeout,
-                    ConnectionError,
-                ):
-                    log.error(f'failed to wait on container {cid}')
-                    raise
+                break
 
+            except (
+                ReadTimeout,
+            ):
+                log.info(f'Still waiting on container:\n{cid}')
+                continue
+
+            except (
+                docker.errors.APIError,
+                ConnectionError,
+            ):
+                log.exception('Docker connection failure')
+                break
         else:
-            raise RuntimeError('Failed to cancel container {cid}')
+            delay = time.time() - start
+            log.error(
+                f'Failed to kill container {cid} after {delay}s\n'
+                'sending SIGKILL..'
+            )
+            # get out the big guns, bc apparently marketstore
+            # doesn't actually know how to terminate gracefully
+            # :eyeroll:...
+            self.try_signal('SIGKILL')
+            self.cntr.wait(
+                timeout=3,
+                condition='not-running',
+            )
 
         log.cancel(f'Container stopped: {cid}')
 
@@ -245,13 +266,16 @@ async def open_ahabd(
         # params, etc. passing to ``Containter.run()``?
         # call into endpoint for container config/init
         ep_func = NamespacePath(endpoint).load_ref()
-        dcntr, cntr_config = ep_func(client)
+        (
+            dcntr,
+            cntr_config,
+            start_msg,
+            stop_msg,
+        ) = ep_func(client)
         cntr = Container(dcntr)
 
         with trio.move_on_after(1):
-            found = await cntr.process_logs_until(
-                "launching tcp listener for all services...",
-            )
+            found = await cntr.process_logs_until(start_msg)
 
             if not found and cntr not in client.containers.list():
                 raise RuntimeError(
@@ -271,16 +295,9 @@ async def open_ahabd(
             # callers to have root perms?
             await trio.sleep_forever()
 
-        except (
-            BaseException,
-            # trio.Cancelled,
-            # KeyboardInterrupt,
-        ):
-
+        finally:
             with trio.CancelScope(shield=True):
-                await cntr.cancel()
-
-            raise
+                await cntr.cancel(stop_msg)
 
 
 async def start_ahab(

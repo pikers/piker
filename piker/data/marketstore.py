@@ -127,10 +127,15 @@ def start_marketstore(
     import os
     import docker
     from .. import config
-
     get_console_log('info', name=__name__)
 
-    yml_file = os.path.join(config._config_dir, 'mkts.yml')
+    mktsdir = os.path.join(config._config_dir, 'marketstore')
+
+    # create when dne
+    if not os.path.isdir(mktsdir):
+        os.mkdir(mktsdir)
+
+    yml_file = os.path.join(mktsdir, 'mkts.yml')
     if not os.path.isfile(yml_file):
         log.warning(
             f'No `marketstore` config exists?: {yml_file}\n'
@@ -143,14 +148,14 @@ def start_marketstore(
     # create a mount from user's local piker config dir into container
     config_dir_mnt = docker.types.Mount(
         target='/etc',
-        source=config._config_dir,
+        source=mktsdir,
         type='bind',
     )
 
     # create a user config subdir where the marketstore
     # backing filesystem database can be persisted.
     persistent_data_dir = os.path.join(
-        config._config_dir, 'data',
+        mktsdir, 'data',
     )
     if not os.path.isdir(persistent_data_dir):
         os.mkdir(persistent_data_dir)
@@ -180,7 +185,14 @@ def start_marketstore(
         init=True,
         # remove=True,
     )
-    return dcntr, _config
+    return (
+        dcntr,
+        _config,
+
+        # expected startup and stop msgs
+        "launching tcp listener for all services...",
+        "exiting...",
+    )
 
 
 _tick_tbk_ids: tuple[str, str] = ('1Sec', 'TICK')
@@ -383,7 +395,12 @@ class Storage:
     ]:
 
         first_tsdb_dt, last_tsdb_dt = None, None
-        tsdb_arrays = await self.read_ohlcv(fqsn)
+        tsdb_arrays = await self.read_ohlcv(
+            fqsn,
+            # on first load we don't need to pull the max
+            # history per request size worth.
+            limit=3000,
+        )
         log.info(f'Loaded tsdb history {tsdb_arrays}')
 
         if tsdb_arrays:
@@ -401,6 +418,7 @@ class Storage:
         fqsn: str,
         timeframe: Optional[Union[int, str]] = None,
         end: Optional[int] = None,
+        limit: int = int(800e3),
 
     ) -> tuple[
         MarketstoreClient,
@@ -423,7 +441,7 @@ class Storage:
 
             # TODO: figure the max limit here given the
             # ``purepc`` msg size limit of purerpc: 33554432
-            limit=int(800e3),
+            limit=limit,
         )
 
         if timeframe is None:
