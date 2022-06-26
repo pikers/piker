@@ -314,7 +314,8 @@ def _m4(
     # set all y-values to the first value passed in.
     y_out[bincount] = ys[0]
 
-    mx: float = 0
+    # full input y-data mx and mn
+    mx: float = -np.inf
     mn: float = np.inf
 
     # compute OHLC style max / min values per window sized x-frame.
