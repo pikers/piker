@@ -418,12 +418,10 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 mxmn = None
 
             elif self.yrange:
-                # print(f'{self.name} using yrange: {self.yrange}')
                 mxmn = self.yrange
+                # print(f'{self.name} M4 maxmin: {mxmn}')
 
             else:
-                print(f'{self.name} MANUAL MAXMIN')
-                # return 0, 0
                 if self.is_ohlc:
                     ylow = np.min(slice_view['low'])
                     yhigh = np.max(slice_view['high'])
@@ -434,6 +432,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
                     yhigh = np.max(view)
 
                 mxmn = ylow, yhigh
+                # print(f'{self.name} MANUAL maxmin: {mxmin}')
 
             if mxmn is not None:
                 # cache new mxmn result
@@ -668,7 +667,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
             **rkwargs,
         )
         if showing_src_data:
-            print(f"{self.name} SHOWING SOURCE")
+            # print(f"{self.name} SHOWING SOURCE")
             # reset yrange to be computed from source data
             self.yrange = None
 
@@ -1075,6 +1074,7 @@ class Renderer(msgspec.Struct):
         # xy-path data transform: convert source data to a format
         # able to be passed to a `QPainterPath` rendering routine.
         if not len(hist):
+            # XXX: this might be why the profiler only has exits?
             return
 
         x_out, y_out, connect = self.format_xy(
