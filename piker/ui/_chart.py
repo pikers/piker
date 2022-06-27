@@ -1292,11 +1292,16 @@ class ChartPlotWidget(pg.PlotWidget):
 
             key = round(lbar), round(rbar)
             res = flow.maxmin(*key)
-            if res == (None, None):
+
+            if (
+                res is None or
+                res == (None, None)
+            ):
                 log.error(
                     f"{flow_key} no mxmn for bars_range => {key} !?"
                 )
                 res = 0, 0
 
         profiler(f'yrange mxmn: {key} -> {res}')
+        # print(f'{flow_key} yrange mxmn: {key} -> {res}')
         return res
