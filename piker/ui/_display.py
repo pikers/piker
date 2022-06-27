@@ -105,6 +105,10 @@ def chart_maxmin(
     mn, mx = out
 
     mx_vlm_in_view = 0
+
+    # TODO: we need to NOT call this to avoid a manual
+    # np.max/min trigger and especially on the vlm_chart
+    # flows which aren't shown.. like vlm?
     if vlm_chart:
         out = vlm_chart.maxmin()
         if out:
