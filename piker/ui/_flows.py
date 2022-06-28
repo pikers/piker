@@ -337,6 +337,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
     name: str
     plot: pg.PlotItem
     graphics: Union[Curve, BarItems]
+    yrange: tuple[float, float] = None
 
     # in some cases a flow may want to change its
     # graphical "type" or, "form" when downsampling,
@@ -386,10 +387,11 @@ class Flow(msgspec.Struct):  # , frozen=True):
         lbar: int,
         rbar: int,
 
-    ) -> tuple[float, float]:
+    ) -> Optional[tuple[float, float]]:
         '''
         Compute the cached max and min y-range values for a given
-        x-range determined by ``lbar`` and ``rbar``.
+        x-range determined by ``lbar`` and ``rbar`` or ``None``
+        if no range can be determined (yet).
 
         '''
         rkey = (lbar, rbar)
@@ -399,40 +401,44 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
         shm = self.shm
         if shm is None:
-            mxmn = None
+            return None
 
-        else:  # new block for profiling?..
-            arr = shm.array
+        arr = shm.array
 
-            # build relative indexes into shm array
-            # TODO: should we just add/use a method
-            # on the shm to do this?
-            ifirst = arr[0]['index']
-            slice_view = arr[
-                lbar - ifirst:
-                (rbar - ifirst) + 1
-            ]
+        # build relative indexes into shm array
+        # TODO: should we just add/use a method
+        # on the shm to do this?
+        ifirst = arr[0]['index']
+        slice_view = arr[
+            lbar - ifirst:
+            (rbar - ifirst) + 1
+        ]
 
-            if not slice_view.size:
-                mxmn = None
+        if not slice_view.size:
+            return None
+
+        elif self.yrange:
+            mxmn = self.yrange
+            # print(f'{self.name} M4 maxmin: {mxmn}')
+
+        else:
+            if self.is_ohlc:
+                ylow = np.min(slice_view['low'])
+                yhigh = np.max(slice_view['high'])
 
             else:
-                if self.is_ohlc:
-                    ylow = np.min(slice_view['low'])
-                    yhigh = np.max(slice_view['high'])
+                view = slice_view[self.name]
+                ylow = np.min(view)
+                yhigh = np.max(view)
 
-                else:
-                    view = slice_view[self.name]
-                    ylow = np.min(view)
-                    yhigh = np.max(view)
+            mxmn = ylow, yhigh
+            # print(f'{self.name} MANUAL maxmin: {mxmin}')
 
-                mxmn = ylow, yhigh
+        # cache result for input range
+        assert mxmn
+        self._mxmns[rkey] = mxmn
 
-            if mxmn is not None:
-                # cache new mxmn result
-                self._mxmns[rkey] = mxmn
-
-            return mxmn
+        return mxmn
 
     def view_range(self) -> tuple[int, int]:
         '''
@@ -628,9 +634,12 @@ class Flow(msgspec.Struct):  # , frozen=True):
             # source data so we clear our path data in prep
             # to generate a new one from original source data.
             new_sample_rate = True
-            showing_src_data = True
             should_ds = False
             should_redraw = True
+
+            showing_src_data = True
+            # reset yrange to be computed from source data
+            self.yrange = None
 
         # MAIN RENDER LOGIC:
         # - determine in view data and redraw on range change
@@ -657,12 +666,19 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
             **rkwargs,
         )
+        if showing_src_data:
+            # print(f"{self.name} SHOWING SOURCE")
+            # reset yrange to be computed from source data
+            self.yrange = None
 
         if not out:
             log.warning(f'{self.name} failed to render!?')
             return graphics
 
         path, data, reset = out
+
+        # if self.yrange:
+        #     print(f'flow {self.name} yrange from m4: {self.yrange}')
 
         # XXX: SUPER UGGGHHH... without this we get stale cache
         # graphics that don't update until you downsampler again..
@@ -1058,6 +1074,7 @@ class Renderer(msgspec.Struct):
         # xy-path data transform: convert source data to a format
         # able to be passed to a `QPainterPath` rendering routine.
         if not len(hist):
+            # XXX: this might be why the profiler only has exits?
             return
 
         x_out, y_out, connect = self.format_xy(
@@ -1144,11 +1161,14 @@ class Renderer(msgspec.Struct):
 
             elif should_ds and uppx > 1:
 
-                x_out, y_out = xy_downsample(
+                x_out, y_out, ymn, ymx = xy_downsample(
                     x_out,
                     y_out,
                     uppx,
                 )
+                self.flow.yrange = ymn, ymx
+                # print(f'{self.flow.name} post ds: ymn, ymx: {ymn},{ymx}')
+
                 reset = True
                 profiler(f'FULL PATH downsample redraw={should_ds}')
                 self._in_ds = True

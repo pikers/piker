@@ -923,6 +923,7 @@ class ChartView(ViewBox):
                     # XXX: super important to be aware of this.
                     # or not flow.graphics.isVisible()
                 ):
+                    # print(f'skipping {flow.name}')
                     continue
 
                 # pass in no array which will read and render from the last

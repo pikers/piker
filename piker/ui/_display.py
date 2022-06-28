@@ -105,6 +105,10 @@ def chart_maxmin(
     mn, mx = out
 
     mx_vlm_in_view = 0
+
+    # TODO: we need to NOT call this to avoid a manual
+    # np.max/min trigger and especially on the vlm_chart
+    # flows which aren't shown.. like vlm?
     if vlm_chart:
         out = vlm_chart.maxmin()
         if out:
@@ -222,32 +226,8 @@ async def graphics_update_loop(
     tick_margin = 3 * tick_size
 
     chart.show()
-    # view = chart.view
     last_quote = time.time()
     i_last = ohlcv.index
-
-    # async def iter_drain_quotes():
-    #     # NOTE: all code below this loop is expected to be synchronous
-    #     # and thus draw instructions are not picked up jntil the next
-    #     # wait / iteration.
-    #     async for quotes in stream:
-    #         while True:
-    #             try:
-    #                 moar = stream.receive_nowait()
-    #             except trio.WouldBlock:
-    #                 yield quotes
-    #                 break
-    #             else:
-    #                 for sym, quote in moar.items():
-    #                     ticks_frame = quote.get('ticks')
-    #                     if ticks_frame:
-    #                         quotes[sym].setdefault(
-    #                             'ticks', []).extend(ticks_frame)
-    #                     print('pulled extra')
-
-    #                 yield quotes
-
-    # async for quotes in iter_drain_quotes():
 
     ds = linked.display_state = DisplayState(**{
         'quotes': {},
@@ -293,6 +273,7 @@ async def graphics_update_loop(
 
         # chart isn't active/shown so skip render cycle and pause feed(s)
         if chart.linked.isHidden():
+            print('skipping update')
             chart.pause_all_feeds()
             continue
 
@@ -416,10 +397,8 @@ def graphics_update_cycle(
             )
             or trigger_all
         ):
-            # TODO: we should track and compute whether the last
-            # pixel in a curve should show new data based on uppx
-            # and then iff update curves and shift?
             chart.increment_view(steps=i_diff)
+            # chart.increment_view(steps=i_diff + round(append_diff - uppx))
 
             if vlm_chart:
                 vlm_chart.increment_view(steps=i_diff)
@@ -477,7 +456,6 @@ def graphics_update_cycle(
         ):
             chart.update_graphics_from_flow(
                 chart.name,
-                # do_append=uppx < update_uppx,
                 do_append=do_append,
             )
 

@@ -639,19 +639,24 @@ async def open_vlm_displays(
             names: list[str],
 
         ) -> tuple[float, float]:
+            '''
+            Flows "group" maxmin loop; assumes all named flows
+            are in the same co-domain and thus can be sorted
+            as one set.
 
+            Iterates all the named flows and calls the chart
+            api to find their range values and return.
+
+            TODO: really we should probably have a more built-in API
+            for this?
+
+            '''
             mx = 0
             for name in names:
-
-                mxmn = chart.maxmin(name=name)
-                if mxmn:
-                    ymax = mxmn[1]
-                    if ymax > mx:
-                        mx = ymax
+                ymn, ymx = chart.maxmin(name=name)
+                mx = max(mx, ymx)
 
             return 0, mx
-
-        chart.view.maxmin = partial(multi_maxmin, names=['volume'])
 
         # TODO: fix the x-axis label issue where if you put
         # the axis on the left it's totally not lined up...
@@ -776,6 +781,7 @@ async def open_vlm_displays(
 
             ) -> None:
                 for name in names:
+
                     if 'dark' in name:
                         color = dark_vlm_color
                     elif 'rate' in name:
