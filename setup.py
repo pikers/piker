@@ -57,6 +57,7 @@ setup(
         # from github currently (see requirements.txt)
         # 'trimeter',  # not released yet..
         # 'tractor',
+        # asyncvnc,
 
         # brokers
         'asks==2.4.8',
@@ -71,32 +72,34 @@ setup(
 
         # UI
         'PyQt5',
-        'pyqtgraph',
-        'qdarkstyle >= 3.0.2',
-        # fuzzy search
-        'fuzzywuzzy[speedup]',
+        # 'pyqtgraph',  from our fork see reqs.txt
+        'qdarkstyle >= 3.0.2',  # themeing
+        'fuzzywuzzy[speedup]',  # fuzzy search
 
         # tsdbs
-        'pymarketstore',
+        # anyio-marketstore  # from gh see reqs.txt
     ],
     extras_require={
-
-        # serialization
         'tsdb': [
             'docker',
         ],
 
     },
     tests_require=['pytest'],
-    python_requires=">=3.9",  # literally for ``datetime.datetime.fromisoformat``...
-    keywords=["async", "trading", "finance", "quant", "charting"],
+    python_requires=">=3.10",
+    keywords=[
+        "async",
+        "trading",
+        "finance",
+        "quant",
+        "charting",
+    ],
     classifiers=[
         'Development Status :: 3 - Alpha',
         'License :: OSI Approved :: ',
         'Operating System :: POSIX :: Linux',
         "Programming Language :: Python :: Implementation :: CPython",
         "Programming Language :: Python :: 3 :: Only",
-        "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         'Intended Audience :: Financial and Insurance Industry',
         'Intended Audience :: Science/Research',
