@@ -761,6 +761,11 @@ class ChartPlotWidget(pg.PlotWidget):
 
         self.pi_overlay: PlotItemOverlay = PlotItemOverlay(self.plotItem)
 
+        # indempotent startup flag for auto-yrange subsys
+        # to detect the "first time" y-domain graphics begin
+        # to be shown in the (main) graphics view.
+        self._on_screen: bool = False
+
     def resume_all_feeds(self):
         try:
             for feed in self._feeds.values():
@@ -864,7 +869,8 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def default_view(
         self,
-        bars_from_y: int = 3000,
+        bars_from_y: int = 616,
+        do_ds: bool = True,
 
     ) -> None:
         '''
@@ -925,8 +931,11 @@ class ChartPlotWidget(pg.PlotWidget):
             max=end,
             padding=0,
         )
-        self.view.maybe_downsample_graphics()
-        view._set_yrange()
+
+        if do_ds:
+            self.view.maybe_downsample_graphics()
+            view._set_yrange()
+
         try:
             self.linked.graphics_cycle()
         except IndexError:
@@ -1260,7 +1269,6 @@ class ChartPlotWidget(pg.PlotWidget):
         If ``bars_range`` is provided use that range.
 
         '''
-        # print(f'Chart[{self.name}].maxmin()')
         profiler = pg.debug.Profiler(
             msg=f'`{str(self)}.maxmin(name={name})`: `{self.name}`',
             disabled=not pg_profile_enabled(),
@@ -1294,13 +1302,15 @@ class ChartPlotWidget(pg.PlotWidget):
             res = flow.maxmin(*key)
 
             if (
-                res is None or
-                res == (None, None)
+                res is None
             ):
-                log.error(
+                log.warning(
                     f"{flow_key} no mxmn for bars_range => {key} !?"
                 )
                 res = 0, 0
+                if not self._on_screen:
+                    self.default_view(do_ds=False)
+                    self._on_screen = True
 
         profiler(f'yrange mxmn: {key} -> {res}')
         # print(f'{flow_key} yrange mxmn: {key} -> {res}')
