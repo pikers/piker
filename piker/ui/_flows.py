@@ -387,10 +387,11 @@ class Flow(msgspec.Struct):  # , frozen=True):
         lbar: int,
         rbar: int,
 
-    ) -> tuple[float, float]:
+    ) -> Optional[tuple[float, float]]:
         '''
         Compute the cached max and min y-range values for a given
-        x-range determined by ``lbar`` and ``rbar``.
+        x-range determined by ``lbar`` and ``rbar`` or ``None``
+        if no range can be determined (yet).
 
         '''
         rkey = (lbar, rbar)
@@ -400,45 +401,44 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
         shm = self.shm
         if shm is None:
-            mxmn = None
+            return None
 
-        else:  # new block for profiling?..
-            arr = shm.array
+        arr = shm.array
 
-            # build relative indexes into shm array
-            # TODO: should we just add/use a method
-            # on the shm to do this?
-            ifirst = arr[0]['index']
-            slice_view = arr[
-                lbar - ifirst:
-                (rbar - ifirst) + 1
-            ]
+        # build relative indexes into shm array
+        # TODO: should we just add/use a method
+        # on the shm to do this?
+        ifirst = arr[0]['index']
+        slice_view = arr[
+            lbar - ifirst:
+            (rbar - ifirst) + 1
+        ]
 
-            if not slice_view.size:
-                mxmn = None
+        if not slice_view.size:
+            return None
 
-            elif self.yrange:
-                mxmn = self.yrange
-                # print(f'{self.name} M4 maxmin: {mxmn}')
+        elif self.yrange:
+            mxmn = self.yrange
+            # print(f'{self.name} M4 maxmin: {mxmn}')
+
+        else:
+            if self.is_ohlc:
+                ylow = np.min(slice_view['low'])
+                yhigh = np.max(slice_view['high'])
 
             else:
-                if self.is_ohlc:
-                    ylow = np.min(slice_view['low'])
-                    yhigh = np.max(slice_view['high'])
+                view = slice_view[self.name]
+                ylow = np.min(view)
+                yhigh = np.max(view)
 
-                else:
-                    view = slice_view[self.name]
-                    ylow = np.min(view)
-                    yhigh = np.max(view)
+            mxmn = ylow, yhigh
+            # print(f'{self.name} MANUAL maxmin: {mxmin}')
 
-                mxmn = ylow, yhigh
-                # print(f'{self.name} MANUAL maxmin: {mxmin}')
+        # cache result for input range
+        assert mxmn
+        self._mxmns[rkey] = mxmn
 
-            if mxmn is not None:
-                # cache new mxmn result
-                self._mxmns[rkey] = mxmn
-
-            return mxmn
+        return mxmn
 
     def view_range(self) -> tuple[int, int]:
         '''
