@@ -44,9 +44,11 @@ from .api import (
     Client,
     BrokerError,
     get_client,
-    get_console_log,
     log,
     normalize_symbol,
+)
+from .feed import (
+    get_console_log,
     open_autorecon_ws,
     NoBsWs,
     stream_messages,

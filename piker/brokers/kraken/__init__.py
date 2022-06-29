@@ -27,16 +27,16 @@ Sub-modules within break into the core functionalities:
 '''
 from .api import (
     get_client,
+)
+from .feed import (
     open_history_client,
     open_symbol_search,
     stream_quotes,
 )
-# TODO:
-# from .feed import (
-# )
 from .broker import (
     trades_dialogue,
-    # TODO:
+
+    # TODO: part of pps/ledger work
     # norm_trade_records,
 )
 
@@ -52,7 +52,6 @@ __all__ = [
 # tractor RPC enable arg
 __enable_modules__: list[str] = [
     'api',
-    # TODO:
-    # 'feed',
+    'feed',
     'broker',
 ]
