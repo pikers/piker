@@ -38,15 +38,21 @@ import time
 from types import SimpleNamespace
 
 
+from bidict import bidict
 import trio
 import tractor
 from tractor import to_asyncio
+import ib_insync as ibis
 from ib_insync.wrapper import RequestError
 from ib_insync.contract import Contract, ContractDetails
 from ib_insync.order import Order
 from ib_insync.ticker import Ticker
-from ib_insync.objects import Position
-import ib_insync as ibis
+from ib_insync.objects import (
+    Position,
+    Fill,
+    Execution,
+    CommissionReport,
+)
 from ib_insync.wrapper import Wrapper
 from ib_insync.client import Client as ib_Client
 import numpy as np
@@ -155,30 +161,23 @@ class NonShittyIB(ibis.IB):
         self.client.apiEnd += self.disconnectedEvent
 
 
-# map of symbols to contract ids
-_adhoc_cmdty_data_map = {
-    # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
-
-    # NOTE: some cmdtys/metals don't have trade data like gold/usd:
-    # https://groups.io/g/twsapi/message/44174
-    'XAUUSD': ({'conId': 69067924}, {'whatToShow': 'MIDPOINT'}),
-}
-
 _futes_venues = (
     'GLOBEX',
     'NYMEX',
     'CME',
     'CMECRYPTO',
+    'COMEX',
+    'CMDTY',  # special name case..
 )
 
 _adhoc_futes_set = {
 
     # equities
     'nq.globex',
-    'mnq.globex',
+    'mnq.globex',  # micro
 
     'es.globex',
-    'mes.globex',
+    'mes.globex',  # micro
 
     # cypto$
     'brr.cmecrypto',
@@ -195,20 +194,46 @@ _adhoc_futes_set = {
     # metals
     'xauusd.cmdty',  # gold spot
     'gc.nymex',
-    'mgc.nymex',
+    'mgc.nymex',  # micro
+
+    # oil & gas
+    'cl.nymex',
 
     'xagusd.cmdty',  # silver spot
     'ni.nymex',  # silver futes
     'qi.comex',  # mini-silver futes
 }
 
+
+# map of symbols to contract ids
+_adhoc_symbol_map = {
+    # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
+
+    # NOTE: some cmdtys/metals don't have trade data like gold/usd:
+    # https://groups.io/g/twsapi/message/44174
+    'XAUUSD': ({'conId': 69067924}, {'whatToShow': 'MIDPOINT'}),
+}
+for qsn in _adhoc_futes_set:
+    sym, venue = qsn.split('.')
+    assert venue.upper() in _futes_venues, f'{venue}'
+    _adhoc_symbol_map[sym.upper()] = (
+        {'exchange': venue},
+        {},
+    )
+
+
 # exchanges we don't support at the moment due to not knowing
 # how to do symbol-contract lookup correctly likely due
 # to not having the data feeds subscribed.
 _exch_skip_list = {
+
     'ASX',  # aussie stocks
     'MEXI',  # mexican stocks
-    'VALUE',  # no idea
+
+    # no idea
+    'VALUE',
+    'FUNDSERV',
+    'SWB2',
 }
 
 # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
@@ -261,26 +286,28 @@ class Client:
 
         # NOTE: the ib.client here is "throttled" to 45 rps by default
 
-    async def trades(
-        self,
-        # api_only: bool = False,
+    async def trades(self) -> dict[str, Any]:
+        '''
+        Return list of trade-fills from current session in ``dict``.
 
-    ) -> dict[str, Any]:
-
-        # orders = await self.ib.reqCompletedOrdersAsync(
-        #     apiOnly=api_only
-        # )
-        fills = await self.ib.reqExecutionsAsync()
-        norm_fills = []
+        '''
+        fills: list[Fill] = self.ib.fills()
+        norm_fills: list[dict] = []
         for fill in fills:
             fill = fill._asdict()  # namedtuple
-            for key, val in fill.copy().items():
-                if isinstance(val, Contract):
-                    fill[key] = asdict(val)
+            for key, val in fill.items():
+                match val:
+                    case Contract() | Execution() | CommissionReport():
+                        fill[key] = asdict(val)
 
             norm_fills.append(fill)
 
         return norm_fills
+
+    async def orders(self) -> list[Order]:
+        return await self.ib.reqAllOpenOrdersAsync(
+            apiOnly=False,
+        )
 
     async def bars(
         self,
@@ -483,6 +510,14 @@ class Client:
 
         return con
 
+    async def get_con(
+        self,
+        conid: int,
+    ) -> Contract:
+        return await self.ib.qualifyContractsAsync(
+            ibis.Contract(conId=conid)
+        )
+
     async def find_contract(
         self,
         pattern: str,
@@ -553,7 +588,7 @@ class Client:
 
         # commodities
         elif exch == 'CMDTY':  # eg. XAUUSD.CMDTY
-            con_kwargs, bars_kwargs = _adhoc_cmdty_data_map[sym]
+            con_kwargs, bars_kwargs = _adhoc_symbol_map[sym]
             con = ibis.Commodity(**con_kwargs)
             con.bars_kwargs = bars_kwargs
 
@@ -811,9 +846,22 @@ _scan_ignore: set[tuple[str, int]] = set()
 
 def get_config() -> dict[str, Any]:
 
-    conf, path = config.load()
-
+    conf, path = config.load('brokers')
     section = conf.get('ib')
+
+    accounts = section.get('accounts')
+    if not accounts:
+        raise ValueError(
+            'brokers.toml -> `ib.accounts` must be defined\n'
+            f'location: {path}'
+        )
+
+    names = list(accounts.keys())
+    accts = section['accounts'] = bidict(accounts)
+    log.info(
+        f'brokers.toml defines {len(accts)} accounts: '
+        f'{pformat(names)}'
+    )
 
     if section is None:
         log.warning(f'No config section found for ib in {path}')
@@ -990,7 +1038,7 @@ async def load_aio_clients(
         for acct, client in _accounts2clients.items():
             log.info(f'Disconnecting {acct}@{client}')
             client.ib.disconnect()
-            _client_cache.pop((host, port))
+            _client_cache.pop((host, port), None)
 
 
 async def load_clients_for_trio(
@@ -1019,9 +1067,6 @@ async def load_clients_for_trio(
             await asyncio.sleep(float('inf'))
 
 
-_proxies: dict[str, MethodProxy] = {}
-
-
 @acm
 async def open_client_proxies() -> tuple[
     dict[str, MethodProxy],
@@ -1044,13 +1089,14 @@ async def open_client_proxies() -> tuple[
         if cache_hit:
             log.info(f'Re-using cached clients: {clients}')
 
+        proxies = {}
         for acct_name, client in clients.items():
             proxy = await stack.enter_async_context(
                 open_client_proxy(client),
             )
-            _proxies[acct_name] = proxy
+            proxies[acct_name] = proxy
 
-        yield _proxies, clients
+        yield proxies, clients
 
 
 def get_preferred_data_client(
@@ -1199,11 +1245,13 @@ async def open_client_proxy(
     event_table = {}
 
     async with (
+
         to_asyncio.open_channel_from(
             open_aio_client_method_relay,
             client=client,
             event_consumers=event_table,
         ) as (first, chan),
+
         trio.open_nursery() as relay_n,
     ):
 

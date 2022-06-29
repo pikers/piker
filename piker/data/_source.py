@@ -23,7 +23,7 @@ import decimal
 
 from bidict import bidict
 import numpy as np
-from pydantic import BaseModel
+from msgspec import Struct
 # from numba import from_dtype
 
 
@@ -126,7 +126,7 @@ def unpack_fqsn(fqsn: str) -> tuple[str, str, str]:
     )
 
 
-class Symbol(BaseModel):
+class Symbol(Struct):
     '''
     I guess this is some kinda container thing for dealing with
     all the different meta-data formats from brokers?
@@ -152,9 +152,7 @@ class Symbol(BaseModel):
         info: dict[str, Any],
         suffix: str = '',
 
-    # XXX: like wtf..
-    # ) -> 'Symbol':
-    ) -> None:
+    ) -> Symbol:
 
         tick_size = info.get('price_tick_size', 0.01)
         lot_tick_size = info.get('lot_tick_size', 0.0)
@@ -175,9 +173,7 @@ class Symbol(BaseModel):
         fqsn: str,
         info: dict[str, Any],
 
-    # XXX: like wtf..
-    # ) -> 'Symbol':
-    ) -> None:
+    ) -> Symbol:
         broker, key, suffix = unpack_fqsn(fqsn)
         return cls.from_broker_info(
             broker,
@@ -240,7 +236,7 @@ class Symbol(BaseModel):
 
         '''
         tokens = self.tokens()
-        fqsn = '.'.join(tokens)
+        fqsn = '.'.join(map(str.lower, tokens))
         return fqsn
 
     def iterfqsns(self) -> list[str]:

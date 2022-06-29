@@ -21,6 +21,7 @@ Broker configuration mgmt.
 import platform
 import sys
 import os
+from os import path
 from os.path import dirname
 import shutil
 from typing import Optional
@@ -111,6 +112,7 @@ if _parent_user:
 
 _conf_names: set[str] = {
     'brokers',
+    'pps',
     'trades',
     'watchlists',
 }
@@ -147,19 +149,21 @@ def get_conf_path(
     conf_name: str = 'brokers',
 
 ) -> str:
-    """Return the default config path normally under
-    ``~/.config/piker`` on linux.
+    '''
+    Return the top-level default config path normally under
+    ``~/.config/piker`` on linux for a given ``conf_name``, the config
+    name.
 
     Contains files such as:
     - brokers.toml
+    - pp.toml
     - watchlists.toml
-    - trades.toml
 
     # maybe coming soon ;)
     - signals.toml
     - strats.toml
 
-    """
+    '''
     assert conf_name in _conf_names
     fn = _conf_fn_w_ext(conf_name)
     return os.path.join(
@@ -173,7 +177,7 @@ def repodir():
     Return the abspath to the repo directory.
 
     '''
-    dirpath = os.path.abspath(
+    dirpath = path.abspath(
         # we're 3 levels down in **this** module file
         dirname(dirname(os.path.realpath(__file__)))
     )
@@ -182,7 +186,9 @@ def repodir():
 
 def load(
     conf_name: str = 'brokers',
-    path: str = None
+    path: str = None,
+
+    **tomlkws,
 
 ) -> (dict, str):
     '''
@@ -190,6 +196,7 @@ def load(
 
     '''
     path = path or get_conf_path(conf_name)
+
     if not os.path.isfile(path):
         fn = _conf_fn_w_ext(conf_name)
 
@@ -202,8 +209,11 @@ def load(
         # if one exists.
         if os.path.isfile(template):
             shutil.copyfile(template, path)
+        else:
+            with open(path, 'w'):
+                pass  # touch
 
-    config = toml.load(path)
+    config = toml.load(path, **tomlkws)
     log.debug(f"Read config file {path}")
     return config, path
 
@@ -212,6 +222,7 @@ def write(
     config: dict,  # toml config as dict
     name: str = 'brokers',
     path: str = None,
+    **toml_kwargs,
 
 ) -> None:
     ''''
@@ -235,11 +246,14 @@ def write(
         f"{path}"
     )
     with open(path, 'w') as cf:
-        return toml.dump(config, cf)
+        return toml.dump(
+            config,
+            cf,
+            **toml_kwargs,
+        )
 
 
 def load_accounts(
-
     providers: Optional[list[str]] = None
 
 ) -> bidict[str, Optional[str]]:

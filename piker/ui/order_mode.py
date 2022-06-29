@@ -33,10 +33,10 @@ import trio
 from PyQt5.QtCore import Qt
 
 from .. import config
+from ..pp import Position
 from ..clearing._client import open_ems, OrderBook
 from ..clearing._allocate import (
     mk_allocator,
-    Position,
 )
 from ._style import _font
 from ..data._source import Symbol
@@ -59,7 +59,8 @@ log = get_logger(__name__)
 
 
 class OrderDialog(BaseModel):
-    '''Trade dialogue meta-data describing the lifetime
+    '''
+    Trade dialogue meta-data describing the lifetime
     of an order submission to ``emsd`` from a chart.
 
     '''
@@ -87,7 +88,8 @@ def on_level_change_update_next_order_info(
     tracker: PositionTracker,
 
 ) -> None:
-    '''A callback applied for each level change to the line
+    '''
+    A callback applied for each level change to the line
     which will recompute the order size based on allocator
     settings. this is assigned inside
     ``OrderMode.line_from_order()``
@@ -604,7 +606,10 @@ async def open_order_mode(
             startup_pp = Position(
                 symbol=symbol,
                 size=0,
-                avg_price=0,
+                be_price=0,
+
+                # XXX: BLEH, do we care about this on the client side?
+                bsuid=symbol,
             )
             msg = pps_by_account.get(account_name)
             if msg:

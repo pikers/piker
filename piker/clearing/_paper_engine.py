@@ -31,6 +31,8 @@ import tractor
 from dataclasses import dataclass
 
 from .. import data
+from ..data._source import Symbol
+from ..pp import Position
 from ..data._normalize import iterticks
 from ..data._source import unpack_fqsn
 from ..log import get_logger
@@ -257,29 +259,14 @@ class PaperBoi:
             )
         )
 
-        # "avg position price" calcs
-        # TODO: eventually it'd be nice to have a small set of routines
-        # to do this stuff from a sequence of cleared orders to enable
-        # so called "contextual positions".
-        new_size = size + pp_msg.size
-
-        # old size minus the new size gives us size differential with
-        # +ve -> increase in pp size
-        # -ve -> decrease in pp size
-        size_diff = abs(new_size) - abs(pp_msg.size)
-
-        if new_size == 0:
-            pp_msg.avg_price = 0
-
-        elif size_diff > 0:
-            # only update the "average position price" when the position
-            # size increases not when it decreases (i.e. the position is
-            # being made smaller)
-            pp_msg.avg_price = (
-                abs(size) * price + pp_msg.avg_price * abs(pp_msg.size)
-            ) / abs(new_size)
-
-        pp_msg.size = new_size
+        # delegate update to `.pp.Position.lifo_update()`
+        pp = Position(
+            Symbol(key=symbol),
+            size=pp_msg.size,
+            be_price=pp_msg.avg_price,
+            bsuid=symbol,
+        )
+        pp_msg.size, pp_msg.avg_price = pp.lifo_update(size, price)
 
         await self.ems_trades_stream.send(pp_msg.dict())
 
@@ -390,7 +377,8 @@ async def handle_order_requests(
             account = request_msg['account']
             if account != 'paper':
                 log.error(
-                    'This is a paper account, only a `paper` selection is valid'
+                    'This is a paper account,'
+                    ' only a `paper` selection is valid'
                 )
                 await ems_order_stream.send(BrokerdError(
                     oid=request_msg['oid'],
@@ -464,7 +452,7 @@ async def trades_dialogue(
         # TODO: load paper positions per broker from .toml config file
         # and pass as symbol to position data mapping: ``dict[str, dict]``
         # await ctx.started(all_positions)
-        await ctx.started(({}, {'paper',}))
+        await ctx.started(({}, ['paper']))
 
         async with (
             ctx.open_stream() as ems_stream,

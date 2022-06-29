@@ -41,6 +41,7 @@ setup(
     },
     install_requires=[
         'toml',
+        'tomli',  # fastest pure py reader
         'click',
         'colorlog',
         'attrs',

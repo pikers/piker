@@ -23,53 +23,10 @@ from typing import Optional
 
 from bidict import bidict
 from pydantic import BaseModel, validator
+# from msgspec import Struct
 
 from ..data._source import Symbol
-from ._messages import BrokerdPosition, Status
-
-
-class Position(BaseModel):
-    '''
-    Basic pp (personal position) model with attached fills history.
-
-    This type should be IPC wire ready?
-
-    '''
-    symbol: Symbol
-
-    # last size and avg entry price
-    size: float
-    avg_price: float  # TODO: contextual pricing
-
-    # ordered record of known constituent trade messages
-    fills: list[Status] = []
-
-    def update_from_msg(
-        self,
-        msg: BrokerdPosition,
-
-    ) -> None:
-
-        # XXX: better place to do this?
-        symbol = self.symbol
-
-        lot_size_digits = symbol.lot_size_digits
-        avg_price, size = (
-            round(msg['avg_price'], ndigits=symbol.tick_size_digits),
-            round(msg['size'], ndigits=lot_size_digits),
-        )
-
-        self.avg_price = avg_price
-        self.size = size
-
-    @property
-    def dsize(self) -> float:
-        '''
-        The "dollar" size of the pp, normally in trading (fiat) unit
-        terms.
-
-        '''
-        return self.avg_price * self.size
+from ..pp import Position
 
 
 _size_units = bidict({
@@ -173,7 +130,7 @@ class Allocator(BaseModel):
             l_sub_pp = self.units_limit - abs_live_size
 
         elif size_unit == 'currency':
-            live_cost_basis = abs_live_size * live_pp.avg_price
+            live_cost_basis = abs_live_size * live_pp.be_price
             slot_size = currency_per_slot / price
             l_sub_pp = (self.currency_limit - live_cost_basis) / price
 
@@ -205,7 +162,7 @@ class Allocator(BaseModel):
             if size_unit == 'currency':
                 # compute the "projected" limit's worth of units at the
                 # current pp (weighted) price:
-                slot_size = currency_per_slot / live_pp.avg_price
+                slot_size = currency_per_slot / live_pp.be_price
 
             else:
                 slot_size = u_per_slot
@@ -244,7 +201,12 @@ class Allocator(BaseModel):
         if order_size < slot_size:
             # compute a fractional slots size to display
             slots_used = self.slots_used(
-                Position(symbol=sym, size=order_size, avg_price=price)
+                Position(
+                    symbol=sym,
+                    size=order_size,
+                    be_price=price,
+                    bsuid=sym,
+                )
             )
 
         return {
@@ -271,8 +233,8 @@ class Allocator(BaseModel):
         abs_pp_size = abs(pp.size)
 
         if self.size_unit == 'currency':
-            # live_currency_size = size or (abs_pp_size * pp.avg_price)
-            live_currency_size = abs_pp_size * pp.avg_price
+            # live_currency_size = size or (abs_pp_size * pp.be_price)
+            live_currency_size = abs_pp_size * pp.be_price
             prop = live_currency_size / self.currency_limit
 
         else:
@@ -342,7 +304,7 @@ def mk_allocator(
     # if the current position is already greater then the limit
     # settings, increase the limit to the current position
     if alloc.size_unit == 'currency':
-        startup_size = startup_pp.size * startup_pp.avg_price
+        startup_size = startup_pp.size * startup_pp.be_price
 
         if startup_size > alloc.currency_limit:
             alloc.currency_limit = round(startup_size, ndigits=2)
