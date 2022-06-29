@@ -226,10 +226,14 @@ for qsn in _adhoc_futes_set:
 # how to do symbol-contract lookup correctly likely due
 # to not having the data feeds subscribed.
 _exch_skip_list = {
+
     'ASX',  # aussie stocks
     'MEXI',  # mexican stocks
-    'VALUE',  # no idea
-    'FUNDSERV',  # no idea
+
+    # no idea
+    'VALUE',
+    'FUNDSERV',
+    'SWB2',
 }
 
 # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
