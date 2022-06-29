@@ -21,6 +21,7 @@ Kraken web API wrapping.
 from contextlib import asynccontextmanager as acm
 from dataclasses import field
 from datetime import datetime
+import itertools
 from typing import (
     Any,
     Optional,
@@ -28,7 +29,8 @@ from typing import (
 )
 import time
 
-import trio
+# import trio
+# import tractor
 import pendulum
 import asks
 from fuzzywuzzy import process as fuzzy
@@ -213,37 +215,46 @@ class Client:
 
     async def get_trades(
         self,
-        data: dict[str, Any] = {}
+
     ) -> dict[str, Any]:
-        data['ofs'] = 0
-        # Grab all trade history
-        # https://docs.kraken.com/rest/#operation/getTradeHistory
-        # Kraken uses 'ofs' to refer to the offset
-        while True:
-            resp = await self.endpoint('TradesHistory', data)
-            # grab the first 50 trades
-            if data['ofs'] == 0:
-                trades = resp['result']['trades']
-            # load the next 50 trades using dict constructor
-            # for speed
-            elif data['ofs'] == 50:
-                trades = dict(trades, **resp['result']['trades'])
-            # catch the end of the trades
-            elif resp['result']['trades'] == {}:
+        '''
+        Get the trades (aka cleared orders) history from the rest endpoint:
+        https://docs.kraken.com/rest/#operation/getTradeHistory
+
+        '''
+        ofs = 0
+        trades_by_id: dict[str, Any] = {}
+
+        for i in itertools.count():
+
+            # increment 'ofs' pagination offset
+            ofs = i*50
+
+            resp = await self.endpoint(
+                'TradesHistory',
+                {'ofs': ofs},
+            )
+            # get up to 50 results
+            try:
+                by_id = resp['result']['trades']
+            except KeyError:
+                err = resp['error']
+                raise BrokerError(err)
+
+            trades_by_id.update(by_id)
+
+            if (
+                len(by_id) < 50
+            ):
+                # we know we received the max amount of
+                # trade results so there may be more history.
+                # catch the end of the trades
                 count = resp['result']['count']
                 break
-            # update existing dict if num trades exceeds 100
-            else:
-                trades.update(resp['result']['trades'])
-            # increment the offset counter
-            data['ofs'] += 50
-            # To avoid exceeding API rate limit in case of a lot of trades
-            await trio.sleep(1)
 
-        # make sure you grabbed all the trades
-        assert count == len(trades.values())
-
-        return trades
+        # santity check on update
+        assert count == len(trades_by_id.values())
+        return trades_by_id
 
     async def submit_limit(
         self,
