@@ -20,14 +20,9 @@ Interactive Brokers API backend.
 Sub-modules within break into the core functionalities:
 
 - ``broker.py`` part for orders / trading endpoints
-- ``data.py`` for real-time data feed endpoints
-
-- ``client.py`` for the core API machinery which is ``trio``-ized
+- ``feed.py`` for real-time data feed endpoints
+- ``api.py`` for the core API machinery which is ``trio``-ized
   wrapping around ``ib_insync``.
-
-- ``report.py`` for the hackery to build manual pp calcs
-  to avoid ib's absolute bullshit FIFO style position
-  tracking..
 
 """
 from .api import (
