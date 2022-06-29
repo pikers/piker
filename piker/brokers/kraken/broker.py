@@ -13,6 +13,7 @@
 
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 '''
 Order api and machinery
 
@@ -33,7 +34,13 @@ import trio
 import tractor
 import wsproto
 
-from . import (
+from piker.clearing._paper_engine import PaperBoi
+from piker.clearing._messages import (
+    BrokerdPosition, BrokerdOrder, BrokerdStatus,
+    BrokerdOrderAck, BrokerdError, BrokerdCancel,
+    BrokerdFill,
+)
+from .api import (
     Client,
     BrokerError,
     get_client,
@@ -43,12 +50,6 @@ from . import (
     open_autorecon_ws,
     NoBsWs,
     stream_messages,
-)
-from ..clearing._paper_engine import PaperBoi
-from ..clearing._messages import (
-    BrokerdPosition, BrokerdOrder, BrokerdStatus,
-    BrokerdOrderAck, BrokerdError, BrokerdCancel,
-    BrokerdFill,
 )
 
 
