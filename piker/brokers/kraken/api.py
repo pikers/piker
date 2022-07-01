@@ -446,13 +446,16 @@ async def get_client() -> Client:
 def normalize_symbol(
     ticker: str
 ) -> str:
-    # This is to convert symbol names from what kraken
-    # uses to the traditional 3x3 pair symbol syntax
+    '''
+    Normalize symbol names to to a 3x3 pair.
+
+    '''
     symlen = len(ticker)
-    if symlen == 6:
-        return ticker.lower()
-    else:
+    if symlen != 6:
         for sym in ['XXBT', 'XXMR', 'ZEUR']:
             if sym in ticker:
                 ticker = ticker.replace(sym, sym[1:])
-        return ticker.lower()
+        else:
+            raise ValueError(f'Unhandled symbol: {ticker}')
+
+    return ticker.lower()
