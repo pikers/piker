@@ -296,8 +296,7 @@ async def update_ledger_from_api_trades(
     client: Union[Client, MethodProxy],
 
 ) -> dict[str, pp.Transaction]:
-    # construct piker pps from trade ledger, underneath using
-    # LIFO style breakeven pricing calcs.
+
     conf = get_config()
 
     # XXX; ERRGGG..
