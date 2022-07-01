@@ -208,6 +208,7 @@ class Client:
         self,
         method: str,
         data: dict[str, Any]
+
     ) -> dict[str, Any]:
         uri_path = f'/0/private/{method}'
         data['nonce'] = str(int(1000*time.time()))
@@ -234,18 +235,17 @@ class Client:
                 'TradesHistory',
                 {'ofs': ofs},
             )
-            # get up to 50 results
-            try:
-                by_id = resp['result']['trades']
-            except KeyError:
-                err = resp['error']
-                raise BrokerError(err)
-
+            by_id = resp['result']['trades']
             trades_by_id.update(by_id)
 
+            # we can get up to 50 results per query
             if (
                 len(by_id) < 50
             ):
+                err = resp.get('error')
+                if err:
+                    raise BrokerError(err)
+
                 # we know we received the max amount of
                 # trade results so there may be more history.
                 # catch the end of the trades
