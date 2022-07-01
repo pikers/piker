@@ -629,7 +629,12 @@ def load_pps_from_toml(
         # index clears entries in "object" form by tid in a top
         # level dict instead of a list (as is presented in our
         # ``pps.toml``).
-        clears = pp_objs[bsuid].clears
+        pp = pp_objs.get(bsuid)
+        if pp:
+            clears = pp.clears
+        else:
+            clears = {}
+
         for clears_table in clears_list:
             tid = clears_table.pop('tid')
             clears[tid] = clears_table
