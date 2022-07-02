@@ -615,7 +615,7 @@ def load_pps_from_toml(
 
     if not pps:
         log.warning(
-            f'No trade history could be loaded for {brokername}:{acctid}'
+            f'No `pps.toml` positions cold be loaded for {brokername}:{acctid}'
         )
 
     # unmarshal/load ``pps.toml`` config entries into object form.
@@ -752,11 +752,11 @@ def update_pps_conf(
             # drop symbol obj in serialized form
             s = asdict.pop('symbol')
             fqsn = s.front_fqsn()
-            print(f'Updating active pp: {fqsn}')
+            log.info(f'Updating active pp: {fqsn}')
 
             # XXX: ugh, it's cuz we push the section under
             # the broker name.. maybe we need to rethink this?
-            brokerless_key = fqsn.rstrip(f'.{brokername}')
+            brokerless_key = fqsn.removeprefix(f'{brokername}.')
 
             pp_entries[brokerless_key] = asdict
 
