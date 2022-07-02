@@ -450,12 +450,14 @@ def normalize_symbol(
     Normalize symbol names to to a 3x3 pair.
 
     '''
+    remap = {
+        'XXBTZEUR': 'XBTEUR',
+        'XXMRZEUR': 'XMREUR',
+    }
     symlen = len(ticker)
     if symlen != 6:
-        for sym in ['XXBT', 'XXMR', 'ZEUR']:
-            if sym in ticker:
-                ticker = ticker.replace(sym, sym[1:])
-        else:
-            raise ValueError(f'Unhandled symbol: {ticker}')
+        ticker = remap[ticker]
+    else:
+        raise ValueError(f'Unhandled symbol: {ticker}')
 
     return ticker.lower()
