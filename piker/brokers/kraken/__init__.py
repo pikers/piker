@@ -35,9 +35,7 @@ from .feed import (
 )
 from .broker import (
     trades_dialogue,
-
-    # TODO: part of pps/ledger work
-    # norm_trade_records,
+    norm_trade_records,
 )
 
 __all__ = [
