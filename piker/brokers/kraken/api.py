@@ -264,6 +264,7 @@ class Client:
         size: float,
         reqid: str = None,
         validate: bool = False  # set True test call without a real submission
+
     ) -> dict:
         '''
         Place an order and return integer request id provided by client.
@@ -278,7 +279,9 @@ class Client:
         if reqid is None:
             # Build order data for kraken api
             data |= {
-                "ordertype": "limit", "type": action, "volume": str(size)
+                "ordertype": "limit",
+                "type": action,
+                "volume": str(size),
             }
             return await self.endpoint('AddOrder', data)
         else:
@@ -453,6 +456,10 @@ def normalize_symbol(
     remap = {
         'XXBTZEUR': 'XBTEUR',
         'XXMRZEUR': 'XMREUR',
+
+        # ws versions? pretty weird..
+        'XBT/EUR': 'XBTEUR',
+        'XMR/EUR': 'XMREUR',
     }
     symlen = len(ticker)
     if symlen != 6:
