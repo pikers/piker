@@ -385,6 +385,21 @@ async def trades_dialogue(
                                 size = float(msg['vol'])
                                 broker_time = float(msg['time'])
 
+                                # send a fill msg for gui update
+                                fill_msg = BrokerdFill(
+                                    reqid=reqid,
+                                    time_ns=time.time_ns(),
+
+                                    action=action,
+                                    size=size,
+                                    price=price,
+                                    # TODO: maybe capture more msg data
+                                    # i.e fees?
+                                    broker_details={'name': 'kraken'},
+                                    broker_time=broker_time
+                                )
+
+                                await ems_stream.send(fill_msg.dict())
                                 filled_msg = BrokerdStatus(
                                     reqid=reqid,
                                     time_ns=time.time_ns(),
@@ -408,22 +423,6 @@ async def trades_dialogue(
                                     remaining=0,
                                 )
                                 await ems_stream.send(filled_msg.dict())
-
-                                # send a fill msg for gui update
-                                fill_msg = BrokerdFill(
-                                    reqid=reqid,
-                                    time_ns=time.time_ns(),
-
-                                    action=action,
-                                    size=size,
-                                    price=price,
-                                    # TODO: maybe capture more msg data
-                                    # i.e fees?
-                                    broker_details={'name': 'kraken'},
-                                    broker_time=broker_time
-                                )
-
-                                await ems_stream.send(fill_msg.dict())
 
                     case _:
                         log.warning(f'Unhandled trades msg: {msg}')
