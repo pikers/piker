@@ -289,7 +289,11 @@ class TradesRelay:
     brokerd_dialogue: tractor.MsgStream
 
     # map of symbols to dicts of accounts to pp msgs
-    positions: dict[str, dict[str, BrokerdPosition]]
+    positions: dict[
+        # brokername, acctid
+        tuple[str, str],
+        list[BrokerdPosition],
+    ]
 
     # allowed account names
     accounts: tuple[str]
@@ -461,18 +465,24 @@ async def open_brokerd_trades_dialogue(
                 # normalizing them to EMS messages and relaying back to
                 # the piker order client set.
 
-                # locally cache and track positions per account.
+                # locally cache and track positions per account with
+                # a table of (brokername, acctid) -> `BrokerdPosition`
+                # msgs.
                 pps = {}
                 for msg in positions:
                     log.info(f'loading pp: {msg}')
 
                     account = msg['account']
+
+                    # TODO: better value error for this which
+                    # dumps the account and message and states the
+                    # mismatch..
                     assert account in accounts
 
                     pps.setdefault(
-                        f'{msg["symbol"]}.{broker}',
-                        {}
-                    )[account] = msg
+                        (broker, account),
+                        [],
+                    ).append(msg)
 
                 relay = TradesRelay(
                     brokerd_dialogue=brokerd_trades_stream,
@@ -578,11 +588,9 @@ async def translate_and_relay_brokerd_events(
 
             relay.positions.setdefault(
                 # NOTE: translate to a FQSN!
-                f'{sym}.{broker}',
-                {}
-            ).setdefault(
-                pos_msg['account'], {}
-            ).update(pos_msg)
+                (broker, sym),
+                []
+            ).append(pos_msg)
 
             # fan-out-relay position msgs immediately by
             # broadcasting updates on all client streams
@@ -635,8 +643,8 @@ async def translate_and_relay_brokerd_events(
                 # something is out of order, we don't have an oid for
                 # this broker-side message.
                 log.error(
-                    'Unknown oid:{oid} for msg:\n'
-                    f'{pformat(brokerd_msg)}'
+                    f'Unknown oid: {oid} for msg:\n'
+                    f'{pformat(brokerd_msg)}\n'
                     'Unable to relay message to client side!?'
                 )
 
@@ -1088,15 +1096,12 @@ async def _emsd_main(
 
             brokerd_stream = relay.brokerd_dialogue  # .clone()
 
-            # flatten out collected pps from brokerd for delivery
-            pp_msgs = {
-                fqsn: list(pps.values())
-                for fqsn, pps in relay.positions.items()
-            }
-
             # signal to client that we're started and deliver
             # all known pps and accounts for this ``brokerd``.
-            await ems_ctx.started((pp_msgs, list(relay.accounts)))
+            await ems_ctx.started((
+                relay.positions,
+                list(relay.accounts),
+            ))
 
             # establish 2-way stream with requesting order-client and
             # begin handling inbound order requests and updates

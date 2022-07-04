@@ -579,9 +579,9 @@ async def open_order_mode(
             providers=symbol.brokers
         )
 
-        # XXX: ``brokerd`` delivers a set of account names that it allows
-        # use of but the user also can define the accounts they'd like
-        # to use, in order, in their `brokers.toml` file.
+        # XXX: ``brokerd`` delivers a set of account names that it
+        # allows use of but the user also can define the accounts they'd
+        # like to use, in order, in their `brokers.toml` file.
         accounts = {}
         for name in brokerd_accounts:
             # ensure name is in ``brokers.toml``
@@ -594,10 +594,21 @@ async def open_order_mode(
             iter(accounts.keys())
         ) if accounts else 'paper'
 
+        # Pack position messages by account, should only be one-to-one.
         # NOTE: requires the backend exactly specifies
         # the expected symbol key in its positions msg.
-        pp_msgs = position_msgs.get(symkey, ())
-        pps_by_account = {msg['account']: msg for msg in pp_msgs}
+        pps_by_account = {}
+        for (broker, acctid), msgs in position_msgs.items():
+            for msg in msgs:
+
+                sym = msg['symbol']
+                if (
+                    sym == symkey or
+                    # mega-UGH, i think we need to fix the FQSN stuff sooner
+                    # then later..
+                    sym == symkey.removesuffix(f'.{broker}')
+                ):
+                    pps_by_account[acctid] = msg
 
         # update pp trackers with data relayed from ``brokerd``.
         for account_name in accounts:

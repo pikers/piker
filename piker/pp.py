@@ -285,15 +285,14 @@ class Position(Struct):
         all transactions before the last net zero size to avoid
         unecessary history irrelevant to the current pp state.
 
-
         '''
-        size: float = 0
+        size: float = self.size
         clears_since_zero: deque[tuple(str, dict)] = deque()
 
         # scan for the last "net zero" position by
         # iterating clears in reverse.
         for tid, clear in reversed(self.clears.items()):
-            size += clear['size']
+            size -= clear['size']
             clears_since_zero.appendleft((tid, clear))
 
             if size == 0:
@@ -357,8 +356,6 @@ def update_pps(
 
         # track clearing data
         pp.update(r)
-
-        assert len(set(pp.clears)) == len(pp.clears)
 
     return pps
 
@@ -632,7 +629,12 @@ def load_pps_from_toml(
         # index clears entries in "object" form by tid in a top
         # level dict instead of a list (as is presented in our
         # ``pps.toml``).
-        clears = {}
+        pp = pp_objs.get(bsuid)
+        if pp:
+            clears = pp.clears
+        else:
+            clears = {}
+
         for clears_table in clears_list:
             tid = clears_table.pop('tid')
             clears[tid] = clears_table
@@ -716,6 +718,11 @@ def update_pps_conf(
 
     for bsuid in list(pp_objs):
         pp = pp_objs[bsuid]
+
+        # XXX: debug hook for size mismatches
+        # if bsuid == 447767096:
+        #     breakpoint()
+
         pp.minimize_clears()
 
         if (
