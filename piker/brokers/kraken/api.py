@@ -282,6 +282,7 @@ class Client:
                 "volume": str(size),
             }
             return await self.endpoint('AddOrder', data)
+
         else:
             # Edit order data for kraken api
             data["txid"] = reqid
