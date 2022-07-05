@@ -329,8 +329,6 @@ async def trades_dialogue(
                 ids,
             )
 
-            count: int = 0
-
             # process and relay trades events to ems
             # https://docs.kraken.com/websockets/#message-ownTrades
             async for msg in stream_messages(ws):
@@ -340,11 +338,6 @@ async def trades_dialogue(
                         'ownTrades',
                         {'sequence': seq},
                     ]:
-                        # XXX: do we actually need this orrr?
-                        # ensure that we are only processing new trades?
-                        assert seq > count
-                        count += 1
-
                         # flatten msgs for processing
                         trades = {
                             tid: trade
@@ -472,6 +465,7 @@ async def trades_dialogue(
                                     'userref': reqid,
                                     **rest,
 
+                                    # XXX: eg. of remaining msg schema:
                                     # 'avg_price': _,
                                     # 'cost': _,
                                     # 'descr': {
