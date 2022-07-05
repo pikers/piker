@@ -87,7 +87,8 @@ def mk_check(
 
 @dataclass
 class _DarkBook:
-    '''EMS-trigger execution book.
+    '''
+    EMS-trigger execution book.
 
     Contains conditions for executions (aka "orders" or "triggers")
     which are not exposed to brokers and thus the market; i.e. these are
@@ -651,6 +652,13 @@ async def translate_and_relay_brokerd_events(
         else:
             # check for existing live flow entry
             entry = book._ems_entries.get(oid)
+            old_reqid = entry.reqid
+
+            if old_reqid and old_reqid != reqid:
+                log.warning(
+                    f'Brokerd order id change for {oid}:\n'
+                    f'{old_reqid} -> {reqid}'
+                )
 
             # initial response to brokerd order request
             if name == 'ack':
@@ -661,6 +669,10 @@ async def translate_and_relay_brokerd_events(
                 # a ``BrokerdOrderAck`` **must** be sent after an order
                 # request in order to establish this id mapping.
                 book._ems2brokerd_ids[oid] = reqid
+                log.info(
+                    'Rx ACK for order\n'
+                    f'oid: {oid} -> reqid: {reqid}'
+                )
 
                 # new order which has not yet be registered into the
                 # local ems book, insert it now and handle 2 cases:
