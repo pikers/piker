@@ -636,7 +636,7 @@ def process_status(
                 oid=oid,
                 # XXX: use old reqid in case it changed?
                 reqid=last.reqid,
-                symbol=last.symbol,
+                symbol=getattr(last, 'symbol', 'N/A'),
 
                 reason=f'Failed {action}:\n{errmsg}',
                 broker_details=event
