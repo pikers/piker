@@ -46,9 +46,9 @@ from piker.brokers._util import (
 from piker.log import get_console_log
 from piker.data import ShmArray
 from piker.data._web_bs import open_autorecon_ws, NoBsWs
+from . import log
 from .api import (
     Client,
-    log,
     OHLC,
 )
 

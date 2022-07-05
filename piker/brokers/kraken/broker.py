@@ -47,11 +47,11 @@ from piker.clearing._messages import (
     BrokerdPosition,
     BrokerdStatus,
 )
+from . import log
 from .api import (
     Client,
     BrokerError,
     get_client,
-    log,
     normalize_symbol,
 )
 from .feed import (

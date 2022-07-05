@@ -48,9 +48,7 @@ from piker.brokers._util import (
     BrokerError,
     DataThrottle,
 )
-from piker.log import get_logger
-
-log = get_logger(__name__)
+from . import log
 
 # <uri>/<version>/
 _url = 'https://api.kraken.com/0'

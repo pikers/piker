@@ -25,6 +25,11 @@ Sub-modules within break into the core functionalities:
   wrapping around ``ib_insync``.
 
 '''
+
+from piker.log import get_logger
+
+log = get_logger(__name__)
+
 from .api import (
     get_client,
 )
@@ -44,6 +49,7 @@ __all__ = [
     'open_history_client',
     'open_symbol_search',
     'stream_quotes',
+    'norm_trade_records',
 ]
 
 
