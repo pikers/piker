@@ -615,7 +615,7 @@ def load_pps_from_toml(
 
     if not pps:
         log.warning(
-            f'No `pps.toml` positions cold be loaded for {brokername}:{acctid}'
+            f'No `pps.toml` positions could be loaded {brokername}:{acctid}'
         )
 
     # unmarshal/load ``pps.toml`` config entries into object form.
