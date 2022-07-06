@@ -21,7 +21,6 @@ Qt event proxying and processing using ``trio`` mem chans.
 from contextlib import asynccontextmanager, AsyncExitStack
 from typing import Callable
 
-from pydantic import BaseModel
 import trio
 from PyQt5 import QtCore
 from PyQt5.QtCore import QEvent, pyqtBoundSignal
@@ -29,6 +28,8 @@ from PyQt5.QtWidgets import QWidget
 from PyQt5.QtWidgets import (
     QGraphicsSceneMouseEvent as gs_mouse,
 )
+
+from ..data.types import Struct
 
 
 MOUSE_EVENTS = {
@@ -43,13 +44,10 @@ MOUSE_EVENTS = {
 # TODO: maybe consider some constrained ints down the road?
 # https://pydantic-docs.helpmanual.io/usage/types/#constrained-types
 
-class KeyboardMsg(BaseModel):
+class KeyboardMsg(Struct):
     '''Unpacked Qt keyboard event data.
 
     '''
-    class Config:
-        arbitrary_types_allowed = True
-
     event: QEvent
     etype: int
     key: int
@@ -57,16 +55,13 @@ class KeyboardMsg(BaseModel):
     txt: str
 
     def to_tuple(self) -> tuple:
-        return tuple(self.dict().values())
+        return tuple(self.to_dict().values())
 
 
-class MouseMsg(BaseModel):
+class MouseMsg(Struct):
     '''Unpacked Qt keyboard event data.
 
     '''
-    class Config:
-        arbitrary_types_allowed = True
-
     event: QEvent
     etype: int
     button: int

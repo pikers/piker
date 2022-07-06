@@ -32,7 +32,6 @@ from typing import (
 )
 
 import pendulum
-from pydantic import BaseModel
 import trio
 import tractor
 import wsproto
@@ -47,6 +46,7 @@ from piker.clearing._messages import (
     BrokerdPosition,
     BrokerdStatus,
 )
+from pikerd.data.types import Struct
 from . import log
 from .api import (
     Client,
@@ -62,7 +62,7 @@ from .feed import (
 )
 
 
-class Trade(BaseModel):
+class Trade(Struct):
     '''
     Trade class that helps parse and validate ownTrades stream
 

@@ -27,7 +27,6 @@ import time
 from typing import Optional, Dict, Callable, Any
 import uuid
 
-from pydantic import BaseModel
 import tractor
 import trio
 from PyQt5.QtCore import Qt
@@ -41,6 +40,7 @@ from ..clearing._allocate import (
 from ._style import _font
 from ..data._source import Symbol
 from ..data.feed import Feed
+from ..data.types import Struct
 from ..log import get_logger
 from ._editors import LineEditor, ArrowEditor
 from ._lines import order_line, LevelLine
@@ -58,7 +58,7 @@ from ._forms import open_form_input_handling
 log = get_logger(__name__)
 
 
-class OrderDialog(BaseModel):
+class OrderDialog(Struct):
     '''
     Trade dialogue meta-data describing the lifetime
     of an order submission to ``emsd`` from a chart.
@@ -72,10 +72,6 @@ class OrderDialog(BaseModel):
     last_status_close: Callable = lambda: None
     msgs: dict[str, dict] = {}
     fills: Dict[str, Any] = {}
-
-    class Config:
-        arbitrary_types_allowed = True
-        underscore_attrs_are_private = False
 
 
 def on_level_change_update_next_order_info(
@@ -858,7 +854,9 @@ async def process_trades_and_update_ui(
             # delete level line from view
             mode.on_cancel(oid)
             broker_msg = msg['brokerd_msg']
-            log.warning(f'Order {oid} failed with:\n{pformat(broker_msg)}')
+            log.warning(
+                f'Order {oid} failed with:\n{pformat(broker_msg)}'
+            )
 
         elif resp in (
             'dark_triggered'
