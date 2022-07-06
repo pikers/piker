@@ -34,7 +34,6 @@ from typing import (
 
 from bidict import bidict
 import pendulum
-# from pydantic import BaseModel
 import trio
 import tractor
 import wsproto

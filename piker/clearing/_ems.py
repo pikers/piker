@@ -25,7 +25,6 @@ import time
 from typing import AsyncIterator, Callable
 
 from bidict import bidict
-from pydantic import BaseModel
 import trio
 from trio_typing import TaskStatus
 import tractor
@@ -33,6 +32,7 @@ import tractor
 from ..log import get_logger
 from ..data._normalize import iterticks
 from ..data.feed import Feed, maybe_open_feed
+from ..data.types import Struct
 from .._daemon import maybe_spawn_brokerd
 from . import _paper_engine as paper
 from ._messages import (
@@ -303,7 +303,7 @@ class TradesRelay:
     consumers: int = 0
 
 
-class Router(BaseModel):
+class Router(Struct):
     '''
     Order router which manages and tracks per-broker dark book,
     alerts, clearing and related data feed management.
@@ -323,10 +323,6 @@ class Router(BaseModel):
 
     # brokername to trades-dialogues streams with ``brokerd`` actors
     relays: dict[str, TradesRelay] = {}
-
-    class Config:
-        arbitrary_types_allowed = True
-        underscore_attrs_are_private = False
 
     def get_dark_book(
         self,
