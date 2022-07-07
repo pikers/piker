@@ -51,10 +51,6 @@ class DockerNotStarted(Exception):
     'Prolly you dint start da daemon bruh'
 
 
-class ContainerError(RuntimeError):
-    'Error reported via app-container logging level'
-
-
 @acm
 async def open_docker(
     url: Optional[str] = None,
@@ -189,7 +185,7 @@ class Container:
     def hard_kill(self, start: float) -> None:
         delay = time.time() - start
         log.error(
-            f'Failed to kill container {cid} after {delay}s\n'
+            f'Failed to kill container {self.cntr.id} after {delay}s\n'
             'sending SIGKILL..'
         )
         # get out the big guns, bc apparently marketstore
