@@ -361,6 +361,10 @@ async def handle_order_updates(
     defined in the signature clear to the reader.
 
     '''
+    # transaction records which will be updated
+    # on new trade clearing events (aka order "fills")
+    trans: list[pp.Transaction]
+
     async for msg in stream_messages(ws):
         match msg:
             # process and relay clearing trade events to ems
@@ -370,7 +374,7 @@ async def handle_order_updates(
                 'ownTrades',
                 {'sequence': seq},
             ]:
-                # flatten msgs for processing
+                # flatten msgs to an {id -> data} table for processing
                 trades = {
                     tid: trade
                     for entry in trades_msgs
@@ -720,7 +724,7 @@ def norm_trade_records(
     records: list[pp.Transaction] = []
     for tid, record in ledger.items():
 
-        size = record.get('vol') * {
+        size = float(record.get('vol')) * {
             'buy': 1,
             'sell': -1,
         }[record['type']]
@@ -731,7 +735,7 @@ def norm_trade_records(
             pp.Transaction(
                 fqsn=f'{norm_sym}.kraken',
                 tid=tid,
-                size=float(size),
+                size=size,
                 price=float(record['price']),
                 cost=float(record['fee']),
                 dt=pendulum.from_timestamp(float(record['time'])),
