@@ -128,11 +128,14 @@ class _Token(Struct, frozen=True):
 
     @classmethod
     def from_msg(cls, msg: dict) -> _Token:
-        if isinstance(msg, _Token):
-            return msg
 
         # TODO: native struct decoding
         # return _token_dec.decode(msg)
+
+        if isinstance(msg, _Token):
+            return msg
+
+        # assert 0
 
         msg['dtype_descr'] = tuple(map(tuple, msg['dtype_descr']))
         return _Token(**msg)

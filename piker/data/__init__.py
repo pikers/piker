@@ -30,19 +30,19 @@ from ._sharedmem import (
     get_shm_token,
     ShmArray,
 )
-from .feed import (
-    open_feed,
-    _setup_persistent_brokerd,
-)
+# from .feed import (
+#     # open_feed,
+#     _setup_persistent_brokerd,
+# )
 
 
 __all__ = [
-    'open_feed',
+    # 'open_feed',
     'ShmArray',
     'iterticks',
     'maybe_open_shm_array',
     'attach_shm_array',
     'open_shm_array',
     'get_shm_token',
-    '_setup_persistent_brokerd',
+    # '_setup_persistent_brokerd',
 ]
