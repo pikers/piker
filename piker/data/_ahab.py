@@ -37,7 +37,7 @@ from docker.models.containers import Container as DockerContainer
 from docker.errors import (
     DockerException,
     APIError,
-    ContainerError,
+    # ContainerError,
 )
 from requests.exceptions import ConnectionError, ReadTimeout
 
@@ -49,6 +49,10 @@ log = get_logger(__name__)
 
 class DockerNotStarted(Exception):
     'Prolly you dint start da daemon bruh'
+
+
+class ApplicationLogError(Exception):
+    'App in container reported an error in logs'
 
 
 @acm
@@ -153,7 +157,7 @@ class Container:
 
                     # print(f'level: {level}')
                     if level in ('error', 'fatal'):
-                        raise ContainerError(msg)
+                        raise ApplicationLogError(msg)
 
                 if patt in msg:
                     return True
