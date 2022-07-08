@@ -264,7 +264,8 @@ class OrderMode:
         self,
 
     ) -> OrderDialog:
-        '''Send execution order to EMS return a level line to
+        '''
+        Send execution order to EMS return a level line to
         represent the order on a chart.
 
         '''
@@ -273,13 +274,9 @@ class OrderMode:
         oid = str(uuid.uuid4())
 
         # format order data for ems
-        fqsn = symbol.front_fqsn()
-        order = staged.copy(
-            update={
-                'symbol': fqsn,
-                'oid': oid,
-            }
-        )
+        order = staged.copy()
+        order.oid = oid
+        order.symbol = symbol.front_fqsn()
 
         line = self.line_from_order(
             order,

@@ -117,7 +117,7 @@ class PaperBoi:
             reason='paper_trigger',
             remaining=size,
         )
-        await self.ems_trades_stream.send(msg.dict())
+        await self.ems_trades_stream.send(msg)
 
         # if we're already a clearing price simulate an immediate fill
         if (
@@ -173,7 +173,7 @@ class PaperBoi:
             broker=self.broker,
             time_ns=time.time_ns(),
         )
-        await self.ems_trades_stream.send(msg.dict())
+        await self.ems_trades_stream.send(msg)
 
     async def fake_fill(
         self,
@@ -216,7 +216,7 @@ class PaperBoi:
                 'name': self.broker + '_paper',
             },
         )
-        await self.ems_trades_stream.send(msg.dict())
+        await self.ems_trades_stream.send(msg)
 
         if order_complete:
 
@@ -240,7 +240,7 @@ class PaperBoi:
                     'name': self.broker,
                 },
             )
-            await self.ems_trades_stream.send(msg.dict())
+            await self.ems_trades_stream.send(msg)
 
         # lookup any existing position
         token = f'{symbol}.{self.broker}'
@@ -268,7 +268,7 @@ class PaperBoi:
         )
         pp_msg.size, pp_msg.avg_price = pp.lifo_update(size, price)
 
-        await self.ems_trades_stream.send(pp_msg.dict())
+        await self.ems_trades_stream.send(pp_msg)
 
 
 async def simulate_fills(
@@ -384,7 +384,7 @@ async def handle_order_requests(
                     oid=request_msg['oid'],
                     symbol=request_msg['symbol'],
                     reason=f'Paper only. No account found: `{account}` ?',
-                ).dict())
+                ))
                 continue
 
             # validate
@@ -416,7 +416,7 @@ async def handle_order_requests(
                     # broker specific request id
                     reqid=reqid,
 
-                ).dict()
+                )
             )
 
         elif action == 'cancel':

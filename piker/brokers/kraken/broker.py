@@ -184,7 +184,7 @@ async def handle_order_requests(
                             'Invalid request msg:\n{msg}'
                         ),
 
-                    ).dict()
+                    )
                 )
 
 
@@ -282,7 +282,7 @@ async def trades_dialogue(
                     avg_price=p.be_price,
                     currency='',
                 )
-                position_msgs.append(msg.dict())
+                position_msgs.append(msg)
 
         await ctx.started(
             (position_msgs, [acc_name])
@@ -405,7 +405,7 @@ async def handle_order_updates(
                         broker_details={'name': 'kraken'},
                         broker_time=broker_time
                     )
-                    await ems_stream.send(fill_msg.dict())
+                    await ems_stream.send(fill_msg)
 
                     filled_msg = BrokerdStatus(
                         reqid=reqid,
@@ -429,7 +429,7 @@ async def handle_order_updates(
                         # https://github.com/pikers/piker/issues/296
                         remaining=0,
                     )
-                    await ems_stream.send(filled_msg.dict())
+                    await ems_stream.send(filled_msg)
 
                 # update ledger and position tracking
                 with open_ledger(acctid, trades) as trans:
@@ -466,7 +466,7 @@ async def handle_order_updates(
                         # TODO
                         # currency=''
                     )
-                    await ems_stream.send(pp_msg.dict())
+                    await ems_stream.send(pp_msg)
 
             # process and relay order state change events
             # https://docs.kraken.com/websockets/#message-openOrders
@@ -563,7 +563,7 @@ async def handle_order_updates(
                                 ),
                             )
                             msgs.append(resp)
-                            await ems_stream.send(resp.dict())
+                            await ems_stream.send(resp)
 
                         case _:
                             log.warning(
@@ -603,7 +603,7 @@ async def handle_order_updates(
 
                 msgs.extend(resps)
                 for resp in resps:
-                    await ems_stream.send(resp.dict())
+                    await ems_stream.send(resp)
 
             case _:
                 log.warning(f'Unhandled trades update msg: {msg}')
