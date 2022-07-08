@@ -18,6 +18,7 @@
 Built-in (extension) types.
 
 """
+from typing import Optional
 from pprint import pformat
 
 import msgspec
@@ -43,4 +44,25 @@ class Struct(
     def __repr__(self):
         return f'Struct({pformat(self.to_dict())})'
 
+    def copy(
+        self,
+        update: Optional[dict] = None,
 
+    ) -> msgspec.Struct:
+        '''
+        Validate-typecast all self defined fields, return a copy of us
+        with all such fields.
+
+        This is kinda like the default behaviour in `pydantic.BaseModel`.
+
+        '''
+        if update:
+            for k, v in update.items():
+                setattr(self, k, v)
+
+        # roundtrip serialize to validate
+        return msgspec.msgpack.Decoder(
+            type=type(self)
+        ).decode(
+            msgspec.msgpack.Encoder().encode(self)
+        )
