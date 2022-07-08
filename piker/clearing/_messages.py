@@ -20,16 +20,15 @@ Clearing system messagingn types and protocols.
 """
 from typing import Optional, Union
 
-# TODO: try out just encoding/send direction for now?
-# import msgspec
-from pydantic import BaseModel
-
 from ..data._source import Symbol
+from ..data.types import Struct
 
+
+# --------------
 # Client -> emsd
+# --------------
 
-
-class Cancel(BaseModel):
+class Cancel(Struct):
     '''Cancel msg for removing a dark (ems triggered) or
     broker-submitted (live) trigger/order.
 
@@ -39,7 +38,7 @@ class Cancel(BaseModel):
     symbol: str
 
 
-class Order(BaseModel):
+class Order(Struct):
 
     action: str  # {'buy', 'sell', 'alert'}
     # internal ``emdsd`` unique "order id"
@@ -59,20 +58,14 @@ class Order(BaseModel):
     # the backend broker
     exec_mode: str  # {'dark', 'live', 'paper'}
 
-    class Config:
-        # just for pre-loading a ``Symbol`` when used
-        # in the order mode staging process
-        arbitrary_types_allowed = True
-        # don't copy this model instance when used in
-        # a recursive model
-        copy_on_model_validation = False
 
+# --------------
 # Client <- emsd
+# --------------
 # update msgs from ems which relay state change info
 # from the active clearing engine.
 
-
-class Status(BaseModel):
+class Status(Struct):
 
     name: str = 'status'
     oid: str  # uuid4
@@ -95,8 +88,6 @@ class Status(BaseModel):
     # }
     resp: str  # "response", see above
 
-    # symbol: str
-
     # trigger info
     trigger_price: Optional[float] = None
     # price: float
@@ -111,10 +102,12 @@ class Status(BaseModel):
     brokerd_msg: dict = {}
 
 
+# ---------------
 # emsd -> brokerd
+# ---------------
 # requests *sent* from ems to respective backend broker daemon
 
-class BrokerdCancel(BaseModel):
+class BrokerdCancel(Struct):
 
     action: str = 'cancel'
     oid: str  # piker emsd order id
@@ -130,7 +123,7 @@ class BrokerdCancel(BaseModel):
     reqid: Optional[Union[int, str]] = None
 
 
-class BrokerdOrder(BaseModel):
+class BrokerdOrder(Struct):
 
     action: str  # {buy, sell}
     oid: str
@@ -150,11 +143,12 @@ class BrokerdOrder(BaseModel):
     size: float
 
 
+# ---------------
 # emsd <- brokerd
+# ---------------
 # requests *received* to ems from broker backend
 
-
-class BrokerdOrderAck(BaseModel):
+class BrokerdOrderAck(Struct):
     '''
     Immediate reponse to a brokerd order request providing the broker
     specific unique order id so that the EMS can associate this
@@ -172,7 +166,7 @@ class BrokerdOrderAck(BaseModel):
     account: str = ''
 
 
-class BrokerdStatus(BaseModel):
+class BrokerdStatus(Struct):
 
     name: str = 'status'
     reqid: Union[int, str]
@@ -205,7 +199,7 @@ class BrokerdStatus(BaseModel):
     }
 
 
-class BrokerdFill(BaseModel):
+class BrokerdFill(Struct):
     '''
     A single message indicating a "fill-details" event from the broker
     if avaiable.
@@ -230,7 +224,7 @@ class BrokerdFill(BaseModel):
     broker_time: float
 
 
-class BrokerdError(BaseModel):
+class BrokerdError(Struct):
     '''
     Optional error type that can be relayed to emsd for error handling.
 
@@ -249,7 +243,7 @@ class BrokerdError(BaseModel):
     broker_details: dict = {}
 
 
-class BrokerdPosition(BaseModel):
+class BrokerdPosition(Struct):
     '''Position update event from brokerd.
 
     '''
