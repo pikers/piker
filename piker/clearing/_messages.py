@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-Clearing system messagingn types and protocols.
+Clearing sub-system message and protocols.
 
 """
 from typing import Optional, Union
@@ -23,6 +23,12 @@ from typing import Optional, Union
 from ..data._source import Symbol
 from ..data.types import Struct
 
+
+# TODO: ``msgspec`` stuff worth paying attention to:
+# - schema evolution: https://jcristharif.com/msgspec/usage.html#schema-evolution
+# - use literals for a common msg determined by diff keys?
+#   - https://jcristharif.com/msgspec/usage.html#literal
+#   - for eg. ``BrokerdStatus``, instead just have separate messages?
 
 # --------------
 # Client -> emsd
@@ -40,6 +46,8 @@ class Cancel(Struct):
 
 class Order(Struct):
 
+    # TODO: use ``msgspec.Literal``
+    # https://jcristharif.com/msgspec/usage.html#literal
     action: str  # {'buy', 'sell', 'alert'}
     # internal ``emdsd`` unique "order id"
     oid: str  # uuid4
@@ -47,6 +55,9 @@ class Order(Struct):
     account: str  # should we set a default as '' ?
 
     price: float
+    # TODO: could we drop the ``.action`` field above and instead just
+    # use +/- values here? Would make the msg smaller at the sake of a
+    # teensie fp precision?
     size: float
     brokers: list[str]
 
