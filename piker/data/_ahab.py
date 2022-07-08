@@ -37,6 +37,7 @@ from docker.models.containers import Container as DockerContainer
 from docker.errors import (
     DockerException,
     APIError,
+    # ContainerError,
 )
 from requests.exceptions import ConnectionError, ReadTimeout
 
@@ -50,8 +51,8 @@ class DockerNotStarted(Exception):
     'Prolly you dint start da daemon bruh'
 
 
-class ContainerError(RuntimeError):
-    'Error reported via app-container logging level'
+class ApplicationLogError(Exception):
+    'App in container reported an error in logs'
 
 
 @acm
@@ -96,9 +97,9 @@ async def open_docker(
         # not perms?
         raise
 
-    finally:
-        if client:
-            client.close()
+    # finally:
+    #     if client:
+    #         client.close()
 
 
 class Container:
@@ -156,7 +157,7 @@ class Container:
 
                     # print(f'level: {level}')
                     if level in ('error', 'fatal'):
-                        raise ContainerError(msg)
+                        raise ApplicationLogError(msg)
 
                 if patt in msg:
                     return True
@@ -184,6 +185,21 @@ class Container:
         except docker.errors.APIError as err:
             if 'is not running' in err.explanation:
                 return False
+
+    def hard_kill(self, start: float) -> None:
+        delay = time.time() - start
+        log.error(
+            f'Failed to kill container {self.cntr.id} after {delay}s\n'
+            'sending SIGKILL..'
+        )
+        # get out the big guns, bc apparently marketstore
+        # doesn't actually know how to terminate gracefully
+        # :eyeroll:...
+        self.try_signal('SIGKILL')
+        self.cntr.wait(
+            timeout=3,
+            condition='not-running',
+        )
 
     async def cancel(
         self,
@@ -231,21 +247,9 @@ class Container:
                 ConnectionError,
             ):
                 log.exception('Docker connection failure')
-                break
+                self.hard_kill(start)
         else:
-            delay = time.time() - start
-            log.error(
-                f'Failed to kill container {cid} after {delay}s\n'
-                'sending SIGKILL..'
-            )
-            # get out the big guns, bc apparently marketstore
-            # doesn't actually know how to terminate gracefully
-            # :eyeroll:...
-            self.try_signal('SIGKILL')
-            self.cntr.wait(
-                timeout=3,
-                condition='not-running',
-            )
+            self.hard_kill(start)
 
         log.cancel(f'Container stopped: {cid}')
 
