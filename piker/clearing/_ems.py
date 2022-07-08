@@ -20,6 +20,7 @@ In da suit parlances: "Execution management systems"
 """
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from math import isnan
 from pprint import pformat
 import time
 from typing import AsyncIterator, Callable
@@ -951,6 +952,12 @@ async def process_client_order_cmds(
                 # like every other shitty tina platform that makes
                 # the user choose the predicate operator.
                 last = dark_book.lasts[fqsn]
+
+                # sometimes the real-time feed hasn't come up
+                # so just pull from the latest history.
+                if isnan(last):
+                    last = feed.shm.array[-1]['close']
+
                 pred = mk_check(trigger_price, last, action)
 
                 spread_slap: float = 5
@@ -1138,8 +1145,14 @@ async def _emsd_main(
                     )
 
                 finally:
-                    # remove client from "registry"
-                    _router.clients.remove(ems_client_order_stream)
+                    # try to remove client from "registry"
+                    try:
+                        _router.clients.remove(ems_client_order_stream)
+                    except KeyError:
+                        log.warning(
+                            f'Stream {ems_client_order_stream._ctx.chan.uid}'
+                            ' was already dropped?'
+                        )
 
                     dialogues = _router.dialogues
 
