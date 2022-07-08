@@ -30,8 +30,8 @@ import trio
 import tractor
 from dataclasses import dataclass
 
-from .. import data
 from ..data._source import Symbol
+from ..data.feed import open_feed
 from ..pp import Position
 from ..data._normalize import iterticks
 from ..data._source import unpack_fqsn
@@ -441,14 +441,11 @@ async def trades_dialogue(
 ) -> None:
     tractor.log.get_console_log(loglevel)
 
-    async with (
+    async with open_feed(
+        [fqsn],
+        loglevel=loglevel,
+    ) as feed:
 
-        data.open_feed(
-            [fqsn],
-            loglevel=loglevel,
-        ) as feed,
-
-    ):
         # TODO: load paper positions per broker from .toml config file
         # and pass as symbol to position data mapping: ``dict[str, dict]``
         # await ctx.started(all_positions)
