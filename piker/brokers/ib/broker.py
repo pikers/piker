@@ -148,7 +148,7 @@ async def handle_order_requests(
                 oid=request_msg['oid'],
                 symbol=request_msg['symbol'],
                 reason=f'No account found: `{account}` ?',
-            ).dict())
+            ))
             continue
 
         client = _accounts2clients.get(account)
@@ -161,7 +161,7 @@ async def handle_order_requests(
                 oid=request_msg['oid'],
                 symbol=request_msg['symbol'],
                 reason=f'No api client loaded for account: `{account}` ?',
-            ).dict())
+            ))
             continue
 
         if action in {'buy', 'sell'}:
@@ -188,7 +188,7 @@ async def handle_order_requests(
                     oid=request_msg['oid'],
                     symbol=request_msg['symbol'],
                     reason='Order already active?',
-                ).dict())
+                ))
 
             # deliver ack that order has been submitted to broker routing
             await ems_order_stream.send(
@@ -197,9 +197,8 @@ async def handle_order_requests(
                     oid=order.oid,
                     # broker specific request id
                     reqid=reqid,
-                    time_ns=time.time_ns(),
                     account=account,
-                ).dict()
+                )
             )
 
         elif action == 'cancel':
@@ -559,7 +558,7 @@ async def trades_dialogue(
                     cids2pps,
                     validate=True,
                 )
-                all_positions.extend(msg.dict() for msg in msgs)
+                all_positions.extend(msg for msg in msgs)
 
         if not all_positions and cids2pps:
             raise RuntimeError(
@@ -665,7 +664,7 @@ async def emit_pp_update(
             msg = msgs[0]
             break
 
-    await ems_stream.send(msg.dict())
+    await ems_stream.send(msg)
 
 
 async def deliver_trade_events(
@@ -743,7 +742,7 @@ async def deliver_trade_events(
 
                     broker_details={'name': 'ib'},
                 )
-                await ems_stream.send(msg.dict())
+                await ems_stream.send(msg)
 
             case 'fill':
 
@@ -803,7 +802,7 @@ async def deliver_trade_events(
                     broker_time=trade_entry['broker_time'],
 
                 )
-                await ems_stream.send(msg.dict())
+                await ems_stream.send(msg)
 
                 # 2 cases:
                 # - fill comes first or
@@ -879,7 +878,7 @@ async def deliver_trade_events(
                 cid, msg = pack_position(item)
                 # acctid = msg.account = accounts_def.inverse[msg.account]
                 # cuck ib and it's shitty fifo sys for pps!
-                # await ems_stream.send(msg.dict())
+                # await ems_stream.send(msg)
 
             case 'event':
 
@@ -891,7 +890,7 @@ async def deliver_trade_events(
                 # level...
                 # reqid = item.get('reqid', 0)
                 # if getattr(msg, 'reqid', 0) < -1:
-                # log.info(f"TWS triggered trade\n{pformat(msg.dict())}")
+                # log.info(f"TWS triggered trade\n{pformat(msg)}")
 
                 # msg.reqid = 'tws-' + str(-1 * reqid)
 
