@@ -47,12 +47,11 @@ setup(
         'attrs',
         'pygments',
         'colorama',  # numba traceback coloring
-        'pydantic',  # structured data
+        'msgspec',  # performant IPC messaging and structs
 
         # async
         'trio',
         'trio-websocket',
-        'msgspec',  # performant IPC messaging
         'async_generator',
 
         # from github currently (see requirements.txt)
