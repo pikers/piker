@@ -839,7 +839,7 @@ async def process_client_order_cmds(
 
                 # NOTE: cancel response will be relayed back in messages
                 # from corresponding broker
-                if reqid:
+                if reqid is not None:
 
                     # send cancel to brokerd immediately!
                     log.info(
