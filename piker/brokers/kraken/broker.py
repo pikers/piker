@@ -192,7 +192,7 @@ async def handle_order_requests(
                             'Invalid request msg:\n{msg}'
                         ),
 
-                    ).dict()
+                    )
                 )
 
 
@@ -607,7 +607,7 @@ async def handle_order_updates(
                                 ),
                             )
                             msgs.append(resp)
-                            await ems_stream.send(resp.dict())
+                            await ems_stream.send(resp)
 
                         case _:
                             log.warning(
