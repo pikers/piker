@@ -42,7 +42,6 @@ from trio_typing import TaskStatus
 import trimeter
 import tractor
 from tractor.trionics import maybe_open_context
-from pydantic import BaseModel
 import pendulum
 import numpy as np
 
@@ -59,6 +58,7 @@ from ._sharedmem import (
     ShmArray,
 )
 from .ingest import get_ingestormod
+from .types import Struct
 from ._source import (
     base_iohlc_dtype,
     Symbol,
@@ -84,7 +84,7 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
-class _FeedsBus(BaseModel):
+class _FeedsBus(Struct):
     '''
     Data feeds broadcaster and persistence management.
 
@@ -100,10 +100,6 @@ class _FeedsBus(BaseModel):
           a dedicated cancel scope.
 
     '''
-    class Config:
-        arbitrary_types_allowed = True
-        underscore_attrs_are_private = False
-
     brokername: str
     nursery: trio.Nursery
     feeds: dict[str, tuple[dict, dict]] = {}

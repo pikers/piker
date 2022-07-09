@@ -22,12 +22,9 @@ from __future__ import annotations
 from typing import (
     Optional, Generic,
     TypeVar, Callable,
-    Literal,
 )
-import enum
-import sys
 
-from pydantic import BaseModel, validator
+# from pydantic import BaseModel, validator
 from pydantic.generics import GenericModel
 from PyQt5.QtWidgets import (
     QWidget,
@@ -38,6 +35,7 @@ from ._forms import (
     # FontScaledDelegate,
     Edit,
 )
+from ..data.types import Struct
 
 
 DataType = TypeVar('DataType')
@@ -62,7 +60,7 @@ class Selection(Field[DataType], Generic[DataType]):
     options: dict[str, DataType]
     # value: DataType = None
 
-    @validator('value')  # , always=True)
+    # @validator('value')  # , always=True)
     def set_value_first(
         cls,
 
@@ -100,7 +98,7 @@ class Edit(Field[DataType], Generic[DataType]):
     widget_factory = Edit
 
 
-class AllocatorPane(BaseModel):
+class AllocatorPane(Struct):
 
     account = Selection[str](
         options=dict.fromkeys(

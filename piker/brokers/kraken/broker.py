@@ -32,7 +32,6 @@ from typing import (
 )
 
 import pendulum
-from pydantic import BaseModel
 import trio
 import tractor
 import wsproto
@@ -47,6 +46,7 @@ from piker.clearing._messages import (
     BrokerdPosition,
     BrokerdStatus,
 )
+from piker.data.types import Struct
 from . import log
 from .api import (
     Client,
@@ -62,7 +62,7 @@ from .feed import (
 )
 
 
-class Trade(BaseModel):
+class Trade(Struct):
     '''
     Trade class that helps parse and validate ownTrades stream
 
@@ -110,7 +110,7 @@ async def handle_order_requests(
                         'https://github.com/pikers/piker/issues/299'
                     ),
 
-                ).dict())
+                ))
                 continue
 
             # validate
@@ -136,7 +136,7 @@ async def handle_order_requests(
                         symbol=order.symbol,
                         reason="Failed order submission",
                         broker_details=resp
-                    ).dict()
+                    )
                 )
             else:
                 # TODO: handle multiple orders (cancels?)
@@ -161,7 +161,7 @@ async def handle_order_requests(
                         # account the made the order
                         account=order.account
 
-                    ).dict()
+                    )
                 )
 
         elif action == 'cancel':
@@ -189,7 +189,7 @@ async def handle_order_requests(
                         symbol=msg.symbol,
                         reason="Failed order cancel",
                         broker_details=resp
-                    ).dict()
+                    )
                 )
 
                 if not error:
@@ -217,7 +217,7 @@ async def handle_order_requests(
                                 # cancels will eventually get cancelled
                                 reason="Order cancel is still pending?",
                                 broker_details=resp
-                            ).dict()
+                            )
                         )
 
                 else:  # order cancel success case.
@@ -230,7 +230,7 @@ async def handle_order_requests(
                             status='cancelled',
                             reason='Order cancelled',
                             broker_details={'name': 'kraken'}
-                        ).dict()
+                        )
                     )
     else:
         log.error(f'Unknown order command: {request_msg}')
@@ -330,7 +330,7 @@ async def trades_dialogue(
                     avg_price=p.be_price,
                     currency='',
                 )
-                position_msgs.append(msg.dict())
+                position_msgs.append(msg)
 
         await ctx.started(
             (position_msgs, [acc_name])
@@ -408,7 +408,7 @@ async def trades_dialogue(
                                 broker_details={'name': 'kraken'},
                                 broker_time=broker_time
                             )
-                            await ems_stream.send(fill_msg.dict())
+                            await ems_stream.send(fill_msg)
 
                             filled_msg = BrokerdStatus(
                                 reqid=reqid,
@@ -432,7 +432,7 @@ async def trades_dialogue(
                                 # https://github.com/pikers/piker/issues/296
                                 remaining=0,
                             )
-                            await ems_stream.send(filled_msg.dict())
+                            await ems_stream.send(filled_msg)
 
                         # update ledger and position tracking
                         trans = await update_ledger(acctid, trades)
@@ -469,7 +469,7 @@ async def trades_dialogue(
                                 # TODO
                                 # currency=''
                             )
-                            await ems_stream.send(pp_msg.dict())
+                            await ems_stream.send(pp_msg)
 
                     case [
                         trades_msgs,

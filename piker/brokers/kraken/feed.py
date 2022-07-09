@@ -31,7 +31,6 @@ import time
 from fuzzywuzzy import process as fuzzy
 import numpy as np
 import pendulum
-from pydantic import BaseModel
 from trio_typing import TaskStatus
 import tractor
 import trio
@@ -45,6 +44,7 @@ from piker.brokers._util import (
 )
 from piker.log import get_console_log
 from piker.data import ShmArray
+from piker.data.types import Struct
 from piker.data._web_bs import open_autorecon_ws, NoBsWs
 from . import log
 from .api import (
@@ -54,7 +54,7 @@ from .api import (
 
 
 # https://www.kraken.com/features/api#get-tradable-pairs
-class Pair(BaseModel):
+class Pair(Struct):
     altname: str  # alternate pair name
     wsname: str  # WebSocket pair name (if available)
     aclass_base: str  # asset class of base component
@@ -316,7 +316,7 @@ async def stream_quotes(
             sym = sym.upper()
 
             si = Pair(**await client.symbol_info(sym))  # validation
-            syminfo = si.dict()
+            syminfo = si.to_dict()
             syminfo['price_tick_size'] = 1 / 10**si.pair_decimals
             syminfo['lot_tick_size'] = 1 / 10**si.lot_decimals
             syminfo['asset_type'] = 'crypto'

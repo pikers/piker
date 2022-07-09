@@ -34,13 +34,13 @@ from fuzzywuzzy import process as fuzzy
 import numpy as np
 import tractor
 from pydantic.dataclasses import dataclass
-from pydantic import BaseModel
 import wsproto
 
 from .._cacheables import open_cached_client
 from ._util import resproc, SymbolNotFound
 from ..log import get_logger, get_console_log
 from ..data import ShmArray
+from ..data.types import Struct
 from ..data._web_bs import open_autorecon_ws, NoBsWs
 
 log = get_logger(__name__)
@@ -79,12 +79,14 @@ _show_wap_in_history = False
 
 
 # https://binance-docs.github.io/apidocs/spot/en/#exchange-information
-class Pair(BaseModel):
+class Pair(Struct, frozen=True):
     symbol: str
     status: str
 
     baseAsset: str
     baseAssetPrecision: int
+    cancelReplaceAllowed: bool
+    allowTrailingStop: bool
     quoteAsset: str
     quotePrecision: int
     quoteAssetPrecision: int
@@ -287,7 +289,7 @@ async def get_client() -> Client:
 
 
 # validation type
-class AggTrade(BaseModel):
+class AggTrade(Struct):
     e: str  # Event type
     E: int  # Event time
     s: str  # Symbol
@@ -341,7 +343,9 @@ async def stream_messages(ws: NoBsWs) -> AsyncGenerator[NoBsWs, dict]:
 
         elif msg.get('e') == 'aggTrade':
 
-            # validate
+            # NOTE: this is purely for a definition, ``msgspec.Struct``
+            # does not runtime-validate until you decode/encode.
+            # see: https://jcristharif.com/msgspec/structs.html#type-validation
             msg = AggTrade(**msg)
 
             # TODO: type out and require this quote format
@@ -352,8 +356,8 @@ async def stream_messages(ws: NoBsWs) -> AsyncGenerator[NoBsWs, dict]:
                 'brokerd_ts': time.time(),
                 'ticks': [{
                     'type': 'trade',
-                    'price': msg.p,
-                    'size': msg.q,
+                    'price': float(msg.p),
+                    'size': float(msg.q),
                     'broker_ts': msg.T,
                 }],
             }
@@ -448,7 +452,7 @@ async def stream_quotes(
             d = cache[sym.upper()]
             syminfo = Pair(**d)  # validation
 
-            si = sym_infos[sym] = syminfo.dict()
+            si = sym_infos[sym] = syminfo.to_dict()
 
             # XXX: after manually inspecting the response format we
             # just directly pick out the info we need

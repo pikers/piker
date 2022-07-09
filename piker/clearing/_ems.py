@@ -26,7 +26,6 @@ import time
 from typing import AsyncIterator, Callable
 
 from bidict import bidict
-from pydantic import BaseModel
 import trio
 from trio_typing import TaskStatus
 import tractor
@@ -34,6 +33,7 @@ import tractor
 from ..log import get_logger
 from ..data._normalize import iterticks
 from ..data.feed import Feed, maybe_open_feed
+from ..data.types import Struct
 from .._daemon import maybe_spawn_brokerd
 from . import _paper_engine as paper
 from ._messages import (
@@ -231,7 +231,7 @@ async def clear_dark_triggers(
                             price=submit_price,
                             size=cmd['size'],
                         )
-                        await brokerd_orders_stream.send(msg.dict())
+                        await brokerd_orders_stream.send(msg)
 
                         # mark this entry as having sent an order
                         # request.  the entry will be replaced once the
@@ -247,14 +247,11 @@ async def clear_dark_triggers(
 
                     msg = Status(
                         oid=oid,  # ems order id
-                        resp=resp,
                         time_ns=time.time_ns(),
-                        symbol=fqsn,
+                        resp=resp,
                         trigger_price=price,
-                        broker_details={'name': broker},
-                        cmd=cmd,  # original request message
-
-                    ).dict()
+                        brokerd_msg=cmd,
+                    )
 
                     # remove exec-condition from set
                     log.info(f'removing pred for {oid}')
@@ -303,7 +300,7 @@ class TradesRelay:
     consumers: int = 0
 
 
-class Router(BaseModel):
+class Router(Struct):
     '''
     Order router which manages and tracks per-broker dark book,
     alerts, clearing and related data feed management.
@@ -323,10 +320,6 @@ class Router(BaseModel):
 
     # brokername to trades-dialogues streams with ``brokerd`` actors
     relays: dict[str, TradesRelay] = {}
-
-    class Config:
-        arbitrary_types_allowed = True
-        underscore_attrs_are_private = False
 
     def get_dark_book(
         self,
@@ -581,11 +574,11 @@ async def translate_and_relay_brokerd_events(
 
         if name == 'position':
 
-            pos_msg = BrokerdPosition(**brokerd_msg).dict()
+            pos_msg = BrokerdPosition(**brokerd_msg)
 
             # XXX: this will be useful for automatic strats yah?
             # keep pps per account up to date locally in ``emsd`` mem
-            sym, broker = pos_msg['symbol'], pos_msg['broker']
+            sym, broker = pos_msg.symbol, pos_msg.broker
 
             relay.positions.setdefault(
                 # NOTE: translate to a FQSN!
@@ -676,7 +669,7 @@ async def translate_and_relay_brokerd_events(
                     entry.reqid = reqid
 
                     # tell broker to cancel immediately
-                    await brokerd_trades_stream.send(entry.dict())
+                    await brokerd_trades_stream.send(entry)
 
                 # - the order is now active and will be mirrored in
                 # our book -> registered as live flow
@@ -716,7 +709,7 @@ async def translate_and_relay_brokerd_events(
             # if 10147 in message: cancel
 
             resp = 'broker_errored'
-            broker_details = msg.dict()
+            broker_details = msg
 
             # don't relay message to order requester client
             # continue
@@ -751,7 +744,7 @@ async def translate_and_relay_brokerd_events(
                 resp = 'broker_' + msg.status
 
             # pass the BrokerdStatus msg inside the broker details field
-            broker_details = msg.dict()
+            broker_details = msg
 
         elif name in (
             'fill',
@@ -760,7 +753,7 @@ async def translate_and_relay_brokerd_events(
 
             # proxy through the "fill" result(s)
             resp = 'broker_filled'
-            broker_details = msg.dict()
+            broker_details = msg
 
             log.info(f'\nFill for {oid} cleared with:\n{pformat(resp)}')
 
@@ -778,7 +771,7 @@ async def translate_and_relay_brokerd_events(
                     time_ns=time.time_ns(),
                     broker_reqid=reqid,
                     brokerd_msg=broker_details,
-                ).dict()
+                )
             )
         except KeyError:
             log.error(
@@ -843,14 +836,14 @@ async def process_client_order_cmds(
 
                 # NOTE: cancel response will be relayed back in messages
                 # from corresponding broker
-                if reqid:
+                if reqid is not None:
 
                     # send cancel to brokerd immediately!
                     log.info(
                         f'Submitting cancel for live order {reqid}'
                     )
 
-                    await brokerd_order_stream.send(msg.dict())
+                    await brokerd_order_stream.send(msg)
 
                 else:
                     # this might be a cancel for an order that hasn't been
@@ -872,7 +865,7 @@ async def process_client_order_cmds(
                             resp='dark_cancelled',
                             oid=oid,
                             time_ns=time.time_ns(),
-                        ).dict()
+                        )
                     )
                     # de-register this client dialogue
                     router.dialogues.pop(oid)
@@ -927,7 +920,7 @@ async def process_client_order_cmds(
                 # handle relaying the ems side responses back to
                 # the client/cmd sender from this request
                 log.info(f'Sending live order to {broker}:\n{pformat(msg)}')
-                await brokerd_order_stream.send(msg.dict())
+                await brokerd_order_stream.send(msg)
 
                 # an immediate response should be ``BrokerdOrderAck``
                 # with ems order id from the ``trades_dialogue()``
@@ -1007,7 +1000,7 @@ async def process_client_order_cmds(
                         resp=resp,
                         oid=oid,
                         time_ns=time.time_ns(),
-                    ).dict()
+                    )
                 )
 
 

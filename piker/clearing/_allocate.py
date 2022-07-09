@@ -22,10 +22,9 @@ from enum import Enum
 from typing import Optional
 
 from bidict import bidict
-from pydantic import BaseModel, validator
-# from msgspec import Struct
 
 from ..data._source import Symbol
+from ..data.types import Struct
 from ..pp import Position
 
 
@@ -41,33 +40,30 @@ SizeUnit = Enum(
 )
 
 
-class Allocator(BaseModel):
-
-    class Config:
-        validate_assignment = True
-        copy_on_model_validation = False
-        arbitrary_types_allowed = True
-
-        # required to get the account validator lookup working?
-        extra = 'allow'
-        underscore_attrs_are_private = False
+class Allocator(Struct):
 
     symbol: Symbol
     account: Optional[str] = 'paper'
+
+    _size_units: bidict[str, Optional[str]] = _size_units
+
     # TODO: for enums this clearly doesn't fucking work, you can't set
     # a default at startup by passing in a `dict` but yet you can set
     # that value through assignment..for wtv cucked reason.. honestly, pure
     # unintuitive garbage.
-    size_unit: str = 'currency'
-    _size_units: dict[str, Optional[str]] = _size_units
+    _size_unit: str = 'currency'
 
-    @validator('size_unit', pre=True)
-    def maybe_lookup_key(cls, v):
-        # apply the corresponding enum key for the text "description" value
+    @property
+    def size_unit(self) -> str:
+        return self._size_unit
+
+    @size_unit.setter
+    def size_unit(self, v: str) -> Optional[str]:
         if v not in _size_units:
-            return _size_units.inverse[v]
+            v = _size_units.inverse[v]
 
         assert v in _size_units
+        self._size_unit = v
         return v
 
     # TODO: if we ever want ot support non-uniform entry-slot-proportion
@@ -262,7 +258,7 @@ def mk_allocator(
     # default allocation settings
     defaults: dict[str, float] = {
         'account': None,  # select paper by default
-        'size_unit': 'currency',
+        # 'size_unit': 'currency',
         'units_limit': 400,
         'currency_limit': 5e3,
         'slots': 4,
@@ -300,6 +296,9 @@ def mk_allocator(
         # set units limit to slots size thus making make the next
         # entry step 1.0
         alloc.units_limit = alloc.slots
+
+    else:
+        alloc.size_unit = 'currency'
 
     # if the current position is already greater then the limit
     # settings, increase the limit to the current position

@@ -619,7 +619,7 @@ class FillStatusBar(QProgressBar):
         # color: #19232D;
         # width: 10px;
 
-        self.setRange(0, slots)
+        self.setRange(0, int(slots))
         self.setValue(value)
 
 

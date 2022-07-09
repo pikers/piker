@@ -22,10 +22,10 @@ from typing import Optional, Union, Callable, Any
 from contextlib import asynccontextmanager as acm
 from collections import defaultdict
 
-from pydantic import BaseModel
+from msgspec import Struct
+import tractor
 import trio
 from trio_typing import TaskStatus
-import tractor
 
 from .log import get_logger, get_console_log
 from .brokers import get_brokermod
@@ -47,15 +47,12 @@ _root_modules = [
 ]
 
 
-class Services(BaseModel):
+class Services(Struct):
 
     actor_n: tractor._supervise.ActorNursery
     service_n: trio.Nursery
     debug_mode: bool  # tractor sub-actor debug mode flag
     service_tasks: dict[str, tuple[trio.CancelScope, tractor.Portal]] = {}
-
-    class Config:
-        arbitrary_types_allowed = True
 
     async def start_service_task(
         self,

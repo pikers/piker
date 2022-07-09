@@ -58,11 +58,11 @@ class OrderBook:
 
     def send(
         self,
-        msg: Order,
+        msg: Order | dict,
 
     ) -> dict:
         self._sent_orders[msg.oid] = msg
-        self._to_ems.send_nowait(msg.dict())
+        self._to_ems.send_nowait(msg)
         return msg
 
     def update(
@@ -73,9 +73,8 @@ class OrderBook:
 
     ) -> dict:
         cmd = self._sent_orders[uuid]
-        msg = cmd.dict()
-        msg.update(data)
-        self._sent_orders[uuid] = Order(**msg)
+        msg = cmd.copy(update=data)
+        self._sent_orders[uuid] = msg
         self._to_ems.send_nowait(msg)
         return cmd
 
@@ -88,7 +87,7 @@ class OrderBook:
             oid=uuid,
             symbol=cmd.symbol,
         )
-        self._to_ems.send_nowait(msg.dict())
+        self._to_ems.send_nowait(msg)
 
 
 _orders: OrderBook = None
@@ -149,7 +148,7 @@ async def relay_order_cmds_from_sync_code(
     book = get_orders()
     async with book._from_order_book.subscribe() as orders_stream:
         async for cmd in orders_stream:
-            if cmd['symbol'] == symbol_key:
+            if cmd.symbol == symbol_key:
                 log.info(f'Send order cmd:\n{pformat(cmd)}')
                 # send msg over IPC / wire
                 await to_ems_stream.send(cmd)
