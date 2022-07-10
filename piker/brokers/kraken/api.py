@@ -141,6 +141,9 @@ class InvalidKey(ValueError):
 
 class Client:
 
+    # global symbol normalization table
+    _ntable: dict[str, str] = {}
+
     def __init__(
         self,
         name: str = '',
@@ -302,7 +305,9 @@ class Client:
     async def symbol_info(
         self,
         pair: Optional[str] = None,
-    ):
+
+    ) -> dict[str, dict[str, str]]:
+
         if pair is not None:
             pairs = {'pair': pair}
         else:
@@ -327,6 +332,12 @@ class Client:
     ) -> dict:
         if not self._pairs:
             self._pairs = await self.symbol_info()
+
+            ntable = {}
+            for restapikey, info in self._pairs.items():
+                ntable[restapikey] = ntable['wsname'] = info['altname']
+
+            self._ntable.update(ntable)
 
         return self._pairs
 
@@ -425,6 +436,25 @@ class Client:
             else:
                 raise BrokerError(errmsg)
 
+    @classmethod
+    def normalize_symbol(
+        cls,
+        ticker: str
+    ) -> str:
+        '''
+        Normalize symbol names to to a 3x3 pair from the global
+        definition map which we build out from the data retreived from
+        the 'AssetPairs' endpoint, see methods above.
+
+        '''
+        symlen = len(ticker)
+        if symlen != 6:
+            ticker = cls._ntable[ticker]
+        else:
+            raise ValueError(f'Unhandled symbol: {ticker}')
+
+        return ticker.lower()
+
 
 @acm
 async def get_client() -> Client:
@@ -443,27 +473,3 @@ async def get_client() -> Client:
     await client.cache_symbols()
 
     yield client
-
-
-def normalize_symbol(
-    ticker: str
-) -> str:
-    '''
-    Normalize symbol names to to a 3x3 pair.
-
-    '''
-    remap = {
-        'XXBTZEUR': 'XBTEUR',
-        'XXMRZEUR': 'XMREUR',
-
-        # ws versions? pretty weird..
-        'XBT/EUR': 'XBTEUR',
-        'XMR/EUR': 'XMREUR',
-    }
-    symlen = len(ticker)
-    if symlen != 6:
-        ticker = remap[ticker]
-    else:
-        raise ValueError(f'Unhandled symbol: {ticker}')
-
-    return ticker.lower()
