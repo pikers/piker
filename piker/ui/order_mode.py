@@ -843,16 +843,25 @@ async def process_trades_and_update_ui(
         # resp to 'cancel' request or error condition
         # for action request
         elif resp in (
-            'broker_cancelled',
             'broker_inactive',
             'broker_errored',
+        ):
+            # delete level line from view
+            mode.on_cancel(oid)
+            broker_msg = msg['brokerd_msg']
+            log.error(
+                f'Order {oid}->{resp} with:\n{pformat(broker_msg)}'
+            )
+
+        elif resp in (
+            'broker_cancelled',
             'dark_cancelled'
         ):
             # delete level line from view
             mode.on_cancel(oid)
             broker_msg = msg['brokerd_msg']
-            log.warning(
-                f'Order {oid} failed with:\n{pformat(broker_msg)}'
+            log.cancel(
+                f'Order {oid}->{resp} with:\n{pformat(broker_msg)}'
             )
 
         elif resp in (

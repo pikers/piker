@@ -702,6 +702,9 @@ async def translate_and_relay_brokerd_events(
             # a live flow now exists
             oid = entry.oid
 
+        # TODO: instead this should be our status set.
+        # ack, open, fill, closed, cancelled'
+
         resp = None
         broker_details = {}
 
