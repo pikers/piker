@@ -111,11 +111,12 @@ class PaperBoi:
         msg = BrokerdStatus(
             status='submitted',
             reqid=reqid,
-            broker=self.broker,
             time_ns=time.time_ns(),
             filled=0.0,
             reason='paper_trigger',
             remaining=size,
+
+            broker_details={'name': 'paperboi'},
         )
         await self.ems_trades_stream.send(msg)
 
@@ -168,10 +169,9 @@ class PaperBoi:
 
         msg = BrokerdStatus(
             status='cancelled',
-            oid=oid,
             reqid=reqid,
-            broker=self.broker,
             time_ns=time.time_ns(),
+            broker_details={'name': 'paperboi'},
         )
         await self.ems_trades_stream.send(msg)
 
@@ -229,14 +229,13 @@ class PaperBoi:
                 filled=size,
                 remaining=0 if order_complete else remaining,
 
-                action=action,
-                size=size,
-                price=price,
-
                 broker_details={
                     'paper_info': {
                         'oid': oid,
                     },
+                    'action': action,
+                    'size': size,
+                    'price': price,
                     'name': self.broker,
                 },
             )
