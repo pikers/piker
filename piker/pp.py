@@ -96,7 +96,7 @@ def open_trade_ledger(
                 return toml.dump(ledger, cf)
 
 
-class Transaction(Struct):
+class Transaction(Struct, frozen=True):
     # TODO: should this be ``.to`` (see below)?
     fqsn: str
 
@@ -688,6 +688,18 @@ def update_pps_conf(
     dict[str, Position],
     dict[str, Position],
 ]:
+    # TODO: ideally we can pass in an existing
+    # pps state to this right? such that we
+    # don't have to do a ledger reload all the
+    # time.. a couple ideas I can think of,
+    # - load pps once after backend ledger state
+    #   is loaded and keep maintainend in memory
+    #   inside a with block,
+    # - mirror this in some client side actor which
+    #   does the actual ledger updates (say the paper
+    #   engine proc if we decide to always spawn it?),
+    # - do diffs against updates from the ledger writer
+    #   actor and the in-mem state here?
 
     # this maps `.bsuid` values to positions
     pp_objs: dict[Union[str, int], Position]
