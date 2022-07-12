@@ -41,7 +41,7 @@ from trio_typing import TaskStatus
 from piker.data._sharedmem import ShmArray
 from .._util import SymbolNotFound, NoData
 from .api import (
-    _adhoc_futes_set,
+    # _adhoc_futes_set,
     log,
     load_aio_clients,
     ibis,
@@ -239,7 +239,8 @@ async def get_bars(
 
             # elif (
             #     err.code == 162 and
-            #     'Trading TWS session is connected from a different IP address' in err.message
+            #     'Trading TWS session is connected from a different IP
+            #     address' in err.message
             # ):
             #     log.warning("ignoring ip address warning")
             #     continue
@@ -571,6 +572,8 @@ def normalize(
 
     # check for special contract types
     con = ticker.contract
+    symbol = con.symbol
+
     if type(con) in (
         ibis.Commodity,
     ):
@@ -584,7 +587,7 @@ def normalize(
         ibis.Forex,
     ):
         suffix = 'forex'
-        con.symbol = con.pair()
+        symbol = con.pair()
         # no real volume on forex feeds..
         calc_price = True
 
@@ -631,7 +634,7 @@ def normalize(
     # generate fqsn with possible specialized suffix
     # for derivatives, note the lowercase.
     data['symbol'] = data['fqsn'] = '.'.join(
-        (con.symbol, suffix)
+        (symbol, suffix)
     ).lower()
 
     # convert named tuples to dicts for transport
@@ -734,7 +737,13 @@ async def stream_quotes(
 
         # it might be outside regular trading hours so see if we can at
         # least grab history.
-        if isnan(first_ticker.last):
+        if (
+            isnan(first_ticker.last)
+            and type(first_ticker.contract) not in (
+                ibis.Commodity,
+                ibis.Forex
+            )
+        ):
             task_status.started((init_msgs, first_quote))
 
             # it's not really live but this will unblock
@@ -936,7 +945,8 @@ async def open_symbol_search(
                     # adhoc_match_results = {}
                     # if adhoc_matches:
                     #     # TODO: do we need to pull contract details?
-                    #     adhoc_match_results = {i[0]: {} for i in adhoc_matches}
+                    #     adhoc_match_results = {i[0]: {} for i in
+                    #     adhoc_matches}
 
                 log.debug(f'fuzzy matching stocks {stock_results}')
                 stock_matches = fuzzy.extractBests(
