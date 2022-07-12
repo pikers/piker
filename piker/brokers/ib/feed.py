@@ -573,12 +573,19 @@ def normalize(
     con = ticker.contract
     if type(con) in (
         ibis.Commodity,
-        ibis.Forex,
     ):
         # commodities and forex don't have an exchange name and
         # no real volume so we have to calculate the price
         suffix = con.secType
         # no real volume on this tract
+        calc_price = True
+
+    elif type(con) in (
+        ibis.Forex,
+    ):
+        suffix = 'forex'
+        con.symbol = con.pair()
+        # no real volume on forex feeds..
         calc_price = True
 
     else:
@@ -812,6 +819,9 @@ async def data_reset_hack(
           successful.
         - other OS support?
         - integration with ``ib-gw`` run in docker + Xorg?
+        - is it possible to offer a local server that can be accessed by
+          a client? Would be sure be handy for running native java blobs
+          that need to be wrangle.
 
     '''
 
