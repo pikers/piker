@@ -205,6 +205,19 @@ _adhoc_futes_set = {
 }
 
 
+# taken from list here:
+# https://www.interactivebrokers.com/en/trading/products-spot-currencies.php
+_adhoc_fiat_set = set((
+    'USD, AED, AUD, CAD,'
+    'CHF, CNH, CZK, DKK,'
+    'EUR, GBP, HKD, HUF,'
+    'ILS, JPY, MXN, NOK,'
+    'NZD, PLN, RUB, SAR,'
+    'SEK, SGD, TRY, ZAR'
+    ).split(' ,')
+)
+
+
 # map of symbols to contract ids
 _adhoc_symbol_map = {
     # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
@@ -480,6 +493,14 @@ class Client:
                     except RequestError as err:
                         log.warning(err.message)
 
+            # forex pairs
+            elif sectype == 'CASH':
+                dst, src = tract.localSymbol.split('.')
+                pair_key = "/".join([dst, src])
+                tract.exchange = 'FOREX'
+                results[f'{pair_key}.forex'] = tract
+                results.pop(key)
+
         return results
 
     async def get_fute(
@@ -521,7 +542,7 @@ class Client:
     async def find_contract(
         self,
         pattern: str,
-        currency: str = 'USD',
+        currency: str = '',
         **kwargs,
 
     ) -> Contract:
@@ -537,25 +558,43 @@ class Client:
         # XXX UPDATE: we can probably do the tick/trades scraping
         # inside our eventkit handler instead to bypass this entirely?
 
+        # fqsn parsing stage
+        # ------------------
         if '.ib' in pattern:
             from ..data._source import unpack_fqsn
             broker, symbol, expiry = unpack_fqsn(pattern)
+
         else:
             symbol = pattern
 
-        # try:
-        #     # give the cache a go
-        #     return self._contracts[symbol]
-        # except KeyError:
-        #     log.debug(f'Looking up contract for {symbol}')
-        expiry: str = ''
-        if symbol.count('.') > 1:
-            symbol, _, expiry = symbol.rpartition('.')
+        # another hack for forex pairs lul.
+        if (
+            '.forex' in symbol
+            # and not '.ib' in pattern
+            # or '/' in symbol
+        ):
+            exch = 'FOREX'
+            symbol = symbol.removesuffix('.forex')
+            if '/' in symbol:
+                symbol, currency = symbol.split('/')
 
-        # use heuristics to figure out contract "type"
-        sym, exch = symbol.upper().rsplit('.', maxsplit=1)
+        else:
+            # try:
+            #     # give the cache a go
+            #     return self._contracts[symbol]
+            # except KeyError:
+            #     log.debug(f'Looking up contract for {symbol}')
+            expiry: str = ''
+            if symbol.count('.') > 1:
+                symbol, _, expiry = symbol.rpartition('.')
+
+            # use heuristics to figure out contract "type"
+            sym, exch = symbol.upper().rsplit('.', maxsplit=1)
 
         qualify: bool = True
+
+        # contract searching stage
+        # ------------------------
 
         # futes
         if exch in _futes_venues:
@@ -578,10 +617,11 @@ class Client:
             qualify = False
 
         elif exch in ('FOREX'):
-            currency = ''
-            symbol, currency = sym.split('/')
+            # if '/' in symbol:
+            #     currency = ''
+            #     symbol, currency = sym.split('/')
             con = ibis.Forex(
-                symbol=symbol,
+                pair=''.join((symbol, currency)),
                 currency=currency,
             )
             con.bars_kwargs = {'whatToShow': 'MIDPOINT'}
@@ -649,6 +689,7 @@ class Client:
     async def get_sym_details(
         self,
         symbol: str,
+
     ) -> tuple[Contract, Ticker, ContractDetails]:
 
         contract = await self.find_contract(symbol)
