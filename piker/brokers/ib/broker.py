@@ -36,6 +36,7 @@ import tractor
 from ib_insync.contract import (
     Contract,
     Option,
+    Forex,
 )
 from ib_insync.order import (
     Trade,
@@ -88,20 +89,29 @@ def pack_position(
         # TODO: lookup fqsn even for derivs.
         symbol = con.symbol.lower()
 
+    # TODO: probably write a mofo exchange mapper routine since ib
+    # can't get it's shit together like, ever.
+
     # try our best to figure out the exchange / venue
     exch = (con.primaryExchange or con.exchange).lower()
     if not exch:
-        # for wtv cucked reason some futes don't show their
-        # exchange (like CL.NYMEX) ...
-        entry = _adhoc_symbol_map.get(
-            con.symbol or con.localSymbol
-        )
-        if entry:
-            meta, kwargs = entry
-            cid = meta.get('conId')
-            if cid:
-                assert con.conId == meta['conId']
-            exch = meta['exchange']
+
+        if isinstance(con, Forex):
+            # bc apparently it's not in the contract obj?
+            exch = 'idealfx'
+
+        else:
+            # for wtv cucked reason some futes don't show their
+            # exchange (like CL.NYMEX) ...
+            entry = _adhoc_symbol_map.get(
+                con.symbol or con.localSymbol
+            )
+            if entry:
+                meta, kwargs = entry
+                cid = meta.get('conId')
+                if cid:
+                    assert con.conId == meta['conId']
+                exch = meta['exchange']
 
     assert exch, f'No clue:\n {con}'
     fqsn = '.'.join((symbol, exch))
