@@ -56,7 +56,7 @@ def iterticks(
                     sig = (
                         time,
                         tick['price'],
-                        tick['size']
+                        tick.get('size')
                     )
 
                     if ttype == 'dark_trade':
