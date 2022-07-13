@@ -63,7 +63,7 @@ from ..log import get_logger
 log = get_logger(__name__)
 
 # TODO: load this from a config.toml!
-_quote_throttle_rate: int = 22  # Hz
+_quote_throttle_rate: int = 60  # Hz
 
 
 # a working tick-type-classes template
@@ -136,16 +136,16 @@ class DisplayState:
     # high level chart handles
     linked: LinkedSplits
     chart: ChartPlotWidget
-    vlm_chart: ChartPlotWidget
 
     # axis labels
     l1: L1Labels
     last_price_sticky: YAxisLabel
-    vlm_sticky: YAxisLabel
 
     # misc state tracking
     vars: dict[str, Any]
 
+    vlm_chart: Optional[ChartPlotWidget] = None
+    vlm_sticky: Optional[YAxisLabel] = None
     wap_in_history: bool = False
 
 
@@ -184,9 +184,6 @@ async def graphics_update_loop(
     last_price_sticky.update_from_data(
         *ohlcv.array[-1][['index', 'close']]
     )
-
-    if vlm_chart:
-        vlm_sticky = vlm_chart._ysticks['volume']
 
     maxmin = partial(
         chart_maxmin,
@@ -236,8 +233,6 @@ async def graphics_update_loop(
         'ohlcv': ohlcv,
         'chart': chart,
         'last_price_sticky': last_price_sticky,
-        'vlm_chart': vlm_chart,
-        'vlm_sticky': vlm_sticky,
         'l1': l1,
 
         'vars': {
@@ -249,6 +244,11 @@ async def graphics_update_loop(
             'last_mn': last_mn,
         }
     })
+
+    if vlm_chart:
+        vlm_sticky = vlm_chart._ysticks['volume']
+        ds.vlm_chart = vlm_chart
+        ds.vlm_sticky = vlm_sticky
 
     chart.default_view()
 
@@ -322,7 +322,7 @@ def graphics_update_cycle(
     for sym, quote in ds.quotes.items():
 
         # compute the first available graphic's x-units-per-pixel
-        uppx = vlm_chart.view.x_uppx()
+        uppx = chart.view.x_uppx()
 
         # NOTE: vlm may be written by the ``brokerd`` backend
         # event though a tick sample is not emitted.
@@ -786,7 +786,10 @@ async def display_symbol_data(
         async with trio.open_nursery() as ln:
 
             # if available load volume related built-in display(s)
-            if has_vlm(ohlcv):
+            if (
+                not symbol.broker_info[provider].get('no_vlm', False)
+                and has_vlm(ohlcv)
+            ):
                 vlm_chart = await ln.start(
                     open_vlm_displays,
                     linked,
