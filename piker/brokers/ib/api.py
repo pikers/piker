@@ -644,8 +644,10 @@ class Client:
                 exch = 'SMART'
 
             else:
-                exch = 'SMART'
+                # XXX: order is super important here since
+                # a primary == 'SMART' won't ever work.
                 primaryExchange = exch
+                exch = 'SMART'
 
             con = ibis.Stock(
                 symbol=sym,
