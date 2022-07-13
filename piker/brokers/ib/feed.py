@@ -700,6 +700,13 @@ async def stream_quotes(
             # TODO: more consistent field translation
             atype = syminfo['asset_type'] = asset_type_map[syminfo['secType']]
 
+            if atype in {
+                'forex',
+                'index',
+                'commodity',
+            }:
+                syminfo['no_vlm'] = True
+
             # for stocks it seems TWS reports too small a tick size
             # such that you can't submit orders with that granularity?
             min_tick = 0.01 if atype == 'stock' else 0
@@ -726,9 +733,9 @@ async def stream_quotes(
                 },
 
             }
-            return init_msgs
+            return init_msgs, syminfo
 
-        init_msgs = mk_init_msgs()
+        init_msgs, syminfo = mk_init_msgs()
 
         # TODO: we should instead spawn a task that waits on a feed to start
         # and let it wait indefinitely..instead of this hard coded stuff.
@@ -766,10 +773,14 @@ async def stream_quotes(
             task_status.started((init_msgs, first_quote))
 
             async with aclosing(stream):
-                if type(first_ticker.contract) not in (
-                    ibis.Commodity,
-                    ibis.Forex
-                ):
+                if syminfo.get('no_vlm', False):
+
+                    # generally speaking these feeds don't
+                    # include vlm data.
+                    atype = syminfo['asset_type']
+                    log.info(f'Non-volume asset {sym}@{atype}, skipping quote poll.')
+
+                else:
                     # wait for real volume on feed (trading might be closed)
                     while True:
                         ticker = await stream.receive()
