@@ -335,7 +335,7 @@ class Client:
 
             ntable = {}
             for restapikey, info in self._pairs.items():
-                ntable[restapikey] = ntable['wsname'] = info['altname']
+                ntable[restapikey] = ntable[info['wsname']] = info['altname']
 
             self._ntable.update(ntable)
 
