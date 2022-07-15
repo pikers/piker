@@ -29,6 +29,7 @@ import itertools
 from math import isnan
 from typing import (
     Any,
+    Optional,
     Union,
 )
 import asyncio
@@ -43,8 +44,10 @@ import trio
 import tractor
 from tractor import to_asyncio
 import ib_insync as ibis
-from ib_insync.wrapper import RequestError
-from ib_insync.contract import Contract, ContractDetails
+from ib_insync.contract import (
+    Contract,
+    ContractDetails,
+)
 from ib_insync.order import Order
 from ib_insync.ticker import Ticker
 from ib_insync.objects import (
@@ -53,7 +56,10 @@ from ib_insync.objects import (
     Execution,
     CommissionReport,
 )
-from ib_insync.wrapper import Wrapper
+from ib_insync.wrapper import (
+    Wrapper,
+    RequestError,
+)
 from ib_insync.client import Client as ib_Client
 import numpy as np
 
@@ -184,12 +190,12 @@ _adhoc_futes_set = {
     'ethusdrr.cmecrypto',
 
     # agriculture
-    'he.globex',  # lean hogs
-    'le.globex',  # live cattle (geezers)
-    'gf.globex',  # feeder cattle (younguns)
+    'he.nymex',  # lean hogs
+    'le.nymex',  # live cattle (geezers)
+    'gf.nymex',  # feeder cattle (younguns)
 
     # raw
-    'lb.globex',  # random len lumber
+    'lb.nymex',  # random len lumber
 
     # metals
     'xauusd.cmdty',  # gold spot
@@ -247,6 +253,7 @@ _exch_skip_list = {
     'VALUE',
     'FUNDSERV',
     'SWB2',
+    'PSE',
 }
 
 # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
@@ -349,7 +356,7 @@ class Client:
 
         _enters += 1
 
-        contract = await self.find_contract(fqsn)
+        contract = (await self.find_contracts(fqsn))[0]
         bars_kwargs.update(getattr(contract, 'bars_kwargs', {}))
 
         # _min = min(2000*100, count)
@@ -404,12 +411,19 @@ class Client:
                 futs.append(self.ib.reqContractDetailsAsync(con))
 
         # batch request all details
-        results = await asyncio.gather(*futs)
+        try:
+            results = await asyncio.gather(*futs)
+        except RequestError as err:
+            msg = err.message
+            if (
+                'No security definition' in msg
+            ):
+                log.warning(f'{msg}: {contracts}')
+                return {}
 
         # one set per future result
         details = {}
         for details_set in results:
-
             # XXX: if there is more then one entry in the details list
             # then the contract is so called "ambiguous".
             for d in details_set:
@@ -477,21 +491,32 @@ class Client:
             if sectype == 'IND':
                 results[f'{sym}.IND'] = tract
                 results.pop(key)
-                exch = tract.exchange
+                # exch = tract.exchange
 
-                if exch in _futes_venues:
+                # XXX: add back one of these to get the weird deadlock
+                # on the debugger from root without the latest
+                # maybe_wait_for_debugger() fix in the `open_context()`
+                # exit.
+                # assert 0
+                # if con.exchange not in _exch_skip_list:
+
+                exch = tract.exchange
+                if exch not in _exch_skip_list:
                     # try get all possible contracts for symbol as per,
                     # https://interactivebrokers.github.io/tws-api/basic_contracts.html#fut
                     con = ibis.Future(
                         symbol=sym,
                         exchange=exch,
                     )
-                    try:
-                        all_deats = await self.con_deats([con])
-                        results |= all_deats
-
-                    except RequestError as err:
-                        log.warning(err.message)
+                    # TODO: make this work, think it's something to do
+                    # with the qualify flag.
+                    # cons = await self.find_contracts(
+                    #     contract=con,
+                    #     err_on_qualify=False,
+                    # )
+                    # if cons:
+                    all_deats = await self.con_deats([con])
+                    results |= all_deats
 
             # forex pairs
             elif sectype == 'CASH':
@@ -539,13 +564,11 @@ class Client:
             ibis.Contract(conId=conid)
         )
 
-    async def find_contract(
+    def parse_patt2fqsn(
         self,
         pattern: str,
-        currency: str = '',
-        **kwargs,
 
-    ) -> Contract:
+    ) -> tuple[str, str, str, str]:
 
         # TODO: we can't use this currently because
         # ``wrapper.starTicker()`` currently cashes ticker instances
@@ -558,14 +581,17 @@ class Client:
         # XXX UPDATE: we can probably do the tick/trades scraping
         # inside our eventkit handler instead to bypass this entirely?
 
+        currency = ''
+
         # fqsn parsing stage
         # ------------------
         if '.ib' in pattern:
             from ..data._source import unpack_fqsn
-            broker, symbol, expiry = unpack_fqsn(pattern)
+            _, symbol, expiry = unpack_fqsn(pattern)
 
         else:
             symbol = pattern
+            expiry = ''
 
         # another hack for forex pairs lul.
         if (
@@ -579,6 +605,7 @@ class Client:
                 symbol, currency = symbol.split('/')
 
         else:
+            # TODO: yes, a cache..
             # try:
             #     # give the cache a go
             #     return self._contracts[symbol]
@@ -589,9 +616,32 @@ class Client:
                 symbol, _, expiry = symbol.rpartition('.')
 
             # use heuristics to figure out contract "type"
-            sym, exch = symbol.upper().rsplit('.', maxsplit=1)
+            symbol, exch = symbol.upper().rsplit('.', maxsplit=1)
 
-        qualify: bool = True
+        return symbol, currency, exch, expiry
+
+    async def find_contracts(
+        self,
+        pattern: Optional[str] = None,
+        contract: Optional[Contract] = None,
+        qualify: bool = True,
+        err_on_qualify: bool = True,
+
+    ) -> Contract:
+
+        if pattern is not None:
+            symbol, currency, exch, expiry = self.parse_patt2fqsn(
+                pattern,
+            )
+            sectype = ''
+
+        else:
+            assert contract
+            symbol = contract.symbol
+            sectype = contract.secType
+            exch = contract.exchange or contract.primaryExchange
+            expiry = contract.lastTradeDateOrContractMonth
+            currency = contract.currency
 
         # contract searching stage
         # ------------------------
@@ -600,26 +650,27 @@ class Client:
         if exch in _futes_venues:
             if expiry:
                 # get the "front" contract
-                contract = await self.get_fute(
-                    symbol=sym,
+                con = await self.get_fute(
+                    symbol=symbol,
                     exchange=exch,
                     expiry=expiry,
                 )
 
             else:
                 # get the "front" contract
-                contract = await self.get_fute(
-                    symbol=sym,
+                con = await self.get_fute(
+                    symbol=symbol,
                     exchange=exch,
                     front=True,
                 )
 
-            qualify = False
-
-        elif exch in ('FOREX'):
+        elif (
+            exch in ('FOREX')
+            or sectype == 'CASH'
+        ):
             # if '/' in symbol:
             #     currency = ''
-            #     symbol, currency = sym.split('/')
+            #     symbol, currency = symbol.split('/')
             con = ibis.Forex(
                 pair=''.join((symbol, currency)),
                 currency=currency,
@@ -628,7 +679,7 @@ class Client:
 
         # commodities
         elif exch == 'CMDTY':  # eg. XAUUSD.CMDTY
-            con_kwargs, bars_kwargs = _adhoc_symbol_map[sym]
+            con_kwargs, bars_kwargs = _adhoc_symbol_map[symbol]
             con = ibis.Commodity(**con_kwargs)
             con.bars_kwargs = bars_kwargs
 
@@ -650,29 +701,44 @@ class Client:
                 exch = 'SMART'
 
             con = ibis.Stock(
-                symbol=sym,
+                symbol=symbol,
                 exchange=exch,
                 primaryExchange=primaryExchange,
                 currency=currency,
             )
-        try:
             exch = 'SMART' if not exch else exch
-            if qualify:
-                contract = (await self.ib.qualifyContractsAsync(con))[0]
-            else:
-                assert contract
 
-        except IndexError:
-            raise ValueError(f"No contract could be found {con}")
+        contracts = [con]
+        if qualify:
+            try:
+                contracts = await self.ib.qualifyContractsAsync(con)
+            except RequestError as err:
+                msg = err.message
+                if (
+                    'No security definition' in msg
+                    and not err_on_qualify
+                ):
+                    log.warning(
+                        f'Could not find def for {con}')
+                    return None
 
-        self._contracts[pattern] = contract
+                else:
+                    raise
+            if not contracts:
+                raise ValueError(f"No contract could be found {con}")
 
-        # add an aditional entry with expiry suffix if available
-        conexp = contract.lastTradeDateOrContractMonth
-        if conexp:
-            self._contracts[pattern + f'.{conexp}'] = contract
+        # pack all contracts into cache
+        for tract in contracts:
+            exch: str = tract.primaryExchange or tract.exchange or exch
+            pattern = f'{symbol}.{exch}'
+            expiry = tract.lastTradeDateOrContractMonth
+            # add an entry with expiry suffix if available
+            if expiry:
+                pattern += f'.{expiry}'
 
-        return contract
+            self._contracts[pattern.lower()] = tract
+
+        return contracts
 
     async def get_head_time(
         self,
@@ -694,7 +760,7 @@ class Client:
 
     ) -> tuple[Contract, Ticker, ContractDetails]:
 
-        contract = await self.find_contract(symbol)
+        contract = (await self.find_contracts(symbol))[0]
         ticker: Ticker = self.ib.reqMktData(
             contract,
             snapshot=True,
