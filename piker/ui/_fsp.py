@@ -469,9 +469,10 @@ class FspAdmin:
             target=target,
             readonly=True,
         )
-        self._flow_registry[
-            (self.src_shm._token, target.name)
-        ] = dst_shm._token
+        self._flow_registry[(
+            self.src_shm._token,
+            target.name
+        )] = dst_shm._token
 
         # if not opened:
         #     raise RuntimeError(

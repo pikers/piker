@@ -78,7 +78,8 @@ class Fsp:
     # + the consuming fsp *to* the consumers output
     # shm flow.
     _flow_registry: dict[
-        tuple[_Token, str], _Token,
+        tuple[_Token, str],
+        tuple[_Token, Optional[ShmArray]],
     ] = {}
 
     def __init__(
@@ -120,7 +121,6 @@ class Fsp:
     ):
         return self.func(*args, **kwargs)
 
-    # TODO: lru_cache this? prettty sure it'll work?
     def get_shm(
         self,
         src_shm: ShmArray,
@@ -131,12 +131,27 @@ class Fsp:
         for this "instance" of a signal processor for
         the given ``key``.
 
+        The destination shm "token" and array are cached if possible to
+        minimize multiple stdlib/system calls.
+
         '''
-        dst_token = self._flow_registry[
+        dst_token, maybe_array = self._flow_registry[
             (src_shm._token, self.name)
         ]
-        shm = attach_shm_array(dst_token)
-        return shm
+        if maybe_array is None:
+            self._flow_registry[
+                (src_shm._token, self.name)
+            ] = (
+                dst_token,
+                # "cache" the ``ShmArray`` such that
+                # we call the underlying "attach" code as few
+                # times as possible as per:
+                # - https://github.com/pikers/piker/issues/359
+                # - https://github.com/pikers/piker/issues/332
+                maybe_array := attach_shm_array(dst_token)
+            )
+
+        return maybe_array
 
 
 def fsp(

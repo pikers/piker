@@ -284,9 +284,10 @@ async def cascade(
     # TODO: ugh i hate this wind/unwind to list over the wire
     # but not sure how else to do it.
     for (token, fsp_name, dst_token) in shm_registry:
-        Fsp._flow_registry[
-            (_Token.from_msg(token), fsp_name)
-        ] = _Token.from_msg(dst_token)
+        Fsp._flow_registry[(
+            _Token.from_msg(token),
+            fsp_name,
+        )] = _Token.from_msg(dst_token), None
 
     fsp: Fsp = reg.get(
         NamespacePath(ns_path)
