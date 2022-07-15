@@ -207,8 +207,6 @@ async def get_bars(
 
         except RequestError as err:
             msg = err.message
-            # why do we always need to rebind this?
-            # _err = err
 
             if 'No market data permissions for' in msg:
                 # TODO: signalling for no permissions searches
@@ -778,7 +776,9 @@ async def stream_quotes(
                     # generally speaking these feeds don't
                     # include vlm data.
                     atype = syminfo['asset_type']
-                    log.info(f'Non-volume asset {sym}@{atype}, skipping quote poll.')
+                    log.info(
+                        f'Non-vlm asset {sym}@{atype}, skipping quote poll...'
+                    )
 
                 else:
                     # wait for real volume on feed (trading might be closed)
