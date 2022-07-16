@@ -47,7 +47,7 @@ from cryptofeed.defines import (
 )
 from cryptofeed.symbols import Symbol
 
-from .api import Client
+from .api import Client, Trade
 
 _spawn_kwargs = {
     'infect_asyncio': True,
@@ -65,8 +65,10 @@ def get_config() -> dict[str, Any]:
         return {}
 
     conf['log'] = {}
-    conf['log']['filename'] = '/tmp/feedhandler.log'
-    conf['log']['level'] = 'WARNING'
+    conf['log']['disabled'] = True
+
+#    conf['log']['filename'] = '/tmp/feedhandler.log'
+#    conf['log']['level'] = 'WARNING'
 
     return conf 
 
@@ -299,8 +301,8 @@ async def stream_quotes(
         # keep client cached for real-time section
         cache = await client.cache_symbols()
 
-        last_trade = (await client.last_trades(
-            cb_sym_to_deribit_inst(nsym), count=1)).result.trades[0]
+        last_trade = Trade(**(await client.last_trades(
+            cb_sym_to_deribit_inst(nsym), count=1)).trades[0])
 
         first_quote = {
             'symbol': sym,

@@ -24,7 +24,8 @@ import pendulum
 import asks
 from fuzzywuzzy import process as fuzzy
 import numpy as np
-from pydantic import BaseModel
+
+from piker.data.types import Struct
 
 from .._util import resproc
 
@@ -32,10 +33,6 @@ from piker import config
 from piker.log import get_logger
 
 from cryptofeed.symbols import Symbol
-
-_spawn_kwargs = {
-    'infect_asyncio': True,
-}
 
 log = get_logger(__name__)
 
@@ -56,7 +53,7 @@ _ohlc_dtype = [
 ]
 
 
-class JSONRPCResult(BaseModel):
+class JSONRPCResult(Struct):
     jsonrpc: str = '2.0'
     result: dict 
     usIn: int 
@@ -65,7 +62,7 @@ class JSONRPCResult(BaseModel):
     testnet: bool
 
 
-class KLinesResult(BaseModel):
+class KLinesResult(Struct):
     close: List[float]
     cost: List[float]
     high: List[float]
@@ -75,12 +72,7 @@ class KLinesResult(BaseModel):
     ticks: List[int]
     volume: List[float]
 
-
-class KLines(JSONRPCResult):
-    result: KLinesResult
-
-
-class Trade(BaseModel):
+class Trade(Struct):
     trade_seq: int
     trade_id: str
     timestamp: int
@@ -93,12 +85,9 @@ class Trade(BaseModel):
     direction: str
     amount: float
 
-class LastTradesResult(BaseModel):
+class LastTradesResult(Struct):
     trades: List[Trade]
     has_more: bool
-
-class LastTrades(JSONRPCResult):
-    result: LastTradesResult
 
 
 # convert datetime obj timestamp to unixtime in milliseconds
@@ -216,9 +205,9 @@ class Client:
             }
         )
 
-        klines = KLines(**response)
+        klines = JSONRPCResult(**response)
     
-        result = klines.result
+        result = KLinesResult(**klines.result)
         new_bars = []
         for i in range(len(result.close)):
 
@@ -256,7 +245,7 @@ class Client:
             }
         )
 
-        return LastTrades(**response)
+        return LastTradesResult(**(JSONRPCResult(**response).result))
 
 
 @acm
