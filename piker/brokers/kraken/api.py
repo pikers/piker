@@ -29,8 +29,7 @@ from typing import (
 )
 import time
 
-# import trio
-# import tractor
+from bidict import bidict
 import pendulum
 import asks
 from fuzzywuzzy import process as fuzzy
@@ -40,6 +39,7 @@ import urllib.parse
 import hashlib
 import hmac
 import base64
+import trio
 
 from piker import config
 from piker.brokers._util import (
@@ -143,9 +143,11 @@ class Client:
 
     # global symbol normalization table
     _ntable: dict[str, str] = {}
+    _atable: bidict[str, str] = bidict()
 
     def __init__(
         self,
+        config: dict[str, str],
         name: str = '',
         api_key: str = '',
         secret: str = ''
@@ -156,6 +158,7 @@ class Client:
             'User-Agent':
                 'krakenex/2.1.0 (+https://github.com/veox/python3-krakenex)'
         })
+        self.conf: dict[str, str] = config
         self._pairs: list[str] = []
         self._name = name
         self._api_key = api_key
@@ -215,8 +218,36 @@ class Client:
         data['nonce'] = str(int(1000*time.time()))
         return await self._private(method, data, uri_path)
 
+    async def get_balances(
+        self,
+    ) -> dict[str, float]:
+        '''
+        Return the set of asset balances for this account
+        by symbol.
+
+        '''
+        resp = await self.endpoint(
+            'Balance',
+            {},
+        )
+        by_bsuid = resp['result']
+        return {
+            self._atable[sym].lower(): float(bal)
+            for sym, bal in by_bsuid.items()
+        }
+
+    async def get_assets(self) -> dict[str, dict]:
+        resp = await self._public('Assets', {})
+        return resp['result']
+
+    async def cache_assets(self) -> None:
+        assets = self.assets = await self.get_assets()
+        for bsuid, info in assets.items():
+            self._atable[bsuid] = info['altname']
+
     async def get_trades(
         self,
+        fetch_limit: int = 10,
 
     ) -> dict[str, Any]:
         '''
@@ -228,6 +259,8 @@ class Client:
         trades_by_id: dict[str, Any] = {}
 
         for i in itertools.count():
+            if i >= fetch_limit:
+                break
 
             # increment 'ofs' pagination offset
             ofs = i*50
@@ -459,17 +492,21 @@ class Client:
 @acm
 async def get_client() -> Client:
 
-    section = get_config()
-    if section:
+    conf = get_config()
+    if conf:
         client = Client(
-            name=section['key_descr'],
-            api_key=section['api_key'],
-            secret=section['secret']
+            conf,
+            name=conf['key_descr'],
+            api_key=conf['api_key'],
+            secret=conf['secret']
         )
     else:
-        client = Client()
+        client = Client({})
 
-    # at startup, load all symbols locally for fast search
-    await client.cache_symbols()
+    # at startup, load all symbols, and asset info in
+    # batch requests.
+    async with trio.open_nursery() as nurse:
+        nurse.start_soon(client.cache_assets)
+        await client.cache_symbols()
 
     yield client
