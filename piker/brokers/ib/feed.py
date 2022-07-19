@@ -301,7 +301,13 @@ async def get_bars(
                 else:
 
                     log.warning('Sending CONNECTION RESET')
-                    await data_reset_hack(reset_type='connection')
+                    res = await data_reset_hack(reset_type='connection')
+                    if not res:
+                        log.warning(
+                            'NO VNC DETECTED!\n'
+                            'Manually press ctrl-alt-f on your IB java app'
+                        )
+                        # break
 
                     with trio.move_on_after(timeout) as cs:
                         for name, ev in [
@@ -842,7 +848,10 @@ async def data_reset_hack(
             client.mouse.click()
             client.keyboard.press('Ctrl', 'Alt', key)  # keys are stacked
 
-    await tractor.to_asyncio.run_task(vnc_click_hack)
+    try:
+        await tractor.to_asyncio.run_task(vnc_click_hack)
+    except OSError:
+        return False
 
     # we don't really need the ``xdotool`` approach any more B)
     return True
