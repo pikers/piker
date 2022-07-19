@@ -424,23 +424,15 @@ class Client:
         # one set per future result
         details = {}
         for details_set in results:
+
             # XXX: if there is more then one entry in the details list
             # then the contract is so called "ambiguous".
             for d in details_set:
-                con = d.contract
 
-                key = '.'.join([
-                    con.symbol,
-                    con.primaryExchange or con.exchange,
-                ])
-                expiry = con.lastTradeDateOrContractMonth
-                if expiry:
-                    key += f'.{expiry}'
-
-                # nested dataclass we probably don't need and that
-                # won't IPC serialize..
+                # nested dataclass we probably don't need and that won't
+                # IPC serialize..
                 d.secIdList = ''
-
+                key, calc_price = con2fqsn(d.contract)
                 details[key] = d
 
         return details
@@ -470,7 +462,7 @@ class Client:
         self,
         pattern: str,
         # how many contracts to search "up to"
-        upto: int = 3,
+        upto: int = 6,
         asdicts: bool = True,
 
     ) -> dict[str, ContractDetails]:
@@ -522,9 +514,13 @@ class Client:
             elif sectype == 'CASH':
                 dst, src = tract.localSymbol.split('.')
                 pair_key = "/".join([dst, src])
-                tract.exchange = 'FOREX'
-                results[f'{pair_key}.forex'] = tract
+                exch = tract.exchange.lower()
+                results[f'{pair_key}.{exch}'] = tract
                 results.pop(key)
+
+                # XXX: again seems to trigger the weird tractor
+                # bug with the debugger..
+                # assert 0
 
         return results
 
@@ -595,12 +591,11 @@ class Client:
 
         # another hack for forex pairs lul.
         if (
-            '.forex' in symbol
-            # and not '.ib' in pattern
+            '.idealpro' in symbol
             # or '/' in symbol
         ):
-            exch = 'FOREX'
-            symbol = symbol.removesuffix('.forex')
+            exch = 'IDEALPRO'
+            symbol = symbol.removesuffix('.idealpro')
             if '/' in symbol:
                 symbol, currency = symbol.split('/')
 
@@ -665,7 +660,7 @@ class Client:
                 )
 
         elif (
-            exch in ('FOREX')
+            exch in ('IDEALPRO')
             or sectype == 'CASH'
         ):
             # if '/' in symbol:
@@ -946,6 +941,58 @@ class Client:
         Retrieve position info for ``account``.
         """
         return self.ib.positions(account=account)
+
+
+def con2fqsn(
+    con: Contract,
+    _cache: dict[int, (str, bool)] = {}
+
+) -> tuple[str, bool]:
+    '''
+    Convert contracts to fqsn-style strings to be used both in symbol-search
+    matching and as feed tokens passed to the front end data deed layer.
+
+    Previously seen contracts are cached by id.
+
+    '''
+    # should be real volume for this contract by default
+    calc_price = False
+    if con.conId:
+        try:
+            return _cache[con.conId]
+        except KeyError:
+            pass
+
+    suffix = con.primaryExchange or con.exchange
+    symbol = con.symbol
+    expiry = con.lastTradeDateOrContractMonth or ''
+
+    match con:
+        case ibis.Commodity():
+            # commodities and forex don't have an exchange name and
+            # no real volume so we have to calculate the price
+            suffix = con.secType
+
+            # no real volume on this tract
+            calc_price = True
+
+        case ibis.Forex() | ibis.Contract(secType='CASH'):
+            dst, src = con.localSymbol.split('.')
+            symbol = ''.join([dst, src])
+            suffix = con.exchange
+
+            # no real volume on forex feeds..
+            calc_price = True
+
+    # append a `.<suffix>` to the returned symbol
+    # key for derivatives that normally is the expiry
+    # date key.
+    if expiry:
+        suffix += f'.{expiry}'
+
+    fqsn_key = '.'.join((symbol, suffix)).lower()
+    _cache[con.conId] = fqsn_key, calc_price
+    return fqsn_key, calc_price
 
 
 # per-actor API ep caching

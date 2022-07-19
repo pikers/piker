@@ -42,6 +42,7 @@ from piker.data._sharedmem import ShmArray
 from .._util import SymbolNotFound, NoData
 from .api import (
     # _adhoc_futes_set,
+    con2fqsn,
     log,
     load_aio_clients,
     ibis,
@@ -559,47 +560,18 @@ async def open_aio_quote_stream(
 
 
 # TODO: cython/mypyc/numba this!
+# or we can at least cache a majority of the values
+# except for the ones we expect to change?..
 def normalize(
     ticker: Ticker,
     calc_price: bool = False
 
 ) -> dict:
 
-    # should be real volume for this contract by default
-    calc_price = False
-
     # check for special contract types
     con = ticker.contract
-    symbol = con.symbol
 
-    if type(con) in (
-        ibis.Commodity,
-    ):
-        # commodities and forex don't have an exchange name and
-        # no real volume so we have to calculate the price
-        suffix = con.secType
-        # no real volume on this tract
-        calc_price = True
-
-    elif type(con) in (
-        ibis.Forex,
-    ):
-        suffix = 'forex'
-        symbol = con.pair()
-        # no real volume on forex feeds..
-        calc_price = True
-
-    else:
-        suffix = con.primaryExchange
-        if not suffix:
-            suffix = con.exchange
-
-        # append a `.<suffix>` to the returned symbol
-        # key for derivatives that normally is the expiry
-        # date key.
-        expiry = con.lastTradeDateOrContractMonth
-        if expiry:
-            suffix += f'.{expiry}'
+    fqsn, calc_price = con2fqsn(con)
 
     # convert named tuples to dicts so we send usable keys
     new_ticks = []
@@ -631,9 +603,7 @@ def normalize(
 
     # generate fqsn with possible specialized suffix
     # for derivatives, note the lowercase.
-    data['symbol'] = data['fqsn'] = '.'.join(
-        (symbol, suffix)
-    ).lower()
+    data['symbol'] = data['fqsn'] = fqsn
 
     # convert named tuples to dicts for transport
     tbts = data.get('tickByTicks')
