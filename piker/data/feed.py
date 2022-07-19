@@ -309,7 +309,7 @@ async def start_backfill(
             # when no tsdb "last datum" is provided, we just load
             # some near-term history.
             periods = {
-                1: {'days': 1},
+                1: {'seconds': 4000},
                 60: {'days': 14},
             }
 
