@@ -445,22 +445,6 @@ async def trades_dialogue(
                 # stage a first reqid of `0`
                 reqids2txids[0] = last_trade_dict['ordertxid']
 
-            # reverse the volume on the last trade record so that we can
-            # use it to update the pptable and thus reverse the last
-            # trade's effect on the position size.
-            # last_trade_dict['vol'] = str(float(last_trade_dict['vol']) * -1)
-
-            # convert the reversed trade into transaction format
-            # fake_tid = ''.join(reversed(tid))
-            # reversed_last_tran = norm_trade_records(
-            #     {fake_tid: last_trade_dict})[fake_tid]
-            # assert reversed_last_tran.size == -1 * (
-            #     list(api_trans.values())[0].size)
-
-            # update the pp table with the reversed trade thus taking
-            # the sizing back to "one trade prior" to the last one.
-            # table.update_from_trans({tid: reversed_last_tran})
-
             ppmsgs = trades2pps(
                 table,
                 acctid,
