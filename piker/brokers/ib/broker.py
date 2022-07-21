@@ -306,7 +306,6 @@ async def update_ledger_from_api_trades(
         conf['accounts'].inverse,
         trade_entries,
     )
-
     # normalize recent session's trades to the `Transaction` type
     trans_by_acct: dict[str, dict[str, Transaction]] = {}
 
@@ -519,16 +518,10 @@ async def trades_dialogue(
                     trades,
                     proxy,
                 )
-                acctid = acctid.strip('ib.')
-                ledgers[acctid].update(ready_for_ledger_entries)
 
-                # WTF, yet again this key error is getting ignored?!?!
-                # tables[acctid].update_from_trans(trans_by_acct[account])
-
-                # this causes a hang..
-                # - marketstored tries to kill container, cant,
-                # - ctrl-c makes pikerd get stuck...
-                # assert 0
+                acctid = account.strip('ib.')
+                ledger = ledgers[acctid]
+                ledger.update(ready_for_ledger_entries[acctid])
 
                 trans = trans_by_acct.get(acctid)
                 if trans:
