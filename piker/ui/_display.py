@@ -824,6 +824,9 @@ async def display_symbol_data(
                     order_mode_started
                 )
             ):
+                if not vlm_chart:
+                    chart.default_view()
+
                 # let Qt run to render all widgets and make sure the
                 # sidepanes line up vertically.
                 await trio.sleep(0)
