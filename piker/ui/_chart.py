@@ -453,13 +453,6 @@ class LinkedSplits(QWidget):
         # add crosshair graphic
         self.chart.addItem(self.cursor)
 
-        # axis placement
-        if (
-            _xaxis_at == 'bottom' and
-            'bottom' in self.chart.plotItem.axes
-        ):
-            self.chart.hideAxis('bottom')
-
         # style?
         self.chart.setFrameStyle(
             QFrame.StyledPanel |
@@ -524,20 +517,25 @@ class LinkedSplits(QWidget):
         cpw.hideAxis('left')
         cpw.hideAxis('bottom')
 
-        if self.xaxis_chart:
-            self.xaxis_chart.hideAxis('bottom')
+        if (
+            _xaxis_at == 'bottom' and (
+                self.xaxis_chart
+                or (
+                    not self.subplots
+                    and self.xaxis_chart is None
+                )
+            )
+        ):
+            if self.xaxis_chart:
+                self.xaxis_chart.hideAxis('bottom')
 
             # presuming we only want it at the true bottom of all charts.
             # XXX: uses new api from our ``pyqtgraph`` fork.
             # https://github.com/pikers/pyqtgraph/tree/plotitemoverlay_onto_pg_master
             # _ = self.xaxis_chart.removeAxis('bottom', unlink=False)
             # assert 'bottom' not in self.xaxis_chart.plotItem.axes
-
             self.xaxis_chart = cpw
             cpw.showAxis('bottom')
-
-        if self.xaxis_chart is None:
-            self.xaxis_chart = cpw
 
         qframe.chart = cpw
         qframe.hbox.addWidget(cpw)

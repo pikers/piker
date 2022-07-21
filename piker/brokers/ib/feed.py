@@ -41,7 +41,8 @@ from trio_typing import TaskStatus
 from piker.data._sharedmem import ShmArray
 from .._util import SymbolNotFound, NoData
 from .api import (
-    _adhoc_futes_set,
+    # _adhoc_futes_set,
+    con2fqsn,
     log,
     load_aio_clients,
     ibis,
@@ -207,8 +208,6 @@ async def get_bars(
 
         except RequestError as err:
             msg = err.message
-            # why do we always need to rebind this?
-            # _err = err
 
             if 'No market data permissions for' in msg:
                 # TODO: signalling for no permissions searches
@@ -239,7 +238,8 @@ async def get_bars(
 
             # elif (
             #     err.code == 162 and
-            #     'Trading TWS session is connected from a different IP address' in err.message
+            #     'Trading TWS session is connected from a different IP
+            #     address' in err.message
             # ):
             #     log.warning("ignoring ip address warning")
             #     continue
@@ -560,38 +560,18 @@ async def open_aio_quote_stream(
 
 
 # TODO: cython/mypyc/numba this!
+# or we can at least cache a majority of the values
+# except for the ones we expect to change?..
 def normalize(
     ticker: Ticker,
     calc_price: bool = False
 
 ) -> dict:
 
-    # should be real volume for this contract by default
-    calc_price = False
-
     # check for special contract types
     con = ticker.contract
-    if type(con) in (
-        ibis.Commodity,
-        ibis.Forex,
-    ):
-        # commodities and forex don't have an exchange name and
-        # no real volume so we have to calculate the price
-        suffix = con.secType
-        # no real volume on this tract
-        calc_price = True
 
-    else:
-        suffix = con.primaryExchange
-        if not suffix:
-            suffix = con.exchange
-
-        # append a `.<suffix>` to the returned symbol
-        # key for derivatives that normally is the expiry
-        # date key.
-        expiry = con.lastTradeDateOrContractMonth
-        if expiry:
-            suffix += f'.{expiry}'
+    fqsn, calc_price = con2fqsn(con)
 
     # convert named tuples to dicts so we send usable keys
     new_ticks = []
@@ -623,9 +603,7 @@ def normalize(
 
     # generate fqsn with possible specialized suffix
     # for derivatives, note the lowercase.
-    data['symbol'] = data['fqsn'] = '.'.join(
-        (con.symbol, suffix)
-    ).lower()
+    data['symbol'] = data['fqsn'] = fqsn
 
     # convert named tuples to dicts for transport
     tbts = data.get('tickByTicks')
@@ -690,6 +668,13 @@ async def stream_quotes(
             # TODO: more consistent field translation
             atype = syminfo['asset_type'] = asset_type_map[syminfo['secType']]
 
+            if atype in {
+                'forex',
+                'index',
+                'commodity',
+            }:
+                syminfo['no_vlm'] = True
+
             # for stocks it seems TWS reports too small a tick size
             # such that you can't submit orders with that granularity?
             min_tick = 0.01 if atype == 'stock' else 0
@@ -716,9 +701,9 @@ async def stream_quotes(
                 },
 
             }
-            return init_msgs
+            return init_msgs, syminfo
 
-        init_msgs = mk_init_msgs()
+        init_msgs, syminfo = mk_init_msgs()
 
         # TODO: we should instead spawn a task that waits on a feed to start
         # and let it wait indefinitely..instead of this hard coded stuff.
@@ -727,7 +712,13 @@ async def stream_quotes(
 
         # it might be outside regular trading hours so see if we can at
         # least grab history.
-        if isnan(first_ticker.last):
+        if (
+            isnan(first_ticker.last)
+            and type(first_ticker.contract) not in (
+                ibis.Commodity,
+                ibis.Forex
+            )
+        ):
             task_status.started((init_msgs, first_quote))
 
             # it's not really live but this will unblock
@@ -750,10 +741,16 @@ async def stream_quotes(
             task_status.started((init_msgs, first_quote))
 
             async with aclosing(stream):
-                if type(first_ticker.contract) not in (
-                    ibis.Commodity,
-                    ibis.Forex
-                ):
+                if syminfo.get('no_vlm', False):
+
+                    # generally speaking these feeds don't
+                    # include vlm data.
+                    atype = syminfo['asset_type']
+                    log.info(
+                        f'Non-vlm asset {sym}@{atype}, skipping quote poll...'
+                    )
+
+                else:
                     # wait for real volume on feed (trading might be closed)
                     while True:
                         ticker = await stream.receive()
@@ -812,6 +809,9 @@ async def data_reset_hack(
           successful.
         - other OS support?
         - integration with ``ib-gw`` run in docker + Xorg?
+        - is it possible to offer a local server that can be accessed by
+          a client? Would be sure be handy for running native java blobs
+          that need to be wrangle.
 
     '''
 
@@ -926,7 +926,8 @@ async def open_symbol_search(
                     # adhoc_match_results = {}
                     # if adhoc_matches:
                     #     # TODO: do we need to pull contract details?
-                    #     adhoc_match_results = {i[0]: {} for i in adhoc_matches}
+                    #     adhoc_match_results = {i[0]: {} for i in
+                    #     adhoc_matches}
 
                 log.debug(f'fuzzy matching stocks {stock_results}')
                 stock_matches = fuzzy.extractBests(
