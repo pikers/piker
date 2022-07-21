@@ -391,7 +391,8 @@ class PpTable(Struct):
             pp = pp_objs[bsuid]
 
             # XXX: debug hook for size mismatches
-            # if bsuid == 447767096:
+            # qqqbsuid = 320227571
+            # if bsuid == qqqbsuid:
             #     breakpoint()
 
             pp.minimize_clears()
@@ -649,7 +650,11 @@ def load_pps_from_toml(
     none yet exists.
 
     '''
-    with open_pps(brokername, acctid) as table:
+    with open_pps(
+        brokername,
+        acctid,
+        write_on_exit=False,
+    ) as table:
         pp_objs = table.pps
 
         # no pps entry yet for this broker/account so parse any available
@@ -687,8 +692,9 @@ def load_pps_from_toml(
 def open_pps(
     brokername: str,
     acctid: str,
+    write_on_exit: bool = True,
 
-) -> dict[str, dict[str, Position]]:
+) -> PpTable:
     '''
     Read out broker-specific position entries from
     incremental update file: ``pps.toml``.
@@ -764,6 +770,9 @@ def open_pps(
     finally:
         # breakpoint()
         # if orig != table.pps:
+
+        if not write_on_exit:
+            return
 
         # TODO: show diff output?
         # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
