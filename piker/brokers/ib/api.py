@@ -47,6 +47,7 @@ import ib_insync as ibis
 from ib_insync.contract import (
     Contract,
     ContractDetails,
+    Option,
 )
 from ib_insync.order import Order
 from ib_insync.ticker import Ticker
@@ -473,7 +474,6 @@ class Client:
             pattern,
             upto=upto,
         )
-
         for key, deats in results.copy().items():
 
             tract = deats.contract
@@ -968,6 +968,10 @@ def con2fqsn(
     expiry = con.lastTradeDateOrContractMonth or ''
 
     match con:
+        case Option():
+            # TODO: option symbol parsing and sane display:
+            symbol = con.localSymbol.replace(' ', '')
+
         case ibis.Commodity():
             # commodities and forex don't have an exchange name and
             # no real volume so we have to calculate the price
@@ -983,6 +987,17 @@ def con2fqsn(
 
             # no real volume on forex feeds..
             calc_price = True
+
+    if not suffix:
+        entry = _adhoc_symbol_map.get(
+            con.symbol or con.localSymbol
+        )
+        if entry:
+            meta, kwargs = entry
+            cid = meta.get('conId')
+            if cid:
+                assert con.conId == meta['conId']
+            suffix = meta['exchange']
 
     # append a `.<suffix>` to the returned symbol
     # key for derivatives that normally is the expiry
