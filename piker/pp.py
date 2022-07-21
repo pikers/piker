@@ -82,18 +82,18 @@ def open_trade_ledger(
         ledger = tomli.load(cf)
         print(f'Ledger load took {time.time() - start}s')
         cpy = ledger.copy()
-    try:
-        yield cpy
-    finally:
-        if cpy != ledger:
-            # TODO: show diff output?
-            # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
-            print(f'Updating ledger for {tradesfile}:\n')
-            ledger.update(cpy)
 
-            # we write on close the mutated ledger data
-            with open(tradesfile, 'w') as cf:
-                return toml.dump(ledger, cf)
+    yield cpy
+
+    if cpy != ledger:
+        # TODO: show diff output?
+        # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
+        print(f'Updating ledger for {tradesfile}:\n')
+        ledger.update(cpy)
+
+        # we write on close the mutated ledger data
+        with open(tradesfile, 'w') as cf:
+            toml.dump(ledger, cf)
 
 
 class Transaction(Struct, frozen=True):
@@ -764,36 +764,31 @@ def open_pps(
             clears=clears,
         )
 
-    # orig = pp_objs.copy()
-    try:
-        yield table
-    finally:
-        # breakpoint()
-        # if orig != table.pps:
+    yield table
 
-        if not write_on_exit:
-            return
+    if not write_on_exit:
+        return
 
-        # TODO: show diff output?
-        # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
-        print(f'Updating ``pps.toml`` for {path}:\n')
+    # TODO: show diff output?
+    # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
+    print(f'Updating ``pps.toml`` for {path}:\n')
 
-        pp_entries, closed_pp_objs = table.dump_active(brokername)
-        conf[brokername][acctid] = pp_entries
+    pp_entries, closed_pp_objs = table.dump_active(brokername)
+    conf[brokername][acctid] = pp_entries
 
-        # TODO: why tf haven't they already done this for inline
-        # tables smh..
-        enc = PpsEncoder(preserve=True)
-        # table_bs_type = type(toml.TomlDecoder().get_empty_inline_table())
-        enc.dump_funcs[
-            toml.decoder.InlineTableDict
-        ] = enc.dump_inline_table
+    # TODO: why tf haven't they already done this for inline
+    # tables smh..
+    enc = PpsEncoder(preserve=True)
+    # table_bs_type = type(toml.TomlDecoder().get_empty_inline_table())
+    enc.dump_funcs[
+        toml.decoder.InlineTableDict
+    ] = enc.dump_inline_table
 
-        config.write(
-            conf,
-            'pps',
-            encoder=enc,
-        )
+    config.write(
+        conf,
+        'pps',
+        encoder=enc,
+    )
 
 
 def update_pps_conf(
