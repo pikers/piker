@@ -576,7 +576,6 @@ def normalize(
 
     # check for special contract types
     con = ticker.contract
-
     fqsn, calc_price = con2fqsn(con)
 
     # convert named tuples to dicts so we send usable keys
@@ -866,14 +865,23 @@ async def open_symbol_search(
     # TODO: load user defined symbol set locally for fast search?
     await ctx.started({})
 
-    async with open_data_client() as proxy:
+    # async with open_data_client() as proxy:
+    async with (
+        open_client_proxies() as (proxies, clients),
+    ):
         async with ctx.open_stream() as stream:
+
+            # await tractor.breakpoint()
+            proxy = proxies['ib.algopaper']
 
             last = time.time()
 
             async for pattern in stream:
-                log.debug(f'received {pattern}')
+                log.info(f'received {pattern}')
                 now = time.time()
+
+                # this causes tractor hang...
+                # assert 0
 
                 assert pattern, 'IB can not accept blank search pattern'
 
@@ -902,7 +910,7 @@ async def open_symbol_search(
 
                     continue
 
-                log.debug(f'searching for {pattern}')
+                log.info(f'searching for {pattern}')
 
                 last = time.time()
 
@@ -913,17 +921,25 @@ async def open_symbol_search(
                 async def stash_results(target: Awaitable[list]):
                     stock_results.extend(await target)
 
-                async with trio.open_nursery() as sn:
-                    sn.start_soon(
-                        stash_results,
-                        proxy.search_symbols(
-                            pattern=pattern,
-                            upto=5,
-                        ),
-                    )
+                for i in range(10):
+                    with trio.move_on_after(3) as cs:
+                        async with trio.open_nursery() as sn:
+                            sn.start_soon(
+                                stash_results,
+                                proxy.search_symbols(
+                                    pattern=pattern,
+                                    upto=5,
+                                ),
+                            )
 
-                    # trigger async request
-                    await trio.sleep(0)
+                            # trigger async request
+                            await trio.sleep(0)
+
+                    if cs.cancelled_caught:
+                        log.warning(f'Search timeout? {proxy._aio_ns.ib.client}')
+                        continue
+                    else:
+                        break
 
                     # # match against our ad-hoc set immediately
                     # adhoc_matches = fuzzy.extractBests(
