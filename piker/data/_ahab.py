@@ -204,9 +204,12 @@ class Container:
     async def cancel(
         self,
         stop_msg: str,
+        hard_kill: bool = False,
+
     ) -> None:
 
         cid = self.cntr.id
+
         # first try a graceful cancel
         log.cancel(
             f'SIGINT cancelling container: {cid}\n'
@@ -219,7 +222,12 @@ class Container:
 
             with trio.move_on_after(0.5) as cs:
                 cs.shield = True
-                await self.process_logs_until(stop_msg)
+                log.cancel('polling for CNTR logs...')
+
+                try:
+                    await self.process_logs_until(stop_msg)
+                except ApplicationLogError:
+                    hard_kill = True
 
                 # if we aren't cancelled on above checkpoint then we
                 # assume we read the expected stop msg and terminated.
@@ -234,6 +242,7 @@ class Container:
                         condition='not-running',
                     )
 
+                # graceful exit if we didn't time out
                 break
 
             except (
@@ -249,9 +258,12 @@ class Container:
                 log.exception('Docker connection failure')
                 self.hard_kill(start)
         else:
-            self.hard_kill(start)
+            hard_kill = True
 
-        log.cancel(f'Container stopped: {cid}')
+        if hard_kill:
+            self.hard_kill(start)
+        else:
+            log.cancel(f'Container stopped: {cid}')
 
 
 @tractor.context
@@ -300,6 +312,7 @@ async def open_ahabd(
             await trio.sleep_forever()
 
         finally:
+            # needed?
             with trio.CancelScope(shield=True):
                 await cntr.cancel(stop_msg)
 
