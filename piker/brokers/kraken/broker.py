@@ -410,15 +410,38 @@ async def trades_dialogue(
 
                     if (
                         not pair or not pp
-                        or not math.isclose(pp.size, size)
+                        or not math.isclose(pp.calc_size(), size)
                     ):
                         return False
 
                     return pp
 
                 pos = has_pp(dst)
-
                 if not pos:
+                    # get transfers to make sense of abs balances.
+                    likely_pair = {
+                        bsuid[:3]: bsuid
+                        for bsuid in table.pps
+                    }.get(dst)
+
+                    if likely_pair:
+                        # this was likely pp that had a withdrawal
+                        # from the dst asset out of the account.
+
+                        xfer_trans = await client.get_xfers(
+                            dst,
+                            src_asset=likely_pair[3:],
+                        )
+                        if xfer_trans:
+                            updated = table.update_from_trans(
+                                xfer_trans,
+                                cost_scalar=1,
+                            )
+                            log.info(
+                                'Updated {dst} from transfers:\n'
+                                f'{pformat(updated)}'
+                            )
+
                     # we have a balance for which there is no pp
                     # entry? so we have to likely update from the
                     # ledger.
