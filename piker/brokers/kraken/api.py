@@ -48,6 +48,7 @@ from piker.brokers._util import (
     BrokerError,
     DataThrottle,
 )
+from piker.pp import Transaction
 from . import log
 
 # <uri>/<version>/
@@ -289,6 +290,61 @@ class Client:
         # santity check on update
         assert count == len(trades_by_id.values())
         return trades_by_id
+
+    async def get_xfers(
+        self,
+        asset: str,
+        src_asset: str = '',
+
+    ) -> dict[str, Transaction]:
+        '''
+        Get asset balance transfer transactions.
+
+        Currently only withdrawals are supported.
+
+        '''
+        xfers: list[dict] = (await self.endpoint(
+            'WithdrawStatus',
+            {'asset': asset},
+        ))['result']
+
+        # eg. resp schema:
+        # 'result': [{'method': 'Bitcoin', 'aclass': 'currency', 'asset':
+        #     'XXBT', 'refid': 'AGBJRMB-JHD2M4-NDI3NR', 'txid':
+        #     'b95d66d3bb6fd76cbccb93f7639f99a505cb20752c62ea0acc093a0e46547c44',
+        #     'info': 'bc1qc8enqjekwppmw3g80p56z5ns7ze3wraqk5rl9z',
+        #     'amount': '0.00300726', 'fee': '0.00001000', 'time':
+        #     1658347714, 'status': 'Success'}]}
+
+        trans: dict[str, Transaction] = {}
+        for entry in xfers:
+            # look up the normalized name
+            asset = self._atable[entry['asset']].lower()
+
+            # XXX: this is in the asset units (likely) so it isn't
+            # quite the same as a commisions cost necessarily..)
+            cost = float(entry['fee'])
+
+            tran = Transaction(
+                fqsn=asset + '.kraken',
+                tid=entry['txid'],
+                dt=pendulum.from_timestamp(entry['time']),
+                bsuid=f'{asset}{src_asset}',
+                size=-1*(
+                    float(entry['amount'])
+                    +
+                    cost
+                ),
+                # since this will be treated as a "sell" it
+                # shouldn't be needed to compute the be price.
+                price='NaN',
+
+                # XXX: see note above
+                cost=0,
+            )
+            trans[tran.tid] = tran
+
+        return trans
 
     async def submit_limit(
         self,
