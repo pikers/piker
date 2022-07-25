@@ -164,11 +164,12 @@ class Position(Struct):
         be_price = d.pop('be_price')
         d['size'], d['be_price'] = self.audit_sizing(size, be_price)
 
-        if expiry:
+        if self.expiry is None:
+            d.pop('expiry', None)
+        elif expiry:
             d['expiry'] = str(expiry)
 
-        clears_list = []
-
+        toml_clears_list = []
         for tid, data in clears.items():
             inline_table = toml.TomlDecoder().get_empty_inline_table()
             inline_table['tid'] = tid
@@ -176,9 +177,9 @@ class Position(Struct):
             for k, v in data.items():
                 inline_table[k] = v
 
-            clears_list.append(inline_table)
+            toml_clears_list.append(inline_table)
 
-        d['clears'] = clears_list
+        d['clears'] = toml_clears_list
 
         return d
 
@@ -413,6 +414,11 @@ class PpTable(Struct):
             pp.add_clear(r)
             updated[r.bsuid] = pp
 
+        # minimize clears tables and update sizing.
+        for bsuid, pp in updated.items():
+            pp.minimize_clears()
+            pp.size, pp.be_price = pp.audit_sizing()
+
         return updated
 
     def dump_active(
@@ -434,7 +440,7 @@ class PpTable(Struct):
         # NOTE: newly closed position are also important to report/return
         # since a consumer, like an order mode UI ;), might want to react
         # based on the closure.
-        pp_entries = {}
+        pp_active_entries = {}
         closed_pp_objs: dict[str, Position] = {}
 
         pp_objs = self.pps
@@ -446,9 +452,8 @@ class PpTable(Struct):
             # if bsuid == qqqbsuid:
             #     breakpoint()
 
-            size, be_price = pp.audit_sizing()
-
             pp.minimize_clears()
+            size, be_price = pp.audit_sizing()
 
             if (
                 # "net-zero" is a "closed" position
@@ -464,7 +469,7 @@ class PpTable(Struct):
                 # used to check for duplicate clears that may come in as
                 # new transaction from some backend API and need to be
                 # ignored; the closed positions won't be written to the
-                # ``pps.toml`` since ``pp_entries`` above is what's
+                # ``pps.toml`` since ``pp_active_entries`` above is what's
                 # written.
                 # closed_pp = pp_objs.pop(bsuid, None)
                 closed_pp = pp_objs.get(bsuid)
@@ -474,9 +479,6 @@ class PpTable(Struct):
             else:
                 # serialize to pre-toml form
                 asdict = pp.to_pretoml()
-
-                if pp.expiry is None:
-                    asdict.pop('expiry', None)
 
                 # TODO: we need to figure out how to have one top level
                 # listing venue here even when the backend isn't providing
@@ -490,9 +492,9 @@ class PpTable(Struct):
                 # the broker name.. maybe we need to rethink this?
                 brokerless_key = fqsn.removeprefix(f'{brokername}.')
 
-                pp_entries[brokerless_key] = asdict
+                pp_active_entries[brokerless_key] = asdict
 
-        return pp_entries, closed_pp_objs
+        return pp_active_entries, closed_pp_objs
 
 
 def update_pps(
