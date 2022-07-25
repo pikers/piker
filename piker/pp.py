@@ -83,17 +83,18 @@ def open_trade_ledger(
         print(f'Ledger load took {time.time() - start}s')
         cpy = ledger.copy()
 
-    yield cpy
+    try:
+        yield cpy
+    finally:
+        if cpy != ledger:
+            # TODO: show diff output?
+            # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
+            print(f'Updating ledger for {tradesfile}:\n')
+            ledger.update(cpy)
 
-    if cpy != ledger:
-        # TODO: show diff output?
-        # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
-        print(f'Updating ledger for {tradesfile}:\n')
-        ledger.update(cpy)
-
-        # we write on close the mutated ledger data
-        with open(tradesfile, 'w') as cf:
-            toml.dump(ledger, cf)
+            # we write on close the mutated ledger data
+            with open(tradesfile, 'w') as cf:
+                toml.dump(ledger, cf)
 
 
 class Transaction(Struct, frozen=True):
@@ -276,6 +277,62 @@ class Position(Struct):
 
         return new_size, self.be_price
 
+    def calc_be_price(self) -> float:
+
+        size: float = 0
+        cb_tot_size: float = 0
+        cost_basis: float = 0
+        be_price: float = 0
+
+        for tid, entry in self.clears.items():
+            clear_size = entry['size']
+            clear_price = entry['price']
+            new_size = size + clear_size
+
+            # old size minus the new size gives us size diff with
+            # +ve -> increase in pp size
+            # -ve -> decrease in pp size
+            size_diff = abs(new_size) - abs(size)
+
+            if new_size == 0:
+                cost_basis = 0
+                cb_tot_size = 0
+                be_price = 0
+
+            elif size_diff > 0:
+                # only an increaze in size of the position contributes
+                # the breakeven price, a decrease does not.
+
+                cost_basis += (
+                    # weighted price per unit of
+                    clear_price * abs(clear_size)
+                    +
+                    # transaction cost
+                    (copysign(1, new_size) * entry['cost'] * 2)
+                )
+                cb_tot_size += abs(clear_size)
+                be_price = cost_basis / cb_tot_size
+
+            size = new_size
+
+            # print(
+            #     f'cb: {cost_basis}\n'
+            #     f'size: {size}\n'
+            #     f'clear_size: {clear_size}\n'
+            #     f'clear_price: {clear_price}\n\n'
+
+            #     f'cb_tot_size: {cb_tot_size}\n'
+            #     f'be_price: {be_price}\n\n'
+            # )
+
+        return be_price
+
+    def calc_size(self) -> float:
+        size: float = 0
+        for tid, entry in self.clears.items():
+            size += entry['size']
+        return size
+
     def minimize_clears(
         self,
 
@@ -310,6 +367,8 @@ class PpTable(Struct):
     def update_from_trans(
         self,
         trans: dict[str, Transaction],
+        cost_scalar: float = 2,
+
     ) -> dict[str, Position]:
 
         pps = self.pps
@@ -354,7 +413,7 @@ class PpTable(Struct):
                 # and presume the worst case of the same cost
                 # to exit this transaction (even though in reality
                 # it will be dynamic based on exit stratetgy).
-                cost=2*r.cost,
+                cost=cost_scalar*r.cost,
             )
 
             # track clearing data
@@ -764,31 +823,30 @@ def open_pps(
             clears=clears,
         )
 
-    yield table
+    try:
+        yield table
+    finally:
+        if write_on_exit:
+            # TODO: show diff output?
+            # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
+            print(f'Updating ``pps.toml`` for {path}:\n')
 
-    if not write_on_exit:
-        return
+            pp_entries, closed_pp_objs = table.dump_active(brokername)
+            conf[brokername][acctid] = pp_entries
 
-    # TODO: show diff output?
-    # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
-    print(f'Updating ``pps.toml`` for {path}:\n')
+            # TODO: why tf haven't they already done this for inline
+            # tables smh..
+            enc = PpsEncoder(preserve=True)
+            # table_bs_type = type(toml.TomlDecoder().get_empty_inline_table())
+            enc.dump_funcs[
+                toml.decoder.InlineTableDict
+            ] = enc.dump_inline_table
 
-    pp_entries, closed_pp_objs = table.dump_active(brokername)
-    conf[brokername][acctid] = pp_entries
-
-    # TODO: why tf haven't they already done this for inline
-    # tables smh..
-    enc = PpsEncoder(preserve=True)
-    # table_bs_type = type(toml.TomlDecoder().get_empty_inline_table())
-    enc.dump_funcs[
-        toml.decoder.InlineTableDict
-    ] = enc.dump_inline_table
-
-    config.write(
-        conf,
-        'pps',
-        encoder=enc,
-    )
+            config.write(
+                conf,
+                'pps',
+                encoder=enc,
+            )
 
 
 def update_pps_conf(
