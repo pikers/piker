@@ -410,7 +410,7 @@ async def trades_dialogue(
 
                     if (
                         not pair or not pp
-                        or not math.isclose(pp.calc_size(), size)
+                        or not math.isclose(pp.size, size)
                     ):
                         return False
 
