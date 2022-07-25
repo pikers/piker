@@ -160,6 +160,10 @@ class Position(Struct):
         clears = d.pop('clears')
         expiry = d.pop('expiry')
 
+        size = d.pop('size')
+        be_price = d.pop('be_price')
+        d['size'], d['be_price'] = self.audit_sizing(size, be_price)
+
         if expiry:
             d['expiry'] = str(expiry)
 
@@ -177,6 +181,36 @@ class Position(Struct):
         d['clears'] = clears_list
 
         return d
+
+    def audit_sizing(
+        self,
+        size: Optional[float] = None,
+        be_price: Optional[float] = None,
+
+    ) -> tuple[float, float]:
+        '''
+        Audit either the `.size` and `.be_price` values or equvialent
+        passed in values against the clears table calculations and
+        return the calc-ed values if they differ and log warnings to
+        console.
+
+        '''
+        size = size or self.size
+        be_price = be_price or self.be_price
+        csize = self.calc_size()
+        cbe_price = self.calc_be_price()
+
+        if size != csize:
+            log.warning(f'size != calculated size: {size} != {csize}')
+            size = csize
+
+        if be_price != cbe_price:
+            log.warning(
+                f'be_price != calculated be_price: {be_price} != {cbe_price}'
+            )
+            be_price = cbe_price
+
+        return size, be_price
 
     def update_from_msg(
         self,
@@ -211,7 +245,7 @@ class Position(Struct):
         '''
         return self.be_price * self.size
 
-    def update(
+    def add_clear(
         self,
         t: Transaction,
 
@@ -223,61 +257,26 @@ class Position(Struct):
             'dt': str(t.dt),
         }
 
-    def lifo_update(
+    # TODO: idea: "real LIFO" dynamic positioning.
+    # - when a trade takes place where the pnl for
+    # the (set of) trade(s) is below the breakeven price
+    # it may be that the trader took a +ve pnl on a short(er)
+    # term trade in the same account.
+    # - in this case we could recalc the be price to
+    # be reverted back to it's prior value before the nearest term
+    # trade was opened.?
+    # def lifo_price() -> float:
+    #     ...
+
+    def calc_be_price(
         self,
-        size: float,
-        price: float,
-        cost: float = 0,
+        # include transaction cost in breakeven price
+        # and presume the worst case of the same cost
+        # to exit this transaction (even though in reality
+        # it will be dynamic based on exit stratetgy).
+        cost_scalar: float = 2,
 
-        # TODO: idea: "real LIFO" dynamic positioning.
-        # - when a trade takes place where the pnl for
-        # the (set of) trade(s) is below the breakeven price
-        # it may be that the trader took a +ve pnl on a short(er)
-        # term trade in the same account.
-        # - in this case we could recalc the be price to
-        # be reverted back to it's prior value before the nearest term
-        # trade was opened.?
-        # dynamic_breakeven_price: bool = False,
-
-    ) -> (float, float):
-        '''
-        Incremental update using a LIFO-style weighted mean.
-
-        '''
-        # "avg position price" calcs
-        # TODO: eventually it'd be nice to have a small set of routines
-        # to do this stuff from a sequence of cleared orders to enable
-        # so called "contextual positions".
-        new_size = self.size + size
-
-        # old size minus the new size gives us size diff with
-        # +ve -> increase in pp size
-        # -ve -> decrease in pp size
-        size_diff = abs(new_size) - abs(self.size)
-
-        if new_size == 0:
-            self.be_price = 0
-
-        elif size_diff > 0:
-            # XXX: LOFI incremental update:
-            # only update the "average price" when
-            # the size increases not when it decreases (i.e. the
-            # position is being made smaller)
-            self.be_price = (
-                # weight of current exec = (size * price) + cost
-                (abs(size) * price)
-                +
-                (copysign(1, new_size) * cost)  # transaction cost
-                +
-                # weight of existing be price
-                self.be_price * abs(self.size)  # weight of previous pp
-            ) / abs(new_size)  # normalized by the new size: weighted mean.
-
-        self.size = new_size
-
-        return new_size, self.be_price
-
-    def calc_be_price(self) -> float:
+    ) -> float:
 
         size: float = 0
         cb_tot_size: float = 0
@@ -299,16 +298,22 @@ class Position(Struct):
                 cb_tot_size = 0
                 be_price = 0
 
+            # XXX: LIFO breakeven price update. only an increaze in size
+            # of the position contributes the breakeven price,
+            # a decrease does not (i.e. the position is being made
+            # smaller).
             elif size_diff > 0:
-                # only an increaze in size of the position contributes
-                # the breakeven price, a decrease does not.
 
                 cost_basis += (
                     # weighted price per unit of
                     clear_price * abs(clear_size)
                     +
                     # transaction cost
-                    (copysign(1, new_size) * entry['cost'] * 2)
+                    (copysign(1, new_size)
+                     *
+                     cost_scalar
+                     *
+                     entry['cost'])
                 )
                 cb_tot_size += abs(clear_size)
                 be_price = cost_basis / cb_tot_size
@@ -404,21 +409,8 @@ class PpTable(Struct):
                 # "double count" these in pp calculations.
                 continue
 
-            # lifo style "breakeven" price calc
-            pp.lifo_update(
-                r.size,
-                r.price,
-
-                # include transaction cost in breakeven price
-                # and presume the worst case of the same cost
-                # to exit this transaction (even though in reality
-                # it will be dynamic based on exit stratetgy).
-                cost=cost_scalar*r.cost,
-            )
-
             # track clearing data
-            pp.update(r)
-
+            pp.add_clear(r)
             updated[r.bsuid] = pp
 
         return updated
@@ -454,11 +446,13 @@ class PpTable(Struct):
             # if bsuid == qqqbsuid:
             #     breakpoint()
 
+            size, be_price = pp.audit_sizing()
+
             pp.minimize_clears()
 
             if (
                 # "net-zero" is a "closed" position
-                pp.size == 0
+                size == 0
 
                 # time-expired pps (normally derivatives) are "closed"
                 or (pp.expiry and pp.expiry < now())
@@ -789,29 +783,16 @@ def open_pps(
             clears[tid] = clears_table
 
         size = entry['size']
-
-        # TODO: an audit system for existing pps entries?
-        # if not len(clears) == abs(size):
-        #     pp_objs = load_pps_from_ledger(
-        #         brokername,
-        #         acctid,
-        #         filter_by=reload_records,
-        #     )
-        #     reason = 'size <-> len(clears) mismatch'
-        #     raise ValueError(
-        #         '`pps.toml` entry is invalid:\n'
-        #         f'{fqsn}\n'
-        #         f'{pformat(entry)}'
-        #     )
+        be_price = entry['be_price']
 
         expiry = entry.get('expiry')
         if expiry:
             expiry = pendulum.parse(expiry)
 
-        pp_objs[bsuid] = Position(
+        pp = pp_objs[bsuid] = Position(
             Symbol.from_fqsn(fqsn, info={}),
             size=size,
-            be_price=entry['be_price'],
+            be_price=be_price,
             expiry=expiry,
             bsuid=entry['bsuid'],
 
@@ -822,6 +803,9 @@ def open_pps(
             # processed!
             clears=clears,
         )
+
+        # audit entries loaded from toml
+        pp.size, pp.be_price = pp.audit_sizing()
 
     try:
         yield table
