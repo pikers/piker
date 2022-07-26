@@ -286,7 +286,7 @@ def trades2pps(
         )
         log.info(f'Updated pps:\n{pformat(updated)}')
 
-    pp_entries, closed_pp_objs = table.dump_active('kraken')
+    pp_entries, closed_pp_objs = table.dump_active()
     pp_objs: dict[Union[str, int], Position] = table.pps
 
     pps: dict[int, Position]
@@ -418,29 +418,6 @@ async def trades_dialogue(
 
                 pos = has_pp(dst)
                 if not pos:
-                    # get transfers to make sense of abs balances.
-                    likely_pair = {
-                        bsuid[:3]: bsuid
-                        for bsuid in table.pps
-                    }.get(dst)
-
-                    if likely_pair:
-                        # this was likely pp that had a withdrawal
-                        # from the dst asset out of the account.
-
-                        xfer_trans = await client.get_xfers(
-                            dst,
-                            src_asset=likely_pair[3:],
-                        )
-                        if xfer_trans:
-                            updated = table.update_from_trans(
-                                xfer_trans,
-                                cost_scalar=1,
-                            )
-                            log.info(
-                                'Updated {dst} from transfers:\n'
-                                f'{pformat(updated)}'
-                            )
 
                     # we have a balance for which there is no pp
                     # entry? so we have to likely update from the
@@ -454,6 +431,43 @@ async def trades_dialogue(
                         table.update_from_trans(api_trans)
                         pos = has_pp(dst)
                         if not pos:
+
+                            # get transfers to make sense of abs balances.
+                            # NOTE: we do this after ledger and API
+                            # loading since we might not have an entry
+                            # in the ``pps.toml`` for the necessary pair
+                            # yet and thus this likely pair grabber will
+                            # likely fail.
+                            likely_pair = {
+                                bsuid[:3]: bsuid
+                                for bsuid in table.pps
+                            }.get(dst)
+                            if not likely_pair:
+                                raise ValueError(
+                                    'Could not find a position pair in '
+                                    'ledger for likely widthdrawal '
+                                    f'candidate: {dst}'
+                                )
+
+                            if likely_pair:
+                                # this was likely pp that had a withdrawal
+                                # from the dst asset out of the account.
+
+                                xfer_trans = await client.get_xfers(
+                                    dst,
+                                    src_asset=likely_pair[3:],
+                                )
+                                if xfer_trans:
+                                    updated = table.update_from_trans(
+                                        xfer_trans,
+                                        cost_scalar=1,
+                                    )
+                                    log.info(
+                                        'Updated {dst} from transfers:\n'
+                                        f'{pformat(updated)}'
+                                    )
+
+                        if not has_pp(dst):
                             raise ValueError(
                                 'Could not reproduce balance:\n'
                                 f'dst: {dst}, {size}\n'
