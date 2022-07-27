@@ -397,7 +397,8 @@ async def update_and_audit_msgs(
                 raise ValueError(
                     f'UNEXPECTED POSITION ib <-> piker ledger:\n'
                     f'piker: {msg}\n'
-                    'YOU SHOULD FIGURE OUT WHY TF YOUR LEDGER IS OFF!?!?'
+                    'YOU SHOULD FIGURE OUT WHY TF YOUR LEDGER IS OFF!?\n'
+                    'MAYBE THEY LIQUIDATED YOU BRO!??!'
                 )
             msgs.append(msg)
 
