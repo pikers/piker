@@ -421,6 +421,33 @@ class Position(Struct):
         self.clears = dict(clears_since_zero)
         return self.clears
 
+    def add_clear(
+        self,
+        t: Transaction,
+    ) -> dict:
+        '''
+        Update clearing table and populate rolling ppu and accumulative
+        size in both the clears entry and local attrs state.
+
+        '''
+        clear = self.clears[t.tid] = {
+            'cost': t.cost,
+            'price': t.price,
+            'size': t.size,
+            'dt': str(t.dt),
+        }
+
+        # TODO: compute these incrementally instead
+        # of re-looping through each time resulting in O(n**2)
+        # behaviour..
+        # compute these **after** adding the entry
+        # in order to make the recurrence relation math work
+        # inside ``.calc_size()``.
+        self.size = clear['accum_size'] = self.calc_size()
+        self.be_price = clear['ppu'] = self.calc_ppu()
+
+        return clear
+
 
 class PpTable(Struct):
 
@@ -468,23 +495,8 @@ class PpTable(Struct):
                 # "double count" these in pp calculations.
                 continue
 
-            # update clearing table and populate rolling
-            # ppu and accumulative size.
-            clear = pp.clears[t.tid] = {
-                'cost': t.cost,
-                'price': t.price,
-                'size': t.size,
-                'dt': str(t.dt),
-            }
-
-            # TODO: compute these incrementally instead
-            # of re-looping through each time resulting in O(n**2)
-            # behaviour..
-            # compute these **after** adding the entry
-            # in order to make the recurrence relation math work
-            # inside ``.calc_size()``.
-            clear['accum_size'] = pp.calc_size()
-            clear['ppu'] = pp.calc_ppu()
+            # update clearing table
+            pp.add_clear(t)
             updated[t.bsuid] = pp
 
         # minimize clears tables and update sizing.
