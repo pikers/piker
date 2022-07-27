@@ -595,6 +595,9 @@ async def trades_dialogue(
                         tables,
                     )
 
+                # TODO: make this thread-async!
+                table.write_config()
+
                 # block until cancelled
                 await trio.sleep_forever()
 
