@@ -106,8 +106,8 @@ async def update_pnl_from_feed(
                             # compute and display pnl status
                             order_mode.pane.pnl_label.format(
                                 pnl=copysign(1, size) * pnl(
-                                    # live.be_price,
-                                    order_mode.current_pp.live_pp.be_price,
+                                    # live.ppu,
+                                    order_mode.current_pp.live_pp.ppu,
                                     tick['price'],
                                 ),
                             )
@@ -357,7 +357,7 @@ class SettingsPane:
             # last historical close price
             last = feed.shm.array[-1][['close']][0]
             pnl_value = copysign(1, size) * pnl(
-                tracker.live_pp.be_price,
+                tracker.live_pp.ppu,
                 last,
             )
 
@@ -557,7 +557,7 @@ class PositionTracker:
         pp = position or self.live_pp
 
         self.update_line(
-            pp.be_price,
+            pp.ppu,
             pp.size,
             self.chart.linked.symbol.lot_size_digits,
         )
@@ -571,7 +571,7 @@ class PositionTracker:
             self.hide()
 
         else:
-            self._level_marker.level = pp.be_price
+            self._level_marker.level = pp.ppu
 
             # these updates are critical to avoid lag on view/scene changes
             self._level_marker.update()  # trigger paint

@@ -383,7 +383,7 @@ async def update_and_audit_msgs(
                 symbol=ibppmsg.symbol,
                 currency=ibppmsg.currency,
                 size=p.size,
-                avg_price=p.be_price,
+                avg_price=p.ppu,
             )
             msgs.append(msg)
 
@@ -430,7 +430,7 @@ async def update_and_audit_msgs(
                 symbol=p.symbol.front_fqsn(),
                 # currency=ibppmsg.currency,
                 size=p.size,
-                avg_price=p.be_price,
+                avg_price=p.ppu,
             )
             if validate and p.size:
                 raise ValueError(
