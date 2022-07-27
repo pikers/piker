@@ -176,13 +176,27 @@ class Position(Struct):
             d['expiry'] = str(expiry)
 
         toml_clears_list = []
-        for tid, data in clears.items():
+        for tid, data in sorted(
+            list(clears.items()),
+
+            # sort by datetime
+            key=lambda item: item[1]['dt'],
+        ):
             inline_table = toml.TomlDecoder().get_empty_inline_table()
+
+            inline_table['dt'] = data['dt']
+
+            # insert optional clear fields in column order
+            for k in ['ppu', 'accum_size']:
+                val = data.get(k)
+                if val:
+                    inline_table[k] = val
+
+            # insert required fields
+            for k in ['price', 'size', 'cost']:
+                inline_table[k] = data[k]
+
             inline_table['tid'] = tid
-
-            for k, v in data.items():
-                inline_table[k] = v
-
             toml_clears_list.append(inline_table)
 
         d['clears'] = toml_clears_list
@@ -411,6 +425,7 @@ class Position(Struct):
 class PpTable(Struct):
 
     brokername: str
+    acctid: str
     pps: dict[str, Position]
     conf: Optional[dict] = {}
 
@@ -507,11 +522,11 @@ class PpTable(Struct):
             # if bsuid == qqqbsuid:
             #     breakpoint()
 
-            size, be_price = pp.audit_sizing()
+            pp.size, pp.be_price = pp.audit_sizing()
 
             if (
                 # "net-zero" is a "closed" position
-                size == 0
+                pp.size == 0
 
                 # time-expired pps (normally derivatives) are "closed"
                 or (pp.expiry and pp.expiry < now())
@@ -558,6 +573,33 @@ class PpTable(Struct):
             to_toml_dict[brokerless_key] = asdict
 
         return to_toml_dict
+
+    def write_config(self) -> None:
+        '''
+        Write the current position table to the user's ``pps.toml``.
+
+        '''
+        # TODO: show diff output?
+        # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
+        print(f'Updating ``pps.toml`` for {path}:\n')
+
+        # active, closed_pp_objs = table.dump_active()
+        pp_entries = self.to_toml()
+        self.conf[self.brokername][self.acctid] = pp_entries
+
+        # TODO: why tf haven't they already done this for inline
+        # tables smh..
+        enc = PpsEncoder(preserve=True)
+        # table_bs_type = type(toml.TomlDecoder().get_empty_inline_table())
+        enc.dump_funcs[
+            toml.decoder.InlineTableDict
+        ] = enc.dump_inline_table
+
+        config.write(
+            self.conf,
+            'pps',
+            encoder=enc,
+        )
 
 
 def load_pps_from_ledger(
@@ -764,6 +806,7 @@ def open_pps(
     pp_objs = {}
     table = PpTable(
         brokername,
+        acctid,
         pp_objs,
         conf=conf,
     )
@@ -819,27 +862,7 @@ def open_pps(
         yield table
     finally:
         if write_on_exit:
-            # TODO: show diff output?
-            # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
-            print(f'Updating ``pps.toml`` for {path}:\n')
-
-            # active, closed_pp_objs = table.dump_active()
-            pp_entries = table.to_toml()
-            conf[brokername][acctid] = pp_entries
-
-            # TODO: why tf haven't they already done this for inline
-            # tables smh..
-            enc = PpsEncoder(preserve=True)
-            # table_bs_type = type(toml.TomlDecoder().get_empty_inline_table())
-            enc.dump_funcs[
-                toml.decoder.InlineTableDict
-            ] = enc.dump_inline_table
-
-            config.write(
-                conf,
-                'pps',
-                encoder=enc,
-            )
+            table.write_config()
 
 
 if __name__ == '__main__':
