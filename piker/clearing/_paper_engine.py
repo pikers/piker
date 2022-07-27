@@ -268,7 +268,7 @@ class PaperBoi:
             tid=oid,
             size=size,
             price=price,
-            cost=1.,  # todo cost model
+            cost=0,  # TODO: cost model
             dt=pendulum.from_timestamp(fill_time_s),
             bsuid=symbol,
         )
@@ -466,7 +466,6 @@ async def trades_dialogue(
     tractor.log.get_console_log(loglevel)
 
     async with (
-
         data.open_feed(
             [fqsn],
             loglevel=loglevel,
@@ -482,7 +481,6 @@ async def trades_dialogue(
             ctx.open_stream() as ems_stream,
             trio.open_nursery() as n,
         ):
-
             client = PaperBoi(
                 broker,
                 ems_stream,
@@ -498,7 +496,11 @@ async def trades_dialogue(
                 _trade_ledger={},
             )
 
-            n.start_soon(handle_order_requests, client, ems_stream)
+            n.start_soon(
+                handle_order_requests,
+                client,
+                ems_stream,
+            )
 
             # paper engine simulator clearing task
             await simulate_fills(feed.stream, client)
@@ -526,16 +528,17 @@ async def open_paperboi(
         # (we likely don't need more then one proc for basic
         # simulated order clearing)
         if portal is None:
+            log.info('Starting new paper-engine actor')
             portal = await tn.start_actor(
                 service_name,
                 enable_modules=[__name__]
             )
 
         async with portal.open_context(
-                trades_dialogue,
-                broker=broker,
-                fqsn=fqsn,
-                loglevel=loglevel,
+            trades_dialogue,
+            broker=broker,
+            fqsn=fqsn,
+            loglevel=loglevel,
 
         ) as (ctx, first):
             yield ctx, first
