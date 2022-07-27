@@ -126,7 +126,7 @@ class Allocator(Struct):
             l_sub_pp = self.units_limit - abs_live_size
 
         elif size_unit == 'currency':
-            live_cost_basis = abs_live_size * live_pp.be_price
+            live_cost_basis = abs_live_size * live_pp.ppu
             slot_size = currency_per_slot / price
             l_sub_pp = (self.currency_limit - live_cost_basis) / price
 
@@ -158,7 +158,7 @@ class Allocator(Struct):
             if size_unit == 'currency':
                 # compute the "projected" limit's worth of units at the
                 # current pp (weighted) price:
-                slot_size = currency_per_slot / live_pp.be_price
+                slot_size = currency_per_slot / live_pp.ppu
 
             else:
                 slot_size = u_per_slot
@@ -200,7 +200,7 @@ class Allocator(Struct):
                 Position(
                     symbol=sym,
                     size=order_size,
-                    be_price=price,
+                    ppu=price,
                     bsuid=sym,
                 )
             )
@@ -229,8 +229,8 @@ class Allocator(Struct):
         abs_pp_size = abs(pp.size)
 
         if self.size_unit == 'currency':
-            # live_currency_size = size or (abs_pp_size * pp.be_price)
-            live_currency_size = abs_pp_size * pp.be_price
+            # live_currency_size = size or (abs_pp_size * pp.ppu)
+            live_currency_size = abs_pp_size * pp.ppu
             prop = live_currency_size / self.currency_limit
 
         else:
@@ -303,7 +303,7 @@ def mk_allocator(
     # if the current position is already greater then the limit
     # settings, increase the limit to the current position
     if alloc.size_unit == 'currency':
-        startup_size = startup_pp.size * startup_pp.be_price
+        startup_size = startup_pp.size * startup_pp.ppu
 
         if startup_size > alloc.currency_limit:
             alloc.currency_limit = round(startup_size, ndigits=2)

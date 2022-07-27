@@ -129,7 +129,7 @@ class Position(Struct):
 
     # "breakeven price" above or below which pnl moves above and below
     # zero for the entirety of the current "trade state".
-    be_price: float
+    ppu: float
 
     # unique backend symbol id
     bsuid: str
@@ -167,8 +167,8 @@ class Position(Struct):
         fqsn = s.front_fqsn()
 
         size = d.pop('size')
-        be_price = d.pop('be_price')
-        d['size'], d['be_price'] = self.audit_sizing(size, be_price)
+        ppu = d.pop('ppu')
+        d['size'], d['ppu'] = self.audit_sizing(size, ppu)
 
         if self.expiry is None:
             d.pop('expiry', None)
@@ -206,32 +206,32 @@ class Position(Struct):
     def audit_sizing(
         self,
         size: Optional[float] = None,
-        be_price: Optional[float] = None,
+        ppu: Optional[float] = None,
 
     ) -> tuple[float, float]:
         '''
-        Audit either the `.size` and `.be_price` values or equvialent
+        Audit either the `.size` and `.ppu` values or equvialent
         passed in values against the clears table calculations and
         return the calc-ed values if they differ and log warnings to
         console.
 
         '''
         size = size or self.size
-        be_price = be_price or self.be_price
+        ppu = ppu or self.ppu
         csize = self.calc_size()
-        cbe_price = self.calc_ppu()
+        cppu = self.calc_ppu()
 
         if size != csize:
             log.warning(f'size != calculated size: {size} != {csize}')
             size = csize
 
-        if be_price != cbe_price:
+        if ppu != cppu:
             log.warning(
-                f'be_price != calculated be_price: {be_price} != {cbe_price}'
+                f'ppu != calculated ppu: {ppu} != {cppu}'
             )
-            be_price = cbe_price
+            ppu = cppu
 
-        return size, be_price
+        return size, ppu
 
     def update_from_msg(
         self,
@@ -243,7 +243,7 @@ class Position(Struct):
         symbol = self.symbol
 
         lot_size_digits = symbol.lot_size_digits
-        be_price, size = (
+        ppu, size = (
             round(
                 msg['avg_price'],
                 ndigits=symbol.tick_size_digits
@@ -254,7 +254,7 @@ class Position(Struct):
             ),
         )
 
-        self.be_price = be_price
+        self.ppu = ppu
         self.size = size
 
     @property
@@ -264,7 +264,7 @@ class Position(Struct):
         terms.
 
         '''
-        return self.be_price * self.size
+        return self.ppu * self.size
 
     # TODO: idea: "real LIFO" dynamic positioning.
     # - when a trade takes place where the pnl for
@@ -444,7 +444,7 @@ class Position(Struct):
         # in order to make the recurrence relation math work
         # inside ``.calc_size()``.
         self.size = clear['accum_size'] = self.calc_size()
-        self.be_price = clear['ppu'] = self.calc_ppu()
+        self.ppu = clear['ppu'] = self.calc_ppu()
 
         return clear
 
@@ -479,7 +479,7 @@ class PpTable(Struct):
                         info={},
                     ),
                     size=0.0,
-                    be_price=0.0,
+                    ppu=0.0,
                     bsuid=t.bsuid,
                     expiry=t.expiry,
                 )
@@ -501,7 +501,7 @@ class PpTable(Struct):
 
         # minimize clears tables and update sizing.
         for bsuid, pp in updated.items():
-            pp.size, pp.be_price = pp.audit_sizing()
+            pp.size, pp.ppu = pp.audit_sizing()
 
         return updated
 
@@ -534,7 +534,7 @@ class PpTable(Struct):
             # if bsuid == qqqbsuid:
             #     breakpoint()
 
-            pp.size, pp.be_price = pp.audit_sizing()
+            pp.size, pp.ppu = pp.audit_sizing()
 
             if (
                 # "net-zero" is a "closed" position
@@ -846,7 +846,8 @@ def open_pps(
             clears[tid] = clears_table
 
         size = entry['size']
-        be_price = entry['be_price']
+        # TODO: remove but, handle old field name for now
+        ppu = entry.get('ppu', entry.get('be_price', 0))
 
         expiry = entry.get('expiry')
         if expiry:
@@ -855,7 +856,7 @@ def open_pps(
         pp = pp_objs[bsuid] = Position(
             Symbol.from_fqsn(fqsn, info={}),
             size=size,
-            be_price=be_price,
+            ppu=ppu,
             expiry=expiry,
             bsuid=entry['bsuid'],
 
@@ -868,7 +869,7 @@ def open_pps(
         )
 
         # audit entries loaded from toml
-        pp.size, pp.be_price = pp.audit_sizing()
+        pp.size, pp.ppu = pp.audit_sizing()
 
     try:
         yield table

@@ -259,7 +259,7 @@ class PaperBoi:
             Position(
                 Symbol(key=symbol),
                 size=size,
-                be_price=price,
+                ppu=price,
                 bsuid=symbol,
             )
         )
@@ -283,7 +283,7 @@ class PaperBoi:
             # inferred from the pair?
             currency='',
             size=pp.size,
-            avg_price=pp.be_price,
+            avg_price=pp.ppu,
         )
 
         await self.ems_trades_stream.send(pp_msg)

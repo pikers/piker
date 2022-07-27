@@ -610,7 +610,7 @@ async def open_order_mode(
             startup_pp = Position(
                 symbol=symbol,
                 size=0,
-                be_price=0,
+                ppu=0,
 
                 # XXX: BLEH, do we care about this on the client side?
                 bsuid=symbol,
