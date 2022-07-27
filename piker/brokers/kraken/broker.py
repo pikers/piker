@@ -308,7 +308,7 @@ def trades2pps(
                 account='kraken.' + acctid,
                 symbol=p.symbol.front_fqsn(),
                 size=p.size,
-                avg_price=p.be_price,
+                avg_price=p.ppu,
                 currency='',
             )
             position_msgs.append(msg)

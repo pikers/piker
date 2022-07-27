@@ -57,7 +57,7 @@ your ``pps.toml`` file will have position entries like,
 
    [kraken.spot."xmreur.kraken"]
    size = 4.80907954
-   be_price = 103.97000000
+   ppu = 103.97000000
    bsuid = "XXMRZEUR"
    clears = [
     { tid = "TFJBKK-SMBZS-VJ4UWS", cost = 0.8, price = 103.97, size = 4.80907954, dt = "2022-05-20T02:26:33.413397+00:00" },
