@@ -31,6 +31,7 @@ from ..log import get_logger
 from ._ems import _emsd_main
 from .._daemon import maybe_open_emsd
 from ._messages import Order, Cancel
+from ..brokers import get_brokermod
 
 
 log = get_logger(__name__)
@@ -203,7 +204,13 @@ async def open_ems(
     from ..data._source import unpack_fqsn
     broker, symbol, suffix = unpack_fqsn(fqsn)
 
+    mode: str = 'live'
+
     async with maybe_open_emsd(broker) as portal:
+
+        mod = get_brokermod(broker)
+        if not getattr(mod, 'trades_dialogue', None):
+            mode = 'paper'
 
         async with (
             # connect to emsd
@@ -211,6 +218,7 @@ async def open_ems(
 
                 _emsd_main,
                 fqsn=fqsn,
+                exec_mode=mode,
 
             ) as (ctx, (positions, accounts)),
 

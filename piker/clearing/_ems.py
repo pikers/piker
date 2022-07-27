@@ -331,12 +331,11 @@ class Router(Struct):
 
     @asynccontextmanager
     async def maybe_open_brokerd_trades_dialogue(
-
         self,
         feed: Feed,
         symbol: str,
         dark_book: _DarkBook,
-        _exec_mode: str,
+        exec_mode: str,
         loglevel: str,
 
     ) -> tuple[dict, tractor.MsgStream]:
@@ -346,14 +345,23 @@ class Router(Struct):
         '''
         relay = self.relays.get(feed.mod.name)
 
-        if relay is None:
+        if (
+            relay is None
+
+            # We always want to spawn a new relay for the paper engine
+            # per symbol since we need a new tractor context to be
+            # opened for every every symbol such that a new data feed
+            # and ``PaperBoi`` client will be created and then used to
+            # simulate clearing events.
+            or exec_mode == 'paper'
+        ):
 
             relay = await self.nursery.start(
                 open_brokerd_trades_dialogue,
                 self,
                 feed,
                 symbol,
-                _exec_mode,
+                exec_mode,
                 loglevel,
             )
 
@@ -380,7 +388,7 @@ async def open_brokerd_trades_dialogue(
     router: Router,
     feed: Feed,
     symbol: str,
-    _exec_mode: str,
+    exec_mode: str,
     loglevel: str,
 
     task_status: TaskStatus[TradesRelay] = trio.TASK_STATUS_IGNORED,
@@ -404,20 +412,20 @@ async def open_brokerd_trades_dialogue(
     # when the data feed closes it may result in a half-closed
     # channel that the brokerd side thinks is still open somehow!?
     async with maybe_spawn_brokerd(
-
         broker,
         loglevel=loglevel,
 
     ) as portal:
-
-        if trades_endpoint is None or _exec_mode == 'paper':
-
+        if (
+            trades_endpoint is None
+            or exec_mode == 'paper'
+        ):
             # for paper mode we need to mock this trades response feed
-            # so we load bidir stream to a new sub-actor running a
-            # paper-simulator clearing engine.
+            # so we load bidir stream to a new sub-actor running
+            # a paper-simulator clearing engine.
 
             # load the paper trading engine
-            _exec_mode = 'paper'
+            exec_mode = 'paper'
             log.warning(f'Entering paper trading mode for {broker}')
 
             # load the paper trading engine as a subactor of this emsd
@@ -1009,8 +1017,8 @@ async def _emsd_main(
 
     ctx: tractor.Context,
     fqsn: str,
+    exec_mode: str,  # ('paper', 'live')
 
-    _exec_mode: str = 'dark',  # ('paper', 'dark', 'live')
     loglevel: str = 'info',
 
 ) -> None:
@@ -1086,7 +1094,7 @@ async def _emsd_main(
                 feed,
                 symbol,
                 dark_book,
-                _exec_mode,
+                exec_mode,
                 loglevel,
 
             ) as relay,
