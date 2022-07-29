@@ -188,6 +188,9 @@ async def handle_order_requests(
                     'event': ep,
                     'token': token,
 
+                    # XXX: this seems to always get an error response?
+                    # 'userref': f"'{reqid}'",
+
                     'reqid': reqid,  # remapped-to-int uid from ems
                     'pair': pair,
                     'price': str(order.price),
@@ -711,8 +714,7 @@ async def handle_order_updates(
                             continue
 
                         case {
-                            # XXX: lol, ws bug, this is always 0!
-                            'userref': _,
+                            'userref': reqid,
 
                             # during a fill this field is **not**
                             # provided! but, it is always avail on
@@ -764,7 +766,15 @@ async def handle_order_updates(
                             else:
                                 vlm = rest.get('vol_exec', 0)
 
-                            reqid = reqids2txids.inverse.get(txid)
+                            ourreqid = reqids2txids.inverse.get(txid)
+
+                            if ourreqid != reqid:
+                                log.warning(
+                                    'REQID MISMATCH due to kraken api bugs..\n'
+                                    f'msg:{reqid}, ours:{ourreqid}'
+                                )
+                                reqid = ourreqid
+
                             oid = ids.inverse.get(reqid)
 
                             if (
