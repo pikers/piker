@@ -27,12 +27,13 @@ from itertools import cycle
 from typing import Optional, AsyncGenerator, Any
 
 import numpy as np
-from pydantic import create_model
+import msgspec
 import tractor
 import pyqtgraph as pg
 import trio
 from trio_typing import TaskStatus
 
+from piker.data.types import Struct
 from ._axes import PriceAxis
 from .._cacheables import maybe_open_context
 from ..calc import humanize
@@ -53,7 +54,7 @@ from ._forms import (
 from ..fsp._api import maybe_mk_fsp_shm, Fsp
 from ..fsp import cascade
 from ..fsp._volume import (
-    tina_vwap,
+    # tina_vwap,
     dolla_vlm,
     flow_rates,
 )
@@ -153,12 +154,13 @@ async def open_fsp_sidepane(
     )
 
     # https://pydantic-docs.helpmanual.io/usage/models/#dynamic-model-creation
-    FspConfig = create_model(
-        'FspConfig',
-        name=name,
-        **params,
+    FspConfig = msgspec.defstruct(
+        "Point",
+        [('name', name)] + list(params.items()),
+        bases=(Struct,),
     )
-    sidepane.model = FspConfig()
+    model = FspConfig(name=name, **params)
+    sidepane.model = model
 
     # just a logger for now until we get fsp configs up and running.
     async def settings_change(
@@ -440,7 +442,9 @@ class FspAdmin:
                         # if the chart isn't hidden try to update
                         # the data on screen.
                         if not self.linked.isHidden():
-                            log.debug(f'Re-syncing graphics for fsp: {ns_path}')
+                            log.debug(
+                                f'Re-syncing graphics for fsp: {ns_path}'
+                            )
                             self.linked.graphics_cycle(
                                 trigger_all=True,
                                 prepend_update_index=info['first'],
