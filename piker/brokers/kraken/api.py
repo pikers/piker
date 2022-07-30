@@ -34,7 +34,6 @@ import pendulum
 import asks
 from fuzzywuzzy import process as fuzzy
 import numpy as np
-from pydantic.dataclasses import dataclass
 import urllib.parse
 import hashlib
 import hmac
@@ -76,31 +75,6 @@ _show_wap_in_history = True
 _symbol_info_translation: dict[str, str] = {
     'tick_decimals': 'pair_decimals',
 }
-
-
-@dataclass
-class OHLC:
-    '''
-    Description of the flattened OHLC quote format.
-
-    For schema details see:
-        https://docs.kraken.com/websockets/#message-ohlc
-
-    '''
-    chan_id: int  # internal kraken id
-    chan_name: str  # eg. ohlc-1  (name-interval)
-    pair: str  # fx pair
-    time: float  # Begin time of interval, in seconds since epoch
-    etime: float  # End time of interval, in seconds since epoch
-    open: float  # Open price of interval
-    high: float  # High price within interval
-    low: float  # Low price within interval
-    close: float  # Close price of interval
-    vwap: float  # Volume weighted average price within interval
-    volume: float  # Accumulated volume **within interval**
-    count: int  # Number of trades within interval
-    # (sampled) generated tick data
-    ticks: list[Any] = field(default_factory=list)
 
 
 def get_config() -> dict[str, Any]:
