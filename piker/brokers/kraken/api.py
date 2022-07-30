@@ -19,7 +19,6 @@ Kraken web API wrapping.
 
 '''
 from contextlib import asynccontextmanager as acm
-from dataclasses import field
 from datetime import datetime
 import itertools
 from typing import (
