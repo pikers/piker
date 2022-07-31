@@ -19,7 +19,6 @@ Real-time and historical data feed endpoints.
 
 '''
 from contextlib import asynccontextmanager as acm
-from dataclasses import asdict
 from datetime import datetime
 from typing import (
     Any,
@@ -50,7 +49,6 @@ from piker.data._web_bs import open_autorecon_ws, NoBsWs
 from . import log
 from .api import (
     Client,
-    OHLC,
 )
 
 
@@ -86,6 +84,30 @@ class Pair(Struct):
     margin_call: str  # margin call level
     margin_stop: str  # stop-out/liquidation margin level
     ordermin: float  # minimum order volume for pair
+
+
+class OHLC(Struct):
+    '''
+    Description of the flattened OHLC quote format.
+
+    For schema details see:
+        https://docs.kraken.com/websockets/#message-ohlc
+
+    '''
+    chan_id: int  # internal kraken id
+    chan_name: str  # eg. ohlc-1  (name-interval)
+    pair: str  # fx pair
+    time: float  # Begin time of interval, in seconds since epoch
+    etime: float  # End time of interval, in seconds since epoch
+    open: float  # Open price of interval
+    high: float  # High price within interval
+    low: float  # Low price within interval
+    close: float  # Close price of interval
+    vwap: float  # Volume weighted average price within interval
+    volume: float  # Accumulated volume **within interval**
+    count: int  # Number of trades within interval
+    # (sampled) generated tick data
+    ticks: list[Any] = []
 
 
 async def stream_messages(
@@ -176,12 +198,14 @@ async def process_data_feed_msgs(
                 pair
             ]:
                 if 'ohlc' in chan_name:
-                    yield 'ohlc', OHLC(
+                    ohlc = OHLC(
                         chan_id,
                         chan_name,
                         pair,
                         *payload_array[0]
                     )
+                    ohlc.typecast()
+                    yield 'ohlc', ohlc
 
                 elif 'spread' in chan_name:
 
@@ -214,7 +238,7 @@ def normalize(
     ohlc: OHLC,
 
 ) -> dict:
-    quote = asdict(ohlc)
+    quote = ohlc.to_dict()
     quote['broker_ts'] = quote['time']
     quote['brokerd_ts'] = time.time()
     quote['symbol'] = quote['pair'] = quote['pair'].replace('/', '')

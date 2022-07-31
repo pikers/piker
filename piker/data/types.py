@@ -66,3 +66,10 @@ class Struct(
         ).decode(
             msgspec.msgpack.Encoder().encode(self)
         )
+
+    def typecast(
+        self,
+        # fields: Optional[list[str]] = None,
+    ) -> None:
+        for fname, ftype in self.__annotations__.items():
+            setattr(self, fname, ftype(getattr(self, fname)))
