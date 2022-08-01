@@ -152,19 +152,8 @@ async def stream_messages(
 
                 continue
 
-            case {
-                'connectionID': _,
-                'event': 'systemStatus',
-                'status': 'online',
-                'version': _,
-            } as msg:
-                log.info(
-                    'WS connection is up:\n'
-                    f'{msg}'
-                )
-                continue
-
             case _:
+                # passthrough sub msgs
                 yield msg
 
 
