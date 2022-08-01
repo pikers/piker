@@ -39,7 +39,11 @@ from docker.errors import (
     APIError,
     # ContainerError,
 )
-from requests.exceptions import ConnectionError, ReadTimeout
+import requests
+from requests.exceptions import (
+    ConnectionError,
+    ReadTimeout,
+)
 
 from ..log import get_logger, get_console_log
 from .. import config
@@ -188,13 +192,12 @@ class Container:
 
     def hard_kill(self, start: float) -> None:
         delay = time.time() - start
-        log.error(
-            f'Failed to kill container {self.cntr.id} after {delay}s\n'
-            'sending SIGKILL..'
-        )
         # get out the big guns, bc apparently marketstore
         # doesn't actually know how to terminate gracefully
         # :eyeroll:...
+        log.error(
+            f'SIGKILL-ing: {self.cntr.id} after {delay}s\n'
+        )
         self.try_signal('SIGKILL')
         self.cntr.wait(
             timeout=3,
@@ -218,20 +221,25 @@ class Container:
         self.try_signal('SIGINT')
 
         start = time.time()
-        for _ in range(30):
+        for _ in range(6):
 
             with trio.move_on_after(0.5) as cs:
-                cs.shield = True
                 log.cancel('polling for CNTR logs...')
 
                 try:
                     await self.process_logs_until(stop_msg)
                 except ApplicationLogError:
                     hard_kill = True
+                else:
+                    # if we aren't cancelled on above checkpoint then we
+                    # assume we read the expected stop msg and
+                    # terminated.
+                    break
 
-                # if we aren't cancelled on above checkpoint then we
-                # assume we read the expected stop msg and terminated.
-                break
+            if cs.cancelled_caught:
+                # on timeout just try a hard kill after
+                # a quick container sync-wait.
+                hard_kill = True
 
             try:
                 log.info(f'Polling for container shutdown:\n{cid}')
@@ -254,8 +262,15 @@ class Container:
             except (
                 docker.errors.APIError,
                 ConnectionError,
+                requests.exceptions.ConnectionError,
+                trio.Cancelled,
             ):
                 log.exception('Docker connection failure')
+                self.hard_kill(start)
+                raise
+
+            except trio.Cancelled:
+                log.exception('trio cancelled...')
                 self.hard_kill(start)
         else:
             hard_kill = True
@@ -305,16 +320,13 @@ async def open_ahabd(
         ))
 
         try:
-
             # TODO: we might eventually want a proxy-style msg-prot here
             # to allow remote control of containers without needing
             # callers to have root perms?
             await trio.sleep_forever()
 
         finally:
-            # needed?
-            with trio.CancelScope(shield=True):
-                await cntr.cancel(stop_msg)
+            await cntr.cancel(stop_msg)
 
 
 async def start_ahab(

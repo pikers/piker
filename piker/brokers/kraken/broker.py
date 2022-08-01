@@ -140,11 +140,8 @@ async def handle_order_requests(
                     try:
                         txid = reqids2txids[reqid]
                     except KeyError:
-                        assert 0
-
                         # XXX: not sure if this block ever gets hit now?
                         log.error('TOO FAST EDIT')
-
                         reqids2txids[reqid] = TooFastEdit(reqid)
                         await ems_order_stream.send(
                             BrokerdError(
@@ -971,137 +968,44 @@ async def handle_order_updates(
                 chain = apiflows[reqid]
                 chain.maps.append(event)
 
-                resps, errored = process_status(
-                    event,
-                    oid,
-                    token,
-                    chain,
-                    reqids2txids,
-                )
+                if status == 'error':
+                    # any of ``{'add', 'edit', 'cancel'}``
+                    action = etype.removesuffix('OrderStatus')
+                    errmsg = rest['errorMessage']
+                    log.error(
+                        f'Failed to {action} order {reqid}:\n'
+                        f'{errmsg}'
+                    )
+                    await ems_stream.send(BrokerdError(
+                        oid=oid,
+                        # XXX: use old reqid in case it changed?
+                        reqid=reqid,
+                        symbol=chain.get('symbol', 'N/A'),
 
-                if resps:
-                    for resp in resps:
-                        await ems_stream.send(resp)
+                        reason=f'Failed {action}:\n{errmsg}',
+                        broker_details=event
+                    ))
 
-                txid = txid or lasttxid
-                if (
-                    # errored likely on a rate limit or bad input
-                    errored
-                    and txid
+                    txid = txid or lasttxid
+                    if (
+                        txid
 
-                    # we throttle too-fast-requests on the ems side
-                    or (txid and isinstance(txid, TooFastEdit))
-                ):
-                    # client was editting too quickly
-                    # so we instead cancel this order
-                    log.cancel(
-                        f'Cancelling {reqid}@{txid} due to error:\n {event}')
-                    await ws.send_msg({
-                        'event': 'cancelOrder',
-                        'token': token,
-                        'reqid': reqid or 0,
-                        'txid': [txid],
-                    })
+                        # we throttle too-fast-requests on the ems side
+                        or (txid and isinstance(txid, TooFastEdit))
+                    ):
+                        # client was editting too quickly
+                        # so we instead cancel this order
+                        log.cancel(
+                            f'Cancelling {reqid}@{txid} due to:\n {event}')
+                        await ws.send_msg({
+                            'event': 'cancelOrder',
+                            'token': token,
+                            'reqid': reqid or 0,
+                            'txid': [txid],
+                        })
+
             case _:
                 log.warning(f'Unhandled trades update msg: {msg}')
-
-
-def process_status(
-    event: dict[str, str],
-    oid: str,
-    token: str,
-    chain: ChainMap,
-    reqids2txids: dict[int, str],
-
-) -> tuple[list[MsgUnion], bool]:
-    '''
-    Process `'[add/edit/cancel]OrderStatus'` events by translating to
-    and returning the equivalent EMS-msg responses.
-
-    '''
-    match event:
-        case {
-            'event': etype,
-            'status': 'error',
-            'reqid': reqid,
-            'errorMessage': errmsg,
-        }:
-            # any of ``{'add', 'edit', 'cancel'}``
-            action = etype.removesuffix('OrderStatus')
-            log.error(
-                f'Failed to {action} order {reqid}:\n'
-                f'{errmsg}'
-            )
-            resp = BrokerdError(
-                oid=oid,
-                # XXX: use old reqid in case it changed?
-                reqid=reqid,
-                symbol=chain.get('symbol', 'N/A'),
-
-                reason=f'Failed {action}:\n{errmsg}',
-                broker_details=event
-            )
-            return [resp], True
-
-        # successful request cases
-        case {
-            'event': 'addOrderStatus',
-            'status': "ok",
-            'reqid': reqid,  # oid from ems side
-            'txid': txid,
-            'descr': descr,  # only on success?
-        }:
-            log.info(
-                f'Submitted order: {descr}\n'
-                f'ems oid: {oid}\n'
-                f'brokerd reqid: {reqid}\n'
-                f'txid: {txid}\n'
-            )
-            return [], False
-
-        case {
-            'event': 'editOrderStatus',
-            'status': "ok",
-            'reqid': reqid,  # oid from ems side
-            'descr': descr,
-
-            # NOTE: for edit request this is a new value
-            'txid': txid,
-            'originaltxid': origtxid,
-        }:
-            log.info(
-                f'Editting order {oid}[requid={reqid}]:\n'
-                f'brokerd reqid: {reqid}\n'
-                f'txid: {origtxid} -> {txid}\n'
-                f'{descr}'
-            )
-
-            # XXX: update the expected txid since the ``openOrders`` sub
-            # doesn't relay through the ``userref`` value..
-            # (hopefully kraken will fix this so we don't need this
-            # line.)
-            # reqids2txids[reqid] = txid
-            # deliver another ack to update the ems-side `.reqid`.
-            return [], False
-
-        case {
-            "event": "cancelOrderStatus",
-            "status": "ok",
-            'reqid': reqid,
-
-            # XXX: sometimes this isn't provided!?
-            # 'txid': txids,
-            **rest,
-        }:
-            for txid in rest.get('txid', [chain['reqid']]):
-                log.info(
-                    f'Cancelling order {oid}[requid={reqid}]:\n'
-                    f'brokerd reqid: {reqid}\n'
-                )
-                # if txid == reqids2txids[reqid]:
-                # reqids2txids.pop(reqid)
-
-            return [], False
 
 
 def norm_trade_records(
