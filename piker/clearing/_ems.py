@@ -903,8 +903,8 @@ async def process_client_order_cmds(
                 # TODO: eventually we should be receiving
                 # this struct on the wire unpacked in a scoped protocol
                 # setup with ``tractor``.
-                msg = Order(**cmd)
-                broker = msg.brokers[0]
+                req = Order(**cmd)
+                broker = req.brokers[0]
 
                 # remove the broker part before creating a message
                 # to send to the specific broker since they probably
@@ -931,7 +931,7 @@ async def process_client_order_cmds(
                     action=action,
                     price=trigger_price,
                     size=size,
-                    account=msg.account,
+                    account=req.account,
                 )
 
                 # send request to backend
@@ -959,6 +959,7 @@ async def process_client_order_cmds(
                 'size': size,
                 'exec_mode': exec_mode,
                 'action': action,
+                'brokers': brokers,  # list
             } if (
                     # "DARK" triggers
                     # submit order to local EMS book and scan loop,
@@ -983,6 +984,7 @@ async def process_client_order_cmds(
                 pred = mk_check(trigger_price, last, action)
 
                 spread_slap: float = 5
+                sym = fqsn.replace(f'.{brokers[0]}', '')
                 min_tick = feed.symbols[sym].tick_size
 
                 if action == 'buy':
