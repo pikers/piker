@@ -41,6 +41,7 @@ from ib_insync.contract import (
 from ib_insync.order import (
     Trade,
     OrderStatus,
+    Order,
 )
 from ib_insync.objects import (
     Fill,
@@ -451,7 +452,6 @@ async def trades_dialogue(
     # we might also want to delegate a specific actor for
     # ledger writing / reading for speed?
     async with (
-        # trio.open_nursery() as nurse,
         open_client_proxies() as (proxies, aioclients),
     ):
         # Open a trade ledgers stack for appending trade records over
@@ -480,6 +480,42 @@ async def trades_dialogue(
 
             for account, proxy in proxies.items():
                 client = aioclients[account]
+
+                trades: list[Trade] = client.ib.openTrades()
+                order_msgs = []
+                for trade in trades:
+
+                    order = trade.order
+                    quant = trade.order.totalQuantity
+                    size = {
+                        'SELL': -1,
+                        'BUY': 1,
+                    }[order.action] * quant
+                    fqsn, _ = con2fqsn(trade.contract)
+
+                    # TODO: maybe embed a ``BrokerdOrder`` instead
+                    # since then we can directly load it on the client
+                    # side in the order mode loop?
+                    msg = BrokerdStatus(
+                        reqid=order.orderId,
+                        time_ns=time.time_ns(),
+                        account=accounts_def.inverse[order.account],
+                        status='submitted',
+                        size=size,
+                        price=order.lmtPrice,
+                        filled=0,
+                        reason='Existing live order',
+
+                        # this seems to not be necessarily up to date in
+                        # the execDetails event.. so we have to send it
+                        # here I guess?
+                        remaining=quant,
+                        broker_details={
+                            'name': 'ib',
+                            'fqsn': fqsn,
+                        },
+                    )
+                    order_msgs.append(msg)
 
                 # process pp value reported from ib's system. we only use these
                 # to cross-check sizing since average pricing on their end uses
@@ -615,6 +651,9 @@ async def trades_dialogue(
                 ctx.open_stream() as ems_stream,
                 trio.open_nursery() as n,
             ):
+                # relay existing open orders to ems
+                for msg in order_msgs:
+                    await ems_stream.send(msg)
 
                 for client in set(aioclients.values()):
                     trade_event_stream = await n.start(
