@@ -41,7 +41,6 @@ from ib_insync.contract import (
 from ib_insync.order import (
     Trade,
     OrderStatus,
-    Order,
 )
 from ib_insync.objects import (
     Fill,
@@ -123,10 +122,11 @@ async def handle_order_requests(
                 f'An IB account number for name {account} is not found?\n'
                 'Make sure you have all TWS and GW instances running.'
             )
-            await ems_order_stream.send(BrokerdError(
-                oid=request_msg['oid'],
-                symbol=request_msg['symbol'],
-                reason=f'No account found: `{account}` ?',
+            await ems_order_stream.send(
+                BrokerdError(
+                    oid=request_msg['oid'],
+                    symbol=request_msg['symbol'],
+                    reason=f'No account found: `{account}` ?',
             ))
             continue
 
@@ -147,6 +147,14 @@ async def handle_order_requests(
             # validate
             order = BrokerdOrder(**request_msg)
 
+            # XXX: by default 0 tells ``ib_insync`` methods that
+            # there is no existing order so ask the client to create
+            # a new one (which it seems to do by allocating an int
+            # counter - collision prone..)
+            reqid = order.reqid
+            if reqid is not None:
+                reqid = int(reqid)
+
             # call our client api to submit the order
             reqid = client.submit_limit(
                 oid=order.oid,
@@ -155,12 +163,7 @@ async def handle_order_requests(
                 action=order.action,
                 size=order.size,
                 account=acct_number,
-
-                # XXX: by default 0 tells ``ib_insync`` methods that
-                # there is no existing order so ask the client to create
-                # a new one (which it seems to do by allocating an int
-                # counter - collision prone..)
-                reqid=order.reqid,
+                reqid=reqid,
             )
             if reqid is None:
                 await ems_order_stream.send(BrokerdError(
@@ -182,7 +185,7 @@ async def handle_order_requests(
 
         elif action == 'cancel':
             msg = BrokerdCancel(**request_msg)
-            client.submit_cancel(reqid=msg.reqid)
+            client.submit_cancel(reqid=int(msg.reqid))
 
         else:
             log.error(f'Unknown order command: {request_msg}')
