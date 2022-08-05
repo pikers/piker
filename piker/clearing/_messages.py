@@ -194,6 +194,10 @@ class BrokerdStatus(Struct):
     # }
     status: str
 
+    # +ve is buy, -ve is sell
+    size: float = 0.0
+    price: float = 0.0
+
     filled: float = 0.0
     reason: str = ''
     remaining: float = 0.0

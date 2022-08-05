@@ -152,10 +152,7 @@ class OrderMode:
 
     def line_from_order(
         self,
-
         order: Order,
-        symbol: Symbol,
-
         **line_kwargs,
 
     ) -> LevelLine:
@@ -173,8 +170,7 @@ class OrderMode:
             color=self._colors[order.action],
 
             dotted=True if (
-                order.exec_mode == 'dark' and
-                order.action != 'alert'
+                order.exec_mode == 'dark' and order.action != 'alert'
             ) else False,
 
             **line_kwargs,
@@ -236,7 +232,6 @@ class OrderMode:
 
         line = self.line_from_order(
             order,
-            symbol,
 
             show_markers=True,
             # just for the stage line to avoid
@@ -262,6 +257,8 @@ class OrderMode:
 
     def submit_order(
         self,
+        send_msg: bool = True,
+        order: Optional[Order] = None,
 
     ) -> OrderDialog:
         '''
@@ -269,18 +266,19 @@ class OrderMode:
         represent the order on a chart.
 
         '''
-        staged = self._staged_order
-        symbol: Symbol = staged.symbol
-        oid = str(uuid.uuid4())
+        if not order:
+            staged = self._staged_order
+            oid = str(uuid.uuid4())
+            # symbol: Symbol = staged.symbol
 
-        # format order data for ems
-        order = staged.copy()
-        order.oid = oid
-        order.symbol = symbol.front_fqsn()
+            # format order data for ems
+            order = staged.copy()
+            order.oid = oid
+
+        order.symbol = order.symbol.front_fqsn()
 
         line = self.line_from_order(
             order,
-            symbol,
 
             show_markers=True,
             only_show_markers_on_hover=True,
@@ -298,17 +296,17 @@ class OrderMode:
         # color once the submission ack arrives.
         self.lines.submit_line(
             line=line,
-            uuid=oid,
+            uuid=order.oid,
         )
 
         dialog = OrderDialog(
-            uuid=oid,
+            uuid=order.oid,
             order=order,
-            symbol=symbol,
+            symbol=order.symbol,
             line=line,
             last_status_close=self.multistatus.open_status(
-                f'submitting {self._trigger_type}-{order.action}',
-                final_msg=f'submitted {self._trigger_type}-{order.action}',
+                f'submitting {order.exec_mode}-{order.action}',
+                final_msg=f'submitted {order.exec_mode}-{order.action}',
                 clear_on_next=True,
             )
         )
@@ -318,14 +316,21 @@ class OrderMode:
 
         # enter submission which will be popped once a response
         # from the EMS is received to move the order to a different# status
-        self.dialogs[oid] = dialog
+        self.dialogs[order.oid] = dialog
 
         # hook up mouse drag handlers
         line._on_drag_start = self.order_line_modify_start
         line._on_drag_end = self.order_line_modify_complete
 
         # send order cmd to ems
-        self.book.send(order)
+        if send_msg:
+            self.book.send(order)
+        else:
+            # just register for control over this order
+            # TODO: some kind of mini-perms system here based on
+            # an out-of-band tagging/auth sub-sys for multiplayer
+            # order control?
+            self.book._sent_orders[order.oid] = order
 
         return dialog
 
@@ -502,7 +507,7 @@ class OrderMode:
                     oid = dialog.uuid
 
                     cancel_status_close = self.multistatus.open_status(
-                        f'cancelling order {oid[:6]}',
+                        f'cancelling order {oid}',
                         group_key=key,
                     )
                     dialog.last_status_close = cancel_status_close
@@ -596,10 +601,10 @@ async def open_order_mode(
 
                 sym = msg['symbol']
                 if (
-                    sym == symkey or
-                    # mega-UGH, i think we need to fix the FQSN stuff sooner
-                    # then later..
-                    sym == symkey.removesuffix(f'.{broker}')
+                    (sym == symkey) or (
+                        # mega-UGH, i think we need to fix the FQSN
+                        # stuff sooner then later..
+                        sym == symkey.removesuffix(f'.{broker}'))
                 ):
                     pps_by_account[acctid] = msg
 
@@ -653,7 +658,7 @@ async def open_order_mode(
         # setup order mode sidepane widgets
         form: FieldsForm = chart.sidepane
         form.vbox.setSpacing(
-            int((1 + 5/8)*_font.px_size)
+            int((1 + 5 / 8) * _font.px_size)
         )
 
         from ._feedstatus import mk_feed_label
@@ -814,15 +819,48 @@ async def process_trades_and_update_ui(
             continue
 
         resp = msg['resp']
-        oid = msg['oid']
-
+        oid = str(msg['oid'])
         dialog = mode.dialogs.get(oid)
+
         if dialog is None:
             log.warning(f'received msg for untracked dialog:\n{fmsg}')
 
-            # TODO: enable pure tracking / mirroring of dialogs
-            # is desired.
-            continue
+            size = msg['brokerd_msg']['size']
+            if size >= 0:
+                action = 'buy'
+            else:
+                action = 'sell'
+
+            acct = msg['brokerd_msg']['account']
+            price = msg['brokerd_msg']['price']
+            deats = msg['brokerd_msg']['broker_details']
+            fqsn = (
+                deats['fqsn'] + '.' + deats['name']
+            )
+            symbol = Symbol.from_fqsn(
+                fqsn=fqsn,
+                info={},
+            )
+            # map to order composite-type
+            order = Order(
+                action=action,
+                price=price,
+                account=acct,
+                size=size,
+                symbol=symbol,
+                brokers=symbol.brokers,
+                oid=oid,
+                exec_mode='live',  # dark or live
+            )
+
+            dialog = mode.submit_order(
+                send_msg=False,
+                order=order,
+            )
+
+            # # TODO: enable pure tracking / mirroring of dialogs
+            # # is desired.
+            # continue
 
         # record message to dialog tracking
         dialog.msgs[oid] = msg
