@@ -140,9 +140,9 @@ class LineEditor:
 
     ) -> LevelLine:
 
-        staged_line = self._active_staged_line
-        if not staged_line:
-            raise RuntimeError("No line is currently staged!?")
+        # staged_line = self._active_staged_line
+        # if not staged_line:
+        #     raise RuntimeError("No line is currently staged!?")
 
         # for now, until submission reponse arrives
         line.hide_labels()
