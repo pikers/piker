@@ -823,6 +823,14 @@ async def deliver_trade_events(
                 # unwrap needed data from ib_insync internal types
                 trade: Trade = item
                 status: OrderStatus = trade.orderStatus
+                status_key = status.status.lower()
+
+                # double check there is no error when
+                # cancelling.. gawwwd
+                if status_key == 'cancelled':
+                    last_log = trade.log[-1]
+                    if last_log.message:
+                        status_key = trade.log[-2].status
 
                 # skip duplicate filled updates - we get the deats
                 # from the execution details event
@@ -833,7 +841,7 @@ async def deliver_trade_events(
                     account=accounts_def.inverse[trade.order.account],
 
                     # everyone doin camel case..
-                    status=status.status.lower(),  # force lower case
+                    status=status_key,  # force lower case
 
                     filled=status.filled,
                     reason=status.whyHeld,
