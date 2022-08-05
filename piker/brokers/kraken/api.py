@@ -509,10 +509,9 @@ class Client:
         the 'AssetPairs' endpoint, see methods above.
 
         '''
+        ticker = cls._ntable[ticker]
         symlen = len(ticker)
         if symlen != 6:
-            ticker = cls._ntable[ticker]
-        else:
             raise ValueError(f'Unhandled symbol: {ticker}')
 
         return ticker.lower()
