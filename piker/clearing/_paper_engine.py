@@ -312,50 +312,54 @@ async def simulate_fills(
 
     # this stream may eventually contain multiple symbols
     async for quotes in quote_stream:
-
         for sym, quote in quotes.items():
-
             for tick in iterticks(
                 quote,
                 # dark order price filter(s)
                 types=('ask', 'bid', 'trade', 'last')
             ):
                 # print(tick)
-                tick_price = tick.get('price')
-                ttype = tick['type']
+                match tick:
+                    case {
+                        'price': tick_price,
+                        'type': 'ask',
+                    }:
+                        client.last_ask = (
+                            tick_price,
+                            tick.get('size', client.last_ask[1]),
+                        )
 
-                if ttype in ('ask',):
+                        orders = client._buys.get(sym, {})
+                        book_sequence = reversed(
+                            sorted(orders.keys(), key=itemgetter(1)))
 
-                    client.last_ask = (
-                        tick_price,
-                        tick.get('size', client.last_ask[1]),
-                    )
+                        def pred(our_price):
+                            return tick_price <= our_price
 
-                    orders = client._buys.get(sym, {})
+                    case {
+                        'price': tick_price,
+                        'type': 'bid',
+                    }:
+                        client.last_bid = (
+                            tick_price,
+                            tick.get('size', client.last_bid[1]),
+                        )
+                        orders = client._sells.get(sym, {})
+                        book_sequence = sorted(
+                            orders.keys(),
+                            key=itemgetter(1)
+                        )
 
-                    book_sequence = reversed(
-                        sorted(orders.keys(), key=itemgetter(1)))
+                        def pred(our_price):
+                            return tick_price >= our_price
 
-                    def pred(our_price):
-                        return tick_price < our_price
-
-                elif ttype in ('bid',):
-
-                    client.last_bid = (
-                        tick_price,
-                        tick.get('size', client.last_bid[1]),
-                    )
-
-                    orders = client._sells.get(sym, {})
-                    book_sequence = sorted(orders.keys(), key=itemgetter(1))
-
-                    def pred(our_price):
-                        return tick_price > our_price
-
-                elif ttype in ('trade', 'last'):
-                    # TODO: simulate actual book queues and our orders
-                    # place in it, might require full L2 data?
-                    continue
+                    case {
+                        'price': tick_price,
+                        'type': ('trade' | 'last'),
+                    }:
+                        # TODO: simulate actual book queues and our orders
+                        # place in it, might require full L2 data?
+                        continue
 
                 # iterate book prices descending
                 for oid, our_price in book_sequence:
