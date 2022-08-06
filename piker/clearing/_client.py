@@ -224,11 +224,19 @@ async def open_ems(
                 fqsn=fqsn,
                 exec_mode=mode,
 
-            ) as (ctx, (positions, accounts)),
+            ) as (
+                ctx,
+                (
+                    positions,
+                    accounts,
+                    dialogs,
+                )
+            ),
 
             # open 2-way trade command stream
             ctx.open_stream() as trades_stream,
         ):
+            # start sync code order msg delivery task
             async with trio.open_nursery() as n:
                 n.start_soon(
                     relay_order_cmds_from_sync_code,
@@ -236,4 +244,10 @@ async def open_ems(
                     trades_stream
                 )
 
-                yield book, trades_stream, positions, accounts
+                yield (
+                    book,
+                    trades_stream,
+                    positions,
+                    accounts,
+                    dialogs,
+                )
