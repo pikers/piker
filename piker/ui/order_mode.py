@@ -794,15 +794,11 @@ async def process_trades_and_update_ui(
             pp_msg_symbol = msg['symbol'].lower()
             fqsn = sym.front_fqsn()
             broker, key = sym.front_feed()
-            # print(
-            #     f'pp msg symbol: {pp_msg_symbol}\n',
-            #     f'fqsn: {fqsn}\n',
-            #     f'front key: {key}\n',
-            # )
-
             if (
-                pp_msg_symbol == fqsn.replace(f'.{broker}', '')
+                pp_msg_symbol == fqsn
+                or pp_msg_symbol == fqsn.removesuffix(f'.{broker}')
             ):
+                log.info(f'{fqsn} matched pp msg: {fmsg}')
                 tracker = mode.trackers[msg['account']]
                 tracker.live_pp.update_from_msg(msg)
                 # update order pane widgets
@@ -843,16 +839,25 @@ async def process_trades_and_update_ui(
         # resp to 'cancel' request or error condition
         # for action request
         elif resp in (
-            'broker_cancelled',
             'broker_inactive',
             'broker_errored',
+        ):
+            # delete level line from view
+            mode.on_cancel(oid)
+            broker_msg = msg['brokerd_msg']
+            log.error(
+                f'Order {oid}->{resp} with:\n{pformat(broker_msg)}'
+            )
+
+        elif resp in (
+            'broker_cancelled',
             'dark_cancelled'
         ):
             # delete level line from view
             mode.on_cancel(oid)
             broker_msg = msg['brokerd_msg']
-            log.warning(
-                f'Order {oid} failed with:\n{pformat(broker_msg)}'
+            log.cancel(
+                f'Order {oid}->{resp} with:\n{pformat(broker_msg)}'
             )
 
         elif resp in (

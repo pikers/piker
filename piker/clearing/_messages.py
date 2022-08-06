@@ -186,6 +186,7 @@ class BrokerdStatus(Struct):
     # XXX: should be best effort set for every update
     account: str = ''
 
+    # TODO: instead (ack, pending, open, fill, clos(ed), cancelled)
     # {
     #   'submitted',
     #   'cancelled',

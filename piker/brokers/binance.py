@@ -33,7 +33,6 @@ import asks
 from fuzzywuzzy import process as fuzzy
 import numpy as np
 import tractor
-from pydantic.dataclasses import dataclass
 import wsproto
 
 from .._cacheables import open_cached_client
@@ -106,14 +105,14 @@ class Pair(Struct, frozen=True):
     permissions: list[str]
 
 
-@dataclass
-class OHLC:
-    """Description of the flattened OHLC quote format.
+class OHLC(Struct):
+    '''
+    Description of the flattened OHLC quote format.
 
     For schema details see:
     https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-streams
 
-    """
+    '''
     time: int
 
     open: float
@@ -262,6 +261,7 @@ class Client:
         for i, bar in enumerate(bars):
 
             bar = OHLC(*bar)
+            bar.typecast()
 
             row = []
             for j, (name, ftype) in enumerate(_ohlc_dtype[1:]):

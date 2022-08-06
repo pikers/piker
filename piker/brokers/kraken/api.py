@@ -19,7 +19,6 @@ Kraken web API wrapping.
 
 '''
 from contextlib import asynccontextmanager as acm
-from dataclasses import field
 from datetime import datetime
 import itertools
 from typing import (
@@ -29,17 +28,16 @@ from typing import (
 )
 import time
 
-# import trio
-# import tractor
+from bidict import bidict
 import pendulum
 import asks
 from fuzzywuzzy import process as fuzzy
 import numpy as np
-from pydantic.dataclasses import dataclass
 import urllib.parse
 import hashlib
 import hmac
 import base64
+import trio
 
 from piker import config
 from piker.brokers._util import (
@@ -48,6 +46,7 @@ from piker.brokers._util import (
     BrokerError,
     DataThrottle,
 )
+from piker.pp import Transaction
 from . import log
 
 # <uri>/<version>/
@@ -75,31 +74,6 @@ _show_wap_in_history = True
 _symbol_info_translation: dict[str, str] = {
     'tick_decimals': 'pair_decimals',
 }
-
-
-@dataclass
-class OHLC:
-    '''
-    Description of the flattened OHLC quote format.
-
-    For schema details see:
-        https://docs.kraken.com/websockets/#message-ohlc
-
-    '''
-    chan_id: int  # internal kraken id
-    chan_name: str  # eg. ohlc-1  (name-interval)
-    pair: str  # fx pair
-    time: float  # Begin time of interval, in seconds since epoch
-    etime: float  # End time of interval, in seconds since epoch
-    open: float  # Open price of interval
-    high: float  # High price within interval
-    low: float  # Low price within interval
-    close: float  # Close price of interval
-    vwap: float  # Volume weighted average price within interval
-    volume: float  # Accumulated volume **within interval**
-    count: int  # Number of trades within interval
-    # (sampled) generated tick data
-    ticks: list[Any] = field(default_factory=list)
 
 
 def get_config() -> dict[str, Any]:
@@ -141,8 +115,13 @@ class InvalidKey(ValueError):
 
 class Client:
 
+    # global symbol normalization table
+    _ntable: dict[str, str] = {}
+    _atable: bidict[str, str] = bidict()
+
     def __init__(
         self,
+        config: dict[str, str],
         name: str = '',
         api_key: str = '',
         secret: str = ''
@@ -153,6 +132,7 @@ class Client:
             'User-Agent':
                 'krakenex/2.1.0 (+https://github.com/veox/python3-krakenex)'
         })
+        self.conf: dict[str, str] = config
         self._pairs: list[str] = []
         self._name = name
         self._api_key = api_key
@@ -212,8 +192,36 @@ class Client:
         data['nonce'] = str(int(1000*time.time()))
         return await self._private(method, data, uri_path)
 
+    async def get_balances(
+        self,
+    ) -> dict[str, float]:
+        '''
+        Return the set of asset balances for this account
+        by symbol.
+
+        '''
+        resp = await self.endpoint(
+            'Balance',
+            {},
+        )
+        by_bsuid = resp['result']
+        return {
+            self._atable[sym].lower(): float(bal)
+            for sym, bal in by_bsuid.items()
+        }
+
+    async def get_assets(self) -> dict[str, dict]:
+        resp = await self._public('Assets', {})
+        return resp['result']
+
+    async def cache_assets(self) -> None:
+        assets = self.assets = await self.get_assets()
+        for bsuid, info in assets.items():
+            self._atable[bsuid] = info['altname']
+
     async def get_trades(
         self,
+        fetch_limit: int = 10,
 
     ) -> dict[str, Any]:
         '''
@@ -225,6 +233,8 @@ class Client:
         trades_by_id: dict[str, Any] = {}
 
         for i in itertools.count():
+            if i >= fetch_limit:
+                break
 
             # increment 'ofs' pagination offset
             ofs = i*50
@@ -254,6 +264,61 @@ class Client:
         assert count == len(trades_by_id.values())
         return trades_by_id
 
+    async def get_xfers(
+        self,
+        asset: str,
+        src_asset: str = '',
+
+    ) -> dict[str, Transaction]:
+        '''
+        Get asset balance transfer transactions.
+
+        Currently only withdrawals are supported.
+
+        '''
+        xfers: list[dict] = (await self.endpoint(
+            'WithdrawStatus',
+            {'asset': asset},
+        ))['result']
+
+        # eg. resp schema:
+        # 'result': [{'method': 'Bitcoin', 'aclass': 'currency', 'asset':
+        #     'XXBT', 'refid': 'AGBJRMB-JHD2M4-NDI3NR', 'txid':
+        #     'b95d66d3bb6fd76cbccb93f7639f99a505cb20752c62ea0acc093a0e46547c44',
+        #     'info': 'bc1qc8enqjekwppmw3g80p56z5ns7ze3wraqk5rl9z',
+        #     'amount': '0.00300726', 'fee': '0.00001000', 'time':
+        #     1658347714, 'status': 'Success'}]}
+
+        trans: dict[str, Transaction] = {}
+        for entry in xfers:
+            # look up the normalized name
+            asset = self._atable[entry['asset']].lower()
+
+            # XXX: this is in the asset units (likely) so it isn't
+            # quite the same as a commisions cost necessarily..)
+            cost = float(entry['fee'])
+
+            tran = Transaction(
+                fqsn=asset + '.kraken',
+                tid=entry['txid'],
+                dt=pendulum.from_timestamp(entry['time']),
+                bsuid=f'{asset}{src_asset}',
+                size=-1*(
+                    float(entry['amount'])
+                    +
+                    cost
+                ),
+                # since this will be treated as a "sell" it
+                # shouldn't be needed to compute the be price.
+                price='NaN',
+
+                # XXX: see note above
+                cost=0,
+            )
+            trans[tran.tid] = tran
+
+        return trans
+
     async def submit_limit(
         self,
         symbol: str,
@@ -282,6 +347,7 @@ class Client:
                 "volume": str(size),
             }
             return await self.endpoint('AddOrder', data)
+
         else:
             # Edit order data for kraken api
             data["txid"] = reqid
@@ -301,7 +367,9 @@ class Client:
     async def symbol_info(
         self,
         pair: Optional[str] = None,
-    ):
+
+    ) -> dict[str, dict[str, str]]:
+
         if pair is not None:
             pairs = {'pair': pair}
         else:
@@ -326,6 +394,12 @@ class Client:
     ) -> dict:
         if not self._pairs:
             self._pairs = await self.symbol_info()
+
+            ntable = {}
+            for restapikey, info in self._pairs.items():
+                ntable[restapikey] = ntable[info['wsname']] = info['altname']
+
+            self._ntable.update(ntable)
 
         return self._pairs
 
@@ -424,45 +498,43 @@ class Client:
             else:
                 raise BrokerError(errmsg)
 
+    @classmethod
+    def normalize_symbol(
+        cls,
+        ticker: str
+    ) -> str:
+        '''
+        Normalize symbol names to to a 3x3 pair from the global
+        definition map which we build out from the data retreived from
+        the 'AssetPairs' endpoint, see methods above.
+
+        '''
+        ticker = cls._ntable[ticker]
+        symlen = len(ticker)
+        if symlen != 6:
+            raise ValueError(f'Unhandled symbol: {ticker}')
+
+        return ticker.lower()
+
 
 @acm
 async def get_client() -> Client:
 
-    section = get_config()
-    if section:
+    conf = get_config()
+    if conf:
         client = Client(
-            name=section['key_descr'],
-            api_key=section['api_key'],
-            secret=section['secret']
+            conf,
+            name=conf['key_descr'],
+            api_key=conf['api_key'],
+            secret=conf['secret']
         )
     else:
-        client = Client()
+        client = Client({})
 
-    # at startup, load all symbols locally for fast search
-    await client.cache_symbols()
+    # at startup, load all symbols, and asset info in
+    # batch requests.
+    async with trio.open_nursery() as nurse:
+        nurse.start_soon(client.cache_assets)
+        await client.cache_symbols()
 
     yield client
-
-
-def normalize_symbol(
-    ticker: str
-) -> str:
-    '''
-    Normalize symbol names to to a 3x3 pair.
-
-    '''
-    remap = {
-        'XXBTZEUR': 'XBTEUR',
-        'XXMRZEUR': 'XMREUR',
-
-        # ws versions? pretty weird..
-        'XBT/EUR': 'XBTEUR',
-        'XMR/EUR': 'XMREUR',
-    }
-    symlen = len(ticker)
-    if symlen != 6:
-        ticker = remap[ticker]
-    else:
-        raise ValueError(f'Unhandled symbol: {ticker}')
-
-    return ticker.lower()

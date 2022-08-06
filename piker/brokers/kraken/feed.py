@@ -19,7 +19,6 @@ Real-time and historical data feed endpoints.
 
 '''
 from contextlib import asynccontextmanager as acm
-from dataclasses import asdict
 from datetime import datetime
 from typing import (
     Any,
@@ -28,6 +27,7 @@ from typing import (
 )
 import time
 
+from async_generator import aclosing
 from fuzzywuzzy import process as fuzzy
 import numpy as np
 import pendulum
@@ -49,7 +49,6 @@ from piker.data._web_bs import open_autorecon_ws, NoBsWs
 from . import log
 from .api import (
     Client,
-    OHLC,
 )
 
 
@@ -87,6 +86,30 @@ class Pair(Struct):
     ordermin: float  # minimum order volume for pair
 
 
+class OHLC(Struct):
+    '''
+    Description of the flattened OHLC quote format.
+
+    For schema details see:
+        https://docs.kraken.com/websockets/#message-ohlc
+
+    '''
+    chan_id: int  # internal kraken id
+    chan_name: str  # eg. ohlc-1  (name-interval)
+    pair: str  # fx pair
+    time: float  # Begin time of interval, in seconds since epoch
+    etime: float  # End time of interval, in seconds since epoch
+    open: float  # Open price of interval
+    high: float  # High price within interval
+    low: float  # Low price within interval
+    close: float  # Close price of interval
+    vwap: float  # Volume weighted average price within interval
+    volume: float  # Accumulated volume **within interval**
+    count: int  # Number of trades within interval
+    # (sampled) generated tick data
+    ticks: list[Any] = []
+
+
 async def stream_messages(
     ws: NoBsWs,
 ):
@@ -117,9 +140,8 @@ async def stream_messages(
                 too_slow_count = 0
                 continue
 
-        if isinstance(msg, dict):
-            if msg.get('event') == 'heartbeat':
-
+        match msg:
+            case {'event': 'heartbeat'}:
                 now = time.time()
                 delay = now - last_hb
                 last_hb = now
@@ -130,11 +152,9 @@ async def stream_messages(
 
                 continue
 
-            err = msg.get('errorMessage')
-            if err:
-                raise BrokerError(err)
-        else:
-            yield msg
+            case _:
+                # passthrough sub msgs
+                yield msg
 
 
 async def process_data_feed_msgs(
@@ -145,44 +165,69 @@ async def process_data_feed_msgs(
 
     '''
     async for msg in stream_messages(ws):
+        match msg:
+            case {
+                'errorMessage': errmsg
+            }:
+                raise BrokerError(errmsg)
 
-        chan_id, *payload_array, chan_name, pair = msg
+            case {
+                'event': 'subscriptionStatus',
+            } as sub:
+                log.info(
+                    'WS subscription is active:\n'
+                    f'{sub}'
+                )
+                continue
 
-        if 'ohlc' in chan_name:
+            case [
+                chan_id,
+                *payload_array,
+                chan_name,
+                pair
+            ]:
+                if 'ohlc' in chan_name:
+                    ohlc = OHLC(
+                        chan_id,
+                        chan_name,
+                        pair,
+                        *payload_array[0]
+                    )
+                    ohlc.typecast()
+                    yield 'ohlc', ohlc
 
-            yield 'ohlc', OHLC(chan_id, chan_name, pair, *payload_array[0])
+                elif 'spread' in chan_name:
 
-        elif 'spread' in chan_name:
+                    bid, ask, ts, bsize, asize = map(
+                        float, payload_array[0])
 
-            bid, ask, ts, bsize, asize = map(float, payload_array[0])
+                    # TODO: really makes you think IB has a horrible API...
+                    quote = {
+                        'symbol': pair.replace('/', ''),
+                        'ticks': [
+                            {'type': 'bid', 'price': bid, 'size': bsize},
+                            {'type': 'bsize', 'price': bid, 'size': bsize},
 
-            # TODO: really makes you think IB has a horrible API...
-            quote = {
-                'symbol': pair.replace('/', ''),
-                'ticks': [
-                    {'type': 'bid', 'price': bid, 'size': bsize},
-                    {'type': 'bsize', 'price': bid, 'size': bsize},
+                            {'type': 'ask', 'price': ask, 'size': asize},
+                            {'type': 'asize', 'price': ask, 'size': asize},
+                        ],
+                    }
+                    yield 'l1', quote
 
-                    {'type': 'ask', 'price': ask, 'size': asize},
-                    {'type': 'asize', 'price': ask, 'size': asize},
-                ],
-            }
-            yield 'l1', quote
+                # elif 'book' in msg[-2]:
+                #     chan_id, *payload_array, chan_name, pair = msg
+                #     print(msg)
 
-        # elif 'book' in msg[-2]:
-        #     chan_id, *payload_array, chan_name, pair = msg
-        #     print(msg)
-
-        else:
-            print(f'UNHANDLED MSG: {msg}')
-            yield msg
+            case _:
+                print(f'UNHANDLED MSG: {msg}')
+                # yield msg
 
 
 def normalize(
     ohlc: OHLC,
 
 ) -> dict:
-    quote = asdict(ohlc)
+    quote = ohlc.to_dict()
     quote['broker_ts'] = quote['time']
     quote['brokerd_ts'] = time.time()
     quote['symbol'] = quote['pair'] = quote['pair'].replace('/', '')
@@ -376,17 +421,15 @@ async def stream_quotes(
         # see the tips on reconnection logic:
         # https://support.kraken.com/hc/en-us/articles/360044504011-WebSocket-API-unexpected-disconnections-from-market-data-feeds
         ws: NoBsWs
-        async with open_autorecon_ws(
-            'wss://ws.kraken.com/',
-            fixture=subscribe,
-        ) as ws:
-
+        async with (
+            open_autorecon_ws(
+                'wss://ws.kraken.com/',
+                fixture=subscribe,
+            ) as ws,
+            aclosing(process_data_feed_msgs(ws)) as msg_gen,
+        ):
             # pull a first quote and deliver
-            msg_gen = process_data_feed_msgs(ws)
-
-            # TODO: use ``anext()`` when it lands in 3.10!
-            typ, ohlc_last = await msg_gen.__anext__()
-
+            typ, ohlc_last = await anext(msg_gen)
             topic, quote = normalize(ohlc_last)
 
             task_status.started((init_msgs,  quote))
