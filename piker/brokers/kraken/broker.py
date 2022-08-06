@@ -1038,7 +1038,7 @@ async def handle_order_updates(
                         txid
 
                         # we throttle too-fast-requests on the ems side
-                        or (txid and isinstance(txid, TooFastEdit))
+                        and not isinstance(txid, TooFastEdit)
                     ):
                         # client was editting too quickly
                         # so we instead cancel this order
