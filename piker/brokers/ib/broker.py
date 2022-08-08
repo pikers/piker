@@ -494,8 +494,6 @@ async def trades_dialogue(
                     ):
                         trans = norm_trade_records(ledger)
                         updated = table.update_from_trans(trans)
-                        pp = updated[bsuid]
-
                         # update trades ledgers for all accounts from connected
                         # api clients which report trades for **this session**.
                         trades = await proxy.trades()
@@ -523,7 +521,18 @@ async def trades_dialogue(
                                 table.update_from_trans(trans)
                                 updated = table.update_from_trans(trans)
 
-                        assert msg.size == pp.size, 'WTF'
+                        # XXX: not sure exactly why it wouldn't be in
+                        # the updated output (maybe this is a bug?) but
+                        # if you create a pos from TWS and then load it
+                        # from the api trades it seems we get a key
+                        # error from ``update[bsuid]`` ?
+                        pp = table.pps[bsuid]
+                        if msg.size != pp.size:
+                            log.error(
+                                'Position mismatch {pp.symbol.front_fqsn()}:\n'
+                                f'ib: {msg.size}\n'
+                                f'piker: {pp.size}\n'
+                            )
 
                 active_pps, closed_pps = table.dump_active()
 
