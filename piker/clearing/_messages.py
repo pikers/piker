@@ -67,7 +67,7 @@ class Order(Struct):
     # determines whether the create execution
     # will be submitted to the ems or directly to
     # the backend broker
-    exec_mode: str  # {'dark', 'live', 'paper'}
+    exec_mode: str  # {'dark', 'live'}
 
 
 # --------------
@@ -136,10 +136,13 @@ class BrokerdCancel(Struct):
 
 class BrokerdOrder(Struct):
 
-    action: str  # {buy, sell}
     oid: str
     account: str
     time_ns: int
+
+    # TODO: if we instead rely on a +ve/-ve size to determine
+    # the action we more or less don't need this field right?
+    action: str = ''  # {buy, sell}
 
     # "broker request id": broker specific/internal order id if this is
     # None, creates a new order otherwise if the id is valid the backend
@@ -149,7 +152,7 @@ class BrokerdOrder(Struct):
     # field
     reqid: Optional[Union[int, str]] = None
 
-    symbol: str  # symbol.<providername> ?
+    symbol: str  # fqsn
     price: float
     size: float
 
@@ -183,24 +186,20 @@ class BrokerdStatus(Struct):
     reqid: Union[int, str]
     time_ns: int
 
-    # XXX: should be best effort set for every update
-    account: str = ''
-
     # TODO: instead (ack, pending, open, fill, clos(ed), cancelled)
     # {
-    #   'submitted',
-    #   'cancelled',
-    #   'filled',
+    #   'submitted',  # open
+    #   'cancelled',  # canceled
+    #   'filled',     # closed
     # }
     status: str
-
-    # +ve is buy, -ve is sell
-    size: float = 0.0
-    price: float = 0.0
-
+    account: str
     filled: float = 0.0
     reason: str = ''
     remaining: float = 0.0
+
+    external: bool = False
+    # order: Optional[BrokerdOrder] = None
 
     # XXX: better design/name here?
     # flag that can be set to indicate a message for an order

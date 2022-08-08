@@ -49,9 +49,14 @@ from ._position import (
     SettingsPane,
 )
 from ._forms import FieldsForm
-# from ._label import FormatLabel
 from ._window import MultiStatus
-from ..clearing._messages import Order, BrokerdPosition
+from ..clearing._messages import (
+    Order,
+    Status,
+    # BrokerdOrder,
+    # BrokerdStatus,
+    BrokerdPosition,
+)
 from ._forms import open_form_input_handling
 
 
@@ -519,22 +524,36 @@ class OrderMode:
 
     def load_unknown_dialog_from_msg(
         self,
+        # status: Status,
         msg: dict,
 
     ) -> OrderDialog:
 
         oid = str(msg['oid'])
-        size = msg['brokerd_msg']['size']
+        # oid = str(status.oid)
+
+        # bstatus = BrokerdStatus(**msg.brokerd_msg)
+        # NOTE: the `.order` attr **must** be set with the
+        # equivalent order msg in order to be loaded.
+        # border = BrokerdOrder(**bstatus.broker_details['order'])
+        # msg = msg['brokerd_msg']
+
+        # size = border.size
+        size = msg['size']
         if size >= 0:
             action = 'buy'
         else:
             action = 'sell'
 
-        acct = msg['brokerd_msg']['account']
-        price = msg['brokerd_msg']['price']
-        deats = msg['brokerd_msg']['broker_details']
+        # acct = border.account
+        # price = border.price
+        # price = msg['brokerd_msg']['price']
+        symbol = msg['symbol']
+        deats = msg['broker_details']
+        brokername = deats['name']
         fqsn = (
-            deats['fqsn'] + '.' + deats['name']
+            # deats['fqsn'] + '.' + deats['name']
+            symbol + '.' + brokername
         )
         symbol = Symbol.from_fqsn(
             fqsn=fqsn,
@@ -543,11 +562,11 @@ class OrderMode:
         # map to order composite-type
         order = Order(
             action=action,
-            price=price,
-            account=acct,
+            price=msg['price'],
+            account=msg['account'],
             size=size,
             symbol=symbol,
-            brokers=symbol.brokers,
+            brokers=[brokername],
             oid=oid,
             exec_mode='live',  # dark or live
         )
@@ -808,8 +827,8 @@ async def open_order_mode(
                 # HACK ALERT: ensure a resp field is filled out since
                 # techincally the call below expects a ``Status``. TODO:
                 # parse into proper ``Status`` equivalents ems-side?
-                msg.setdefault('resp', msg['broker_details']['resp'])
-                msg.setdefault('oid', msg['broker_details']['oid'])
+                # msg.setdefault('resp', msg['broker_details']['resp'])
+                # msg.setdefault('oid', msg['broker_details']['oid'])
                 msg['brokerd_msg'] = msg
 
                 await process_trade_msg(
@@ -892,6 +911,7 @@ async def process_trade_msg(
         log.warning(
             f'received msg for untracked dialog:\n{fmsg}'
         )
+        # dialog = mode.load_unknown_dialog_from_msg(Status(**msg))
         dialog = mode.load_unknown_dialog_from_msg(msg)
 
     # record message to dialog tracking

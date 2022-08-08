@@ -127,7 +127,8 @@ async def handle_order_requests(
                     oid=request_msg['oid'],
                     symbol=request_msg['symbol'],
                     reason=f'No account found: `{account}` ?',
-            ))
+                )
+            )
             continue
 
         client = _accounts2clients.get(account)
@@ -495,17 +496,16 @@ async def trades_dialogue(
                         'BUY': 1,
                     }[order.action] * quant
                     fqsn, _ = con2fqsn(trade.contract)
+                    reqid = order.orderId
 
                     # TODO: maybe embed a ``BrokerdOrder`` instead
                     # since then we can directly load it on the client
                     # side in the order mode loop?
                     msg = BrokerdStatus(
-                        reqid=order.orderId,
-                        time_ns=time.time_ns(),
-                        account=accounts_def.inverse[order.account],
+                        reqid=reqid,
+                        time_ns=(ts := time.time_ns()),
                         status='submitted',
-                        size=size,
-                        price=order.lmtPrice,
+                        account=accounts_def.inverse[order.account],
                         filled=0,
                         reason='Existing live order',
 
@@ -516,6 +516,17 @@ async def trades_dialogue(
                         broker_details={
                             'name': 'ib',
                             'fqsn': fqsn,
+                            # this is a embedded/boxed order
+                            # msg that can be loaded by the ems
+                            # and for relay to clients.
+                            'order': BrokerdOrder(
+                                symbol=fqsn,
+                                account=accounts_def.inverse[order.account],
+                                oid=reqid,
+                                time_ns=ts,
+                                size=size,
+                                price=order.lmtPrice,
+                            ),
                         },
                     )
                     order_msgs.append(msg)
