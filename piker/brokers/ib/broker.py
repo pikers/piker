@@ -60,6 +60,8 @@ from piker.pp import (
 )
 from piker.log import get_console_log
 from piker.clearing._messages import (
+    Order,
+    Status,
     BrokerdOrder,
     BrokerdOrderAck,
     BrokerdStatus,
@@ -184,7 +186,7 @@ async def handle_order_requests(
                 )
             )
 
-        elif action == 'cancel':
+        if action == 'cancel':
             msg = BrokerdCancel(**request_msg)
             client.submit_cancel(reqid=int(msg.reqid))
 
@@ -491,43 +493,43 @@ async def trades_dialogue(
 
                     order = trade.order
                     quant = trade.order.totalQuantity
+                    action = order.action.lower()
                     size = {
-                        'SELL': -1,
-                        'BUY': 1,
-                    }[order.action] * quant
-                    fqsn, _ = con2fqsn(trade.contract)
+                        'sell': -1,
+                        'buy': 1,
+                    }[action] * quant
+                    con = trade.contract
+
+                    # TODO: in the case of the SMART venue (aka ib's
+                    # router-clearing sys) we probably should handle
+                    # showing such orders overtop of the fqsn for the
+                    # primary exchange, how to map this easily is going
+                    # to be a bit tricky though?
+                    deats = await proxy.con_deats(contracts=[con])
+                    fqsn = list(deats)[0]
+
                     reqid = order.orderId
 
                     # TODO: maybe embed a ``BrokerdOrder`` instead
                     # since then we can directly load it on the client
                     # side in the order mode loop?
-                    msg = BrokerdStatus(
+                    msg = Status(
+                        time_ns=time.time_ns(),
+                        resp='open',
+                        oid=str(reqid),
                         reqid=reqid,
-                        time_ns=(ts := time.time_ns()),
-                        status='submitted',
-                        account=accounts_def.inverse[order.account],
-                        filled=0,
-                        reason='Existing live order',
 
-                        # this seems to not be necessarily up to date in
-                        # the execDetails event.. so we have to send it
-                        # here I guess?
-                        remaining=quant,
-                        broker_details={
-                            'name': 'ib',
-                            'fqsn': fqsn,
-                            # this is a embedded/boxed order
-                            # msg that can be loaded by the ems
-                            # and for relay to clients.
-                            'order': BrokerdOrder(
-                                symbol=fqsn,
-                                account=accounts_def.inverse[order.account],
-                                oid=reqid,
-                                time_ns=ts,
-                                size=size,
-                                price=order.lmtPrice,
-                            ),
-                        },
+                        # embedded order info
+                        req=Order(
+                            action=action,
+                            exec_mode='live',
+                            oid=str(reqid),
+                            symbol=fqsn,
+                            account=accounts_def.inverse[order.account],
+                            price=order.lmtPrice,
+                            size=size,
+                        ),
+                        src='ib',
                     )
                     order_msgs.append(msg)
 
@@ -686,6 +688,7 @@ async def trades_dialogue(
                     # allocate event relay tasks for each client connection
                     n.start_soon(
                         deliver_trade_events,
+                        n,
                         trade_event_stream,
                         ems_stream,
                         accounts_def,
@@ -779,6 +782,7 @@ _statuses: dict[str, str] = {
 
 async def deliver_trade_events(
 
+    nurse: trio.Nursery,
     trade_event_stream: trio.MemoryReceiveChannel,
     ems_stream: tractor.MsgStream,
     accounts_def: dict[str, str],  # eg. `'ib.main'` -> `'DU999999'`
@@ -834,14 +838,35 @@ async def deliver_trade_events(
                 # unwrap needed data from ib_insync internal types
                 trade: Trade = item
                 status: OrderStatus = trade.orderStatus
-                status_key = status.status.lower()
+                ib_status_key = status.status.lower()
+
+                acctid = accounts_def.inverse[trade.order.account]
 
                 # double check there is no error when
                 # cancelling.. gawwwd
-                if status_key == 'cancelled':
+                if ib_status_key == 'cancelled':
                     last_log = trade.log[-1]
                     if last_log.message:
-                        status_key = trade.log[-2].status
+                        ib_status_key = trade.log[-2].status
+
+                elif ib_status_key == 'inactive':
+                    async def sched_cancel():
+                        log.warning(
+                            'OH GAWD an inactive order..scheduling a cancel\n'
+                            f'{pformat(item)}'
+                        )
+                        proxy = proxies[acctid]
+                        await proxy.submit_cancel(reqid=trade.order.orderId)
+                        await trio.sleep(1)
+                        nurse.start_soon(sched_cancel)
+
+                    nurse.start_soon(sched_cancel)
+
+                status_key = _statuses.get(ib_status_key) or ib_status_key
+
+                remaining = status.remaining
+                if remaining == 0:
+                    status_key = 'closed'
 
                 # skip duplicate filled updates - we get the deats
                 # from the execution details event
@@ -859,7 +884,7 @@ async def deliver_trade_events(
 
                     # this seems to not be necessarily up to date in the
                     # execDetails event.. so we have to send it here I guess?
-                    remaining=status.remaining,
+                    remaining=remaining,
 
                     broker_details={'name': 'ib'},
                 )
@@ -1002,9 +1027,8 @@ async def deliver_trade_events(
 
                 cid, msg = pack_position(item)
                 log.info(f'New IB position msg: {msg}')
-                # acctid = msg.account = accounts_def.inverse[msg.account]
                 # cuck ib and it's shitty fifo sys for pps!
-                # await ems_stream.send(msg)
+                continue
 
             case 'event':
 

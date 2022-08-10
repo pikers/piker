@@ -63,7 +63,7 @@ from ._forms import open_form_input_handling
 log = get_logger(__name__)
 
 
-class OrderDialog(Struct):
+class Dialog(Struct):
     '''
     Trade dialogue meta-data describing the lifetime
     of an order submission to ``emsd`` from a chart.
@@ -146,7 +146,7 @@ class OrderMode:
     current_pp: Optional[PositionTracker] = None
     active: bool = False
     name: str = 'order'
-    dialogs: dict[str, OrderDialog] = field(default_factory=dict)
+    dialogs: dict[str, Dialog] = field(default_factory=dict)
 
     _colors = {
         'alert': 'alert_yellow',
@@ -163,6 +163,7 @@ class OrderMode:
     ) -> LevelLine:
 
         level = order.price
+        print(f'SIZE: {order.size}')
         line = order_line(
 
             self.chart,
@@ -175,7 +176,8 @@ class OrderMode:
             color=self._colors[order.action],
 
             dotted=True if (
-                order.exec_mode == 'dark' and order.action != 'alert'
+                order.exec_mode == 'dark'
+                and order.action != 'alert'
             ) else False,
 
             **line_kwargs,
@@ -265,7 +267,7 @@ class OrderMode:
         send_msg: bool = True,
         order: Optional[Order] = None,
 
-    ) -> OrderDialog:
+    ) -> Dialog:
         '''
         Send execution order to EMS return a level line to
         represent the order on a chart.
@@ -304,7 +306,7 @@ class OrderMode:
             uuid=order.oid,
         )
 
-        dialog = OrderDialog(
+        dialog = Dialog(
             uuid=order.oid,
             order=order,
             symbol=order.symbol,
@@ -373,7 +375,7 @@ class OrderMode:
         self,
         uuid: str
 
-    ) -> OrderDialog:
+    ) -> Dialog:
         '''
         Order submitted status event handler.
 
@@ -428,7 +430,7 @@ class OrderMode:
         self,
 
         uuid: str,
-        msg: Dict[str, Any],
+        msg: Status,
 
     ) -> None:
 
@@ -452,7 +454,7 @@ class OrderMode:
 
                 # TODO: add in standard fill/exec info that maybe we
                 # pack in a broker independent way?
-                f'{msg["resp"]}: {msg["trigger_price"]}',
+                f'{msg.resp}: {msg.req.price}',
             ],
         )
         log.runtime(result)
@@ -524,53 +526,36 @@ class OrderMode:
 
     def load_unknown_dialog_from_msg(
         self,
-        # status: Status,
-        msg: dict,
+        msg: Status,
 
-    ) -> OrderDialog:
+    ) -> Dialog:
 
-        oid = str(msg['oid'])
-        # oid = str(status.oid)
-
-        # bstatus = BrokerdStatus(**msg.brokerd_msg)
         # NOTE: the `.order` attr **must** be set with the
         # equivalent order msg in order to be loaded.
-        # border = BrokerdOrder(**bstatus.broker_details['order'])
-        # msg = msg['brokerd_msg']
+        order = Order(**msg.req)
+        oid = str(msg.oid)
+        symbol = order.symbol
 
-        # size = border.size
-        size = msg['size']
-        if size >= 0:
-            action = 'buy'
+        # TODO: MEGA UGGG ZONEEEE!
+        src = msg.src
+        if (
+            src
+            and src != 'dark'
+            and src not in symbol
+        ):
+            fqsn = symbol + '.' + src
+            brokername = src
         else:
-            action = 'sell'
+            fqsn = symbol
+            *head, brokername = fqsn.rsplit('.')
 
-        # acct = border.account
-        # price = border.price
-        # price = msg['brokerd_msg']['price']
-        symbol = msg['symbol']
-        deats = msg['broker_details']
-        brokername = deats['name']
-        fqsn = (
-            # deats['fqsn'] + '.' + deats['name']
-            symbol + '.' + brokername
-        )
-        symbol = Symbol.from_fqsn(
+        # fill out complex fields
+        order.oid = str(order.oid)
+        order.brokers = [brokername]
+        order.symbol = Symbol.from_fqsn(
             fqsn=fqsn,
             info={},
         )
-        # map to order composite-type
-        order = Order(
-            action=action,
-            price=msg['price'],
-            account=msg['account'],
-            size=size,
-            symbol=symbol,
-            brokers=[brokername],
-            oid=oid,
-            exec_mode='live',  # dark or live
-        )
-
         dialog = self.submit_order(
             send_msg=False,
             order=order,
@@ -770,7 +755,7 @@ async def open_order_mode(
         order_pane.order_mode = mode
 
         # select a pp to track
-        tracker = trackers[pp_account]
+        tracker: PositionTracker = trackers[pp_account]
         mode.current_pp = tracker
         tracker.show()
         tracker.hide_info()
@@ -870,12 +855,13 @@ async def process_trade_msg(
     book: OrderBook,
     msg: dict,
 
-) -> None:
+) -> tuple[Dialog, Status]:
 
     get_index = mode.chart.get_index
     fmsg = pformat(msg)
     log.info(f'Received order msg:\n{fmsg}')
     name = msg['name']
+
     if name in (
         'position',
     ):
@@ -901,105 +887,117 @@ async def process_trade_msg(
         # short circuit to next msg to avoid
         # unnecessary msg content lookups
         return
-        # continue
 
-    resp = msg['resp']
-    oid = str(msg['oid'])
-    dialog = mode.dialogs.get(oid)
+    msg = Status(**msg)
+    resp = msg.resp
+    oid = msg.oid
+    dialog: Dialog = mode.dialogs.get(oid)
 
-    if dialog is None:
-        log.warning(
-            f'received msg for untracked dialog:\n{fmsg}'
-        )
-        # dialog = mode.load_unknown_dialog_from_msg(Status(**msg))
-        dialog = mode.load_unknown_dialog_from_msg(msg)
+    match msg:
+        case Status(resp='dark_open' | 'open'):
 
-    # record message to dialog tracking
-    dialog.msgs[oid] = msg
+            if dialog is not None:
+                # show line label once order is live
+                mode.on_submit(oid)
 
-    # response to 'action' request (buy/sell)
-    if resp in (
-        'dark_submitted',
-        'broker_submitted'
-    ):
-        # show line label once order is live
-        mode.on_submit(oid)
+            else:
+                log.warning(
+                    f'received msg for untracked dialog:\n{fmsg}'
+                )
+                assert msg.resp in ('open', 'dark_open'), f'Unknown msg: {msg}'
 
-    # resp to 'cancel' request or error condition
-    # for action request
-    elif resp in (
-        'broker_inactive',
-        'broker_errored',
-    ):
-        # delete level line from view
-        mode.on_cancel(oid)
-        broker_msg = msg['brokerd_msg']
-        log.error(
-            f'Order {oid}->{resp} with:\n{pformat(broker_msg)}'
-        )
+                sym = mode.chart.linked.symbol
+                fqsn = sym.front_fqsn()
+                order = Order(**msg.req)
+                if (
+                    ((order.symbol + f'.{msg.src}') == fqsn)
 
-    elif resp in (
-        'broker_cancelled',
-        'dark_cancelled'
-    ):
-        # delete level line from view
-        mode.on_cancel(oid)
-        broker_msg = msg['brokerd_msg']
-        log.cancel(
-            f'Order {oid}->{resp} with:\n{pformat(broker_msg)}'
-        )
+                    # a existing dark order for the same symbol
+                    or (
+                        order.symbol == fqsn
+                        and (msg.src == 'dark') or (msg.src in fqsn)
+                    )
+                ):
+                    dialog = mode.load_unknown_dialog_from_msg(msg)
+                    mode.on_submit(oid)
 
-    elif resp in (
-        'dark_triggered'
-    ):
-        log.info(f'Dark order triggered for {fmsg}')
+        case Status(resp='error'):
+            # delete level line from view
+            mode.on_cancel(oid)
+            broker_msg = msg.brokerd_msg
+            log.error(
+                f'Order {oid}->{resp} with:\n{pformat(broker_msg)}'
+            )
 
-    elif resp in (
-        'alert_triggered'
-    ):
-        # should only be one "fill" for an alert
-        # add a triangle and remove the level line
-        mode.on_fill(
-            oid,
-            price=msg['trigger_price'],
-            arrow_index=get_index(time.time()),
-        )
-        mode.lines.remove_line(uuid=oid)
-        await mode.on_exec(oid, msg)
+        case Status(resp='canceled'):
+            # delete level line from view
+            mode.on_cancel(oid)
+            req = msg.req
+            log.cancel(
+                f'Canceled order {oid}:\n{pformat(req)}'
+            )
 
-    # response to completed 'action' request for buy/sell
-    elif resp in (
-        'broker_executed',
-    ):
-        # right now this is just triggering a system alert
-        await mode.on_exec(oid, msg)
+        case Status(
+            resp='triggered',
+            # req=Order(exec_mode='dark')  # TODO:
+            req={'exec_mode': 'dark'},
+        ):
+            log.info(f'Dark order triggered for {fmsg}')
 
-        if msg['brokerd_msg']['remaining'] == 0:
+        case Status(
+            resp='triggered',
+            # req=Order(exec_mode='live', action='alert') as req, # TODO
+            req={'exec_mode': 'live', 'action': 'alert'} as req,
+        ):
+            # should only be one "fill" for an alert
+            # add a triangle and remove the level line
+            mode.on_fill(
+                oid,
+                price=req.price,
+                arrow_index=get_index(time.time()),
+            )
+            mode.lines.remove_line(uuid=oid)
+            msg.req = Order(**req)
+            await mode.on_exec(oid, msg)
+
+        # response to completed 'dialog' for order request
+        case Status(
+            resp='closed',
+            # req=Order() as req,  # TODO
+            req=req,
+        ):
+            # right now this is just triggering a system alert
+            msg.req = Order(**req)
+            await mode.on_exec(oid, msg)
             mode.lines.remove_line(uuid=oid)
 
-    # each clearing tick is responded individually
-    elif resp in (
-        'broker_filled',
-    ):
-        known_order = book._sent_orders.get(oid)
-        if not known_order:
-            log.warning(f'order {oid} is unknown')
-            return
-            # continue
+        # each clearing tick is responded individually
+        case Status(resp='fill'):
+            known_order = book._sent_orders.get(oid)
+            if not known_order:
+                log.warning(f'order {oid} is unknown')
+                return
+                # continue
 
-        action = known_order.action
-        details = msg['brokerd_msg']
+            action = known_order.action
+            details = msg.brokerd_msg
 
-        # TODO: some kinda progress system
-        mode.on_fill(
-            oid,
-            price=details['price'],
-            pointing='up' if action == 'buy' else 'down',
+            # TODO: some kinda progress system
+            mode.on_fill(
+                oid,
+                price=details['price'],
+                pointing='up' if action == 'buy' else 'down',
 
-            # TODO: put the actual exchange timestamp
-            arrow_index=get_index(details['broker_time']),
-        )
+                # TODO: put the actual exchange timestamp
+                arrow_index=get_index(details['broker_time']),
+            )
 
-        # TODO: how should we look this up?
-        # tracker = mode.trackers[msg['account']]
-        # tracker.live_pp.fills.append(msg)
+            # TODO: how should we look this up?
+            # tracker = mode.trackers[msg['account']]
+            # tracker.live_pp.fills.append(msg)
+
+    # record message to dialog tracking
+    if dialog:
+        dialog.msgs[oid] = msg
+
+    return dialog, msg

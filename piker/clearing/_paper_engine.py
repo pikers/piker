@@ -45,8 +45,13 @@ from ..data._normalize import iterticks
 from ..data._source import unpack_fqsn
 from ..log import get_logger
 from ._messages import (
-    BrokerdCancel, BrokerdOrder, BrokerdOrderAck, BrokerdStatus,
-    BrokerdFill, BrokerdPosition, BrokerdError
+    BrokerdCancel,
+    BrokerdOrder,
+    BrokerdOrderAck,
+    BrokerdStatus,
+    BrokerdFill,
+    BrokerdPosition,
+    BrokerdError,
 )
 
 
@@ -94,6 +99,10 @@ class PaperBoi:
         '''
         is_modify: bool = False
 
+        if action == 'alert':
+            # bypass all fill simulation
+            return reqid
+
         entry = self._reqids.get(reqid)
         if entry:
             # order is already existing, this is a modify
@@ -103,10 +112,6 @@ class PaperBoi:
         else:
             # register order internally
             self._reqids[reqid] = (oid, symbol, action, price)
-
-        if action == 'alert':
-            # bypass all fill simulation
-            return reqid
 
         # TODO: net latency model
         # we checkpoint here quickly particulalry
@@ -119,7 +124,9 @@ class PaperBoi:
             size = -size
 
         msg = BrokerdStatus(
-            status='submitted',
+            status='open',
+            # account=f'paper_{self.broker}',
+            account='paper',
             reqid=reqid,
             time_ns=time.time_ns(),
             filled=0.0,
@@ -136,7 +143,14 @@ class PaperBoi:
             ) or (
             action == 'sell' and (clear_price := self.last_bid[0]) >= price
         ):
-            await self.fake_fill(symbol, clear_price, size, action, reqid, oid)
+            await self.fake_fill(
+                symbol,
+                clear_price,
+                size,
+                action,
+                reqid,
+                oid,
+            )
 
         else:
             # register this submissions as a paper live order
@@ -178,7 +192,9 @@ class PaperBoi:
         await trio.sleep(0.05)
 
         msg = BrokerdStatus(
-            status='cancelled',
+            status='canceled',
+            # account=f'paper_{self.broker}',
+            account='paper',
             reqid=reqid,
             time_ns=time.time_ns(),
             broker_details={'name': 'paperboi'},
@@ -230,25 +246,23 @@ class PaperBoi:
         self._trade_ledger.update(fill_msg.to_dict())
 
         if order_complete:
-
             msg = BrokerdStatus(
-
                 reqid=reqid,
                 time_ns=time.time_ns(),
-
-                status='filled',
+                # account=f'paper_{self.broker}',
+                account='paper',
+                status='closed',
                 filled=size,
                 remaining=0 if order_complete else remaining,
-
-                broker_details={
-                    'paper_info': {
-                        'oid': oid,
-                    },
-                    'action': action,
-                    'size': size,
-                    'price': price,
-                    'name': self.broker,
-                },
+                # broker_details={
+                #     'paper_info': {
+                #         'oid': oid,
+                #     },
+                #     'action': action,
+                #     'size': size,
+                #     'price': price,
+                #     'name': self.broker,
+                # },
             )
             await self.ems_trades_stream.send(msg)
 
@@ -393,69 +407,72 @@ async def handle_order_requests(
     # order_request: dict
     async for request_msg in ems_order_stream:
 
-        action = request_msg['action']
-
-        if action in {'buy', 'sell'}:
-
-            account = request_msg['account']
-            if account != 'paper':
-                log.error(
-                    'This is a paper account,'
-                    ' only a `paper` selection is valid'
-                )
-                await ems_order_stream.send(BrokerdError(
-                    oid=request_msg['oid'],
-                    symbol=request_msg['symbol'],
-                    reason=f'Paper only. No account found: `{account}` ?',
-                ))
-                continue
+        # action = request_msg['action']
+        match request_msg:
+        # if action in {'buy', 'sell'}:
+            case {'action': ('buy' | 'sell')}:
+                order = BrokerdOrder(**request_msg)
+                account = order.account
+                if account != 'paper':
+                    log.error(
+                        'This is a paper account,'
+                        ' only a `paper` selection is valid'
+                    )
+                    await ems_order_stream.send(BrokerdError(
+                        # oid=request_msg['oid'],
+                        oid=order.oid,
+                        # symbol=request_msg['symbol'],
+                        symbol=order.symbol,
+                        reason=f'Paper only. No account found: `{account}` ?',
+                    ))
+                    continue
 
             # validate
-            order = BrokerdOrder(**request_msg)
+            # order = BrokerdOrder(**request_msg)
 
-            if order.reqid is None:
-                reqid = str(uuid.uuid4())
-            else:
-                reqid = order.reqid
+                # if order.reqid is None:
+                #     reqid = 
+                # else:
+                reqid = order.reqid or str(uuid.uuid4())
 
-            # deliver ack that order has been submitted to broker routing
-            await ems_order_stream.send(
-                BrokerdOrderAck(
+                # deliver ack that order has been submitted to broker routing
+                await ems_order_stream.send(
+                    BrokerdOrderAck(
 
-                    # ems order request id
-                    oid=order.oid,
+                        # ems order request id
+                        oid=order.oid,
 
-                    # broker specific request id
-                    reqid=reqid,
+                        # broker specific request id
+                        reqid=reqid,
 
+                    )
                 )
-            )
 
-            # call our client api to submit the order
-            reqid = await client.submit_limit(
+                # call our client api to submit the order
+                reqid = await client.submit_limit(
 
-                oid=order.oid,
-                symbol=order.symbol,
-                price=order.price,
-                action=order.action,
-                size=order.size,
+                    oid=order.oid,
+                    symbol=order.symbol,
+                    price=order.price,
+                    action=order.action,
+                    size=order.size,
 
-                # XXX: by default 0 tells ``ib_insync`` methods that
-                # there is no existing order so ask the client to create
-                # a new one (which it seems to do by allocating an int
-                # counter - collision prone..)
-                reqid=reqid,
-            )
+                    # XXX: by default 0 tells ``ib_insync`` methods that
+                    # there is no existing order so ask the client to create
+                    # a new one (which it seems to do by allocating an int
+                    # counter - collision prone..)
+                    reqid=reqid,
+                )
 
-        elif action == 'cancel':
-            msg = BrokerdCancel(**request_msg)
+            # elif action == 'cancel':
+            case {'action': 'cancel'}:
+                msg = BrokerdCancel(**request_msg)
+                await client.submit_cancel(
+                    reqid=msg.reqid
+                )
 
-            await client.submit_cancel(
-                reqid=msg.reqid
-            )
-
-        else:
-            log.error(f'Unknown order command: {request_msg}')
+            case _:
+                log.error(f'Unknown order command: {request_msg}')
 
 
 @tractor.context
