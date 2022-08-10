@@ -134,6 +134,8 @@ class Position(Struct):
     # unique backend symbol id
     bsuid: str
 
+    split_ratio: Optional[int] = None
+
     # ordered record of known constituent trade messages
     clears: dict[
         Union[str, int, Status],  # trade id
@@ -158,6 +160,9 @@ class Position(Struct):
         d = self.to_dict()
         clears = d.pop('clears')
         expiry = d.pop('expiry')
+
+        if self.split_ratio is None:
+            d.pop('split_ratio')
 
         # TODO: we need to figure out how to have one top level
         # listing venue here even when the backend isn't providing
@@ -384,12 +389,22 @@ class Position(Struct):
                 asize_h.append(accum_size)
                 ppu_h.append(ppu_h[-1])
 
-        return ppu_h[-1] if ppu_h else 0
+        final_ppu = ppu_h[-1] if ppu_h else 0
+
+        # handle any split info entered (for now) manually by user
+        if self.split_ratio is not None:
+            final_ppu /= self.split_ratio
+
+        return final_ppu
 
     def calc_size(self) -> float:
         size: float = 0
         for tid, entry in self.clears.items():
             size += entry['size']
+
+        if self.split_ratio is not None:
+            size = round(size * self.split_ratio)
+
         return size
 
     def minimize_clears(
@@ -848,6 +863,7 @@ def open_pps(
         size = entry['size']
         # TODO: remove but, handle old field name for now
         ppu = entry.get('ppu', entry.get('be_price', 0))
+        split_ratio = entry.get('split_ratio')
 
         expiry = entry.get('expiry')
         if expiry:
@@ -857,6 +873,7 @@ def open_pps(
             Symbol.from_fqsn(fqsn, info={}),
             size=size,
             ppu=ppu,
+            split_ratio=split_ratio,
             expiry=expiry,
             bsuid=entry['bsuid'],
 

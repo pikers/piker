@@ -36,8 +36,6 @@ from trio_typing import TaskStatus
 import tractor
 from ib_insync.contract import (
     Contract,
-    # Option,
-    # Forex,
 )
 from ib_insync.order import (
     Trade,
@@ -357,11 +355,24 @@ async def update_and_audit_msgs(
                 # presume we're at least not more in the shit then we
                 # thought.
                 if diff:
+                    reverse_split_ratio = pikersize / ibsize
+                    split_ratio = 1/reverse_split_ratio
+
+                    if split_ratio >= reverse_split_ratio:
+                        entry = f'split_ratio = {int(split_ratio)}'
+                    else:
+                        entry = f'split_ratio = 1/{int(reverse_split_ratio)}'
+
                     raise ValueError(
                         f'POSITION MISMATCH ib <-> piker ledger:\n'
                         f'ib: {ibppmsg}\n'
                         f'piker: {msg}\n'
-                        'YOU SHOULD FIGURE OUT WHY TF YOUR LEDGER IS OFF!?!?'
+                        f'reverse_split_ratio: {reverse_split_ratio}\n'
+                        f'split_ratio: {split_ratio}\n\n'
+                        'FIGURE OUT WHY TF YOUR LEDGER IS OFF!?!?\n\n'
+                        'If you are expecting a (reverse) split in this '
+                        'instrument you should probably put the following '
+                        f'in the `pps.toml` section:\n{entry}'
                     )
                     msg.size = ibsize
 
@@ -480,6 +491,7 @@ async def trades_dialogue(
                     # sure know which positions to update from the ledger if
                     # any are missing from the ``pps.toml``
                     bsuid, msg = pack_position(pos)
+
                     acctid = msg.account = accounts_def.inverse[msg.account]
                     acctid = acctid.strip('ib.')
                     cids2pps[(acctid, bsuid)] = msg
@@ -493,7 +505,7 @@ async def trades_dialogue(
                         or pp.size != msg.size
                     ):
                         trans = norm_trade_records(ledger)
-                        updated = table.update_from_trans(trans)
+                        table.update_from_trans(trans)
                         # update trades ledgers for all accounts from connected
                         # api clients which report trades for **this session**.
                         trades = await proxy.trades()
@@ -519,14 +531,22 @@ async def trades_dialogue(
                             trans = trans_by_acct.get(acctid)
                             if trans:
                                 table.update_from_trans(trans)
-                                updated = table.update_from_trans(trans)
 
                         # XXX: not sure exactly why it wouldn't be in
                         # the updated output (maybe this is a bug?) but
                         # if you create a pos from TWS and then load it
                         # from the api trades it seems we get a key
                         # error from ``update[bsuid]`` ?
-                        pp = table.pps[bsuid]
+                        pp = table.pps.get(bsuid)
+                        if not pp:
+                            log.error(
+                                f'The contract id for {msg} may have '
+                                f'changed to {bsuid}\nYou may need to '
+                                'adjust your ledger for this, skipping '
+                                'for now.'
+                            )
+                            continue
+
                         if msg.size != pp.size:
                             log.error(
                                 'Position mismatch {pp.symbol.front_fqsn()}:\n'
@@ -668,6 +688,22 @@ async def emit_pp_update(
             break
 
     await ems_stream.send(msg)
+
+
+_statuses: dict[str, str] = {
+    'cancelled': 'canceled',
+    'submitted': 'open',
+
+    # XXX: just pass these through? it duplicates actual fill events other
+    # then the case where you the `.remaining == 0` case which is our
+    # 'closed'` case.
+    # 'filled': 'pending',
+    # 'pendingsubmit': 'pending',
+
+    # TODO: see a current ``ib_insync`` issue around this:
+    # https://github.com/erdewit/ib_insync/issues/363
+    'inactive': 'pending',
+}
 
 
 async def deliver_trade_events(
