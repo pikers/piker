@@ -18,14 +18,13 @@
 Clearing sub-system message and protocols.
 
 """
-from collections import (
-    ChainMap,
-    deque,
-)
+# from collections import (
+#     ChainMap,
+#     deque,
+# )
 from typing import (
     Optional,
     Literal,
-    Union,
 )
 
 from ..data._source import Symbol
@@ -55,7 +54,8 @@ from ..data.types import Struct
 
 
 # TODO: ``msgspec`` stuff worth paying attention to:
-# - schema evolution: https://jcristharif.com/msgspec/usage.html#schema-evolution
+# - schema evolution:
+# https://jcristharif.com/msgspec/usage.html#schema-evolution
 # - for eg. ``BrokerdStatus``, instead just have separate messages?
 # - use literals for a common msg determined by diff keys?
 #   - https://jcristharif.com/msgspec/usage.html#literal
@@ -92,7 +92,7 @@ class Order(Struct):
 
     # internal ``emdsd`` unique "order id"
     oid: str  # uuid4
-    symbol: Union[str, Symbol]
+    symbol: str | Symbol
     account: str  # should we set a default as '' ?
 
     price: float
@@ -110,7 +110,6 @@ class Cancel(Struct):
     action: str = 'cancel'
     oid: str  # uuid4
     symbol: str
-    req: Optional[Order] = None
 
 
 # --------------
@@ -123,31 +122,38 @@ class Status(Struct):
 
     name: str = 'status'
     time_ns: int
+    oid: str  # uuid4 ems-order dialog id
 
     resp: Literal[
-      'pending',  # acked but not yet open
+      'pending',  # acked by broker but not yet open
       'open',
-      'dark_open',  # live in dark loop
-      'triggered',  # dark-submitted to brokerd-backend
+      'dark_open',  # dark/algo triggered order is open in ems clearing loop
+      'triggered',  # above triggered order sent to brokerd, or an alert closed
       'closed',  # fully cleared all size/units
       'fill',  # partial execution
       'canceled',
       'error',
     ]
 
-    oid: str  # uuid4
-
     # this maps normally to the ``BrokerdOrder.reqid`` below, an id
     # normally allocated internally by the backend broker routing system
-    reqid: Optional[Union[int, str]] = None
+    reqid: Optional[int | str] = None
 
     # the (last) source order/request msg if provided
-    # (eg. the Order/Cancel which causes this msg)
-    req: Optional[Union[Order, Cancel]] = None
+    # (eg. the Order/Cancel which causes this msg) and
+    # acts as a back-reference to the corresponding
+    # request message which was the source of this msg.
+    req: Optional[Order | Cancel] = None
 
+    # XXX: better design/name here?
+    # flag that can be set to indicate a message for an order
+    # event that wasn't originated by piker's emsd (eg. some external
+    # trading system which does it's own order control but that you
+    # might want to "track" using piker UIs/systems).
     src: Optional[str] = None
 
-    # for relaying backend msg data "through" the ems layer
+    # for relaying a boxed brokerd-dialog-side msg data "through" the
+    # ems layer to clients.
     brokerd_msg: dict = {}
 
 
@@ -169,7 +175,7 @@ class BrokerdCancel(Struct):
     # for setting a unique order id then this value will be relayed back
     # on the emsd order request stream as the ``BrokerdOrderAck.reqid``
     # field
-    reqid: Optional[Union[int, str]] = None
+    reqid: Optional[int | str] = None
 
 
 class BrokerdOrder(Struct):
@@ -188,7 +194,7 @@ class BrokerdOrder(Struct):
     # for setting a unique order id then this value will be relayed back
     # on the emsd order request stream as the ``BrokerdOrderAck.reqid``
     # field
-    reqid: Optional[Union[int, str]] = None
+    reqid: Optional[int | str] = None
 
     symbol: str  # fqsn
     price: float
@@ -211,7 +217,7 @@ class BrokerdOrderAck(Struct):
     name: str = 'ack'
 
     # defined and provided by backend
-    reqid: Union[int, str]
+    reqid: int | str
 
     # emsd id originally sent in matching request msg
     oid: str
@@ -221,7 +227,7 @@ class BrokerdOrderAck(Struct):
 class BrokerdStatus(Struct):
 
     name: str = 'status'
-    reqid: Union[int, str]
+    reqid: int | str
     time_ns: int
     status: Literal[
         'open',
@@ -235,14 +241,6 @@ class BrokerdStatus(Struct):
     reason: str = ''
     remaining: float = 0.0
 
-    # external: bool = False
-    # order: Optional[BrokerdOrder] = None
-
-    # XXX: better design/name here?
-    # flag that can be set to indicate a message for an order
-    # event that wasn't originated by piker's emsd (eg. some external
-    # trading system which does it's own order control but that you
-    # might want to "track" using piker UIs/systems).
     # external: bool = False
 
     # XXX: not required schema as of yet
@@ -258,7 +256,7 @@ class BrokerdFill(Struct):
 
     '''
     name: str = 'fill'
-    reqid: Union[int, str]
+    reqid: int | str
     time_ns: int
 
     # order exeuction related
@@ -288,7 +286,7 @@ class BrokerdError(Struct):
 
     # if no brokerd order request was actually submitted (eg. we errored
     # at the ``pikerd`` layer) then there will be ``reqid`` allocated.
-    reqid: Optional[Union[int, str]] = None
+    reqid: Optional[int | str] = None
 
     symbol: str
     reason: str
