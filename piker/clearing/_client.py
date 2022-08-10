@@ -83,7 +83,13 @@ class OrderBook:
         """Cancel an order (or alert) in the EMS.
 
         """
-        cmd = self._sent_orders[uuid]
+        cmd = self._sent_orders.get(uuid)
+        if not cmd:
+            log.error(
+                f'Unknown order {uuid}!?\n'
+                f'Maybe there is a stale entry or line?\n'
+                f'You should report this as a bug!'
+            )
         msg = Cancel(
             oid=uuid,
             symbol=cmd.symbol,
@@ -156,7 +162,10 @@ async def relay_order_cmds_from_sync_code(
                 # send msg over IPC / wire
                 await to_ems_stream.send(cmd)
             else:
-                log.warning(f'Ignoring unmatched order cmd for {sym}: {msg}')
+                log.warning(
+                    f'Ignoring unmatched order cmd for {sym} != {symbol_key}:'
+                    f'\n{msg}'
+                )
 
 
 @acm
