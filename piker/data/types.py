@@ -18,6 +18,7 @@
 Built-in (extension) types.
 
 """
+import sys
 from typing import Optional
 from pprint import pformat
 
@@ -42,7 +43,12 @@ class Struct(
         }
 
     def __repr__(self):
-        return f'Struct({pformat(self.to_dict())})'
+        # only turn on pprint when we detect a python REPL
+        # at runtime B)
+        if hasattr(sys, 'ps1'):
+            return f'Struct({pformat(self.to_dict())})'
+
+        return super().__repr__()
 
     def copy(
         self,
