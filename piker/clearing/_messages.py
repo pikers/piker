@@ -234,6 +234,7 @@ class BrokerdStatus(Struct):
         'canceled',
         'fill',
         'pending',
+        'error',
     ]
 
     account: str

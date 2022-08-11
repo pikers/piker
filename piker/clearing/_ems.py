@@ -754,12 +754,39 @@ async def translate_and_relay_brokerd_events(
                         status_msg = book._active.pop(oid)
 
                 elif status == 'canceled':
-                    log.info(f'Cancellation for {oid} is complete!')
+                    log.cancel(f'Cancellation for {oid} is complete!')
 
                 else:  # open
                     # relayed from backend but probably not handled so
                     # just log it
                     log.info(f'{broker} opened order {msg}')
+
+            # BrokerdFill
+            case {
+                'name': 'fill',
+                'reqid': reqid,  # brokerd generated order-request id
+                # 'symbol': sym,  # paper engine doesn't have this, nbd?
+            } if (
+                oid := book._ems2brokerd_ids.inverse.get(reqid)
+            ):
+                # proxy through the "fill" result(s)
+                msg = BrokerdFill(**brokerd_msg)
+                log.info(f'Fill for {oid} cleared with:\n{pformat(msg)}')
+
+                ems_client_order_stream = router.dialogues[oid]
+
+                # wtf a fill can come after 'closed' from ib?
+                status_msg = book._active[oid]
+
+                # only if we already rxed a 'closed'
+                # this clear is fully complete? (frickin ib..)
+                # if status_msg.resp == 'closed':
+                #     status_msg = book._active.pop(oid)
+
+                status_msg.resp = 'fill'
+                status_msg.reqid = reqid
+                status_msg.brokerd_msg = msg
+                await ems_client_order_stream.send(status_msg)
 
             # ``Status`` containing an embedded order msg which
             # should be loaded as a "pre-existing open order" from the
@@ -816,6 +843,14 @@ async def translate_and_relay_brokerd_events(
                 # don't fall through
                 continue
 
+            # brokerd error
+            case {
+                'name': 'status',
+                'status': 'error',
+            }:
+                log.error(f'Broker error:\n{pformat(brokerd_msg)}')
+                # XXX: we presume the brokerd cancels its own order
+
             # TOO FAST ``BrokerdStatus`` that arrives
             # before the ``BrokerdAck``.
             case {
@@ -830,36 +865,10 @@ async def translate_and_relay_brokerd_events(
             }:
                 status_msg = book._active[oid]
                 log.warning(
-                    'Unhandled broker status:\n'
+                    'Unhandled broker status for dialog:\n'
+                    f'{pformat(status_msg)}\n'
                     f'{pformat(brokerd_msg)}\n'
                 )
-
-            # BrokerdFill
-            case {
-                'name': 'fill',
-                'reqid': reqid,  # brokerd generated order-request id
-                # 'symbol': sym,  # paper engine doesn't have this, nbd?
-            } if (
-                oid := book._ems2brokerd_ids.inverse.get(reqid)
-            ):
-                # proxy through the "fill" result(s)
-                msg = BrokerdFill(**brokerd_msg)
-                log.info(f'Fill for {oid} cleared with:\n{pformat(msg)}')
-
-                ems_client_order_stream = router.dialogues[oid]
-
-                # wtf a fill can come after 'closed' from ib?
-                status_msg = book._active[oid]
-
-                # only if we already rxed a 'closed'
-                # this clear is fully complete? (frickin ib..)
-                if status_msg.resp == 'closed':
-                    status_msg = book._active.pop(oid)
-
-                status_msg.resp = 'fill'
-                status_msg.reqid = reqid
-                status_msg.brokerd_msg = msg
-                await ems_client_order_stream.send(status_msg)
 
             case _:
                 raise ValueError(f'Brokerd message {brokerd_msg} is invalid')
