@@ -163,7 +163,6 @@ class OrderMode:
     ) -> LevelLine:
 
         level = order.price
-        print(f'SIZE: {order.size}')
         line = order_line(
 
             self.chart,
@@ -859,7 +858,7 @@ async def process_trade_msg(
 
     get_index = mode.chart.get_index
     fmsg = pformat(msg)
-    log.info(f'Received order msg:\n{fmsg}')
+    log.debug(f'Received order msg:\n{fmsg}')
     name = msg['name']
 
     if name in (
@@ -920,6 +919,7 @@ async def process_trade_msg(
                 ):
                     dialog = mode.load_unknown_dialog_from_msg(msg)
                     mode.on_submit(oid)
+                    # return dialog, msg
 
         case Status(resp='error'):
             # delete level line from view
@@ -932,16 +932,15 @@ async def process_trade_msg(
         case Status(resp='canceled'):
             # delete level line from view
             mode.on_cancel(oid)
-            req = msg.req
-            log.cancel(
-                f'Canceled order {oid}:\n{pformat(req)}'
-            )
+            req = Order(**msg.req)
+            log.cancel(f'Canceled {req.action}:{oid}')
 
         case Status(
             resp='triggered',
             # req=Order(exec_mode='dark')  # TODO:
             req={'exec_mode': 'dark'},
         ):
+            # TODO: UX for a "pending" clear/live order
             log.info(f'Dark order triggered for {fmsg}')
 
         case Status(
@@ -951,13 +950,14 @@ async def process_trade_msg(
         ):
             # should only be one "fill" for an alert
             # add a triangle and remove the level line
+            req = Order(**req)
             mode.on_fill(
                 oid,
                 price=req.price,
                 arrow_index=get_index(time.time()),
             )
             mode.lines.remove_line(uuid=oid)
-            msg.req = Order(**req)
+            msg.req = req
             await mode.on_exec(oid, msg)
 
         # response to completed 'dialog' for order request
@@ -966,18 +966,18 @@ async def process_trade_msg(
             # req=Order() as req,  # TODO
             req=req,
         ):
-            # right now this is just triggering a system alert
             msg.req = Order(**req)
             await mode.on_exec(oid, msg)
             mode.lines.remove_line(uuid=oid)
 
         # each clearing tick is responded individually
         case Status(resp='fill'):
+
+            # handle out-of-piker fills reporting?
             known_order = book._sent_orders.get(oid)
             if not known_order:
                 log.warning(f'order {oid} is unknown')
                 return
-                # continue
 
             action = known_order.action
             details = msg.brokerd_msg
