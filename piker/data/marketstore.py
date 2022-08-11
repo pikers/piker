@@ -37,7 +37,7 @@ import time
 from math import isnan
 
 from bidict import bidict
-import msgpack
+from msgspec.msgpack import encode, decode
 import pyqtgraph as pg
 import numpy as np
 import tractor
@@ -774,12 +774,13 @@ async def stream_quotes(
     async with open_websocket_url(f'ws://{host}:{port}/ws') as ws:
         # send subs topics to server
         resp = await ws.send_message(
-            msgpack.dumps({'streams': list(tbks.values())})
+
+            encode({'streams': list(tbks.values())})
         )
         log.info(resp)
 
         async def recv() -> dict[str, Any]:
-            return msgpack.loads((await ws.get_message()), encoding='utf-8')
+            return decode((await ws.get_message()), encoding='utf-8')
 
         streams = (await recv())['streams']
         log.info(f"Subscribed to {streams}")
