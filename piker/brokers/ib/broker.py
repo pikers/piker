@@ -846,8 +846,12 @@ async def deliver_trade_events(
                 # cancelling.. gawwwd
                 if ib_status_key == 'cancelled':
                     last_log = trade.log[-1]
-                    if last_log.message:
+                    if (
+                        last_log.message
+                        and 'Error' not in last_log.message
+                    ):
                         ib_status_key = trade.log[-2].status
+                        print(ib_status_key)
 
                 elif ib_status_key == 'inactive':
                     async def sched_cancel():
@@ -862,10 +866,16 @@ async def deliver_trade_events(
 
                     nurse.start_soon(sched_cancel)
 
-                status_key = _statuses.get(ib_status_key) or ib_status_key
+                status_key = (
+                    _statuses.get(ib_status_key)
+                    or ib_status_key.lower()
+                )
 
                 remaining = status.remaining
-                if remaining == 0:
+                if (
+                    status_key == 'filled'
+                    and remaining == 0
+                ):
                     status_key = 'closed'
 
                 # skip duplicate filled updates - we get the deats
@@ -1019,9 +1029,18 @@ async def deliver_trade_events(
                 if err['reqid'] == -1:
                     log.error(f'TWS external order error:\n{pformat(err)}')
 
-                # TODO: what schema for this msg if we're going to make it
-                # portable across all backends?
-                # msg = BrokerdError(**err)
+                # TODO: we don't want to relay data feed / lookup errors
+                # so we need some further filtering logic here..
+                # for most cases the 'status' block above should take
+                # care of this.
+                # await ems_stream.send(BrokerdStatus(
+                #     status='error',
+                #     reqid=err['reqid'],
+                #     reason=err['reason'],
+                #     time_ns=time.time_ns(),
+                #     account=accounts_def.inverse[trade.order.account],
+                #     broker_details={'name': 'ib'},
+                # ))
 
             case 'position':
 
