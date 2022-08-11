@@ -221,15 +221,13 @@ async def handle_viewmode_kb_inputs(
             # TODO: show pp config mini-params in status bar widget
             # mode.pp_config.show()
 
+            trigger_type: str = 'dark'
             if (
                 # 's' for "submit" to activate "live" order
                 Qt.Key_S in pressed or
                 ctrl
             ):
                 trigger_type: str = 'live'
-
-            else:
-                trigger_type: str = 'dark'
 
             # order mode trigger "actions"
             if Qt.Key_D in pressed:  # for "damp eet"
@@ -397,8 +395,11 @@ class ChartView(ViewBox):
 
         '''
         if self._ic is None:
-            self.chart.pause_all_feeds()
-            self._ic = trio.Event()
+            try:
+                self.chart.pause_all_feeds()
+                self._ic = trio.Event()
+            except RuntimeError:
+                pass
 
     def signal_ic(
         self,
@@ -411,9 +412,12 @@ class ChartView(ViewBox):
 
         '''
         if self._ic:
-            self._ic.set()
-            self._ic = None
-            self.chart.resume_all_feeds()
+            try:
+                self._ic.set()
+                self._ic = None
+                self.chart.resume_all_feeds()
+            except RuntimeError:
+                pass
 
     @asynccontextmanager
     async def open_async_input_handler(
@@ -669,7 +673,10 @@ class ChartView(ViewBox):
                 # XXX: WHY
                 ev.accept()
 
-                self.start_ic()
+                try:
+                    self.start_ic()
+                except RuntimeError:
+                    pass
                 # if self._ic is None:
                 #     self.chart.pause_all_feeds()
                 #     self._ic = trio.Event()
