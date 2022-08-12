@@ -739,12 +739,44 @@ async def handle_order_updates(
                         f'{pformat(order_msg)}'
                     )
                     txid, update_msg = list(order_msg.items())[0]
+
+                    # XXX: eg. of full msg schema:
+                    # {'avg_price': _,
+                    # 'cost': _,
+                    # 'descr': {
+                    #     'close': None,
+                    #     'leverage': None,
+                    #     'order': descr,
+                    #     'ordertype': 'limit',
+                    #     'pair': 'XMR/EUR',
+                    #     'price': '74.94000000',
+                    #     'price2': '0.00000000',
+                    #     'type': 'buy'
+                    # },
+                    # 'expiretm': None,
+                    # 'fee': '0.00000000',
+                    # 'limitprice': '0.00000000',
+                    # 'misc': '',
+                    # 'oflags': 'fciq',
+                    # 'opentm': '1656966131.337344',
+                    # 'refid': None,
+                    # 'starttm': None,
+                    # 'stopprice': '0.00000000',
+                    # 'timeinforce': 'GTC',
+                    # 'vol': submit_vlm,  # '13.34400854',
+                    # 'vol_exec': exec_vlm}  # 0.0000
                     match update_msg:
 
                         # EMS-unknown live order that needs to be
                         # delivered and loaded on the client-side.
                         case {
                             'userref': reqid,
+                            'descr': {
+                                'pair': pair,
+                                'price': price,
+                                'type': action,
+                            },
+                            'vol': vol,
 
                             # during a fill this field is **not**
                             # provided! but, it is always avail on
@@ -755,12 +787,9 @@ async def handle_order_updates(
                             ids.inverse.get(reqid) is None
                         ):
                             # parse out existing live order
-                            descr = rest['descr']
-                            fqsn = descr['pair'].replace(
-                                '/', '').lower()
-                            price = float(descr['price'])
-                            size = float(rest['vol'])
-                            action = descr['type']
+                            fqsn = pair.replace('/', '').lower()
+                            price = float(price)
+                            size = float(vol)
 
                             # register the userref value from
                             # kraken (usually an `int` staring
@@ -792,31 +821,6 @@ async def handle_order_updates(
                             await ems_stream.send(status_msg)
                             continue
 
-                        # XXX: eg. of full msg schema:
-                        # {'avg_price': _,
-                        # 'cost': _,
-                        # 'descr': {
-                        #     'close': None,
-                        #     'leverage': None,
-                        #     'order': descr,
-                        #     'ordertype': 'limit',
-                        #     'pair': 'XMR/EUR',
-                        #     'price': '74.94000000',
-                        #     'price2': '0.00000000',
-                        #     'type': 'buy'
-                        # },
-                        # 'expiretm': None,
-                        # 'fee': '0.00000000',
-                        # 'limitprice': '0.00000000',
-                        # 'misc': '',
-                        # 'oflags': 'fciq',
-                        # 'opentm': '1656966131.337344',
-                        # 'refid': None,
-                        # 'starttm': None,
-                        # 'stopprice': '0.00000000',
-                        # 'timeinforce': 'GTC',
-                        # 'vol': submit_vlm,  # '13.34400854',
-                        # 'vol_exec': exec_vlm}  # 0.0000
                         case {
                             'userref': reqid,
 
