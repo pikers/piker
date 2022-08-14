@@ -33,10 +33,10 @@ from bidict import bidict
 import pendulum
 import trio
 import tractor
-from dataclasses import dataclass
 
 from .. import data
 from ..data._source import Symbol
+from ..data.types import Struct
 from ..pp import (
     Position,
     Transaction,
@@ -58,8 +58,7 @@ from ._messages import (
 log = get_logger(__name__)
 
 
-@dataclass
-class PaperBoi:
+class PaperBoi(Struct):
     """
     Emulates a broker order client providing the same API and
     delivering an order-event response stream but with methods for
@@ -73,8 +72,8 @@ class PaperBoi:
 
     # map of paper "live" orders which be used
     # to simulate fills based on paper engine settings
-    _buys: bidict
-    _sells: bidict
+    _buys: dict
+    _sells: dict
     _reqids: bidict
     _positions: dict[str, Position]
     _trade_ledger: dict[str, Any]
@@ -409,7 +408,6 @@ async def handle_order_requests(
 
         # action = request_msg['action']
         match request_msg:
-        # if action in {'buy', 'sell'}:
             case {'action': ('buy' | 'sell')}:
                 order = BrokerdOrder(**request_msg)
                 account = order.account
@@ -427,12 +425,6 @@ async def handle_order_requests(
                     ))
                     continue
 
-            # validate
-            # order = BrokerdOrder(**request_msg)
-
-                # if order.reqid is None:
-                #     reqid = 
-                # else:
                 reqid = order.reqid or str(uuid.uuid4())
 
                 # deliver ack that order has been submitted to broker routing
@@ -475,6 +467,23 @@ async def handle_order_requests(
                 log.error(f'Unknown order command: {request_msg}')
 
 
+_reqids: bidict[str, tuple] = {}
+_buys: dict[
+    str,
+    dict[
+        tuple[str, float],
+        tuple[float, str, str],
+    ]
+] = {}
+_sells: dict[
+    str,
+    dict[
+        tuple[str, float],
+        tuple[float, str, str],
+    ]
+] = {}
+
+
 @tractor.context
 async def trades_dialogue(
 
@@ -484,6 +493,7 @@ async def trades_dialogue(
     loglevel: str = None,
 
 ) -> None:
+
     tractor.log.get_console_log(loglevel)
 
     async with (
@@ -505,10 +515,10 @@ async def trades_dialogue(
             client = PaperBoi(
                 broker,
                 ems_stream,
-                _buys={},
-                _sells={},
+                _buys=_buys,
+                _sells=_sells,
 
-                _reqids={},
+                _reqids=_reqids,
 
                 # TODO: load paper positions from ``positions.toml``
                 _positions={},
