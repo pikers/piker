@@ -539,7 +539,7 @@ class OrderMode:
         src = msg.src
         if (
             src
-            and src != 'dark'
+            and src not in ('dark', 'paperboi')
             and src not in symbol
         ):
             fqsn = symbol + '.' + src
@@ -900,6 +900,7 @@ async def process_trade_msg(
                 mode.on_submit(oid)
 
             else:
+                # await tractor.breakpoint()
                 log.warning(
                     f'received msg for untracked dialog:\n{fmsg}'
                 )
@@ -914,7 +915,11 @@ async def process_trade_msg(
                     # a existing dark order for the same symbol
                     or (
                         order.symbol == fqsn
-                        and (msg.src == 'dark') or (msg.src in fqsn)
+                        and (
+                            msg.src in ('dark', 'paperboi')
+                            or (msg.src in fqsn)
+
+                        )
                     )
                 ):
                     dialog = mode.load_unknown_dialog_from_msg(msg)
