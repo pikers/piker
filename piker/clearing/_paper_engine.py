@@ -482,6 +482,7 @@ _sells: dict[
         tuple[float, str, str],
     ]
 ] = {}
+_positions: dict[str, Position] = {}
 
 
 @tractor.context
@@ -503,10 +504,22 @@ async def trades_dialogue(
         ) as feed,
 
     ):
+        pp_msgs: list[BrokerdPosition] = []
+        pos: Position
+        token: str  # f'{symbol}.{self.broker}'
+        for token, pos in _positions.items():
+            pp_msgs.append(BrokerdPosition(
+                broker=broker,
+                account='paper',
+                symbol=fqsn,
+                size=pos.size,
+                avg_price=pos.ppu,
+            ))
+
         # TODO: load paper positions per broker from .toml config file
         # and pass as symbol to position data mapping: ``dict[str, dict]``
         # await ctx.started(all_positions)
-        await ctx.started(({}, ['paper']))
+        await ctx.started((pp_msgs, ['paper']))
 
         async with (
             ctx.open_stream() as ems_stream,
@@ -521,7 +534,7 @@ async def trades_dialogue(
                 _reqids=_reqids,
 
                 # TODO: load paper positions from ``positions.toml``
-                _positions={},
+                _positions=_positions,
 
                 # TODO: load postions from ledger file
                 _trade_ledger={},
