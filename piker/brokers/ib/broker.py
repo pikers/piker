@@ -405,11 +405,12 @@ async def update_and_audit_msgs(
                 avg_price=p.ppu,
             )
             if validate and p.size:
-                raise ValueError(
-                    f'UNEXPECTED POSITION ib <-> piker ledger:\n'
+                # raise ValueError(
+                log.error(
+                    f'UNEXPECTED POSITION says ib:\n'
                     f'piker: {msg}\n'
                     'YOU SHOULD FIGURE OUT WHY TF YOUR LEDGER IS OFF!?\n'
-                    'MAYBE THEY LIQUIDATED YOU BRO!??!'
+                    'THEY LIQUIDATED YOU OR YOUR MISSING LEDGER RECORDS!?'
                 )
             msgs.append(msg)
 
@@ -506,6 +507,7 @@ async def trades_dialogue(
                     ):
                         trans = norm_trade_records(ledger)
                         table.update_from_trans(trans)
+
                         # update trades ledgers for all accounts from connected
                         # api clients which report trades for **this session**.
                         trades = await proxy.trades()
