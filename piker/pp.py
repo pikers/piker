@@ -141,6 +141,7 @@ class Position(Struct):
         Union[str, int, Status],  # trade id
         dict[str, Any],  # transaction history summaries
     ] = {}
+    first_clear_dt: Optional[datetime] = None
 
     expiry: Optional[datetime] = None
 
@@ -163,6 +164,9 @@ class Position(Struct):
 
         if self.split_ratio is None:
             d.pop('split_ratio')
+
+        # should be obvious from clears/event table
+        d.pop('first_clear_dt')
 
         # TODO: we need to figure out how to have one top level
         # listing venue here even when the backend isn't providing
@@ -189,7 +193,8 @@ class Position(Struct):
         ):
             inline_table = toml.TomlDecoder().get_empty_inline_table()
 
-            inline_table['dt'] = data['dt']
+            # serialize datetime to parsable `str`
+            inline_table['dt'] = str(data['dt'])
 
             # insert optional clear fields in column order
             for k in ['ppu', 'accum_size']:
@@ -235,6 +240,10 @@ class Position(Struct):
                 f'ppu != calculated ppu: {ppu} != {cppu}'
             )
             ppu = cppu
+
+        self.first_clear_dt = min(
+            list(entry['dt'] for entry in self.clears.values())
+        )
 
         return size, ppu
 
@@ -449,15 +458,16 @@ class Position(Struct):
             'cost': t.cost,
             'price': t.price,
             'size': t.size,
-            'dt': str(t.dt),
+            'dt': t.dt,
         }
 
         # TODO: compute these incrementally instead
         # of re-looping through each time resulting in O(n**2)
-        # behaviour..
-        # compute these **after** adding the entry
-        # in order to make the recurrence relation math work
-        # inside ``.calc_size()``.
+        # behaviour..?
+
+        # NOTE: we compute these **after** adding the entry in order to
+        # make the recurrence relation math work inside
+        # ``.calc_size()``.
         self.size = clear['accum_size'] = self.calc_size()
         self.ppu = clear['ppu'] = self.calc_ppu()
 
@@ -499,16 +509,22 @@ class PpTable(Struct):
                     expiry=t.expiry,
                 )
             )
+            clears = pp.clears
+            if clears:
+                first_clear_dt = pp.first_clear_dt
 
-            # don't do updates for ledger records we already have
-            # included in the current pps state.
-            if t.tid in pp.clears:
-                # NOTE: likely you'll see repeats of the same
-                # ``Transaction`` passed in here if/when you are restarting
-                # a ``brokerd.ib`` where the API will re-report trades from
-                # the current session, so we need to make sure we don't
-                # "double count" these in pp calculations.
-                continue
+                # don't do updates for ledger records we already have
+                # included in the current pps state.
+                if (
+                    t.tid in clears
+                    or first_clear_dt and t.dt < first_clear_dt
+                ):
+                    # NOTE: likely you'll see repeats of the same
+                    # ``Transaction`` passed in here if/when you are restarting
+                    # a ``brokerd.ib`` where the API will re-report trades from
+                    # the current session, so we need to make sure we don't
+                    # "double count" these in pp calculations.
+                    continue
 
             # update clearing table
             pp.add_clear(t)
@@ -850,17 +866,21 @@ def open_pps(
         # index clears entries in "object" form by tid in a top
         # level dict instead of a list (as is presented in our
         # ``pps.toml``).
-        pp = pp_objs.get(bsuid)
-        if pp:
-            clears = pp.clears
-        else:
-            clears = {}
+        clears = pp_objs.setdefault(bsuid, {})
 
+        # TODO: should be make a ``Struct`` for clear/event entries?
+        # convert "clear events table" from the toml config (list of
+        # a dicts) and load it into object form for use in position
+        # processing of new clear events.
         for clears_table in clears_list:
             tid = clears_table.pop('tid')
+            dtstr = clears_table['dt']
+            dt = pendulum.parse(dtstr)
+            clears_table['dt'] = dt
             clears[tid] = clears_table
 
         size = entry['size']
+
         # TODO: remove but, handle old field name for now
         ppu = entry.get('ppu', entry.get('be_price', 0))
         split_ratio = entry.get('split_ratio')
