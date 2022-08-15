@@ -45,7 +45,10 @@ class Struct(
     def __repr__(self):
         # only turn on pprint when we detect a python REPL
         # at runtime B)
-        if hasattr(sys, 'ps1'):
+        if (
+            hasattr(sys, 'ps1')
+            # TODO: check if we're in pdb
+        ):
             return f'Struct({pformat(self.to_dict())})'
 
         return super().__repr__()
