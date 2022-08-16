@@ -807,8 +807,9 @@ async def deliver_trade_events(
         log.info(f'ib sending {event_name}:\n{pformat(item)}')
 
         match event_name:
-            # TODO: templating the ib statuses in comparison with other
-            # brokers is likely the way to go:
+            # NOTE: we remap statuses to the ems set via the
+            # ``_statuses: dict`` above.
+
             # https://interactivebrokers.github.io/tws-api/interfaceIBApi_1_1EWrapper.html#a17f2a02d6449710b6394d0266a353313
             # short list:
             # - PendingSubmit
@@ -839,7 +840,6 @@ async def deliver_trade_events(
                 trade: Trade = item
                 status: OrderStatus = trade.orderStatus
                 ib_status_key = status.status.lower()
-
                 acctid = accounts_def.inverse[trade.order.account]
 
                 # double check there is no error when
@@ -851,9 +851,9 @@ async def deliver_trade_events(
                         and 'Error' not in last_log.message
                     ):
                         ib_status_key = trade.log[-2].status
-                        print(ib_status_key)
 
                 elif ib_status_key == 'inactive':
+
                     async def sched_cancel():
                         log.warning(
                             'OH GAWD an inactive order..scheduling a cancel\n'
@@ -874,14 +874,34 @@ async def deliver_trade_events(
                 remaining = status.remaining
                 if (
                     status_key == 'filled'
-                    and remaining == 0
                 ):
-                    status_key = 'closed'
+                    fill: Fill = trade.fills[-1]
+                    execu: Execution = fill.execution
+                    # execdict = asdict(execu)
+                    # execdict.pop('acctNumber')
+
+                    msg = BrokerdFill(
+                        # should match the value returned from
+                        # `.submit_limit()`
+                        reqid=execu.orderId,
+                        time_ns=time.time_ns(),  # cuz why not
+                        action=action_map[execu.side],
+                        size=execu.shares,
+                        price=execu.price,
+                        # broker_details=execdict,
+                        # XXX: required by order mode currently
+                        broker_time=execu.time,
+                    )
+                    await ems_stream.send(msg)
+
+                    if remaining == 0:
+                        # emit a closed status on filled statuses where
+                        # all units were cleared.
+                        status_key = 'closed'
 
                 # skip duplicate filled updates - we get the deats
                 # from the execution details event
                 msg = BrokerdStatus(
-
                     reqid=trade.order.orderId,
                     time_ns=time.time_ns(),  # cuz why not
                     account=accounts_def.inverse[trade.order.account],
@@ -899,6 +919,7 @@ async def deliver_trade_events(
                     broker_details={'name': 'ib'},
                 )
                 await ems_stream.send(msg)
+                continue
 
             case 'fill':
 
@@ -914,8 +935,6 @@ async def deliver_trade_events(
                 # https://www.python.org/dev/peps/pep-0526/#global-and-local-variable-annotations
                 trade: Trade
                 fill: Fill
-
-                # TODO: maybe we can use matching to better handle these cases.
                 trade, fill = item
                 execu: Execution = fill.execution
                 execid = execu.execId
@@ -943,22 +962,6 @@ async def deliver_trade_events(
                         'name': 'ib',
                     }
                 )
-
-                msg = BrokerdFill(
-                    # should match the value returned from `.submit_limit()`
-                    reqid=execu.orderId,
-                    time_ns=time.time_ns(),  # cuz why not
-
-                    action=action_map[execu.side],
-                    size=execu.shares,
-                    price=execu.price,
-
-                    broker_details=trade_entry,
-                    # XXX: required by order mode currently
-                    broker_time=trade_entry['broker_time'],
-
-                )
-                await ems_stream.send(msg)
 
                 # 2 cases:
                 # - fill comes first or
