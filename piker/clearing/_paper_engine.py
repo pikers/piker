@@ -253,15 +253,6 @@ class PaperBoi(Struct):
                 status='closed',
                 filled=size,
                 remaining=0 if order_complete else remaining,
-                # broker_details={
-                #     'paper_info': {
-                #         'oid': oid,
-                #     },
-                #     'action': action,
-                #     'size': size,
-                #     'price': price,
-                #     'name': self.broker,
-                # },
             )
             await self.ems_trades_stream.send(msg)
 
@@ -270,7 +261,10 @@ class PaperBoi(Struct):
         pp = self._positions.setdefault(
             token,
             Position(
-                Symbol(key=symbol),
+                Symbol(
+                    key=symbol,
+                    broker_info={self.broker: {}},
+                ),
                 size=size,
                 ppu=price,
                 bsuid=symbol,
@@ -403,10 +397,8 @@ async def handle_order_requests(
 
 ) -> None:
 
-    # order_request: dict
+    request_msg: dict
     async for request_msg in ems_order_stream:
-
-        # action = request_msg['action']
         match request_msg:
             case {'action': ('buy' | 'sell')}:
                 order = BrokerdOrder(**request_msg)
@@ -417,9 +409,7 @@ async def handle_order_requests(
                         ' only a `paper` selection is valid'
                     )
                     await ems_order_stream.send(BrokerdError(
-                        # oid=request_msg['oid'],
                         oid=order.oid,
-                        # symbol=request_msg['symbol'],
                         symbol=order.symbol,
                         reason=f'Paper only. No account found: `{account}` ?',
                     ))
@@ -430,25 +420,18 @@ async def handle_order_requests(
                 # deliver ack that order has been submitted to broker routing
                 await ems_order_stream.send(
                     BrokerdOrderAck(
-
-                        # ems order request id
                         oid=order.oid,
-
-                        # broker specific request id
                         reqid=reqid,
-
                     )
                 )
 
                 # call our client api to submit the order
                 reqid = await client.submit_limit(
-
                     oid=order.oid,
                     symbol=order.symbol,
                     price=order.price,
                     action=order.action,
                     size=order.size,
-
                     # XXX: by default 0 tells ``ib_insync`` methods that
                     # there is no existing order so ask the client to create
                     # a new one (which it seems to do by allocating an int
@@ -511,7 +494,7 @@ async def trades_dialogue(
             pp_msgs.append(BrokerdPosition(
                 broker=broker,
                 account='paper',
-                symbol=fqsn,
+                symbol=pos.symbol.front_fqsn(),
                 size=pos.size,
                 avg_price=pos.ppu,
             ))
