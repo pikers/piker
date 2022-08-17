@@ -462,8 +462,8 @@ async def trades_dialogue(
         with (
             ExitStack() as lstack,
         ):
+            # load ledgers and pps for all detected client-proxies
             for account, proxy in proxies.items():
-
                 assert account in accounts_def
                 accounts.add(account)
                 acctid = account.strip('ib.')
@@ -478,6 +478,7 @@ async def trades_dialogue(
                     open_pps('ib', acctid)
                 )
 
+            for account, proxy in proxies.items():
                 client = aioclients[account]
 
                 # process pp value reported from ib's system. we only use these
@@ -971,7 +972,9 @@ def norm_trade_records(
     for tid, record in ledger.items():
 
         conid = record.get('conId') or record['conid']
-        comms = record.get('commission') or -1*record['ibCommission']
+        comms = record.get('commission')
+        if comms is None:
+            comms = -1*record['ibCommission']
         price = record.get('price') or record['tradePrice']
 
         # the api doesn't do the -/+ on the quantity for you but flex

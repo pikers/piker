@@ -1245,7 +1245,6 @@ async def open_client_proxies() -> tuple[
 ]:
     async with (
         tractor.trionics.maybe_open_context(
-            # acm_func=open_client_proxies,
             acm_func=tractor.to_asyncio.open_channel_from,
             kwargs={'target': load_clients_for_trio},
 
