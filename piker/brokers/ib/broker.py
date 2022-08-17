@@ -186,7 +186,7 @@ async def handle_order_requests(
                 )
             )
 
-        if action == 'cancel':
+        elif action == 'cancel':
             msg = BrokerdCancel(**request_msg)
             client.submit_cancel(reqid=int(msg.reqid))
 
@@ -465,6 +465,7 @@ async def trades_dialogue(
         # TODO: we probably want to generalize this into a "ledgers" api..
         ledgers: dict[str, dict] = {}
         tables: dict[str, PpTable] = {}
+        order_msgs: list[Status] = []
         with (
             ExitStack() as lstack,
         ):
@@ -486,11 +487,8 @@ async def trades_dialogue(
 
             for account, proxy in proxies.items():
                 client = aioclients[account]
-
                 trades: list[Trade] = client.ib.openTrades()
-                order_msgs = []
                 for trade in trades:
-
                     order = trade.order
                     quant = trade.order.totalQuantity
                     action = order.action.lower()
@@ -840,34 +838,37 @@ async def deliver_trade_events(
                 trade: Trade = item
                 status: OrderStatus = trade.orderStatus
                 ib_status_key = status.status.lower()
-                acctid = accounts_def.inverse[trade.order.account]
 
-                # double check there is no error when
-                # cancelling.. gawwwd
-                if ib_status_key == 'cancelled':
-                    last_log = trade.log[-1]
-                    if (
-                        last_log.message
-                        and 'Error' not in last_log.message
-                    ):
-                        ib_status_key = trade.log[-2].status
+                # TODO: try out cancelling inactive orders after delay:
+                # https://github.com/erdewit/ib_insync/issues/363
+                # acctid = accounts_def.inverse[trade.order.account]
 
-                elif ib_status_key == 'inactive':
+                # # double check there is no error when
+                # # cancelling.. gawwwd
+                # if ib_status_key == 'cancelled':
+                #     last_log = trade.log[-1]
+                #     if (
+                #         last_log.message
+                #         and 'Error' not in last_log.message
+                #     ):
+                #         ib_status_key = trade.log[-2].status
 
-                    async def sched_cancel():
-                        log.warning(
-                            'OH GAWD an inactive order..scheduling a cancel\n'
-                            f'{pformat(item)}'
-                        )
-                        proxy = proxies[acctid]
-                        await proxy.submit_cancel(reqid=trade.order.orderId)
-                        await trio.sleep(1)
-                        nurse.start_soon(sched_cancel)
+                # elif ib_status_key == 'inactive':
 
-                    nurse.start_soon(sched_cancel)
+                #     async def sched_cancel():
+                #         log.warning(
+                #             'OH GAWD an inactive order.scheduling a cancel\n'
+                #             f'{pformat(item)}'
+                #         )
+                #         proxy = proxies[acctid]
+                #         await proxy.submit_cancel(reqid=trade.order.orderId)
+                #         await trio.sleep(1)
+                #         nurse.start_soon(sched_cancel)
+
+                #     nurse.start_soon(sched_cancel)
 
                 status_key = (
-                    _statuses.get(ib_status_key)
+                    _statuses.get(ib_status_key.lower())
                     or ib_status_key.lower()
                 )
 
@@ -880,7 +881,7 @@ async def deliver_trade_events(
                     # execdict = asdict(execu)
                     # execdict.pop('acctNumber')
 
-                    msg = BrokerdFill(
+                    fill_msg = BrokerdFill(
                         # should match the value returned from
                         # `.submit_limit()`
                         reqid=execu.orderId,
@@ -892,7 +893,7 @@ async def deliver_trade_events(
                         # XXX: required by order mode currently
                         broker_time=execu.time,
                     )
-                    await ems_stream.send(msg)
+                    await ems_stream.send(fill_msg)
 
                     if remaining == 0:
                         # emit a closed status on filled statuses where
