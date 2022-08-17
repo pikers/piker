@@ -547,6 +547,12 @@ async def trades_dialogue(
                             )
                             continue
 
+                        # XXX: not sure exactly why it wouldn't be in
+                        # the updated output (maybe this is a bug?) but
+                        # if you create a pos from TWS and then load it
+                        # from the api trades it seems we get a key
+                        # error from ``update[bsuid]`` ?
+                        pp = table.pps[bsuid]
                         if msg.size != pp.size:
                             log.error(
                                 'Position mismatch {pp.symbol.front_fqsn()}:\n'
