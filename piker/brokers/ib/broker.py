@@ -18,6 +18,7 @@ Order and trades endpoints for use with ``piker``'s EMS.
 
 """
 from __future__ import annotations
+from bisect import insort
 from contextlib import ExitStack
 from dataclasses import asdict
 from functools import partial
@@ -36,8 +37,6 @@ from trio_typing import TaskStatus
 import tractor
 from ib_insync.contract import (
     Contract,
-    # Option,
-    # Forex,
 )
 from ib_insync.order import (
     Trade,
@@ -357,11 +356,24 @@ async def update_and_audit_msgs(
                 # presume we're at least not more in the shit then we
                 # thought.
                 if diff:
+                    reverse_split_ratio = pikersize / ibsize
+                    split_ratio = 1/reverse_split_ratio
+
+                    if split_ratio >= reverse_split_ratio:
+                        entry = f'split_ratio = {int(split_ratio)}'
+                    else:
+                        entry = f'split_ratio = 1/{int(reverse_split_ratio)}'
+
                     raise ValueError(
                         f'POSITION MISMATCH ib <-> piker ledger:\n'
                         f'ib: {ibppmsg}\n'
                         f'piker: {msg}\n'
-                        'YOU SHOULD FIGURE OUT WHY TF YOUR LEDGER IS OFF!?!?'
+                        f'reverse_split_ratio: {reverse_split_ratio}\n'
+                        f'split_ratio: {split_ratio}\n\n'
+                        'FIGURE OUT WHY TF YOUR LEDGER IS OFF!?!?\n\n'
+                        'If you are expecting a (reverse) split in this '
+                        'instrument you should probably put the following '
+                        f'in the `pps.toml` section:\n{entry}'
                     )
                     msg.size = ibsize
 
@@ -394,11 +406,12 @@ async def update_and_audit_msgs(
                 avg_price=p.ppu,
             )
             if validate and p.size:
-                raise ValueError(
-                    f'UNEXPECTED POSITION ib <-> piker ledger:\n'
+                # raise ValueError(
+                log.error(
+                    f'UNEXPECTED POSITION says ib:\n'
                     f'piker: {msg}\n'
                     'YOU SHOULD FIGURE OUT WHY TF YOUR LEDGER IS OFF!?\n'
-                    'MAYBE THEY LIQUIDATED YOU BRO!??!'
+                    'THEY LIQUIDATED YOU OR YOUR MISSING LEDGER RECORDS!?'
                 )
             msgs.append(msg)
 
@@ -423,7 +436,6 @@ async def trades_dialogue(
     # deliver positions to subscriber before anything else
     all_positions = []
     accounts = set()
-    clients: list[tuple[Client, trio.MemoryReceiveChannel]] = []
     acctids = set()
     cids2pps: dict[str, BrokerdPosition] = {}
 
@@ -450,8 +462,8 @@ async def trades_dialogue(
         with (
             ExitStack() as lstack,
         ):
+            # load ledgers and pps for all detected client-proxies
             for account, proxy in proxies.items():
-
                 assert account in accounts_def
                 accounts.add(account)
                 acctid = account.strip('ib.')
@@ -466,6 +478,7 @@ async def trades_dialogue(
                     open_pps('ib', acctid)
                 )
 
+            for account, proxy in proxies.items():
                 client = aioclients[account]
 
                 # process pp value reported from ib's system. we only use these
@@ -473,28 +486,29 @@ async def trades_dialogue(
                 # the so called (bs) "FIFO" style which more or less results in
                 # a price that's not useful for traders who want to not lose
                 # money.. xb
-                # for client in aioclients.values():
                 for pos in client.positions():
 
                     # collect all ib-pp reported positions so that we can be
                     # sure know which positions to update from the ledger if
                     # any are missing from the ``pps.toml``
                     bsuid, msg = pack_position(pos)
+
                     acctid = msg.account = accounts_def.inverse[msg.account]
                     acctid = acctid.strip('ib.')
                     cids2pps[(acctid, bsuid)] = msg
                     assert msg.account in accounts, (
                         f'Position for unknown account: {msg.account}')
 
+                    ledger = ledgers[acctid]
                     table = tables[acctid]
+
                     pp = table.pps.get(bsuid)
                     if (
                         not pp
                         or pp.size != msg.size
                     ):
                         trans = norm_trade_records(ledger)
-                        updated = table.update_from_trans(trans)
-                        pp = updated[bsuid]
+                        table.update_from_trans(trans)
 
                         # update trades ledgers for all accounts from connected
                         # api clients which report trades for **this session**.
@@ -521,9 +535,34 @@ async def trades_dialogue(
                             trans = trans_by_acct.get(acctid)
                             if trans:
                                 table.update_from_trans(trans)
-                                updated = table.update_from_trans(trans)
 
-                        assert msg.size == pp.size, 'WTF'
+                        # XXX: not sure exactly why it wouldn't be in
+                        # the updated output (maybe this is a bug?) but
+                        # if you create a pos from TWS and then load it
+                        # from the api trades it seems we get a key
+                        # error from ``update[bsuid]`` ?
+                        pp = table.pps.get(bsuid)
+                        if not pp:
+                            log.error(
+                                f'The contract id for {msg} may have '
+                                f'changed to {bsuid}\nYou may need to '
+                                'adjust your ledger for this, skipping '
+                                'for now.'
+                            )
+                            continue
+
+                        # XXX: not sure exactly why it wouldn't be in
+                        # the updated output (maybe this is a bug?) but
+                        # if you create a pos from TWS and then load it
+                        # from the api trades it seems we get a key
+                        # error from ``update[bsuid]`` ?
+                        pp = table.pps[bsuid]
+                        if msg.size != pp.size:
+                            log.error(
+                                'Position mismatch {pp.symbol.front_fqsn()}:\n'
+                                f'ib: {msg.size}\n'
+                                f'piker: {pp.size}\n'
+                            )
 
                 active_pps, closed_pps = table.dump_active()
 
@@ -558,6 +597,7 @@ async def trades_dialogue(
 
             # proxy wrapper for starting trade event stream
             async def open_trade_event_stream(
+                client: Client,
                 task_status: TaskStatus[
                     trio.abc.ReceiveChannel
                 ] = trio.TASK_STATUS_IGNORED,
@@ -575,18 +615,25 @@ async def trades_dialogue(
                 ctx.open_stream() as ems_stream,
                 trio.open_nursery() as n,
             ):
-                trade_event_stream = await n.start(open_trade_event_stream)
-                clients.append((client, trade_event_stream))
 
-                # start order request handler **before** local trades
-                # event loop
-                n.start_soon(handle_order_requests, ems_stream, accounts_def)
+                for client in set(aioclients.values()):
+                    trade_event_stream = await n.start(
+                        open_trade_event_stream,
+                        client,
+                    )
 
-                # allocate event relay tasks for each client connection
-                for client, stream in clients:
+                    # start order request handler **before** local trades
+                    # event loop
+                    n.start_soon(
+                        handle_order_requests,
+                        ems_stream,
+                        accounts_def,
+                    )
+
+                    # allocate event relay tasks for each client connection
                     n.start_soon(
                         deliver_trade_events,
-                        stream,
+                        trade_event_stream,
                         ems_stream,
                         accounts_def,
                         cids2pps,
@@ -659,6 +706,22 @@ async def emit_pp_update(
             break
 
     await ems_stream.send(msg)
+
+
+_statuses: dict[str, str] = {
+    'cancelled': 'canceled',
+    'submitted': 'open',
+
+    # XXX: just pass these through? it duplicates actual fill events other
+    # then the case where you the `.remaining == 0` case which is our
+    # 'closed'` case.
+    # 'filled': 'pending',
+    # 'pendingsubmit': 'pending',
+
+    # TODO: see a current ``ib_insync`` issue around this:
+    # https://github.com/erdewit/ib_insync/issues/363
+    'inactive': 'pending',
+}
 
 
 async def deliver_trade_events(
@@ -914,11 +977,13 @@ def norm_trade_records(
     ledger into our standard record format.
 
     '''
-    records: dict[str, Transaction] = {}
+    records: list[Transaction] = []
     for tid, record in ledger.items():
 
         conid = record.get('conId') or record['conid']
-        comms = record.get('commission') or -1*record['ibCommission']
+        comms = record.get('commission')
+        if comms is None:
+            comms = -1*record['ibCommission']
         price = record.get('price') or record['tradePrice']
 
         # the api doesn't do the -/+ on the quantity for you but flex
@@ -991,19 +1056,22 @@ def norm_trade_records(
         #   should already have entries if the pps are still open, in
         #   which case, we can pull the fqsn from that table (see
         #   `trades_dialogue()` above).
-
-        records[tid] = Transaction(
-            fqsn=fqsn,
-            tid=tid,
-            size=size,
-            price=price,
-            cost=comms,
-            dt=dt,
-            expiry=expiry,
-            bsuid=conid,
+        insort(
+            records,
+            Transaction(
+                fqsn=fqsn,
+                tid=tid,
+                size=size,
+                price=price,
+                cost=comms,
+                dt=dt,
+                expiry=expiry,
+                bsuid=conid,
+            ),
+            key=lambda t: t.dt
         )
 
-    return records
+    return {r.tid: r for r in records}
 
 
 def trades_to_ledger_entries(

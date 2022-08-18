@@ -134,11 +134,14 @@ class Position(Struct):
     # unique backend symbol id
     bsuid: str
 
+    split_ratio: Optional[int] = None
+
     # ordered record of known constituent trade messages
     clears: dict[
         Union[str, int, Status],  # trade id
         dict[str, Any],  # transaction history summaries
     ] = {}
+    first_clear_dt: Optional[datetime] = None
 
     expiry: Optional[datetime] = None
 
@@ -159,6 +162,12 @@ class Position(Struct):
         clears = d.pop('clears')
         expiry = d.pop('expiry')
 
+        if self.split_ratio is None:
+            d.pop('split_ratio')
+
+        # should be obvious from clears/event table
+        d.pop('first_clear_dt')
+
         # TODO: we need to figure out how to have one top level
         # listing venue here even when the backend isn't providing
         # it via the trades ledger..
@@ -166,16 +175,14 @@ class Position(Struct):
         s = d.pop('symbol')
         fqsn = s.front_fqsn()
 
-        size = d.pop('size')
-        ppu = d.pop('ppu')
-        d['size'], d['ppu'] = self.audit_sizing(size, ppu)
-
         if self.expiry is None:
             d.pop('expiry', None)
         elif expiry:
             d['expiry'] = str(expiry)
 
         toml_clears_list = []
+
+        # reverse sort so latest clears are at top of section?
         for tid, data in sorted(
             list(clears.items()),
 
@@ -184,7 +191,8 @@ class Position(Struct):
         ):
             inline_table = toml.TomlDecoder().get_empty_inline_table()
 
-            inline_table['dt'] = data['dt']
+            # serialize datetime to parsable `str`
+            inline_table['dt'] = str(data['dt'])
 
             # insert optional clear fields in column order
             for k in ['ppu', 'accum_size']:
@@ -203,35 +211,51 @@ class Position(Struct):
 
         return fqsn, d
 
-    def audit_sizing(
-        self,
-        size: Optional[float] = None,
-        ppu: Optional[float] = None,
-
-    ) -> tuple[float, float]:
+    def ensure_state(self) -> None:
         '''
-        Audit either the `.size` and `.ppu` values or equvialent
-        passed in values against the clears table calculations and
-        return the calc-ed values if they differ and log warnings to
-        console.
+        Audit either the `.size` and `.ppu` local instance vars against
+        the clears table calculations and return the calc-ed values if
+        they differ and log warnings to console.
 
         '''
-        size = size or self.size
-        ppu = ppu or self.ppu
+        clears = list(self.clears.values())
+        self.first_clear_dt = min(list(entry['dt'] for entry in clears))
+        last_clear = clears[-1]
+
         csize = self.calc_size()
-        cppu = self.calc_ppu()
+        accum = last_clear['accum_size']
+        if not self.expired():
+            if (
+                csize != accum
+                and csize != round(accum * self.split_ratio or 1)
+            ):
+                raise ValueError(f'Size mismatch: {csize}')
+        else:
+            assert csize == 0, 'Contract is expired but non-zero size?'
 
-        if size != csize:
-            log.warning(f'size != calculated size: {size} != {csize}')
-            size = csize
-
-        if ppu != cppu:
+        if self.size != csize:
             log.warning(
-                f'ppu != calculated ppu: {ppu} != {cppu}'
+                'Position state mismatch:\n'
+                f'{self.size} => {csize}'
             )
-            ppu = cppu
+            self.size = csize
 
-        return size, ppu
+        cppu = self.calc_ppu()
+        ppu = last_clear['ppu']
+        if (
+            cppu != ppu
+            and self.split_ratio is not None
+            # handle any split info entered (for now) manually by user
+            and cppu != (ppu / self.split_ratio)
+        ):
+            raise ValueError(f'PPU mismatch: {cppu}')
+
+        if self.ppu != cppu:
+            log.warning(
+                'Position state mismatch:\n'
+                f'{self.ppu} => {cppu}'
+            )
+            self.ppu = cppu
 
     def update_from_msg(
         self,
@@ -384,12 +408,40 @@ class Position(Struct):
                 asize_h.append(accum_size)
                 ppu_h.append(ppu_h[-1])
 
-        return ppu_h[-1] if ppu_h else 0
+        final_ppu = ppu_h[-1] if ppu_h else 0
+
+        # handle any split info entered (for now) manually by user
+        if self.split_ratio is not None:
+            final_ppu /= self.split_ratio
+
+        return final_ppu
+
+    def expired(self) -> bool:
+        '''
+        Predicate which checks if the contract/instrument is past its expiry.
+
+        '''
+        return bool(self.expiry) and self.expiry < now()
 
     def calc_size(self) -> float:
+        '''
+        Calculate the unit size of this position in the destination
+        asset using the clears/trade event table; zero if expired.
+
+        '''
         size: float = 0
+
+        # time-expired pps (normally derivatives) are "closed"
+        # and have a zero size.
+        if self.expired():
+            return 0
+
         for tid, entry in self.clears.items():
             size += entry['size']
+
+        if self.split_ratio is not None:
+            size = round(size * self.split_ratio)
+
         return size
 
     def minimize_clears(
@@ -434,19 +486,23 @@ class Position(Struct):
             'cost': t.cost,
             'price': t.price,
             'size': t.size,
-            'dt': str(t.dt),
+            'dt': t.dt,
         }
 
         # TODO: compute these incrementally instead
         # of re-looping through each time resulting in O(n**2)
-        # behaviour..
-        # compute these **after** adding the entry
-        # in order to make the recurrence relation math work
-        # inside ``.calc_size()``.
+        # behaviour..?
+
+        # NOTE: we compute these **after** adding the entry in order to
+        # make the recurrence relation math work inside
+        # ``.calc_size()``.
         self.size = clear['accum_size'] = self.calc_size()
         self.ppu = clear['ppu'] = self.calc_ppu()
 
         return clear
+
+    def sugest_split(self) -> float:
+        ...
 
 
 class PpTable(Struct):
@@ -484,16 +540,22 @@ class PpTable(Struct):
                     expiry=t.expiry,
                 )
             )
+            clears = pp.clears
+            if clears:
+                first_clear_dt = pp.first_clear_dt
 
-            # don't do updates for ledger records we already have
-            # included in the current pps state.
-            if t.tid in pp.clears:
-                # NOTE: likely you'll see repeats of the same
-                # ``Transaction`` passed in here if/when you are restarting
-                # a ``brokerd.ib`` where the API will re-report trades from
-                # the current session, so we need to make sure we don't
-                # "double count" these in pp calculations.
-                continue
+                # don't do updates for ledger records we already have
+                # included in the current pps state.
+                if (
+                    t.tid in clears
+                    or first_clear_dt and t.dt < first_clear_dt
+                ):
+                    # NOTE: likely you'll see repeats of the same
+                    # ``Transaction`` passed in here if/when you are restarting
+                    # a ``brokerd.ib`` where the API will re-report trades from
+                    # the current session, so we need to make sure we don't
+                    # "double count" these in pp calculations.
+                    continue
 
             # update clearing table
             pp.add_clear(t)
@@ -501,7 +563,7 @@ class PpTable(Struct):
 
         # minimize clears tables and update sizing.
         for bsuid, pp in updated.items():
-            pp.size, pp.ppu = pp.audit_sizing()
+            pp.ensure_state()
 
         return updated
 
@@ -534,7 +596,7 @@ class PpTable(Struct):
             # if bsuid == qqqbsuid:
             #     breakpoint()
 
-            pp.size, pp.ppu = pp.audit_sizing()
+            pp.ensure_state()
 
             if (
                 # "net-zero" is a "closed" position
@@ -574,6 +636,7 @@ class PpTable(Struct):
             # keep the minimal amount of clears that make up this
             # position since the last net-zero state.
             pos.minimize_clears()
+            pos.ensure_state()
 
             # serialize to pre-toml form
             fqsn, asdict = pos.to_pretoml()
@@ -835,19 +898,35 @@ def open_pps(
         # index clears entries in "object" form by tid in a top
         # level dict instead of a list (as is presented in our
         # ``pps.toml``).
-        pp = pp_objs.get(bsuid)
-        if pp:
-            clears = pp.clears
-        else:
-            clears = {}
+        clears = pp_objs.setdefault(bsuid, {})
+
+        # TODO: should be make a ``Struct`` for clear/event entries?
+        # convert "clear events table" from the toml config (list of
+        # a dicts) and load it into object form for use in position
+        # processing of new clear events.
+        trans: list[Transaction] = []
 
         for clears_table in clears_list:
             tid = clears_table.pop('tid')
+            dtstr = clears_table['dt']
+            dt = pendulum.parse(dtstr)
+            clears_table['dt'] = dt
+            trans.append(Transaction(
+                fqsn=bsuid,
+                bsuid=bsuid,
+                tid=tid,
+                size=clears_table['size'],
+                price=clears_table['price'],
+                cost=clears_table['cost'],
+                dt=dt,
+            ))
             clears[tid] = clears_table
 
         size = entry['size']
+
         # TODO: remove but, handle old field name for now
         ppu = entry.get('ppu', entry.get('be_price', 0))
+        split_ratio = entry.get('split_ratio')
 
         expiry = entry.get('expiry')
         if expiry:
@@ -857,19 +936,21 @@ def open_pps(
             Symbol.from_fqsn(fqsn, info={}),
             size=size,
             ppu=ppu,
+            split_ratio=split_ratio,
             expiry=expiry,
             bsuid=entry['bsuid'],
-
-            # XXX: super critical, we need to be sure to include
-            # all pps.toml clears to avoid reusing clears that were
-            # already included in the current incremental update
-            # state, since today's records may have already been
-            # processed!
-            clears=clears,
         )
 
+        # XXX: super critical, we need to be sure to include
+        # all pps.toml clears to avoid reusing clears that were
+        # already included in the current incremental update
+        # state, since today's records may have already been
+        # processed!
+        for t in trans:
+            pp.add_clear(t)
+
         # audit entries loaded from toml
-        pp.size, pp.ppu = pp.audit_sizing()
+        pp.ensure_state()
 
     try:
         yield table
