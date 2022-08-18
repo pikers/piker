@@ -616,7 +616,7 @@ async def trades_dialogue(
                 trio.open_nursery() as n,
             ):
 
-                for client in aioclients.values():
+                for client in set(aioclients.values()):
                     trade_event_stream = await n.start(
                         open_trade_event_stream,
                         client,
