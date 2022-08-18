@@ -79,38 +79,6 @@ class Dialog(Struct):
     fills: Dict[str, Any] = {}
 
 
-def on_level_change_update_next_order_info(
-
-    level: float,
-
-    # these are all ``partial``-ed in at callback assignment time.
-    line: LevelLine,
-    order: Order,
-    tracker: PositionTracker,
-
-) -> None:
-    '''
-    A callback applied for each level change to the line
-    which will recompute the order size based on allocator
-    settings. this is assigned inside
-    ``OrderMode.line_from_order()``
-
-    '''
-    # NOTE: the ``Order.account`` is set at order stage time
-    # inside ``OrderMode.line_from_order()``.
-    order_info = tracker.alloc.next_order_info(
-        startup_pp=tracker.startup_pp,
-        live_pp=tracker.live_pp,
-        price=level,
-        action=order.action,
-    )
-    line.update_labels(order_info)
-
-    # update bound-in staged order
-    order.price = level
-    order.size = order_info['size']
-
-
 @dataclass
 class OrderMode:
     '''
@@ -155,6 +123,42 @@ class OrderMode:
     }
     _staged_order: Optional[Order] = None
 
+    def on_level_change_update_next_order_info(
+        self,
+        level: float,
+
+        # these are all ``partial``-ed in at callback assignment time.
+        line: LevelLine,
+        order: Order,
+        tracker: PositionTracker,
+
+    ) -> None:
+        '''
+        A callback applied for each level change to the line
+        which will recompute the order size based on allocator
+        settings. this is assigned inside
+        ``OrderMode.line_from_order()``
+
+        '''
+        # NOTE: the ``Order.account`` is set at order stage time inside
+        # ``OrderMode.line_from_order()`` or is inside ``Order`` msg
+        # field for loaded orders.
+        order_info = tracker.alloc.next_order_info(
+            startup_pp=tracker.startup_pp,
+            live_pp=tracker.live_pp,
+            price=level,
+            action=order.action,
+        )
+        line.update_labels(order_info)
+
+        # update bound-in staged order
+        order.price = level
+        order.size = order_info['size']
+
+        # when an order is changed we flip the settings side-pane to
+        # reflect the corresponding account and pos info.
+        self.pane.on_ui_settings_change('account', order.account)
+
     def line_from_order(
         self,
         order: Order,
@@ -186,10 +190,12 @@ class OrderMode:
         # immediately
         if order.action != 'alert':
             line._on_level_change = partial(
-                on_level_change_update_next_order_info,
+                self.on_level_change_update_next_order_info,
                 line=line,
                 order=order,
-                tracker=self.current_pp,
+                # use the corresponding position tracker for the
+                # order's account.
+                tracker=self.trackers[order.account],
             )
 
         else:
@@ -238,7 +244,6 @@ class OrderMode:
 
         line = self.line_from_order(
             order,
-
             show_markers=True,
             # just for the stage line to avoid
             # flickering while moving the cursor
@@ -250,7 +255,6 @@ class OrderMode:
             # prevent flickering of marker while moving/tracking cursor
             only_show_markers_on_hover=False,
         )
-
         line = self.lines.stage_line(line)
 
         # hide crosshair y-line and label
@@ -274,10 +278,8 @@ class OrderMode:
         '''
         if not order:
             staged = self._staged_order
+            # apply order fields for ems
             oid = str(uuid.uuid4())
-            # symbol: Symbol = staged.symbol
-
-            # format order data for ems
             order = staged.copy()
             order.oid = oid
 
@@ -528,10 +530,9 @@ class OrderMode:
         msg: Status,
 
     ) -> Dialog:
-
         # NOTE: the `.order` attr **must** be set with the
         # equivalent order msg in order to be loaded.
-        order = Order(**msg.req)
+        order = msg.req
         oid = str(msg.oid)
         symbol = order.symbol
 
@@ -900,7 +901,6 @@ async def process_trade_msg(
                 mode.on_submit(oid)
 
             else:
-                # await tractor.breakpoint()
                 log.warning(
                     f'received msg for untracked dialog:\n{fmsg}'
                 )
@@ -922,6 +922,7 @@ async def process_trade_msg(
                         )
                     )
                 ):
+                    msg.req = order
                     dialog = mode.load_unknown_dialog_from_msg(msg)
                     mode.on_submit(oid)
                     # return dialog, msg
