@@ -728,7 +728,6 @@ async def translate_and_relay_brokerd_events(
                 # msg-chain/dialog.
                 ems_client_order_stream = router.dialogues[oid]
                 status_msg = book._active[oid]
-                old_resp = status_msg.resp
                 status_msg.resp = status
 
                 # retrieve existing live flow
@@ -736,7 +735,8 @@ async def translate_and_relay_brokerd_events(
                 if old_reqid and old_reqid != reqid:
                     log.warning(
                         f'Brokerd order id change for {oid}:\n'
-                        f'{old_reqid} -> {reqid}'
+                        f'{old_reqid}:{type(old_reqid)} ->'
+                        f' {reqid}{type(reqid)}'
                     )
 
                 status_msg.reqid = reqid  # THIS LINE IS CRITICAL!
@@ -856,12 +856,16 @@ async def translate_and_relay_brokerd_events(
                 'status': status,
                 'reqid': reqid,
             }:
-                status_msg = book._active[oid]
-                log.warning(
-                    'Unhandled broker status for dialog:\n'
-                    f'{pformat(status_msg)}\n'
-                    f'{pformat(brokerd_msg)}\n'
-                )
+                oid = book._ems2brokerd_ids.inverse.get(reqid)
+                msg = f'Unhandled broker status for dialog {reqid}:\n'
+                if oid:
+                    status_msg = book._active[oid]
+                    msg += (
+                        f'last status msg: {pformat(status_msg)}\n\n'
+                        f'this msg:{pformat(brokerd_msg)}\n'
+                    )
+
+                log.warning(msg)
 
             case _:
                 raise ValueError(f'Brokerd message {brokerd_msg} is invalid')
