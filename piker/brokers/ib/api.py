@@ -1127,6 +1127,12 @@ async def load_aio_clients(
                     # careful.
                     timeout=connect_timeout,
                 )
+                # create and cache client
+                client = Client(ib)
+
+                # update all actor-global caches
+                log.info(f"Caching client for {sockaddr}")
+                _client_cache[sockaddr] = client
                 break
 
             except (
@@ -1150,21 +1156,9 @@ async def load_aio_clients(
                 log.warning(
                     f'Failed to connect on {port} for {i} time, retrying...')
 
-        # create and cache client
-        client = Client(ib)
-
         # Pre-collect all accounts available for this
         # connection and map account names to this client
         # instance.
-        pps = ib.positions()
-        if pps:
-            for pp in pps:
-                accounts_found[
-                    accounts_def.inverse[pp.account]
-                ] = client
-
-        # if there are accounts without positions we should still
-        # register them for this client
         for value in ib.accountValues():
             acct_number = value.account
 
@@ -1184,10 +1178,6 @@ async def load_aio_clients(
             f'Loaded accounts for client @ {host}:{port}\n'
             f'{pformat(accounts_found)}'
         )
-
-        # update all actor-global caches
-        log.info(f"Caching client for {sockaddr}")
-        _client_cache[sockaddr] = client
 
         # XXX: why aren't we just updating this directy above
         # instead of using the intermediary `accounts_found`?
