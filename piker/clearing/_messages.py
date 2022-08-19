@@ -18,56 +18,98 @@
 Clearing sub-system message and protocols.
 
 """
-from typing import Optional, Union
+# from collections import (
+#     ChainMap,
+#     deque,
+# )
+from typing import (
+    Optional,
+    Literal,
+)
 
 from ..data._source import Symbol
 from ..data.types import Struct
 
 
+# TODO: a composite for tracking msg flow on 2-legged
+# dialogs.
+# class Dialog(ChainMap):
+#     '''
+#     Msg collection abstraction to easily track the state changes of
+#     a msg flow in one high level, query-able and immutable construct.
+
+#     The main use case is to query data from a (long-running)
+#     msg-transaction-sequence
+
+
+#     '''
+#     def update(
+#         self,
+#         msg,
+#     ) -> None:
+#         self.maps.insert(0, msg.to_dict())
+
+#     def flatten(self) -> dict:
+#         return dict(self)
+
+
 # TODO: ``msgspec`` stuff worth paying attention to:
-# - schema evolution: https://jcristharif.com/msgspec/usage.html#schema-evolution
+# - schema evolution:
+# https://jcristharif.com/msgspec/usage.html#schema-evolution
+# - for eg. ``BrokerdStatus``, instead just have separate messages?
 # - use literals for a common msg determined by diff keys?
 #   - https://jcristharif.com/msgspec/usage.html#literal
-#   - for eg. ``BrokerdStatus``, instead just have separate messages?
 
 # --------------
 # Client -> emsd
 # --------------
 
+class Order(Struct):
+
+    # TODO: ideally we can combine these 2 fields into
+    # 1 and just use the size polarity to determine a buy/sell.
+    # i would like to see this become more like
+    # https://jcristharif.com/msgspec/usage.html#literal
+    # action: Literal[
+    #     'live',
+    #     'dark',
+    #     'alert',
+    # ]
+
+    action: Literal[
+        'buy',
+        'sell',
+        'alert',
+    ]
+    # determines whether the create execution
+    # will be submitted to the ems or directly to
+    # the backend broker
+    exec_mode: Literal[
+        'dark',
+        'live',
+        # 'paper',  no right?
+    ]
+
+    # internal ``emdsd`` unique "order id"
+    oid: str  # uuid4
+    symbol: str | Symbol
+    account: str  # should we set a default as '' ?
+
+    price: float
+    size: float  # -ve is "sell", +ve is "buy"
+
+    brokers: Optional[list[str]] = []
+
+
 class Cancel(Struct):
-    '''Cancel msg for removing a dark (ems triggered) or
+    '''
+    Cancel msg for removing a dark (ems triggered) or
     broker-submitted (live) trigger/order.
 
     '''
     action: str = 'cancel'
     oid: str  # uuid4
     symbol: str
-
-
-class Order(Struct):
-
-    # TODO: use ``msgspec.Literal``
-    # https://jcristharif.com/msgspec/usage.html#literal
-    action: str  # {'buy', 'sell', 'alert'}
-    # internal ``emdsd`` unique "order id"
-    oid: str  # uuid4
-    symbol: Union[str, Symbol]
-    account: str  # should we set a default as '' ?
-
-    price: float
-    # TODO: could we drop the ``.action`` field above and instead just
-    # use +/- values here? Would make the msg smaller at the sake of a
-    # teensie fp precision?
-    size: float
-    brokers: list[str]
-
-    # Assigned once initial ack is received
-    # ack_time_ns: Optional[int] = None
-
-    # determines whether the create execution
-    # will be submitted to the ems or directly to
-    # the backend broker
-    exec_mode: str  # {'dark', 'live', 'paper'}
 
 
 # --------------
@@ -79,37 +121,39 @@ class Order(Struct):
 class Status(Struct):
 
     name: str = 'status'
-    oid: str  # uuid4
     time_ns: int
+    oid: str  # uuid4 ems-order dialog id
 
-    # {
-    #   'dark_submitted',
-    #   'dark_cancelled',
-    #   'dark_triggered',
-
-    #   'broker_submitted',
-    #   'broker_cancelled',
-    #   'broker_executed',
-    #   'broker_filled',
-    #   'broker_errored',
-
-    #   'alert_submitted',
-    #   'alert_triggered',
-
-    # }
-    resp: str  # "response", see above
-
-    # trigger info
-    trigger_price: Optional[float] = None
-    # price: float
-
-    # broker: Optional[str] = None
+    resp: Literal[
+      'pending',  # acked by broker but not yet open
+      'open',
+      'dark_open',  # dark/algo triggered order is open in ems clearing loop
+      'triggered',  # above triggered order sent to brokerd, or an alert closed
+      'closed',  # fully cleared all size/units
+      'fill',  # partial execution
+      'canceled',
+      'error',
+    ]
 
     # this maps normally to the ``BrokerdOrder.reqid`` below, an id
     # normally allocated internally by the backend broker routing system
-    broker_reqid: Optional[Union[int, str]] = None
+    reqid: Optional[int | str] = None
 
-    # for relaying backend msg data "through" the ems layer
+    # the (last) source order/request msg if provided
+    # (eg. the Order/Cancel which causes this msg) and
+    # acts as a back-reference to the corresponding
+    # request message which was the source of this msg.
+    req: Optional[Order | Cancel] = None
+
+    # XXX: better design/name here?
+    # flag that can be set to indicate a message for an order
+    # event that wasn't originated by piker's emsd (eg. some external
+    # trading system which does it's own order control but that you
+    # might want to "track" using piker UIs/systems).
+    src: Optional[str] = None
+
+    # for relaying a boxed brokerd-dialog-side msg data "through" the
+    # ems layer to clients.
     brokerd_msg: dict = {}
 
 
@@ -131,15 +175,18 @@ class BrokerdCancel(Struct):
     # for setting a unique order id then this value will be relayed back
     # on the emsd order request stream as the ``BrokerdOrderAck.reqid``
     # field
-    reqid: Optional[Union[int, str]] = None
+    reqid: Optional[int | str] = None
 
 
 class BrokerdOrder(Struct):
 
-    action: str  # {buy, sell}
     oid: str
     account: str
     time_ns: int
+
+    # TODO: if we instead rely on a +ve/-ve size to determine
+    # the action we more or less don't need this field right?
+    action: str = ''  # {buy, sell}
 
     # "broker request id": broker specific/internal order id if this is
     # None, creates a new order otherwise if the id is valid the backend
@@ -147,9 +194,9 @@ class BrokerdOrder(Struct):
     # for setting a unique order id then this value will be relayed back
     # on the emsd order request stream as the ``BrokerdOrderAck.reqid``
     # field
-    reqid: Optional[Union[int, str]] = None
+    reqid: Optional[int | str] = None
 
-    symbol: str  # symbol.<providername> ?
+    symbol: str  # fqsn
     price: float
     size: float
 
@@ -170,7 +217,7 @@ class BrokerdOrderAck(Struct):
     name: str = 'ack'
 
     # defined and provided by backend
-    reqid: Union[int, str]
+    reqid: int | str
 
     # emsd id originally sent in matching request msg
     oid: str
@@ -180,30 +227,22 @@ class BrokerdOrderAck(Struct):
 class BrokerdStatus(Struct):
 
     name: str = 'status'
-    reqid: Union[int, str]
+    reqid: int | str
     time_ns: int
+    status: Literal[
+        'open',
+        'canceled',
+        'fill',
+        'pending',
+        'error',
+    ]
 
-    # XXX: should be best effort set for every update
-    account: str = ''
-
-    # TODO: instead (ack, pending, open, fill, clos(ed), cancelled)
-    # {
-    #   'submitted',
-    #   'cancelled',
-    #   'filled',
-    # }
-    status: str
-
+    account: str
     filled: float = 0.0
     reason: str = ''
     remaining: float = 0.0
 
-    # XXX: better design/name here?
-    # flag that can be set to indicate a message for an order
-    # event that wasn't originated by piker's emsd (eg. some external
-    # trading system which does it's own order control but that you
-    # might want to "track" using piker UIs/systems).
-    external: bool = False
+    # external: bool = False
 
     # XXX: not required schema as of yet
     broker_details: dict = {
@@ -218,7 +257,7 @@ class BrokerdFill(Struct):
 
     '''
     name: str = 'fill'
-    reqid: Union[int, str]
+    reqid: int | str
     time_ns: int
 
     # order exeuction related
@@ -248,7 +287,7 @@ class BrokerdError(Struct):
 
     # if no brokerd order request was actually submitted (eg. we errored
     # at the ``pikerd`` layer) then there will be ``reqid`` allocated.
-    reqid: Optional[Union[int, str]] = None
+    reqid: Optional[int | str] = None
 
     symbol: str
     reason: str

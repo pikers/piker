@@ -83,7 +83,13 @@ class OrderBook:
         """Cancel an order (or alert) in the EMS.
 
         """
-        cmd = self._sent_orders[uuid]
+        cmd = self._sent_orders.get(uuid)
+        if not cmd:
+            log.error(
+                f'Unknown order {uuid}!?\n'
+                f'Maybe there is a stale entry or line?\n'
+                f'You should report this as a bug!'
+            )
         msg = Cancel(
             oid=uuid,
             symbol=cmd.symbol,
@@ -149,10 +155,17 @@ async def relay_order_cmds_from_sync_code(
     book = get_orders()
     async with book._from_order_book.subscribe() as orders_stream:
         async for cmd in orders_stream:
-            if cmd.symbol == symbol_key:
-                log.info(f'Send order cmd:\n{pformat(cmd)}')
+            sym = cmd.symbol
+            msg = pformat(cmd)
+            if sym == symbol_key:
+                log.info(f'Send order cmd:\n{msg}')
                 # send msg over IPC / wire
                 await to_ems_stream.send(cmd)
+            else:
+                log.warning(
+                    f'Ignoring unmatched order cmd for {sym} != {symbol_key}:'
+                    f'\n{msg}'
+                )
 
 
 @acm
@@ -220,11 +233,19 @@ async def open_ems(
                 fqsn=fqsn,
                 exec_mode=mode,
 
-            ) as (ctx, (positions, accounts)),
+            ) as (
+                ctx,
+                (
+                    positions,
+                    accounts,
+                    dialogs,
+                )
+            ),
 
             # open 2-way trade command stream
             ctx.open_stream() as trades_stream,
         ):
+            # start sync code order msg delivery task
             async with trio.open_nursery() as n:
                 n.start_soon(
                     relay_order_cmds_from_sync_code,
@@ -232,4 +253,10 @@ async def open_ems(
                     trades_stream
                 )
 
-                yield book, trades_stream, positions, accounts
+                yield (
+                    book,
+                    trades_stream,
+                    positions,
+                    accounts,
+                    dialogs,
+                )

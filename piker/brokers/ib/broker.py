@@ -60,6 +60,8 @@ from piker.pp import (
 )
 from piker.log import get_console_log
 from piker.clearing._messages import (
+    Order,
+    Status,
     BrokerdOrder,
     BrokerdOrderAck,
     BrokerdStatus,
@@ -122,11 +124,13 @@ async def handle_order_requests(
                 f'An IB account number for name {account} is not found?\n'
                 'Make sure you have all TWS and GW instances running.'
             )
-            await ems_order_stream.send(BrokerdError(
-                oid=request_msg['oid'],
-                symbol=request_msg['symbol'],
-                reason=f'No account found: `{account}` ?',
-            ))
+            await ems_order_stream.send(
+                BrokerdError(
+                    oid=request_msg['oid'],
+                    symbol=request_msg['symbol'],
+                    reason=f'No account found: `{account}` ?',
+                )
+            )
             continue
 
         client = _accounts2clients.get(account)
@@ -146,6 +150,14 @@ async def handle_order_requests(
             # validate
             order = BrokerdOrder(**request_msg)
 
+            # XXX: by default 0 tells ``ib_insync`` methods that
+            # there is no existing order so ask the client to create
+            # a new one (which it seems to do by allocating an int
+            # counter - collision prone..)
+            reqid = order.reqid
+            if reqid is not None:
+                reqid = int(reqid)
+
             # call our client api to submit the order
             reqid = client.submit_limit(
                 oid=order.oid,
@@ -154,12 +166,7 @@ async def handle_order_requests(
                 action=order.action,
                 size=order.size,
                 account=acct_number,
-
-                # XXX: by default 0 tells ``ib_insync`` methods that
-                # there is no existing order so ask the client to create
-                # a new one (which it seems to do by allocating an int
-                # counter - collision prone..)
-                reqid=order.reqid,
+                reqid=reqid,
             )
             if reqid is None:
                 await ems_order_stream.send(BrokerdError(
@@ -181,7 +188,7 @@ async def handle_order_requests(
 
         elif action == 'cancel':
             msg = BrokerdCancel(**request_msg)
-            client.submit_cancel(reqid=msg.reqid)
+            client.submit_cancel(reqid=int(msg.reqid))
 
         else:
             log.error(f'Unknown order command: {request_msg}')
@@ -451,7 +458,6 @@ async def trades_dialogue(
     # we might also want to delegate a specific actor for
     # ledger writing / reading for speed?
     async with (
-        # trio.open_nursery() as nurse,
         open_client_proxies() as (proxies, aioclients),
     ):
         # Open a trade ledgers stack for appending trade records over
@@ -459,6 +465,7 @@ async def trades_dialogue(
         # TODO: we probably want to generalize this into a "ledgers" api..
         ledgers: dict[str, dict] = {}
         tables: dict[str, PpTable] = {}
+        order_msgs: list[Status] = []
         with (
             ExitStack() as lstack,
         ):
@@ -480,6 +487,49 @@ async def trades_dialogue(
 
             for account, proxy in proxies.items():
                 client = aioclients[account]
+                trades: list[Trade] = client.ib.openTrades()
+                for trade in trades:
+                    order = trade.order
+                    quant = trade.order.totalQuantity
+                    action = order.action.lower()
+                    size = {
+                        'sell': -1,
+                        'buy': 1,
+                    }[action] * quant
+                    con = trade.contract
+
+                    # TODO: in the case of the SMART venue (aka ib's
+                    # router-clearing sys) we probably should handle
+                    # showing such orders overtop of the fqsn for the
+                    # primary exchange, how to map this easily is going
+                    # to be a bit tricky though?
+                    deats = await proxy.con_deats(contracts=[con])
+                    fqsn = list(deats)[0]
+
+                    reqid = order.orderId
+
+                    # TODO: maybe embed a ``BrokerdOrder`` instead
+                    # since then we can directly load it on the client
+                    # side in the order mode loop?
+                    msg = Status(
+                        time_ns=time.time_ns(),
+                        resp='open',
+                        oid=str(reqid),
+                        reqid=reqid,
+
+                        # embedded order info
+                        req=Order(
+                            action=action,
+                            exec_mode='live',
+                            oid=str(reqid),
+                            symbol=fqsn,
+                            account=accounts_def.inverse[order.account],
+                            price=order.lmtPrice,
+                            size=size,
+                        ),
+                        src='ib',
+                    )
+                    order_msgs.append(msg)
 
                 # process pp value reported from ib's system. we only use these
                 # to cross-check sizing since average pricing on their end uses
@@ -615,6 +665,9 @@ async def trades_dialogue(
                 ctx.open_stream() as ems_stream,
                 trio.open_nursery() as n,
             ):
+                # relay existing open orders to ems
+                for msg in order_msgs:
+                    await ems_stream.send(msg)
 
                 for client in set(aioclients.values()):
                     trade_event_stream = await n.start(
@@ -633,6 +686,7 @@ async def trades_dialogue(
                     # allocate event relay tasks for each client connection
                     n.start_soon(
                         deliver_trade_events,
+                        n,
                         trade_event_stream,
                         ems_stream,
                         accounts_def,
@@ -726,6 +780,7 @@ _statuses: dict[str, str] = {
 
 async def deliver_trade_events(
 
+    nurse: trio.Nursery,
     trade_event_stream: trio.MemoryReceiveChannel,
     ems_stream: tractor.MsgStream,
     accounts_def: dict[str, str],  # eg. `'ib.main'` -> `'DU999999'`
@@ -750,8 +805,9 @@ async def deliver_trade_events(
         log.info(f'ib sending {event_name}:\n{pformat(item)}')
 
         match event_name:
-            # TODO: templating the ib statuses in comparison with other
-            # brokers is likely the way to go:
+            # NOTE: we remap statuses to the ems set via the
+            # ``_statuses: dict`` above.
+
             # https://interactivebrokers.github.io/tws-api/interfaceIBApi_1_1EWrapper.html#a17f2a02d6449710b6394d0266a353313
             # short list:
             # - PendingSubmit
@@ -781,28 +837,90 @@ async def deliver_trade_events(
                 # unwrap needed data from ib_insync internal types
                 trade: Trade = item
                 status: OrderStatus = trade.orderStatus
+                ib_status_key = status.status.lower()
+
+                # TODO: try out cancelling inactive orders after delay:
+                # https://github.com/erdewit/ib_insync/issues/363
+                # acctid = accounts_def.inverse[trade.order.account]
+
+                # # double check there is no error when
+                # # cancelling.. gawwwd
+                # if ib_status_key == 'cancelled':
+                #     last_log = trade.log[-1]
+                #     if (
+                #         last_log.message
+                #         and 'Error' not in last_log.message
+                #     ):
+                #         ib_status_key = trade.log[-2].status
+
+                # elif ib_status_key == 'inactive':
+
+                #     async def sched_cancel():
+                #         log.warning(
+                #             'OH GAWD an inactive order.scheduling a cancel\n'
+                #             f'{pformat(item)}'
+                #         )
+                #         proxy = proxies[acctid]
+                #         await proxy.submit_cancel(reqid=trade.order.orderId)
+                #         await trio.sleep(1)
+                #         nurse.start_soon(sched_cancel)
+
+                #     nurse.start_soon(sched_cancel)
+
+                status_key = (
+                    _statuses.get(ib_status_key.lower())
+                    or ib_status_key.lower()
+                )
+
+                remaining = status.remaining
+                if (
+                    status_key == 'filled'
+                ):
+                    fill: Fill = trade.fills[-1]
+                    execu: Execution = fill.execution
+                    # execdict = asdict(execu)
+                    # execdict.pop('acctNumber')
+
+                    fill_msg = BrokerdFill(
+                        # should match the value returned from
+                        # `.submit_limit()`
+                        reqid=execu.orderId,
+                        time_ns=time.time_ns(),  # cuz why not
+                        action=action_map[execu.side],
+                        size=execu.shares,
+                        price=execu.price,
+                        # broker_details=execdict,
+                        # XXX: required by order mode currently
+                        broker_time=execu.time,
+                    )
+                    await ems_stream.send(fill_msg)
+
+                    if remaining == 0:
+                        # emit a closed status on filled statuses where
+                        # all units were cleared.
+                        status_key = 'closed'
 
                 # skip duplicate filled updates - we get the deats
                 # from the execution details event
                 msg = BrokerdStatus(
-
                     reqid=trade.order.orderId,
                     time_ns=time.time_ns(),  # cuz why not
                     account=accounts_def.inverse[trade.order.account],
 
                     # everyone doin camel case..
-                    status=status.status.lower(),  # force lower case
+                    status=status_key,  # force lower case
 
                     filled=status.filled,
                     reason=status.whyHeld,
 
                     # this seems to not be necessarily up to date in the
                     # execDetails event.. so we have to send it here I guess?
-                    remaining=status.remaining,
+                    remaining=remaining,
 
                     broker_details={'name': 'ib'},
                 )
                 await ems_stream.send(msg)
+                continue
 
             case 'fill':
 
@@ -818,8 +936,6 @@ async def deliver_trade_events(
                 # https://www.python.org/dev/peps/pep-0526/#global-and-local-variable-annotations
                 trade: Trade
                 fill: Fill
-
-                # TODO: maybe we can use matching to better handle these cases.
                 trade, fill = item
                 execu: Execution = fill.execution
                 execid = execu.execId
@@ -847,22 +963,6 @@ async def deliver_trade_events(
                         'name': 'ib',
                     }
                 )
-
-                msg = BrokerdFill(
-                    # should match the value returned from `.submit_limit()`
-                    reqid=execu.orderId,
-                    time_ns=time.time_ns(),  # cuz why not
-
-                    action=action_map[execu.side],
-                    size=execu.shares,
-                    price=execu.price,
-
-                    broker_details=trade_entry,
-                    # XXX: required by order mode currently
-                    broker_time=trade_entry['broker_time'],
-
-                )
-                await ems_stream.send(msg)
 
                 # 2 cases:
                 # - fill comes first or
@@ -933,17 +1033,25 @@ async def deliver_trade_events(
                 if err['reqid'] == -1:
                     log.error(f'TWS external order error:\n{pformat(err)}')
 
-                # TODO: what schema for this msg if we're going to make it
-                # portable across all backends?
-                # msg = BrokerdError(**err)
+                # TODO: we don't want to relay data feed / lookup errors
+                # so we need some further filtering logic here..
+                # for most cases the 'status' block above should take
+                # care of this.
+                # await ems_stream.send(BrokerdStatus(
+                #     status='error',
+                #     reqid=err['reqid'],
+                #     reason=err['reason'],
+                #     time_ns=time.time_ns(),
+                #     account=accounts_def.inverse[trade.order.account],
+                #     broker_details={'name': 'ib'},
+                # ))
 
             case 'position':
 
                 cid, msg = pack_position(item)
                 log.info(f'New IB position msg: {msg}')
-                # acctid = msg.account = accounts_def.inverse[msg.account]
                 # cuck ib and it's shitty fifo sys for pps!
-                # await ems_stream.send(msg)
+                continue
 
             case 'event':
 

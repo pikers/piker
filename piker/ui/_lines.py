@@ -421,6 +421,10 @@ class LevelLine(pg.InfiniteLine):
 
         return path
 
+    @property
+    def marker(self) -> LevelMarker:
+        return self._marker
+
     def hoverEvent(self, ev):
         '''
         Mouse hover callback.

@@ -31,6 +31,7 @@ import time
 from typing import (
     Any,
     AsyncIterator,
+    Iterable,
     Union,
 )
 
@@ -39,7 +40,6 @@ from bidict import bidict
 import pendulum
 import trio
 import tractor
-import wsproto
 
 from piker.pp import (
     Position,
@@ -49,6 +49,8 @@ from piker.pp import (
     open_pps,
 )
 from piker.clearing._messages import (
+    Order,
+    Status,
     BrokerdCancel,
     BrokerdError,
     BrokerdFill,
@@ -85,6 +87,33 @@ class TooFastEdit(Exception):
     'Edit requests faster then api submissions'
 
 
+# TODO: make this wrap the `Client` and `ws` instances
+# and give it methods to submit cancel vs. add vs. edit
+# requests?
+class BrokerClient:
+    '''
+    Actor global, client-unique order manager API.
+
+    For now provides unique ``brokerd`` defined "request ids"
+    and "user reference" values to track ``kraken`` ws api order
+    dialogs.
+
+    '''
+    counter: Iterable = count(1)
+    _table: set[int] = set()
+
+    @classmethod
+    def new_reqid(cls) -> int:
+        for reqid in cls.counter:
+            if reqid not in cls._table:
+                cls._table.add(reqid)
+                return reqid
+
+    @classmethod
+    def add_reqid(cls, reqid: int) -> None:
+        cls._table.add(reqid)
+
+
 async def handle_order_requests(
 
     ws: NoBsWs,
@@ -104,7 +133,6 @@ async def handle_order_requests(
     # XXX: UGH, let's unify this.. with ``msgspec``.
     msg: dict[str, Any]
     order: BrokerdOrder
-    counter = count(1)
 
     async for msg in ems_order_stream:
         log.info(f'Rx order msg:\n{pformat(msg)}')
@@ -126,7 +154,7 @@ async def handle_order_requests(
                             oid=msg['oid'],
                             symbol=msg['symbol'],
                             reason=(
-                                f'TooFastEdit reqid:{reqid}, could not cancelling..'
+                                f'Edit too fast:{reqid}, cancelling..'
                             ),
 
                         )
@@ -177,7 +205,8 @@ async def handle_order_requests(
 
                 else:
                     ep = 'addOrder'
-                    reqid = next(counter)
+
+                    reqid = BrokerClient.new_reqid()
                     ids[order.oid] = reqid
                     log.debug(
                         f"Adding order {reqid}\n"
@@ -249,7 +278,7 @@ async def handle_order_requests(
 
 @acm
 async def subscribe(
-    ws: wsproto.WSConnection,
+    ws: NoBsWs,
     token: str,
     subs: list[tuple[str, dict]] = [
         ('ownTrades', {
@@ -632,8 +661,6 @@ async def handle_order_updates(
             # to do all fill/status/pp updates in that sub and just use
             # this one for ledger syncs?
 
-            # XXX: ASK SUPPORT ABOUT THIS!
-
             # For eg. we could take the "last 50 trades" and do a diff
             # with the ledger and then only do a re-sync if something
             # seems amiss?
@@ -696,7 +723,6 @@ async def handle_order_updates(
                     status_msg = BrokerdStatus(
                         reqid=reqid,
                         time_ns=time.time_ns(),
-
                         account=acc_name,
                         status='filled',
                         filled=size,
@@ -741,33 +767,92 @@ async def handle_order_updates(
                         f'{pformat(order_msg)}'
                     )
                     txid, update_msg = list(order_msg.items())[0]
+
+                    # XXX: eg. of full msg schema:
+                    # {'avg_price': _,
+                    # 'cost': _,
+                    # 'descr': {
+                    #     'close': None,
+                    #     'leverage': None,
+                    #     'order': descr,
+                    #     'ordertype': 'limit',
+                    #     'pair': 'XMR/EUR',
+                    #     'price': '74.94000000',
+                    #     'price2': '0.00000000',
+                    #     'type': 'buy'
+                    # },
+                    # 'expiretm': None,
+                    # 'fee': '0.00000000',
+                    # 'limitprice': '0.00000000',
+                    # 'misc': '',
+                    # 'oflags': 'fciq',
+                    # 'opentm': '1656966131.337344',
+                    # 'refid': None,
+                    # 'starttm': None,
+                    # 'stopprice': '0.00000000',
+                    # 'timeinforce': 'GTC',
+                    # 'vol': submit_vlm,  # '13.34400854',
+                    # 'vol_exec': exec_vlm}  # 0.0000
                     match update_msg:
 
-                        # XXX: eg. of full msg schema:
-                        # {'avg_price': _,
-                        # 'cost': _,
-                        # 'descr': {
-                        #     'close': None,
-                        #     'leverage': None,
-                        #     'order': descr,
-                        #     'ordertype': 'limit',
-                        #     'pair': 'XMR/EUR',
-                        #     'price': '74.94000000',
-                        #     'price2': '0.00000000',
-                        #     'type': 'buy'
-                        # },
-                        # 'expiretm': None,
-                        # 'fee': '0.00000000',
-                        # 'limitprice': '0.00000000',
-                        # 'misc': '',
-                        # 'oflags': 'fciq',
-                        # 'opentm': '1656966131.337344',
-                        # 'refid': None,
-                        # 'starttm': None,
-                        # 'stopprice': '0.00000000',
-                        # 'timeinforce': 'GTC',
-                        # 'vol': submit_vlm,  # '13.34400854',
-                        # 'vol_exec': exec_vlm}  # 0.0000
+                        # EMS-unknown live order that needs to be
+                        # delivered and loaded on the client-side.
+                        case {
+                            'userref': reqid,
+                            'descr': {
+                                'pair': pair,
+                                'price': price,
+                                'type': action,
+                            },
+                            'vol': vol,
+
+                            # during a fill this field is **not**
+                            # provided! but, it is always avail on
+                            # actual status updates.. see case above.
+                            'status': status,
+                            **rest,
+                        } if (
+                            ids.inverse.get(reqid) is None
+                        ):
+                            # parse out existing live order
+                            fqsn = pair.replace('/', '').lower()
+                            price = float(price)
+                            size = float(vol)
+
+                            # register the userref value from
+                            # kraken (usually an `int` staring
+                            # at 1?) as our reqid.
+                            reqids2txids[reqid] = txid
+                            oid = str(reqid)
+                            ids[oid] = reqid  # NOTE!: str -> int
+
+                            # ensure wtv reqid they give us we don't re-use on
+                            # new order submissions to this actor's client.
+                            BrokerClient.add_reqid(reqid)
+
+                            # fill out ``Status`` + boxed ``Order``
+                            status_msg = Status(
+                                time_ns=time.time_ns(),
+                                resp='open',
+                                oid=oid,
+                                reqid=reqid,
+
+                                # embedded order info
+                                req=Order(
+                                    action=action,
+                                    exec_mode='live',
+                                    oid=oid,
+                                    symbol=fqsn,
+                                    account=acc_name,
+                                    price=price,
+                                    size=size,
+                                ),
+                                src='kraken',
+                            )
+                            apiflows[reqid].maps.append(status_msg)
+                            await ems_stream.send(status_msg)
+                            continue
+
                         case {
                             'userref': reqid,
 
@@ -821,66 +906,47 @@ async def handle_order_updates(
                                     )
 
                             oid = ids.inverse.get(reqid)
+                            # XXX: too fast edit handled by the
+                            # request handler task: this
+                            # scenario occurs when ems side
+                            # requests are coming in too quickly
+                            # such that there is no known txid
+                            # yet established for the ems
+                            # dialog's last reqid when the
+                            # request handler task is already
+                            # receceiving a new update for that
+                            # reqid. In this case we simply mark
+                            # the reqid as being "too fast" and
+                            # then when we get the next txid
+                            # update from kraken's backend, and
+                            # thus the new txid, we simply
+                            # cancel the order for now.
 
+                            # TODO: Ideally we eventually
+                            # instead make the client side of
+                            # the ems block until a submission
+                            # is confirmed by the backend
+                            # instead of this hacky throttle
+                            # style approach and avoid requests
+                            # coming in too quickly on the other
+                            # side of the ems, aka the client
+                            # <-> ems dialog.
                             if (
                                 status == 'open'
-                                and (
-                                    # XXX: too fast edit handled by the
-                                    # request handler task: this
-                                    # scenario occurs when ems side
-                                    # requests are coming in too quickly
-                                    # such that there is no known txid
-                                    # yet established for the ems
-                                    # dialog's last reqid when the
-                                    # request handler task is already
-                                    # receceiving a new update for that
-                                    # reqid. In this case we simply mark
-                                    # the reqid as being "too fast" and
-                                    # then when we get the next txid
-                                    # update from kraken's backend, and
-                                    # thus the new txid, we simply
-                                    # cancel the order for now.
-
-                                    # TODO: Ideally we eventually
-                                    # instead make the client side of
-                                    # the ems block until a submission
-                                    # is confirmed by the backend
-                                    # instead of this hacky throttle
-                                    # style approach and avoid requests
-                                    # coming in too quickly on the other
-                                    # side of the ems, aka the client
-                                    # <-> ems dialog.
-                                    (toofast := isinstance(
-                                        reqids2txids.get(reqid),
-                                        TooFastEdit
-                                    ))
-
-                                    # pre-existing open order NOT from
-                                    # this EMS session.
-                                    or (noid := oid is None)
+                                and isinstance(
+                                    reqids2txids.get(reqid),
+                                    TooFastEdit
                                 )
                             ):
-                                if toofast:
-                                    # TODO: don't even allow this case
-                                    # by not moving the client side line
-                                    # until an edit confirmation
-                                    # arrives...
-                                    log.cancel(
-                                        f'Received too fast edit {txid}:\n'
-                                        f'{update_msg}\n'
-                                        'Cancelling order for now!..'
-                                    )
-
-                                elif noid:  # a non-ems-active order
-                                    # TODO: handle these and relay them
-                                    # through the EMS to the client / UI
-                                    # side!
-                                    log.cancel(
-                                        f'Rx unknown active order {txid}:\n'
-                                        f'{update_msg}\n'
-                                        'Cancelling order for now!..'
-                                    )
-
+                                # TODO: don't even allow this case
+                                # by not moving the client side line
+                                # until an edit confirmation
+                                # arrives...
+                                log.cancel(
+                                    f'Received too fast edit {txid}:\n'
+                                    f'{update_msg}\n'
+                                    'Cancelling order for now!..'
+                                )
                                 # call ws api to cancel:
                                 # https://docs.kraken.com/websockets/#message-cancelOrder
                                 await ws.send_msg({
@@ -891,18 +957,6 @@ async def handle_order_updates(
                                 })
                                 continue
 
-                            # remap statuses to ems set.
-                            ems_status = {
-                                'open': 'submitted',
-                                'closed': 'filled',
-                                'canceled': 'cancelled',
-                                # do we even need to forward
-                                # this state to the ems?
-                                'pending': 'pending',
-                            }[status]
-                            # TODO: i like the open / closed semantics
-                            # more we should consider them for internals
-
                             # send BrokerdStatus messages for all
                             # order state updates
                             resp = BrokerdStatus(
@@ -912,7 +966,7 @@ async def handle_order_updates(
                                 account=f'kraken.{acctid}',
 
                                 # everyone doin camel case..
-                                status=ems_status,  # force lower case
+                                status=status,  # force lower case
 
                                 filled=vlm,
                                 reason='',  # why held?
