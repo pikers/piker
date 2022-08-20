@@ -426,6 +426,7 @@ asset_type_map = {
     'WAR': 'warrant',
     'IOPT': 'warran',
     'BAG': 'bag',
+    'CRYPTO': 'crypto',  # bc it's diff then fiat?
     # 'NEWS': 'news',
 }
 
@@ -722,7 +723,8 @@ async def stream_quotes(
             isnan(first_ticker.last)
             and type(first_ticker.contract) not in (
                 ibis.Commodity,
-                ibis.Forex
+                ibis.Forex,
+                ibis.Crypto,
             )
         ):
             task_status.started((init_msgs, first_quote))
