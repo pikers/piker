@@ -971,7 +971,6 @@ async def allocate_persistent_feed(
     # for ambiguous names we simply apply the retreived
     # feed to that name (for now).
 
-    # task_status.started((init_msg,  generic_first_quotes))
     task_status.started()
 
     if not start_stream:
@@ -984,13 +983,13 @@ async def allocate_persistent_feed(
     # start shm incrementer task for OHLC style sampling
     # at the current detected step period.
     times = shm.array['time']
-    delay_s = times[-1] - times[times != times[-1]][-1]
+    delay_s = 1 #times[-1] - times[times != times[-1]][-1]
 
     sampler.ohlcv_shms.setdefault(delay_s, []).append(shm)
     if sampler.incrementers.get(delay_s) is None:
         await bus.start_task(
             increment_ohlc_buffer,
-            delay_s,
+            1,
         )
 
     sum_tick_vlm: bool = init_msg.get(
@@ -1179,7 +1178,8 @@ async def open_sample_step_stream(
             portal.open_context,
             iter_ohlc_periods,
         ),
-        kwargs={'delay_s': delay_s},
+        # kwargs={'delay_s': delay_s},
+        kwargs={'delay_s': 1},
 
     ) as (cache_hit, (ctx, first)):
         async with ctx.open_stream() as istream:
@@ -1234,7 +1234,7 @@ class Feed:
 
     ) -> AsyncIterator[int]:
 
-        delay_s = delay_s or self._max_sample_rate
+        delay_s = 1 #delay_s or self._max_sample_rate
 
         async with open_sample_step_stream(
             self.portal,
