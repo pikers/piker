@@ -119,12 +119,11 @@ def get_config() -> dict[str, Any]:
 
     section = conf.get('deribit')
 
-    if section is None:
-        log.warning(f'No config section found for deribit in {path}')
-        return {}
-
     conf['log'] = {}
     conf['log']['disabled'] = True
+
+    if section is None:
+        log.warning(f'No config section found for deribit in {path}')
 
     return conf 
 
@@ -132,13 +131,17 @@ def get_config() -> dict[str, Any]:
 class Client:
 
     def __init__(self, n: Nursery, ws: NoBsWs) -> None:
-        self._sesh = asks.Session(connections=4)
-        self._sesh.base_location = _url
         self._pairs: dict[str, Any] = {}
 
-        config = get_config()['deribit']
-        self._key_id = config['key_id']
-        self._key_secret = config['key_secret']
+        config = get_config().get('deribit', {})
+
+        if ('key_id' in config) and ('key_secret' in config):
+            self._key_id = config['key_id']
+            self._key_secret = config['key_secret']
+
+        else:
+            self._key_id = None
+            self._key_secret = None
 
         self._ws = ws 
         self._n = n 
@@ -160,7 +163,9 @@ class Client:
 
     async def start_rpc(self):
         self._n.start_soon(self._recv_task)
-        await self._n.start(self._auth_loop)
+
+        if self._key_id is not None:
+            await self._n.start(self._auth_loop)
 
     async def _recv_task(self):
         while True:
@@ -237,18 +242,6 @@ class Client:
 
             else:
                 await trio.sleep(renew_time / 2)
-
-    async def _api(
-        self,
-        method: str,
-        params: dict,
-    ) -> dict[str, Any]:
-        resp = await self._sesh.get(
-            path=f'/api/v2/public/{method}',
-            params=params,
-            timeout=float('inf')
-        )
-        return resproc(resp, log)
 
     async def symbol_info(
         self,
