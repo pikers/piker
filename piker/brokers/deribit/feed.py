@@ -1,3 +1,6 @@
+# piker: trading gear for hackers
+# Copyright (C) Guillermo Rodriguez (in stewardship for piker0)
+
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -31,7 +34,6 @@ import numpy as np
 import tractor
 from tractor import to_asyncio
 
-from piker import config
 from piker._cacheables import open_cached_client
 from piker.log import get_logger, get_console_log
 from piker.data import ShmArray
@@ -47,30 +49,11 @@ from cryptofeed.defines import (
 )
 from cryptofeed.symbols import Symbol
 
-from .api import Client, Trade
+from .api import Client, Trade, get_config
 
 _spawn_kwargs = {
     'infect_asyncio': True,
 }
-
-
-def get_config() -> dict[str, Any]:
-
-    conf, path = config.load()
-
-    section = conf.get('deribit')
-
-    if section is None:
-        log.warning(f'No config section found for deribit in {path}')
-        return {}
-
-    conf['log'] = {}
-    conf['log']['disabled'] = True
-
-#    conf['log']['filename'] = '/tmp/feedhandler.log'
-#    conf['log']['level'] = 'WARNING'
-
-    return conf 
 
 
 log = get_logger(__name__)
@@ -128,7 +111,7 @@ def cb_sym_to_deribit_inst(sym: Symbol):
 
     # deribit specific 
     months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
-    
+
     exp = sym.expiry_date
 
     # YYMDD

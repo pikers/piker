@@ -20,7 +20,7 @@ ToOlS fOr CoPInG wITh "tHE wEB" protocols.
 """
 from contextlib import asynccontextmanager, AsyncExitStack
 from types import ModuleType
-from typing import Any, Callable, AsyncGenerator
+from typing import Any, Optional, Callable, AsyncGenerator
 import json
 
 import trio
@@ -54,8 +54,8 @@ class NoBsWs:
         self,
         url: str,
         stack: AsyncExitStack,
-        fixture: Callable,
-        serializer: ModuleType = json,
+        fixture: Optional[Callable] = None,
+        serializer: ModuleType = json
     ):
         self.url = url
         self.fixture = fixture
@@ -80,12 +80,14 @@ class NoBsWs:
                 self._ws = await self._stack.enter_async_context(
                     trio_websocket.open_websocket_url(self.url)
                 )
-                # rerun user code fixture
-                ret = await self._stack.enter_async_context(
-                    self.fixture(self)
-                )
 
-                assert ret is None
+                if self.fixture is not None:
+                    # rerun user code fixture
+                    ret = await self._stack.enter_async_context(
+                        self.fixture(self)
+                    )
+
+                    assert ret is None
 
                 log.info(f'Connection success: {self.url}')
                 return self._ws
@@ -127,7 +129,7 @@ async def open_autorecon_ws(
     url: str,
 
     # TODO: proper type annot smh
-    fixture: Callable,
+    fixture: Optional[Callable] = None,
 
 ) -> AsyncGenerator[tuple[...],  NoBsWs]:
     """Apparently we can QoS for all sorts of reasons..so catch em.
