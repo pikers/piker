@@ -867,17 +867,24 @@ async def open_symbol_search(
     # TODO: load user defined symbol set locally for fast search?
     await ctx.started({})
 
-    # async with open_data_client() as proxy:
     async with (
         open_client_proxies() as (proxies, clients),
+        open_data_client() as data_proxy,
     ):
         async with ctx.open_stream() as stream:
 
-            # await tractor.breakpoint()
-            proxy = proxies['ib.algopaper']
+            # select a non-history client for symbol search to lighten
+            # the load in the main data node.
+            proxy = data_proxy
+            for name, proxy in proxies.items():
+                if proxy is data_proxy:
+                    continue
+                break
+
+            ib_client = proxy._aio_ns.ib
+            log.info(f'Using {ib_client} for symbol search')
 
             last = time.time()
-
             async for pattern in stream:
                 log.info(f'received {pattern}')
                 now = time.time()
@@ -938,7 +945,9 @@ async def open_symbol_search(
                             await trio.sleep(0)
 
                     if cs.cancelled_caught:
-                        log.warning(f'Search timeout? {proxy._aio_ns.ib.client}')
+                        log.warning(
+                            f'Search timeout? {proxy._aio_ns.ib.client}'
+                        )
                         continue
                     else:
                         break
