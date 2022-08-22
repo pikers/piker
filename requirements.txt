@@ -20,4 +20,4 @@
 -e git+https://github.com/pikers/asyncvnc.git@main#egg=asyncvnc
 
 # ``cryptofeed`` for connecting to various crypto exchanges + custom fixes
--e git+https://github.com/guilledk/cryptofeed.git@date_parsing#egg=cryptofeed
+-e git+https://github.com/pikers/cryptofeed.git@date_parsing#egg=cryptofeed
