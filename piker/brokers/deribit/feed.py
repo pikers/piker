@@ -177,7 +177,11 @@ async def open_aio_cryptofeed_relay(
     # sync with trio
     to_trio.send_nowait(None)
 
-    await asyncio.sleep(float('inf'))
+    try:
+        await asyncio.sleep(float('inf'))
+
+    except asyncio.exceptions.CancelledError:
+        ...
 
 
 @acm
@@ -262,7 +266,6 @@ async def stream_quotes(
     async with (
         open_cached_client('deribit') as client,
         send_chan as send_chan,
-        trio.open_nursery() as n,
         open_cryptofeeds(symbols) as stream 
     ):
 
@@ -284,23 +287,31 @@ async def stream_quotes(
         # keep client cached for real-time section
         cache = await client.cache_symbols()
 
-        last_trade = Trade(**(await client.last_trades(
-            cb_sym_to_deribit_inst(nsym), count=1)).trades[0])
-
-        first_quote = {
-            'symbol': sym,
-            'last': last_trade.price,
-            'brokerd_ts': last_trade.timestamp,
-            'ticks': [{
-                'type': 'trade',
-                'price': last_trade.price,
-                'size': last_trade.amount,
-                'broker_ts': last_trade.timestamp
-            }]
-        }
-        task_status.started((init_msgs,  first_quote))
-
         async with aclosing(stream):
+            last_trades = (await client.last_trades(
+                cb_sym_to_deribit_inst(nsym), count=1)).trades
+
+            if len(last_trades) == 0:
+                async for typ, quote in stream:
+                    if typ == 'trade':
+                        last_trade = Trade(**quote['data'])
+
+            else:
+                last_trade = Trade(**last_trades[0])
+
+            first_quote = {
+                'symbol': sym,
+                'last': last_trade.price,
+                'brokerd_ts': last_trade.timestamp,
+                'ticks': [{
+                    'type': 'trade',
+                    'price': last_trade.price,
+                    'size': last_trade.amount,
+                    'broker_ts': last_trade.timestamp
+                }]
+            }
+            task_status.started((init_msgs,  first_quote))
+
             feed_is_live.set()
 
             async for typ, quote in stream:
@@ -321,15 +332,6 @@ async def open_symbol_search(
         async with ctx.open_stream() as stream:
 
             async for pattern in stream:
-                # results = await client.symbol_info(sym=pattern.upper())
-
-                matches = fuzzy.extractBests(
-                    pattern,
-                    cache,
-                    score_cutoff=30,
-                )
                 # repack in dict form
                 await stream.send(
-                    {item[0]['instrument_name']: item[0]
-                     for item in matches}
-                )
+                    await client.search_symbols(pattern))

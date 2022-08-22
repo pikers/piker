@@ -148,6 +148,10 @@ class Client:
         self._access_token: Optional[str] = None
         self._refresh_token: Optional[str] = None
 
+    @property
+    def currencies(self):
+        return ['btc', 'eth', 'sol', 'usd']
+
     def _next_json_body(self, method: str, params: Dict):
         """get the typical json rpc 2.0 msg body and increment the req id
         """
@@ -263,6 +267,37 @@ class Client:
             else:
                 await trio.sleep(renew_time / 2)
 
+    async def get_balances(self, kind: str = 'option') -> dict[str, float]:
+        """Return the set of positions for this account
+        by symbol.
+        """
+        balances = {}
+
+        for currency in self.currencies:
+            resp = await self.json_rpc(
+                'private/get_positions', params={
+                    'currency': currency.upper(),
+                    'kind': kind})
+
+            balances[currency] = resp.result
+
+        return balances
+
+    async def get_assets(self) -> dict[str, float]:
+        """Return the set of asset balances for this account
+        by symbol.
+        """
+        balances = {}
+
+        for currency in self.currencies:
+            resp = await self.json_rpc(
+                'private/get_account_summary', params={
+                    'currency': currency.upper()})
+
+            balances[currency] = resp.result['balance']
+
+        return balances
+
     async def symbol_info(
         self,
         instrument: Optional[str] = None,
@@ -305,7 +340,7 @@ class Client:
     async def search_symbols(
         self,
         pattern: str,
-        limit: int = None,
+        limit: int = 30,
     ) -> dict[str, Any]:
         if self._pairs is not None:
             data = self._pairs
@@ -315,7 +350,8 @@ class Client:
         matches = fuzzy.extractBests(
             pattern,
             data,
-            score_cutoff=50,
+            score_cutoff=35,
+            limit=limit
         )
         # repack in dict form
         return {item[0]['instrument_name']: item[0]
@@ -397,7 +433,6 @@ async def get_client() -> Client:
         trio.open_nursery() as n,
         open_autorecon_ws(_testnet_ws_url) as ws
     ):
-
         client = Client(n, ws)
         await client.start_rpc()
         await client.cache_symbols()
