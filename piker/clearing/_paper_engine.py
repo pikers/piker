@@ -325,10 +325,10 @@ async def simulate_fills(
                 # dark order price filter(s)
                 types=('ask', 'bid', 'trade', 'last')
             ):
-                # print(tick)
                 match tick:
                     case {
                         'price': tick_price,
+                        # 'type': ('ask' | 'trade' | 'last'),
                         'type': 'ask',
                     }:
                         client.last_ask = (
@@ -345,6 +345,7 @@ async def simulate_fills(
 
                     case {
                         'price': tick_price,
+                        # 'type': ('bid' | 'trade' | 'last'),
                         'type': 'bid',
                     }:
                         client.last_bid = (
@@ -364,14 +365,17 @@ async def simulate_fills(
                         'price': tick_price,
                         'type': ('trade' | 'last'),
                     }:
-                        # TODO: simulate actual book queues and our orders
-                        # place in it, might require full L2 data?
+                        # TODO: simulate actual book queues and our
+                        # orders place in it, might require full L2
+                        # data?
                         continue
 
                 # iterate book prices descending
                 for oid, our_price in book_sequence:
-                    if pred(our_price):
-
+                    # print(tick)
+                    # print((sym, list(book_sequence), client._buys, client._sells))
+                    clearable = pred(our_price)
+                    if clearable:
                         # retreive order info
                         (size, reqid, action) = orders.pop((oid, our_price))
 
@@ -428,7 +432,7 @@ async def handle_order_requests(
                 # call our client api to submit the order
                 reqid = await client.submit_limit(
                     oid=order.oid,
-                    symbol=order.symbol,
+                    symbol=f'{order.symbol}.{client.broker}',
                     price=order.price,
                     action=order.action,
                     size=order.size,
