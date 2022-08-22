@@ -8,7 +8,6 @@
 # as more graphics stuff gets hashed out.
 -e git+https://github.com/pikers/pyqtgraph.git@piker_pin#egg=pyqtgraph
 
-
 # our async client for ``marketstore`` (the tsdb)
 -e git+https://github.com/pikers/anyio-marketstore.git@master#egg=anyio-marketstore
 
@@ -18,4 +17,4 @@
 
 
 # ``asyncvnc`` for sending interactions to ib-gw inside docker
--e git+https://github.com/pikers/asyncvnc.git@vid_passthrough#egg=asyncvnc
+-e git+https://github.com/pikers/asyncvnc.git@main#egg=asyncvnc
