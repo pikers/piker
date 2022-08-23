@@ -328,7 +328,7 @@ class Client:
                         'client_secret': self._key_secret,
                         'scope': access_scope
                     }
-               
+
                 resp = await self.json_rpc('public/auth', params)
                 result = resp.result
 
@@ -615,7 +615,7 @@ class CryptoFeedRelay:
                 if not self._fh.running:
                     self._fh.run(start_loop=False)
                     self._loop = asyncio.get_event_loop()
-            
+
                 # sync with trio
                 to_trio.send_nowait(None)
 
@@ -666,7 +666,7 @@ class CryptoFeedRelay:
                 if not self._fh.running:
                     self._fh.run(start_loop=False)
                     self._loop = asyncio.get_event_loop()
-            
+
                 # sync with trio
                 to_trio.send_nowait(None)
 

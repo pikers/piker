@@ -87,7 +87,7 @@ async def open_history_client(
 
             start_dt = pendulum.from_timestamp(array[0]['time'])
             end_dt = pendulum.from_timestamp(array[-1]['time'])
-            
+
             return array, start_dt, end_dt
 
         yield get_ohlc, {'erlangs': 3, 'rate': 3}
