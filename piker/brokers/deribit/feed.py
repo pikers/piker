@@ -154,10 +154,10 @@ async def stream_quotes(
 
             if len(last_trades) == 0:
                 last_trade = None
-                while not last_trade:
-                    typ, quote = await stream.receive()
+                async for typ, quote in stream:
                     if typ == 'trade':
                         last_trade = Trade(**(quote['data']))
+                        break
 
             else:
                 last_trade = Trade(**(last_trades[0]))
@@ -177,14 +177,9 @@ async def stream_quotes(
 
             feed_is_live.set()
 
-            try:
-                while True:
-                    typ, quote = await stream.receive() 
-                    topic = quote['symbol']
-                    await send_chan.send({topic: quote})
-
-            except trio.ClosedResourceError:
-                ...
+            async for typ, quote in stream:
+                topic = quote['symbol']
+                await send_chan.send({topic: quote})
 
 
 @tractor.context

@@ -613,7 +613,9 @@ class CryptoFeedRelay:
                     })
 
                 if not self._fh.running:
-                    self._fh.run(start_loop=False)
+                    self._fh.run(
+                        start_loop=False,
+                        install_signal_handlers=False)
                     self._loop = asyncio.get_event_loop()
 
                 # sync with trio
@@ -664,7 +666,9 @@ class CryptoFeedRelay:
                     })
 
                 if not self._fh.running:
-                    self._fh.run(start_loop=False)
+                    self._fh.run(
+                        start_loop=False,
+                        install_signal_handlers=False)
                     self._loop = asyncio.get_event_loop()
 
                 # sync with trio
