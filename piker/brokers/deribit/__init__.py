@@ -32,8 +32,8 @@ from .feed import (
     stream_quotes,
 )
 # from .broker import (
-#     trades_dialogue,
-#     norm_trade_records,
+    # trades_dialogue,
+    # norm_trade_records,
 # )
 
 __all__ = [
@@ -50,7 +50,7 @@ __all__ = [
 __enable_modules__: list[str] = [
     'api',
     'feed',
-#    'broker',
+#   'broker',
 ]
 
 # passed to ``tractor.ActorNursery.start_actor()``

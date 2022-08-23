@@ -18,9 +18,6 @@
 Deribit backend.
 
 '''
-
-import asyncio
-from async_generator import aclosing
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
 from typing import Any, Optional, List, Callable
@@ -32,7 +29,6 @@ import pendulum
 from fuzzywuzzy import process as fuzzy
 import numpy as np
 import tractor
-from tractor import to_asyncio
 
 from piker._cacheables import open_cached_client
 from piker.log import get_logger, get_console_log
@@ -49,7 +45,11 @@ from cryptofeed.defines import (
 )
 from cryptofeed.symbols import Symbol
 
-from .api import Client, Trade, get_config
+from .api import (
+    Client, Trade,
+    get_config,
+    str_to_cb_sym, piker_sym_to_cb_sym, cb_sym_to_deribit_inst
+)
 
 _spawn_kwargs = {
     'infect_asyncio': True,
@@ -57,145 +57,6 @@ _spawn_kwargs = {
 
 
 log = get_logger(__name__)
-
-
-_url = 'https://www.deribit.com'
-
-
-def str_to_cb_sym(name: str) -> Symbol:
-    base, strike_price, expiry_date, option_type = name.split('-')
-
-    quote = base
-
-    if option_type == 'put':
-        option_type = PUT 
-    elif option_type  == 'call':
-        option_type = CALL
-    else:
-        raise BaseException("Couldn\'t parse option type")
-
-    return Symbol(
-        base, quote,
-        type=OPTION,
-        strike_price=strike_price,
-        option_type=option_type,
-        expiry_date=expiry_date,
-        expiry_normalize=False)
-
-
-
-def piker_sym_to_cb_sym(name: str) -> Symbol:
-    base, expiry_date, strike_price, option_type = tuple(
-        name.upper().split('-'))
-
-    quote = base
-
-    if option_type == 'P':
-        option_type = PUT 
-    elif option_type  == 'C':
-        option_type = CALL
-    else:
-        raise BaseException("Couldn\'t parse option type")
-
-    return Symbol(
-        base, quote,
-        type=OPTION,
-        strike_price=strike_price,
-        option_type=option_type,
-        expiry_date=expiry_date.upper())
-
-
-def cb_sym_to_deribit_inst(sym: Symbol):
-    # cryptofeed normalized
-    cb_norm = ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z']
-
-    # deribit specific 
-    months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
-
-    exp = sym.expiry_date
-
-    # YYMDD
-    # 01234
-    year, month, day = (
-        exp[:2], months[cb_norm.index(exp[2:3])], exp[3:])
-
-    otype = 'C' if sym.option_type == CALL else 'P'
-
-    return f'{sym.base}-{day}{month}{year}-{sym.strike_price}-{otype}'
-
-
-# inside here we are in an asyncio context
-async def open_aio_cryptofeed_relay(
-    from_trio: asyncio.Queue,
-    to_trio: trio.abc.SendChannel,
-    instruments: List[str] = []
-) -> None:
-
-    instruments = [piker_sym_to_cb_sym(i) for i in instruments]
-
-    async def trade_cb(data: dict, receipt_timestamp):
-        to_trio.send_nowait(('trade', {
-            'symbol': cb_sym_to_deribit_inst(
-                str_to_cb_sym(data.symbol)).lower(),
-            'last': data,
-            'broker_ts': time.time(),
-            'data': data.to_dict(),
-            'receipt': receipt_timestamp
-        }))
-
-    async def l1_book_cb(data: dict, receipt_timestamp):
-        to_trio.send_nowait(('l1', {
-            'symbol': cb_sym_to_deribit_inst(
-                str_to_cb_sym(data.symbol)).lower(),
-            'ticks': [
-                {'type': 'bid',
-                    'price': float(data.bid_price), 'size': float(data.bid_size)},
-                {'type': 'bsize',
-                    'price': float(data.bid_price), 'size': float(data.bid_size)},
-                {'type': 'ask',
-                    'price': float(data.ask_price), 'size': float(data.ask_size)},
-                {'type': 'asize',
-                    'price': float(data.ask_price), 'size': float(data.ask_size)}
-            ]
-        }))
-
-    fh = FeedHandler(config=get_config())
-    fh.run(start_loop=False)
-
-    fh.add_feed(
-        DERIBIT,
-        channels=[L1_BOOK],
-        symbols=instruments,
-        callbacks={L1_BOOK: l1_book_cb})
-
-    fh.add_feed(
-        DERIBIT,
-        channels=[TRADES],
-        symbols=instruments,
-        callbacks={TRADES: trade_cb})
-
-    # sync with trio
-    to_trio.send_nowait(None)
-
-    try:
-        await asyncio.sleep(float('inf'))
-
-    except asyncio.exceptions.CancelledError:
-        ...
-
-
-@acm
-async def open_cryptofeeds(
-
-    instruments: List[str]
-
-) -> trio.abc.ReceiveStream:
-
-    async with to_asyncio.open_channel_from(
-        open_aio_cryptofeed_relay,
-        instruments=instruments,
-    ) as (first, chan):
-        yield chan
 
 
 @acm
@@ -265,8 +126,7 @@ async def stream_quotes(
 
     async with (
         open_cached_client('deribit') as client,
-        send_chan as send_chan,
-        open_cryptofeeds(symbols) as stream 
+        send_chan as send_chan
     ):
 
         init_msgs = {
@@ -284,20 +144,23 @@ async def stream_quotes(
 
         nsym = piker_sym_to_cb_sym(sym)
 
-        # keep client cached for real-time section
-        cache = await client.cache_symbols()
+        async with client.feeds.open_price_feed(
+            symbols) as stream:
 
-        async with aclosing(stream):
+            cache = await client.cache_symbols()
+
             last_trades = (await client.last_trades(
                 cb_sym_to_deribit_inst(nsym), count=1)).trades
 
             if len(last_trades) == 0:
-                async for typ, quote in stream:
+                last_trade = None
+                while not last_trade:
+                    typ, quote = await stream.receive()
                     if typ == 'trade':
-                        last_trade = Trade(**quote['data'])
+                        last_trade = Trade(**(quote['data']))
 
             else:
-                last_trade = Trade(**last_trades[0])
+                last_trade = Trade(**(last_trades[0]))
 
             first_quote = {
                 'symbol': sym,
@@ -314,9 +177,14 @@ async def stream_quotes(
 
             feed_is_live.set()
 
-            async for typ, quote in stream:
-                topic = quote['symbol']
-                await send_chan.send({topic: quote})
+            try:
+                while True:
+                    typ, quote = await stream.receive() 
+                    topic = quote['symbol']
+                    await send_chan.send({topic: quote})
+
+            except trio.ClosedResourceError:
+                ...
 
 
 @tractor.context
