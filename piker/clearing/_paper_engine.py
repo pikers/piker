@@ -18,6 +18,7 @@
 Fake trading for forward testing.
 
 """
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime
 from operator import itemgetter
@@ -72,8 +73,8 @@ class PaperBoi(Struct):
 
     # map of paper "live" orders which be used
     # to simulate fills based on paper engine settings
-    _buys: dict
-    _sells: dict
+    _buys: defaultdict[str, bidict]
+    _sells: defaultdict[str, bidict]
     _reqids: bidict
     _positions: dict[str, Position]
     _trade_ledger: dict[str, Any]
@@ -166,10 +167,10 @@ class PaperBoi(Struct):
 
             if is_modify:
                 # remove any existing order for the old price
-                orders[symbol].pop((oid, old_price))
+                orders[symbol].pop(oid)
 
-            # buys/sells: (symbol  -> (price -> order))
-            orders.setdefault(symbol, {})[(oid, price)] = (size, reqid, action)
+            # buys/sells: {symbol  -> bidict[oid, (<price data>)]}
+            orders[symbol][oid] = (price, size, reqid, action)
 
         return reqid
 
@@ -191,7 +192,6 @@ class PaperBoi(Struct):
 
         msg = BrokerdStatus(
             status='canceled',
-            # account=f'paper_{self.broker}',
             account='paper',
             reqid=reqid,
             time_ns=time.time_ns(),
@@ -335,9 +335,10 @@ async def simulate_fills(
                             tick.get('size', client.last_ask[1]),
                         )
 
-                        orders = client._buys.get(sym, {})
+                        # orders = client._buys.get(sym, {})
+                        orders = client._buys[sym]
                         book_sequence = reversed(
-                            sorted(orders.keys(), key=itemgetter(1)))
+                            sorted(orders.values(), key=itemgetter(0)))
 
                         def pred(our_price):
                             return tick_price <= our_price
@@ -351,10 +352,11 @@ async def simulate_fills(
                             tick_price,
                             tick.get('size', client.last_bid[1]),
                         )
-                        orders = client._sells.get(sym, {})
+                        # orders = client._sells.get(sym, {})
+                        orders = client._sells[sym]
                         book_sequence = sorted(
-                            orders.keys(),
-                            key=itemgetter(1)
+                            orders.values(),
+                            key=itemgetter(0)
                         )
 
                         def pred(our_price):
@@ -370,13 +372,20 @@ async def simulate_fills(
                         continue
 
                 # iterate book prices descending
-                for oid, our_price in book_sequence:
-                    # print(tick)
-                    # print((sym, list(book_sequence), client._buys, client._sells))
+                # for oid, our_price in book_sequence:
+                # print(tick)
+                # print((
+                #   sym,
+                #   list(book_sequence),
+                #   client._buys,
+                #   client._sells,
+                # ))
+                for order_info in book_sequence:
+                    (our_price, size, reqid, action) = order_info
                     clearable = pred(our_price)
                     if clearable:
                         # retreive order info
-                        (size, reqid, action) = orders.pop((oid, our_price))
+                        oid = orders.inverse.pop(order_info)
 
                         # clearing price would have filled entirely
                         await client.fake_fill(
@@ -454,20 +463,20 @@ async def handle_order_requests(
 
 
 _reqids: bidict[str, tuple] = {}
-_buys: dict[
-    str,
-    dict[
-        tuple[str, float],
-        tuple[float, str, str],
+_buys: defaultdict[
+    str,  # symbol
+    bidict[
+        str,  # oid
+        tuple[float, float, str, str],  # order info
     ]
-] = {}
-_sells: dict[
-    str,
-    dict[
-        tuple[str, float],
-        tuple[float, str, str],
+] = defaultdict(bidict)
+_sells: defaultdict[
+    str,  # symbol
+    bidict[
+        str,  # oid
+        tuple[float, float, str, str],  # order info
     ]
-] = {}
+] = defaultdict(bidict)
 _positions: dict[str, Position] = {}
 
 
