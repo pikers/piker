@@ -58,36 +58,36 @@ def brokercheck(config, broker):
     def print_error(s: str, **kwargs):
         print(FAIL + s + ENDC, **kwargs)
 
-    async def run_method(client, meth_name: str, **kwargs):
+    def get_method(client, meth_name: str):
         print(f'checking client for method \'{meth_name}\'...', end='', flush=True)
         method = getattr(client, meth_name, None)
         assert method
-        print_ok('found!, running...', end='', flush=True)
-        result = await method(**kwargs)
-        print_ok(f'done! result: {type(result)}')
-        return result
+        print_ok('found!.')
+        return method
 
     async def run_test(broker_name: str):
         brokermod = get_brokermod(broker_name)
         total = 0
         passed = 0
         failed = 0
-        
+
         print(f'getting client...', end='', flush=True)
         if not hasattr(brokermod, 'get_client'):
             print_error('fail! no \'get_client\' context manager found.')
             return
 
-        async with brokermod.get_client() as client:
+        async with brokermod.get_client(is_brokercheck=True) as client:
             print_ok(f'done! inside client context.')
 
             # check for methods present on brokermod
             method_list = [
-                'stream_messages',
-                'open_history_client',
                 'backfill_bars',
+                'get_client',
+                'trades_dialogue',
+                'open_history_client',
+                'open_symbol_search',
                 'stream_quotes',
-                'open_symbol_search'
+
             ]
 
             for method in method_list:
@@ -106,25 +106,22 @@ def brokercheck(config, broker):
             # check for methods present con brokermod.Client and their
             # results
 
-            syms = await run_method(client, 'symbol_info')
-            total += 1
-            
-            if len(syms) == 0:
-                raise BaseException('Empty Symbol list?')
-
-            passed += 1
-
-            first_sym = tuple(syms.keys())[0]
-
+            # for private methods only check is present
             method_list = [
-                ('cache_symbols', {}),
-                ('search_symbols', {'pattern': first_sym[:-1]}),
-                ('bars', {'symbol': first_sym})
+                'get_balances',
+                'get_assets',
+                'get_trades',
+                'get_xfers',
+                'submit_limit',
+                'submit_cancel',
+                'cache_symbols',
+                'search_symbols',
+                'bars'
             ]
-            
-            for method_name, method_kwargs in method_list:
+
+            for method_name in method_list:
                 try:
-                    await run_method(client, method_name, **method_kwargs)
+                    get_method(client, method_name)
                     passed += 1
 
                 except AssertionError:

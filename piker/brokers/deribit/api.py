@@ -410,7 +410,14 @@ class Client:
 
 
 @acm
-async def get_client() -> Client:
+async def get_client(
+    is_brokercheck: bool = False
+) -> Client:
+
+    if is_brokercheck:
+        yield Client
+        return
+
     async with (
         trio.open_nursery() as n,
         open_autorecon_ws(_testnet_ws_url) as ws
