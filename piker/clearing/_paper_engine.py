@@ -106,7 +106,6 @@ class PaperBoi(Struct):
         if entry:
             # order is already existing, this is a modify
             (oid, symbol, action, old_price) = entry
-            assert old_price != price
             is_modify = True
         else:
             # register order internally
@@ -183,9 +182,9 @@ class PaperBoi(Struct):
         oid, symbol, action, price = self._reqids[reqid]
 
         if action == 'buy':
-            self._buys[symbol].pop((oid, price))
+            self._buys[symbol].pop(oid, None)
         elif action == 'sell':
-            self._sells[symbol].pop((oid, price))
+            self._sells[symbol].pop(oid, None)
 
         # TODO: net latency model
         await trio.sleep(0.05)
