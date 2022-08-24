@@ -529,8 +529,8 @@ def open_shm_array(
     # pushing teardown calls onto actor context stack
 
     # TODO: make this a public API in ``tractor``..
-    tractor._actor._lifetime_stack.callback(shmarr.close)
-    tractor._actor._lifetime_stack.callback(shmarr.destroy)
+    tractor._runtime._lifetime_stack.callback(shmarr.close)
+    tractor._runtime._lifetime_stack.callback(shmarr.destroy)
 
     return shmarr
 
@@ -615,7 +615,7 @@ def attach_shm_array(
         _known_tokens[key] = token
 
     # "close" attached shm on process teardown
-    tractor._actor._lifetime_stack.callback(sha.close)
+    tractor._runtime._lifetime_stack.callback(sha.close)
 
     return sha
 
