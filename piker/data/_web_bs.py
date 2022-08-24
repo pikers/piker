@@ -123,6 +123,12 @@ class NoBsWs:
             except self.recon_errors:
                 await self._connect()
 
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        return await self.recv_msg()
+
 
 @asynccontextmanager
 async def open_autorecon_ws(

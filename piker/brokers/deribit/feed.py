@@ -48,7 +48,8 @@ from cryptofeed.symbols import Symbol
 from .api import (
     Client, Trade,
     get_config,
-    str_to_cb_sym, piker_sym_to_cb_sym, cb_sym_to_deribit_inst
+    str_to_cb_sym, piker_sym_to_cb_sym, cb_sym_to_deribit_inst,
+    maybe_open_price_feed
 )
 
 _spawn_kwargs = {
@@ -144,8 +145,7 @@ async def stream_quotes(
 
         nsym = piker_sym_to_cb_sym(sym)
 
-        async with client.feeds.open_price_feed(
-            symbols) as stream:
+        async with maybe_open_price_feed(sym) as stream:
 
             cache = await client.cache_symbols()
 
