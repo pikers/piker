@@ -13,6 +13,8 @@ x11vnc \
     -nowf \
     -noxdamage \
     -noxfixes \
+    -no6 \
+    -noipv6 \
 
 
     # -nowcr \
@@ -25,8 +27,6 @@ x11vnc \
     # this seems to maybe optimize some memory usage?
     # -ncache_cr \
     # -ncache \
-    # -no6 \
-    # -noipv6 \
 
     # NOTE: this will prevent logs from going to the console.
     # -logappend /var/log/x11vnc.log \
