@@ -54,7 +54,7 @@ try it out:
     :alt: generate deposit address page
 
 4) After clicking generate you should see the address, copy it and go to the 
-[coin faucet](https://test.deribit.com/dericoin/BTC/deposit) and send fake
+`coin faucet <https://test.deribit.com/dericoin/BTC/deposit>`_ and send fake
 coins to that address.
 
 .. figure:: assets/3_deposit_address.png
