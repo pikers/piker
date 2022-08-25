@@ -23,6 +23,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from operator import itemgetter
 import itertools
+from pprint import pformat
 import time
 from typing import (
     Any,
@@ -438,15 +439,21 @@ async def handle_order_requests(
             case {'action': ('buy' | 'sell')}:
                 order = BrokerdOrder(**request_msg)
                 account = order.account
+
+                # error on bad inputs
+                reason = None
                 if account != 'paper':
-                    log.error(
-                        'This is a paper account,'
-                        ' only a `paper` selection is valid'
-                    )
+                    reason = f'Paper account only. No account found: `{account}` ?'
+
+                elif order.size == 0:
+                    reason = 'Invalid size: 0'
+
+                if reason:
+                    log.error(reason)
                     await ems_order_stream.send(BrokerdError(
                         oid=order.oid,
                         symbol=order.symbol,
-                        reason=f'Paper only. No account found: `{account}` ?',
+                        reason=reason,
                     ))
                     continue
 
