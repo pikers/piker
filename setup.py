@@ -58,6 +58,7 @@ setup(
         # 'trimeter',  # not released yet..
         # 'tractor',
         # asyncvnc,
+        # 'cryptofeed',
 
         # brokers
         'asks==2.4.8',

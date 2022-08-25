@@ -1,7 +1,7 @@
 # we require a pinned dev branch to get some edge features that
 # are often untested in tractor's CI and/or being tested by us
 # first before committing as core features in tractor's base.
--e git+https://github.com/goodboy/tractor.git@master#egg=tractor
+-e git+https://github.com/goodboy/tractor.git@reentrant_moc#egg=tractor
 
 # `pyqtgraph` peeps keep breaking, fixing, improving so might as well
 # pin this to a dev branch that we have more control over especially
@@ -18,3 +18,6 @@
 
 # ``asyncvnc`` for sending interactions to ib-gw inside docker
 -e git+https://github.com/pikers/asyncvnc.git@main#egg=asyncvnc
+
+# ``cryptofeed`` for connecting to various crypto exchanges + custom fixes
+-e git+https://github.com/pikers/cryptofeed.git@date_parsing#egg=cryptofeed

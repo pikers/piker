@@ -50,3 +50,8 @@ prefer_data_account = [
 paper = "XX0000000"
 margin = "X0000000"
 ira = "X0000000"
+
+
+[deribit]
+key_id = 'XXXXXXXX'
+key_secret = 'Xx_XxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXx'
