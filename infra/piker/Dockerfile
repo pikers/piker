@@ -2,7 +2,6 @@
 # to run this image: https://github.com/mviereck/x11docker
 #
 #     x11docker \
-#         --user=piker \
 #         --network=host \
 #         --gpu -- \
 #         piker:master \
