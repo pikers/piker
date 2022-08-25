@@ -166,6 +166,21 @@ class SettingsPane:
         key: str,
         value: str,
 
+    ) -> None:
+        '''
+        Try to apply some input setting (by the user), revert to previous setting if it fails
+        display new value if applied.
+
+        '''
+        self.apply_setting(key, value)
+        self.update_status_ui(pp=self.order_mode.current_pp)
+
+    def apply_setting(
+        self,
+
+        key: str,
+        value: str,
+
     ) -> bool:
         '''
         Called on any order pane edit field value change.
@@ -217,8 +232,17 @@ class SettingsPane:
             alloc.size_unit = value
 
         elif key != 'account':  # numeric fields entry
-            value = puterize(value)
+            try:
+                value = puterize(value)
+            except ValueError as err:
+                log.error(err.args[0])
+                return False
+
             if key == 'limit':
+                if value <= 0:
+                    log.error('limit must be > 0')
+                    return False
+
                 pp = mode.current_pp.live_pp
 
                 if alloc.size_unit == 'currency':
@@ -243,7 +267,10 @@ class SettingsPane:
 
             elif key == 'slots':
                 if value <= 0:
-                    raise ValueError('slots must be > 0')
+                    # raise ValueError('slots must be > 0')
+                    log.error('limit must be > 0')
+                    return False
+
                 alloc.slots = int(value)
 
             else:
@@ -254,13 +281,24 @@ class SettingsPane:
             # on every mouse interaction.
             log.info(f'settings change: {key}: {value}')
 
+        # TODO: maybe return a diff of settings so if we can an error we
+        # can have general input handling code to report it through the
+        # UI in some way?
+        return True
+
+    def update_status_ui(
+        self,
+        pp: PositionTracker,
+
+    ) -> None:
+
+        alloc = pp.alloc
+        slots = alloc.slots
+        used = alloc.slots_used(pp.live_pp)
+
         # READ out settings and update the status UI / settings widgets
         suffix = {'currency': ' $', 'units': ' u'}[alloc.size_unit]
         limit = alloc.limit()
-
-        # TODO: a reverse look up from the position to the equivalent
-        # account(s), if none then look to user config for default?
-        self.update_status_ui(pp=tracker)
 
         step_size, currency_per_slot = alloc.step_sizes()
 
@@ -282,23 +320,7 @@ class SettingsPane:
         self.form.fields['limit'].setText(str(limit))
 
         # update of level marker size label based on any new settings
-        tracker.update_from_pp()
-
-        # TODO: maybe return a diff of settings so if we can an error we
-        # can have general input handling code to report it through the
-        # UI in some way?
-        return True
-
-    def update_status_ui(
-        self,
-
-        pp: PositionTracker,
-
-    ) -> None:
-
-        alloc = pp.alloc
-        slots = alloc.slots
-        used = alloc.slots_used(pp.live_pp)
+        pp.update_from_pp()
 
         # calculate proportion of position size limit
         # that exists and display in fill bar
