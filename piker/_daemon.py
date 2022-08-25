@@ -217,7 +217,7 @@ async def open_piker_runtime(
             # TODO: eventually we should be able to avoid
             # having the root have more then permissions to
             # spawn other specialized daemons I think?
-            enable_modules=_root_modules,
+            enable_modules=_root_modules + enable_modules,
         ) as _,
     ):
         yield tractor.current_actor()
