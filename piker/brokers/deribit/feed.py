@@ -20,7 +20,7 @@ Deribit backend.
 '''
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
-from typing import Any, Optional, List, Callable
+from typing import Any, Optional, Callable
 import time
 
 import trio

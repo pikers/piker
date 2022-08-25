@@ -26,7 +26,7 @@ from contextlib import asynccontextmanager as acm, AsyncExitStack
 from itertools import count
 from functools import partial
 from datetime import datetime
-from typing import Any, List, Dict, Optional, Iterable, Callable
+from typing import Any, Optional, Iterable, Callable
 
 import pendulum
 import asks
@@ -91,14 +91,14 @@ class JSONRPCResult(Struct):
 
 
 class KLinesResult(Struct):
-    close: List[float]
-    cost: List[float]
-    high: List[float]
-    low: List[float]
-    open: List[float]
+    close: list[float]
+    cost: list[float]
+    high: list[float]
+    low: list[float]
+    open: list[float]
     status: str
-    ticks: List[int]
-    volume: List[float]
+    ticks: list[int]
+    volume: list[float]
 
 class Trade(Struct):
     trade_seq: int
@@ -116,7 +116,7 @@ class Trade(Struct):
     amount: float
 
 class LastTradesResult(Struct):
-    trades: List[Trade]
+    trades: list[Trade]
     has_more: bool
 
 
@@ -414,37 +414,28 @@ async def get_client(
     is_brokercheck: bool = False
 ) -> Client:
 
-    if is_brokercheck:
-        yield Client
-        return
-
     async with (
         trio.open_nursery() as n,
         open_autorecon_ws(_testnet_ws_url) as ws
     ):
 
         _rpc_id: Iterable = count(0)
-        _rpc_results: Dict[int, Dict] = {}
+        _rpc_results: dict[int, dict] = {}
 
         _expiry_time: int = float('inf')
         _access_token: Optional[str] = None
         _refresh_token: Optional[str] = None
 
-        def _next_json_body(method: str, params: Dict):
-            """get the typical json rpc 2.0 msg body and increment the req id
+        async def json_rpc(method: str, params: dict) -> dict:
+            """perform a json rpc call and wait for the result, raise exception in
+            case of error field present on response
             """
-            return {
+            msg = {
                 'jsonrpc': '2.0',
                 'id': next(_rpc_id),
                 'method': method,
                 'params': params
             }
-
-        async def json_rpc(method: str, params: Dict) -> Dict:
-            """perform a json rpc call and wait for the result, raise exception in
-            case of error field present on response
-            """
-            msg = _next_json_body(method, params)
             _id = msg['id']
 
             _rpc_results[_id] = {
@@ -546,6 +537,7 @@ async def get_client(
 
         await client.cache_symbols()
         yield client
+        n.cancel_scope.cancel()
 
 
 @acm
@@ -618,7 +610,8 @@ async def aio_price_feed_relay(
 
 @acm
 async def open_price_feed(
-    instrument: str) -> trio.abc.ReceiveStream:
+    instrument: str
+) -> trio.abc.ReceiveStream:
     async with maybe_open_feed_handler() as fh:
         async with to_asyncio.open_channel_from(
             partial(
@@ -684,7 +677,7 @@ async def aio_order_feed_relay(
 
 @acm
 async def open_order_feed(
-    instrument: List[str]
+    instrument: list[str]
 ) -> trio.abc.ReceiveStream:
     async with maybe_open_feed_handler() as fh:
         async with to_asyncio.open_channel_from(

@@ -39,6 +39,131 @@ _config_dir = click.get_app_dir('piker')
 _watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
 
 
+OK = '\033[92m'
+WARNING = '\033[93m'
+FAIL = '\033[91m'
+ENDC = '\033[0m'
+
+
+def print_ok(s: str, **kwargs):
+    print(OK + s + ENDC, **kwargs)
+
+
+def print_error(s: str, **kwargs):
+    print(FAIL + s + ENDC, **kwargs)
+
+
+def get_method(client, meth_name: str):
+    print(f'checking client for method \'{meth_name}\'...', end='', flush=True)
+    method = getattr(client, meth_name, None)
+    assert method
+    print_ok('found!.')
+    return method
+
+async def run_method(client, meth_name: str, **kwargs):
+    method = get_method(client, meth_name)
+    print('running...', end='', flush=True)
+    result = await method(**kwargs)
+    print_ok(f'done! result: {type(result)}')
+    return result
+
+async def run_test(broker_name: str):
+    brokermod = get_brokermod(broker_name)
+    total = 0
+    passed = 0
+    failed = 0
+
+    print(f'getting client...', end='', flush=True)
+    if not hasattr(brokermod, 'get_client'):
+        print_error('fail! no \'get_client\' context manager found.')
+        return
+
+    async with brokermod.get_client(is_brokercheck=True) as client:
+        print_ok(f'done! inside client context.')
+
+        # check for methods present on brokermod
+        method_list = [
+            'backfill_bars',
+            'get_client',
+            'trades_dialogue',
+            'open_history_client',
+            'open_symbol_search',
+            'stream_quotes',
+
+        ]
+
+        for method in method_list:
+            print(
+                f'checking brokermod for method \'{method}\'...',
+                end='', flush=True)
+            if not hasattr(brokermod, method):
+                print_error(f'fail! method \'{method}\' not found.')
+                failed += 1
+            else:
+                print_ok('done!')
+                passed += 1
+
+            total += 1
+
+        # check for methods present con brokermod.Client and their
+        # results
+
+        # for private methods only check is present
+        method_list = [
+            'get_balances',
+            'get_assets',
+            'get_trades',
+            'get_xfers',
+            'submit_limit',
+            'submit_cancel',
+            'search_symbols',
+        ]
+
+        for method_name in method_list:
+            try:
+                get_method(client, method_name)
+                passed += 1
+
+            except AssertionError:
+                print_error(f'fail! method \'{method_name}\' not found.')
+                failed += 1
+
+            total += 1
+
+
+        # check for methods present con brokermod.Client and their
+        # results
+
+        syms = await run_method(client, 'symbol_info')
+        total += 1
+
+        if len(syms) == 0:
+            raise BaseException('Empty Symbol list?')
+
+        passed += 1
+
+        first_sym = tuple(syms.keys())[0]
+
+        method_list = [
+            ('cache_symbols', {}),
+            ('search_symbols', {'pattern': first_sym[:-1]}),
+            ('bars', {'symbol': first_sym})
+        ]
+
+        for method_name, method_kwargs in method_list:
+            try:
+                await run_method(client, method_name, **method_kwargs)
+                passed += 1
+
+            except AssertionError:
+                print_error(f'fail! method \'{method_name}\' not found.')
+                failed += 1
+
+            total += 1
+
+        print(f'total: {total}, passed: {passed}, failed: {failed}')
+
+
 @cli.command()
 @click.argument('broker', nargs=1, required=True)
 @click.pass_obj
@@ -47,90 +172,10 @@ def brokercheck(config, broker):
     Test broker apis for completeness.
 
     '''
-    OK = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-
-    def print_ok(s: str, **kwargs):
-        print(OK + s + ENDC, **kwargs)
-
-    def print_error(s: str, **kwargs):
-        print(FAIL + s + ENDC, **kwargs)
-
-    def get_method(client, meth_name: str):
-        print(f'checking client for method \'{meth_name}\'...', end='', flush=True)
-        method = getattr(client, meth_name, None)
-        assert method
-        print_ok('found!.')
-        return method
-
-    async def run_test(broker_name: str):
-        brokermod = get_brokermod(broker_name)
-        total = 0
-        passed = 0
-        failed = 0
-
-        print(f'getting client...', end='', flush=True)
-        if not hasattr(brokermod, 'get_client'):
-            print_error('fail! no \'get_client\' context manager found.')
-            return
-
-        async with brokermod.get_client(is_brokercheck=True) as client:
-            print_ok(f'done! inside client context.')
-
-            # check for methods present on brokermod
-            method_list = [
-                'backfill_bars',
-                'get_client',
-                'trades_dialogue',
-                'open_history_client',
-                'open_symbol_search',
-                'stream_quotes',
-
-            ]
-
-            for method in method_list:
-                print(
-                    f'checking brokermod for method \'{method}\'...',
-                    end='', flush=True)
-                if not hasattr(brokermod, method):
-                    print_error(f'fail! method \'{method}\' not found.')
-                    failed += 1
-                else:
-                    print_ok('done!')
-                    passed += 1
-
-                total += 1
-
-            # check for methods present con brokermod.Client and their
-            # results
-
-            # for private methods only check is present
-            method_list = [
-                'get_balances',
-                'get_assets',
-                'get_trades',
-                'get_xfers',
-                'submit_limit',
-                'submit_cancel',
-                'cache_symbols',
-                'search_symbols',
-                'bars'
-            ]
-
-            for method_name in method_list:
-                try:
-                    get_method(client, method_name)
-                    passed += 1
-
-                except AssertionError:
-                    print_error(f'fail! method \'{method_name}\' not found.')
-                    failed += 1
-
-                total += 1
-
-            print(f'total: {total}, passed: {passed}, failed: {failed}')
+    async def bcheck_main():
+        async with maybe_spawn_brokerd(broker) as portal:
+            await portal.run(run_test, broker)
+            await portal.cancel_actor()
 
     trio.run(run_test, broker)
 
