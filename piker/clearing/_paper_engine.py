@@ -22,6 +22,7 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime
 from operator import itemgetter
+import itertools
 import time
 from typing import (
     Any,
@@ -324,6 +325,26 @@ async def simulate_fills(
                 # dark order price filter(s)
                 types=('ask', 'bid', 'trade', 'last')
             ):
+                tick_price = tick['price']
+
+                buys: bidict[str, tuple] = client._buys[sym]
+                iter_buys = reversed(sorted(
+                    buys.values(),
+                    key=itemgetter(0),
+                ))
+
+                def sell_on_bid(our_price):
+                    return tick_price <= our_price
+
+                sells: bidict[str, tuple] = client._sells[sym]
+                iter_sells = sorted(
+                    sells.values(),
+                    key=itemgetter(0)
+                )
+
+                def buy_on_ask(our_price):
+                    return tick_price >= our_price
+
                 match tick:
                     case {
                         'price': tick_price,
@@ -335,13 +356,10 @@ async def simulate_fills(
                             tick.get('size', client.last_ask[1]),
                         )
 
-                        # orders = client._buys.get(sym, {})
-                        orders = client._buys[sym]
-                        book_sequence = reversed(
-                            sorted(orders.values(), key=itemgetter(0)))
-
-                        def pred(our_price):
-                            return tick_price <= our_price
+                        iter_entries = zip(
+                            iter_buys,
+                            itertools.repeat(sell_on_bid)
+                        )
 
                     case {
                         'price': tick_price,
@@ -352,40 +370,48 @@ async def simulate_fills(
                             tick_price,
                             tick.get('size', client.last_bid[1]),
                         )
-                        # orders = client._sells.get(sym, {})
-                        orders = client._sells[sym]
-                        book_sequence = sorted(
-                            orders.values(),
-                            key=itemgetter(0)
-                        )
 
-                        def pred(our_price):
-                            return tick_price >= our_price
+                        iter_entries = zip(
+                            iter_sells,
+                            itertools.repeat(buy_on_ask)
+                        )
 
                     case {
                         'price': tick_price,
                         'type': ('trade' | 'last'),
                     }:
-                        # TODO: simulate actual book queues and our
-                        # orders place in it, might require full L2
-                        # data?
-                        continue
+                        # in the clearing price / last price case we
+                        # want to iterate both sides of our book for
+                        # clears since we don't know which direction the
+                        # price is going to move (especially with HFT)
+                        # and thus we simply interleave both sides (buys
+                        # and sells) until one side clears and then
+                        # break until the next tick?
+                        def interleave():
+                            for pair in zip(
+                                iter_buys,
+                                iter_sells,
+                            ):
+                                for order_info, pred in zip(
+                                    pair,
+                                    itertools.cycle([sell_on_bid, buy_on_ask]),
+                                ):
+                                    yield order_info, pred
 
-                # iterate book prices descending
-                # for oid, our_price in book_sequence:
-                # print(tick)
-                # print((
-                #   sym,
-                #   list(book_sequence),
-                #   client._buys,
-                #   client._sells,
-                # ))
-                for order_info in book_sequence:
+                        iter_entries = interleave()
+
+                # iterate all potentially clearable book prices
+                # in FIFO order per side.
+                for order_info, pred in iter_entries:
                     (our_price, size, reqid, action) = order_info
+
                     clearable = pred(our_price)
                     if clearable:
-                        # retreive order info
-                        oid = orders.inverse.pop(order_info)
+                        # pop and retreive order info
+                        oid = {
+                            'buy': buys,
+                            'sell': sells
+                        }[action].inverse.pop(order_info)
 
                         # clearing price would have filled entirely
                         await client.fake_fill(
@@ -397,9 +423,6 @@ async def simulate_fills(
                             reqid=reqid,
                             oid=oid,
                         )
-                    else:
-                        # prices are iterated in sorted order so we're done
-                        break
 
 
 async def handle_order_requests(
