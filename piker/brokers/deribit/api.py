@@ -43,13 +43,19 @@ from .._util import resproc
 from piker import config
 from piker.log import get_logger
 
-from tractor.trionics import broadcast_receiver, BroadcastReceiver, maybe_open_context
+from tractor.trionics import (
+    broadcast_receiver,
+    BroadcastReceiver,
+    maybe_open_context
+)
 from tractor import to_asyncio
 
 from cryptofeed import FeedHandler
 
 from cryptofeed.defines import (
-    DERIBIT, L1_BOOK, TRADES, OPTION, CALL, PUT
+    DERIBIT,
+    L1_BOOK, TRADES,
+    OPTION, CALL, PUT
 )
 from cryptofeed.symbols import Symbol
 
