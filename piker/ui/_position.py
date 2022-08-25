@@ -172,6 +172,8 @@ class SettingsPane:
 
         '''
         mode = self.order_mode
+        tracker = mode.current_pp
+        alloc = tracker.alloc
 
         # an account switch request
         if key == 'account':
@@ -207,60 +209,53 @@ class SettingsPane:
             # load the new account's allocator
             alloc = tracker.alloc
 
-        else:
-            tracker = mode.current_pp
-            alloc = tracker.alloc
-
-        size_unit = alloc.size_unit
-
         # WRITE any settings to current pp's allocator
-        try:
-            if key == 'size_unit':
-                # implicit re-write of value if input
-                # is the "text name" of the units.
-                # yah yah, i know this is badd..
-                alloc.size_unit = value
-            else:
-                value = puterize(value)
-                if key == 'limit':
-                    pp = mode.current_pp.live_pp
+        if key == 'size_unit':
+            # implicit re-write of value if input
+            # is the "text name" of the units.
+            # yah yah, i know this is badd..
+            alloc.size_unit = value
 
-                    if size_unit == 'currency':
-                        dsize = pp.dsize
-                        if dsize > value:
-                            log.error(
-                                f'limit must > then current pp: {dsize}'
-                            )
-                            raise ValueError
+        elif key != 'account':  # numeric fields entry
+            value = puterize(value)
+            if key == 'limit':
+                pp = mode.current_pp.live_pp
 
-                        alloc.currency_limit = value
+                if alloc.size_unit == 'currency':
+                    dsize = pp.dsize
+                    if dsize > value:
+                        log.error(
+                            f'limit must > then current pp: {dsize}'
+                        )
+                        raise ValueError
 
-                    else:
-                        size = pp.size
-                        if size > value:
-                            log.error(
-                                f'limit must > then current pp: {size}'
-                            )
-                            raise ValueError
-
-                        alloc.units_limit = value
-
-                elif key == 'slots':
-                    if value <= 0:
-                        raise ValueError('slots must be > 0')
-                    alloc.slots = int(value)
+                    alloc.currency_limit = value
 
                 else:
-                    log.error(f'Unknown setting {key}')
-                    raise ValueError
+                    size = pp.size
+                    if size > value:
+                        log.error(
+                            f'limit must > then current pp: {size}'
+                        )
+                        raise ValueError
 
+                    alloc.units_limit = value
+
+            elif key == 'slots':
+                if value <= 0:
+                    raise ValueError('slots must be > 0')
+                alloc.slots = int(value)
+
+            else:
+                log.error(f'Unknown setting {key}')
+                raise ValueError
+
+            # don't log account "change" case since it'll be submitted
+            # on every mouse interaction.
             log.info(f'settings change: {key}: {value}')
 
-        except ValueError:
-            log.error(f'Invalid value for `{key}`: {value}')
-
         # READ out settings and update the status UI / settings widgets
-        suffix = {'currency': ' $', 'units': ' u'}[size_unit]
+        suffix = {'currency': ' $', 'units': ' u'}[alloc.size_unit]
         limit = alloc.limit()
 
         # TODO: a reverse look up from the position to the equivalent
@@ -269,7 +264,7 @@ class SettingsPane:
 
         step_size, currency_per_slot = alloc.step_sizes()
 
-        if size_unit == 'currency':
+        if alloc.size_unit == 'currency':
             step_size = currency_per_slot
 
         self.step_label.format(
