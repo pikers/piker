@@ -282,7 +282,7 @@ class Client:
 
 
 @acm
-async def get_client() -> Client:
+async def get_client(is_brokercheck: bool = False) -> Client:
     client = Client()
     await client.cache_symbols()
     yield client

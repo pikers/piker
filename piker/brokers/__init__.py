@@ -30,6 +30,7 @@ __brokers__ = [
     'robinhood',
     'ib',
     'kraken',
+    'deribit'
 ]
 
 

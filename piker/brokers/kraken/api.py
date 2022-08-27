@@ -518,7 +518,7 @@ class Client:
 
 
 @acm
-async def get_client() -> Client:
+async def get_client(is_brokercheck: bool = False) -> Client:
 
     conf = get_config()
     if conf:

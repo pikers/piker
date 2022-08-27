@@ -732,7 +732,8 @@ def get_config(
 @asynccontextmanager
 async def get_client(
     config_path: str = None,
-    ask_user: bool = True
+    ask_user: bool = True,
+    is_brokercheck: bool = False
 ) -> Client:
     """Spawn a broker client for making requests to the API service.
     """
