@@ -642,18 +642,7 @@ async def open_order_mode(
         # Pack position messages by account, should only be one-to-one.
         # NOTE: requires the backend exactly specifies
         # the expected symbol key in its positions msg.
-        pps_by_account = {}
-        for (broker, acctid), msgs in position_msgs.items():
-            for msg in msgs:
-
-                sym = msg['symbol']
-                if (
-                    (sym == symkey) or (
-                        # mega-UGH, i think we need to fix the FQSN
-                        # stuff sooner then later..
-                        sym == symkey.removesuffix(f'.{broker}'))
-                ):
-                    pps_by_account[acctid] = msg
+        # pps_by_account = {}
 
         # update pp trackers with data relayed from ``brokerd``.
         for account_name in accounts:
@@ -667,11 +656,6 @@ async def open_order_mode(
                 # XXX: BLEH, do we care about this on the client side?
                 bsuid=symbol,
             )
-            msg = pps_by_account.get(account_name)
-            if msg:
-                log.info(f'Loading pp for {symkey}:\n{pformat(msg)}')
-                startup_pp.update_from_msg(msg)
-
             # allocator config
             alloc = mk_allocator(
                 symbol=symbol,
@@ -788,6 +772,15 @@ async def open_order_mode(
 
         # Begin order-response streaming
         done()
+
+        for (broker, acctid), msgs in position_msgs.items():
+            for msg in msgs:
+                log.info(f'Loading pp for {symkey}:\n{pformat(msg)}')
+                await process_trade_msg(
+                    mode,
+                    book,
+                    msg,
+                )
 
         # start async input handling for chart's view
         async with (

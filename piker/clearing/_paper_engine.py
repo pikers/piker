@@ -23,7 +23,6 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from operator import itemgetter
 import itertools
-from pprint import pformat
 import time
 from typing import (
     Any,
@@ -204,7 +203,7 @@ class PaperBoi(Struct):
     async def fake_fill(
         self,
 
-        symbol: str,
+        fqsn: str,
         price: float,
         size: float,
         action: str,  # one of {'buy', 'sell'}
@@ -258,34 +257,34 @@ class PaperBoi(Struct):
             await self.ems_trades_stream.send(msg)
 
         # lookup any existing position
-        token = f'{symbol}.{self.broker}'
+        key = fqsn.rstrip(f'.{self.broker}')
         pp = self._positions.setdefault(
-            token,
+            fqsn,
             Position(
                 Symbol(
-                    key=symbol,
+                    key=key,
                     broker_info={self.broker: {}},
                 ),
                 size=size,
                 ppu=price,
-                bsuid=symbol,
+                bsuid=key,
             )
         )
         t = Transaction(
-            fqsn=symbol,
+            fqsn=fqsn,
             tid=oid,
             size=size,
             price=price,
             cost=0,  # TODO: cost model
             dt=pendulum.from_timestamp(fill_time_s),
-            bsuid=symbol,
+            bsuid=key,
         )
         pp.add_clear(t)
 
         pp_msg = BrokerdPosition(
             broker=self.broker,
             account='paper',
-            symbol=symbol,
+            symbol=fqsn,
             # TODO: we need to look up the asset currency from
             # broker info. i guess for crypto this can be
             # inferred from the pair?
@@ -416,7 +415,7 @@ async def simulate_fills(
 
                         # clearing price would have filled entirely
                         await client.fake_fill(
-                            symbol=sym,
+                            fqsn=sym,
                             # todo slippage to determine fill price
                             price=tick_price,
                             size=size,
@@ -443,7 +442,7 @@ async def handle_order_requests(
                 # error on bad inputs
                 reason = None
                 if account != 'paper':
-                    reason = f'Paper account only. No account found: `{account}` ?'
+                    reason = f'No account found:`{account}` (paper only)?'
 
                 elif order.size == 0:
                     reason = 'Invalid size: 0'
@@ -543,7 +542,6 @@ async def trades_dialogue(
 
         # TODO: load paper positions per broker from .toml config file
         # and pass as symbol to position data mapping: ``dict[str, dict]``
-        # await ctx.started(all_positions)
         await ctx.started((pp_msgs, ['paper']))
 
         async with (
