@@ -19,6 +19,7 @@ ToOlS fOr CoPInG wITh "tHE wEB" protocols.
 
 """
 from contextlib import asynccontextmanager, AsyncExitStack
+from itertools import count
 from types import ModuleType
 from typing import Any, Optional, Callable, AsyncGenerator
 import json
@@ -34,6 +35,8 @@ from trio_websocket._impl import (
 )
 
 from ..log import get_logger
+
+from .types import Struct
 
 log = get_logger(__name__)
 
@@ -150,3 +153,86 @@ async def open_autorecon_ws(
 
         finally:
             await stack.aclose()
+
+
+'''
+JSONRPC response-request style machinery for transparent multiplexing of msgs
+over a NoBsWs.
+'''
+
+
+class JSONRPCResult(Struct):
+    jsonrpc: str = '2.0'
+    id: int
+    result: Optional[dict] = None
+    error: Optional[dict] = None
+
+
+@asynccontextmanager
+async def open_jsonrpc_session(
+    url: str,
+    start_id: int = 0,
+    dtype: type = JSONRPCResult
+) -> Callable[[str, dict], dict]:
+
+    async with (
+        trio.open_nursery() as n,
+        open_autorecon_ws(url) as ws
+    ):
+        rpc_id: Iterable = count(start_id)
+        rpc_results: dict[int, dict] = {}
+
+        async def json_rpc(method: str, params: dict) -> dict:
+            '''
+            perform a json rpc call and wait for the result, raise exception in
+            case of error field present on response
+            '''
+            msg = {
+                'jsonrpc': '2.0',
+                'id': next(rpc_id),
+                'method': method,
+                'params': params
+            }
+            _id = msg['id']
+
+            rpc_results[_id] = {
+                'result': None,
+                'event': trio.Event()
+            }
+
+            await ws.send_msg(msg)
+
+            await rpc_results[_id]['event'].wait()
+
+            ret = rpc_results[_id]['result']
+
+            del rpc_results[_id]
+
+            if ret.error is not None:
+                raise Exception(json.dumps(ret.error, indent=4))
+
+            return ret
+
+        async def recv_task():
+            '''
+            receives every ws message and stores it in its corresponding result
+            field, then sets the event to wakeup original sender tasks.
+            '''
+            async for msg in ws:
+                msg = dtype(**msg)
+
+                if msg.id not in rpc_results:
+                    log.warning(f'Wasn\'t expecting ws msg: {json.dumps(msg, indent=4)}')
+
+                res = rpc_results.setdefault(
+                    msg.id,
+                    {'result': None, 'event': trio.Event()}
+                )
+
+                res['result'] = msg
+                res['event'].set()
+
+
+        n.start_soon(recv_task)
+        yield json_rpc
+        n.cancel_scope.cancel()
