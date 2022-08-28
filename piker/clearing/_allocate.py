@@ -96,7 +96,7 @@ class Allocator(Struct):
     def next_order_info(
         self,
 
-        # we only need a startup size for exit calcs, we can the
+        # we only need a startup size for exit calcs, we can then
         # determine how large slots should be if the initial pp size was
         # larger then the current live one, and the live one is smaller
         # then the initial config settings.
@@ -137,12 +137,14 @@ class Allocator(Struct):
 
         # an entry (adding-to or starting a pp)
         if (
-            action == 'buy' and live_size > 0 or
-            action == 'sell' and live_size < 0 or
             live_size == 0
+            or (action == 'buy' and live_size > 0)
+            or action == 'sell' and live_size < 0
         ):
-
-            order_size = min(slot_size, l_sub_pp)
+            order_size = min(
+                slot_size,
+                max(l_sub_pp, 0),
+            )
 
         # an exit (removing-from or going to net-zero pp)
         else:
