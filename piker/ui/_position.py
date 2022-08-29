@@ -458,6 +458,14 @@ def position_line(
     return line
 
 
+_derivs = (
+    'future',
+    'continuous_future',
+    'option',
+    'futures_option',
+)
+
+
 class PositionTracker:
     '''
     Track and display real-time positions for a single symbol
@@ -564,14 +572,54 @@ class PositionTracker:
     def update_from_pp(
         self,
         position: Optional[Position] = None,
+        set_as_startup: bool = False,
 
     ) -> None:
-        '''Update graphics and data from average price and size passed in our
-        EMS ``BrokerdPosition`` msg.
+        '''
+        Update graphics and data from average price and size passed in
+        our EMS ``BrokerdPosition`` msg.
 
         '''
         # live pp updates
         pp = position or self.live_pp
+        if set_as_startup:
+            startup_pp = pp
+        else:
+            startup_pp = self.startup_pp
+        alloc = self.alloc
+
+        # update allocator settings
+        asset_type = pp.symbol.type_key
+
+        # specific configs by asset class / type
+        if asset_type in _derivs:
+            # since it's harder to know how currency "applies" in this case
+            # given leverage properties
+            alloc.size_unit = '# units'
+
+            # set units limit to slots size thus making make the next
+            # entry step 1.0
+            alloc.units_limit = alloc.slots
+
+        else:
+            alloc.size_unit = 'currency'
+
+        # if the current position is already greater then the limit
+        # settings, increase the limit to the current position
+        if alloc.size_unit == 'currency':
+            startup_size = self.startup_pp.size * startup_pp.ppu
+
+            if startup_size > alloc.currency_limit:
+                alloc.currency_limit = round(startup_size, ndigits=2)
+
+        else:
+            startup_size = abs(startup_pp.size)
+
+            if startup_size > alloc.units_limit:
+                alloc.units_limit = startup_size
+
+                if asset_type in _derivs:
+                    alloc.slots = alloc.units_limit
 
         self.update_line(
             pp.ppu,
@@ -581,7 +629,7 @@ class PositionTracker:
 
         # label updates
         self.size_label.fields['slots_used'] = round(
-            self.alloc.slots_used(pp), ndigits=1)
+            alloc.slots_used(pp), ndigits=1)
         self.size_label.render()
 
         if pp.size == 0:

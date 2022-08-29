@@ -639,11 +639,6 @@ async def open_order_mode(
             iter(accounts.keys())
         ) if accounts else 'paper'
 
-        # Pack position messages by account, should only be one-to-one.
-        # NOTE: requires the backend exactly specifies
-        # the expected symbol key in its positions msg.
-        # pps_by_account = {}
-
         # update pp trackers with data relayed from ``brokerd``.
         for account_name in accounts:
 
@@ -656,6 +651,7 @@ async def open_order_mode(
                 # XXX: BLEH, do we care about this on the client side?
                 bsuid=symbol,
             )
+
             # allocator config
             alloc = mk_allocator(
                 symbol=symbol,
@@ -750,7 +746,6 @@ async def open_order_mode(
         # to order sync pane handler
         for key in ('account', 'size_unit',):
             w = form.fields[key]
-
             w.currentTextChanged.connect(
                 partial(
                     order_pane.on_selection_change,
@@ -773,6 +768,9 @@ async def open_order_mode(
         # Begin order-response streaming
         done()
 
+        # Pack position messages by account, should only be one-to-one.
+        # NOTE: requires the backend exactly specifies
+        # the expected symbol key in its positions msg.
         for (broker, acctid), msgs in position_msgs.items():
             for msg in msgs:
                 log.info(f'Loading pp for {symkey}:\n{pformat(msg)}')
@@ -869,8 +867,7 @@ async def process_trade_msg(
             log.info(f'{fqsn} matched pp msg: {fmsg}')
             tracker = mode.trackers[msg['account']]
             tracker.live_pp.update_from_msg(msg)
-            # update order pane widgets
-            tracker.update_from_pp()
+            tracker.update_from_pp(set_as_startup=True)  # status/pane UI
             mode.pane.update_status_ui(tracker)
 
             if tracker.live_pp.size:
