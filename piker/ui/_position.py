@@ -166,12 +166,29 @@ class SettingsPane:
         key: str,
         value: str,
 
+    ) -> None:
+        '''
+        Try to apply some input setting (by the user), revert to previous setting if it fails
+        display new value if applied.
+
+        '''
+        self.apply_setting(key, value)
+        self.update_status_ui(pp=self.order_mode.current_pp)
+
+    def apply_setting(
+        self,
+
+        key: str,
+        value: str,
+
     ) -> bool:
         '''
         Called on any order pane edit field value change.
 
         '''
         mode = self.order_mode
+        tracker = mode.current_pp
+        alloc = tracker.alloc
 
         # an account switch request
         if key == 'account':
@@ -207,69 +224,85 @@ class SettingsPane:
             # load the new account's allocator
             alloc = tracker.alloc
 
-        else:
-            tracker = mode.current_pp
-            alloc = tracker.alloc
-
-        size_unit = alloc.size_unit
-
         # WRITE any settings to current pp's allocator
-        try:
-            if key == 'size_unit':
-                # implicit re-write of value if input
-                # is the "text name" of the units.
-                # yah yah, i know this is badd..
-                alloc.size_unit = value
-            else:
+        if key == 'size_unit':
+            # implicit re-write of value if input
+            # is the "text name" of the units.
+            # yah yah, i know this is badd..
+            alloc.size_unit = value
+
+        elif key != 'account':  # numeric fields entry
+            try:
                 value = puterize(value)
-                if key == 'limit':
-                    pp = mode.current_pp.live_pp
+            except ValueError as err:
+                log.error(err.args[0])
+                return False
 
-                    if size_unit == 'currency':
-                        dsize = pp.dsize
-                        if dsize > value:
-                            log.error(
-                                f'limit must > then current pp: {dsize}'
-                            )
-                            raise ValueError
+            if key == 'limit':
+                if value <= 0:
+                    log.error('limit must be > 0')
+                    return False
 
-                        alloc.currency_limit = value
+                pp = mode.current_pp.live_pp
 
-                    else:
-                        size = pp.size
-                        if size > value:
-                            log.error(
-                                f'limit must > then current pp: {size}'
-                            )
-                            raise ValueError
+                if alloc.size_unit == 'currency':
+                    dsize = pp.dsize
+                    if dsize > value:
+                        log.error(
+                            f'limit must > then current pp: {dsize}'
+                        )
+                        raise ValueError
 
-                        alloc.units_limit = value
-
-                elif key == 'slots':
-                    if value <= 0:
-                        raise ValueError('slots must be > 0')
-                    alloc.slots = int(value)
+                    alloc.currency_limit = value
 
                 else:
-                    log.error(f'Unknown setting {key}')
-                    raise ValueError
+                    size = pp.size
+                    if size > value:
+                        log.error(
+                            f'limit must > then current pp: {size}'
+                        )
+                        raise ValueError
 
+                    alloc.units_limit = value
+
+            elif key == 'slots':
+                if value <= 0:
+                    # raise ValueError('slots must be > 0')
+                    log.error('limit must be > 0')
+                    return False
+
+                alloc.slots = int(value)
+
+            else:
+                log.error(f'Unknown setting {key}')
+                raise ValueError
+
+            # don't log account "change" case since it'll be submitted
+            # on every mouse interaction.
             log.info(f'settings change: {key}: {value}')
 
-        except ValueError:
-            log.error(f'Invalid value for `{key}`: {value}')
+        # TODO: maybe return a diff of settings so if we can an error we
+        # can have general input handling code to report it through the
+        # UI in some way?
+        return True
+
+    def update_status_ui(
+        self,
+        pp: PositionTracker,
+
+    ) -> None:
+
+        alloc = pp.alloc
+        slots = alloc.slots
+        used = alloc.slots_used(pp.live_pp)
 
         # READ out settings and update the status UI / settings widgets
-        suffix = {'currency': ' $', 'units': ' u'}[size_unit]
+        suffix = {'currency': ' $', 'units': ' u'}[alloc.size_unit]
         limit = alloc.limit()
-
-        # TODO: a reverse look up from the position to the equivalent
-        # account(s), if none then look to user config for default?
-        self.update_status_ui(pp=tracker)
 
         step_size, currency_per_slot = alloc.step_sizes()
 
-        if size_unit == 'currency':
+        if alloc.size_unit == 'currency':
             step_size = currency_per_slot
 
         self.step_label.format(
@@ -287,23 +320,7 @@ class SettingsPane:
         self.form.fields['limit'].setText(str(limit))
 
         # update of level marker size label based on any new settings
-        tracker.update_from_pp()
-
-        # TODO: maybe return a diff of settings so if we can an error we
-        # can have general input handling code to report it through the
-        # UI in some way?
-        return True
-
-    def update_status_ui(
-        self,
-
-        pp: PositionTracker,
-
-    ) -> None:
-
-        alloc = pp.alloc
-        slots = alloc.slots
-        used = alloc.slots_used(pp.live_pp)
+        pp.update_from_pp()
 
         # calculate proportion of position size limit
         # that exists and display in fill bar
@@ -441,6 +458,14 @@ def position_line(
     return line
 
 
+_derivs = (
+    'future',
+    'continuous_future',
+    'option',
+    'futures_option',
+)
+
+
 class PositionTracker:
     '''
     Track and display real-time positions for a single symbol
@@ -547,14 +572,54 @@ class PositionTracker:
     def update_from_pp(
         self,
         position: Optional[Position] = None,
+        set_as_startup: bool = False,
 
     ) -> None:
-        '''Update graphics and data from average price and size passed in our
-        EMS ``BrokerdPosition`` msg.
+        '''
+        Update graphics and data from average price and size passed in
+        our EMS ``BrokerdPosition`` msg.
 
         '''
         # live pp updates
         pp = position or self.live_pp
+        if set_as_startup:
+            startup_pp = pp
+        else:
+            startup_pp = self.startup_pp
+        alloc = self.alloc
+
+        # update allocator settings
+        asset_type = pp.symbol.type_key
+
+        # specific configs by asset class / type
+        if asset_type in _derivs:
+            # since it's harder to know how currency "applies" in this case
+            # given leverage properties
+            alloc.size_unit = '# units'
+
+            # set units limit to slots size thus making make the next
+            # entry step 1.0
+            alloc.units_limit = alloc.slots
+
+        else:
+            alloc.size_unit = 'currency'
+
+        # if the current position is already greater then the limit
+        # settings, increase the limit to the current position
+        if alloc.size_unit == 'currency':
+            startup_size = self.startup_pp.size * startup_pp.ppu
+
+            if startup_size > alloc.currency_limit:
+                alloc.currency_limit = round(startup_size, ndigits=2)
+
+        else:
+            startup_size = abs(startup_pp.size)
+
+            if startup_size > alloc.units_limit:
+                alloc.units_limit = startup_size
+
+                if asset_type in _derivs:
+                    alloc.slots = alloc.units_limit
 
         self.update_line(
             pp.ppu,
@@ -564,7 +629,7 @@ class PositionTracker:
 
         # label updates
         self.size_label.fields['slots_used'] = round(
-            self.alloc.slots_used(pp), ndigits=1)
+            alloc.slots_used(pp), ndigits=1)
         self.size_label.render()
 
         if pp.size == 0:

@@ -96,7 +96,7 @@ class Allocator(Struct):
     def next_order_info(
         self,
 
-        # we only need a startup size for exit calcs, we can the
+        # we only need a startup size for exit calcs, we can then
         # determine how large slots should be if the initial pp size was
         # larger then the current live one, and the live one is smaller
         # then the initial config settings.
@@ -137,12 +137,14 @@ class Allocator(Struct):
 
         # an entry (adding-to or starting a pp)
         if (
-            action == 'buy' and live_size > 0 or
-            action == 'sell' and live_size < 0 or
             live_size == 0
+            or (action == 'buy' and live_size > 0)
+            or action == 'sell' and live_size < 0
         ):
-
-            order_size = min(slot_size, l_sub_pp)
+            order_size = min(
+                slot_size,
+                max(l_sub_pp, 0),
+            )
 
         # an exit (removing-from or going to net-zero pp)
         else:
@@ -242,14 +244,6 @@ class Allocator(Struct):
         return round(prop * self.slots)
 
 
-_derivs = (
-    'future',
-    'continuous_future',
-    'option',
-    'futures_option',
-)
-
-
 def mk_allocator(
 
     symbol: Symbol,
@@ -276,45 +270,9 @@ def mk_allocator(
         'currency_limit': 6e3,
         'slots': 6,
     }
-
     defaults.update(user_def)
 
-    alloc = Allocator(
+    return Allocator(
         symbol=symbol,
         **defaults,
     )
-
-    asset_type = symbol.type_key
-
-    # specific configs by asset class / type
-
-    if asset_type in _derivs:
-        # since it's harder to know how currency "applies" in this case
-        # given leverage properties
-        alloc.size_unit = '# units'
-
-        # set units limit to slots size thus making make the next
-        # entry step 1.0
-        alloc.units_limit = alloc.slots
-
-    else:
-        alloc.size_unit = 'currency'
-
-    # if the current position is already greater then the limit
-    # settings, increase the limit to the current position
-    if alloc.size_unit == 'currency':
-        startup_size = startup_pp.size * startup_pp.ppu
-
-        if startup_size > alloc.currency_limit:
-            alloc.currency_limit = round(startup_size, ndigits=2)
-
-    else:
-        startup_size = abs(startup_pp.size)
-
-        if startup_size > alloc.units_limit:
-            alloc.units_limit = startup_size
-
-            if asset_type in _derivs:
-                alloc.slots = alloc.units_limit
-
-    return alloc

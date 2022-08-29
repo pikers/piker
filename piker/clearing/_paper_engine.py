@@ -18,9 +18,11 @@
 Fake trading for forward testing.
 
 """
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime
 from operator import itemgetter
+import itertools
 import time
 from typing import (
     Any,
@@ -72,8 +74,8 @@ class PaperBoi(Struct):
 
     # map of paper "live" orders which be used
     # to simulate fills based on paper engine settings
-    _buys: dict
-    _sells: dict
+    _buys: defaultdict[str, bidict]
+    _sells: defaultdict[str, bidict]
     _reqids: bidict
     _positions: dict[str, Position]
     _trade_ledger: dict[str, Any]
@@ -106,7 +108,6 @@ class PaperBoi(Struct):
         if entry:
             # order is already existing, this is a modify
             (oid, symbol, action, old_price) = entry
-            assert old_price != price
             is_modify = True
         else:
             # register order internally
@@ -167,10 +168,10 @@ class PaperBoi(Struct):
 
             if is_modify:
                 # remove any existing order for the old price
-                orders[symbol].pop((oid, old_price))
+                orders[symbol].pop(oid)
 
-            # buys/sells: (symbol  -> (price -> order))
-            orders.setdefault(symbol, {})[(oid, price)] = (size, reqid, action)
+            # buys/sells: {symbol  -> bidict[oid, (<price data>)]}
+            orders[symbol][oid] = (price, size, reqid, action)
 
         return reqid
 
@@ -183,16 +184,15 @@ class PaperBoi(Struct):
         oid, symbol, action, price = self._reqids[reqid]
 
         if action == 'buy':
-            self._buys[symbol].pop((oid, price))
+            self._buys[symbol].pop(oid, None)
         elif action == 'sell':
-            self._sells[symbol].pop((oid, price))
+            self._sells[symbol].pop(oid, None)
 
         # TODO: net latency model
         await trio.sleep(0.05)
 
         msg = BrokerdStatus(
             status='canceled',
-            # account=f'paper_{self.broker}',
             account='paper',
             reqid=reqid,
             time_ns=time.time_ns(),
@@ -203,7 +203,7 @@ class PaperBoi(Struct):
     async def fake_fill(
         self,
 
-        symbol: str,
+        fqsn: str,
         price: float,
         size: float,
         action: str,  # one of {'buy', 'sell'}
@@ -257,34 +257,34 @@ class PaperBoi(Struct):
             await self.ems_trades_stream.send(msg)
 
         # lookup any existing position
-        token = f'{symbol}.{self.broker}'
+        key = fqsn.rstrip(f'.{self.broker}')
         pp = self._positions.setdefault(
-            token,
+            fqsn,
             Position(
                 Symbol(
-                    key=symbol,
+                    key=key,
                     broker_info={self.broker: {}},
                 ),
                 size=size,
                 ppu=price,
-                bsuid=symbol,
+                bsuid=key,
             )
         )
         t = Transaction(
-            fqsn=symbol,
+            fqsn=fqsn,
             tid=oid,
             size=size,
             price=price,
             cost=0,  # TODO: cost model
             dt=pendulum.from_timestamp(fill_time_s),
-            bsuid=symbol,
+            bsuid=key,
         )
         pp.add_clear(t)
 
         pp_msg = BrokerdPosition(
             broker=self.broker,
             account='paper',
-            symbol=symbol,
+            symbol=fqsn,
             # TODO: we need to look up the asset currency from
             # broker info. i guess for crypto this can be
             # inferred from the pair?
@@ -325,10 +325,30 @@ async def simulate_fills(
                 # dark order price filter(s)
                 types=('ask', 'bid', 'trade', 'last')
             ):
-                # print(tick)
+                tick_price = tick['price']
+
+                buys: bidict[str, tuple] = client._buys[sym]
+                iter_buys = reversed(sorted(
+                    buys.values(),
+                    key=itemgetter(0),
+                ))
+
+                def sell_on_bid(our_price):
+                    return tick_price <= our_price
+
+                sells: bidict[str, tuple] = client._sells[sym]
+                iter_sells = sorted(
+                    sells.values(),
+                    key=itemgetter(0)
+                )
+
+                def buy_on_ask(our_price):
+                    return tick_price >= our_price
+
                 match tick:
                     case {
                         'price': tick_price,
+                        # 'type': ('ask' | 'trade' | 'last'),
                         'type': 'ask',
                     }:
                         client.last_ask = (
@@ -336,48 +356,66 @@ async def simulate_fills(
                             tick.get('size', client.last_ask[1]),
                         )
 
-                        orders = client._buys.get(sym, {})
-                        book_sequence = reversed(
-                            sorted(orders.keys(), key=itemgetter(1)))
-
-                        def pred(our_price):
-                            return tick_price <= our_price
+                        iter_entries = zip(
+                            iter_buys,
+                            itertools.repeat(sell_on_bid)
+                        )
 
                     case {
                         'price': tick_price,
+                        # 'type': ('bid' | 'trade' | 'last'),
                         'type': 'bid',
                     }:
                         client.last_bid = (
                             tick_price,
                             tick.get('size', client.last_bid[1]),
                         )
-                        orders = client._sells.get(sym, {})
-                        book_sequence = sorted(
-                            orders.keys(),
-                            key=itemgetter(1)
-                        )
 
-                        def pred(our_price):
-                            return tick_price >= our_price
+                        iter_entries = zip(
+                            iter_sells,
+                            itertools.repeat(buy_on_ask)
+                        )
 
                     case {
                         'price': tick_price,
                         'type': ('trade' | 'last'),
                     }:
-                        # TODO: simulate actual book queues and our orders
-                        # place in it, might require full L2 data?
-                        continue
+                        # in the clearing price / last price case we
+                        # want to iterate both sides of our book for
+                        # clears since we don't know which direction the
+                        # price is going to move (especially with HFT)
+                        # and thus we simply interleave both sides (buys
+                        # and sells) until one side clears and then
+                        # break until the next tick?
+                        def interleave():
+                            for pair in zip(
+                                iter_buys,
+                                iter_sells,
+                            ):
+                                for order_info, pred in zip(
+                                    pair,
+                                    itertools.cycle([sell_on_bid, buy_on_ask]),
+                                ):
+                                    yield order_info, pred
 
-                # iterate book prices descending
-                for oid, our_price in book_sequence:
-                    if pred(our_price):
+                        iter_entries = interleave()
 
-                        # retreive order info
-                        (size, reqid, action) = orders.pop((oid, our_price))
+                # iterate all potentially clearable book prices
+                # in FIFO order per side.
+                for order_info, pred in iter_entries:
+                    (our_price, size, reqid, action) = order_info
+
+                    clearable = pred(our_price)
+                    if clearable:
+                        # pop and retreive order info
+                        oid = {
+                            'buy': buys,
+                            'sell': sells
+                        }[action].inverse.pop(order_info)
 
                         # clearing price would have filled entirely
                         await client.fake_fill(
-                            symbol=sym,
+                            fqsn=sym,
                             # todo slippage to determine fill price
                             price=tick_price,
                             size=size,
@@ -385,9 +423,6 @@ async def simulate_fills(
                             reqid=reqid,
                             oid=oid,
                         )
-                    else:
-                        # prices are iterated in sorted order so we're done
-                        break
 
 
 async def handle_order_requests(
@@ -403,15 +438,21 @@ async def handle_order_requests(
             case {'action': ('buy' | 'sell')}:
                 order = BrokerdOrder(**request_msg)
                 account = order.account
+
+                # error on bad inputs
+                reason = None
                 if account != 'paper':
-                    log.error(
-                        'This is a paper account,'
-                        ' only a `paper` selection is valid'
-                    )
+                    reason = f'No account found:`{account}` (paper only)?'
+
+                elif order.size == 0:
+                    reason = 'Invalid size: 0'
+
+                if reason:
+                    log.error(reason)
                     await ems_order_stream.send(BrokerdError(
                         oid=order.oid,
                         symbol=order.symbol,
-                        reason=f'Paper only. No account found: `{account}` ?',
+                        reason=reason,
                     ))
                     continue
 
@@ -428,7 +469,7 @@ async def handle_order_requests(
                 # call our client api to submit the order
                 reqid = await client.submit_limit(
                     oid=order.oid,
-                    symbol=order.symbol,
+                    symbol=f'{order.symbol}.{client.broker}',
                     price=order.price,
                     action=order.action,
                     size=order.size,
@@ -451,20 +492,20 @@ async def handle_order_requests(
 
 
 _reqids: bidict[str, tuple] = {}
-_buys: dict[
-    str,
-    dict[
-        tuple[str, float],
-        tuple[float, str, str],
+_buys: defaultdict[
+    str,  # symbol
+    bidict[
+        str,  # oid
+        tuple[float, float, str, str],  # order info
     ]
-] = {}
-_sells: dict[
-    str,
-    dict[
-        tuple[str, float],
-        tuple[float, str, str],
+] = defaultdict(bidict)
+_sells: defaultdict[
+    str,  # symbol
+    bidict[
+        str,  # oid
+        tuple[float, float, str, str],  # order info
     ]
-] = {}
+] = defaultdict(bidict)
 _positions: dict[str, Position] = {}
 
 
@@ -501,7 +542,6 @@ async def trades_dialogue(
 
         # TODO: load paper positions per broker from .toml config file
         # and pass as symbol to position data mapping: ``dict[str, dict]``
-        # await ctx.started(all_positions)
         await ctx.started((pp_msgs, ['paper']))
 
         async with (
