@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -50,7 +50,11 @@ _rt_buffer_start = int((_days_worth - 1) * _secs_in_day)
 
 
 def cuckoff_mantracker():
+    '''
+    Disable all ``multiprocessing``` "resource tracking" machinery since
+    it's an absolute multi-threaded mess of non-SC madness.
 
+    '''
     from multiprocessing import resource_tracker as mantracker
 
     # Tell the "resource tracker" thing to fuck off.
@@ -118,7 +122,7 @@ class _Token(Struct, frozen=True):
     shm_first_index_name: str
     shm_last_index_name: str
     dtype_descr: tuple
-    size: int
+    size: int  # in struct-array index / row terms
 
     @property
     def dtype(self) -> np.dtype:
@@ -440,7 +444,7 @@ class ShmArray:
 def open_shm_array(
 
     key: Optional[str] = None,
-    size: int = _default_size,
+    size: int = _default_size,  # see above
     dtype: Optional[np.dtype] = None,
     readonly: bool = False,
 
@@ -524,6 +528,7 @@ def open_shm_array(
     # "unlink" created shm on process teardown by
     # pushing teardown calls onto actor context stack
 
+    # TODO: make this a public API in ``tractor``..
     tractor._actor._lifetime_stack.callback(shmarr.close)
     tractor._actor._lifetime_stack.callback(shmarr.destroy)
 
@@ -532,7 +537,6 @@ def open_shm_array(
 
 def attach_shm_array(
     token: tuple[str, str, tuple[str, str]],
-    # size: int = _default_size,
     readonly: bool = True,
 
 ) -> ShmArray:
