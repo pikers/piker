@@ -118,6 +118,7 @@ class _Token(Struct, frozen=True):
     shm_first_index_name: str
     shm_last_index_name: str
     dtype_descr: tuple
+    size: int
 
     @property
     def dtype(self) -> np.dtype:
@@ -158,6 +159,7 @@ def get_shm_token(key: str) -> _Token:
 
 def _make_token(
     key: str,
+    size: int,
     dtype: Optional[np.dtype] = None,
 ) -> _Token:
     '''
@@ -170,7 +172,8 @@ def _make_token(
         shm_name=key,
         shm_first_index_name=key + "_first",
         shm_last_index_name=key + "_last",
-        dtype_descr=tuple(np.dtype(dtype).descr)
+        dtype_descr=tuple(np.dtype(dtype).descr),
+        size=size,
     )
 
 
@@ -222,6 +225,7 @@ class ShmArray:
             shm_first_index_name=self._first._shm.name,
             shm_last_index_name=self._last._shm.name,
             dtype_descr=tuple(self._array.dtype.descr),
+            size=self._len,
         )
 
     @property
@@ -467,7 +471,8 @@ def open_shm_array(
 
     token = _make_token(
         key=key,
-        dtype=dtype
+        size=size,
+        dtype=dtype,
     )
 
     # create single entry arrays for storing an first and last indices
@@ -527,7 +532,7 @@ def open_shm_array(
 
 def attach_shm_array(
     token: tuple[str, str, tuple[str, str]],
-    size: int = _default_size,
+    # size: int = _default_size,
     readonly: bool = True,
 
 ) -> ShmArray:
@@ -566,7 +571,7 @@ def attach_shm_array(
             raise _err
 
     shmarr = np.ndarray(
-        (size,),
+        (token.size,),
         dtype=token.dtype,
         buffer=shm.buf
     )
@@ -634,6 +639,7 @@ def maybe_open_shm_array(
     use ``attach_shm_array``.
 
     '''
+    size = kwargs.pop('size', _default_size)
     try:
         # see if we already know this key
         token = _known_tokens[key]
@@ -641,7 +647,11 @@ def maybe_open_shm_array(
     except KeyError:
         log.warning(f"Could not find {key} in shms cache")
         if dtype:
-            token = _make_token(key, dtype)
+            token = _make_token(
+                key,
+                size=size,
+                dtype=dtype,
+            )
             try:
                 return attach_shm_array(token=token, **kwargs), False
             except FileNotFoundError:
