@@ -115,13 +115,19 @@ class GodWidget(QWidget):
         # self.vbox.addLayout(self.hbox)
 
         self._chart_cache: dict[str, LinkedSplits] = {}
-        self.linkedsplits: Optional[LinkedSplits] = None
+
+        self.hist_linked: Optional[LinkedSplits] = None
+        self.rt_linked: Optional[LinkedSplits] = None
 
         # assigned in the startup func `_async_main()`
         self._root_n: trio.Nursery = None
 
         self._widgets: dict[str, QWidget] = {}
         self._resizing: bool = False
+
+    @property
+    def linkedsplits(self) -> LinkedSplits:
+        return self.rt_linked
 
     # def init_timeframes_ui(self):
     #     self.tf_layout = QHBoxLayout()
@@ -148,19 +154,19 @@ class GodWidget(QWidget):
     def set_chart_symbol(
         self,
         symbol_key: str,  # of form <fqsn>.<providername>
-        linkedsplits: LinkedSplits,  # type: ignore
+        all_linked: tuple[LinkedSplits, LinkedSplits],  # type: ignore
 
     ) -> None:
         # re-sort org cache symbol list in LIFO order
         cache = self._chart_cache
         cache.pop(symbol_key, None)
-        cache[symbol_key] = linkedsplits
+        cache[symbol_key] = all_linked
 
     def get_chart_symbol(
         self,
         symbol_key: str,
 
-    ) -> LinkedSplits:  # type: ignore
+    ) -> tuple[LinkedSplits, LinkedSplits]:  # type: ignore
         return self._chart_cache.get(symbol_key)
 
     async def load_symbol(
@@ -182,28 +188,30 @@ class GodWidget(QWidget):
 
         # fully qualified symbol name (SNS i guess is what we're making?)
         fqsn = '.'.join([symbol_key, providername])
-
-        linkedsplits = self.get_chart_symbol(fqsn)
-
+        all_linked = self.get_chart_symbol(fqsn)
         order_mode_started = trio.Event()
 
         if not self.vbox.isEmpty():
 
+            for linked in [self.rt_linked, self.hist_linked]:
             # XXX: this is CRITICAL especially with pixel buffer caching
-            self.linkedsplits.hide()
-            self.linkedsplits.unfocus()
+                linked.hide()
+                linked.unfocus()
+                # self.hist_linked.hide()
+                # self.hist_linked.unfocus()
 
-            # XXX: pretty sure we don't need this
-            # remove any existing plots?
-            # XXX: ahh we might want to support cache unloading..
-            # self.vbox.removeWidget(self.linkedsplits)
+                # XXX: pretty sure we don't need this
+                # remove any existing plots?
+                # XXX: ahh we might want to support cache unloading..
+                # self.vbox.removeWidget(linked)
 
         # switching to a new viewable chart
-        if linkedsplits is None or reset:
+        if all_linked is None or reset:
             from ._display import display_symbol_data
 
             # we must load a fresh linked charts set
-            linkedsplits = LinkedSplits(self)
+            self.rt_linked = rt_charts = LinkedSplits(self)
+            self.hist_linked = hist_charts = LinkedSplits(self)
 
             # spawn new task to start up and update new sub-chart instances
             self._root_n.start_soon(
@@ -215,44 +223,53 @@ class GodWidget(QWidget):
                 order_mode_started,
             )
 
-            self.set_chart_symbol(fqsn, linkedsplits)
-            self.vbox.addWidget(linkedsplits)
+            # self.vbox.addWidget(hist_charts)
+            self.vbox.addWidget(rt_charts)
+            self.set_chart_symbol(
+                fqsn,
+                (hist_charts, rt_charts),
+            )
 
-            linkedsplits.show()
-            linkedsplits.focus()
+            for linked in [hist_charts, rt_charts]:
+                linked.show()
+                linked.focus()
+
             await trio.sleep(0)
 
         else:
             # symbol is already loaded and ems ready
             order_mode_started.set()
 
-            # TODO:
-            # - we'll probably want per-instrument/provider state here?
-            #   change the order config form over to the new chart
+            self.hist_linked, self.rt_linked = all_linked
 
-            # chart is already in memory so just focus it
-            linkedsplits.show()
-            linkedsplits.focus()
-            linkedsplits.graphics_cycle()
-            await trio.sleep(0)
+            for linked in all_linked:
+                # TODO:
+                # - we'll probably want per-instrument/provider state here?
+                #   change the order config form over to the new chart
 
-            # XXX: since the pp config is a singleton widget we have to
-            # also switch it over to the new chart's interal-layout
-            # self.linkedsplits.chart.qframe.hbox.removeWidget(self.pp_pane)
-            chart = linkedsplits.chart
+                # chart is already in memory so just focus it
+                linked.show()
+                linked.focus()
+                linked.graphics_cycle()
+                await trio.sleep(0)
 
-            # resume feeds *after* rendering chart view asap
-            if chart:
-                chart.resume_all_feeds()
+                # XXX: since the pp config is a singleton widget we have to
+                # also switch it over to the new chart's interal-layout
+                # linked.chart.qframe.hbox.removeWidget(self.pp_pane)
+                chart = linked.chart
 
-                # TODO: we need a check to see if the chart
-                # last had the xlast in view, if so then shift so it's
-                # still in view, if the user was viewing history then
-                # do nothing yah?
-                chart.default_view()
+                # resume feeds *after* rendering chart view asap
+                if chart:
+                    chart.resume_all_feeds()
 
-        self.linkedsplits = linkedsplits
-        symbol = linkedsplits.symbol
+                    # TODO: we need a check to see if the chart
+                    # last had the xlast in view, if so then shift so it's
+                    # still in view, if the user was viewing history then
+                    # do nothing yah?
+                    chart.default_view()
+
+        # set window titlebar info
+        symbol = self.rt_linked.symbol
         if symbol is not None:
             self.window.setWindowTitle(
                 f'{symbol.front_fqsn()} '
@@ -399,10 +416,18 @@ class LinkedSplits(QWidget):
             # elif ln >= 2:
             #     prop = 3/8
 
-        major = 1 - prop
-        min_h_ind = int((self.height() * prop) / ln)
+        h = self.height()
+        histview_h = h * 1.6/6
+        h = h - histview_h
 
-        sizes = [int(self.height() * major)]
+        major = 1 - prop
+        min_h_ind = int((h * prop) / ln)
+        sizes = [
+            int(histview_h),
+            int(h * major),
+        ]
+
+        # give all subcharts the same remaining proportional height
         sizes.extend([min_h_ind] * ln)
 
         self.splitter.setSizes(sizes)
@@ -498,10 +523,15 @@ class LinkedSplits(QWidget):
             'bottom': xaxis,
         }
 
-        qframe = ChartnPane(
-            sidepane=sidepane,
-            parent=self.splitter,
-        )
+        if sidepane is not False:
+            parent = qframe = ChartnPane(
+                sidepane=sidepane,
+                parent=self.splitter,
+            )
+        else:
+            parent = self.splitter
+            qframe = None
+
         cpw = ChartPlotWidget(
 
             # this name will be used to register the primary
@@ -509,7 +539,7 @@ class LinkedSplits(QWidget):
             name=name,
             data_key=array_key or name,
 
-            parent=qframe,
+            parent=parent,
             linkedsplits=self,
             axisItems=axes,
             **cpw_kwargs,
@@ -537,20 +567,22 @@ class LinkedSplits(QWidget):
             self.xaxis_chart = cpw
             cpw.showAxis('bottom')
 
-        qframe.chart = cpw
-        qframe.hbox.addWidget(cpw)
+        if qframe is not None:
+            qframe.chart = cpw
+            qframe.hbox.addWidget(cpw)
 
-        # so we can look this up and add back to the splitter
-        # on a symbol switch
-        cpw.qframe = qframe
-        assert cpw.parent() == qframe
+            # so we can look this up and add back to the splitter
+            # on a symbol switch
+            cpw.qframe = qframe
+            assert cpw.parent() == qframe
 
-        # add sidepane **after** chart; place it on axis side
-        qframe.hbox.addWidget(
-            sidepane,
-            alignment=Qt.AlignTop
-        )
-        cpw.sidepane = sidepane
+            # add sidepane **after** chart; place it on axis side
+            qframe.hbox.addWidget(
+                sidepane,
+                alignment=Qt.AlignTop
+            )
+
+            cpw.sidepane = sidepane
 
         cpw.plotItem.vb.linkedsplits = self
         cpw.setFrameStyle(
@@ -613,7 +645,9 @@ class LinkedSplits(QWidget):
         if not _is_main:
             # track by name
             self.subplots[name] = cpw
-            self.splitter.addWidget(qframe)
+            if qframe is not None:
+                self.splitter.addWidget(qframe)
+
             # scale split regions
             self.set_split_sizes()
 
@@ -648,7 +682,7 @@ class LinkedSplits(QWidget):
 
         '''
         main_chart = self.chart
-        if main_chart:
+        if main_chart and main_chart.sidepane:
             sp_w = main_chart.sidepane.width()
             for name, cpw in self.subplots.items():
                 cpw.sidepane.setMinimumWidth(sp_w)
@@ -711,6 +745,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # NOTE: must be set bfore calling ``.mk_vb()``
         self.linked = linkedsplits
+        self.sidepane: Optional[FieldsForm] = None
 
         # source of our custom interactions
         self.cv = cv = self.mk_vb(name)
@@ -867,7 +902,8 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def default_view(
         self,
-        bars_from_y: int = 616,
+        bars_from_y: int = int(616 * 3/8),
+        y_offset: int = 0,
         do_ds: bool = True,
 
     ) -> None:
@@ -906,8 +942,12 @@ class ChartPlotWidget(pg.PlotWidget):
         # terms now that we've scaled either by user control
         # or to the default set of bars as per the immediate block
         # above.
-        marker_pos, l1_len = self.pre_l1_xs()
-        end = xlast + l1_len + 1
+        if not y_offset:
+            marker_pos, l1_len = self.pre_l1_xs()
+            end = xlast + l1_len + 1
+        else:
+            end = xlast + y_offset + 1
+
         begin = end - (r - l)
 
         # for debugging

@@ -635,7 +635,12 @@ class SearchWidget(QtWidgets.QWidget):
             # Re-order the symbol cache on the chart to display in
             # LIFO order. this is normally only done internally by
             # the chart on new symbols being loaded into memory
-            chart.set_chart_symbol(fqsn, chart.linkedsplits)
+            chart.set_chart_symbol(
+                fqsn, (
+                    chart.linkedsplits,
+                    self.godwidget.hist_linked,
+                )
+            )
 
             self.view.set_section_entries(
                 'cache',
