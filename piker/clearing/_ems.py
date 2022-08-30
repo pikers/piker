@@ -617,8 +617,9 @@ async def translate_and_relay_brokerd_events(
             f'Received broker trade event:\n'
             f'{fmsg}'
         )
-        match brokerd_msg:
+        status_msg: Optional[Status] = None
 
+        match brokerd_msg:
             # BrokerdPosition
             case {
                 'name': 'position',
@@ -866,6 +867,7 @@ async def translate_and_relay_brokerd_events(
             }:
                 log.error(f'Broker error:\n{fmsg}')
                 # XXX: we presume the brokerd cancels its own order
+                continue
 
             # TOO FAST ``BrokerdStatus`` that arrives
             # before the ``BrokerdAck``.
@@ -894,8 +896,8 @@ async def translate_and_relay_brokerd_events(
                 raise ValueError(f'Brokerd message {brokerd_msg} is invalid')
 
         # XXX: ugh sometimes we don't access it?
-        if status_msg:
-            del status_msg
+        # if status_msg is not None:
+        #     del status_msg
 
     # TODO: do we want this to keep things cleaned up?
     # it might require a special status from brokerd to affirm the
