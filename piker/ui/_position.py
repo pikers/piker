@@ -372,7 +372,7 @@ class SettingsPane:
 
         if size:
             # last historical close price
-            last = feed.shm.array[-1][['close']][0]
+            last = feed.rt_shm.array[-1][['close']][0]
             pnl_value = copysign(1, size) * pnl(
                 tracker.live_pp.ppu,
                 last,
