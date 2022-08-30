@@ -63,7 +63,7 @@ from ..log import get_logger
 log = get_logger(__name__)
 
 # TODO: load this from a config.toml!
-_quote_throttle_rate: int = 22  # Hz
+_quote_throttle_rate: int = 16  # Hz
 
 
 # a working tick-type-classes template
@@ -719,15 +719,17 @@ async def display_symbol_data(
         tick_throttle=_quote_throttle_rate,
 
     ) as feed:
-        ohlcv: ShmArray = feed.shm
+        ohlcv: ShmArray = feed.rt_shm
         bars = ohlcv.array
         symbol = feed.symbols[sym]
         fqsn = symbol.front_fqsn()
 
-        times = bars['time']
+        times = feed.hist_shm.array['time']
         end = pendulum.from_timestamp(times[-1])
-        start = pendulum.from_timestamp(times[times != times[-1]][-1])
-        step_size_s = (end - start).seconds
+        # start = pendulum.from_timestamp(times[times != times[-1]][-1])
+        # step_size_s = (end - start).seconds
+
+        step_size_s = 1
         tf_key = tf_in_1s[step_size_s]
 
         # load in symbol's ohlc data
@@ -753,7 +755,8 @@ async def display_symbol_data(
             ohlcv,
             sidepane=pp_pane,
         )
-        chart.default_view()
+
+        # chart.default_view()
         chart._feeds[symbol.key] = feed
         chart.setFocus()
 
@@ -773,7 +776,38 @@ async def display_symbol_data(
         #         )
 
         # size view to data once at outset
-        chart.cv._set_yrange()
+        # chart.cv._set_yrange()
+
+        # Add the LinearRegionItem to the ViewBox, but tell the ViewBox
+        # to exclude this item when doing auto-range calculations.
+        hist_pi = chart.plotItem
+        region = pg.LinearRegionItem()
+        region.setZValue(10)
+        # hist_pi.addItem(region, ignoreBounds=True)
+        flow = chart._flows[chart.name]
+        region.setClipItem(flow.graphics)
+
+        def update():
+            region.setZValue(10)
+            minX, maxX = region.getRegion()
+            # p1.setXRange(minX, maxX, padding=0)
+
+        region.sigRegionChanged.connect(update)
+
+        def update_region_from_pi(
+            window,
+            viewRange: tuple[tuple, tuple],
+        ) -> None:
+            # set the region on the history chart
+            # to the range currently viewed in the
+            # HFT/real-time chart.
+            rgn = viewRange[0]
+            # region.setRegion(rgn)
+
+        # connect region to be updated on plotitem interaction.
+        hist_pi.sigRangeChanged.connect(update_region_from_pi)
+        # causes recursion error right now!?..
+        # region.setRegion([l, r])
 
         # NOTE: we must immediately tell Qt to show the OHLC chart
         # to avoid a race where the subplots get added/shown to
@@ -815,6 +849,10 @@ async def display_symbol_data(
                 wap_in_history,
                 vlm_chart,
             )
+
+            await trio.sleep(0)
+            chart.default_view()
+            l, lbar, rbar, r = chart.bars_range()
 
             async with (
                 open_order_mode(
