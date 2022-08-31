@@ -426,6 +426,7 @@ asset_type_map = {
     'WAR': 'warrant',
     'IOPT': 'warran',
     'BAG': 'bag',
+    'CRYPTO': 'crypto',  # bc it's diff then fiat?
     # 'NEWS': 'news',
 }
 
@@ -576,7 +577,6 @@ def normalize(
 
     # check for special contract types
     con = ticker.contract
-
     fqsn, calc_price = con2fqsn(con)
 
     # convert named tuples to dicts so we send usable keys
@@ -722,7 +722,8 @@ async def stream_quotes(
             isnan(first_ticker.last)
             and type(first_ticker.contract) not in (
                 ibis.Commodity,
-                ibis.Forex
+                ibis.Forex,
+                ibis.Crypto,
             )
         ):
             task_status.started((init_msgs, first_quote))
@@ -866,14 +867,30 @@ async def open_symbol_search(
     # TODO: load user defined symbol set locally for fast search?
     await ctx.started({})
 
-    async with open_data_client() as proxy:
+    async with (
+        open_client_proxies() as (proxies, clients),
+        open_data_client() as data_proxy,
+    ):
         async with ctx.open_stream() as stream:
 
-            last = time.time()
+            # select a non-history client for symbol search to lighten
+            # the load in the main data node.
+            proxy = data_proxy
+            for name, proxy in proxies.items():
+                if proxy is data_proxy:
+                    continue
+                break
 
+            ib_client = proxy._aio_ns.ib
+            log.info(f'Using {ib_client} for symbol search')
+
+            last = time.time()
             async for pattern in stream:
-                log.debug(f'received {pattern}')
+                log.info(f'received {pattern}')
                 now = time.time()
+
+                # this causes tractor hang...
+                # assert 0
 
                 assert pattern, 'IB can not accept blank search pattern'
 
@@ -902,7 +919,7 @@ async def open_symbol_search(
 
                     continue
 
-                log.debug(f'searching for {pattern}')
+                log.info(f'searching for {pattern}')
 
                 last = time.time()
 
@@ -913,17 +930,27 @@ async def open_symbol_search(
                 async def stash_results(target: Awaitable[list]):
                     stock_results.extend(await target)
 
-                async with trio.open_nursery() as sn:
-                    sn.start_soon(
-                        stash_results,
-                        proxy.search_symbols(
-                            pattern=pattern,
-                            upto=5,
-                        ),
-                    )
+                for i in range(10):
+                    with trio.move_on_after(3) as cs:
+                        async with trio.open_nursery() as sn:
+                            sn.start_soon(
+                                stash_results,
+                                proxy.search_symbols(
+                                    pattern=pattern,
+                                    upto=5,
+                                ),
+                            )
 
-                    # trigger async request
-                    await trio.sleep(0)
+                            # trigger async request
+                            await trio.sleep(0)
+
+                    if cs.cancelled_caught:
+                        log.warning(
+                            f'Search timeout? {proxy._aio_ns.ib.client}'
+                        )
+                        continue
+                    else:
+                        break
 
                     # # match against our ad-hoc set immediately
                     # adhoc_matches = fuzzy.extractBests(

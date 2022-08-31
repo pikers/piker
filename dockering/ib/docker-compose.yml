@@ -3,11 +3,12 @@
 version: "3.5"
 
 services:
-  ib-gateway:
+  ib_gw_paper:
     # other image tags available:
     # https://github.com/waytrade/ib-gateway-docker#supported-tags
-    image: waytrade/ib-gateway:981.3j
-    restart: always
+    # image: waytrade/ib-gateway:981.3j
+    image: waytrade/ib-gateway:1012.2i
+    restart: always  # restart whenev there's a crash or user clicsk
     network_mode: 'host'
 
     volumes:
@@ -39,14 +40,12 @@ services:
     # this compose file which looks something like:
     # TWS_USERID='myuser'
     # TWS_PASSWORD='guest'
-    # TRADING_MODE=paper (or live)
-    # VNC_SERVER_PASSWORD='diggity'
-
     environment:
       TWS_USERID: ${TWS_USERID}
       TWS_PASSWORD: ${TWS_PASSWORD}
-      TRADING_MODE: ${TRADING_MODE:-paper}
-      VNC_SERVER_PASSWORD: ${VNC_SERVER_PASSWORD:-}
+      TRADING_MODE: 'paper'
+      VNC_SERVER_PASSWORD: 'doggy'
+      VNC_SERVER_PORT: '3003'
 
     # ports:
     #   - target: 4002
@@ -62,3 +61,40 @@ services:
       # - "127.0.0.1:4001:4001"
       # - "127.0.0.1:4002:4002"
       # - "127.0.0.1:5900:5900"
+
+  ib_gw_live:
+    image: waytrade/ib-gateway:1012.2i
+    restart: always
+    network_mode: 'host'
+
+    volumes:
+      - type: bind
+        source: ./jts_live.ini
+        target: /root/jts/jts.ini
+        # don't let ibc clobber this file for
+        # the main reason of not having a stupid
+        # timezone set..
+        read_only: true
+
+      # force our own ibc config
+      - type: bind
+        source: ./ibc.ini
+        target: /root/ibc/config.ini
+
+      # force our noop script - socat isn't needed in host mode.
+      - type: bind
+        source: ./fork_ports_delayed.sh
+        target: /root/scripts/fork_ports_delayed.sh
+
+      # force our noop script - socat isn't needed in host mode.
+      - type: bind
+        source: ./run_x11_vnc.sh
+        target: /root/scripts/run_x11_vnc.sh
+        read_only: true
+
+    # NOTE: to fill these out, define an `.env` file in the same dir as
+    # this compose file which looks something like:
+    environment:
+      TRADING_MODE: 'live'
+      VNC_SERVER_PASSWORD: 'doggy'
+      VNC_SERVER_PORT: '3004'

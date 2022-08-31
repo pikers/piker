@@ -80,8 +80,8 @@ class ComposedGridLayout:
     ``<axis_name>i`` in the layout.
 
     The ``item: PlotItem`` passed to the constructor's grid layout is
-    used verbatim as the "main plot" who's view box is give precedence
-    for input handling. The main plot's axes are removed from it's
+    used verbatim as the "main plot" who's view box is given precedence
+    for input handling. The main plot's axes are removed from its
     layout and placed in the surrounding exterior layouts to allow for
     re-ordering if desired.
 

@@ -678,6 +678,13 @@ class Client:
             con = ibis.Commodity(**con_kwargs)
             con.bars_kwargs = bars_kwargs
 
+        # crypto$
+        elif exch == 'PAXOS':  # btc.paxos
+            con = ibis.Crypto(
+                symbol=symbol,
+                currency=currency,
+            )
+
         # stonks
         else:
             # TODO: metadata system for all these exchange rules..
