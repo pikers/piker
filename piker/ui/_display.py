@@ -29,7 +29,7 @@ from typing import Optional, Any, Callable
 import numpy as np
 import tractor
 import trio
-import pendulum
+# import pendulum
 import pyqtgraph as pg
 
 # from .. import brokers
@@ -720,12 +720,15 @@ async def display_symbol_data(
 
     ) as feed:
         ohlcv: ShmArray = feed.rt_shm
-        bars = ohlcv.array
+        hist_ohlcv: ShmArray = feed.hist_shm
+        end_index = hist_ohlcv.index
+
+        # bars = ohlcv.array
         symbol = feed.symbols[sym]
         fqsn = symbol.front_fqsn()
 
-        times = feed.hist_shm.array['time']
-        end = pendulum.from_timestamp(times[-1])
+        # times = feed.hist_shm.array['time']
+        # end = pendulum.from_timestamp(times[-1])
         # start = pendulum.from_timestamp(times[times != times[-1]][-1])
         # step_size_s = (end - start).seconds
 
@@ -739,7 +742,7 @@ async def display_symbol_data(
             f'step:{tf_key} '
         )
 
-        linked = godwidget.linkedsplits
+        linked = godwidget.rt_linked
         linked._symbol = symbol
 
         # generate order mode side-pane UI
@@ -749,10 +752,27 @@ async def display_symbol_data(
         # add as next-to-y-axis singleton pane
         godwidget.pp_pane = pp_pane
 
+        # create top history view chart above the "main rt chart".
+        hist_linked = godwidget.hist_linked
+        hist_linked._symbol = symbol
+        hist_chart = hist_linked.plot_ohlc_main(
+            symbol,
+            feed.hist_shm,
+            # in the case of history chart we explicitly set `False`
+            # to avoid internal pane creation.
+            sidepane=False,
+        )
+        hist_chart.default_view(
+            bars_from_y=int(len(hist_ohlcv.array)),  # size to data
+            y_offset=6116*2,  # push it a little away from the y-axis
+        )
+
         # create main OHLC chart
         chart = linked.plot_ohlc_main(
             symbol,
             ohlcv,
+            # in the case of history chart we explicitly set `False`
+            # to avoid internal pane creation.
             sidepane=pp_pane,
         )
 
@@ -760,54 +780,66 @@ async def display_symbol_data(
         chart._feeds[symbol.key] = feed
         chart.setFocus()
 
+        # XXX: FOR SOME REASON THIS IS CAUSING HANGZ!?!
         # plot historical vwap if available
         wap_in_history = False
-
-        # XXX: FOR SOME REASON THIS IS CAUSING HANGZ!?!
-        # if brokermod._show_wap_in_history:
-
-        #     if 'bar_wap' in bars.dtype.fields:
-        #         wap_in_history = True
-        #         chart.draw_curve(
-        #             name='bar_wap',
-        #             shm=ohlcv,
-        #             color='default_light',
-        #             add_label=False,
-        #         )
-
-        # size view to data once at outset
-        # chart.cv._set_yrange()
+        # if (
+        #     brokermod._show_wap_in_history
+        #     and 'bar_wap' in bars.dtype.fields
+        # ):
+        #     wap_in_history = True
+        #     chart.draw_curve(
+        #         name='bar_wap',
+        #         shm=ohlcv,
+        #         color='default_light',
+        #         add_label=False,
+        #     )
 
         # Add the LinearRegionItem to the ViewBox, but tell the ViewBox
         # to exclude this item when doing auto-range calculations.
-        hist_pi = chart.plotItem
+        rt_pi = chart.plotItem
+        hist_pi = hist_chart.plotItem
         region = pg.LinearRegionItem()
         region.setZValue(10)
-        # hist_pi.addItem(region, ignoreBounds=True)
-        flow = chart._flows[chart.name]
-        region.setClipItem(flow.graphics)
+        hist_pi.addItem(region, ignoreBounds=True)
+        flow = chart._flows[hist_chart.name]
+        assert flow
+        # XXX: no idea why this doesn't work but it's causing
+        # a weird placement of the region on the way-far-left..
+        # region.setClipItem(flow.graphics)
 
         def update():
             region.setZValue(10)
-            minX, maxX = region.getRegion()
-            # p1.setXRange(minX, maxX, padding=0)
+            mn, mx = region.getRegion()
+            # print(f'region_x: {(mn, mx)}')
+
+            # XXX: seems to cause a real perf hit?
+            rt_pi.setXRange(
+                (mn - end_index) * 60,
+                (mx - end_index) * 60,
+                padding=0,
+            )
 
         region.sigRegionChanged.connect(update)
 
         def update_region_from_pi(
             window,
             viewRange: tuple[tuple, tuple],
+
         ) -> None:
             # set the region on the history chart
             # to the range currently viewed in the
             # HFT/real-time chart.
             rgn = viewRange[0]
-            # region.setRegion(rgn)
+            # print(f'rt_view_range: {rgn}')
+            mn, mx = rgn
+            region.setRegion((
+                mn/60 + end_index,
+                mx/60 + end_index,
+            ))
 
         # connect region to be updated on plotitem interaction.
-        hist_pi.sigRangeChanged.connect(update_region_from_pi)
-        # causes recursion error right now!?..
-        # region.setRegion([l, r])
+        rt_pi.sigRangeChanged.connect(update_region_from_pi)
 
         # NOTE: we must immediately tell Qt to show the OHLC chart
         # to avoid a race where the subplots get added/shown to
@@ -815,6 +847,11 @@ async def display_symbol_data(
         linked.show()
         linked.focus()
         await trio.sleep(0)
+
+        linked.splitter.insertWidget(0, hist_linked)
+        # XXX: if we wanted it at the bottom?
+        # linked.splitter.addWidget(hist_linked)
+        linked.focus()
 
         vlm_chart: Optional[ChartPlotWidget] = None
         async with trio.open_nursery() as ln:
@@ -851,8 +888,9 @@ async def display_symbol_data(
             )
 
             await trio.sleep(0)
+
+            # size view to data prior to order mode init
             chart.default_view()
-            l, lbar, rbar, r = chart.bars_range()
 
             async with (
                 open_order_mode(
@@ -863,12 +901,14 @@ async def display_symbol_data(
                 )
             ):
                 if not vlm_chart:
+                    # trigger another view reset if no sub-chart
                     chart.default_view()
 
                 # let Qt run to render all widgets and make sure the
                 # sidepanes line up vertically.
                 await trio.sleep(0)
                 linked.resize_sidepanes()
+                linked.set_split_sizes()
 
                 # NOTE: we pop the volume chart from the subplots set so
                 # that it isn't double rendered in the display loop
