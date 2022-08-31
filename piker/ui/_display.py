@@ -41,6 +41,7 @@ from ._chart import (
     GodWidget,
 )
 from ._l1 import L1Labels
+from ._style import hcolor
 from ._fsp import (
     update_fsp_chart,
     start_fsp_displays,
@@ -799,7 +800,11 @@ async def display_symbol_data(
         # to exclude this item when doing auto-range calculations.
         rt_pi = chart.plotItem
         hist_pi = hist_chart.plotItem
-        region = pg.LinearRegionItem()
+        region = pg.LinearRegionItem(
+            # color scheme that matches sidepane styling
+            pen=pg.mkPen(hcolor('gunmetal')),
+            brush=pg.mkBrush(hcolor('default_darkest')),
+        )
         region.setZValue(10)
         hist_pi.addItem(region, ignoreBounds=True)
         flow = chart._flows[hist_chart.name]
