@@ -89,7 +89,6 @@ services:
       # force our noop script - socat isn't needed in host mode.
       - type: bind
         source: ./run_x11_vnc.sh
-        # source: ./run_x11_vnc_live.sh
         target: /root/scripts/run_x11_vnc.sh
         read_only: true
 
