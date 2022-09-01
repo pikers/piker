@@ -29,7 +29,7 @@ from typing import Optional, Any, Callable
 import numpy as np
 import tractor
 import trio
-# import pendulum
+import pendulum
 import pyqtgraph as pg
 
 # from .. import brokers
@@ -129,13 +129,14 @@ class DisplayState:
     Chart-local real-time graphics state container.
 
     '''
+    godwidget: GodWidget
     quotes: dict[str, Any]
 
     maxmin: Callable
     ohlcv: ShmArray
+    hist_ohlcv: ShmArray
 
     # high level chart handles
-    linked: LinkedSplits
     chart: ChartPlotWidget
 
     # axis labels
@@ -155,6 +156,7 @@ async def graphics_update_loop(
     linked: LinkedSplits,
     stream: tractor.MsgStream,
     ohlcv: np.ndarray,
+    hist_ohlcv: np.ndarray,
 
     wap_in_history: bool = False,
     vlm_chart: Optional[ChartPlotWidget] = None,
@@ -176,7 +178,8 @@ async def graphics_update_loop(
     #   of copying it from last bar's close
     # - 1-5 sec bar lookback-autocorrection like tws does?
     #   (would require a background history checker task)
-    display_rate = linked.godwidget.window.current_screen().refreshRate()
+    godwidget = linked.godwidget
+    display_rate = godwidget.window.current_screen().refreshRate()
 
     chart = linked.chart
 
@@ -228,10 +231,11 @@ async def graphics_update_loop(
     i_last = ohlcv.index
 
     ds = linked.display_state = DisplayState(**{
+        'godwidget': godwidget,
         'quotes': {},
-        'linked': linked,
         'maxmin': maxmin,
         'ohlcv': ohlcv,
+        'hist_ohlcv': hist_ohlcv,
         'chart': chart,
         'last_price_sticky': last_price_sticky,
         'l1': l1,
@@ -299,6 +303,8 @@ def graphics_update_cycle(
     # hopefully XD
 
     chart = ds.chart
+    # TODO: just pass this as a direct ref to avoid so many attr accesses?
+    hist_chart = ds.godwidget.hist_linked.chart
 
     profiler = pg.debug.Profiler(
         msg=f'Graphics loop cycle for: `{chart.name}`',
@@ -312,9 +318,16 @@ def graphics_update_cycle(
 
     # unpack multi-referenced components
     vlm_chart = ds.vlm_chart
+
+    # rt "HFT" chart
     l1 = ds.l1
     ohlcv = ds.ohlcv
     array = ohlcv.array
+
+    # history view chart
+    hist_ohlcv = ds.hist_ohlcv
+    hist_array = hist_ohlcv.array
+
     vars = ds.vars
     tick_margin = vars['tick_margin']
 
@@ -456,6 +469,10 @@ def graphics_update_cycle(
             or trigger_all
         ):
             chart.update_graphics_from_flow(
+                chart.name,
+                do_append=do_append,
+            )
+            hist_chart.update_graphics_from_flow(
                 chart.name,
                 do_append=do_append,
             )
@@ -722,16 +739,27 @@ async def display_symbol_data(
     ) as feed:
         ohlcv: ShmArray = feed.rt_shm
         hist_ohlcv: ShmArray = feed.hist_shm
-        end_index = hist_ohlcv.index
+
+        times = hist_ohlcv.array['time']
+        end = pendulum.from_timestamp(times[-1])
+        start = pendulum.from_timestamp(times[times != times[-1]][-1])
+        hist_step_size_s = (end - start).seconds
+
+        times = ohlcv.array['time']
+        end = pendulum.from_timestamp(times[-1])
+        start = pendulum.from_timestamp(times[times != times[-1]][-1])
+        rt_step_size_s = (end - start).seconds
+
+        ratio = hist_step_size_s / rt_step_size_s
+
+        # this value needs to be pulled once and only once during
+        # startup
+        end_index = feed.startup_hist_index
 
         # bars = ohlcv.array
         symbol = feed.symbols[sym]
         fqsn = symbol.front_fqsn()
 
-        # times = feed.hist_shm.array['time']
-        # end = pendulum.from_timestamp(times[-1])
-        # start = pendulum.from_timestamp(times[times != times[-1]][-1])
-        # step_size_s = (end - start).seconds
 
         step_size_s = 1
         tf_key = tf_in_1s[step_size_s]
@@ -813,34 +841,38 @@ async def display_symbol_data(
         # a weird placement of the region on the way-far-left..
         # region.setClipItem(flow.graphics)
 
-        def update():
+        def update_pi_from_region():
             region.setZValue(10)
             mn, mx = region.getRegion()
             # print(f'region_x: {(mn, mx)}')
 
             # XXX: seems to cause a real perf hit?
             rt_pi.setXRange(
-                (mn - end_index) * 60,
-                (mx - end_index) * 60,
+                (mn - end_index) * ratio,
+                (mx - end_index) * ratio,
                 padding=0,
             )
 
-        region.sigRegionChanged.connect(update)
+        region.sigRegionChanged.connect(update_pi_from_region)
 
         def update_region_from_pi(
             window,
             viewRange: tuple[tuple, tuple],
-
+            is_manual: bool = True,
         ) -> None:
             # set the region on the history chart
             # to the range currently viewed in the
             # HFT/real-time chart.
-            rgn = viewRange[0]
-            # print(f'rt_view_range: {rgn}')
-            mn, mx = rgn
+            mn, mx = viewRange[0]
+            ds_mn = mn/ratio
+            ds_mx = mx/ratio
+            # print(
+            #     f'rt_view_range: {(mn, mx)}\n'
+            #     f'ds_mn, ds_mx: {(ds_mn, ds_mx)}\n'
+            # )
             region.setRegion((
-                mn/60 + end_index,
-                mx/60 + end_index,
+                ds_mn + end_index,
+                ds_mx + end_index,
             ))
 
         # connect region to be updated on plotitem interaction.
@@ -888,6 +920,7 @@ async def display_symbol_data(
                 linked,
                 feed.stream,
                 ohlcv,
+                hist_ohlcv,
                 wap_in_history,
                 vlm_chart,
             )
