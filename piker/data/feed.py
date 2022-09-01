@@ -1245,11 +1245,9 @@ class Feed:
     @asynccontextmanager
     async def index_stream(
         self,
-        delay_s: Optional[int] = None
+        delay_s: int = 1,
 
     ) -> AsyncIterator[int]:
-
-        delay_s = 1 #delay_s or self._max_sample_rate
 
         # XXX: this should be singleton on a host,
         # a lone broker-daemon per provider should be
@@ -1275,6 +1273,34 @@ class Feed:
 
     async def resume(self) -> None:
         await self.stream.send('resume')
+
+    def get_ds_info(
+        self,
+    ) -> tuple[float, float, float]:
+        '''
+        Compute the "downsampling" ratio info between the historical shm
+        buffer and the real-time (HFT) one.
+
+        Return a tuple of the fast sample period, historical sample
+        period and ratio between them.
+
+        '''
+        times = self.hist_shm.array['time']
+        end = pendulum.from_timestamp(times[-1])
+        start = pendulum.from_timestamp(times[times != times[-1]][-1])
+        hist_step_size_s = (end - start).seconds
+
+        times = self.rt_shm.array['time']
+        end = pendulum.from_timestamp(times[-1])
+        start = pendulum.from_timestamp(times[times != times[-1]][-1])
+        rt_step_size_s = (end - start).seconds
+
+        ratio = hist_step_size_s / rt_step_size_s
+        return (
+            rt_step_size_s,
+            hist_step_size_s,
+            ratio,
+        )
 
 
 @asynccontextmanager
