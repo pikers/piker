@@ -143,6 +143,7 @@ class DisplayState:
     # axis labels
     l1: L1Labels
     last_price_sticky: YAxisLabel
+    hist_last_price_sticky: YAxisLabel
 
     # misc state tracking
     vars: dict[str, Any]
@@ -190,6 +191,11 @@ async def graphics_update_loop(
     last_price_sticky = chart._ysticks[chart.name]
     last_price_sticky.update_from_data(
         *ohlcv.array[-1][['index', 'close']]
+    )
+
+    hist_last_price_sticky = hist_chart._ysticks[hist_chart.name]
+    hist_last_price_sticky.update_from_data(
+        *hist_ohlcv.array[-1][['index', 'close']]
     )
 
     maxmin = partial(
@@ -241,6 +247,7 @@ async def graphics_update_loop(
         'hist_ohlcv': hist_ohlcv,
         'chart': chart,
         'last_price_sticky': last_price_sticky,
+        'hist_last_price_sticky': hist_last_price_sticky,
         'l1': l1,
 
         'vars': {
@@ -547,6 +554,9 @@ def graphics_update_cycle(
                 # update price sticky(s)
                 end = array[-1]
                 ds.last_price_sticky.update_from_data(
+                    *end[['index', 'close']]
+                )
+                ds.hist_last_price_sticky.update_from_data(
                     *end[['index', 'close']]
                 )
 
@@ -868,7 +878,7 @@ async def display_symbol_data(
                 _, _, ratio = feed.get_ds_info()
                 break
             except IndexError:
-                await trio.sleep(0.001)
+                await trio.sleep(0.01)
                 continue
         else:
             raise RuntimeError(
