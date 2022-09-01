@@ -1023,7 +1023,7 @@ async def handle_order_updates(
 
                                 # TODO: maybe capture more msg data
                                 # i.e fees?
-                                broker_details={'name': 'kraken'} | trade,
+                                broker_details={'name': 'kraken'} | order_msg,
                                 broker_time=broker_time
                             )
                             await ems_stream.send(fill_msg)
