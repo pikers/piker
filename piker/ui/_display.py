@@ -324,10 +324,6 @@ def graphics_update_cycle(
     ohlcv = ds.ohlcv
     array = ohlcv.array
 
-    # history view chart
-    hist_ohlcv = ds.hist_ohlcv
-    hist_array = hist_ohlcv.array
-
     vars = ds.vars
     tick_margin = vars['tick_margin']
 
@@ -924,6 +920,38 @@ async def display_symbol_data(
                 wap_in_history,
                 vlm_chart,
             )
+
+            async def increment_history_view():
+                i_last_append = i_last = hist_ohlcv.index
+
+                async with feed.index_stream(
+                    int(hist_step_size_s)
+                ) as istream:
+                    async for msg in istream:
+
+                        # increment the view position by the sample offset.
+                        uppx = hist_chart.view.x_uppx()
+                        l, lbar, rbar, r = hist_chart.bars_range()
+
+                        i_step = hist_ohlcv.index
+                        i_diff = i_step - i_last
+                        i_last = i_step
+                        liv = r >= i_step
+                        append_diff = i_step - i_last_append
+                        do_append = (append_diff >= uppx)
+
+                        if do_append:
+                            i_last_append = i_step
+
+                        if (
+                            # i_diff > 0  # no new sample step
+                            do_append
+                            # and uppx < 4  # chart is zoomed out very far
+                            and liv
+                        ):
+                            hist_chart.increment_view(steps=i_diff)
+
+            ln.start_soon(increment_history_view)
 
             await trio.sleep(0)
 
