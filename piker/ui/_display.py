@@ -873,7 +873,7 @@ async def display_symbol_data(
         # region.setClipItem(flow.graphics)
 
         # poll for datums load and timestep detection
-        for _ in range(10):
+        for _ in range(100):
             try:
                 _, _, ratio = feed.get_ds_info()
                 break
