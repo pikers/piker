@@ -21,7 +21,6 @@ this module ties together quote and computational (fsp) streams with
 graphics update methods via our custom ``pyqtgraph`` charting api.
 
 '''
-from dataclasses import dataclass
 from functools import partial
 import time
 from typing import Optional, Any, Callable
@@ -35,6 +34,7 @@ from ..data.feed import (
     open_feed,
     Feed,
 )
+from ..data.types import Struct
 from ._axes import YAxisLabel
 from ._chart import (
     ChartPlotWidget,
@@ -124,8 +124,7 @@ def chart_maxmin(
     )
 
 
-@dataclass
-class DisplayState:
+class DisplayState(Struct):
     '''
     Chart-local real-time graphics state container.
 
@@ -146,11 +145,76 @@ class DisplayState:
     hist_last_price_sticky: YAxisLabel
 
     # misc state tracking
-    vars: dict[str, Any]
+    vars: dict[str, Any] = {
+        'tick_margin': 0,
+        'i_last': 0,
+        'i_last_append': 0,
+        'last_mx_vlm': 0,
+        'last_mx': 0,
+        'last_mn': 0,
+    }
 
     vlm_chart: Optional[ChartPlotWidget] = None
     vlm_sticky: Optional[YAxisLabel] = None
     wap_in_history: bool = False
+
+    def incr_info(
+        self,
+        chart: Optional[ChartPlotWidget] = None,
+        shm: Optional[ShmArray] = None,
+        state: Optional[dict] = None,  # pass in a copy if you don't
+
+        update_state: bool = True,
+        update_uppx: float = 16,
+
+    ) -> tuple:
+
+        shm = shm or self.ohlcv
+        chart = chart or self.chart
+        state = state or self.vars
+
+        if not update_state:
+            state = state.copy()
+
+        # compute the first available graphic's x-units-per-pixel
+        uppx = chart.view.x_uppx()
+
+        # NOTE: this used to be implemented in a dedicated
+        # "increment task": ``check_for_new_bars()`` but it doesn't
+        # make sense to do a whole task switch when we can just do
+        # this simple index-diff and all the fsp sub-curve graphics
+        # are diffed on each draw cycle anyway; so updates to the
+        # "curve" length is already automatic.
+
+        # increment the view position by the sample offset.
+        i_step = shm.index
+        i_diff = i_step - state['i_last']
+        state['i_last'] = i_step
+
+        append_diff = i_step - state['i_last_append']
+
+        # update the "last datum" (aka extending the flow graphic with
+        # new data) only if the number of unit steps is >= the number of
+        # such unit steps per pixel (aka uppx). Iow, if the zoom level
+        # is such that a datum(s) update to graphics wouldn't span
+        # to a new pixel, we don't update yet.
+        do_append = (append_diff >= uppx)
+        if do_append:
+            state['i_last_append'] = i_step
+
+        do_rt_update = uppx < update_uppx
+        _, _, _, r = chart.bars_range()
+        liv = r >= i_step
+
+        # TODO: pack this into a struct
+        return (
+            uppx,
+            liv,
+            do_append,
+            i_diff,
+            append_diff,
+            do_rt_update,
+        )
 
 
 async def graphics_update_loop(
@@ -271,7 +335,11 @@ async def graphics_update_loop(
     # API that can be reused at least in terms of pulling view
     # params (eg ``.bars_range()``).
     async def increment_history_view():
-        i_last_append = i_last = hist_ohlcv.index
+        i_last = hist_ohlcv.index
+        state = ds.vars.copy() | {
+            'i_last_append': i_last,
+            'i_last': i_last,
+        }
         _, hist_step_size_s, _ = feed.get_ds_info()
 
         async with feed.index_stream(
@@ -279,27 +347,26 @@ async def graphics_update_loop(
         ) as istream:
             async for msg in istream:
 
-                # increment the view position by the sample offset.
-                uppx = hist_chart.view.x_uppx()
-                l, lbar, rbar, r = hist_chart.bars_range()
-
-                i_step = hist_ohlcv.index
-                i_diff = i_step - i_last
-                i_last = i_step
-                liv = r >= i_step
-                append_diff = i_step - i_last_append
-                do_append = (append_diff >= uppx)
-
-                if do_append:
-                    i_last_append = i_step
-
+                # check if slow chart needs a resize
+                (
+                    uppx,
+                    liv,
+                    do_append,
+                    i_diff,
+                    append_diff,
+                    do_rt_update,
+                ) = ds.incr_info(
+                    chart=hist_chart,
+                    shm=ds.hist_ohlcv,
+                    state=state,
+                    # update_state=False,
+                )
                 if (
-                    # i_diff > 0  # no new sample step
                     do_append
-                    # and uppx < 4  # chart is zoomed out very far
                     and liv
                 ):
                     hist_chart.increment_view(steps=i_diff)
+                    hist_chart.view._set_yrange(yrange=hist_chart.maxmin())
 
     nurse.start_soon(increment_history_view)
 
@@ -374,47 +441,15 @@ def graphics_update_cycle(
     vars = ds.vars
     tick_margin = vars['tick_margin']
 
-    update_uppx = 16
-
     for sym, quote in ds.quotes.items():
-
-        # compute the first available graphic's x-units-per-pixel
-        uppx = chart.view.x_uppx()
-
-        # NOTE: vlm may be written by the ``brokerd`` backend
-        # event though a tick sample is not emitted.
-        # TODO: show dark trades differently
-        # https://github.com/pikers/piker/issues/116
-
-        # NOTE: this used to be implemented in a dedicated
-        # "increment task": ``check_for_new_bars()`` but it doesn't
-        # make sense to do a whole task switch when we can just do
-        # this simple index-diff and all the fsp sub-curve graphics
-        # are diffed on each draw cycle anyway; so updates to the
-        # "curve" length is already automatic.
-
-        # increment the view position by the sample offset.
-        i_step = ohlcv.index
-        i_diff = i_step - vars['i_last']
-        vars['i_last'] = i_step
-
-        append_diff = i_step - vars['i_last_append']
-
-        # update the "last datum" (aka extending the flow graphic with
-        # new data) only if the number of unit steps is >= the number of
-        # such unit steps per pixel (aka uppx). Iow, if the zoom level
-        # is such that a datum(s) update to graphics wouldn't span
-        # to a new pixel, we don't update yet.
-        do_append = (append_diff >= uppx)
-        if do_append:
-            vars['i_last_append'] = i_step
-
-        do_rt_update = uppx < update_uppx
-        # print(
-        #     f'append_diff:{append_diff}\n'
-        #     f'uppx:{uppx}\n'
-        #     f'do_append: {do_append}'
-        # )
+        (
+            uppx,
+            liv,
+            do_append,
+            i_diff,
+            append_diff,
+            do_rt_update,
+        ) = ds.incr_info()
 
         # TODO: we should only run mxmn when we know
         # an update is due via ``do_append`` above.
@@ -430,8 +465,6 @@ def graphics_update_cycle(
 
         profiler('`ds.maxmin()` call')
 
-        liv = r >= i_step  # the last datum is in view
-
         if (
             prepend_update_index is not None
             and lbar > prepend_update_index
@@ -446,16 +479,10 @@ def graphics_update_cycle(
         # don't real-time "shift" the curve to the
         # left unless we get one of the following:
         if (
-            (
-                # i_diff > 0  # no new sample step
-                do_append
-                # and uppx < 4  # chart is zoomed out very far
-                and liv
-            )
+            (do_append and liv)
             or trigger_all
         ):
             chart.increment_view(steps=i_diff)
-            # chart.increment_view(steps=i_diff + round(append_diff - uppx))
 
             if vlm_chart:
                 vlm_chart.increment_view(steps=i_diff)
@@ -606,26 +633,44 @@ def graphics_update_cycle(
                 l1.bid_label.update_fields({'level': price, 'size': size})
 
         # check for y-range re-size
-        if (
-            (mx > vars['last_mx']) or (mn < vars['last_mn'])
-            and not chart._static_yrange == 'axis'
-            and liv
-        ):
-            main_vb = chart.view
+        if (mx > vars['last_mx']) or (mn < vars['last_mn']):
+
+            # fast chart resize case
             if (
-                main_vb._ic is None
-                or not main_vb._ic.is_set()
+                liv
+                and not chart._static_yrange == 'axis'
             ):
-                # print(f'updating range due to mxmn')
-                main_vb._set_yrange(
-                    # TODO: we should probably scale
-                    # the view margin based on the size
-                    # of the true range? This way you can
-                    # slap in orders outside the current
-                    # L1 (only) book range.
-                    # range_margin=0.1,
-                    yrange=(mn, mx),
-                )
+                main_vb = chart.view
+                if (
+                    main_vb._ic is None
+                    or not main_vb._ic.is_set()
+                ):
+                    # print(f'updating range due to mxmn')
+                    main_vb._set_yrange(
+                        # TODO: we should probably scale
+                        # the view margin based on the size
+                        # of the true range? This way you can
+                        # slap in orders outside the current
+                        # L1 (only) book range.
+                        # range_margin=0.1,
+                        yrange=(mn, mx),
+                    )
+
+            # check if slow chart needs a resize
+            (
+                _,
+                hist_liv,
+                _,
+                _,
+                _,
+                _,
+            ) = ds.incr_info(
+                chart=hist_chart,
+                shm=ds.hist_ohlcv,
+                update_state=False,
+            )
+            if hist_liv:
+                hist_chart.view._set_yrange(yrange=hist_chart.maxmin())
 
         # XXX: update this every draw cycle to make L1-always-in-view work.
         vars['last_mx'], vars['last_mn'] = mx, mn
