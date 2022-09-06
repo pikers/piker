@@ -1021,6 +1021,7 @@ async def display_symbol_data(
                 open_order_mode(
                     feed,
                     chart,
+                    hist_chart,
                     fqsn,
                     order_mode_started
                 )

@@ -18,13 +18,19 @@
 Chart trading, the only way to scalp.
 
 """
+from __future__ import annotations
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from pprint import pformat
 import platform
 import time
-from typing import Optional, Dict, Callable, Any
+from typing import (
+    Optional,
+    Callable,
+    Any,
+    TYPE_CHECKING,
+)
 import uuid
 
 import tractor
@@ -60,6 +66,9 @@ from ..clearing._messages import (
 from ._forms import open_form_input_handling
 
 
+if TYPE_CHECKING:
+    from ._chart import ChartPlotWidget
+
 log = get_logger(__name__)
 
 
@@ -76,7 +85,7 @@ class Dialog(Struct):
     line: LevelLine
     last_status_close: Callable = lambda: None
     msgs: dict[str, dict] = {}
-    fills: Dict[str, Any] = {}
+    fills: dict[str, Any] = {}
 
 
 @dataclass
@@ -100,7 +109,7 @@ class OrderMode:
         mouse click and drag -> modify current order under cursor
 
     '''
-    chart: 'ChartPlotWidget'  #  type: ignore # noqa
+    chart: ChartPlotWidget  #  type: ignore # noqa
     nursery: trio.Nursery
     quote_feed: Feed
     book: OrderBook
@@ -568,7 +577,8 @@ class OrderMode:
 async def open_order_mode(
 
     feed: Feed,
-    chart: 'ChartPlotWidget',  # noqa
+    chart: ChartPlotWidget,  # noqa
+    hist_chart: ChartPlotWidget,  # noqa
     fqsn: str,
     started: trio.Event,
 
@@ -606,7 +616,8 @@ async def open_order_mode(
 
     ):
         log.info(f'Opening order mode for {fqsn}')
-        view = chart.view
+        rt_view = chart.view
+        hist_view = chart.view
 
         # annotations editors
         lines = LineEditor(chart=chart)
@@ -760,7 +771,8 @@ async def open_order_mode(
         # TODO: create a mode "manager" of sorts?
         # -> probably just call it "UxModes" err sumthin?
         # so that view handlers can access it
-        view.order_mode = mode
+        chart.view.order_mode = mode
+        hist_chart.view.order_mode = mode
 
         order_pane.on_ui_settings_change('account', pp_account)
         mode.pane.display_pnl(mode.current_pp)
@@ -785,6 +797,7 @@ async def open_order_mode(
 
             # ``ChartView`` input async handler startup
             chart.view.open_async_input_handler(),
+            hist_chart.view.open_async_input_handler(),
 
             # pp pane kb inputs
             open_form_input_handling(
