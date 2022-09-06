@@ -19,7 +19,10 @@ Higher level annotation editors.
 
 """
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import (
+    Optional,
+    TYPE_CHECKING
+)
 
 import pyqtgraph as pg
 from pyqtgraph import ViewBox, Point, QtCore, QtGui
@@ -30,6 +33,9 @@ import numpy as np
 from ._style import hcolor, _font
 from ._lines import LevelLine
 from ..log import get_logger
+
+if TYPE_CHECKING:
+    from ._chart import GodWidget
 
 
 log = get_logger(__name__)
@@ -88,10 +94,11 @@ class ArrowEditor:
 
 @dataclass
 class LineEditor:
-    '''The great editor of linez.
+    '''
+    The great editor of linez.
 
     '''
-    chart: 'ChartPlotWidget' = None  # type: ignore # noqa
+    godw: 'ChartPlotWidget' = None  # type: ignore # noqa
     _order_lines: dict[str, LevelLine] = field(default_factory=dict)
     _active_staged_line: LevelLine = None
 
@@ -119,13 +126,19 @@ class LineEditor:
 
         """
         # chart = self.chart._cursor.active_plot
-        # # chart.setCursor(QtCore.Qt.ArrowCursor)
-        cursor = self.chart.linked.cursor
+        cursor = self.godw.get_cursor()
 
         # delete "staged" cursor tracking line from view
         line = self._active_staged_line
         if line:
-            cursor._trackers.remove(line)
+            try:
+                cursor._trackers.remove(line)
+            except KeyError:
+                # when the current cursor doesn't have said line
+                # registered (probably means that user held order mode
+                # key while panning to another vieww) then we just
+                # ignore the remove error.
+                pass
             line.delete()
 
         self._active_staged_line = None
@@ -178,7 +191,7 @@ class LineEditor:
 
         """
         # Delete any hoverable under the cursor
-        return self.chart.linked.cursor._hovered
+        return self.godw.get_cursor()._hovered
 
     def all_lines(self) -> tuple[LevelLine]:
         return tuple(self._order_lines.values())
@@ -200,7 +213,7 @@ class LineEditor:
         if line:
 
             # if hovered remove from cursor set
-            cursor = self.chart.linked.cursor
+            cursor = self.godw.get_cursor()
             hovered = cursor._hovered
             if line in hovered:
                 hovered.remove(line)
