@@ -148,6 +148,7 @@ async def handle_viewmode_kb_inputs(
                 # ctrl-c as cancel
                 # https://forum.qt.io/topic/532/how-to-catch-ctrl-c-on-a-widget/9
                 view.select_box.clear()
+                view.linked.focus()
 
             # cancel order or clear graphics
             if key == Qt.Key_C or key == Qt.Key_Delete:
@@ -181,10 +182,10 @@ async def handle_viewmode_kb_inputs(
         # QUERY/QUOTE MODE #
         if {Qt.Key_Q}.intersection(pressed):
 
-            view.linkedsplits.cursor.in_query_mode = True
+            view.linked.cursor.in_query_mode = True
 
         else:
-            view.linkedsplits.cursor.in_query_mode = False
+            view.linked.cursor.in_query_mode = False
 
         # SELECTION MODE
         # --------------
@@ -373,7 +374,7 @@ class ChartView(ViewBox):
             y=True,
         )
 
-        self.linkedsplits = None
+        self.linked = None
         self._chart: 'ChartPlotWidget' = None  # noqa
 
         # add our selection box annotator
@@ -484,7 +485,7 @@ class ChartView(ViewBox):
         else:
             mask = self.state['mouseEnabled'][:]
 
-        chart = self.linkedsplits.chart
+        chart = self.linked.chart
 
         # don't zoom more then the min points setting
         l, lbar, rbar, r = chart.bars_range()
@@ -919,7 +920,7 @@ class ChartView(ViewBox):
 
         # TODO: a faster single-loop-iterator way of doing this XD
         chart = self._chart
-        linked = self.linkedsplits
+        linked = self.linked
         plots = linked.subplots | {chart.name: chart}
         for chart_name, chart in plots.items():
             for name, flow in chart._flows.items():

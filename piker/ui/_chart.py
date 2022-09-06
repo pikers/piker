@@ -584,7 +584,7 @@ class LinkedSplits(QWidget):
 
             cpw.sidepane = sidepane
 
-        cpw.plotItem.vb.linkedsplits = self
+        cpw.plotItem.vb.linked = self
         cpw.setFrameStyle(
             QtWidgets.QFrame.StyledPanel
             # | QtWidgets.QFrame.Plain
