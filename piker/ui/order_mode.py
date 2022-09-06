@@ -67,7 +67,10 @@ from ._forms import open_form_input_handling
 
 
 if TYPE_CHECKING:
-    from ._chart import ChartPlotWidget
+    from ._chart import (
+        ChartPlotWidget,
+        GodWidget,
+    )
 
 log = get_logger(__name__)
 
@@ -110,6 +113,7 @@ class OrderMode:
 
     '''
     chart: ChartPlotWidget  #  type: ignore # noqa
+    hist_chart: ChartPlotWidget  #  type: ignore # noqa
     nursery: trio.Nursery
     quote_feed: Feed
     book: OrderBook
@@ -577,8 +581,7 @@ class OrderMode:
 async def open_order_mode(
 
     feed: Feed,
-    chart: ChartPlotWidget,  # noqa
-    hist_chart: ChartPlotWidget,  # noqa
+    godw: GodWidget,
     fqsn: str,
     started: trio.Event,
 
@@ -591,6 +594,9 @@ async def open_order_mode(
         state, mostly graphics / UI.
 
     '''
+    chart = godw.rt_linked.chart
+    hist_chart = godw.hist_linked.chart
+
     multistatus = chart.window().status_bar
     done = multistatus.open_status('starting order mode..')
 
@@ -616,11 +622,9 @@ async def open_order_mode(
 
     ):
         log.info(f'Opening order mode for {fqsn}')
-        rt_view = chart.view
-        hist_view = chart.view
 
         # annotations editors
-        lines = LineEditor(chart=chart)
+        lines = LineEditor(godw=godw)
         arrows = ArrowEditor(chart, {})
 
         # symbol id
@@ -732,6 +736,7 @@ async def open_order_mode(
         # a namespace..
         mode = OrderMode(
             chart,
+            hist_chart,
             tn,
             feed,
             book,
