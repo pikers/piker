@@ -118,6 +118,7 @@ class GodWidget(QWidget):
 
         self.hist_linked: Optional[LinkedSplits] = None
         self.rt_linked: Optional[LinkedSplits] = None
+        self._active_cursor: Optional[Cursor] = None
 
         # assigned in the startup func `_async_main()`
         self._root_n: trio.Nursery = None
@@ -305,6 +306,12 @@ class GodWidget(QWidget):
             widget.on_resize()
 
         self._resizing = False
+
+    def get_cursor(self) -> Cursor:
+        c = self._active_cursor
+        assert c
+        return c
+
 
 
 class ChartnPane(QFrame):
