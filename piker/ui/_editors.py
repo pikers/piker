@@ -18,7 +18,8 @@
 Higher level annotation editors.
 
 """
-from dataclasses import dataclass, field
+from __future__ import annotations
+from collections import defaultdict
 from typing import (
     Optional,
     TYPE_CHECKING
@@ -33,6 +34,7 @@ import numpy as np
 from ._style import hcolor, _font
 from ._lines import LevelLine
 from ..log import get_logger
+from ..data.types import Struct
 
 if TYPE_CHECKING:
     from ._chart import GodWidget
@@ -41,11 +43,10 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
-@dataclass
-class ArrowEditor:
+class ArrowEditor(Struct):
 
     chart: 'ChartPlotWidget'  # noqa
-    _arrows: field(default_factory=dict)
+    _arrows: dict[str, pg.ArrowItem]
 
     def add(
         self,
@@ -55,9 +56,10 @@ class ArrowEditor:
         color='default',
         pointing: Optional[str] = None,
     ) -> pg.ArrowItem:
-        """Add an arrow graphic to view at given (x, y).
+        '''
+        Add an arrow graphic to view at given (x, y).
 
-        """
+        '''
         angle = {
             'up': 90,
             'down': -90,
@@ -92,14 +94,13 @@ class ArrowEditor:
         self.chart.plotItem.removeItem(arrow)
 
 
-@dataclass
-class LineEditor:
+class LineEditor(Struct):
     '''
     The great editor of linez.
 
     '''
-    godw: 'ChartPlotWidget' = None  # type: ignore # noqa
-    _order_lines: dict[str, LevelLine] = field(default_factory=dict)
+    godw: GodWidget = None  # type: ignore # noqa
+    _order_lines: defaultdict[str, LevelLine] = defaultdict(list)
     _active_staged_line: LevelLine = None
 
     def stage_line(
@@ -122,10 +123,10 @@ class LineEditor:
         return line
 
     def unstage_line(self) -> LevelLine:
-        """Inverse of ``.stage_line()``.
+        '''
+        Inverse of ``.stage_line()``.
 
-        """
-        # chart = self.chart._cursor.active_plot
+        '''
         cursor = self.godw.get_cursor()
 
         # delete "staged" cursor tracking line from view
@@ -146,9 +147,9 @@ class LineEditor:
         # show the crosshair y line and label
         cursor.show_xhair()
 
-    def submit_line(
+    def submit_lines(
         self,
-        line: LevelLine,
+        lines: list[LevelLine],
         uuid: str,
 
     ) -> LevelLine:
@@ -158,33 +159,30 @@ class LineEditor:
         #     raise RuntimeError("No line is currently staged!?")
 
         # for now, until submission reponse arrives
-        line.hide_labels()
+        for line in lines:
+            line.hide_labels()
 
         # register for later lookup/deletion
-        self._order_lines[uuid] = line
+        self._order_lines[uuid] += lines
 
-        return line
+        return lines
 
-    def commit_line(self, uuid: str) -> LevelLine:
-        """Commit a "staged line" to view.
+    def commit_line(self, uuid: str) -> list[LevelLine]:
+        '''
+        Commit a "staged line" to view.
 
         Submits the line graphic under the cursor as a (new) permanent
         graphic in view.
 
-        """
-        try:
-            line = self._order_lines[uuid]
-        except KeyError:
-            log.warning(f'No line for {uuid} could be found?')
-            return
-        else:
-            line.show_labels()
+        '''
+        lines = self._order_lines.get(uuid)
+        if lines:
+            for line in self._order_lines.get(uuid, []):
+                line.show_labels()
+                log.debug(f'Level active for level: {line.value()}')
+                # TODO: other flashy things to indicate the order is active
 
-            # TODO: other flashy things to indicate the order is active
-
-            log.debug(f'Level active for level: {line.value()}')
-
-            return line
+        return lines
 
     def lines_under_cursor(self) -> list[LevelLine]:
         """Get the line(s) under the cursor position.
@@ -193,8 +191,13 @@ class LineEditor:
         # Delete any hoverable under the cursor
         return self.godw.get_cursor()._hovered
 
-    def all_lines(self) -> tuple[LevelLine]:
-        return tuple(self._order_lines.values())
+    def all_lines(self) -> list[LevelLine]:
+        all_lines = []
+        for lines in list(self._order_lines.values()):
+            all_lines.extend(lines)
+
+        # return tuple(self._order_lines.values())
+        return all_lines
 
     def remove_line(
         self,
@@ -209,26 +212,30 @@ class LineEditor:
 
         '''
         # try to look up line from our registry
-        line = self._order_lines.pop(uuid, line)
-        if line:
-
-            # if hovered remove from cursor set
+        # line = self._order_lines.pop(uuid, line)
+        lines = self._order_lines.pop(uuid)
+        # if line:
+        if lines:
             cursor = self.godw.get_cursor()
-            hovered = cursor._hovered
-            if line in hovered:
-                hovered.remove(line)
 
-                # make sure the xhair doesn't get left off
-                # just because we never got a un-hover event
-                cursor.show_xhair()
+            for line in lines:
+                # if hovered remove from cursor set
+                # cursor = self.godw.get_cursor()
+                hovered = cursor._hovered
+                if line in hovered:
+                    hovered.remove(line)
 
-            log.debug(f'deleting {line} with oid: {uuid}')
-            line.delete()
+                    # make sure the xhair doesn't get left off
+                    # just because we never got a un-hover event
+                    cursor.show_xhair()
+
+                log.debug(f'deleting {line} with oid: {uuid}')
+                line.delete()
 
         else:
             log.warning(f'Could not find line for {line}')
 
-        return line
+        return lines
 
 
 class SelectRect(QtGui.QGraphicsRectItem):
