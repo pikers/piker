@@ -491,6 +491,7 @@ class Cursor(pg.GraphicsObject):
         log.debug(f"{(action, plot.name)}")
         if action == 'Enter':
             self.active_plot = plot
+            plot.linked.godwidget._active_cursor = self
 
             # show horiz line and y-label
             self.graphics[plot]['hl'].show()
