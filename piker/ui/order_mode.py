@@ -85,7 +85,7 @@ class Dialog(Struct):
     uuid: str
     order: Order
     symbol: Symbol
-    line: LevelLine
+    lines: list[LevelLine]
     last_status_close: Callable = lambda: None
     msgs: dict[str, dict] = {}
     fills: dict[str, Any] = {}
@@ -175,14 +175,16 @@ class OrderMode:
     def line_from_order(
         self,
         order: Order,
+        chart: Optional[ChartPlotWidget] = None,
         **line_kwargs,
 
     ) -> LevelLine:
 
         level = order.price
+
         line = order_line(
 
-            self.chart,
+            chart or self.chart,
             # TODO: convert these values into human-readable form
             # (i.e. with k, m, M, B) type embedded suffixes
             level=level,
@@ -224,6 +226,24 @@ class OrderMode:
 
         return line
 
+    def lines_from_order(
+        self,
+        order: Order,
+        **line_kwargs,
+
+    ) -> list[LevelLine]:
+
+        lines: list[LevelLine] = []
+        for chart in [self.chart, self.hist_chart]:
+            line = self.line_from_order(
+                order=order,
+                chart=chart,
+                **line_kwargs,
+            )
+            lines.append(line)
+
+        return lines
+
     def stage_order(
         self,
 
@@ -236,6 +256,7 @@ class OrderMode:
         '''
         # not initialized yet
         chart = self.chart
+
         cursor = chart.linked.cursor
         if not (chart and cursor and cursor.active_plot):
             return
@@ -298,13 +319,12 @@ class OrderMode:
 
         order.symbol = order.symbol.front_fqsn()
 
-        line = self.line_from_order(
+        # line = self.line_from_order(
+        lines = self.lines_from_order(
             order,
-
             show_markers=True,
             only_show_markers_on_hover=True,
         )
-
         # register the "submitted" line under the cursor
         # to be displayed when above order ack arrives
         # (means the marker graphic doesn't show on screen until the
@@ -315,8 +335,8 @@ class OrderMode:
         # maybe place a grey line in "submission" mode
         # which will be updated to it's appropriate action
         # color once the submission ack arrives.
-        self.lines.submit_line(
-            line=line,
+        self.lines.submit_lines(
+            lines=lines,
             uuid=order.oid,
         )
 
@@ -324,24 +344,25 @@ class OrderMode:
             uuid=order.oid,
             order=order,
             symbol=order.symbol,
-            line=line,
+            lines=lines,
             last_status_close=self.multistatus.open_status(
                 f'submitting {order.exec_mode}-{order.action}',
                 final_msg=f'submitted {order.exec_mode}-{order.action}',
                 clear_on_next=True,
             )
         )
-
-        # TODO: create a new ``OrderLine`` with this optional var defined
-        line.dialog = dialog
-
         # enter submission which will be popped once a response
         # from the EMS is received to move the order to a different# status
         self.dialogs[order.oid] = dialog
 
-        # hook up mouse drag handlers
-        line._on_drag_start = self.order_line_modify_start
-        line._on_drag_end = self.order_line_modify_complete
+        for line in lines:
+
+            # TODO: create a new ``OrderLine`` with this optional var defined
+            line.dialog = dialog
+
+            # hook up mouse drag handlers
+            line._on_drag_start = self.order_line_modify_start
+            line._on_drag_end = self.order_line_modify_complete
 
         # send order cmd to ems
         if send_msg:
@@ -396,11 +417,11 @@ class OrderMode:
         Commit the order line and registered order uuid, store ack time stamp.
 
         '''
-        line = self.lines.commit_line(uuid)
+        lines = self.lines.commit_line(uuid)
 
         # a submission is the start of a new order dialog
         dialog = self.dialogs[uuid]
-        dialog.line = line
+        dialog.lines = lines
         dialog.last_status_close()
 
         return dialog
@@ -428,17 +449,18 @@ class OrderMode:
 
         '''
         dialog = self.dialogs[uuid]
-        line = dialog.line
-        if line:
-            self.arrows.add(
-                uuid,
-                arrow_index,
-                price,
-                pointing=pointing,
-                color=line.color
-            )
+        lines = dialog.lines
+        if lines:
+            for line in lines:
+                self.arrows.add(
+                    uuid,
+                    arrow_index,
+                    price,
+                    pointing=pointing,
+                    color=line.color
+                )
         else:
-            log.warn("No line for order {uuid}!?")
+            log.warn("No line(s) for order {uuid}!?")
 
     async def on_exec(
         self,
