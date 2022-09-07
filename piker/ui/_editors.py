@@ -110,11 +110,11 @@ class LineEditor(Struct):
         line: LevelLine,
 
     ) -> LevelLine:
-        """Stage a line at the current chart's cursor position
+        '''
+        Stage a line at the current chart's cursor position
         and return it.
 
-        """
-
+        '''
         # add a "staged" cursor-tracking line to view
         # and cash it in a a var
         if self._active_staged_line:

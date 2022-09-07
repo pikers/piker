@@ -112,6 +112,7 @@ class OrderMode:
         mouse click and drag -> modify current order under cursor
 
     '''
+    godw: GodWidget
     feed: Feed
     chart: ChartPlotWidget  #  type: ignore # noqa
     hist_chart: ChartPlotWidget  #  type: ignore # noqa
@@ -251,12 +252,15 @@ class OrderMode:
         action: str,
         trigger_type: str,
 
-    ) -> None:
-        '''Stage an order for submission.
+    ) -> list[LevelLine]:
+        '''
+        Stage an order for submission by showing level lines and
+        configuring the order request message dynamically based on
+        allocator settings.
 
         '''
         # not initialized yet
-        chart = self.chart
+        chart = self.godw.get_cursor().linked.chart
 
         cursor = chart.linked.cursor
         if not (chart and cursor and cursor.active_plot):
@@ -277,7 +281,7 @@ class OrderMode:
             exec_mode=trigger_type,  # dark or live
         )
 
-        line = self.line_from_order(
+        lines = self.lines_from_order(
             order,
             show_markers=True,
             # just for the stage line to avoid
@@ -290,15 +294,15 @@ class OrderMode:
             # prevent flickering of marker while moving/tracking cursor
             only_show_markers_on_hover=False,
         )
-        line = self.lines.stage_line(line)
+        for line in lines:
+            line = self.lines.stage_line(line)
+            # add line to cursor trackers
+            cursor._trackers.add(line)
 
         # hide crosshair y-line and label
         cursor.hide_xhair()
 
-        # add line to cursor trackers
-        cursor._trackers.add(line)
-
-        return line
+        return lines
 
     def submit_order(
         self,
@@ -770,6 +774,7 @@ async def open_order_mode(
         # top level abstraction which wraps all this crazyness into
         # a namespace..
         mode = OrderMode(
+            godw,
             feed,
             chart,
             hist_chart,
