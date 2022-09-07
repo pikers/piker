@@ -384,7 +384,7 @@ class OrderMode:
 
     ) -> None:
 
-        print(f'Line modify: {line}')
+        log.info(f'Order modify: {line}')
         # cancel original order until new position is found?
         # TODO: make a config option for this behaviour..
 
@@ -396,7 +396,8 @@ class OrderMode:
 
         level = line.value()
         # updateb by level change callback set in ``.line_from_order()``
-        size = line.dialog.order.size
+        dialog = line.dialog
+        size = dialog.order.size
 
         self.book.update(
             uuid=line.dialog.uuid,
@@ -404,8 +405,13 @@ class OrderMode:
             size=size,
         )
 
-    # ems response loop handlers
+        # adjust corresponding slow/fast chart line
+        # to match level
+        for ln in dialog.lines:
+            if ln is not line:
+                ln.set_level(line.value())
 
+    # EMS response msg handlers
     def on_submit(
         self,
         uuid: str
