@@ -185,7 +185,6 @@ class OrderMode:
         level = order.price
 
         line = order_line(
-
             chart or self.chart,
             # TODO: convert these values into human-readable form
             # (i.e. with k, m, M, B) type embedded suffixes
@@ -260,10 +259,14 @@ class OrderMode:
 
         '''
         # not initialized yet
-        chart = self.godw.get_cursor().linked.chart
+        cursor = self.godw.get_cursor()
+        chart = cursor.linked.chart
 
-        cursor = chart.linked.cursor
-        if not (chart and cursor and cursor.active_plot):
+        if (
+            not chart
+            and cursor
+            and cursor.active_plot
+        ):
             return
 
         chart = cursor.active_plot
@@ -281,8 +284,14 @@ class OrderMode:
             exec_mode=trigger_type,  # dark or live
         )
 
-        lines = self.lines_from_order(
+        # TODO: staged line mirroring? - need to keep track of multiple
+        # staged lines in editor - need to call
+        # `LineEditor.unstage_line()` on all staged lines..
+        # lines = self.lines_from_order(
+
+        line = self.line_from_order(
             order,
+            chart=chart,
             show_markers=True,
             # just for the stage line to avoid
             # flickering while moving the cursor
@@ -294,15 +303,22 @@ class OrderMode:
             # prevent flickering of marker while moving/tracking cursor
             only_show_markers_on_hover=False,
         )
-        for line in lines:
-            line = self.lines.stage_line(line)
-            # add line to cursor trackers
-            cursor._trackers.add(line)
+        self.lines.stage_line(line)
+
+        # add line to cursor trackers
+        cursor._trackers.add(line)
+
+        # TODO: see above about mirroring.
+        # for line in lines:
+        #     if line._chart is chart:
+        #         self.lines.stage_line(line)
+        #         cursor._trackers.add(line)
+        #         break
 
         # hide crosshair y-line and label
         cursor.hide_xhair()
 
-        return lines
+        return line
 
     def submit_order(
         self,
@@ -399,7 +415,7 @@ class OrderMode:
     ) -> None:
 
         level = line.value()
-        # updateb by level change callback set in ``.line_from_order()``
+        # updated by level change callback set in ``.line_from_order()``
         dialog = line.dialog
         size = dialog.order.size
 
