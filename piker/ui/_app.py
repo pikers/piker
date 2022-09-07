@@ -107,9 +107,8 @@ async def _async_main(
         # setup search widget and focus main chart view at startup
         # search widget is a singleton alongside the godwidget
         search = _search.SearchWidget(godwidget=godwidget)
-        search.bar.unfocus()
-
-        godwidget.hbox.addWidget(search)
+        # search.bar.unfocus()
+        # godwidget.hbox.addWidget(search)
         godwidget.search = search
 
         symbol, _, provider = sym.rpartition('.')

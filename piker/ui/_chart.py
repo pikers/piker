@@ -72,6 +72,7 @@ from ._forms import FieldsForm
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._overlay import PlotItemOverlay
 from ._flows import Flow
+from ._search import SearchWidget
 
 if TYPE_CHECKING:
     from ._display import DisplayState
@@ -89,6 +90,8 @@ class GodWidget(QWidget):
     modify them.
 
     '''
+    search: SearchWidget
+
     def __init__(
 
         self,
@@ -97,6 +100,8 @@ class GodWidget(QWidget):
     ) -> None:
 
         super().__init__(parent)
+
+        self.search: Optional[SearchWidget] = None
 
         self.hbox = QHBoxLayout(self)
         self.hbox.setContentsMargins(0, 0, 0, 0)
@@ -239,6 +244,7 @@ class GodWidget(QWidget):
                 linked.show()
                 linked.focus()
 
+            self.search.focus()
             await trio.sleep(0)
 
         else:
@@ -351,6 +357,17 @@ class ChartnPane(QFrame):
         hbox.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         hbox.setContentsMargins(0, 0, 0, 0)
         hbox.setSpacing(3)
+
+    def set_sidepane(
+        self,
+        sidepane: FieldsForm,
+    ) -> None:
+
+        # add sidepane **after** chart; place it on axis side
+        self.hbox.addWidget(
+            sidepane,
+            alignment=Qt.AlignTop
+        )
 
 
 class LinkedSplits(QWidget):
@@ -583,10 +600,11 @@ class LinkedSplits(QWidget):
             assert cpw.parent() == qframe
 
             # add sidepane **after** chart; place it on axis side
-            qframe.hbox.addWidget(
-                sidepane,
-                alignment=Qt.AlignTop
-            )
+            qframe.set_sidepane(sidepane)
+            # qframe.hbox.addWidget(
+            #     sidepane,
+            #     alignment=Qt.AlignTop
+            # )
 
             cpw.sidepane = sidepane
 
@@ -681,18 +699,30 @@ class LinkedSplits(QWidget):
 
     def resize_sidepanes(
         self,
+        from_linked: Optional[LinkedSplits] = None,
+
     ) -> None:
         '''
         Size all sidepanes based on the OHLC "main" plot and its
         sidepane width.
 
         '''
-        main_chart = self.chart
+        if from_linked:
+            main_chart = from_linked.chart
+        else:
+            main_chart = self.chart
+
         if main_chart and main_chart.sidepane:
             sp_w = main_chart.sidepane.width()
             for name, cpw in self.subplots.items():
                 cpw.sidepane.setMinimumWidth(sp_w)
                 cpw.sidepane.setMaximumWidth(sp_w)
+
+            if from_linked:
+                self.chart.sidepane.setMinimumWidth(sp_w)
+                self.chart.sidepane.setMaximumWidth(sp_w)
+            else:
+                self.godwidget.hist_linked.resize_sidepanes(from_linked=self)
 
 
 class ChartPlotWidget(pg.PlotWidget):

@@ -140,7 +140,8 @@ class CompleterView(QTreeView):
         self._font_size: int = 0  # pixels
 
     async def on_pressed(self, idx: QModelIndex) -> None:
-        '''Mouse pressed on view handler.
+        '''
+        Mouse pressed on view handler.
 
         '''
         search = self.parent()
@@ -555,16 +556,24 @@ class SearchWidget(QtWidgets.QWidget):
 
     def focus(self) -> None:
 
+        godw = self.godwidget
         if self.view.model().rowCount(QModelIndex()) == 0:
             # fill cache list if nothing existing
             self.view.set_section_entries(
                 'cache',
-                list(reversed(self.godwidget._chart_cache)),
+                list(reversed(godw._chart_cache)),
                 clear_all=True,
             )
 
-        self.bar.focus()
+        hist_linked = godw.hist_linked
+        hist_chart = hist_linked.chart
+        if hist_chart:
+            rt_linked = godw.rt_linked
+            hist_chart.qframe.set_sidepane(self)
+            hist_linked.resize_sidepanes(from_linked=rt_linked)
+
         self.show()
+        self.bar.focus()
 
     def get_current_item(self) -> Optional[tuple[str, str]]:
         '''Return the current completer tree selection as
@@ -603,7 +612,8 @@ class SearchWidget(QtWidgets.QWidget):
         clear_to_cache: bool = True,
 
     ) -> Optional[str]:
-        '''Attempt to load and switch the current selected
+        '''
+        Attempt to load and switch the current selected
         completion result to the affiliated chart app.
 
         Return any loaded symbol.
@@ -650,6 +660,8 @@ class SearchWidget(QtWidgets.QWidget):
                 clear_all=True,
             )
 
+        self.focus()
+        self.bar.focus()
         return fqsn
 
 
@@ -717,10 +729,11 @@ async def fill_results(
     max_pause_time: float = 6/16 + 0.001,
 
 ) -> None:
-    """Task to search through providers and fill in possible
+    '''
+    Task to search through providers and fill in possible
     completion results.
 
-    """
+    '''
     global _search_active, _search_enabled, _searcher_cache
 
     bar = search.bar
@@ -892,7 +905,7 @@ async def handle_keyboard_input(
                 Qt.Key_Space,   # i feel like this is the "native" one
                 Qt.Key_Alt,
             }:
-                search.bar.unfocus()
+                #bar.unfocus()
 
                 # kill the search and focus back on main chart
                 if godwidget:

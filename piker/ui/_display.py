@@ -866,7 +866,8 @@ async def display_symbol_data(
             feed.hist_shm,
             # in the case of history chart we explicitly set `False`
             # to avoid internal pane creation.
-            sidepane=False,
+            # sidepane=False,
+            sidepane=godwidget.search,
         )
         # don't show when not focussed
         hist_linked.cursor.always_show_xlabel = False
@@ -1037,6 +1038,7 @@ async def display_symbol_data(
                 await trio.sleep(0)
                 rt_linked.resize_sidepanes()
                 rt_linked.set_split_sizes()
+                hist_linked.resize_sidepanes(from_linked=rt_linked)
 
                 # NOTE: we pop the volume chart from the subplots set so
                 # that it isn't double rendered in the display loop

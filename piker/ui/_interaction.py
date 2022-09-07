@@ -141,7 +141,9 @@ async def handle_viewmode_kb_inputs(
                     Qt.Key_Space,
                 }
             ):
-                view._chart.linked.godwidget.search.focus()
+                godw = view._chart.linked.godwidget
+                godw.search.focus()
+                # godw.hist_linked.resize_sidepanes(from_linked=godw.rt_linked)
 
             # esc and ctrl-c
             if key == Qt.Key_Escape or (ctrl and key == Qt.Key_C):
