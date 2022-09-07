@@ -868,6 +868,9 @@ async def display_symbol_data(
             # to avoid internal pane creation.
             sidepane=False,
         )
+        # don't show when not focussed
+        hist_linked.cursor.always_show_xlabel = False
+
         hist_chart.default_view(
             bars_from_y=int(len(hist_ohlcv.array)),  # size to data
             y_offset=6116*2,  # push it a little away from the y-axis

@@ -336,6 +336,8 @@ class Cursor(pg.GraphicsObject):
 
         self.linked = linkedsplits
         self.graphics: dict[str, pg.GraphicsObject] = {}
+        self.xaxis_label: Optional[XAxisLabel] = None
+        self.always_show_xlabel: bool = True
         self.plots: list['PlotChartWidget'] = []  # type: ignore # noqa
         self.active_plot = None
         self.digits: int = digits
@@ -508,11 +510,22 @@ class Cursor(pg.GraphicsObject):
             self.graphics[plot]['hl'].show()
             self.graphics[plot]['yl'].show()
 
-        else:  # Leave
+            if (
+                not self.always_show_xlabel
+                and not self.xaxis_label.isVisible()
+            ):
+                self.xaxis_label.show()
 
-            # hide horiz line and y-label
+        # Leave: hide horiz line and y-label
+        else:
             self.graphics[plot]['hl'].hide()
             self.graphics[plot]['yl'].hide()
+
+            if (
+                not self.always_show_xlabel
+                and self.xaxis_label.isVisible()
+            ):
+                self.xaxis_label.hide()
 
     def mouseMoved(
         self,
@@ -602,13 +615,17 @@ class Cursor(pg.GraphicsObject):
                             left_axis_width += left.width()
 
                 # map back to abs (label-local) coordinates
-                self.xaxis_label.update_label(
-                    abs_pos=(
-                        plot.mapFromView(QPointF(vl_x, iy)) -
-                        QPointF(left_axis_width, 0)
-                    ),
-                    value=ix,
-                )
+                if (
+                    self.always_show_xlabel
+                    or self.xaxis_label.isVisible()
+                ):
+                    self.xaxis_label.update_label(
+                        abs_pos=(
+                            plot.mapFromView(QPointF(vl_x, iy)) -
+                            QPointF(left_axis_width, 0)
+                        ),
+                        value=ix,
+                    )
 
         self._datum_xy = ix, iy
 
