@@ -19,7 +19,11 @@ High level chart-widget apis.
 
 '''
 from __future__ import annotations
-from typing import Optional, TYPE_CHECKING
+from typing import (
+    Iterator,
+    Optional,
+    TYPE_CHECKING,
+)
 
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import (
@@ -195,7 +199,7 @@ class GodWidget(QWidget):
         if not self.vbox.isEmpty():
 
             for linked in [self.rt_linked, self.hist_linked]:
-            # XXX: this is CRITICAL especially with pixel buffer caching
+                # XXX: this is CRITICAL especially with pixel buffer caching
                 linked.hide()
                 linked.unfocus()
                 # self.hist_linked.hide()
@@ -308,10 +312,11 @@ class GodWidget(QWidget):
         self._resizing = False
 
     def get_cursor(self) -> Cursor:
-        c = self._active_cursor
-        assert c
-        return c
+        return self._active_cursor
 
+    def iter_linked(self) -> Iterator[LinkedSplits]:
+        for linked in [self.hist_linked, self.rt_linked]:
+            yield linked
 
 
 class ChartnPane(QFrame):
