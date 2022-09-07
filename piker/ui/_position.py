@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from functools import partial
 from math import floor, copysign
 from typing import (
+    Callable,
     Optional,
     TYPE_CHECKING,
 )
@@ -44,6 +45,7 @@ from ..calc import humanize, pnl, puterize
 from ..clearing._allocate import Allocator, Position
 from ..data._normalize import iterticks
 from ..data.feed import Feed
+from ..data.types import Struct
 from ._label import Label
 from ._lines import LevelLine, order_line
 from ._style import _font
@@ -203,7 +205,7 @@ class SettingsPane:
 
             # hide details on the old selection
             old_tracker = mode.current_pp
-            old_tracker.hide_info()
+            old_tracker.nav.hide_info()
 
             # re-assign the order mode tracker
             account_name = value
@@ -213,7 +215,7 @@ class SettingsPane:
             # a ``brokerd`) then error and switch back to the last
             # selection.
             if tracker is None:
-                sym = old_tracker.chart.linked.symbol.key
+                sym = old_tracker.charts[0].linked.symbol.key
                 log.error(
                     f'Account `{account_name}` can not be set for {sym}'
                 )
@@ -224,8 +226,8 @@ class SettingsPane:
             self.order_mode.current_pp = tracker
             assert tracker.alloc.account == account_name
             self.form.fields['account'].setCurrentText(account_name)
-            tracker.show()
-            tracker.hide_info()
+            tracker.nav.show()
+            tracker.nav.hide_info()
 
             self.display_pnl(tracker)
 
@@ -476,6 +478,221 @@ _derivs = (
 )
 
 
+# TODO: move into annoate module?
+def mk_level_marker(
+    chart: ChartPlotWidget,
+    size: float,
+    level: float,
+    on_paint: Callable,
+
+) -> LevelMarker:
+    '''
+    Allocate and return nan arrow graphics element.
+
+    '''
+    # scale marker size with dpi-aware font size
+    font_size = _font.font.pixelSize()
+    arrow_size = floor(1.375 * font_size)
+
+    if size > 0:
+        style = '|<'
+
+    elif size < 0:
+        style = '>|'
+
+    arrow = LevelMarker(
+        chart=chart,
+        style=style,
+        get_level=level,
+        size=arrow_size,
+        on_paint=on_paint,
+    )
+    arrow.show()
+    return arrow
+
+
+class Nav(Struct):
+    '''
+    Composite for holding a set of charts and respective (by order)
+    graphics-elements which display position information acting as sort
+    of "navigation" system for a position.
+
+    '''
+    charts: dict[int, ChartPlotWidget]
+    pp_labels: dict[str, Label] = {}
+    size_labels: dict[str, Label] = {}
+    lines: dict[str, Optional[LevelLine]] = {}
+    level_markers: dict[str, Optional[LevelMarker]] = {}
+    color: str = 'default_lightest'
+
+    def update_ui(
+        self,
+        account: str,
+        price: float,
+        size: float,
+        slots_used: float,
+        size_digits: Optional[int] = None,
+
+    ) -> None:
+        '''
+        Update personal position level line.
+
+        '''
+        for key, chart in self.charts.items():
+            size_digits = size_digits or chart.linked.symbol.lot_size_digits
+            line = self.lines.get(key)
+            level_marker = self.level_markers[key]
+            pp_label = self.pp_labels[key]
+
+            if size:
+                # create and show a pp line if none yet exists
+                if line is None:
+                    arrow = self.level_markers[key]
+                    line = position_line(
+                        chart=chart,
+                        level=price,
+                        size=size,
+                        color=self.color,
+                        marker=arrow,
+                    )
+                    self.lines[key] = line
+
+                # modify existing indicator line
+                else:
+                    line.set_level(price)
+                    level_marker.level = price
+                    level_marker.update()
+
+                # update LHS sizing label
+                line.update_labels({
+                    'size': size,
+                    'size_digits': size_digits,
+                    'fiat_size': round(price * size, ndigits=2),
+
+                    # TODO: per account lines on a single (or very
+                    # related) symbol
+                    'account': account,
+                })
+                line.show()
+
+            # remove line from view for a net-zero pos
+            elif line:
+                line.delete()
+                self.lines[key] = None
+
+            # label updates
+            size_label = self.size_labels[key]
+            size_label.fields['slots_used'] = slots_used
+            size_label.render()
+
+            level_marker.level = price
+
+            # these updates are critical to avoid lag on view/scene changes
+            # TODO: couldn't we integrate this into
+            # a ``.inter_ui_elements_and_update()``?
+            level_marker.update()  # trigger paint
+            pp_label.update()
+            size_label.update()
+
+    def level(self) -> float:
+        '''
+        Return the "level" value from the underlying ``LevelLine`` which tracks
+        the "average position" price defined the represented position instance.
+
+        '''
+        if self.lines:
+            for key, line in self.lines.items():
+                return line.value()
+
+        return 0
+
+    def iter_ui_elements(self) -> tuple[
+        Label,
+        Label,
+        LevelLine,
+        LevelMarker,
+    ]:
+        for key, chart in self.charts.items():
+            yield (
+                self.pp_labels[key],
+                self.size_labels[key],
+                self.lines.get(key),
+                self.level_markers[key],
+            )
+
+    def show(self) -> None:
+        '''
+        Show all UI elements on all charts.
+
+        '''
+        for (
+            pp_label,
+            size_label,
+            line,
+            level_marker,
+        ) in self.iter_ui_elements():
+
+            # labels
+            level_marker.show()
+            pp_label.show()
+            size_label.show()
+
+            if line:
+                line.show()
+                line.show_labels()
+
+    def hide(self) -> None:
+        for (
+            pp_label,
+            size_label,
+            line,
+            level_marker,
+        ) in self.iter_ui_elements():
+            pp_label.hide()
+            level_marker.hide()
+            size_label.hide()
+            if line:
+                line.hide()
+
+    def update_graphics(
+        self,
+        marker: LevelMarker,
+    ) -> None:
+        '''
+        Update all labels callback.
+
+        Meant to be called from the marker ``.paint()``
+        for immediate, lag free label draws.
+
+        '''
+        for (
+            pp_label,
+            size_label,
+            line,
+            level_marker,
+        ) in self.iter_ui_elements():
+            pp_label.update()
+            size_label.update()
+
+            # XXX: MEGALOLZ - this will cause the ui to hannngggg!!!?!?!?!
+            # level_marker.update()
+
+    def hide_info(self) -> None:
+        '''
+        Hide details (just size label?) of position nav elements.
+
+        '''
+        for (
+            pp_label,
+            size_label,
+            line,
+            level_marker,
+        ) in self.iter_ui_elements():
+            size_label.hide()
+            if line:
+                line.hide_labels()
+
+
 class PositionTracker:
     '''
     Track and display real-time positions for a single symbol
@@ -486,75 +703,80 @@ class PositionTracker:
     corresponding "settings pane" for the chart's "order mode" UX.
 
     '''
-    # inputs
-    chart: ChartPlotWidget  # noqa
-
     alloc: Allocator
     startup_pp: Position
     live_pp: Position
-
-    # allocated
-    pp_label: Label
-    size_label: Label
-    line: Optional[LevelLine] = None
-
-    _color: str = 'default_lightest'
+    nav: Nav  # holds all UI elements across all charts
 
     def __init__(
         self,
-        chart: ChartPlotWidget,  # noqa
+        charts: list[ChartPlotWidget],
         alloc: Allocator,
         startup_pp: Position,
 
     ) -> None:
 
-        self.chart = chart
-
+        nav = self.nav = Nav(charts={id(chart): chart for chart in charts})
         self.alloc = alloc
         self.startup_pp = startup_pp
         self.live_pp = copy(startup_pp)
 
-        view = chart.getViewBox()
+        # TODO: maybe add this as a method ``Nav.add_chart()``
+        # init all UI elements
+        for key, chart in nav.charts.items():
+            view = chart.getViewBox()
 
-        # literally the 'pp' (pee pee) label that's always in view
-        self.pp_label = pp_label = Label(
-            view=view,
-            fmt_str='pp',
-            color=self._color,
-            update_on_range_change=False,
-        )
+            # literally the 'pp' (pee pee) "position price" label that's
+            # always in view
+            pp_label = Label(
+                view=view,
+                fmt_str='pp',
+                color=nav.color,
+                update_on_range_change=False,
+            )
+            # if nav._level_marker:
+            #     nav._level_marker.delete()
 
-        # create placeholder 'up' level arrow
-        self._level_marker = None
-        self._level_marker = self.level_marker(size=1)
+            arrow = mk_level_marker(
+                chart=chart,
+                size=1,
+                level=nav.level,
+                on_paint=nav.update_graphics,
+            )
 
-        pp_label.scene_anchor = partial(
-            gpath_pin,
-            gpath=self._level_marker,
-            label=pp_label,
-        )
-        pp_label.render()
+            view.scene().addItem(arrow)
+            nav.level_markers[key] = arrow
 
-        self.size_label = size_label = Label(
-            view=view,
-            color=self._color,
+            pp_label.scene_anchor = partial(
+                gpath_pin,
+                gpath=arrow,
+                label=pp_label,
+            )
+            pp_label.render()
+            nav.pp_labels[key] = pp_label
 
-            # this is "static" label
-            # update_on_range_change=False,
-            fmt_str='\n'.join((
-                ':{slots_used:.1f}x',
-            )),
+            size_label = Label(
+                view=view,
+                color=self.nav.color,
 
-            fields={
-                'slots_used': 0,
-            },
-        )
-        size_label.render()
+                # this is "static" label
+                # update_on_range_change=False,
+                fmt_str='\n'.join((
+                    ':{slots_used:.1f}x',
+                )),
 
-        size_label.scene_anchor = partial(
-            pp_tight_and_right,
-            label=self.pp_label,
-        )
+                fields={
+                    'slots_used': 0,
+                },
+            )
+            size_label.render()
+            size_label.scene_anchor = partial(
+                pp_tight_and_right,
+                label=pp_label,
+            )
+            nav.size_labels[key] = size_label
+
+        nav.show()
 
     @property
     def pane(self) -> FieldsForm:
@@ -563,21 +785,6 @@ class PositionTracker:
 
         '''
         return self.chart.linked.godwidget.pp_pane
-
-    def update_graphics(
-        self,
-        marker: LevelMarker
-
-    ) -> None:
-        '''
-        Update all labels.
-
-        Meant to be called from the maker ``.paint()``
-        for immediate, lag free label draws.
-
-        '''
-        self.pp_label.update()
-        self.size_label.update()
 
     def update_from_pp(
         self,
@@ -631,142 +838,20 @@ class PositionTracker:
                 if asset_type in _derivs:
                     alloc.slots = alloc.units_limit
 
-        self.update_line(
+        self.nav.update_ui(
+            self.alloc.account,
             pp.ppu,
             pp.size,
-            self.chart.linked.symbol.lot_size_digits,
+            round(alloc.slots_used(pp), ndigits=1),  # slots used
         )
 
-        # label updates
-        self.size_label.fields['slots_used'] = round(
-            alloc.slots_used(pp), ndigits=1)
-        self.size_label.render()
-
         if pp.size == 0:
-            self.hide()
+            self.nav.hide()
 
         else:
-            self._level_marker.level = pp.ppu
-
-            # these updates are critical to avoid lag on view/scene changes
-            self._level_marker.update()  # trigger paint
-            self.pp_label.update()
-            self.size_label.update()
-
-            self.show()
+            if self.live_pp.size:
+                self.nav.show()
 
             # don't show side and status widgets unless
             # order mode is "engaged" (which done via input controls)
-            self.hide_info()
-
-    def level(self) -> float:
-        if self.line:
-            return self.line.value()
-        else:
-            return 0
-
-    def show(self) -> None:
-        if self.live_pp.size:
-            self.line.show()
-            self.line.show_labels()
-
-            self._level_marker.show()
-            self.pp_label.show()
-            self.size_label.show()
-
-    def hide(self) -> None:
-        self.pp_label.hide()
-        self._level_marker.hide()
-        self.size_label.hide()
-        if self.line:
-            self.line.hide()
-
-    def hide_info(self) -> None:
-        '''Hide details (right now just size label?) of position.
-
-        '''
-        self.size_label.hide()
-        if self.line:
-            self.line.hide_labels()
-
-    # TODO: move into annoate module
-    def level_marker(
-        self,
-        size: float,
-
-    ) -> LevelMarker:
-
-        if self._level_marker:
-            self._level_marker.delete()
-
-        # arrow marker
-        # scale marker size with dpi-aware font size
-        font_size = _font.font.pixelSize()
-
-        # scale marker size with dpi-aware font size
-        arrow_size = floor(1.375 * font_size)
-
-        if size > 0:
-            style = '|<'
-
-        elif size < 0:
-            style = '>|'
-
-        arrow = LevelMarker(
-            chart=self.chart,
-            style=style,
-            get_level=self.level,
-            size=arrow_size,
-            on_paint=self.update_graphics,
-        )
-
-        self.chart.getViewBox().scene().addItem(arrow)
-        arrow.show()
-
-        return arrow
-
-    def update_line(
-        self,
-        price: float,
-        size: float,
-        size_digits: int,
-
-    ) -> None:
-        '''Update personal position level line.
-
-        '''
-        # do line update
-        line = self.line
-
-        if size:
-            if line is None:
-
-                # create and show a pp line
-                line = self.line = position_line(
-                    chart=self.chart,
-                    level=price,
-                    size=size,
-                    color=self._color,
-                    marker=self._level_marker,
-                )
-
-            else:
-
-                line.set_level(price)
-                self._level_marker.level = price
-                self._level_marker.update()
-
-            # update LHS sizing label
-            line.update_labels({
-                'size': size,
-                'size_digits': size_digits,
-                'fiat_size': round(price * size, ndigits=2),
-
-                # TODO: per account lines on a single (or very related) symbol
-                'account': self.alloc.account,
-            })
-            line.show()
-
-        elif line:  # remove pp line from view if it exists on a net-zero pp
-            line.delete()
-            self.line = None
+            self.nav.hide_info()
