@@ -45,16 +45,18 @@ log = get_logger(__name__)
 
 class ArrowEditor(Struct):
 
-    chart: 'ChartPlotWidget'  # noqa
-    _arrows: dict[str, pg.ArrowItem]
+    godw: GodWidget = None  # type: ignore # noqa
+    _arrows: dict[str, list[pg.ArrowItem]] = {}
 
     def add(
         self,
+        plot: pg.PlotItem,
         uid: str,
         x: float,
         y: float,
         color='default',
         pointing: Optional[str] = None,
+
     ) -> pg.ArrowItem:
         '''
         Add an arrow graphic to view at given (x, y).
@@ -82,16 +84,16 @@ class ArrowEditor(Struct):
             brush=pg.mkBrush(hcolor(color)),
         )
         arrow.setPos(x, y)
-
-        self._arrows[uid] = arrow
+        self._arrows.setdefault(uid, []).append(arrow)
 
         # render to view
-        self.chart.plotItem.addItem(arrow)
+        plot.addItem(arrow)
 
         return arrow
 
     def remove(self, arrow) -> bool:
-        self.chart.plotItem.removeItem(arrow)
+        for linked in self.godw.iter_linked():
+            linked.chart.plotItem.removeItem(arrow)
 
 
 class LineEditor(Struct):
@@ -128,6 +130,8 @@ class LineEditor(Struct):
 
         '''
         cursor = self.godw.get_cursor()
+        if not cursor:
+            return None
 
         # delete "staged" cursor tracking line from view
         line = self._active_staged_line
@@ -212,25 +216,22 @@ class LineEditor(Struct):
 
         '''
         # try to look up line from our registry
-        # line = self._order_lines.pop(uuid, line)
         lines = self._order_lines.pop(uuid)
-        # if line:
         if lines:
             cursor = self.godw.get_cursor()
 
             for line in lines:
                 # if hovered remove from cursor set
-                # cursor = self.godw.get_cursor()
                 hovered = cursor._hovered
                 if line in hovered:
                     hovered.remove(line)
 
-                    # make sure the xhair doesn't get left off
-                    # just because we never got a un-hover event
-                    cursor.show_xhair()
-
                 log.debug(f'deleting {line} with oid: {uuid}')
                 line.delete()
+
+                # make sure the xhair doesn't get left off
+                # just because we never got a un-hover event
+                cursor.show_xhair()
 
         else:
             log.warning(f'Could not find line for {line}')
