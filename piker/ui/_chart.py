@@ -416,17 +416,11 @@ class LinkedSplits(QWidget):
         '''Set the proportion of space allocated for linked subcharts.
 
         '''
-        ln = len(self.subplots)
+        ln = len(self.subplots) or 1
 
         # proportion allocated to consumer subcharts
         if not prop:
             prop = 3/8*5/8
-
-            # if ln < 2:
-            #     prop = 3/8*5/8
-
-            # elif ln >= 2:
-            #     prop = 3/8
 
         h = self.height()
         histview_h = h * 5/16
