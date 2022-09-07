@@ -122,6 +122,9 @@ class LevelLine(pg.InfiniteLine):
         self._y_incr_mult = 1 / chart.linked.symbol.tick_size
         self._right_end_sc: float = 0
 
+        # use px caching
+        self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
+
     def txt_offsets(self) -> tuple[int, int]:
         return 0, 0
 
