@@ -23,7 +23,10 @@ from copy import copy
 from dataclasses import dataclass
 from functools import partial
 from math import floor, copysign
-from typing import Optional
+from typing import (
+    Optional,
+    TYPE_CHECKING,
+)
 
 
 # from PyQt5.QtWidgets import QStyle
@@ -46,6 +49,11 @@ from ._lines import LevelLine, order_line
 from ._style import _font
 from ._forms import FieldsForm, FillStatusBar, QLabel
 from ..log import get_logger
+
+if TYPE_CHECKING:
+    from ._chart import (
+        ChartPlotWidget,
+    )
 
 log = get_logger(__name__)
 _pnl_tasks: dict[str, bool] = {}
@@ -168,8 +176,8 @@ class SettingsPane:
 
     ) -> None:
         '''
-        Try to apply some input setting (by the user), revert to previous setting if it fails
-        display new value if applied.
+        Try to apply some input setting (by the user), revert to
+        previous setting if it fails display new value if applied.
 
         '''
         self.apply_setting(key, value)
@@ -358,7 +366,9 @@ class SettingsPane:
         tracker: PositionTracker,
 
     ) -> None:
-        '''Display the PnL for the current symbol and personal positioning (pp).
+        '''
+        Display the PnL for the current symbol and personal positioning
+        (pp).
 
         If a position is open start a background task which will
         real-time update the pnl label in the settings pane.
@@ -395,7 +405,7 @@ class SettingsPane:
 
 def position_line(
 
-    chart: 'ChartPlotWidget',  # noqa
+    chart: ChartPlotWidget,  # noqa
     size: float,
     level: float,
     color: str,
@@ -477,7 +487,7 @@ class PositionTracker:
 
     '''
     # inputs
-    chart: 'ChartPlotWidget'  # noqa
+    chart: ChartPlotWidget  # noqa
 
     alloc: Allocator
     startup_pp: Position
@@ -492,7 +502,7 @@ class PositionTracker:
 
     def __init__(
         self,
-        chart: 'ChartPlotWidget',  # noqa
+        chart: ChartPlotWidget,  # noqa
         alloc: Allocator,
         startup_pp: Position,
 
