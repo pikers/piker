@@ -18,8 +18,13 @@
 Mouse interaction graphics
 
 """
+from __future__ import annotations
 from functools import partial
-from typing import Optional, Callable
+from typing import (
+    Optional,
+    Callable,
+    TYPE_CHECKING,
+)
 
 import inspect
 import numpy as np
@@ -35,6 +40,12 @@ from ._style import (
 )
 from ._axes import YAxisLabel, XAxisLabel
 from ..log import get_logger
+
+if TYPE_CHECKING:
+    from ._chart import (
+        ChartPlotWidget,
+        LinkedSplits,
+    )
 
 
 log = get_logger(__name__)
@@ -58,7 +69,7 @@ class LineDot(pg.CurvePoint):
         curve: pg.PlotCurveItem,
         index: int,
 
-        plot: 'ChartPlotWidget',  # type: ingore # noqa
+        plot: ChartPlotWidget,  # type: ingore # noqa
         pos=None,
         color: str = 'default_light',
 
@@ -151,7 +162,7 @@ class ContentsLabel(pg.LabelItem):
     def __init__(
         self,
 
-        # chart: 'ChartPlotWidget',  # noqa
+        # chart: ChartPlotWidget,  # noqa
         view: pg.ViewBox,
 
         anchor_at: str = ('top', 'right'),
@@ -244,7 +255,7 @@ class ContentsLabels:
     '''
     def __init__(
         self,
-        linkedsplits: 'LinkedSplits',  # type: ignore # noqa
+        linkedsplits: LinkedSplits,  # type: ignore # noqa
 
     ) -> None:
 
@@ -289,7 +300,7 @@ class ContentsLabels:
     def add_label(
 
         self,
-        chart: 'ChartPlotWidget',  # type: ignore # noqa
+        chart: ChartPlotWidget,  # type: ignore # noqa
         name: str,
         anchor_at: tuple[str, str] = ('top', 'left'),
         update_func: Callable = ContentsLabel.update_from_value,
@@ -316,7 +327,7 @@ class Cursor(pg.GraphicsObject):
     def __init__(
 
         self,
-        linkedsplits: 'LinkedSplits',  # noqa
+        linkedsplits: LinkedSplits,  # noqa
         digits: int = 0
 
     ) -> None:
@@ -385,7 +396,7 @@ class Cursor(pg.GraphicsObject):
 
     def add_plot(
         self,
-        plot: 'ChartPlotWidget',  # noqa
+        plot: ChartPlotWidget,  # noqa
         digits: int = 0,
 
     ) -> None:
@@ -469,7 +480,7 @@ class Cursor(pg.GraphicsObject):
 
     def add_curve_cursor(
         self,
-        plot: 'ChartPlotWidget',  # noqa
+        plot: ChartPlotWidget,  # noqa
         curve: 'PlotCurveItem',  # noqa
 
     ) -> LineDot:
