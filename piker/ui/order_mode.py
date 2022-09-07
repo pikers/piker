@@ -112,9 +112,10 @@ class OrderMode:
         mouse click and drag -> modify current order under cursor
 
     '''
+    feed: Feed
     chart: ChartPlotWidget  #  type: ignore # noqa
     hist_chart: ChartPlotWidget  #  type: ignore # noqa
-    nursery: trio.Nursery
+    nursery: trio.Nursery  # used by ``ui._position`` code?
     quote_feed: Feed
     book: OrderBook
     lines: LineEditor
@@ -319,7 +320,6 @@ class OrderMode:
 
         order.symbol = order.symbol.front_fqsn()
 
-        # line = self.line_from_order(
         lines = self.lines_from_order(
             order,
             show_markers=True,
@@ -450,14 +450,21 @@ class OrderMode:
         '''
         dialog = self.dialogs[uuid]
         lines = dialog.lines
+        assert len(lines) == 2
         if lines:
-            for line in lines:
+            _, _, ratio = self.feed.get_ds_info()
+            for i, chart in [
+                (arrow_index, self.chart),
+                (self.feed.startup_hist_index + round(arrow_index/ratio),
+                 self.hist_chart)
+            ]:
                 self.arrows.add(
+                    chart.plotItem,
                     uuid,
-                    arrow_index,
+                    i,
                     price,
                     pointing=pointing,
-                    color=line.color
+                    color=lines[0].color
                 )
         else:
             log.warn("No line(s) for order {uuid}!?")
@@ -647,7 +654,7 @@ async def open_order_mode(
 
         # annotations editors
         lines = LineEditor(godw=godw)
-        arrows = ArrowEditor(chart, {})
+        arrows = ArrowEditor(godw=godw)
 
         # symbol id
         symbol = chart.linked.symbol
@@ -757,6 +764,7 @@ async def open_order_mode(
         # top level abstraction which wraps all this crazyness into
         # a namespace..
         mode = OrderMode(
+            feed,
             chart,
             hist_chart,
             tn,
