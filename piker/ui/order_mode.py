@@ -733,11 +733,11 @@ async def open_order_mode(
             )
 
             pp_tracker = PositionTracker(
-                chart,
+                [chart, hist_chart],
                 alloc,
                 startup_pp
             )
-            pp_tracker.hide()
+            pp_tracker.nav.hide()
             trackers[account_name] = pp_tracker
 
             assert pp_tracker.startup_pp.size == pp_tracker.live_pp.size
@@ -749,8 +749,8 @@ async def open_order_mode(
 
             # on existing position, show pp tracking graphics
             if pp_tracker.startup_pp.size != 0:
-                pp_tracker.show()
-                pp_tracker.hide_info()
+                pp_tracker.nav.show()
+                pp_tracker.nav.hide_info()
 
         # setup order mode sidepane widgets
         form: FieldsForm = chart.sidepane
@@ -810,8 +810,8 @@ async def open_order_mode(
         # select a pp to track
         tracker: PositionTracker = trackers[pp_account]
         mode.current_pp = tracker
-        tracker.show()
-        tracker.hide_info()
+        tracker.nav.show()
+        tracker.nav.hide_info()
 
         # XXX: would love to not have to do this separate from edit
         # fields (which are done in an async loop - see below)

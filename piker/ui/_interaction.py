@@ -217,7 +217,7 @@ async def handle_viewmode_kb_inputs(
         if order_keys_pressed:
 
             # show the pp size label
-            order_mode.current_pp.show()
+            order_mode.current_pp.nav.show()
 
             # TODO: show pp config mini-params in status bar widget
             # mode.pp_config.show()
@@ -277,7 +277,7 @@ async def handle_viewmode_kb_inputs(
         else:  # none active
 
             # hide pp label
-            order_mode.current_pp.hide_info()
+            order_mode.current_pp.nav.hide_info()
 
             # if none are pressed, remove "staged" level
             # line under cursor position
