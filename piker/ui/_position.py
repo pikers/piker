@@ -261,7 +261,7 @@ class SettingsPane:
                         log.error(
                             f'limit must > then current pp: {dsize}'
                         )
-                        raise ValueError
+                        return False
 
                     alloc.currency_limit = value
 
@@ -602,8 +602,8 @@ class Nav(Struct):
         '''
         if self.lines:
             for key, line in self.lines.items():
-                return line.value()
-
+                if line:
+                    return line.value()
         return 0
 
     def iter_ui_elements(self) -> tuple[
