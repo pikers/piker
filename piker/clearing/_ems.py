@@ -1109,7 +1109,7 @@ async def process_client_order_cmds(
                 # sometimes the real-time feed hasn't come up
                 # so just pull from the latest history.
                 if isnan(last):
-                    last = feed.shm.array[-1]['close']
+                    last = feed.rt_shm.array[-1]['close']
 
                 pred = mk_check(trigger_price, last, action)
 
