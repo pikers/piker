@@ -851,13 +851,6 @@ async def display_symbol_data(
         rt_linked = godwidget.rt_linked
         rt_linked._symbol = symbol
 
-        # generate order mode side-pane UI
-        # A ``FieldsForm`` form to configure order entry
-        pp_pane: FieldsForm = mk_order_pane_layout(godwidget)
-
-        # add as next-to-y-axis singleton pane
-        godwidget.pp_pane = pp_pane
-
         # create top history view chart above the "main rt chart".
         hist_linked = godwidget.hist_linked
         hist_linked._symbol = symbol
@@ -872,10 +865,11 @@ async def display_symbol_data(
         # don't show when not focussed
         hist_linked.cursor.always_show_xlabel = False
 
-        hist_chart.default_view(
-            bars_from_y=int(len(hist_ohlcv.array)),  # size to data
-            y_offset=6116*2,  # push it a little away from the y-axis
-        )
+        # generate order mode side-pane UI
+        # A ``FieldsForm`` form to configure order entry
+        # and add as next-to-y-axis singleton pane
+        pp_pane: FieldsForm = mk_order_pane_layout(godwidget)
+        godwidget.pp_pane = pp_pane
 
         # create main OHLC chart
         chart = rt_linked.plot_ohlc_main(
@@ -1020,6 +1014,15 @@ async def display_symbol_data(
 
             # size view to data prior to order mode init
             chart.default_view()
+            rt_linked.graphics_cycle()
+            await trio.sleep(0)
+
+            hist_chart.default_view(
+                bars_from_y=int(len(hist_ohlcv.array)),  # size to data
+                y_offset=6116*2,  # push it a little away from the y-axis
+            )
+            hist_linked.graphics_cycle()
+            await trio.sleep(0)
 
             async with (
                 open_order_mode(
@@ -1040,6 +1043,8 @@ async def display_symbol_data(
                 rt_linked.set_split_sizes()
                 hist_linked.resize_sidepanes(from_linked=rt_linked)
 
+                # TODO: look into this because not sure why it was
+                # commented out / we ever needed it XD
                 # NOTE: we pop the volume chart from the subplots set so
                 # that it isn't double rendered in the display loop
                 # above since we do a maxmin calc on the volume data to
@@ -1050,6 +1055,12 @@ async def display_symbol_data(
                 # close group status
                 sbar._status_groups[loading_sym_key][1]()
 
+                hist_linked.graphics_cycle()
+                await trio.sleep(0)
+                hist_chart.default_view(
+                    bars_from_y=int(len(hist_ohlcv.array)),  # size to data
+                    y_offset=6116*2,  # push it a little away from the y-axis
+                )
+
                 # let the app run.. bby
-                # rt_linked.graphics_cycle()
                 await trio.sleep_forever()

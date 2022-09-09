@@ -142,8 +142,8 @@ async def handle_viewmode_kb_inputs(
                 }
             ):
                 godw = view._chart.linked.godwidget
+                godw.hist_linked.resize_sidepanes(from_linked=godw.rt_linked)
                 godw.search.focus()
-                # godw.hist_linked.resize_sidepanes(from_linked=godw.rt_linked)
 
             # esc and ctrl-c
             if key == Qt.Key_Escape or (ctrl and key == Qt.Key_C):
@@ -181,7 +181,8 @@ async def handle_viewmode_kb_inputs(
             if key in pressed:
                 pressed.remove(key)
 
-        # QUERY/QUOTE MODE #
+        # QUERY/QUOTE MODE
+        # ----------------
         if {Qt.Key_Q}.intersection(pressed):
 
             view.linked.cursor.in_query_mode = True
@@ -191,7 +192,6 @@ async def handle_viewmode_kb_inputs(
 
         # SELECTION MODE
         # --------------
-
         if shift:
             if view.state['mouseMode'] == ViewBox.PanMode:
                 view.setMouseMode(ViewBox.RectMode)
@@ -212,7 +212,6 @@ async def handle_viewmode_kb_inputs(
 
         # ORDER MODE
         # ----------
-
         # live vs. dark trigger + an action {buy, sell, alert}
         order_keys_pressed = ORDER_MODE.intersection(pressed)
 
