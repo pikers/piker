@@ -91,6 +91,7 @@ class GodWidget(QWidget):
 
     '''
     search: SearchWidget
+    mode_name: str = 'god'
 
     def __init__(
 
@@ -134,6 +135,10 @@ class GodWidget(QWidget):
 
         self._widgets: dict[str, QWidget] = {}
         self._resizing: bool = False
+
+        # TODO: do we need this, when would god get resized
+        # and the window does not? Never right?!
+        # self.reg_for_resize(self)
 
     @property
     def linkedsplits(self) -> LinkedSplits:
@@ -203,11 +208,14 @@ class GodWidget(QWidget):
 
         if not self.vbox.isEmpty():
 
+            qframe = self.hist_linked.chart.qframe
+            if qframe.sidepane is self.search:
+                qframe.hbox.removeWidget(self.search)
+
             for linked in [self.rt_linked, self.hist_linked]:
                 # XXX: this is CRITICAL especially with pixel buffer caching
                 linked.hide()
                 linked.unfocus()
-                # self.hist_linked.hide()
                 # self.hist_linked.unfocus()
 
                 # XXX: pretty sure we don't need this
@@ -244,7 +252,6 @@ class GodWidget(QWidget):
                 linked.show()
                 linked.focus()
 
-            self.search.focus()
             await trio.sleep(0)
 
         else:
@@ -279,6 +286,17 @@ class GodWidget(QWidget):
                     # do nothing yah?
                     chart.default_view()
 
+        # if a history chart instance is already up then
+        # set the search widget as its sidepane.
+        hist_chart = self.hist_linked.chart
+        if hist_chart:
+            hist_chart.qframe.set_sidepane(self.search)
+
+        # NOTE: this resizes the fast chart as well as all it's
+        # downstream fsp subcharts AND the slow chart which is part of
+        # the same splitter.
+        self.rt_linked.set_split_sizes()
+
         # set window titlebar info
         symbol = self.rt_linked.symbol
         if symbol is not None:
@@ -297,11 +315,23 @@ class GodWidget(QWidget):
         '''
         # go back to view-mode focus (aka chart focus)
         self.clearFocus()
-        self.linkedsplits.chart.setFocus()
+        chart = self.rt_linked.chart
+        if chart:
+            chart.setFocus()
 
-    def resizeEvent(self, event: QtCore.QEvent) -> None:
+    def reg_for_resize(
+        self,
+        widget: QWidget,
+    ) -> None:
+        getattr(widget, 'on_resize')
+        self._widgets[widget.mode_name] = widget
+
+    def on_win_resize(self, event: QtCore.QEvent) -> None:
         '''
-        Top level god widget resize handler.
+        Top level god widget handler from window (the real yaweh) resize
+        events such that any registered widgets which wish to be
+        notified are invoked using our pythonic `.on_resize()` method
+        api.
 
         Where we do UX magic to make things not suck B)
 
@@ -316,6 +346,8 @@ class GodWidget(QWidget):
             widget.on_resize()
 
         self._resizing = False
+
+    # on_resize = on_win_resize
 
     def get_cursor(self) -> Cursor:
         return self._active_cursor
@@ -336,9 +368,9 @@ class ChartnPane(QFrame):
     https://doc.qt.io/qt-5/qwidget.html#composite-widgets
 
     '''
-    sidepane: FieldsForm
+    sidepane: FieldsForm | SearchWidget
     hbox: QHBoxLayout
-    chart: Optional['ChartPlotWidget'] = None
+    chart: Optional[ChartPlotWidget] = None
 
     def __init__(
         self,
@@ -350,7 +382,7 @@ class ChartnPane(QFrame):
 
         super().__init__(parent)
 
-        self.sidepane = sidepane
+        self._sidepane = sidepane
         self.chart = None
 
         hbox = self.hbox = QHBoxLayout(self)
@@ -360,7 +392,7 @@ class ChartnPane(QFrame):
 
     def set_sidepane(
         self,
-        sidepane: FieldsForm,
+        sidepane: FieldsForm | SearchWidget,
     ) -> None:
 
         # add sidepane **after** chart; place it on axis side
@@ -368,6 +400,10 @@ class ChartnPane(QFrame):
             sidepane,
             alignment=Qt.AlignTop
         )
+        self._sidepane = sidepane
+
+    def sidepane(self) -> FieldsForm | SearchWidget:
+        return self._sidepane
 
 
 class LinkedSplits(QWidget):
@@ -672,9 +708,6 @@ class LinkedSplits(QWidget):
             if qframe is not None:
                 self.splitter.addWidget(qframe)
 
-            # scale split regions
-            self.set_split_sizes()
-
         else:
             assert style == 'bar', 'main chart must be OHLC'
 
@@ -694,6 +727,8 @@ class LinkedSplits(QWidget):
                     anchor_at=anchor_at,
                 )
 
+        # scale split regions
+        self.set_split_sizes()
         self.resize_sidepanes()
         return cpw
 
@@ -720,9 +755,6 @@ class LinkedSplits(QWidget):
 
             if from_linked:
                 self.chart.sidepane.setMinimumWidth(sp_w)
-                self.chart.sidepane.setMaximumWidth(sp_w)
-            else:
-                self.godwidget.hist_linked.resize_sidepanes(from_linked=self)
 
 
 class ChartPlotWidget(pg.PlotWidget):

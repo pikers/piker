@@ -177,6 +177,6 @@ def _main(
     run_qtractor(
         func=_async_main,
         args=(sym, brokernames, piker_loglevel),
-        main_widget=GodWidget,
+        main_widget_type=GodWidget,
         tractor_kwargs=tractor_kwargs,
     )
