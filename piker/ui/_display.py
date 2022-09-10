@@ -971,6 +971,9 @@ async def display_symbol_data(
         rt_linked.focus()
         await trio.sleep(0)
 
+        # NOTE: here we insert the slow-history chart set into
+        # the fast chart's splitter -> so it's a splitter of charts
+        # inside the first widget slot of a splitter of charts XD
         rt_linked.splitter.insertWidget(0, hist_linked)
         # XXX: if we wanted it at the bottom?
         # rt_linked.splitter.addWidget(hist_linked)
