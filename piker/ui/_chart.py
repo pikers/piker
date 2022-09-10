@@ -439,6 +439,7 @@ class LinkedSplits(QWidget):
         self.splitter = QSplitter(QtCore.Qt.Vertical)
         self.splitter.setMidLineWidth(0)
         self.splitter.setHandleWidth(2)
+        self.splitter.splitterMoved.connect(self.on_splitter_adjust)
 
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -450,6 +451,16 @@ class LinkedSplits(QWidget):
         self.display_state: Optional[DisplayState] = None
 
         self._symbol: Symbol = None
+
+    def on_splitter_adjust(
+        self,
+        pos: int,
+        index: int,
+    ) -> None:
+        # print(f'splitter moved pos:{pos}, index:{index}')
+        godw = self.godwidget
+        if self is godw.rt_linked:
+            godw.search.on_resize()
 
     def graphics_cycle(self, **kwargs) -> None:
         from . import _display
@@ -489,7 +500,8 @@ class LinkedSplits(QWidget):
         # give all subcharts the same remaining proportional height
         sizes.extend([min_h_ind] * ln)
 
-        self.splitter.setSizes(sizes)
+        if self.godwidget.rt_linked is self:
+            self.splitter.setSizes(sizes)
 
     def focus(self) -> None:
         if self.chart is not None:
