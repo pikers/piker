@@ -138,6 +138,7 @@ class CompleterView(QTreeView):
         model.setHorizontalHeaderLabels(labels)
 
         self._font_size: int = 0  # pixels
+        self._init: bool = False
 
     async def on_pressed(self, idx: QModelIndex) -> None:
         '''
@@ -145,7 +146,7 @@ class CompleterView(QTreeView):
 
         '''
         search = self.parent()
-        await search.chart_current_item(clear_to_cache=False)
+        await search.chart_current_item()
         search.focus()
 
     def set_font_size(self, size: int = 18):
@@ -157,56 +158,58 @@ class CompleterView(QTreeView):
 
         self.setStyleSheet(f"font: {size}px")
 
-    # def resizeEvent(self, event: 'QEvent') -> None:
-    #     event.accept()
-    #     super().resizeEvent(event)
+    def resize_to_results(
+        self,
+        w: Optional[float] = 0,
+        h: Optional[float] = None,
 
-    def on_resize(self) -> None:
-        '''
-        Resize relay event from god.
-
-        '''
-        self.resize_to_results()
-
-    def resize_to_results(self):
+    ) -> None:
         model = self.model()
         cols = model.columnCount()
+
         # rows = model.rowCount()
+        cidx = self.selectionModel().currentIndex()
+        row_h = self.rowHeight(cidx)
+        # print(f'row_h: {row_h}')
 
         col_w_tot = 0
         for i in range(cols):
+            # only slap in a rows's height's worth
+            # of padding once at startup.. no idea
+            if (
+                not self._init
+                and row_h
+            ):
+                col_w_tot = row_h
+                self._init = True
+
             self.resizeColumnToContents(i)
             col_w_tot += self.columnWidth(i)
 
-        win = self.window()
-        win_h = win.height()
-        edit_h = self.parent().bar.height()
-        sb_h = win.statusBar().height()
+        # TODO: probably make this more general / less hacky we should
+        # figure out the exact number of rows to allow inclusive of
+        # search bar and header "rows", in pixel terms. Eventually when
+        # we have an "info" widget below the results we will want space
+        # for it and likely terminating the results-view space **exactly
+        # on a row** would be ideal.
 
-        # TODO: probably make this more general / less hacky
-        # we should figure out the exact number of rows to allow
-        # inclusive of search bar and header "rows", in pixel terms.
-        # Eventually when we have an "info" widget below the results we
-        # will want space for it and likely terminating the results-view
-        # space **exactly on a row** would be ideal.
-        # if row_px > 0:
-        #     rows = ceil(window_h / row_px) - 4
-        # else:
-        #     rows = 16
-        # self.setFixedHeight(rows * row_px)
-        # self.resize(self.width(), rows * row_px)
+        if h:
+            h: int = round(h)
+            # mn = row_h * 2
+            # self.setMinimumHeight(mn)
+            # abs_mx = h - row_h
+            # print(f'set min {abs_mx}')
+            # self.setFixedHeight(round(0.9 * h))
+            self.setMinimumHeight(round(0.91 * h))
 
-        # NOTE: if the heigh set here is **too large** then the resize
-        # event will perpetually trigger as the window causes some kind
-        # of recompute of callbacks.. so we have to ensure it's limited.
-        h = win_h - (edit_h + 1.666*sb_h)
-        assert h > 0
-        self.setFixedHeight(round(h))
+            # self.setMaximumHeight(0.9 * abs_mx)
+            # 6 result row slots and 3 rows for sections and headers
+            # mn = (6 + 3) * row_h
 
-        # size to width of longest result seen thus far
-        # TODO: should we always dynamically scale to longest result?
-        if self.width() < col_w_tot:
-            self.setFixedWidth(col_w_tot)
+        # dyncamically size to width of longest result seen
+        curr_w = self.width()
+        if curr_w < col_w_tot:
+            self.setMinimumWidth(col_w_tot)
 
         self.update()
 
@@ -376,8 +379,6 @@ class CompleterView(QTreeView):
             else:
                 model.setItem(idx.row(), 1, QStandardItem())
 
-            self.resize_to_results()
-
             return idx
         else:
             return None
@@ -445,9 +446,22 @@ class CompleterView(QTreeView):
 
         self.show_matches()
 
-    def show_matches(self) -> None:
+    def show_matches(
+        self,
+        wh: Optional[tuple[float, float]] = None,
+
+    ) -> None:
+
+        if wh:
+            self.resize_to_results(*wh)
+        else:
+            # case where it's just an update from results and *NOT*
+            # a resize of some higher level parent-container widget.
+            search = self.parent()
+            w, h = search.space_dims()
+            self.resize_to_results(w=w)
+
         self.show()
-        self.resize_to_results()
 
 
 class SearchBar(Edit):
@@ -467,18 +481,15 @@ class SearchBar(Edit):
         self.godwidget = godwidget
         super().__init__(parent, **kwargs)
         self.view: CompleterView = view
-        godwidget._widgets[view.mode_name] = view
-
-    def show(self) -> None:
-        super().show()
-        self.view.show_matches()
 
     def unfocus(self) -> None:
         self.parent().hide()
         self.clearFocus()
 
+    def hide(self) -> None:
         if self.view:
             self.view.hide()
+        super().hide()
 
 
 class SearchWidget(QtWidgets.QWidget):
@@ -497,15 +508,19 @@ class SearchWidget(QtWidgets.QWidget):
         parent=None,
 
     ) -> None:
-        super().__init__(parent or godwidget)
+        super().__init__(parent)
 
         # size it as we specify
         self.setSizePolicy(
+            # QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Fixed,
-            QtWidgets.QSizePolicy.Expanding,
+            # QtWidgets.QSizePolicy.Expanding,
+            QtWidgets.QSizePolicy.Fixed,
         )
 
         self.godwidget = godwidget
+        godwidget.reg_for_resize(self)
+        self._last_h: float = 0
 
         self.vbox = QtWidgets.QVBoxLayout(self)
         self.vbox.setContentsMargins(0, 4, 4, 0)
@@ -555,25 +570,23 @@ class SearchWidget(QtWidgets.QWidget):
         self.vbox.setAlignment(self.view, Qt.AlignTop | Qt.AlignLeft)
 
     def focus(self) -> None:
-
-        godw = self.godwidget
-        if self.view.model().rowCount(QModelIndex()) == 0:
-            # fill cache list if nothing existing
-            self.view.set_section_entries(
-                'cache',
-                list(reversed(godw._chart_cache)),
-                clear_all=True,
-            )
-
-        hist_linked = godw.hist_linked
-        hist_chart = hist_linked.chart
-        if hist_chart:
-            rt_linked = godw.rt_linked
-            hist_chart.qframe.set_sidepane(self)
-            hist_linked.resize_sidepanes(from_linked=rt_linked)
-
         self.show()
         self.bar.focus()
+
+    def show_only_cache_entries(self) -> None:
+        '''
+        Clear the search results view and show only cached (aka recently
+        loaded with active data) feeds in the results section.
+
+        '''
+        godw = self.godwidget
+        print('showing cache only')
+        self.view.set_section_entries(
+            'cache',
+            list(reversed(godw._chart_cache)),
+            # remove all other completion results except for cache
+            clear_all=True,
+        )
 
     def get_current_item(self) -> Optional[tuple[str, str]]:
         '''Return the current completer tree selection as
@@ -624,11 +637,11 @@ class SearchWidget(QtWidgets.QWidget):
             return None
 
         provider, symbol = value
-        chart = self.godwidget
+        godw = self.godwidget
 
         log.info(f'Requesting symbol: {symbol}.{provider}')
 
-        await chart.load_symbol(
+        await godw.load_symbol(
             provider,
             symbol,
             'info',
@@ -645,24 +658,59 @@ class SearchWidget(QtWidgets.QWidget):
             # Re-order the symbol cache on the chart to display in
             # LIFO order. this is normally only done internally by
             # the chart on new symbols being loaded into memory
-            chart.set_chart_symbol(
+            godw.set_chart_symbol(
                 fqsn, (
-                    chart.linkedsplits,
-                    self.godwidget.hist_linked,
+                    godw.hist_linked,
+                    godw.rt_linked,
                 )
             )
+            self.show_only_cache_entries()
 
-            self.view.set_section_entries(
-                'cache',
-                values=list(reversed(chart._chart_cache)),
-
-                # remove all other completion results except for cache
-                clear_all=True,
-            )
-
-        self.focus()
+        # self.focus()
         self.bar.focus()
         return fqsn
+
+    def space_dims(self) -> tuple[float, float]:
+        '''
+        Compute and return the "available space dimentions" for this
+        search widget in terms of px space for results by return the
+        pair of width and height.
+
+        '''
+        # XXX: dun need dis rite?
+        # win = self.window()
+        # win_h = win.height()
+        # sb_h = win.statusBar().height()
+        godw = self.godwidget
+        hl = godw.hist_linked
+        edit_h = self.bar.height()
+        h = hl.height() - edit_h
+        w = hl.width()
+        return w, h
+
+    def on_resize(self) -> None:
+        '''
+        Resize relay event from god, resize all child widgets.
+
+        Right now this is just view to contents and/or the fast chart
+        height.
+
+        '''
+        # NOTE: if the heigh set here is **too large** then the resize
+        # event will perpetually trigger as the window causes some kind
+        # of recompute of callbacks.. so we have to ensure it's limited.
+        w, h = self.space_dims()
+        if (
+            not self._last_h
+            or self._last_h != h
+        ):
+            # print(
+            #     f'w: {w}\n'
+            #     f'h: {h}\n'
+            #     f'._last_h: {self._last_h}\n'
+            # )
+            self._last_h = h
+            self.bar.view.show_matches(wh=(w, h))
 
 
 _search_active: trio.Event = trio.Event()
@@ -746,6 +794,10 @@ async def fill_results(
     # cache of prior patterns to search results
     matches = defaultdict(list)
     has_results: defaultdict[str, set[str]] = defaultdict(set)
+
+    # show cached feed list at startup
+    search.show_only_cache_entries()
+    search.on_resize()
 
     while True:
         await _search_active.wait()
@@ -859,8 +911,7 @@ async def handle_keyboard_input(
     godwidget = search.godwidget
     view = bar.view
     view.set_font_size(bar.dpi_font.px_size)
-
-    send, recv = trio.open_memory_channel(16)
+    send, recv = trio.open_memory_channel(616)
 
     async with trio.open_nursery() as n:
 
@@ -875,6 +926,10 @@ async def handle_keyboard_input(
             )
         )
 
+        bar.focus()
+        search.show_only_cache_entries()
+        await trio.sleep(0)
+
         async for kbmsg in recv_chan:
             event, etype, key, mods, txt = kbmsg.to_tuple()
 
@@ -885,10 +940,11 @@ async def handle_keyboard_input(
                 ctl = True
 
             if key in (Qt.Key_Enter, Qt.Key_Return):
-
-                await search.chart_current_item(clear_to_cache=True)
                 _search_enabled = False
-                continue
+                await search.chart_current_item(clear_to_cache=True)
+                view.show_matches()
+                search.show_only_cache_entries()
+                search.focus()
 
             elif not ctl and not bar.text():
                 # if nothing in search text show the cache
@@ -905,7 +961,7 @@ async def handle_keyboard_input(
                 Qt.Key_Space,   # i feel like this is the "native" one
                 Qt.Key_Alt,
             }:
-                #bar.unfocus()
+                bar.unfocus()
 
                 # kill the search and focus back on main chart
                 if godwidget:
@@ -953,9 +1009,10 @@ async def handle_keyboard_input(
                 if item:
                     parent_item = item.parent()
 
+                    # if we're in the cache section and thus the next
+                    # selection is a cache item, switch and show it
+                    # immediately since it should be very fast.
                     if parent_item and parent_item.text() == 'cache':
-
-                        # if it's a cache item, switch and show it immediately
                         await search.chart_current_item(clear_to_cache=False)
 
             elif not ctl:
