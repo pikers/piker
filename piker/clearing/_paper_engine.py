@@ -333,7 +333,7 @@ async def simulate_fills(
                     key=itemgetter(0),
                 ))
 
-                def sell_on_bid(our_price):
+                def buy_on_ask(our_price):
                     return tick_price <= our_price
 
                 sells: bidict[str, tuple] = client._sells[sym]
@@ -342,7 +342,7 @@ async def simulate_fills(
                     key=itemgetter(0)
                 )
 
-                def buy_on_ask(our_price):
+                def sell_on_bid(our_price):
                     return tick_price >= our_price
 
                 match tick:
@@ -358,7 +358,7 @@ async def simulate_fills(
 
                         iter_entries = zip(
                             iter_buys,
-                            itertools.repeat(sell_on_bid)
+                            itertools.repeat(buy_on_ask)
                         )
 
                     case {
@@ -373,7 +373,7 @@ async def simulate_fills(
 
                         iter_entries = zip(
                             iter_sells,
-                            itertools.repeat(buy_on_ask)
+                            itertools.repeat(sell_on_bid)
                         )
 
                     case {
@@ -394,7 +394,7 @@ async def simulate_fills(
                             ):
                                 for order_info, pred in zip(
                                     pair,
-                                    itertools.cycle([sell_on_bid, buy_on_ask]),
+                                    itertools.cycle([buy_on_ask, sell_on_bid]),
                                 ):
                                     yield order_info, pred
 
