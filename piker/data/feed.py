@@ -906,7 +906,7 @@ async def allocate_persistent_feed(
 
     # mem chan handed to broker backend so it can push real-time
     # quotes to this task for sampling and history storage (see below).
-    send, quote_stream = trio.open_memory_channel(10)
+    send, quote_stream = trio.open_memory_channel(616)
 
     # data sync signals for both history loading and market quotes
     some_data_ready = trio.Event()
