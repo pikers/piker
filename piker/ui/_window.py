@@ -158,7 +158,7 @@ class MainWindow(QtGui.QMainWindow):
     # XXX: for tiling wms this should scale
     # with the alloted window size.
     # TODO: detect for tiling and if untrue set some size?
-    size = (300, 500)
+    # size = (300, 500)
     godwidget: GodWidget
 
     title = 'piker chart (ur symbol is loading bby)'
@@ -303,9 +303,31 @@ class MainWindow(QtGui.QMainWindow):
         self.resize(*size or self._size)
 
     def resizeEvent(self, event: QtCore.QEvent) -> None:
-        print('window resize')
-        # self.godwidget.resizeEvent(event)
+        if (
+            # event.spontaneous()
+            event.oldSize().height == event.size().height
+        ):
+            event.ignore()
+            return
+
+        # XXX: uncomment for debugging..
+        # attrs = {}
+        # for key in dir(event):
+        #     if key == '__dir__':
+        #         continue
+        #     attr = getattr(event, key)
+        #     try:
+        #         attrs[key] = attr()
+        #     except TypeError:
+        #         attrs[key] = attr
+
+        # from pprint import pformat
+        # print(
+        #     f'{pformat(attrs)}\n'
+        #     f'WINDOW RESIZE: {self.size()}\n\n'
+        # )
         self.godwidget.on_win_resize(event)
+        event.accept()
 
 
 # singleton app per actor
