@@ -1060,10 +1060,14 @@ async def display_symbol_data(
 
                 hist_linked.graphics_cycle()
                 await trio.sleep(0)
+
+                bars_in_mem = int(len(hist_ohlcv.array))
                 hist_chart.default_view(
-                    bars_from_y=int(len(hist_ohlcv.array)),  # size to data
-                    y_offset=6116*2,  # push it a little away from the y-axis
+                    bars_from_y=bars_in_mem,  # size to data
+                    # push it 1/16th away from the y-axis
+                    y_offset=round(bars_in_mem / 16),
                 )
+                rt_linked.set_split_sizes()
 
                 # let the app run.. bby
                 await trio.sleep_forever()
