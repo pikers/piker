@@ -219,19 +219,19 @@ class LineEditor(Struct):
         lines = self._order_lines.pop(uuid)
         if lines:
             cursor = self.godw.get_cursor()
+            if cursor:
+                for line in lines:
+                    # if hovered remove from cursor set
+                    hovered = cursor._hovered
+                    if line in hovered:
+                        hovered.remove(line)
 
-            for line in lines:
-                # if hovered remove from cursor set
-                hovered = cursor._hovered
-                if line in hovered:
-                    hovered.remove(line)
+                    log.debug(f'deleting {line} with oid: {uuid}')
+                    line.delete()
 
-                log.debug(f'deleting {line} with oid: {uuid}')
-                line.delete()
-
-                # make sure the xhair doesn't get left off
-                # just because we never got a un-hover event
-                cursor.show_xhair()
+                    # make sure the xhair doesn't get left off
+                    # just because we never got a un-hover event
+                    cursor.show_xhair()
 
         else:
             log.warning(f'Could not find line for {line}')
