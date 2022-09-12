@@ -174,11 +174,16 @@ class CompleterView(QTreeView):
         rows = model.rowCount()
         self.expandAll()
 
+        # compute the approx height in pixels needed to include
+        # all result rows in view.
         row_h = rows_h = self.rowHeight(cidx) * rows
         for idx, item in self.iter_df_rows():
             row_h = self.rowHeight(idx)
             rows_h += row_h
             # print(f'row_h: {row_h}\nrows_h: {rows_h}')
+
+            # TODO: could we just break early here on detection
+            # of ``rows_h >= h``?
 
         col_w_tot = 0
         for i in range(cols):
@@ -194,13 +199,11 @@ class CompleterView(QTreeView):
             self.resizeColumnToContents(i)
             col_w_tot += self.columnWidth(i)
 
-        # TODO: probably make this more general / less hacky we should
-        # figure out the exact number of rows to allow inclusive of
-        # search bar and header "rows", in pixel terms. Eventually when
-        # we have an "info" widget below the results we will want space
-        # for it and likely terminating the results-view space **exactly
-        # on a row** would be ideal.
 
+        # NOTE: if the heigh `h` set here is **too large** then the
+        # resize event will perpetually trigger as the window causes
+        # some kind of recompute of callbacks.. so we have to ensure
+        # it's limited.
         if h:
             h: int = round(h)
             abs_mx = round(0.91 * h)
@@ -546,7 +549,6 @@ class SearchWidget(QtWidgets.QWidget):
 
         self.godwidget = godwidget
         godwidget.reg_for_resize(self)
-        self._last_h: float = 0
 
         self.vbox = QtWidgets.QVBoxLayout(self)
         self.vbox.setContentsMargins(0, 4, 4, 0)
@@ -722,21 +724,8 @@ class SearchWidget(QtWidgets.QWidget):
         height.
 
         '''
-        # NOTE: if the heigh set here is **too large** then the resize
-        # event will perpetually trigger as the window causes some kind
-        # of recompute of callbacks.. so we have to ensure it's limited.
         w, h = self.space_dims()
-        if (
-            not self._last_h
-            or self._last_h != h
-        ):
-            # print(
-            #     f'w: {w}\n'
-            #     f'h: {h}\n'
-            #     f'._last_h: {self._last_h}\n'
-            # )
-            self._last_h = h
-            self.bar.view.show_matches(wh=(w, h))
+        self.bar.view.show_matches(wh=(w, h))
 
 
 _search_active: trio.Event = trio.Event()
