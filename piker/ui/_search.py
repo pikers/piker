@@ -35,9 +35,13 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from functools import partial
 from typing import (
-    Optional, Callable,
-    Awaitable, Sequence,
-    Any, AsyncIterator
+    Optional,
+    Callable,
+    Awaitable,
+    Sequence,
+    Any,
+    AsyncIterator,
+    Iterator,
 )
 import time
 # from pprint import pformat
@@ -119,7 +123,7 @@ class CompleterView(QTreeView):
         # TODO: size this based on DPI font
         self.setIndentation(_font.px_size)
 
-        # self.setUniformRowHeights(True)
+        self.setUniformRowHeights(True)
         # self.setColumnWidth(0, 3)
         # self.setVerticalBarPolicy(Qt.ScrollBarAlwaysOff)
         # self.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
@@ -166,11 +170,15 @@ class CompleterView(QTreeView):
     ) -> None:
         model = self.model()
         cols = model.columnCount()
-
-        # rows = model.rowCount()
         cidx = self.selectionModel().currentIndex()
-        row_h = self.rowHeight(cidx)
-        # print(f'row_h: {row_h}')
+        rows = model.rowCount()
+        self.expandAll()
+
+        row_h = rows_h = self.rowHeight(cidx) * rows
+        for idx, item in self.iter_df_rows():
+            row_h = self.rowHeight(idx)
+            rows_h += row_h
+            # print(f'row_h: {row_h}\nrows_h: {rows_h}')
 
         col_w_tot = 0
         for i in range(cols):
@@ -195,16 +203,16 @@ class CompleterView(QTreeView):
 
         if h:
             h: int = round(h)
-            # mn = row_h * 2
-            # self.setMinimumHeight(mn)
-            # abs_mx = h - row_h
-            # print(f'set min {abs_mx}')
-            # self.setFixedHeight(round(0.9 * h))
-            self.setMinimumHeight(round(0.91 * h))
+            abs_mx = round(0.91 * h)
+            self.setMaximumHeight(abs_mx)
 
-            # self.setMaximumHeight(0.9 * abs_mx)
-            # 6 result row slots and 3 rows for sections and headers
-            # mn = (6 + 3) * row_h
+            if rows_h <= abs_mx:
+                # self.setMinimumHeight(rows_h)
+                self.setMinimumHeight(rows_h)
+                # self.setFixedHeight(rows_h)
+
+            else:
+                self.setMinimumHeight(abs_mx)
 
         # dyncamically size to width of longest result seen
         curr_w = self.width()
@@ -335,6 +343,23 @@ class CompleterView(QTreeView):
             item = model.itemFromIndex(idx)
             yield idx, item
 
+    def iter_df_rows(
+        self,
+        iparent: QModelIndex = QModelIndex(),
+
+    ) -> Iterator[tuple[QModelIndex, QStandardItem]]:
+
+        model = self.model()
+        isections = model.rowCount(iparent)
+        for i in range(isections):
+            idx = model.index(i, 0, iparent)
+            item = model.itemFromIndex(idx)
+            yield idx, item
+
+            if model.hasChildren(idx):
+                # recursively yield child items depth-first
+                yield from self.iter_df_rows(idx)
+
     def find_section(
         self,
         section: str,
@@ -358,7 +383,8 @@ class CompleterView(QTreeView):
         status_field: str = None,
 
     ) -> None:
-        '''Clear all result-rows from under the depth = 1 section.
+        '''
+        Clear all result-rows from under the depth = 1 section.
 
         '''
         idx = self.find_section(section)
@@ -459,7 +485,7 @@ class CompleterView(QTreeView):
             # a resize of some higher level parent-container widget.
             search = self.parent()
             w, h = search.space_dims()
-            self.resize_to_results(w=w)
+            self.resize_to_results(w=w, h=h)
 
         self.show()
 
@@ -942,8 +968,8 @@ async def handle_keyboard_input(
             if key in (Qt.Key_Enter, Qt.Key_Return):
                 _search_enabled = False
                 await search.chart_current_item(clear_to_cache=True)
-                view.show_matches()
                 search.show_only_cache_entries()
+                view.show_matches()
                 search.focus()
 
             elif not ctl and not bar.text():
