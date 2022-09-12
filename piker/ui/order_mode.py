@@ -260,8 +260,10 @@ class OrderMode:
         '''
         # not initialized yet
         cursor = self.godw.get_cursor()
-        chart = cursor.linked.chart
+        if not cursor:
+            return
 
+        chart = cursor.linked.chart
         if (
             not chart
             and cursor
@@ -271,6 +273,11 @@ class OrderMode:
 
         chart = cursor.active_plot
         price = cursor._datum_xy[1]
+        if not price:
+            # zero prices are not supported by any means
+            # since that's illogical / a no-op.
+            return
+
         symbol = self.chart.linked.symbol
 
         order = self._staged_order = Order(
