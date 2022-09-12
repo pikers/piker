@@ -287,7 +287,7 @@ class PaperBoi(Struct):
 
 
 async def simulate_fills(
-    quote_stream: 'tractor.ReceiveStream',  # noqa
+    quote_stream: tractor.MsgStream,  # noqa
     client: PaperBoi,
 
 ) -> None:
