@@ -542,6 +542,7 @@ class Nav(Struct):
             size_digits = size_digits or chart.linked.symbol.lot_size_digits
             line = self.lines.get(key)
             level_marker = self.level_markers[key]
+            level_marker.hide()
             pp_label = self.pp_labels[key]
 
             if size:
