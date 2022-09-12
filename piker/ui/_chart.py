@@ -292,11 +292,6 @@ class GodWidget(QWidget):
         if hist_chart:
             hist_chart.qframe.set_sidepane(self.search)
 
-        # NOTE: this resizes the fast chart as well as all it's
-        # downstream fsp subcharts AND the slow chart which is part of
-        # the same splitter.
-        self.rt_linked.set_split_sizes()
-
         # set window titlebar info
         symbol = self.rt_linked.symbol
         if symbol is not None:
@@ -355,6 +350,19 @@ class GodWidget(QWidget):
     def iter_linked(self) -> Iterator[LinkedSplits]:
         for linked in [self.hist_linked, self.rt_linked]:
             yield linked
+
+    def resize_all(self) -> None:
+        '''
+        Dynamic resize sequence: adjusts all sub-widgets/charts to
+        sensible default ratios of what space is detected as available
+        on the display / window.
+
+        '''
+        rt_linked = self.rt_linked
+        rt_linked.set_split_sizes()
+        self.rt_linked.resize_sidepanes()
+        self.hist_linked.resize_sidepanes(from_linked=rt_linked)
+        self.search.on_resize()
 
 
 class ChartnPane(QFrame):
@@ -488,7 +496,7 @@ class LinkedSplits(QWidget):
             prop = 3/8
 
         h = self.height()
-        histview_h = h * ((6/16) ** 2)
+        histview_h = h * (6/16) * 0.666
         h = h - histview_h
 
         major = 1 - prop
@@ -740,8 +748,6 @@ class LinkedSplits(QWidget):
                     anchor_at=anchor_at,
                 )
 
-        # scale split regions
-        self.set_split_sizes()
         self.resize_sidepanes()
         return cpw
 

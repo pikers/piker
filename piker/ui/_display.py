@@ -979,6 +979,8 @@ async def display_symbol_data(
         # rt_linked.splitter.addWidget(hist_linked)
         rt_linked.focus()
 
+        godwidget.resize_all()
+
         vlm_chart: Optional[ChartPlotWidget] = None
         async with trio.open_nursery() as ln:
 
@@ -1027,6 +1029,8 @@ async def display_symbol_data(
             hist_linked.graphics_cycle()
             await trio.sleep(0)
 
+            godwidget.resize_all()
+
             async with (
                 open_order_mode(
                     feed,
@@ -1042,9 +1046,9 @@ async def display_symbol_data(
                 # let Qt run to render all widgets and make sure the
                 # sidepanes line up vertically.
                 await trio.sleep(0)
-                rt_linked.resize_sidepanes()
-                rt_linked.set_split_sizes()
-                hist_linked.resize_sidepanes(from_linked=rt_linked)
+
+                # dynamic resize steps
+                godwidget.resize_all()
 
                 # TODO: look into this because not sure why it was
                 # commented out / we ever needed it XD
@@ -1067,7 +1071,7 @@ async def display_symbol_data(
                     # push it 1/16th away from the y-axis
                     y_offset=round(bars_in_mem / 16),
                 )
-                rt_linked.set_split_sizes()
+                godwidget.resize_all()
 
                 # let the app run.. bby
                 await trio.sleep_forever()
