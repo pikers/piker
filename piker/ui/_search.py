@@ -176,7 +176,7 @@ class CompleterView(QTreeView):
 
         # compute the approx height in pixels needed to include
         # all result rows in view.
-        row_h = rows_h = self.rowHeight(cidx) * rows
+        row_h = rows_h = self.rowHeight(cidx) * (rows + 1)
         for idx, item in self.iter_df_rows():
             row_h = self.rowHeight(idx)
             rows_h += row_h
@@ -198,7 +198,6 @@ class CompleterView(QTreeView):
 
             self.resizeColumnToContents(i)
             col_w_tot += self.columnWidth(i)
-
 
         # NOTE: if the heigh `h` set here is **too large** then the
         # resize event will perpetually trigger as the window causes
@@ -541,9 +540,7 @@ class SearchWidget(QtWidgets.QWidget):
 
         # size it as we specify
         self.setSizePolicy(
-            # QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Fixed,
-            # QtWidgets.QSizePolicy.Expanding,
             QtWidgets.QSizePolicy.Fixed,
         )
 
@@ -608,7 +605,6 @@ class SearchWidget(QtWidgets.QWidget):
 
         '''
         godw = self.godwidget
-        print('showing cache only')
         self.view.set_section_entries(
             'cache',
             list(reversed(godw._chart_cache)),
@@ -694,7 +690,6 @@ class SearchWidget(QtWidgets.QWidget):
             )
             self.show_only_cache_entries()
 
-        # self.focus()
         self.bar.focus()
         return fqsn
 
@@ -827,7 +822,7 @@ async def fill_results(
                 pattern = await recv_chan.receive()
 
             period = time.time() - wait_start
-            print(f'{pattern} after {period}')
+            log.debug(f'{pattern} after {period}')
 
             # during fast multiple key inputs, wait until a pause
             # (in typing) to initiate search
