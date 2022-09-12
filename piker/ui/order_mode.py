@@ -985,7 +985,19 @@ async def process_trade_msg(
                 pointing='up' if action == 'buy' else 'down',
 
                 # TODO: put the actual exchange timestamp
-                arrow_index=get_index(details['broker_time']),
+                arrow_index=get_index(
+                    # TODO: note currently the ``kraken`` openOrders sub
+                    # doesn't deliver their engine timestamp as part of
+                    # it's schema, so this value is **not** from them
+                    # (see our backend code). We should probably either
+                    # include all provider-engine timestamps in the
+                    # summary 'closed' status msg and/or figure out
+                    # a way to indicate what is a `brokerd` stamp versus
+                    # a true backend one? This will require finagling
+                    # with how each backend tracks/summarizes time
+                    # stamps for the downstream API.
+                    details['broker_time']
+                ),
             )
 
             # TODO: how should we look this up?
