@@ -55,7 +55,10 @@ from ._forms import (
     FieldsForm,
     mk_order_pane_layout,
 )
-from .order_mode import open_order_mode
+from .order_mode import (
+    open_order_mode,
+    OrderMode,
+)
 from .._profile import (
     pg_profile_enabled,
     ms_slower_then,
@@ -1031,17 +1034,20 @@ async def display_symbol_data(
 
             godwidget.resize_all()
 
+            mode: OrderMode
             async with (
                 open_order_mode(
                     feed,
                     godwidget,
                     fqsn,
                     order_mode_started
-                )
+                ) as mode
             ):
                 if not vlm_chart:
                     # trigger another view reset if no sub-chart
                     chart.default_view()
+
+                rt_linked.mode = mode
 
                 # let Qt run to render all widgets and make sure the
                 # sidepanes line up vertically.

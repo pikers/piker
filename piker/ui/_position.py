@@ -405,7 +405,7 @@ class SettingsPane:
         self.pnl_label.format(pnl=pnl_value)
 
 
-def position_line(
+def pp_line(
 
     chart: ChartPlotWidget,  # noqa
     size: float,
@@ -460,6 +460,9 @@ def position_line(
         marker.level = level
         marker.update()
         marker.show()
+
+        line._marker = marker
+        line.track_marker_pos = True
 
         # show position marker on view "edge" when out of view
         vb = line.getViewBox()
@@ -548,7 +551,7 @@ class Nav(Struct):
                 # create and show a pp line if none yet exists
                 if line is None:
                     arrow = self.level_markers[key]
-                    line = position_line(
+                    line = pp_line(
                         chart=chart,
                         level=price,
                         size=size,
@@ -634,6 +637,18 @@ class Nav(Struct):
 
             # labels
             level_marker.show()
+
+            # NOTE: be sure to re-trigger arrow/label placement in case
+            # a new sidepane or other widget (like the search bar) was
+            # dynamically swapped into the chart-row-widget-space in
+            # which case we want to reposition in the view but including
+            # the new x-distance added by that sidepane. See details in
+            # ``LevelMarker.position_in_view()`` but more less ``.
+            # ``ChartPlotWidget.self.marker_right_points()`` gets called
+            # which itself eventually calls `.getAxis.pos().x()` and
+            # it's THIS that needs to be called **AFTER** the sidepane
+            # has been added..
+            level_marker.position_in_view()
             pp_label.show()
             size_label.show()
 
@@ -767,6 +782,24 @@ class PositionTracker:
                 level=nav.level,
                 on_paint=nav.update_graphics,
             )
+
+            # TODO: we really need some kinda "spacing" manager for all
+            # this stuff...
+            def offset_from_yaxis() -> float:
+                '''
+                If no L1 labels are present beside the x-axis place
+                the line label offset from the y-axis just enough to avoid
+                label overlap with any sticky labels.
+
+                '''
+                x = chart.marker_right_points()[1]
+                if chart._max_l1_line_len == 0:
+                    mkw = pp_label.txt.boundingRect().width()
+                    x -=  1.5 * mkw
+
+                return x
+
+            arrow.scene_x = offset_from_yaxis
             arrow.hide()  # never show on startup
             view.scene().addItem(arrow)
             nav.level_markers[key] = arrow

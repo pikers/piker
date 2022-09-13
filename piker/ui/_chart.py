@@ -208,15 +208,15 @@ class GodWidget(QWidget):
 
         if not self.vbox.isEmpty():
 
-            qframe = self.hist_linked.chart.qframe
-            if qframe.sidepane is self.search:
-                qframe.hbox.removeWidget(self.search)
+            # XXX: seems to make switching slower?
+            # qframe = self.hist_linked.chart.qframe
+            # if qframe.sidepane is self.search:
+            #     qframe.hbox.removeWidget(self.search)
 
             for linked in [self.rt_linked, self.hist_linked]:
                 # XXX: this is CRITICAL especially with pixel buffer caching
                 linked.hide()
                 linked.unfocus()
-                # self.hist_linked.unfocus()
 
                 # XXX: pretty sure we don't need this
                 # remove any existing plots?
@@ -271,12 +271,8 @@ class GodWidget(QWidget):
                 linked.graphics_cycle()
                 await trio.sleep(0)
 
-                # XXX: since the pp config is a singleton widget we have to
-                # also switch it over to the new chart's interal-layout
-                # linked.chart.qframe.hbox.removeWidget(self.pp_pane)
-                chart = linked.chart
-
                 # resume feeds *after* rendering chart view asap
+                chart = linked.chart
                 if chart:
                     chart.resume_all_feeds()
 
@@ -284,13 +280,22 @@ class GodWidget(QWidget):
                     # last had the xlast in view, if so then shift so it's
                     # still in view, if the user was viewing history then
                     # do nothing yah?
-                    chart.default_view()
+                    # chart.default_view()
 
         # if a history chart instance is already up then
         # set the search widget as its sidepane.
         hist_chart = self.hist_linked.chart
         if hist_chart:
             hist_chart.qframe.set_sidepane(self.search)
+
+            # NOTE: this is really stupid/hard to follow.
+            # we have to reposition the active position nav
+            # **AFTER** applying the search bar as a sidepane
+            # to the newly switched to symbol.
+            await trio.sleep(0)
+            pp_nav = self.rt_linked.mode.current_pp.nav
+            pp_nav.show()
+            pp_nav.hide_info()
 
         # set window titlebar info
         symbol = self.rt_linked.symbol
