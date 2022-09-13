@@ -542,7 +542,6 @@ class Nav(Struct):
             size_digits = size_digits or chart.linked.symbol.lot_size_digits
             line = self.lines.get(key)
             level_marker = self.level_markers[key]
-            level_marker.hide()
             pp_label = self.pp_labels[key]
 
             if size:
@@ -675,7 +674,7 @@ class Nav(Struct):
             pp_label.update()
             size_label.update()
 
-            # XXX: MEGALOLZ - this will cause the ui to hannngggg!!!?!?!?!
+            # XXX: can't call this because it causes a recursive paint/render
             # level_marker.update()
 
     def hide_info(self) -> None:
@@ -738,21 +737,6 @@ class PositionTracker:
             # if nav._level_marker:
             #     nav._level_marker.delete()
 
-            arrow = mk_level_marker(
-                chart=chart,
-                size=1,
-                level=nav.level,
-                on_paint=nav.update_graphics,
-            )
-
-            view.scene().addItem(arrow)
-            nav.level_markers[key] = arrow
-
-            pp_label.scene_anchor = partial(
-                gpath_pin,
-                gpath=arrow,
-                label=pp_label,
-            )
             pp_label.render()
             nav.pp_labels[key] = pp_label
 
@@ -776,6 +760,22 @@ class PositionTracker:
                 label=pp_label,
             )
             nav.size_labels[key] = size_label
+
+            arrow = mk_level_marker(
+                chart=chart,
+                size=1,
+                level=nav.level,
+                on_paint=nav.update_graphics,
+            )
+            arrow.hide()  # never show on startup
+            view.scene().addItem(arrow)
+            nav.level_markers[key] = arrow
+
+            pp_label.scene_anchor = partial(
+                gpath_pin,
+                gpath=arrow,
+                label=pp_label,
+            )
 
         nav.show()
 
