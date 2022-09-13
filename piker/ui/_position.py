@@ -77,7 +77,7 @@ async def update_pnl_from_feed(
 
     pp = order_mode.current_pp
     live = pp.live_pp
-    key = live.symbol.key
+    key = live.symbol.front_fqsn()
 
     log.info(f'Starting pnl display for {pp.alloc.account}')
 
@@ -392,8 +392,9 @@ class SettingsPane:
 
             # maybe start update task
             global _pnl_tasks
-            if sym.key not in _pnl_tasks:
-                _pnl_tasks[sym.key] = True
+            fqsn = sym.front_fqsn()
+            if fqsn not in _pnl_tasks:
+                _pnl_tasks[fqsn] = True
                 self.order_mode.nursery.start_soon(
                     update_pnl_from_feed,
                     feed,
