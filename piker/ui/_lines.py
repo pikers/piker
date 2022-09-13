@@ -85,6 +85,7 @@ class LevelLine(pg.InfiniteLine):
         self._marker = None
         self.only_show_markers_on_hover = only_show_markers_on_hover
         self.show_markers: bool = True  # presuming the line is hovered at init
+        self.track_marker_pos: bool = False
 
         # should line go all the way to far end or leave a "margin"
         # space for other graphics (eg. L1 book)
@@ -329,7 +330,7 @@ class LevelLine(pg.InfiniteLine):
         from pg..
 
         '''
-        p.setRenderHint(p.Antialiasing)
+        # p.setRenderHint(p.Antialiasing)
 
         # these are in viewbox coords
         vb_left, vb_right = self._endPoints
@@ -355,14 +356,18 @@ class LevelLine(pg.InfiniteLine):
         # order lines.. not sure wtf is up with that.
         # for now we're just using it on the position line.
         elif self._marker:
+            if self.track_marker_pos:
+                # make the line end at the marker's x pos
+                line_end = self._marker.pos().x()
 
-            # TODO: make this label update part of a scene-aware-marker
-            # composed annotation
-            self._marker.setPos(
-                QPointF(marker_right, self.scene_y())
-            )
-            if hasattr(self._marker, 'label'):
-                self._marker.label.update()
+            else:
+                # TODO: make this label update part of a scene-aware-marker
+                # composed annotation
+                self._marker.setPos(
+                    QPointF(marker_right, self.scene_y())
+                )
+                if hasattr(self._marker, 'label'):
+                    self._marker.label.update()
 
         elif not self.use_marker_margin:
             # basically means **don't** shorten the line with normally
@@ -525,9 +530,10 @@ def level_line(
     **kwargs,
 
 ) -> LevelLine:
-    """Convenience routine to add a styled horizontal line to a plot.
+    '''
+    Convenience routine to add a styled horizontal line to a plot.
 
-    """
+    '''
     hl_color = color + '_light' if highlight_on_hover else color
 
     line = LevelLine(

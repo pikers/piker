@@ -117,6 +117,7 @@ class LevelMarker(QGraphicsPathItem):
 
         self.get_level = get_level
         self._on_paint = on_paint
+
         self.scene_x = lambda: chart.marker_right_points()[1]
         self.level: float = 0
         self.keep_in_view = keep_in_view
@@ -152,11 +153,7 @@ class LevelMarker(QGraphicsPathItem):
     def w(self) -> float:
         return self.path_br().width()
 
-    def position_in_view(
-        self,
-        # level: float,
-
-    ) -> None:
+    def position_in_view(self) -> None:
         '''
         Show a pp off-screen indicator for a level label.
 
@@ -190,7 +187,6 @@ class LevelMarker(QGraphicsPathItem):
             )
 
         elif level < ymn:  # pin to bottom of view
-
             self.setPos(
                 QPointF(
                     x,
@@ -240,11 +236,12 @@ def qgo_draw_markers(
     right_offset: float,
 
 ) -> float:
-    """Paint markers in ``pg.GraphicsItem`` style by first
+    '''
+    Paint markers in ``pg.GraphicsItem`` style by first
     removing the view transform for the painter, drawing the markers
     in scene coords, then restoring the view coords.
 
-    """
+    '''
     # paint markers in native coordinate system
     orig_tr = p.transform()
 
