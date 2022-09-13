@@ -18,9 +18,14 @@
 Lines for orders, alerts, L2.
 
 """
+from __future__ import annotations
 from functools import partial
 from math import floor
-from typing import Optional, Callable
+from typing import (
+    Optional,
+    Callable,
+    TYPE_CHECKING,
+)
 
 import pyqtgraph as pg
 from pyqtgraph import Point, functions as fn
@@ -36,6 +41,9 @@ from ._anchors import (
 from ..calc import humanize
 from ._label import Label
 from ._style import hcolor, _font
+
+if TYPE_CHECKING:
+    from ._cursor import Cursor
 
 
 # TODO: probably worth investigating if we can
@@ -220,20 +228,23 @@ class LevelLine(pg.InfiniteLine):
         y: float
 
     ) -> None:
-        '''Chart coordinates cursor tracking callback.
+        '''
+        Chart coordinates cursor tracking callback.
 
         this is called by our ``Cursor`` type once this line is set to
         track the cursor: for every movement this callback is invoked to
         reposition the line with the current view coordinates.
+
         '''
         self.movable = True
         self.set_level(y)  # implictly calls reposition handler
 
     def mouseDragEvent(self, ev):
-        """Override the ``InfiniteLine`` handler since we need more
+        '''
+        Override the ``InfiniteLine`` handler since we need more
         detailed control and start end signalling.
 
-        """
+        '''
         cursor = self._chart.linked.cursor
 
         # hide y-crosshair
@@ -285,10 +296,20 @@ class LevelLine(pg.InfiniteLine):
             # show y-crosshair again
             cursor.show_xhair()
 
-    def delete(self) -> None:
-        """Remove this line from containing chart/view/scene.
+    def get_cursor(self) -> Optional[Cursor]:
 
-        """
+        chart = self._chart
+        cur = chart.linked.cursor
+        if self in cur._hovered:
+            return cur
+
+        return None
+
+    def delete(self) -> None:
+        '''
+        Remove this line from containing chart/view/scene.
+
+        '''
         scene = self.scene()
         if scene:
             for label in self._labels:
@@ -302,9 +323,8 @@ class LevelLine(pg.InfiniteLine):
 
         # remove from chart/cursor states
         chart = self._chart
-        cur = chart.linked.cursor
-
-        if self in cur._hovered:
+        cur = self.get_cursor()
+        if cur:
             cur._hovered.remove(self)
 
         chart.plotItem.removeItem(self)
@@ -312,8 +332,8 @@ class LevelLine(pg.InfiniteLine):
     def mouseDoubleClickEvent(
         self,
         ev: QtGui.QMouseEvent,
-    ) -> None:
 
+    ) -> None:
         # TODO: enter labels edit mode
         print(f'double click {ev}')
 
