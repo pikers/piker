@@ -235,11 +235,15 @@ class OrderMode:
     ) -> list[LevelLine]:
 
         lines: list[LevelLine] = []
-        for chart in [self.chart, self.hist_chart]:
+        for chart, kwargs in [
+            (self.chart, {}),
+            (self.hist_chart, {'only_show_markers_on_hover': False}),
+        ]:
+            kwargs.update(line_kwargs)
             line = self.line_from_order(
                 order=order,
                 chart=chart,
-                **line_kwargs,
+                **kwargs,
             )
             lines.append(line)
 
@@ -350,7 +354,6 @@ class OrderMode:
         lines = self.lines_from_order(
             order,
             show_markers=True,
-            only_show_markers_on_hover=True,
         )
         # register the "submitted" line under the cursor
         # to be displayed when above order ack arrives
@@ -457,6 +460,11 @@ class OrderMode:
         dialog.lines = lines
         dialog.last_status_close()
 
+        for line in lines:
+            # hide any lines not currently moused-over
+            if not line.get_cursor():
+                line.hide_labels()
+
         return dialog
 
     def on_fill(
@@ -561,7 +569,8 @@ class OrderMode:
         )
 
     def cancel_all_orders(self) -> list[str]:
-        '''Cancel all orders for the current chart.
+        '''
+        Cancel all orders for the current chart.
 
         '''
         return self.cancel_orders_from_lines(
