@@ -32,8 +32,10 @@ def mk_marker_path(
     style: str,
 
 ) -> QGraphicsPathItem:
-    """Add a marker to be displayed on the line wrapped in a ``QGraphicsPathItem``
-    ready to be placed using scene coordinates (not view).
+    """
+    Add a marker to be displayed on the line wrapped in
+    a ``QGraphicsPathItem`` ready to be placed using scene coordinates
+    (not view).
 
     **Arguments**
     style        String indicating the style of marker to add:
@@ -87,7 +89,8 @@ def mk_marker_path(
 
 
 class LevelMarker(QGraphicsPathItem):
-    '''An arrow marker path graphich which redraws itself
+    '''
+    An arrow marker path graphich which redraws itself
     to the specified view coordinate level on each paint cycle.
 
     '''
@@ -154,7 +157,8 @@ class LevelMarker(QGraphicsPathItem):
         # level: float,
 
     ) -> None:
-        '''Show a pp off-screen indicator for a level label.
+        '''
+        Show a pp off-screen indicator for a level label.
 
         This is like in fps games where you have a gps "nav" indicator
         but your teammate is outside the range of view, except in 2D, on
@@ -211,7 +215,8 @@ class LevelMarker(QGraphicsPathItem):
         w: QtWidgets.QWidget
 
     ) -> None:
-        '''Core paint which we override to always update
+        '''
+        Core paint which we override to always update
         our marker position in scene coordinates from a
         view cooridnate "level".
 
