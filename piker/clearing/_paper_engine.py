@@ -98,8 +98,6 @@ class PaperBoi(Struct):
         Place an order and return integer request id provided by client.
 
         '''
-        is_modify: bool = False
-
         if action == 'alert':
             # bypass all fill simulation
             return reqid
@@ -108,7 +106,6 @@ class PaperBoi(Struct):
         if entry:
             # order is already existing, this is a modify
             (oid, symbol, action, old_price) = entry
-            is_modify = True
         else:
             # register order internally
             self._reqids[reqid] = (oid, symbol, action, price)
@@ -152,25 +149,18 @@ class PaperBoi(Struct):
                 oid,
             )
 
+        # register this submissions as a paper live order
         else:
-            # register this submissions as a paper live order
-
-            # submit order to book simulation fill loop
+            # set the simulated order in the respective table for lookup
+            # and trigger by the simulated clearing task normally
+            # running ``simulate_fills()``.
             if action == 'buy':
                 orders = self._buys
 
             elif action == 'sell':
                 orders = self._sells
 
-            # set the simulated order in the respective table for lookup
-            # and trigger by the simulated clearing task normally
-            # running ``simulate_fills()``.
-
-            if is_modify:
-                # remove any existing order for the old price
-                orders[symbol].pop(oid)
-
-            # buys/sells: {symbol  -> bidict[oid, (<price data>)]}
+            # {symbol -> bidict[oid, (<price data>)]}
             orders[symbol][oid] = (price, size, reqid, action)
 
         return reqid
@@ -297,7 +287,7 @@ class PaperBoi(Struct):
 
 
 async def simulate_fills(
-    quote_stream: 'tractor.ReceiveStream',  # noqa
+    quote_stream: tractor.MsgStream,  # noqa
     client: PaperBoi,
 
 ) -> None:
