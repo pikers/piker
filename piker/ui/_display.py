@@ -910,7 +910,7 @@ async def display_symbol_data(
             pen=pg.mkPen(hcolor('gunmetal')),
             brush=pg.mkBrush(hcolor('default_darkest')),
         )
-        region.setZValue(10)
+        region.setZValue(10)  # put linear region "in front" in layer terms
         hist_pi.addItem(region, ignoreBounds=True)
         flow = chart._flows[hist_chart.name]
         assert flow
@@ -948,6 +948,7 @@ async def display_symbol_data(
             window,
             viewRange: tuple[tuple, tuple],
             is_manual: bool = True,
+
         ) -> None:
             # set the region on the history chart
             # to the range currently viewed in the
@@ -959,10 +960,28 @@ async def display_symbol_data(
             #     f'rt_view_range: {(mn, mx)}\n'
             #     f'ds_mn, ds_mx: {(ds_mn, ds_mx)}\n'
             # )
+            lhmn = ds_mn + end_index
+            lhmx = ds_mx + end_index
             region.setRegion((
-                ds_mn + end_index,
-                ds_mx + end_index,
+                lhmn,
+                lhmx,
             ))
+
+            # TODO: if we want to have the slow chart adjust range to
+            # match the fast chart's selection -> results in the
+            # linear region expansion never can go "outside of view".
+            # hmn, hmx = hvr = hist_chart.view.state['viewRange'][0]
+            # print((hmn, hmx))
+            # if (
+            #     hvr
+            #     and (lhmn < hmn or lhmx > hmx)
+            # ):
+            #     hist_pi.setXRange(
+            #         lhmn,
+            #         lhmx,
+            #         padding=0,
+            #     )
+            #     hist_linked.graphics_cycle()
 
         # connect region to be updated on plotitem interaction.
         rt_pi.sigRangeChanged.connect(update_region_from_pi)
