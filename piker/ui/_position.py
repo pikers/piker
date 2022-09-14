@@ -626,7 +626,7 @@ class Nav(Struct):
 
     def show(self) -> None:
         '''
-        Show all UI elements on all charts.
+        Show all UI elements on all managed charts.
 
         '''
         for (
@@ -635,9 +635,6 @@ class Nav(Struct):
             line,
             level_marker,
         ) in self.iter_ui_elements():
-
-            # labels
-            level_marker.show()
 
             # NOTE: be sure to re-trigger arrow/label placement in case
             # a new sidepane or other widget (like the search bar) was
@@ -650,6 +647,8 @@ class Nav(Struct):
             # it's THIS that needs to be called **AFTER** the sidepane
             # has been added..
             level_marker.position_in_view()
+
+            # labels
             pp_label.show()
             size_label.show()
 
@@ -796,13 +795,13 @@ class PositionTracker:
                 x = chart.marker_right_points()[1]
                 if chart._max_l1_line_len == 0:
                     mkw = pp_label.txt.boundingRect().width()
-                    x -=  1.5 * mkw
+                    x -= 1.5 * mkw
 
                 return x
 
             arrow.scene_x = offset_from_yaxis
-            arrow.hide()  # never show on startup
             view.scene().addItem(arrow)
+            arrow.hide()  # never show on startup
             nav.level_markers[key] = arrow
 
             pp_label.scene_anchor = partial(
