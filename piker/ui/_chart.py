@@ -501,7 +501,7 @@ class LinkedSplits(QWidget):
             prop = 3/8
 
         h = self.height()
-        histview_h = h * (6/16) * 0.666
+        histview_h = h * (6/16)
         h = h - histview_h
 
         major = 1 - prop
