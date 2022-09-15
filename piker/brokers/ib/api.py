@@ -78,26 +78,11 @@ _time_units = {
     'h': ' hours',
 }
 
-_time_frames = {
-    '1s': '1 Sec',
-    '5s': '5 Sec',
-    '30s': '30 Sec',
-    '1m': 'OneMinute',
-    '2m': 'TwoMinutes',
-    '3m': 'ThreeMinutes',
-    '4m': 'FourMinutes',
-    '5m': 'FiveMinutes',
-    '10m': 'TenMinutes',
-    '15m': 'FifteenMinutes',
-    '20m': 'TwentyMinutes',
-    '30m': 'HalfHour',
-    '1h': 'OneHour',
-    '2h': 'TwoHours',
-    '4h': 'FourHours',
-    'D': 'OneDay',
-    'W': 'OneWeek',
-    'M': 'OneMonth',
-    'Y': 'OneYear',
+_bar_sizes = {
+    1: '1 Sec',
+    60: '1 min',
+    60*60: '1 hour',
+    24*60*60: '1 day',
 }
 
 _show_wap_in_history: bool = False
@@ -338,19 +323,36 @@ class Client:
         start_dt: Union[datetime, str] = "1970-01-01T00:00:00.000000-05:00",
         end_dt: Union[datetime, str] = "",
 
-        sample_period_s: str = 1,  # ohlc sample period
-        period_count: int = int(2e3),  # <- max per 1s sample query
+        # ohlc sample period in seconds
+        sample_period_s: int = 1,
 
     ) -> list[dict[str, Any]]:
         '''
         Retreive OHLCV bars for a fqsn over a range to the present.
 
         '''
+        # See API docs here:
+        # https://interactivebrokers.github.io/tws-api/historical_data.html
         bars_kwargs = {'whatToShow': 'TRADES'}
+
+        # NOTE: pacing violations exist for higher sample rates:
+        # https://interactivebrokers.github.io/tws-api/historical_limitations.html#pacing_violations
+        # Also see note on duration limits being lifted on 1m+ periods,
+        # but they say "use with discretion":
+        # https://interactivebrokers.github.io/tws-api/historical_limitations.html#non-available_hd
+        bar_size, duration = {
+            1: ('1 secs', f'{int(2e3)} S'),
+            # TODO: benchmark >1 D duration on query to see if
+            # throughput can be made faster during backfilling.
+            60: ('1 min', '1 D'),
+        }[sample_period_s]
 
         global _enters
         # log.info(f'REQUESTING BARS {_enters} @ end={end_dt}')
-        print(f'REQUESTING BARS {_enters} @ end={end_dt}')
+        print(
+            f"REQUESTING {duration}'s worth {bar_size} BARS\n"
+            f'{_enters} @ end={end_dt}"'
+        )
 
         if not end_dt:
             end_dt = ''
@@ -360,30 +362,20 @@ class Client:
         contract = (await self.find_contracts(fqsn))[0]
         bars_kwargs.update(getattr(contract, 'bars_kwargs', {}))
 
-        # _min = min(2000*100, count)
         bars = await self.ib.reqHistoricalDataAsync(
             contract,
             endDateTime=end_dt,
             formatDate=2,
 
-            # time history length values format:
-            # ``durationStr=integer{SPACE}unit (S|D|W|M|Y)``
-
             # OHLC sampling values:
             # 1 secs, 5 secs, 10 secs, 15 secs, 30 secs, 1 min, 2 mins,
             # 3 mins, 5 mins, 10 mins, 15 mins, 20 mins, 30 mins,
             # 1 hour, 2 hours, 3 hours, 4 hours, 8 hours, 1 day, 1W, 1M
-            # barSizeSetting='1 secs',
+            barSizeSetting=bar_size,
 
-            # durationStr='{count} S'.format(count=15000 * 5),
-            # durationStr='{count} D'.format(count=1),
-            # barSizeSetting='5 secs',
-
-            durationStr='{count} S'.format(count=period_count),
-            # barSizeSetting='5 secs',
-            barSizeSetting='1 secs',
-
-            # barSizeSetting='1 min',
+            # time history length values format:
+            # ``durationStr=integer{SPACE}unit (S|D|W|M|Y)``
+            durationStr=duration,
 
             # always use extended hours
             useRTH=False,
@@ -394,8 +386,8 @@ class Client:
             # whatToShow='TRADES',
         )
         if not bars:
-            # TODO: raise underlying error here
-            raise ValueError(f"No bars retreived for {fqsn}?")
+            # trigger ``NoData`` raise by ``get_bars()`` caller.
+            return None
 
         nparr = bars_to_np(bars)
         return bars, nparr
