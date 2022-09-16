@@ -884,11 +884,15 @@ async def translate_and_relay_brokerd_events(
                 oid = book._ems2brokerd_ids.inverse.get(reqid)
                 msg = f'Unhandled broker status for dialog {reqid}:\n'
                 if oid:
-                    status_msg = book._active[oid]
-                    msg += (
-                        f'last status msg: {pformat(status_msg)}\n\n'
-                        f'this msg:{fmsg}\n'
-                    )
+                    status_msg = book._active.get(oid)
+                    # status msg may not have been set yet or popped?
+                    # NOTE: have seen a key error here on kraken
+                    # clearable limits..
+                    if status_msg:
+                        msg += (
+                            f'last status msg: {pformat(status_msg)}\n\n'
+                            f'this msg:{fmsg}\n'
+                        )
 
                 log.warning(msg)
 
