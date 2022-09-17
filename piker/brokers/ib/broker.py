@@ -362,7 +362,7 @@ async def update_and_audit_msgs(
                 # if ib reports a lesser pp it's not as bad since we can
                 # presume we're at least not more in the shit then we
                 # thought.
-                if diff:
+                if diff and pikersize:
                     reverse_split_ratio = pikersize / ibsize
                     split_ratio = 1/reverse_split_ratio
 
@@ -371,7 +371,8 @@ async def update_and_audit_msgs(
                     else:
                         entry = f'split_ratio = 1/{int(reverse_split_ratio)}'
 
-                    raise ValueError(
+                    # raise ValueError(
+                    log.error(
                         f'POSITION MISMATCH ib <-> piker ledger:\n'
                         f'ib: {ibppmsg}\n'
                         f'piker: {msg}\n'
