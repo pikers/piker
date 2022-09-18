@@ -276,11 +276,11 @@ class GodWidget(QWidget):
                 if chart:
                     chart.resume_all_feeds()
 
-                    # TODO: we need a check to see if the chart
-                    # last had the xlast in view, if so then shift so it's
-                    # still in view, if the user was viewing history then
-                    # do nothing yah?
-                    # chart.default_view()
+            # TODO: we need a check to see if the chart
+            # last had the xlast in view, if so then shift so it's
+            # still in view, if the user was viewing history then
+            # do nothing yah?
+            self.rt_linked.chart.default_view()
 
         # if a history chart instance is already up then
         # set the search widget as its sidepane.
@@ -293,9 +293,15 @@ class GodWidget(QWidget):
             # **AFTER** applying the search bar as a sidepane
             # to the newly switched to symbol.
             await trio.sleep(0)
-            pp_nav = self.rt_linked.mode.current_pp.nav
-            pp_nav.show()
-            pp_nav.hide_info()
+
+            # TODO: probably stick this in some kinda `LooknFeel` API?
+            for tracker in self.rt_linked.mode.trackers.values():
+                pp_nav = tracker.nav
+                if tracker.live_pp.size:
+                    pp_nav.show()
+                    pp_nav.hide_info()
+                else:
+                    pp_nav.hide()
 
         # set window titlebar info
         symbol = self.rt_linked.symbol
