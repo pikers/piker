@@ -61,13 +61,13 @@ log = get_logger(__name__)
 
 
 class PaperBoi(Struct):
-    """
-    Emulates a broker order client providing the same API and
-    delivering an order-event response stream but with methods for
+    '''
+    Emulates a broker order client providing approximately the same API
+    and delivering an order-event response stream but with methods for
     triggering desired events based on forward testing engine
-    requirements.
+    requirements (eg open, closed, fill msgs).
 
-    """
+    '''
     broker: str
 
     ems_trades_stream: tractor.MsgStream
@@ -336,9 +336,10 @@ async def simulate_fills(
                     return tick_price >= our_price
 
                 match tick:
+
+                    # on an ask queue tick, only clear buy entries
                     case {
                         'price': tick_price,
-                        # 'type': ('ask' | 'trade' | 'last'),
                         'type': 'ask',
                     }:
                         client.last_ask = (
@@ -351,9 +352,9 @@ async def simulate_fills(
                             itertools.repeat(buy_on_ask)
                         )
 
+                    # on a bid queue tick, only clear sell entries
                     case {
                         'price': tick_price,
-                        # 'type': ('bid' | 'trade' | 'last'),
                         'type': 'bid',
                     }:
                         client.last_bid = (
@@ -366,6 +367,10 @@ async def simulate_fills(
                             itertools.repeat(sell_on_bid)
                         )
 
+                    # TODO: fix this block, though it definitely
+                    # costs a lot more CPU-wise
+                    # - doesn't seem like clears are happening still on
+                    #   "resting" limit orders?
                     case {
                         'price': tick_price,
                         'type': ('trade' | 'last'),
@@ -389,6 +394,13 @@ async def simulate_fills(
                                     yield order_info, pred
 
                         iter_entries = interleave()
+
+                    # NOTE: all other (non-clearable) tick event types
+                    # - we don't want to sping the simulated clear loop
+                    # below unecessarily and further don't want to pop
+                    # simulated live orders prematurely.
+                    case _:
+                        continue
 
                 # iterate all potentially clearable book prices
                 # in FIFO order per side.
@@ -532,7 +544,10 @@ async def trades_dialogue(
 
         # TODO: load paper positions per broker from .toml config file
         # and pass as symbol to position data mapping: ``dict[str, dict]``
-        await ctx.started((pp_msgs, ['paper']))
+        await ctx.started((
+            pp_msgs,
+            ['paper'],
+        ))
 
         async with (
             ctx.open_stream() as ems_stream,
