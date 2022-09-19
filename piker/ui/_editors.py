@@ -179,9 +179,9 @@ class LineEditor(Struct):
         graphic in view.
 
         '''
-        lines = self._order_lines.get(uuid)
+        lines = self._order_lines[uuid]
         if lines:
-            for line in self._order_lines.get(uuid, []):
+            for line in lines:
                 line.show_labels()
                 log.debug(f'Level active for level: {line.value()}')
                 # TODO: other flashy things to indicate the order is active
@@ -189,9 +189,10 @@ class LineEditor(Struct):
         return lines
 
     def lines_under_cursor(self) -> list[LevelLine]:
-        """Get the line(s) under the cursor position.
+        '''
+        Get the line(s) under the cursor position.
 
-        """
+        '''
         # Delete any hoverable under the cursor
         return self.godw.get_cursor()._hovered
 
