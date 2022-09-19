@@ -1015,11 +1015,10 @@ async def handle_order_updates(
                             fill_msg = BrokerdFill(
                                 time_ns=time.time_ns(),
                                 reqid=reqid,
-
-                                # action=action,  # just use size value
-                                # for now?
-                                size=vlm,
-                                price=price,
+                                # just use size value for now?
+                                # action=action,
+                                size=float(vlm),
+                                price=float(price),
 
                                 # TODO: maybe capture more msg data
                                 # i.e fees?
