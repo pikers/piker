@@ -206,6 +206,7 @@ class DisplayState(Struct):
             state['i_last_append'] = i_step
 
         do_rt_update = uppx < update_uppx
+
         _, _, _, r = chart.bars_range()
         liv = r >= i_step
 
@@ -346,11 +347,20 @@ async def graphics_update_loop(
         _, hist_step_size_s, _ = feed.get_ds_info()
 
         async with feed.index_stream(
-            int(hist_step_size_s)
+            # int(hist_step_size_s)
+            # TODO: seems this is more reliable at keeping the slow
+            # chart incremented in view more correctly?
+            # - It might make sense to just inline this logic with the
+            #   main display task? => it's a tradeoff of slower task
+            #   wakeups/ctx switches verus logic checks (as normal)
+            # - we need increment logic that only does the view shift
+            #   call when the uppx permits/needs it
+            int(1),
         ) as istream:
             async for msg in istream:
 
-                # check if slow chart needs a resize
+                # check if slow chart needs an x-domain shift and/or
+                # y-range resize.
                 (
                     uppx,
                     liv,
@@ -364,6 +374,12 @@ async def graphics_update_loop(
                     state=state,
                     # update_state=False,
                 )
+                # print(
+                #     f'liv: {liv}\n'
+                #     f'do_append: {do_append}\n'
+                #     f'append_diff: {append_diff}\n'
+                # )
+
                 if (
                     do_append
                     and liv
@@ -395,7 +411,7 @@ async def graphics_update_loop(
 
         # chart isn't active/shown so skip render cycle and pause feed(s)
         if chart.linked.isHidden():
-            print('skipping update')
+            # print('skipping update')
             chart.pause_all_feeds()
             continue
 
