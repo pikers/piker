@@ -417,7 +417,7 @@ class Router(Struct):
         for client_stream in self.clients.copy():
             try:
                 await client_stream.send(msg)
-            except(
+            except (
                 trio.ClosedResourceError,
                 trio.BrokenResourceError,
             ):
@@ -740,8 +740,8 @@ async def translate_and_relay_brokerd_events(
                     or not status_msg
                 ):
                     log.warning(
-                        'Received status for unknown dialog {oid}:\n'
-                        '{fmsg}'
+                        f'Received status for unknown dialog {oid}:\n'
+                        f'{fmsg}'
                     )
                     continue
 
