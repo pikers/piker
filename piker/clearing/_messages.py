@@ -261,10 +261,10 @@ class BrokerdFill(Struct):
     time_ns: int
 
     # order exeuction related
-    action: str
     size: float
     price: float
 
+    action: Optional[str] = None
     broker_details: dict = {}  # meta-data (eg. commisions etc.)
 
     # brokerd timestamp required for order mode arrow placement on x-axis
