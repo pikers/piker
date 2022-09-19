@@ -350,7 +350,7 @@ class LevelLine(pg.InfiniteLine):
         from pg..
 
         '''
-        # p.setRenderHint(p.Antialiasing)
+        p.setRenderHint(p.Antialiasing)
 
         # these are in viewbox coords
         vb_left, vb_right = self._endPoints
@@ -378,16 +378,16 @@ class LevelLine(pg.InfiniteLine):
         elif self._marker:
             if self.track_marker_pos:
                 # make the line end at the marker's x pos
-                line_end = self._marker.pos().x()
+                line_end = marker_right = self._marker.pos().x()
 
-            else:
-                # TODO: make this label update part of a scene-aware-marker
-                # composed annotation
-                self._marker.setPos(
-                    QPointF(marker_right, self.scene_y())
-                )
-                if hasattr(self._marker, 'label'):
-                    self._marker.label.update()
+            # TODO: make this label update part of a scene-aware-marker
+            # composed annotation
+            self._marker.setPos(
+                QPointF(marker_right, self.scene_y())
+            )
+
+            if hasattr(self._marker, 'label'):
+                self._marker.label.update()
 
         elif not self.use_marker_margin:
             # basically means **don't** shorten the line with normally
@@ -407,16 +407,14 @@ class LevelLine(pg.InfiniteLine):
 
     def hide(self) -> None:
         super().hide()
-        if self._marker:
-            self._marker.hide()
-            # needed for ``order_line()`` lines currently
-            self._marker.label.hide()
+        mkr = self._marker
+        if mkr:
+            mkr.hide()
 
     def show(self) -> None:
         super().show()
         if self._marker:
             self._marker.show()
-            # self._marker.label.show()
 
     def scene_y(self) -> float:
         return self.getViewBox().mapFromView(
@@ -461,8 +459,10 @@ class LevelLine(pg.InfiniteLine):
         cur = self._chart.linked.cursor
 
         # hovered
-        if (not ev.isExit()) and ev.acceptDrags(QtCore.Qt.LeftButton):
-
+        if (
+            not ev.isExit()
+            and ev.acceptDrags(QtCore.Qt.LeftButton)
+        ):
             # if already hovered we don't need to run again
             if self.mouseHovering is True:
                 return
@@ -765,7 +765,8 @@ def order_line(
 
         if action != 'alert':
 
-            # add a partial position label if we also added a level marker
+            # add a partial position label if we also added a level
+            # marker
             pp_size_label = Label(
                 view=view,
                 color=line.color,
@@ -799,9 +800,9 @@ def order_line(
             # XXX: without this the pp proportion label next the marker
             # seems to lag?  this is the same issue we had with position
             # lines which we handle with ``.update_graphcis()``.
-            # marker._on_paint=lambda marker: pp_size_label.update()
             marker._on_paint = lambda marker: pp_size_label.update()
 
+        # XXX: THIS IS AN UNTYPED MONKEY PATCH!?!?!
         marker.label = label
 
     # sanity check
