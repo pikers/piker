@@ -217,8 +217,17 @@ async def handle_viewmode_kb_inputs(
 
         if order_keys_pressed:
 
-            # show the pp size label
-            order_mode.current_pp.nav.show()
+            # TODO: it seems like maybe the composition should be
+            # reversed here? Like, maybe we should have the nav have
+            # access to the pos state and then make encapsulated logic
+            # that shows the right stuff on screen instead or order mode
+            # and position-related abstractions doing this?
+
+            # show the pp size label only if there is
+            # a non-zero pos existing
+            tracker = order_mode.current_pp
+            if tracker.live_pp.size:
+                tracker.nav.show()
 
             # TODO: show pp config mini-params in status bar widget
             # mode.pp_config.show()
@@ -259,8 +268,8 @@ async def handle_viewmode_kb_inputs(
                 Qt.Key_S in pressed or
                 order_keys_pressed or
                 Qt.Key_O in pressed
-            ) and
-            key in NUMBER_LINE
+            )
+            and key in NUMBER_LINE
         ):
             # hot key to set order slots size.
             # change edit field to current number line value,

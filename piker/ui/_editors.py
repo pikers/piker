@@ -141,7 +141,7 @@ class LineEditor(Struct):
             except KeyError:
                 # when the current cursor doesn't have said line
                 # registered (probably means that user held order mode
-                # key while panning to another vieww) then we just
+                # key while panning to another view) then we just
                 # ignore the remove error.
                 pass
             line.delete()
