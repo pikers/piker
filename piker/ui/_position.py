@@ -68,7 +68,8 @@ async def update_pnl_from_feed(
     tracker: PositionTracker,
 
 ) -> None:
-    '''Real-time display the current pp's PnL in the appropriate label.
+    '''
+    Real-time display the current pp's PnL in the appropriate label.
 
     ``ValueError`` if this task is spawned where there is a net-zero pp.
 
@@ -412,9 +413,9 @@ def pp_line(
     size: float,
     level: float,
     color: str,
+    marker: LevelMarker,
 
     orient_v: str = 'bottom',
-    marker: Optional[LevelMarker] = None,
 
 ) -> LevelLine:
     '''
@@ -445,31 +446,20 @@ def pp_line(
         show_markers=False,
     )
 
-    if marker:
-        # configure marker to position data
+    # TODO: use `LevelLine.add_marker()`` for this instead?
+    # set marker color to same as line
+    marker.setPen(line.currentPen)
+    marker.setBrush(fn.mkBrush(line.currentPen.color()))
+    marker.level = level
+    marker.update()
+    marker.show()
 
-        if size > 0:  # long
-            style = '|<'  # point "up to" the line
-        elif size < 0:  # short
-            style = '>|'  # point "down to" the line
+    line._marker = marker
+    line.track_marker_pos = True
 
-        marker.style = style
-
-        # set marker color to same as line
-        marker.setPen(line.currentPen)
-        marker.setBrush(fn.mkBrush(line.currentPen.color()))
-        marker.level = level
-        marker.update()
-        marker.show()
-
-        line._marker = marker
-        line.track_marker_pos = True
-
-        # show position marker on view "edge" when out of view
-        vb = line.getViewBox()
-        vb.sigRangeChanged.connect(marker.position_in_view)
-
-    line.set_level(level)
+    # show position marker on view "edge" when out of view
+    vb = line.getViewBox()
+    vb.sigRangeChanged.connect(marker.position_in_view)
 
     return line
 
@@ -497,16 +487,9 @@ def mk_level_marker(
     # scale marker size with dpi-aware font size
     font_size = _font.font.pixelSize()
     arrow_size = floor(1.375 * font_size)
-
-    if size > 0:
-        style = '|<'
-
-    elif size < 0:
-        style = '>|'
-
     arrow = LevelMarker(
         chart=chart,
-        style=style,
+        style='|<',  # actual style is set by caller based on size
         get_level=level,
         size=arrow_size,
         on_paint=on_paint,
@@ -562,10 +545,7 @@ class Nav(Struct):
                     self.lines[key] = line
 
                 # modify existing indicator line
-                else:
-                    line.set_level(price)
-                    level_marker.level = price
-                    level_marker.update()
+                line.set_level(price)
 
                 # update LHS sizing label
                 line.update_labels({
@@ -579,16 +559,29 @@ class Nav(Struct):
                 })
                 line.show()
 
+                # always show arrow-marker when a non-zero
+                # pos size.
+                level_marker.show()
+
+                # configure marker to position data
+                if size > 0:  # long
+                    # point "up to" the line
+                    level_marker.style = '|<'
+
+                elif size < 0:  # short
+                    # point "down to" the line
+                    level_marker.style = '>|'
+
             # remove line from view for a net-zero pos
-            elif line:
-                line.delete()
-                self.lines[key] = None
+            else:
+                self.hide()
 
             # label updates
             size_label = self.size_labels[key]
             size_label.fields['slots_used'] = slots_used
             size_label.render()
 
+            # set arrow marker to correct level
             level_marker.level = price
 
             # these updates are critical to avoid lag on view/scene changes
@@ -646,6 +639,7 @@ class Nav(Struct):
             # which itself eventually calls `.getAxis.pos().x()` and
             # it's THIS that needs to be called **AFTER** the sidepane
             # has been added..
+            level_marker.show()
             level_marker.position_in_view()
 
             # labels
@@ -686,6 +680,7 @@ class Nav(Struct):
             line,
             level_marker,
         ) in self.iter_ui_elements():
+
             pp_label.update()
             size_label.update()
 
@@ -703,6 +698,7 @@ class Nav(Struct):
             line,
             level_marker,
         ) in self.iter_ui_elements():
+
             size_label.hide()
             if line:
                 line.hide_labels()
@@ -710,8 +706,8 @@ class Nav(Struct):
 
 class PositionTracker:
     '''
-    Track and display real-time positions for a single symbol
-    over multiple accounts on a single chart.
+    Track and display real-time positions for a single asset-symbol
+    held in a single account, normally shown on a single chart.
 
     Graphically composed of a level line and marker as well as labels
     for indcating current position information. Updates are made to the
@@ -741,41 +737,6 @@ class PositionTracker:
         for key, chart in nav.charts.items():
             view = chart.getViewBox()
 
-            # literally the 'pp' (pee pee) "position price" label that's
-            # always in view
-            pp_label = Label(
-                view=view,
-                fmt_str='pp',
-                color=nav.color,
-                update_on_range_change=False,
-            )
-            # if nav._level_marker:
-            #     nav._level_marker.delete()
-
-            pp_label.render()
-            nav.pp_labels[key] = pp_label
-
-            size_label = Label(
-                view=view,
-                color=self.nav.color,
-
-                # this is "static" label
-                # update_on_range_change=False,
-                fmt_str='\n'.join((
-                    ':{slots_used:.1f}x',
-                )),
-
-                fields={
-                    'slots_used': 0,
-                },
-            )
-            size_label.render()
-            size_label.scene_anchor = partial(
-                pp_tight_and_right,
-                label=pp_label,
-            )
-            nav.size_labels[key] = size_label
-
             arrow = mk_level_marker(
                 chart=chart,
                 size=1,
@@ -803,6 +764,38 @@ class PositionTracker:
             view.scene().addItem(arrow)
             arrow.hide()  # never show on startup
             nav.level_markers[key] = arrow
+
+            # literally the 'pp' (pee pee) "position price" label that's
+            # always in view
+            pp_label = Label(
+                view=view,
+                fmt_str='pp',
+                color=nav.color,
+                update_on_range_change=False,
+            )
+            pp_label.render()
+            nav.pp_labels[key] = pp_label
+
+            size_label = Label(
+                view=view,
+                color=self.nav.color,
+
+                # this is "static" label
+                # update_on_range_change=False,
+                fmt_str='\n'.join((
+                    ':{slots_used:.1f}x',
+                )),
+
+                fields={
+                    'slots_used': 0,
+                },
+            )
+            size_label.render()
+            size_label.scene_anchor = partial(
+                pp_tight_and_right,
+                label=pp_label,
+            )
+            nav.size_labels[key] = size_label
 
             pp_label.scene_anchor = partial(
                 gpath_pin,
@@ -879,13 +872,15 @@ class PositionTracker:
             round(alloc.slots_used(pp), ndigits=1),  # slots used
         )
 
-        if pp.size == 0:
+        if self.live_pp.size:
+            # print("SHOWING NAV")
+            self.nav.show()
+
+        # if pp.size == 0:
+        else:
+            # print("HIDING NAV")
             self.nav.hide()
 
-        else:
-            if self.live_pp.size:
-                self.nav.show()
-
-            # don't show side and status widgets unless
-            # order mode is "engaged" (which done via input controls)
-            self.nav.hide_info()
+        # don't show side and status widgets unless
+        # order mode is "engaged" (which done via input controls)
+        self.nav.hide_info()
