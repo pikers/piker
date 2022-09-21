@@ -32,7 +32,7 @@ def mk_marker_path(
     style: str,
 
 ) -> QGraphicsPathItem:
-    """
+    '''
     Add a marker to be displayed on the line wrapped in
     a ``QGraphicsPathItem`` ready to be placed using scene coordinates
     (not view).
@@ -41,9 +41,13 @@ def mk_marker_path(
     style        String indicating the style of marker to add:
                   ``'<|'``, ``'|>'``, ``'>|'``, ``'|<'``, ``'<|>'``,
                   ``'>|<'``, ``'^'``, ``'v'``, ``'o'``
-    size          Size of the marker in pixels.
 
-    """
+    This code is taken nearly verbatim from the
+    `InfiniteLine.addMarker()` method but does not attempt do be aware
+    of low(er) level graphics controls and expects for the output
+    polygon to be applied to a ``QGraphicsPathItem``.
+
+    '''
     path = QtGui.QPainterPath()
 
     if style == 'o':
