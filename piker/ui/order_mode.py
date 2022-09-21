@@ -491,7 +491,8 @@ class OrderMode:
         '''
         dialog = self.dialogs[uuid]
         lines = dialog.lines
-        assert len(lines) == 2
+        # XXX: seems to fail on certain types of races?
+        # assert len(lines) == 2
         if lines:
             _, _, ratio = self.feed.get_ds_info()
             for i, chart in [
@@ -843,8 +844,7 @@ async def open_order_mode(
             )
 
         # make fill bar and positioning snapshot
-        order_pane.on_ui_settings_change('limit', tracker.alloc.limit())
-        order_pane.update_status_ui(pp=tracker)
+        order_pane.update_status_ui(tracker)
 
         # TODO: create a mode "manager" of sorts?
         # -> probably just call it "UxModes" err sumthin?

@@ -184,7 +184,7 @@ class SettingsPane:
 
         '''
         self.apply_setting(key, value)
-        self.update_status_ui(pp=self.order_mode.current_pp)
+        self.update_status_ui(self.order_mode.current_pp)
 
     def apply_setting(
         self,
@@ -262,6 +262,8 @@ class SettingsPane:
                         log.error(
                             f'limit must > then current pp: {dsize}'
                         )
+                        # reset position size value
+                        alloc.currency_limit = dsize
                         return False
 
                     alloc.currency_limit = value
@@ -299,22 +301,29 @@ class SettingsPane:
 
     def update_status_ui(
         self,
-        pp: PositionTracker,
+        tracker: PositionTracker,
 
     ) -> None:
 
-        alloc = pp.alloc
+        alloc = tracker.alloc
         slots = alloc.slots
-        used = alloc.slots_used(pp.live_pp)
+        used = alloc.slots_used(tracker.live_pp)
+        size = tracker.live_pp.size
+        dsize = tracker.live_pp.dsize
 
         # READ out settings and update the status UI / settings widgets
         suffix = {'currency': ' $', 'units': ' u'}[alloc.size_unit]
-        limit = alloc.limit()
+        size_unit, limit = alloc.limit_info()
 
         step_size, currency_per_slot = alloc.step_sizes()
 
         if alloc.size_unit == 'currency':
             step_size = currency_per_slot
+            if dsize >= limit:
+                self.apply_setting('limit', limit)
+
+        elif size >= limit:
+            self.apply_setting('limit', limit)
 
         self.step_label.format(
             step_size=str(humanize(step_size)) + suffix
@@ -331,7 +340,7 @@ class SettingsPane:
         self.form.fields['limit'].setText(str(limit))
 
         # update of level marker size label based on any new settings
-        pp.update_from_pp()
+        tracker.update_from_pp()
 
         # calculate proportion of position size limit
         # that exists and display in fill bar
@@ -343,7 +352,7 @@ class SettingsPane:
             # min(round(prop * slots), slots)
             min(used, slots)
         )
-        self.update_account_icons({alloc.account: pp.live_pp})
+        self.update_account_icons({alloc.account: tracker.live_pp})
 
     def update_account_icons(
         self,

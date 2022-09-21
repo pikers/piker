@@ -93,6 +93,9 @@ class Allocator(Struct):
         else:
             return self.units_limit
 
+    def limit_info(self) -> tuple[str, float]:
+        return self.size_unit, self.limit()
+
     def next_order_info(
         self,
 
