@@ -201,7 +201,6 @@ class LineEditor(Struct):
         for lines in list(self._order_lines.values()):
             all_lines.extend(lines)
 
-        # return tuple(self._order_lines.values())
         return all_lines
 
     def remove_line(
@@ -217,7 +216,7 @@ class LineEditor(Struct):
 
         '''
         # try to look up line from our registry
-        lines = self._order_lines.pop(uuid)
+        lines = self._order_lines.pop(uuid, None)
         if lines:
             cursor = self.godw.get_cursor()
             if cursor:
