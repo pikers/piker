@@ -167,7 +167,6 @@ class LevelMarker(QGraphicsPathItem):
 
         '''
         level = self.get_level()
-
         view = self.chart.getViewBox()
         vr = view.state['viewRange']
         ymn, ymx = vr[1]

@@ -237,7 +237,7 @@ class OrderMode:
         lines: list[LevelLine] = []
         for chart, kwargs in [
             (self.chart, {}),
-            (self.hist_chart, {'only_show_markers_on_hover': False}),
+            (self.hist_chart, {'only_show_markers_on_hover': True}),
         ]:
             kwargs.update(line_kwargs)
             line = self.line_from_order(
@@ -304,13 +304,16 @@ class OrderMode:
             order,
             chart=chart,
             show_markers=True,
+
             # just for the stage line to avoid
             # flickering while moving the cursor
             # around where it might trigger highlight
             # then non-highlight depending on sensitivity
             always_show_labels=True,
+
             # don't highlight the "staging" line
             highlight_on_hover=False,
+
             # prevent flickering of marker while moving/tracking cursor
             only_show_markers_on_hover=False,
         )

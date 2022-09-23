@@ -183,6 +183,7 @@ class LineEditor(Struct):
         if lines:
             for line in lines:
                 line.show_labels()
+                line.hide_markers()
                 log.debug(f'Level active for level: {line.value()}')
                 # TODO: other flashy things to indicate the order is active
 
