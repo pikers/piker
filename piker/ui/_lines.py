@@ -92,7 +92,6 @@ class LevelLine(pg.InfiniteLine):
 
         self._marker = None
         self.only_show_markers_on_hover = only_show_markers_on_hover
-        self.show_markers: bool = True  # presuming the line is hovered at init
         self.track_marker_pos: bool = False
 
         # should line go all the way to far end or leave a "margin"
@@ -358,24 +357,12 @@ class LevelLine(pg.InfiniteLine):
 
         line_end, marker_right, r_axis_x = self._chart.marker_right_points()
 
-        if self.show_markers and self.markers:
-
-            p.setPen(self.pen)
-            qgo_draw_markers(
-                self.markers,
-                self.pen.color(),
-                p,
-                vb_left,
-                vb_right,
-                marker_right,
-            )
-            # marker_size = self.markers[0][2]
-            self._maxMarkerSize = max([m[2] / 2. for m in self.markers])
-
-        # this seems slower when moving around
-        # order lines.. not sure wtf is up with that.
-        # for now we're just using it on the position line.
-        elif self._marker:
+        # (legacy) NOTE: at one point this seemed slower when moving around
+        # order lines.. not sure if that's still true or why but we've
+        # dropped the original hacky `.pain()` transform stuff for inf
+        # line markers now - check the git history if it needs to be
+        # reverted.
+        if self._marker:
             if self.track_marker_pos:
                 # make the line end at the marker's x pos
                 line_end = marker_right = self._marker.pos().x()
@@ -468,10 +455,7 @@ class LevelLine(pg.InfiniteLine):
                 return
 
             if self.only_show_markers_on_hover:
-                self.show_markers = True
-
-                if self._marker:
-                    self._marker.show()
+                self.show_markers()
 
             # highlight if so configured
             if self.highlight_on_hover:
@@ -514,11 +498,7 @@ class LevelLine(pg.InfiniteLine):
             cur._hovered.remove(self)
 
             if self.only_show_markers_on_hover:
-                self.show_markers = False
-
-                if self._marker:
-                    self._marker.hide()
-                    self._marker.label.hide()
+                self.hide_markers()
 
             if self not in cur._trackers:
                 cur.show_xhair(y_label_level=self.value())
@@ -529,6 +509,15 @@ class LevelLine(pg.InfiniteLine):
             self.mouseHovering = False
 
         self.update()
+
+    def hide_markers(self) -> None:
+        if self._marker:
+            self._marker.hide()
+            self._marker.label.hide()
+
+    def show_markers(self) -> None:
+        if self._marker:
+            self._marker.show()
 
 
 def level_line(
@@ -735,7 +724,7 @@ def order_line(
         marker = LevelMarker(
             chart=chart,
             style=marker_style,
-            get_level=line.value,
+            get_level=line.value,  # callback
             size=marker_size,
             keep_in_view=False,
         )
@@ -744,7 +733,8 @@ def order_line(
         marker = line.add_marker(marker)
 
         # XXX: DON'T COMMENT THIS!
-        # this fixes it the artifact issue! .. of course, bounding rect stuff
+        # this fixes it the artifact issue!
+        # .. of course, bounding rect stuff
         line._maxMarkerSize = marker_size
 
         assert line._marker is marker
