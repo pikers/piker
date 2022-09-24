@@ -21,19 +21,20 @@ this module ties together quote and computational (fsp) streams with
 graphics update methods via our custom ``pyqtgraph`` charting api.
 
 '''
-from dataclasses import dataclass
 from functools import partial
 import time
 from typing import Optional, Any, Callable
 
-import numpy as np
 import tractor
 import trio
-import pendulum
 import pyqtgraph as pg
 
 # from .. import brokers
-from ..data.feed import open_feed
+from ..data.feed import (
+    open_feed,
+    Feed,
+)
+from ..data.types import Struct
 from ._axes import YAxisLabel
 from ._chart import (
     ChartPlotWidget,
@@ -41,6 +42,7 @@ from ._chart import (
     GodWidget,
 )
 from ._l1 import L1Labels
+from ._style import hcolor
 from ._fsp import (
     update_fsp_chart,
     start_fsp_displays,
@@ -53,7 +55,10 @@ from ._forms import (
     FieldsForm,
     mk_order_pane_layout,
 )
-from .order_mode import open_order_mode
+from .order_mode import (
+    open_order_mode,
+    OrderMode,
+)
 from .._profile import (
     pg_profile_enabled,
     ms_slower_then,
@@ -63,7 +68,7 @@ from ..log import get_logger
 log = get_logger(__name__)
 
 # TODO: load this from a config.toml!
-_quote_throttle_rate: int = 22  # Hz
+_quote_throttle_rate: int = 16  # Hz
 
 
 # a working tick-type-classes template
@@ -122,39 +127,105 @@ def chart_maxmin(
     )
 
 
-@dataclass
-class DisplayState:
+class DisplayState(Struct):
     '''
     Chart-local real-time graphics state container.
 
     '''
+    godwidget: GodWidget
     quotes: dict[str, Any]
 
     maxmin: Callable
     ohlcv: ShmArray
+    hist_ohlcv: ShmArray
 
     # high level chart handles
-    linked: LinkedSplits
     chart: ChartPlotWidget
 
     # axis labels
     l1: L1Labels
     last_price_sticky: YAxisLabel
+    hist_last_price_sticky: YAxisLabel
 
     # misc state tracking
-    vars: dict[str, Any]
+    vars: dict[str, Any] = {
+        'tick_margin': 0,
+        'i_last': 0,
+        'i_last_append': 0,
+        'last_mx_vlm': 0,
+        'last_mx': 0,
+        'last_mn': 0,
+    }
 
     vlm_chart: Optional[ChartPlotWidget] = None
     vlm_sticky: Optional[YAxisLabel] = None
     wap_in_history: bool = False
 
+    def incr_info(
+        self,
+        chart: Optional[ChartPlotWidget] = None,
+        shm: Optional[ShmArray] = None,
+        state: Optional[dict] = None,  # pass in a copy if you don't
+
+        update_state: bool = True,
+        update_uppx: float = 16,
+
+    ) -> tuple:
+
+        shm = shm or self.ohlcv
+        chart = chart or self.chart
+        state = state or self.vars
+
+        if not update_state:
+            state = state.copy()
+
+        # compute the first available graphic's x-units-per-pixel
+        uppx = chart.view.x_uppx()
+
+        # NOTE: this used to be implemented in a dedicated
+        # "increment task": ``check_for_new_bars()`` but it doesn't
+        # make sense to do a whole task switch when we can just do
+        # this simple index-diff and all the fsp sub-curve graphics
+        # are diffed on each draw cycle anyway; so updates to the
+        # "curve" length is already automatic.
+
+        # increment the view position by the sample offset.
+        i_step = shm.index
+        i_diff = i_step - state['i_last']
+        state['i_last'] = i_step
+
+        append_diff = i_step - state['i_last_append']
+
+        # update the "last datum" (aka extending the flow graphic with
+        # new data) only if the number of unit steps is >= the number of
+        # such unit steps per pixel (aka uppx). Iow, if the zoom level
+        # is such that a datum(s) update to graphics wouldn't span
+        # to a new pixel, we don't update yet.
+        do_append = (append_diff >= uppx)
+        if do_append:
+            state['i_last_append'] = i_step
+
+        do_rt_update = uppx < update_uppx
+
+        _, _, _, r = chart.bars_range()
+        liv = r >= i_step
+
+        # TODO: pack this into a struct
+        return (
+            uppx,
+            liv,
+            do_append,
+            i_diff,
+            append_diff,
+            do_rt_update,
+        )
+
 
 async def graphics_update_loop(
 
-    linked: LinkedSplits,
-    stream: tractor.MsgStream,
-    ohlcv: np.ndarray,
-
+    nurse: trio.Nursery,
+    godwidget: GodWidget,
+    feed: Feed,
     wap_in_history: bool = False,
     vlm_chart: Optional[ChartPlotWidget] = None,
 
@@ -175,14 +246,24 @@ async def graphics_update_loop(
     #   of copying it from last bar's close
     # - 1-5 sec bar lookback-autocorrection like tws does?
     #   (would require a background history checker task)
-    display_rate = linked.godwidget.window.current_screen().refreshRate()
+    linked: LinkedSplits = godwidget.rt_linked
+    display_rate = godwidget.window.current_screen().refreshRate()
 
     chart = linked.chart
+    hist_chart = godwidget.hist_linked.chart
+
+    ohlcv = feed.rt_shm
+    hist_ohlcv = feed.hist_shm
 
     # update last price sticky
     last_price_sticky = chart._ysticks[chart.name]
     last_price_sticky.update_from_data(
         *ohlcv.array[-1][['index', 'close']]
+    )
+
+    hist_last_price_sticky = hist_chart._ysticks[hist_chart.name]
+    hist_last_price_sticky.update_from_data(
+        *hist_ohlcv.array[-1][['index', 'close']]
     )
 
     maxmin = partial(
@@ -227,12 +308,14 @@ async def graphics_update_loop(
     i_last = ohlcv.index
 
     ds = linked.display_state = DisplayState(**{
+        'godwidget': godwidget,
         'quotes': {},
-        'linked': linked,
         'maxmin': maxmin,
         'ohlcv': ohlcv,
+        'hist_ohlcv': hist_ohlcv,
         'chart': chart,
         'last_price_sticky': last_price_sticky,
+        'hist_last_price_sticky': hist_last_price_sticky,
         'l1': l1,
 
         'vars': {
@@ -252,7 +335,62 @@ async def graphics_update_loop(
 
     chart.default_view()
 
+    # TODO: probably factor this into some kinda `DisplayState`
+    # API that can be reused at least in terms of pulling view
+    # params (eg ``.bars_range()``).
+    async def increment_history_view():
+        i_last = hist_ohlcv.index
+        state = ds.vars.copy() | {
+            'i_last_append': i_last,
+            'i_last': i_last,
+        }
+        _, hist_step_size_s, _ = feed.get_ds_info()
+
+        async with feed.index_stream(
+            # int(hist_step_size_s)
+            # TODO: seems this is more reliable at keeping the slow
+            # chart incremented in view more correctly?
+            # - It might make sense to just inline this logic with the
+            #   main display task? => it's a tradeoff of slower task
+            #   wakeups/ctx switches verus logic checks (as normal)
+            # - we need increment logic that only does the view shift
+            #   call when the uppx permits/needs it
+            int(1),
+        ) as istream:
+            async for msg in istream:
+
+                # check if slow chart needs an x-domain shift and/or
+                # y-range resize.
+                (
+                    uppx,
+                    liv,
+                    do_append,
+                    i_diff,
+                    append_diff,
+                    do_rt_update,
+                ) = ds.incr_info(
+                    chart=hist_chart,
+                    shm=ds.hist_ohlcv,
+                    state=state,
+                    # update_state=False,
+                )
+                # print(
+                #     f'liv: {liv}\n'
+                #     f'do_append: {do_append}\n'
+                #     f'append_diff: {append_diff}\n'
+                # )
+
+                if (
+                    do_append
+                    and liv
+                ):
+                    hist_chart.increment_view(steps=i_diff)
+                    hist_chart.view._set_yrange(yrange=hist_chart.maxmin())
+
+    nurse.start_soon(increment_history_view)
+
     # main real-time quotes update loop
+    stream: tractor.MsgStream = feed.stream
     async for quotes in stream:
 
         ds.quotes = quotes
@@ -273,7 +411,7 @@ async def graphics_update_loop(
 
         # chart isn't active/shown so skip render cycle and pause feed(s)
         if chart.linked.isHidden():
-            print('skipping update')
+            # print('skipping update')
             chart.pause_all_feeds()
             continue
 
@@ -298,6 +436,8 @@ def graphics_update_cycle(
     # hopefully XD
 
     chart = ds.chart
+    # TODO: just pass this as a direct ref to avoid so many attr accesses?
+    hist_chart = ds.godwidget.hist_linked.chart
 
     profiler = pg.debug.Profiler(
         msg=f'Graphics loop cycle for: `{chart.name}`',
@@ -311,53 +451,24 @@ def graphics_update_cycle(
 
     # unpack multi-referenced components
     vlm_chart = ds.vlm_chart
+
+    # rt "HFT" chart
     l1 = ds.l1
     ohlcv = ds.ohlcv
     array = ohlcv.array
+
     vars = ds.vars
     tick_margin = vars['tick_margin']
 
-    update_uppx = 16
-
     for sym, quote in ds.quotes.items():
-
-        # compute the first available graphic's x-units-per-pixel
-        uppx = chart.view.x_uppx()
-
-        # NOTE: vlm may be written by the ``brokerd`` backend
-        # event though a tick sample is not emitted.
-        # TODO: show dark trades differently
-        # https://github.com/pikers/piker/issues/116
-
-        # NOTE: this used to be implemented in a dedicated
-        # "increment task": ``check_for_new_bars()`` but it doesn't
-        # make sense to do a whole task switch when we can just do
-        # this simple index-diff and all the fsp sub-curve graphics
-        # are diffed on each draw cycle anyway; so updates to the
-        # "curve" length is already automatic.
-
-        # increment the view position by the sample offset.
-        i_step = ohlcv.index
-        i_diff = i_step - vars['i_last']
-        vars['i_last'] = i_step
-
-        append_diff = i_step - vars['i_last_append']
-
-        # update the "last datum" (aka extending the flow graphic with
-        # new data) only if the number of unit steps is >= the number of
-        # such unit steps per pixel (aka uppx). Iow, if the zoom level
-        # is such that a datum(s) update to graphics wouldn't span
-        # to a new pixel, we don't update yet.
-        do_append = (append_diff >= uppx)
-        if do_append:
-            vars['i_last_append'] = i_step
-
-        do_rt_update = uppx < update_uppx
-        # print(
-        #     f'append_diff:{append_diff}\n'
-        #     f'uppx:{uppx}\n'
-        #     f'do_append: {do_append}'
-        # )
+        (
+            uppx,
+            liv,
+            do_append,
+            i_diff,
+            append_diff,
+            do_rt_update,
+        ) = ds.incr_info()
 
         # TODO: we should only run mxmn when we know
         # an update is due via ``do_append`` above.
@@ -373,8 +484,6 @@ def graphics_update_cycle(
 
         profiler('`ds.maxmin()` call')
 
-        liv = r >= i_step  # the last datum is in view
-
         if (
             prepend_update_index is not None
             and lbar > prepend_update_index
@@ -389,16 +498,10 @@ def graphics_update_cycle(
         # don't real-time "shift" the curve to the
         # left unless we get one of the following:
         if (
-            (
-                # i_diff > 0  # no new sample step
-                do_append
-                # and uppx < 4  # chart is zoomed out very far
-                and liv
-            )
+            (do_append and liv)
             or trigger_all
         ):
             chart.increment_view(steps=i_diff)
-            # chart.increment_view(steps=i_diff + round(append_diff - uppx))
 
             if vlm_chart:
                 vlm_chart.increment_view(steps=i_diff)
@@ -458,6 +561,10 @@ def graphics_update_cycle(
                 chart.name,
                 do_append=do_append,
             )
+            hist_chart.update_graphics_from_flow(
+                chart.name,
+                do_append=do_append,
+            )
 
         # NOTE: we always update the "last" datum
         # since the current range should at least be updated
@@ -493,6 +600,9 @@ def graphics_update_cycle(
                 # update price sticky(s)
                 end = array[-1]
                 ds.last_price_sticky.update_from_data(
+                    *end[['index', 'close']]
+                )
+                ds.hist_last_price_sticky.update_from_data(
                     *end[['index', 'close']]
                 )
 
@@ -542,26 +652,44 @@ def graphics_update_cycle(
                 l1.bid_label.update_fields({'level': price, 'size': size})
 
         # check for y-range re-size
-        if (
-            (mx > vars['last_mx']) or (mn < vars['last_mn'])
-            and not chart._static_yrange == 'axis'
-            and liv
-        ):
-            main_vb = chart.view
+        if (mx > vars['last_mx']) or (mn < vars['last_mn']):
+
+            # fast chart resize case
             if (
-                main_vb._ic is None
-                or not main_vb._ic.is_set()
+                liv
+                and not chart._static_yrange == 'axis'
             ):
-                # print(f'updating range due to mxmn')
-                main_vb._set_yrange(
-                    # TODO: we should probably scale
-                    # the view margin based on the size
-                    # of the true range? This way you can
-                    # slap in orders outside the current
-                    # L1 (only) book range.
-                    # range_margin=0.1,
-                    yrange=(mn, mx),
-                )
+                main_vb = chart.view
+                if (
+                    main_vb._ic is None
+                    or not main_vb._ic.is_set()
+                ):
+                    # print(f'updating range due to mxmn')
+                    main_vb._set_yrange(
+                        # TODO: we should probably scale
+                        # the view margin based on the size
+                        # of the true range? This way you can
+                        # slap in orders outside the current
+                        # L1 (only) book range.
+                        # range_margin=0.1,
+                        yrange=(mn, mx),
+                    )
+
+            # check if slow chart needs a resize
+            (
+                _,
+                hist_liv,
+                _,
+                _,
+                _,
+                _,
+            ) = ds.incr_info(
+                chart=hist_chart,
+                shm=ds.hist_ohlcv,
+                update_state=False,
+            )
+            if hist_liv:
+                hist_chart.view._set_yrange(yrange=hist_chart.maxmin())
 
         # XXX: update this every draw cycle to make L1-always-in-view work.
         vars['last_mx'], vars['last_mn'] = mx, mn
@@ -719,15 +847,17 @@ async def display_symbol_data(
         tick_throttle=_quote_throttle_rate,
 
     ) as feed:
-        ohlcv: ShmArray = feed.shm
-        bars = ohlcv.array
+        ohlcv: ShmArray = feed.rt_shm
+        hist_ohlcv: ShmArray = feed.hist_shm
+
+        # this value needs to be pulled once and only once during
+        # startup
+        end_index = feed.startup_hist_index
+
         symbol = feed.symbols[sym]
         fqsn = symbol.front_fqsn()
 
-        times = bars['time']
-        end = pendulum.from_timestamp(times[-1])
-        start = pendulum.from_timestamp(times[times != times[-1]][-1])
-        step_size_s = (end - start).seconds
+        step_size_s = 1
         tf_key = tf_in_1s[step_size_s]
 
         # load in symbol's ohlc data
@@ -737,50 +867,157 @@ async def display_symbol_data(
             f'step:{tf_key} '
         )
 
-        linked = godwidget.linkedsplits
-        linked._symbol = symbol
+        rt_linked = godwidget.rt_linked
+        rt_linked._symbol = symbol
+
+        # create top history view chart above the "main rt chart".
+        hist_linked = godwidget.hist_linked
+        hist_linked._symbol = symbol
+        hist_chart = hist_linked.plot_ohlc_main(
+            symbol,
+            feed.hist_shm,
+            # in the case of history chart we explicitly set `False`
+            # to avoid internal pane creation.
+            # sidepane=False,
+            sidepane=godwidget.search,
+        )
+        # don't show when not focussed
+        hist_linked.cursor.always_show_xlabel = False
 
         # generate order mode side-pane UI
         # A ``FieldsForm`` form to configure order entry
+        # and add as next-to-y-axis singleton pane
         pp_pane: FieldsForm = mk_order_pane_layout(godwidget)
-
-        # add as next-to-y-axis singleton pane
         godwidget.pp_pane = pp_pane
 
         # create main OHLC chart
-        chart = linked.plot_ohlc_main(
+        chart = rt_linked.plot_ohlc_main(
             symbol,
             ohlcv,
+            # in the case of history chart we explicitly set `False`
+            # to avoid internal pane creation.
             sidepane=pp_pane,
         )
-        chart.default_view()
+
         chart._feeds[symbol.key] = feed
         chart.setFocus()
 
+        # XXX: FOR SOME REASON THIS IS CAUSING HANGZ!?!
         # plot historical vwap if available
         wap_in_history = False
+        # if (
+        #     brokermod._show_wap_in_history
+        #     and 'bar_wap' in bars.dtype.fields
+        # ):
+        #     wap_in_history = True
+        #     chart.draw_curve(
+        #         name='bar_wap',
+        #         shm=ohlcv,
+        #         color='default_light',
+        #         add_label=False,
+        #     )
 
-        # XXX: FOR SOME REASON THIS IS CAUSING HANGZ!?!
-        # if brokermod._show_wap_in_history:
+        # Add the LinearRegionItem to the ViewBox, but tell the ViewBox
+        # to exclude this item when doing auto-range calculations.
+        rt_pi = chart.plotItem
+        hist_pi = hist_chart.plotItem
+        region = pg.LinearRegionItem(
+            # color scheme that matches sidepane styling
+            pen=pg.mkPen(hcolor('gunmetal')),
+            brush=pg.mkBrush(hcolor('default_darkest')),
+        )
+        region.setZValue(10)  # put linear region "in front" in layer terms
+        hist_pi.addItem(region, ignoreBounds=True)
+        flow = chart._flows[hist_chart.name]
+        assert flow
+        # XXX: no idea why this doesn't work but it's causing
+        # a weird placement of the region on the way-far-left..
+        # region.setClipItem(flow.graphics)
 
-        #     if 'bar_wap' in bars.dtype.fields:
-        #         wap_in_history = True
-        #         chart.draw_curve(
-        #             name='bar_wap',
-        #             shm=ohlcv,
-        #             color='default_light',
-        #             add_label=False,
-        #         )
+        # poll for datums load and timestep detection
+        for _ in range(100):
+            try:
+                _, _, ratio = feed.get_ds_info()
+                break
+            except IndexError:
+                await trio.sleep(0.01)
+                continue
+        else:
+            raise RuntimeError(
+                'Failed to detect sampling periods from shm!?')
 
-        # size view to data once at outset
-        chart.cv._set_yrange()
+        def update_pi_from_region():
+            region.setZValue(10)
+            mn, mx = region.getRegion()
+            # print(f'region_x: {(mn, mx)}')
+
+            # XXX: seems to cause a real perf hit?
+            rt_pi.setXRange(
+                (mn - end_index) * ratio,
+                (mx - end_index) * ratio,
+                padding=0,
+            )
+
+        region.sigRegionChanged.connect(update_pi_from_region)
+
+        def update_region_from_pi(
+            window,
+            viewRange: tuple[tuple, tuple],
+            is_manual: bool = True,
+
+        ) -> None:
+            # set the region on the history chart
+            # to the range currently viewed in the
+            # HFT/real-time chart.
+            mn, mx = viewRange[0]
+            ds_mn = mn/ratio
+            ds_mx = mx/ratio
+            # print(
+            #     f'rt_view_range: {(mn, mx)}\n'
+            #     f'ds_mn, ds_mx: {(ds_mn, ds_mx)}\n'
+            # )
+            lhmn = ds_mn + end_index
+            lhmx = ds_mx + end_index
+            region.setRegion((
+                lhmn,
+                lhmx,
+            ))
+
+            # TODO: if we want to have the slow chart adjust range to
+            # match the fast chart's selection -> results in the
+            # linear region expansion never can go "outside of view".
+            # hmn, hmx = hvr = hist_chart.view.state['viewRange'][0]
+            # print((hmn, hmx))
+            # if (
+            #     hvr
+            #     and (lhmn < hmn or lhmx > hmx)
+            # ):
+            #     hist_pi.setXRange(
+            #         lhmn,
+            #         lhmx,
+            #         padding=0,
+            #     )
+            #     hist_linked.graphics_cycle()
+
+        # connect region to be updated on plotitem interaction.
+        rt_pi.sigRangeChanged.connect(update_region_from_pi)
 
         # NOTE: we must immediately tell Qt to show the OHLC chart
         # to avoid a race where the subplots get added/shown to
         # the linked set *before* the main price chart!
-        linked.show()
-        linked.focus()
+        rt_linked.show()
+        rt_linked.focus()
         await trio.sleep(0)
+
+        # NOTE: here we insert the slow-history chart set into
+        # the fast chart's splitter -> so it's a splitter of charts
+        # inside the first widget slot of a splitter of charts XD
+        rt_linked.splitter.insertWidget(0, hist_linked)
+        # XXX: if we wanted it at the bottom?
+        # rt_linked.splitter.addWidget(hist_linked)
+        rt_linked.focus()
+
+        godwidget.resize_all()
 
         vlm_chart: Optional[ChartPlotWidget] = None
         async with trio.open_nursery() as ln:
@@ -792,7 +1029,7 @@ async def display_symbol_data(
             ):
                 vlm_chart = await ln.start(
                     open_vlm_displays,
-                    linked,
+                    rt_linked,
                     ohlcv,
                 )
 
@@ -800,7 +1037,7 @@ async def display_symbol_data(
             # from an input config.
             ln.start_soon(
                 start_fsp_displays,
-                linked,
+                rt_linked,
                 ohlcv,
                 loading_sym_key,
                 loglevel,
@@ -809,39 +1046,73 @@ async def display_symbol_data(
             # start graphics update loop after receiving first live quote
             ln.start_soon(
                 graphics_update_loop,
-                linked,
-                feed.stream,
-                ohlcv,
+                ln,
+                godwidget,
+                feed,
                 wap_in_history,
                 vlm_chart,
             )
 
+            await trio.sleep(0)
+
+            # size view to data prior to order mode init
+            chart.default_view()
+            rt_linked.graphics_cycle()
+            await trio.sleep(0)
+
+            hist_chart.default_view(
+                bars_from_y=int(len(hist_ohlcv.array)),  # size to data
+                y_offset=6116*2,  # push it a little away from the y-axis
+            )
+            hist_linked.graphics_cycle()
+            await trio.sleep(0)
+
+            godwidget.resize_all()
+
+            mode: OrderMode
             async with (
                 open_order_mode(
                     feed,
-                    chart,
+                    godwidget,
                     fqsn,
                     order_mode_started
-                )
+                ) as mode
             ):
                 if not vlm_chart:
+                    # trigger another view reset if no sub-chart
                     chart.default_view()
+
+                rt_linked.mode = mode
 
                 # let Qt run to render all widgets and make sure the
                 # sidepanes line up vertically.
                 await trio.sleep(0)
-                linked.resize_sidepanes()
 
+                # dynamic resize steps
+                godwidget.resize_all()
+
+                # TODO: look into this because not sure why it was
+                # commented out / we ever needed it XD
                 # NOTE: we pop the volume chart from the subplots set so
                 # that it isn't double rendered in the display loop
                 # above since we do a maxmin calc on the volume data to
                 # determine if auto-range adjustements should be made.
-                # linked.subplots.pop('volume', None)
+                # rt_linked.subplots.pop('volume', None)
 
                 # TODO: make this not so shit XD
                 # close group status
                 sbar._status_groups[loading_sym_key][1]()
 
+                hist_linked.graphics_cycle()
+                await trio.sleep(0)
+
+                bars_in_mem = int(len(hist_ohlcv.array))
+                hist_chart.default_view(
+                    bars_from_y=bars_in_mem,  # size to data
+                    # push it 1/16th away from the y-axis
+                    y_offset=round(bars_in_mem / 16),
+                )
+                godwidget.resize_all()
+
                 # let the app run.. bby
-                # linked.graphics_cycle()
                 await trio.sleep_forever()

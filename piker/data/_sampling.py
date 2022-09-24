@@ -37,6 +37,9 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
+_default_delay_s: float = 1.0
+
+
 class sampler:
     '''
     Global sampling engine registry.
@@ -104,14 +107,18 @@ async def increment_ohlc_buffer(
             # TODO: do we want to support dynamically
             # adding a "lower" lowest increment period?
             await trio.sleep(ad)
-            total_s += lowest
+            total_s += delay_s
 
             # increment all subscribed shm arrays
             # TODO:
             # - this in ``numba``
             # - just lookup shms for this step instead of iterating?
-            for delay_s, shms in sampler.ohlcv_shms.items():
-                if total_s % delay_s != 0:
+            for this_delay_s, shms in sampler.ohlcv_shms.items():
+
+                # short-circuit on any not-ready because slower sample
+                # rate consuming shm buffers.
+                if total_s % this_delay_s != 0:
+                    # print(f'skipping `{this_delay_s}s` sample update')
                     continue
 
                 # TODO: ``numba`` this!
@@ -130,7 +137,7 @@ async def increment_ohlc_buffer(
                     # this copies non-std fields (eg. vwap) from the last datum
                     last[
                         ['time', 'volume', 'open', 'high', 'low', 'close']
-                    ][0] = (t + delay_s, 0, close, close, close, close)
+                    ][0] = (t + this_delay_s, 0, close, close, close, close)
 
                     # write to the buffer
                     shm.push(last)
@@ -152,7 +159,6 @@ async def broadcast(
 
     '''
     subs = sampler.subscribers.get(delay_s, ())
-
     first = last = -1
 
     if shm is None:
@@ -221,7 +227,8 @@ async def iter_ohlc_periods(
 async def sample_and_broadcast(
 
     bus: _FeedsBus,  # noqa
-    shm: ShmArray,
+    rt_shm: ShmArray,
+    hist_shm: ShmArray,
     quote_stream: trio.abc.ReceiveChannel,
     brokername: str,
     sum_tick_vlm: bool = True,
@@ -257,41 +264,45 @@ async def sample_and_broadcast(
 
                     last = tick['price']
 
-                    # update last entry
-                    # benchmarked in the 4-5 us range
-                    o, high, low, v = shm.array[-1][
-                        ['open', 'high', 'low', 'volume']
-                    ]
+                    # more compact inline-way to do this assignment
+                    # to both buffers?
+                    for shm in [rt_shm, hist_shm]:
+                        # update last entry
+                        # benchmarked in the 4-5 us range
+                        # for shm in [rt_shm, hist_shm]:
+                        o, high, low, v = shm.array[-1][
+                            ['open', 'high', 'low', 'volume']
+                        ]
 
-                    new_v = tick.get('size', 0)
+                        new_v = tick.get('size', 0)
 
-                    if v == 0 and new_v:
-                        # no trades for this bar yet so the open
-                        # is also the close/last trade price
-                        o = last
+                        if v == 0 and new_v:
+                            # no trades for this bar yet so the open
+                            # is also the close/last trade price
+                            o = last
 
-                    if sum_tick_vlm:
-                        volume = v + new_v
-                    else:
-                        # presume backend takes care of summing
-                        # it's own vlm
-                        volume = quote['volume']
+                        if sum_tick_vlm:
+                            volume = v + new_v
+                        else:
+                            # presume backend takes care of summing
+                            # it's own vlm
+                            volume = quote['volume']
 
-                    shm.array[[
-                        'open',
-                        'high',
-                        'low',
-                        'close',
-                        'bar_wap',  # can be optionally provided
-                        'volume',
-                    ]][-1] = (
-                        o,
-                        max(high, last),
-                        min(low, last),
-                        last,
-                        quote.get('bar_wap', 0),
-                        volume,
-                    )
+                        shm.array[[
+                            'open',
+                            'high',
+                            'low',
+                            'close',
+                            'bar_wap',  # can be optionally provided
+                            'volume',
+                        ]][-1] = (
+                            o,
+                            max(high, last),
+                            min(low, last),
+                            last,
+                            quote.get('bar_wap', 0),
+                            volume,
+                        )
 
             # XXX: we need to be very cautious here that no
             # context-channel is left lingering which doesn't have

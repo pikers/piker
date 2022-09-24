@@ -32,16 +32,22 @@ def mk_marker_path(
     style: str,
 
 ) -> QGraphicsPathItem:
-    """Add a marker to be displayed on the line wrapped in a ``QGraphicsPathItem``
-    ready to be placed using scene coordinates (not view).
+    '''
+    Add a marker to be displayed on the line wrapped in
+    a ``QGraphicsPathItem`` ready to be placed using scene coordinates
+    (not view).
 
     **Arguments**
     style        String indicating the style of marker to add:
                   ``'<|'``, ``'|>'``, ``'>|'``, ``'|<'``, ``'<|>'``,
                   ``'>|<'``, ``'^'``, ``'v'``, ``'o'``
-    size          Size of the marker in pixels.
 
-    """
+    This code is taken nearly verbatim from the
+    `InfiniteLine.addMarker()` method but does not attempt do be aware
+    of low(er) level graphics controls and expects for the output
+    polygon to be applied to a ``QGraphicsPathItem``.
+
+    '''
     path = QtGui.QPainterPath()
 
     if style == 'o':
@@ -87,7 +93,8 @@ def mk_marker_path(
 
 
 class LevelMarker(QGraphicsPathItem):
-    '''An arrow marker path graphich which redraws itself
+    '''
+    An arrow marker path graphich which redraws itself
     to the specified view coordinate level on each paint cycle.
 
     '''
@@ -114,6 +121,7 @@ class LevelMarker(QGraphicsPathItem):
 
         self.get_level = get_level
         self._on_paint = on_paint
+
         self.scene_x = lambda: chart.marker_right_points()[1]
         self.level: float = 0
         self.keep_in_view = keep_in_view
@@ -149,12 +157,9 @@ class LevelMarker(QGraphicsPathItem):
     def w(self) -> float:
         return self.path_br().width()
 
-    def position_in_view(
-        self,
-        # level: float,
-
-    ) -> None:
-        '''Show a pp off-screen indicator for a level label.
+    def position_in_view(self) -> None:
+        '''
+        Show a pp off-screen indicator for a level label.
 
         This is like in fps games where you have a gps "nav" indicator
         but your teammate is outside the range of view, except in 2D, on
@@ -162,7 +167,6 @@ class LevelMarker(QGraphicsPathItem):
 
         '''
         level = self.get_level()
-
         view = self.chart.getViewBox()
         vr = view.state['viewRange']
         ymn, ymx = vr[1]
@@ -186,7 +190,6 @@ class LevelMarker(QGraphicsPathItem):
             )
 
         elif level < ymn:  # pin to bottom of view
-
             self.setPos(
                 QPointF(
                     x,
@@ -211,7 +214,8 @@ class LevelMarker(QGraphicsPathItem):
         w: QtWidgets.QWidget
 
     ) -> None:
-        '''Core paint which we override to always update
+        '''
+        Core paint which we override to always update
         our marker position in scene coordinates from a
         view cooridnate "level".
 
@@ -235,11 +239,12 @@ def qgo_draw_markers(
     right_offset: float,
 
 ) -> float:
-    """Paint markers in ``pg.GraphicsItem`` style by first
+    '''
+    Paint markers in ``pg.GraphicsItem`` style by first
     removing the view transform for the painter, drawing the markers
     in scene coords, then restoring the view coords.
 
-    """
+    '''
     # paint markers in native coordinate system
     orig_tr = p.transform()
 

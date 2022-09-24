@@ -141,13 +141,16 @@ async def handle_viewmode_kb_inputs(
                     Qt.Key_Space,
                 }
             ):
-                view._chart.linked.godwidget.search.focus()
+                godw = view._chart.linked.godwidget
+                godw.hist_linked.resize_sidepanes(from_linked=godw.rt_linked)
+                godw.search.focus()
 
             # esc and ctrl-c
             if key == Qt.Key_Escape or (ctrl and key == Qt.Key_C):
                 # ctrl-c as cancel
                 # https://forum.qt.io/topic/532/how-to-catch-ctrl-c-on-a-widget/9
                 view.select_box.clear()
+                view.linked.focus()
 
             # cancel order or clear graphics
             if key == Qt.Key_C or key == Qt.Key_Delete:
@@ -178,17 +181,17 @@ async def handle_viewmode_kb_inputs(
             if key in pressed:
                 pressed.remove(key)
 
-        # QUERY/QUOTE MODE #
+        # QUERY/QUOTE MODE
+        # ----------------
         if {Qt.Key_Q}.intersection(pressed):
 
-            view.linkedsplits.cursor.in_query_mode = True
+            view.linked.cursor.in_query_mode = True
 
         else:
-            view.linkedsplits.cursor.in_query_mode = False
+            view.linked.cursor.in_query_mode = False
 
         # SELECTION MODE
         # --------------
-
         if shift:
             if view.state['mouseMode'] == ViewBox.PanMode:
                 view.setMouseMode(ViewBox.RectMode)
@@ -209,14 +212,22 @@ async def handle_viewmode_kb_inputs(
 
         # ORDER MODE
         # ----------
-
         # live vs. dark trigger + an action {buy, sell, alert}
         order_keys_pressed = ORDER_MODE.intersection(pressed)
 
         if order_keys_pressed:
 
-            # show the pp size label
-            order_mode.current_pp.show()
+            # TODO: it seems like maybe the composition should be
+            # reversed here? Like, maybe we should have the nav have
+            # access to the pos state and then make encapsulated logic
+            # that shows the right stuff on screen instead or order mode
+            # and position-related abstractions doing this?
+
+            # show the pp size label only if there is
+            # a non-zero pos existing
+            tracker = order_mode.current_pp
+            if tracker.live_pp.size:
+                tracker.nav.show()
 
             # TODO: show pp config mini-params in status bar widget
             # mode.pp_config.show()
@@ -257,8 +268,8 @@ async def handle_viewmode_kb_inputs(
                 Qt.Key_S in pressed or
                 order_keys_pressed or
                 Qt.Key_O in pressed
-            ) and
-            key in NUMBER_LINE
+            )
+            and key in NUMBER_LINE
         ):
             # hot key to set order slots size.
             # change edit field to current number line value,
@@ -276,7 +287,7 @@ async def handle_viewmode_kb_inputs(
         else:  # none active
 
             # hide pp label
-            order_mode.current_pp.hide_info()
+            order_mode.current_pp.nav.hide_info()
 
             # if none are pressed, remove "staged" level
             # line under cursor position
@@ -373,7 +384,7 @@ class ChartView(ViewBox):
             y=True,
         )
 
-        self.linkedsplits = None
+        self.linked = None
         self._chart: 'ChartPlotWidget' = None  # noqa
 
         # add our selection box annotator
@@ -484,7 +495,7 @@ class ChartView(ViewBox):
         else:
             mask = self.state['mouseEnabled'][:]
 
-        chart = self.linkedsplits.chart
+        chart = self.linked.chart
 
         # don't zoom more then the min points setting
         l, lbar, rbar, r = chart.bars_range()
@@ -919,7 +930,7 @@ class ChartView(ViewBox):
 
         # TODO: a faster single-loop-iterator way of doing this XD
         chart = self._chart
-        linked = self.linkedsplits
+        linked = self.linked
         plots = linked.subplots | {chart.name: chart}
         for chart_name, chart in plots.items():
             for name, flow in chart._flows.items():

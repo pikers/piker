@@ -18,9 +18,14 @@
 Lines for orders, alerts, L2.
 
 """
+from __future__ import annotations
 from functools import partial
 from math import floor
-from typing import Optional, Callable
+from typing import (
+    Optional,
+    Callable,
+    TYPE_CHECKING,
+)
 
 import pyqtgraph as pg
 from pyqtgraph import Point, functions as fn
@@ -36,6 +41,9 @@ from ._anchors import (
 from ..calc import humanize
 from ._label import Label
 from ._style import hcolor, _font
+
+if TYPE_CHECKING:
+    from ._cursor import Cursor
 
 
 # TODO: probably worth investigating if we can
@@ -84,7 +92,7 @@ class LevelLine(pg.InfiniteLine):
 
         self._marker = None
         self.only_show_markers_on_hover = only_show_markers_on_hover
-        self.show_markers: bool = True  # presuming the line is hovered at init
+        self.track_marker_pos: bool = False
 
         # should line go all the way to far end or leave a "margin"
         # space for other graphics (eg. L1 book)
@@ -121,6 +129,9 @@ class LevelLine(pg.InfiniteLine):
 
         self._y_incr_mult = 1 / chart.linked.symbol.tick_size
         self._right_end_sc: float = 0
+
+        # use px caching
+        self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
     def txt_offsets(self) -> tuple[int, int]:
         return 0, 0
@@ -216,20 +227,23 @@ class LevelLine(pg.InfiniteLine):
         y: float
 
     ) -> None:
-        '''Chart coordinates cursor tracking callback.
+        '''
+        Chart coordinates cursor tracking callback.
 
         this is called by our ``Cursor`` type once this line is set to
         track the cursor: for every movement this callback is invoked to
         reposition the line with the current view coordinates.
+
         '''
         self.movable = True
         self.set_level(y)  # implictly calls reposition handler
 
     def mouseDragEvent(self, ev):
-        """Override the ``InfiniteLine`` handler since we need more
+        '''
+        Override the ``InfiniteLine`` handler since we need more
         detailed control and start end signalling.
 
-        """
+        '''
         cursor = self._chart.linked.cursor
 
         # hide y-crosshair
@@ -281,10 +295,20 @@ class LevelLine(pg.InfiniteLine):
             # show y-crosshair again
             cursor.show_xhair()
 
-    def delete(self) -> None:
-        """Remove this line from containing chart/view/scene.
+    def get_cursor(self) -> Optional[Cursor]:
 
-        """
+        chart = self._chart
+        cur = chart.linked.cursor
+        if self in cur._hovered:
+            return cur
+
+        return None
+
+    def delete(self) -> None:
+        '''
+        Remove this line from containing chart/view/scene.
+
+        '''
         scene = self.scene()
         if scene:
             for label in self._labels:
@@ -298,9 +322,8 @@ class LevelLine(pg.InfiniteLine):
 
         # remove from chart/cursor states
         chart = self._chart
-        cur = chart.linked.cursor
-
-        if self in cur._hovered:
+        cur = self.get_cursor()
+        if cur:
             cur._hovered.remove(self)
 
         chart.plotItem.removeItem(self)
@@ -308,8 +331,8 @@ class LevelLine(pg.InfiniteLine):
     def mouseDoubleClickEvent(
         self,
         ev: QtGui.QMouseEvent,
-    ) -> None:
 
+    ) -> None:
         # TODO: enter labels edit mode
         print(f'double click {ev}')
 
@@ -334,30 +357,22 @@ class LevelLine(pg.InfiniteLine):
 
         line_end, marker_right, r_axis_x = self._chart.marker_right_points()
 
-        if self.show_markers and self.markers:
-
-            p.setPen(self.pen)
-            qgo_draw_markers(
-                self.markers,
-                self.pen.color(),
-                p,
-                vb_left,
-                vb_right,
-                marker_right,
-            )
-            # marker_size = self.markers[0][2]
-            self._maxMarkerSize = max([m[2] / 2. for m in self.markers])
-
-        # this seems slower when moving around
-        # order lines.. not sure wtf is up with that.
-        # for now we're just using it on the position line.
-        elif self._marker:
+        # (legacy) NOTE: at one point this seemed slower when moving around
+        # order lines.. not sure if that's still true or why but we've
+        # dropped the original hacky `.pain()` transform stuff for inf
+        # line markers now - check the git history if it needs to be
+        # reverted.
+        if self._marker:
+            if self.track_marker_pos:
+                # make the line end at the marker's x pos
+                line_end = marker_right = self._marker.pos().x()
 
             # TODO: make this label update part of a scene-aware-marker
             # composed annotation
             self._marker.setPos(
                 QPointF(marker_right, self.scene_y())
             )
+
             if hasattr(self._marker, 'label'):
                 self._marker.label.update()
 
@@ -379,16 +394,14 @@ class LevelLine(pg.InfiniteLine):
 
     def hide(self) -> None:
         super().hide()
-        if self._marker:
-            self._marker.hide()
-            # needed for ``order_line()`` lines currently
-            self._marker.label.hide()
+        mkr = self._marker
+        if mkr:
+            mkr.hide()
 
     def show(self) -> None:
         super().show()
         if self._marker:
             self._marker.show()
-            # self._marker.label.show()
 
     def scene_y(self) -> float:
         return self.getViewBox().mapFromView(
@@ -433,17 +446,16 @@ class LevelLine(pg.InfiniteLine):
         cur = self._chart.linked.cursor
 
         # hovered
-        if (not ev.isExit()) and ev.acceptDrags(QtCore.Qt.LeftButton):
-
+        if (
+            not ev.isExit()
+            and ev.acceptDrags(QtCore.Qt.LeftButton)
+        ):
             # if already hovered we don't need to run again
             if self.mouseHovering is True:
                 return
 
             if self.only_show_markers_on_hover:
-                self.show_markers = True
-
-                if self._marker:
-                    self._marker.show()
+                self.show_markers()
 
             # highlight if so configured
             if self.highlight_on_hover:
@@ -486,11 +498,7 @@ class LevelLine(pg.InfiniteLine):
             cur._hovered.remove(self)
 
             if self.only_show_markers_on_hover:
-                self.show_markers = False
-
-                if self._marker:
-                    self._marker.hide()
-                    self._marker.label.hide()
+                self.hide_markers()
 
             if self not in cur._trackers:
                 cur.show_xhair(y_label_level=self.value())
@@ -501,6 +509,15 @@ class LevelLine(pg.InfiniteLine):
             self.mouseHovering = False
 
         self.update()
+
+    def hide_markers(self) -> None:
+        if self._marker:
+            self._marker.hide()
+            self._marker.label.hide()
+
+    def show_markers(self) -> None:
+        if self._marker:
+            self._marker.show()
 
 
 def level_line(
@@ -522,9 +539,10 @@ def level_line(
     **kwargs,
 
 ) -> LevelLine:
-    """Convenience routine to add a styled horizontal line to a plot.
+    '''
+    Convenience routine to add a styled horizontal line to a plot.
 
-    """
+    '''
     hl_color = color + '_light' if highlight_on_hover else color
 
     line = LevelLine(
@@ -706,7 +724,7 @@ def order_line(
         marker = LevelMarker(
             chart=chart,
             style=marker_style,
-            get_level=line.value,
+            get_level=line.value,  # callback
             size=marker_size,
             keep_in_view=False,
         )
@@ -715,7 +733,8 @@ def order_line(
         marker = line.add_marker(marker)
 
         # XXX: DON'T COMMENT THIS!
-        # this fixes it the artifact issue! .. of course, bounding rect stuff
+        # this fixes it the artifact issue!
+        # .. of course, bounding rect stuff
         line._maxMarkerSize = marker_size
 
         assert line._marker is marker
@@ -736,7 +755,8 @@ def order_line(
 
         if action != 'alert':
 
-            # add a partial position label if we also added a level marker
+            # add a partial position label if we also added a level
+            # marker
             pp_size_label = Label(
                 view=view,
                 color=line.color,
@@ -770,9 +790,9 @@ def order_line(
             # XXX: without this the pp proportion label next the marker
             # seems to lag?  this is the same issue we had with position
             # lines which we handle with ``.update_graphcis()``.
-            # marker._on_paint=lambda marker: pp_size_label.update()
             marker._on_paint = lambda marker: pp_size_label.update()
 
+        # XXX: THIS IS AN UNTYPED MONKEY PATCH!?!?!
         marker.label = label
 
     # sanity check

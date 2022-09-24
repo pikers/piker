@@ -18,13 +18,19 @@
 Chart trading, the only way to scalp.
 
 """
+from __future__ import annotations
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from pprint import pformat
 import platform
 import time
-from typing import Optional, Dict, Callable, Any
+from typing import (
+    Optional,
+    Callable,
+    Any,
+    TYPE_CHECKING,
+)
 import uuid
 
 import tractor
@@ -60,6 +66,12 @@ from ..clearing._messages import (
 from ._forms import open_form_input_handling
 
 
+if TYPE_CHECKING:
+    from ._chart import (
+        ChartPlotWidget,
+        GodWidget,
+    )
+
 log = get_logger(__name__)
 
 
@@ -73,10 +85,10 @@ class Dialog(Struct):
     uuid: str
     order: Order
     symbol: Symbol
-    line: LevelLine
+    lines: list[LevelLine]
     last_status_close: Callable = lambda: None
     msgs: dict[str, dict] = {}
-    fills: Dict[str, Any] = {}
+    fills: dict[str, Any] = {}
 
 
 @dataclass
@@ -100,8 +112,11 @@ class OrderMode:
         mouse click and drag -> modify current order under cursor
 
     '''
-    chart: 'ChartPlotWidget'  #  type: ignore # noqa
-    nursery: trio.Nursery
+    godw: GodWidget
+    feed: Feed
+    chart: ChartPlotWidget  #  type: ignore # noqa
+    hist_chart: ChartPlotWidget  #  type: ignore # noqa
+    nursery: trio.Nursery  # used by ``ui._position`` code?
     quote_feed: Feed
     book: OrderBook
     lines: LineEditor
@@ -162,14 +177,15 @@ class OrderMode:
     def line_from_order(
         self,
         order: Order,
+        chart: Optional[ChartPlotWidget] = None,
         **line_kwargs,
 
     ) -> LevelLine:
 
         level = order.price
-        line = order_line(
 
-            self.chart,
+        line = order_line(
+            chart or self.chart,
             # TODO: convert these values into human-readable form
             # (i.e. with k, m, M, B) type embedded suffixes
             level=level,
@@ -211,24 +227,61 @@ class OrderMode:
 
         return line
 
+    def lines_from_order(
+        self,
+        order: Order,
+        **line_kwargs,
+
+    ) -> list[LevelLine]:
+
+        lines: list[LevelLine] = []
+        for chart, kwargs in [
+            (self.chart, {}),
+            (self.hist_chart, {'only_show_markers_on_hover': True}),
+        ]:
+            kwargs.update(line_kwargs)
+            line = self.line_from_order(
+                order=order,
+                chart=chart,
+                **kwargs,
+            )
+            lines.append(line)
+
+        return lines
+
     def stage_order(
         self,
 
         action: str,
         trigger_type: str,
 
-    ) -> None:
-        '''Stage an order for submission.
+    ) -> list[LevelLine]:
+        '''
+        Stage an order for submission by showing level lines and
+        configuring the order request message dynamically based on
+        allocator settings.
 
         '''
         # not initialized yet
-        chart = self.chart
-        cursor = chart.linked.cursor
-        if not (chart and cursor and cursor.active_plot):
+        cursor = self.godw.get_cursor()
+        if not cursor:
+            return
+
+        chart = cursor.linked.chart
+        if (
+            not chart
+            and cursor
+            and cursor.active_plot
+        ):
             return
 
         chart = cursor.active_plot
         price = cursor._datum_xy[1]
+        if not price:
+            # zero prices are not supported by any means
+            # since that's illogical / a no-op.
+            return
+
         symbol = self.chart.linked.symbol
 
         order = self._staged_order = Order(
@@ -242,26 +295,42 @@ class OrderMode:
             exec_mode=trigger_type,  # dark or live
         )
 
+        # TODO: staged line mirroring? - need to keep track of multiple
+        # staged lines in editor - need to call
+        # `LineEditor.unstage_line()` on all staged lines..
+        # lines = self.lines_from_order(
+
         line = self.line_from_order(
             order,
+            chart=chart,
             show_markers=True,
+
             # just for the stage line to avoid
             # flickering while moving the cursor
             # around where it might trigger highlight
             # then non-highlight depending on sensitivity
             always_show_labels=True,
+
             # don't highlight the "staging" line
             highlight_on_hover=False,
+
             # prevent flickering of marker while moving/tracking cursor
             only_show_markers_on_hover=False,
         )
-        line = self.lines.stage_line(line)
-
-        # hide crosshair y-line and label
-        cursor.hide_xhair()
+        self.lines.stage_line(line)
 
         # add line to cursor trackers
         cursor._trackers.add(line)
+
+        # TODO: see above about mirroring.
+        # for line in lines:
+        #     if line._chart is chart:
+        #         self.lines.stage_line(line)
+        #         cursor._trackers.add(line)
+        #         break
+
+        # hide crosshair y-line and label
+        cursor.hide_xhair()
 
         return line
 
@@ -285,13 +354,10 @@ class OrderMode:
 
         order.symbol = order.symbol.front_fqsn()
 
-        line = self.line_from_order(
+        lines = self.lines_from_order(
             order,
-
             show_markers=True,
-            only_show_markers_on_hover=True,
         )
-
         # register the "submitted" line under the cursor
         # to be displayed when above order ack arrives
         # (means the marker graphic doesn't show on screen until the
@@ -302,8 +368,8 @@ class OrderMode:
         # maybe place a grey line in "submission" mode
         # which will be updated to it's appropriate action
         # color once the submission ack arrives.
-        self.lines.submit_line(
-            line=line,
+        self.lines.submit_lines(
+            lines=lines,
             uuid=order.oid,
         )
 
@@ -311,24 +377,25 @@ class OrderMode:
             uuid=order.oid,
             order=order,
             symbol=order.symbol,
-            line=line,
+            lines=lines,
             last_status_close=self.multistatus.open_status(
                 f'submitting {order.exec_mode}-{order.action}',
                 final_msg=f'submitted {order.exec_mode}-{order.action}',
                 clear_on_next=True,
             )
         )
-
-        # TODO: create a new ``OrderLine`` with this optional var defined
-        line.dialog = dialog
-
         # enter submission which will be popped once a response
         # from the EMS is received to move the order to a different# status
         self.dialogs[order.oid] = dialog
 
-        # hook up mouse drag handlers
-        line._on_drag_start = self.order_line_modify_start
-        line._on_drag_end = self.order_line_modify_complete
+        for line in lines:
+
+            # TODO: create a new ``OrderLine`` with this optional var defined
+            line.dialog = dialog
+
+            # hook up mouse drag handlers
+            line._on_drag_start = self.order_line_modify_start
+            line._on_drag_end = self.order_line_modify_complete
 
         # send order cmd to ems
         if send_msg:
@@ -350,7 +417,7 @@ class OrderMode:
 
     ) -> None:
 
-        print(f'Line modify: {line}')
+        log.info(f'Order modify: {line}')
         # cancel original order until new position is found?
         # TODO: make a config option for this behaviour..
 
@@ -361,8 +428,9 @@ class OrderMode:
     ) -> None:
 
         level = line.value()
-        # updateb by level change callback set in ``.line_from_order()``
-        size = line.dialog.order.size
+        # updated by level change callback set in ``.line_from_order()``
+        dialog = line.dialog
+        size = dialog.order.size
 
         self.book.update(
             uuid=line.dialog.uuid,
@@ -370,8 +438,13 @@ class OrderMode:
             size=size,
         )
 
-    # ems response loop handlers
+        # adjust corresponding slow/fast chart line
+        # to match level
+        for ln in dialog.lines:
+            if ln is not line:
+                ln.set_level(line.value())
 
+    # EMS response msg handlers
     def on_submit(
         self,
         uuid: str
@@ -383,12 +456,17 @@ class OrderMode:
         Commit the order line and registered order uuid, store ack time stamp.
 
         '''
-        line = self.lines.commit_line(uuid)
+        lines = self.lines.commit_line(uuid)
 
         # a submission is the start of a new order dialog
         dialog = self.dialogs[uuid]
-        dialog.line = line
+        dialog.lines = lines
         dialog.last_status_close()
+
+        for line in lines:
+            # hide any lines not currently moused-over
+            if not line.get_cursor():
+                line.hide_labels()
 
         return dialog
 
@@ -415,17 +493,26 @@ class OrderMode:
 
         '''
         dialog = self.dialogs[uuid]
-        line = dialog.line
-        if line:
-            self.arrows.add(
-                uuid,
-                arrow_index,
-                price,
-                pointing=pointing,
-                color=line.color
-            )
+        lines = dialog.lines
+        # XXX: seems to fail on certain types of races?
+        # assert len(lines) == 2
+        if lines:
+            _, _, ratio = self.feed.get_ds_info()
+            for i, chart in [
+                (arrow_index, self.chart),
+                (self.feed.startup_hist_index + round(arrow_index/ratio),
+                 self.hist_chart)
+            ]:
+                self.arrows.add(
+                    chart.plotItem,
+                    uuid,
+                    i,
+                    price,
+                    pointing=pointing,
+                    color=lines[0].color
+                )
         else:
-            log.warn("No line for order {uuid}!?")
+            log.warn("No line(s) for order {uuid}!?")
 
     async def on_exec(
         self,
@@ -486,7 +573,8 @@ class OrderMode:
         )
 
     def cancel_all_orders(self) -> list[str]:
-        '''Cancel all orders for the current chart.
+        '''
+        Cancel all orders for the current chart.
 
         '''
         return self.cancel_orders_from_lines(
@@ -568,7 +656,7 @@ class OrderMode:
 async def open_order_mode(
 
     feed: Feed,
-    chart: 'ChartPlotWidget',  # noqa
+    godw: GodWidget,
     fqsn: str,
     started: trio.Event,
 
@@ -581,6 +669,9 @@ async def open_order_mode(
         state, mostly graphics / UI.
 
     '''
+    chart = godw.rt_linked.chart
+    hist_chart = godw.hist_linked.chart
+
     multistatus = chart.window().status_bar
     done = multistatus.open_status('starting order mode..')
 
@@ -606,11 +697,10 @@ async def open_order_mode(
 
     ):
         log.info(f'Opening order mode for {fqsn}')
-        view = chart.view
 
         # annotations editors
-        lines = LineEditor(chart=chart)
-        arrows = ArrowEditor(chart, {})
+        lines = LineEditor(godw=godw)
+        arrows = ArrowEditor(godw=godw)
 
         # symbol id
         symbol = chart.linked.symbol
@@ -663,11 +753,11 @@ async def open_order_mode(
             )
 
             pp_tracker = PositionTracker(
-                chart,
+                [chart, hist_chart],
                 alloc,
                 startup_pp
             )
-            pp_tracker.hide()
+            pp_tracker.nav.hide()
             trackers[account_name] = pp_tracker
 
             assert pp_tracker.startup_pp.size == pp_tracker.live_pp.size
@@ -679,8 +769,8 @@ async def open_order_mode(
 
             # on existing position, show pp tracking graphics
             if pp_tracker.startup_pp.size != 0:
-                pp_tracker.show()
-                pp_tracker.hide_info()
+                pp_tracker.nav.show()
+                pp_tracker.nav.hide_info()
 
         # setup order mode sidepane widgets
         form: FieldsForm = chart.sidepane
@@ -720,7 +810,10 @@ async def open_order_mode(
         # top level abstraction which wraps all this crazyness into
         # a namespace..
         mode = OrderMode(
+            godw,
+            feed,
             chart,
+            hist_chart,
             tn,
             feed,
             book,
@@ -737,8 +830,8 @@ async def open_order_mode(
         # select a pp to track
         tracker: PositionTracker = trackers[pp_account]
         mode.current_pp = tracker
-        tracker.show()
-        tracker.hide_info()
+        tracker.nav.show()
+        tracker.nav.hide_info()
 
         # XXX: would love to not have to do this separate from edit
         # fields (which are done in an async loop - see below)
@@ -754,13 +847,13 @@ async def open_order_mode(
             )
 
         # make fill bar and positioning snapshot
-        order_pane.on_ui_settings_change('limit', tracker.alloc.limit())
-        order_pane.update_status_ui(pp=tracker)
+        order_pane.update_status_ui(tracker)
 
         # TODO: create a mode "manager" of sorts?
         # -> probably just call it "UxModes" err sumthin?
         # so that view handlers can access it
-        view.order_mode = mode
+        chart.view.order_mode = mode
+        hist_chart.view.order_mode = mode
 
         order_pane.on_ui_settings_change('account', pp_account)
         mode.pane.display_pnl(mode.current_pp)
@@ -785,6 +878,7 @@ async def open_order_mode(
 
             # ``ChartView`` input async handler startup
             chart.view.open_async_input_handler(),
+            hist_chart.view.open_async_input_handler(),
 
             # pp pane kb inputs
             open_form_input_handling(

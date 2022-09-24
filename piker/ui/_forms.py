@@ -644,7 +644,7 @@ def mk_fill_status_bar(
 
     # TODO: calc this height from the ``ChartnPane``
     chart_h = round(parent_pane.height() * 5/8)
-    bar_h = chart_h * 0.375
+    bar_h = chart_h * 0.375*0.9
 
     # TODO: once things are sized to screen
     bar_label_font_size = label_font_size or _font.px_size - 2

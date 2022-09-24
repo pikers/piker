@@ -18,10 +18,11 @@
 Qt event proxying and processing using ``trio`` mem chans.
 
 """
-from contextlib import asynccontextmanager, AsyncExitStack
+from contextlib import asynccontextmanager as acm
 from typing import Callable
 
 import trio
+from tractor.trionics import gather_contexts
 from PyQt5 import QtCore
 from PyQt5.QtCore import QEvent, pyqtBoundSignal
 from PyQt5.QtWidgets import QWidget
@@ -155,7 +156,7 @@ class EventRelay(QtCore.QObject):
         return False
 
 
-@asynccontextmanager
+@acm
 async def open_event_stream(
 
     source_widget: QWidget,
@@ -181,7 +182,7 @@ async def open_event_stream(
         source_widget.removeEventFilter(kc)
 
 
-@asynccontextmanager
+@acm
 async def open_signal_handler(
 
     signal: pyqtBoundSignal,
@@ -206,7 +207,7 @@ async def open_signal_handler(
             yield
 
 
-@asynccontextmanager
+@acm
 async def open_handlers(
 
     source_widgets: list[QWidget],
@@ -215,16 +216,14 @@ async def open_handlers(
     **kwargs,
 
 ) -> None:
-
     async with (
         trio.open_nursery() as n,
-        AsyncExitStack() as stack,
+        gather_contexts([
+            open_event_stream(widget, event_types, **kwargs)
+            for widget in source_widgets
+        ]) as streams,
     ):
-        for widget in source_widgets:
-
-            event_recv_stream = await stack.enter_async_context(
-                open_event_stream(widget, event_types, **kwargs)
-            )
+        for widget, event_recv_stream in zip(source_widgets, streams):
             n.start_soon(async_handler, widget, event_recv_stream)
 
         yield

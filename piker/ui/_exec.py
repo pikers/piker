@@ -20,13 +20,16 @@ Trio - Qt integration
 Run ``trio`` in guest mode on top of the Qt event loop.
 All global Qt runtime settings are mostly defined here.
 """
-from typing import Tuple, Callable, Dict, Any
+from typing import (
+    Callable,
+    Any,
+    Type,
+)
 import platform
 import traceback
 
 # Qt specific
 import PyQt5  # noqa
-import pyqtgraph as pg
 from pyqtgraph import QtGui
 from PyQt5 import QtCore
 # from PyQt5.QtGui import QLabel, QStatusBar
@@ -37,7 +40,7 @@ from PyQt5.QtCore import (
 )
 import qdarkstyle
 from qdarkstyle import DarkPalette
-# import qdarkgraystyle
+# import qdarkgraystyle  # TODO: play with it
 import trio
 from outcome import Error
 
@@ -72,10 +75,11 @@ if platform.system() == "Windows":
 
 def run_qtractor(
     func: Callable,
-    args: Tuple,
-    main_widget: QtGui.QWidget,
-    tractor_kwargs: Dict[str, Any] = {},
+    args: tuple,
+    main_widget_type: Type[QtGui.QWidget],
+    tractor_kwargs: dict[str, Any] = {},
     window_type: QtGui.QMainWindow = None,
+
 ) -> None:
     # avoids annoying message when entering debugger from qt loop
     pyqtRemoveInputHook()
@@ -156,7 +160,7 @@ def run_qtractor(
     # hook into app focus change events
     app.focusChanged.connect(window.on_focus_change)
 
-    instance = main_widget()
+    instance = main_widget_type()
     instance.window = window
 
     # override tractor's defaults
@@ -178,7 +182,7 @@ def run_qtractor(
         # restrict_keyboard_interrupt_to_checkpoints=True,
     )
 
-    window.main_widget = main_widget
+    window.godwidget: GodWidget = instance
     window.setCentralWidget(instance)
     if is_windows:
         window.configure_to_desktop()

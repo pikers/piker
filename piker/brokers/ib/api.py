@@ -470,10 +470,14 @@ class Client:
 
         # TODO add search though our adhoc-locally defined symbol set
         # for futes/cmdtys/
-        results = await self.search_stocks(
-            pattern,
-            upto=upto,
-        )
+        try:
+            results = await self.search_stocks(
+                pattern,
+                upto=upto,
+            )
+        except ConnectionError:
+            return {}
+
         for key, deats in results.copy().items():
 
             tract = deats.contract

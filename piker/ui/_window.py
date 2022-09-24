@@ -21,7 +21,11 @@ Qt main window singletons and stuff.
 import os
 import signal
 import time
-from typing import Callable, Optional, Union
+from typing import (
+    Callable,
+    Optional,
+    Union,
+)
 import uuid
 
 from pyqtgraph import QtGui
@@ -30,6 +34,7 @@ from PyQt5.QtWidgets import QLabel, QStatusBar
 
 from ..log import get_logger
 from ._style import _font_small, hcolor
+from ._chart import GodWidget
 
 
 log = get_logger(__name__)
@@ -153,7 +158,8 @@ class MainWindow(QtGui.QMainWindow):
     # XXX: for tiling wms this should scale
     # with the alloted window size.
     # TODO: detect for tiling and if untrue set some size?
-    size = (300, 500)
+    # size = (300, 500)
+    godwidget: GodWidget
 
     title = 'piker chart (ur symbol is loading bby)'
 
@@ -161,6 +167,9 @@ class MainWindow(QtGui.QMainWindow):
         super().__init__(parent)
         # self.setMinimumSize(*self.size)
         self.setWindowTitle(self.title)
+
+        # set by runtime after `trio` is engaged.
+        self.godwidget: Optional[GodWidget] = None
 
         self._status_bar: QStatusBar = None
         self._status_label: QLabel = None
@@ -248,9 +257,10 @@ class MainWindow(QtGui.QMainWindow):
             self.set_mode_name(name)
 
     def current_screen(self) -> QtGui.QScreen:
-        """Get a frickin screen (if we can, gawd).
+        '''
+        Get a frickin screen (if we can, gawd).
 
-        """
+        '''
         app = QtGui.QApplication.instance()
 
         for _ in range(3):
@@ -284,13 +294,40 @@ class MainWindow(QtGui.QMainWindow):
         '''
         # https://stackoverflow.com/a/18975846
         if not size and not self._size:
-            app = QtGui.QApplication.instance()
+            # app = QtGui.QApplication.instance()
             geo = self.current_screen().geometry()
             h, w = geo.height(), geo.width()
             # use approx 1/3 of the area of the screen by default
             self._size = round(w * .666), round(h * .666)
 
         self.resize(*size or self._size)
+
+    def resizeEvent(self, event: QtCore.QEvent) -> None:
+        if (
+            # event.spontaneous()
+            event.oldSize().height == event.size().height
+        ):
+            event.ignore()
+            return
+
+        # XXX: uncomment for debugging..
+        # attrs = {}
+        # for key in dir(event):
+        #     if key == '__dir__':
+        #         continue
+        #     attr = getattr(event, key)
+        #     try:
+        #         attrs[key] = attr()
+        #     except TypeError:
+        #         attrs[key] = attr
+
+        # from pprint import pformat
+        # print(
+        #     f'{pformat(attrs)}\n'
+        #     f'WINDOW RESIZE: {self.size()}\n\n'
+        # )
+        self.godwidget.on_win_resize(event)
+        event.accept()
 
 
 # singleton app per actor

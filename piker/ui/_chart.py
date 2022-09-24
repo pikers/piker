@@ -19,7 +19,11 @@ High level chart-widget apis.
 
 '''
 from __future__ import annotations
-from typing import Optional, TYPE_CHECKING
+from typing import (
+    Iterator,
+    Optional,
+    TYPE_CHECKING,
+)
 
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtCore import (
@@ -68,6 +72,7 @@ from ._forms import FieldsForm
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._overlay import PlotItemOverlay
 from ._flows import Flow
+from ._search import SearchWidget
 
 if TYPE_CHECKING:
     from ._display import DisplayState
@@ -85,6 +90,9 @@ class GodWidget(QWidget):
     modify them.
 
     '''
+    search: SearchWidget
+    mode_name: str = 'god'
+
     def __init__(
 
         self,
@@ -93,6 +101,8 @@ class GodWidget(QWidget):
     ) -> None:
 
         super().__init__(parent)
+
+        self.search: Optional[SearchWidget] = None
 
         self.hbox = QHBoxLayout(self)
         self.hbox.setContentsMargins(0, 0, 0, 0)
@@ -115,13 +125,24 @@ class GodWidget(QWidget):
         # self.vbox.addLayout(self.hbox)
 
         self._chart_cache: dict[str, LinkedSplits] = {}
-        self.linkedsplits: Optional[LinkedSplits] = None
+
+        self.hist_linked: Optional[LinkedSplits] = None
+        self.rt_linked: Optional[LinkedSplits] = None
+        self._active_cursor: Optional[Cursor] = None
 
         # assigned in the startup func `_async_main()`
         self._root_n: trio.Nursery = None
 
         self._widgets: dict[str, QWidget] = {}
         self._resizing: bool = False
+
+        # TODO: do we need this, when would god get resized
+        # and the window does not? Never right?!
+        # self.reg_for_resize(self)
+
+    @property
+    def linkedsplits(self) -> LinkedSplits:
+        return self.rt_linked
 
     # def init_timeframes_ui(self):
     #     self.tf_layout = QHBoxLayout()
@@ -148,19 +169,19 @@ class GodWidget(QWidget):
     def set_chart_symbol(
         self,
         symbol_key: str,  # of form <fqsn>.<providername>
-        linkedsplits: LinkedSplits,  # type: ignore
+        all_linked: tuple[LinkedSplits, LinkedSplits],  # type: ignore
 
     ) -> None:
         # re-sort org cache symbol list in LIFO order
         cache = self._chart_cache
         cache.pop(symbol_key, None)
-        cache[symbol_key] = linkedsplits
+        cache[symbol_key] = all_linked
 
     def get_chart_symbol(
         self,
         symbol_key: str,
 
-    ) -> LinkedSplits:  # type: ignore
+    ) -> tuple[LinkedSplits, LinkedSplits]:  # type: ignore
         return self._chart_cache.get(symbol_key)
 
     async def load_symbol(
@@ -182,28 +203,33 @@ class GodWidget(QWidget):
 
         # fully qualified symbol name (SNS i guess is what we're making?)
         fqsn = '.'.join([symbol_key, providername])
-
-        linkedsplits = self.get_chart_symbol(fqsn)
-
+        all_linked = self.get_chart_symbol(fqsn)
         order_mode_started = trio.Event()
 
         if not self.vbox.isEmpty():
 
-            # XXX: this is CRITICAL especially with pixel buffer caching
-            self.linkedsplits.hide()
-            self.linkedsplits.unfocus()
+            # XXX: seems to make switching slower?
+            # qframe = self.hist_linked.chart.qframe
+            # if qframe.sidepane is self.search:
+            #     qframe.hbox.removeWidget(self.search)
 
-            # XXX: pretty sure we don't need this
-            # remove any existing plots?
-            # XXX: ahh we might want to support cache unloading..
-            # self.vbox.removeWidget(self.linkedsplits)
+            for linked in [self.rt_linked, self.hist_linked]:
+                # XXX: this is CRITICAL especially with pixel buffer caching
+                linked.hide()
+                linked.unfocus()
+
+                # XXX: pretty sure we don't need this
+                # remove any existing plots?
+                # XXX: ahh we might want to support cache unloading..
+                # self.vbox.removeWidget(linked)
 
         # switching to a new viewable chart
-        if linkedsplits is None or reset:
+        if all_linked is None or reset:
             from ._display import display_symbol_data
 
             # we must load a fresh linked charts set
-            linkedsplits = LinkedSplits(self)
+            self.rt_linked = rt_charts = LinkedSplits(self)
+            self.hist_linked = hist_charts = LinkedSplits(self)
 
             # spawn new task to start up and update new sub-chart instances
             self._root_n.start_soon(
@@ -215,44 +241,70 @@ class GodWidget(QWidget):
                 order_mode_started,
             )
 
-            self.set_chart_symbol(fqsn, linkedsplits)
-            self.vbox.addWidget(linkedsplits)
+            # self.vbox.addWidget(hist_charts)
+            self.vbox.addWidget(rt_charts)
+            self.set_chart_symbol(
+                fqsn,
+                (hist_charts, rt_charts),
+            )
 
-            linkedsplits.show()
-            linkedsplits.focus()
+            for linked in [hist_charts, rt_charts]:
+                linked.show()
+                linked.focus()
+
             await trio.sleep(0)
 
         else:
             # symbol is already loaded and ems ready
             order_mode_started.set()
 
-            # TODO:
-            # - we'll probably want per-instrument/provider state here?
-            #   change the order config form over to the new chart
+            self.hist_linked, self.rt_linked = all_linked
 
-            # chart is already in memory so just focus it
-            linkedsplits.show()
-            linkedsplits.focus()
-            linkedsplits.graphics_cycle()
+            for linked in all_linked:
+                # TODO:
+                # - we'll probably want per-instrument/provider state here?
+                #   change the order config form over to the new chart
+
+                # chart is already in memory so just focus it
+                linked.show()
+                linked.focus()
+                linked.graphics_cycle()
+                await trio.sleep(0)
+
+                # resume feeds *after* rendering chart view asap
+                chart = linked.chart
+                if chart:
+                    chart.resume_all_feeds()
+
+            # TODO: we need a check to see if the chart
+            # last had the xlast in view, if so then shift so it's
+            # still in view, if the user was viewing history then
+            # do nothing yah?
+            self.rt_linked.chart.default_view()
+
+        # if a history chart instance is already up then
+        # set the search widget as its sidepane.
+        hist_chart = self.hist_linked.chart
+        if hist_chart:
+            hist_chart.qframe.set_sidepane(self.search)
+
+            # NOTE: this is really stupid/hard to follow.
+            # we have to reposition the active position nav
+            # **AFTER** applying the search bar as a sidepane
+            # to the newly switched to symbol.
             await trio.sleep(0)
 
-            # XXX: since the pp config is a singleton widget we have to
-            # also switch it over to the new chart's interal-layout
-            # self.linkedsplits.chart.qframe.hbox.removeWidget(self.pp_pane)
-            chart = linkedsplits.chart
+            # TODO: probably stick this in some kinda `LooknFeel` API?
+            for tracker in self.rt_linked.mode.trackers.values():
+                pp_nav = tracker.nav
+                if tracker.live_pp.size:
+                    pp_nav.show()
+                    pp_nav.hide_info()
+                else:
+                    pp_nav.hide()
 
-            # resume feeds *after* rendering chart view asap
-            if chart:
-                chart.resume_all_feeds()
-
-                # TODO: we need a check to see if the chart
-                # last had the xlast in view, if so then shift so it's
-                # still in view, if the user was viewing history then
-                # do nothing yah?
-                chart.default_view()
-
-        self.linkedsplits = linkedsplits
-        symbol = linkedsplits.symbol
+        # set window titlebar info
+        symbol = self.rt_linked.symbol
         if symbol is not None:
             self.window.setWindowTitle(
                 f'{symbol.front_fqsn()} '
@@ -269,11 +321,23 @@ class GodWidget(QWidget):
         '''
         # go back to view-mode focus (aka chart focus)
         self.clearFocus()
-        self.linkedsplits.chart.setFocus()
+        chart = self.rt_linked.chart
+        if chart:
+            chart.setFocus()
 
-    def resizeEvent(self, event: QtCore.QEvent) -> None:
+    def reg_for_resize(
+        self,
+        widget: QWidget,
+    ) -> None:
+        getattr(widget, 'on_resize')
+        self._widgets[widget.mode_name] = widget
+
+    def on_win_resize(self, event: QtCore.QEvent) -> None:
         '''
-        Top level god widget resize handler.
+        Top level god widget handler from window (the real yaweh) resize
+        events such that any registered widgets which wish to be
+        notified are invoked using our pythonic `.on_resize()` method
+        api.
 
         Where we do UX magic to make things not suck B)
 
@@ -289,6 +353,28 @@ class GodWidget(QWidget):
 
         self._resizing = False
 
+    # on_resize = on_win_resize
+
+    def get_cursor(self) -> Cursor:
+        return self._active_cursor
+
+    def iter_linked(self) -> Iterator[LinkedSplits]:
+        for linked in [self.hist_linked, self.rt_linked]:
+            yield linked
+
+    def resize_all(self) -> None:
+        '''
+        Dynamic resize sequence: adjusts all sub-widgets/charts to
+        sensible default ratios of what space is detected as available
+        on the display / window.
+
+        '''
+        rt_linked = self.rt_linked
+        rt_linked.set_split_sizes()
+        self.rt_linked.resize_sidepanes()
+        self.hist_linked.resize_sidepanes(from_linked=rt_linked)
+        self.search.on_resize()
+
 
 class ChartnPane(QFrame):
     '''
@@ -301,9 +387,9 @@ class ChartnPane(QFrame):
     https://doc.qt.io/qt-5/qwidget.html#composite-widgets
 
     '''
-    sidepane: FieldsForm
+    sidepane: FieldsForm | SearchWidget
     hbox: QHBoxLayout
-    chart: Optional['ChartPlotWidget'] = None
+    chart: Optional[ChartPlotWidget] = None
 
     def __init__(
         self,
@@ -315,13 +401,28 @@ class ChartnPane(QFrame):
 
         super().__init__(parent)
 
-        self.sidepane = sidepane
+        self._sidepane = sidepane
         self.chart = None
 
         hbox = self.hbox = QHBoxLayout(self)
         hbox.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         hbox.setContentsMargins(0, 0, 0, 0)
         hbox.setSpacing(3)
+
+    def set_sidepane(
+        self,
+        sidepane: FieldsForm | SearchWidget,
+    ) -> None:
+
+        # add sidepane **after** chart; place it on axis side
+        self.hbox.addWidget(
+            sidepane,
+            alignment=Qt.AlignTop
+        )
+        self._sidepane = sidepane
+
+    def sidepane(self) -> FieldsForm | SearchWidget:
+        return self._sidepane
 
 
 class LinkedSplits(QWidget):
@@ -357,6 +458,7 @@ class LinkedSplits(QWidget):
         self.splitter = QSplitter(QtCore.Qt.Vertical)
         self.splitter.setMidLineWidth(0)
         self.splitter.setHandleWidth(2)
+        self.splitter.splitterMoved.connect(self.on_splitter_adjust)
 
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -368,6 +470,16 @@ class LinkedSplits(QWidget):
         self.display_state: Optional[DisplayState] = None
 
         self._symbol: Symbol = None
+
+    def on_splitter_adjust(
+        self,
+        pos: int,
+        index: int,
+    ) -> None:
+        # print(f'splitter moved pos:{pos}, index:{index}')
+        godw = self.godwidget
+        if self is godw.rt_linked:
+            godw.search.on_resize()
 
     def graphics_cycle(self, **kwargs) -> None:
         from . import _display
@@ -384,28 +496,32 @@ class LinkedSplits(QWidget):
         prop: Optional[float] = None,
 
     ) -> None:
-        '''Set the proportion of space allocated for linked subcharts.
+        '''
+        Set the proportion of space allocated for linked subcharts.
 
         '''
-        ln = len(self.subplots)
+        ln = len(self.subplots) or 1
 
         # proportion allocated to consumer subcharts
         if not prop:
-            prop = 3/8*5/8
+            prop = 3/8
 
-            # if ln < 2:
-            #     prop = 3/8*5/8
-
-            # elif ln >= 2:
-            #     prop = 3/8
+        h = self.height()
+        histview_h = h * (6/16)
+        h = h - histview_h
 
         major = 1 - prop
-        min_h_ind = int((self.height() * prop) / ln)
+        min_h_ind = int((h * prop) / ln)
+        sizes = [
+            int(histview_h),
+            int(h * major),
+        ]
 
-        sizes = [int(self.height() * major)]
+        # give all subcharts the same remaining proportional height
         sizes.extend([min_h_ind] * ln)
 
-        self.splitter.setSizes(sizes)
+        if self.godwidget.rt_linked is self:
+            self.splitter.setSizes(sizes)
 
     def focus(self) -> None:
         if self.chart is not None:
@@ -498,10 +614,15 @@ class LinkedSplits(QWidget):
             'bottom': xaxis,
         }
 
-        qframe = ChartnPane(
-            sidepane=sidepane,
-            parent=self.splitter,
-        )
+        if sidepane is not False:
+            parent = qframe = ChartnPane(
+                sidepane=sidepane,
+                parent=self.splitter,
+            )
+        else:
+            parent = self.splitter
+            qframe = None
+
         cpw = ChartPlotWidget(
 
             # this name will be used to register the primary
@@ -509,7 +630,7 @@ class LinkedSplits(QWidget):
             name=name,
             data_key=array_key or name,
 
-            parent=qframe,
+            parent=parent,
             linkedsplits=self,
             axisItems=axes,
             **cpw_kwargs,
@@ -537,22 +658,25 @@ class LinkedSplits(QWidget):
             self.xaxis_chart = cpw
             cpw.showAxis('bottom')
 
-        qframe.chart = cpw
-        qframe.hbox.addWidget(cpw)
+        if qframe is not None:
+            qframe.chart = cpw
+            qframe.hbox.addWidget(cpw)
 
-        # so we can look this up and add back to the splitter
-        # on a symbol switch
-        cpw.qframe = qframe
-        assert cpw.parent() == qframe
+            # so we can look this up and add back to the splitter
+            # on a symbol switch
+            cpw.qframe = qframe
+            assert cpw.parent() == qframe
 
-        # add sidepane **after** chart; place it on axis side
-        qframe.hbox.addWidget(
-            sidepane,
-            alignment=Qt.AlignTop
-        )
-        cpw.sidepane = sidepane
+            # add sidepane **after** chart; place it on axis side
+            qframe.set_sidepane(sidepane)
+            # qframe.hbox.addWidget(
+            #     sidepane,
+            #     alignment=Qt.AlignTop
+            # )
 
-        cpw.plotItem.vb.linkedsplits = self
+            cpw.sidepane = sidepane
+
+        cpw.plotItem.vb.linked = self
         cpw.setFrameStyle(
             QtWidgets.QFrame.StyledPanel
             # | QtWidgets.QFrame.Plain
@@ -613,9 +737,8 @@ class LinkedSplits(QWidget):
         if not _is_main:
             # track by name
             self.subplots[name] = cpw
-            self.splitter.addWidget(qframe)
-            # scale split regions
-            self.set_split_sizes()
+            if qframe is not None:
+                self.splitter.addWidget(qframe)
 
         else:
             assert style == 'bar', 'main chart must be OHLC'
@@ -641,18 +764,27 @@ class LinkedSplits(QWidget):
 
     def resize_sidepanes(
         self,
+        from_linked: Optional[LinkedSplits] = None,
+
     ) -> None:
         '''
         Size all sidepanes based on the OHLC "main" plot and its
         sidepane width.
 
         '''
-        main_chart = self.chart
-        if main_chart:
+        if from_linked:
+            main_chart = from_linked.chart
+        else:
+            main_chart = self.chart
+
+        if main_chart and main_chart.sidepane:
             sp_w = main_chart.sidepane.width()
             for name, cpw in self.subplots.items():
                 cpw.sidepane.setMinimumWidth(sp_w)
                 cpw.sidepane.setMaximumWidth(sp_w)
+
+            if from_linked:
+                self.chart.sidepane.setMinimumWidth(sp_w)
 
 
 class ChartPlotWidget(pg.PlotWidget):
@@ -711,6 +843,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # NOTE: must be set bfore calling ``.mk_vb()``
         self.linked = linkedsplits
+        self.sidepane: Optional[FieldsForm] = None
 
         # source of our custom interactions
         self.cv = cv = self.mk_vb(name)
@@ -867,7 +1000,8 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def default_view(
         self,
-        bars_from_y: int = 616,
+        bars_from_y: int = int(616 * 3/8),
+        y_offset: int = 0,
         do_ds: bool = True,
 
     ) -> None:
@@ -906,8 +1040,12 @@ class ChartPlotWidget(pg.PlotWidget):
         # terms now that we've scaled either by user control
         # or to the default set of bars as per the immediate block
         # above.
-        marker_pos, l1_len = self.pre_l1_xs()
-        end = xlast + l1_len + 1
+        if not y_offset:
+            marker_pos, l1_len = self.pre_l1_xs()
+            end = xlast + l1_len + 1
+        else:
+            end = xlast + y_offset + 1
+
         begin = end - (r - l)
 
         # for debugging
