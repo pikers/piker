@@ -249,14 +249,14 @@ async def graphics_update_loop(
     linked: LinkedSplits = godwidget.rt_linked
     display_rate = godwidget.window.current_screen().refreshRate()
 
-    chart = linked.chart
+    fast_chart = linked.chart
     hist_chart = godwidget.hist_linked.chart
 
     ohlcv = feed.rt_shm
     hist_ohlcv = feed.hist_shm
 
     # update last price sticky
-    last_price_sticky = chart._ysticks[chart.name]
+    last_price_sticky = fast_chart._ysticks[fast_chart.name]
     last_price_sticky.update_from_data(
         *ohlcv.array[-1][['index', 'close']]
     )
@@ -268,7 +268,7 @@ async def graphics_update_loop(
 
     maxmin = partial(
         chart_maxmin,
-        chart,
+        fast_chart,
         ohlcv,
         vlm_chart,
     )
@@ -282,15 +282,15 @@ async def graphics_update_loop(
 
     last, volume = ohlcv.array[-1][['close', 'volume']]
 
-    symbol = chart.linked.symbol
+    symbol = fast_chart.linked.symbol
 
     l1 = L1Labels(
-        chart,
+        fast_chart,
         # determine precision/decimal lengths
         digits=symbol.tick_size_digits,
         size_digits=symbol.lot_size_digits,
     )
-    chart._l1_labels = l1
+    fast_chart._l1_labels = l1
 
     # TODO:
     # - in theory we should be able to read buffer data faster
@@ -300,10 +300,10 @@ async def graphics_update_loop(
     #   levels this might be dark volume we need to
     #   present differently -> likely dark vlm
 
-    tick_size = chart.linked.symbol.tick_size
+    tick_size = fast_chart.linked.symbol.tick_size
     tick_margin = 3 * tick_size
 
-    chart.show()
+    fast_chart.show()
     last_quote = time.time()
     i_last = ohlcv.index
 
@@ -313,7 +313,7 @@ async def graphics_update_loop(
         'maxmin': maxmin,
         'ohlcv': ohlcv,
         'hist_ohlcv': hist_ohlcv,
-        'chart': chart,
+        'chart': fast_chart,
         'last_price_sticky': last_price_sticky,
         'hist_last_price_sticky': hist_last_price_sticky,
         'l1': l1,
@@ -333,7 +333,7 @@ async def graphics_update_loop(
         ds.vlm_chart = vlm_chart
         ds.vlm_sticky = vlm_sticky
 
-    chart.default_view()
+    fast_chart.default_view()
 
     # TODO: probably factor this into some kinda `DisplayState`
     # API that can be reused at least in terms of pulling view
@@ -410,16 +410,16 @@ async def graphics_update_loop(
         last_quote = time.time()
 
         # chart isn't active/shown so skip render cycle and pause feed(s)
-        if chart.linked.isHidden():
+        if fast_chart.linked.isHidden():
             # print('skipping update')
-            chart.pause_all_feeds()
+            fast_chart.pause_all_feeds()
             continue
 
-        ic = chart.view._ic
-        if ic:
-            chart.pause_all_feeds()
-            await ic.wait()
-            chart.resume_all_feeds()
+        # ic = fast_chart.view._ic
+        # if ic:
+        #     fast_chart.pause_all_feeds()
+        #     await ic.wait()
+        #     fast_chart.resume_all_feeds()
 
         # sync call to update all graphics/UX components.
         graphics_update_cycle(ds)
@@ -502,6 +502,7 @@ def graphics_update_cycle(
             or trigger_all
         ):
             chart.increment_view(steps=i_diff)
+            chart.view._set_yrange(yrange=(mn, mx))
 
             if vlm_chart:
                 vlm_chart.increment_view(steps=i_diff)
