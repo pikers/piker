@@ -184,7 +184,8 @@ _adhoc_futes_set = {
     'lb.nymex',  # random len lumber
 
     # metals
-    'xauusd.cmdty',  # gold spot
+    # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
+    'xauusd.cmdty',  # london gold spot ^
     'gc.nymex',
     'mgc.nymex',  # micro
 
@@ -242,8 +243,6 @@ _exch_skip_list = {
     'PSE',
 }
 
-# https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
-
 _enters = 0
 
 
@@ -267,6 +266,19 @@ def bars_to_np(bars: list) -> np.ndarray:
     assert nparr['time'][0] == bars[0].date.timestamp()
     assert nparr['time'][-1] == bars[-1].date.timestamp()
     return nparr
+
+
+# NOTE: pacing violations exist for higher sample rates:
+# https://interactivebrokers.github.io/tws-api/historical_limitations.html#pacing_violations
+# Also see note on duration limits being lifted on 1m+ periods,
+# but they say "use with discretion":
+# https://interactivebrokers.github.io/tws-api/historical_limitations.html#non-available_hd
+_samplings: dict[int, tuple[str, str]] = {
+    1: ('1 secs', f'{int(2e3)} S'),
+    # TODO: benchmark >1 D duration on query to see if
+    # throughput can be made faster during backfilling.
+    60: ('1 min', '1 D'),
+}
 
 
 class Client:
@@ -326,6 +338,12 @@ class Client:
         # ohlc sample period in seconds
         sample_period_s: int = 1,
 
+        # optional "duration of time" equal to the
+        # length of the returned history frame.
+        duration: Optional[str] = None,
+
+        **kwargs,
+
     ) -> list[dict[str, Any]]:
         '''
         Retreive OHLCV bars for a fqsn over a range to the present.
@@ -334,18 +352,8 @@ class Client:
         # See API docs here:
         # https://interactivebrokers.github.io/tws-api/historical_data.html
         bars_kwargs = {'whatToShow': 'TRADES'}
-
-        # NOTE: pacing violations exist for higher sample rates:
-        # https://interactivebrokers.github.io/tws-api/historical_limitations.html#pacing_violations
-        # Also see note on duration limits being lifted on 1m+ periods,
-        # but they say "use with discretion":
-        # https://interactivebrokers.github.io/tws-api/historical_limitations.html#non-available_hd
-        bar_size, duration = {
-            1: ('1 secs', f'{int(2e3)} S'),
-            # TODO: benchmark >1 D duration on query to see if
-            # throughput can be made faster during backfilling.
-            60: ('1 min', '1 D'),
-        }[sample_period_s]
+        bars_kwargs.update(kwargs)
+        bar_size, duration = _samplings[sample_period_s]
 
         global _enters
         # log.info(f'REQUESTING BARS {_enters} @ end={end_dt}')
@@ -386,8 +394,18 @@ class Client:
             # whatToShow='TRADES',
         )
         if not bars:
-            # trigger ``NoData`` raise by ``get_bars()`` caller.
-            return None
+            # NOTE: there's 2 cases here to handle (and this should be
+            # read alongside the implementation of
+            # ``.reqHistoricalDataAsync()``):
+            # - no data is returned for the period likely due to
+            # a weekend, holiday or other non-trading period prior to
+            # ``end_dt`` which exceeds the ``duration``,
+            # - a timeout occurred in which case insync internals return
+            # an empty list thing with bars.clear()...
+            return [], np.empty(0)
+            # TODO: we could maybe raise ``NoData`` instead if we
+            # rewrite the method in the first case? right now there's no
+            # way to detect a timeout.
 
         nparr = bars_to_np(bars)
         return bars, nparr
