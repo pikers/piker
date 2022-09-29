@@ -43,6 +43,7 @@ from bidict import bidict
 import trio
 import tractor
 from tractor import to_asyncio
+import pendulum
 import ib_insync as ibis
 from ib_insync.contract import (
     Contract,
@@ -52,6 +53,7 @@ from ib_insync.contract import (
 from ib_insync.order import Order
 from ib_insync.ticker import Ticker
 from ib_insync.objects import (
+    BarDataList,
     Position,
     Fill,
     Execution,
@@ -248,7 +250,7 @@ _enters = 0
 
 def bars_to_np(bars: list) -> np.ndarray:
     '''
-    Convert a "bars list thing" (``BarsList`` type from ibis)
+    Convert a "bars list thing" (``BarDataList`` type from ibis)
     into a numpy struct array.
 
     '''
@@ -274,10 +276,18 @@ def bars_to_np(bars: list) -> np.ndarray:
 # but they say "use with discretion":
 # https://interactivebrokers.github.io/tws-api/historical_limitations.html#non-available_hd
 _samplings: dict[int, tuple[str, str]] = {
-    1: ('1 secs', f'{int(2e3)} S'),
+    1: (
+        '1 secs',
+        f'{int(2e3)} S',
+        pendulum.duration(seconds=2e3),
+    ),
     # TODO: benchmark >1 D duration on query to see if
     # throughput can be made faster during backfilling.
-    60: ('1 min', '1 D'),
+    60: (
+        '1 min',
+        '1 D',
+        pendulum.duration(days=1),
+    ),
 }
 
 
@@ -344,7 +354,7 @@ class Client:
 
         **kwargs,
 
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[BarDataList, np.ndarray, pendulum.Duration]:
         '''
         Retreive OHLCV bars for a fqsn over a range to the present.
 
@@ -353,7 +363,7 @@ class Client:
         # https://interactivebrokers.github.io/tws-api/historical_data.html
         bars_kwargs = {'whatToShow': 'TRADES'}
         bars_kwargs.update(kwargs)
-        bar_size, duration = _samplings[sample_period_s]
+        bar_size, duration, dt_duration = _samplings[sample_period_s]
 
         global _enters
         # log.info(f'REQUESTING BARS {_enters} @ end={end_dt}')
@@ -408,7 +418,7 @@ class Client:
             # way to detect a timeout.
 
         nparr = bars_to_np(bars)
-        return bars, nparr
+        return bars, nparr, dt_duration
 
     async def con_deats(
         self,
