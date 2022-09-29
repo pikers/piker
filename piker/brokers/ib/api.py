@@ -412,7 +412,7 @@ class Client:
             # ``end_dt`` which exceeds the ``duration``,
             # - a timeout occurred in which case insync internals return
             # an empty list thing with bars.clear()...
-            return [], np.empty(0)
+            return [], np.empty(0), dt_duration
             # TODO: we could maybe raise ``NoData`` instead if we
             # rewrite the method in the first case? right now there's no
             # way to detect a timeout.
@@ -1086,6 +1086,7 @@ async def load_aio_clients(
     # retry a few times to get the client going..
     connect_retries: int = 3,
     connect_timeout: float = 0.5,
+    disconnect_on_exit: bool = True,
 
 ) -> dict[str, Client]:
     '''
@@ -1227,10 +1228,11 @@ async def load_aio_clients(
     finally:
         # TODO: for re-scans we'll want to not teardown clients which
         # are up and stable right?
-        for acct, client in _accounts2clients.items():
-            log.info(f'Disconnecting {acct}@{client}')
-            client.ib.disconnect()
-            _client_cache.pop((host, port), None)
+        if disconnect_on_exit:
+            for acct, client in _accounts2clients.items():
+                log.info(f'Disconnecting {acct}@{client}')
+                client.ib.disconnect()
+                _client_cache.pop((host, port), None)
 
 
 async def load_clients_for_trio(
