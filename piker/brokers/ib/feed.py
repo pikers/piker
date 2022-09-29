@@ -122,19 +122,36 @@ async def open_history_client(
 
     async with open_data_client() as proxy:
 
+        max_timeout: float = 2.
+        mean: float = 0
+        count: int = 0
+
         async def get_hist(
             timeframe: float,
             end_dt: Optional[datetime] = None,
             start_dt: Optional[datetime] = None,
 
         ) -> tuple[np.ndarray, str]:
+            nonlocal max_timeout, mean, count
 
-            out = await get_bars(
+            query_start = time.time()
+            out, timedout = await get_bars(
                 proxy,
                 symbol,
                 timeframe,
                 end_dt=end_dt,
             )
+            latency = time.time() - query_start
+            if (
+                not timedout
+                # and latency <= max_timeout
+            ):
+                count += 1
+                mean += latency / count
+                print(
+                    f'HISTORY FRAME QUERY LATENCY: {latency}\n'
+                    f'mean: {mean}'
+                )
 
             if out is None:
                 # could be trying to retreive bars over weekend
@@ -245,6 +262,8 @@ async def get_bars(
 
     # blank to start which tells ib to look up the latest datum
     end_dt: str = '',
+
+    # TODO: make this more dynamic based on measured frame rx latency..
     timeout: float = 1.5,  # how long before we trigger a feed reset
 
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
@@ -280,17 +299,15 @@ async def get_bars(
                     # timeout=timeout,
                 )
                 if out is None:
-                    raise NoData(
-                        f'{end_dt}',
-                        # frame_size=2000,
-                    )
+                    raise NoData(f'{end_dt}')
 
-                bars, bars_array = out
+                bars, bars_array, dt_duration = out
 
                 if not bars:
-                    # TODO: duration lookup for this
-                    end_dt = end_dt.subtract(days=1)
-                    print("SUBTRACTING DAY")
+                    log.warning(
+                        f'History is blank for {dt_duration} from {end_dt}'
+                    )
+                    end_dt = end_dt.subtract(dt_duration)
                     continue
 
                 if bars_array is None:
@@ -328,42 +345,35 @@ async def get_bars(
                         f'Symbol: {fqsn}',
                     )
 
-                elif (
-                    err.code == 162 and
-                    'HMDS query returned no data' in err.message
-                ):
-                    # XXX: this is now done in the storage mgmt layer
-                    # and we shouldn't implicitly decrement the frame dt
-                    # index since the upper layer may be doing so
-                    # concurrently and we don't want to be delivering frames
-                    # that weren't asked for.
-                    log.warning(
-                        f'NO DATA found ending @ {end_dt}\n'
-                    )
+                elif err.code == 162:
+                    if 'HMDS query returned no data' in err.message:
+                        # XXX: this is now done in the storage mgmt
+                        # layer and we shouldn't implicitly decrement
+                        # the frame dt index since the upper layer may
+                        # be doing so concurrently and we don't want to
+                        # be delivering frames that weren't asked for.
+                        log.warning(
+                            f'NO DATA found ending @ {end_dt}\n'
+                        )
 
-                    # try to decrement start point and look further back
-                    # end_dt = end_dt.subtract(seconds=2000)
-                    end_dt = end_dt.subtract(days=1)
-                    print("SUBTRACTING DAY")
-                    continue
+                        # try to decrement start point and look further back
+                        # end_dt = end_dt.subtract(seconds=2000)
+                        end_dt = end_dt.subtract(days=1)
+                        print("SUBTRACTING DAY")
+                        continue
 
-                elif (
-                    err.code == 162 and
-                    'API historical data query cancelled' in err.message
-                ):
-                    log.warning(
-                        'Query cancelled by IB (:eyeroll:):\n'
-                        f'{err.message}'
-                    )
-                    continue
-
-                # elif (
-                #     err.code == 162 and
-                #     'Trading TWS session is connected from a different IP
-                #     address' in err.message
-                # ):
-                #     log.warning("ignoring ip address warning")
-                #     continue
+                    elif 'API historical data query cancelled' in err.message:
+                        log.warning(
+                            'Query cancelled by IB (:eyeroll:):\n'
+                            f'{err.message}'
+                        )
+                        continue
+                    elif (
+                        'Trading TWS session is connected from a different IP'
+                            in err.message
+                    ):
+                        log.warning("ignoring ip address warning")
+                        continue
 
                 # XXX: more or less same as above timeout case
                 elif _pacing in msg:
@@ -402,7 +412,7 @@ async def get_bars(
 
             with trio.move_on_after(timeout):
                 await result_ready.wait()
-                continue
+                break
 
             # spawn new data reset task
             data_cs, reset_done = await nurse.start(
@@ -410,13 +420,12 @@ async def get_bars(
                     wait_on_data_reset,
                     proxy,
                     timeout=float('inf'),
-                    # timeout=timeout,
                 )
             )
             # sync wait on reset to complete
             await reset_done.wait()
 
-    return result
+    return result, data_cs is not None
 
 
 asset_type_map = {
