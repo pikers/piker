@@ -307,7 +307,7 @@ async def get_bars(
                     log.warning(
                         f'History is blank for {dt_duration} from {end_dt}'
                     )
-                    end_dt = end_dt.subtract(dt_duration)
+                    end_dt -= dt_duration
                     continue
 
                 if bars_array is None:
