@@ -207,9 +207,10 @@ class PaperBoi(Struct):
         remaining: float = 0,
 
     ) -> None:
-        """Pretend to fill a broker order @ price and size.
+        '''
+        Pretend to fill a broker order @ price and size.
 
-        """
+        '''
         # TODO: net latency model
         await trio.sleep(0.05)
         fill_time_ns = time.time_ns()
@@ -230,6 +231,7 @@ class PaperBoi(Struct):
                 'name': self.broker + '_paper',
             },
         )
+        log.info(f'Fake filling order:\n{fill_msg}')
         await self.ems_trades_stream.send(fill_msg)
 
         self._trade_ledger.update(fill_msg.to_dict())
@@ -407,6 +409,7 @@ async def simulate_fills(
                 for order_info, pred in iter_entries:
                     (our_price, size, reqid, action) = order_info
 
+                    # print(order_info)
                     clearable = pred(our_price)
                     if clearable:
                         # pop and retreive order info
@@ -481,8 +484,8 @@ async def handle_order_requests(
                     # counter - collision prone..)
                     reqid=reqid,
                 )
+                log.info(f'Submitted paper LIMIT {reqid}:\n{order}')
 
-            # elif action == 'cancel':
             case {'action': 'cancel'}:
                 msg = BrokerdCancel(**request_msg)
                 await client.submit_cancel(
