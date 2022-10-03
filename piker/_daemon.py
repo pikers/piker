@@ -195,9 +195,8 @@ async def open_piker_runtime(
 
 ) -> Optional[tractor._portal.Portal]:
     '''
-    Start a piker actor who's runtime will automatically
-    sync with existing piker actors in local network
-    based on configuration.
+    Start a piker actor who's runtime will automatically sync with
+    existing piker actors on the local link based on configuration.
 
     '''
     global _services
