@@ -37,8 +37,8 @@ _dbus_uid: Optional[str] = ''
 
 
 async def notify_from_ems_status_msg(
-    uuid: str,
     msg: Status,
+    duration: int = 3000,
     is_subproc: bool = False,
 
 ) -> None:
@@ -84,12 +84,12 @@ async def notify_from_ems_status_msg(
         [
             'notify-send',
             '-u', 'normal',
-            '-t', '1616',
+            '-t', f'{duration}',
             'piker',
 
             # TODO: add in standard fill/exec info that maybe we
             # pack in a broker independent way?
-            f"'{msg.resp}: {msg.req.price}'",
+            f"'{msg.pformat()}'",
         ],
     )
     log.runtime(result)
