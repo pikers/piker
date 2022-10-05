@@ -1031,10 +1031,7 @@ async def process_trade_msg(
             )
             mode.lines.remove_line(uuid=oid)
             msg.req = req
-            await notify_from_ems_status_msg(
-                uuid,
-                msg,
-            )
+            await notify_from_ems_status_msg(msg)
 
         # response to completed 'dialog' for order request
         case Status(
@@ -1043,10 +1040,7 @@ async def process_trade_msg(
             req=req,
         ):
             msg.req = Order(**req)
-            await notify_from_ems_status_msg(
-                uuid,
-                msg,
-            )
+            await notify_from_ems_status_msg(msg)
             mode.lines.remove_line(uuid=oid)
 
         # each clearing tick is responded individually
