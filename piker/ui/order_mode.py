@@ -23,7 +23,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from pprint import pformat
-import platform
 import time
 from typing import (
     Optional,
@@ -64,6 +63,7 @@ from ..clearing._messages import (
     BrokerdPosition,
 )
 from ._forms import open_form_input_handling
+from ._notify import notify_from_ems_status_msg
 
 
 if TYPE_CHECKING:
@@ -529,39 +529,6 @@ class OrderMode:
                 )
         else:
             log.warn("No line(s) for order {uuid}!?")
-
-    async def on_exec(
-        self,
-
-        uuid: str,
-        msg: Status,
-
-    ) -> None:
-
-        # DESKTOP NOTIFICATIONS
-        #
-        # TODO: this in another task?
-        # not sure if this will ever be a bottleneck,
-        # we probably could do graphics stuff first tho?
-
-        # TODO: make this not trash.
-        # XXX: linux only for now
-        if platform.system() == "Windows":
-            return
-
-        result = await trio.run_process(
-            [
-                'notify-send',
-                '-u', 'normal',
-                '-t', '1616',
-                'piker',
-
-                # TODO: add in standard fill/exec info that maybe we
-                # pack in a broker independent way?
-                f'{msg.resp}: {msg.req.price}',
-            ],
-        )
-        log.runtime(result)
 
     def on_cancel(
         self,
@@ -1064,7 +1031,10 @@ async def process_trade_msg(
             )
             mode.lines.remove_line(uuid=oid)
             msg.req = req
-            await mode.on_exec(oid, msg)
+            await notify_from_ems_status_msg(
+                uuid,
+                msg,
+            )
 
         # response to completed 'dialog' for order request
         case Status(
@@ -1073,7 +1043,10 @@ async def process_trade_msg(
             req=req,
         ):
             msg.req = Order(**req)
-            await mode.on_exec(oid, msg)
+            await notify_from_ems_status_msg(
+                uuid,
+                msg,
+            )
             mode.lines.remove_line(uuid=oid)
 
         # each clearing tick is responded individually
