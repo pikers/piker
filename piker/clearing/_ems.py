@@ -216,6 +216,7 @@ async def clear_dark_triggers(
 
                     brokerd_msg: Optional[BrokerdOrder] = None
                     match cmd:
+
                         # alert: nothing to do but relay a status
                         # back to the requesting ems client
                         case Order(action='alert'):
@@ -245,7 +246,6 @@ async def clear_dark_triggers(
                                 price=submit_price,
                                 size=size,
                             )
-
                             await brokerd_orders_stream.send(brokerd_msg)
 
                         case _:
@@ -551,6 +551,7 @@ class Router(Struct):
         self,
         sub_key: str,
         msg: dict,
+        notify_on_headless: bool = True,
 
     ) -> bool:
         to_remove: set[tractor.MsgStream] = set()
@@ -578,6 +579,18 @@ class Router(Struct):
         if to_remove:
             subs.difference_update(to_remove)
 
+        if (
+            not sent_some
+            and notify_on_headless
+        ):
+            log.info(
+                'No clients attached, firing notification for msg:\n'
+                f'{msg}'
+            )
+            await notify_from_ems_status_msg(
+                msg,
+                is_subproc=True,
+            )
         return sent_some
 
 
@@ -781,20 +794,10 @@ async def translate_and_relay_brokerd_events(
                 status_msg.brokerd_msg = msg
                 status_msg.src = msg.broker_details['name']
 
-                sent_some = await router.client_broadcast(
+                await router.client_broadcast(
                     status_msg.req.symbol,
                     status_msg,
                 )
-                if not sent_some:
-                    log.info(
-                        'No clients attached, firing notification for msg:\n'
-                        f'{fmsg}'
-                    )
-                    await notify_from_ems_status_msg(
-                        oid,
-                        status_msg,
-                        is_subproc=True,
-                    )
 
                 if status == 'closed':
                     log.info(f'Execution for {oid} is complete!')
