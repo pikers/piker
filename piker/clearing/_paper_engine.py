@@ -61,13 +61,13 @@ log = get_logger(__name__)
 
 
 class PaperBoi(Struct):
-    """
-    Emulates a broker order client providing the same API and
-    delivering an order-event response stream but with methods for
+    '''
+    Emulates a broker order client providing approximately the same API
+    and delivering an order-event response stream but with methods for
     triggering desired events based on forward testing engine
-    requirements.
+    requirements (eg open, closed, fill msgs).
 
-    """
+    '''
     broker: str
 
     ems_trades_stream: tractor.MsgStream
@@ -207,9 +207,10 @@ class PaperBoi(Struct):
         remaining: float = 0,
 
     ) -> None:
-        """Pretend to fill a broker order @ price and size.
+        '''
+        Pretend to fill a broker order @ price and size.
 
-        """
+        '''
         # TODO: net latency model
         await trio.sleep(0.05)
         fill_time_ns = time.time_ns()
@@ -230,6 +231,7 @@ class PaperBoi(Struct):
                 'name': self.broker + '_paper',
             },
         )
+        log.info(f'Fake filling order:\n{fill_msg}')
         await self.ems_trades_stream.send(fill_msg)
 
         self._trade_ledger.update(fill_msg.to_dict())
@@ -336,9 +338,10 @@ async def simulate_fills(
                     return tick_price >= our_price
 
                 match tick:
+
+                    # on an ask queue tick, only clear buy entries
                     case {
                         'price': tick_price,
-                        # 'type': ('ask' | 'trade' | 'last'),
                         'type': 'ask',
                     }:
                         client.last_ask = (
@@ -351,9 +354,9 @@ async def simulate_fills(
                             itertools.repeat(buy_on_ask)
                         )
 
+                    # on a bid queue tick, only clear sell entries
                     case {
                         'price': tick_price,
-                        # 'type': ('bid' | 'trade' | 'last'),
                         'type': 'bid',
                     }:
                         client.last_bid = (
@@ -366,6 +369,10 @@ async def simulate_fills(
                             itertools.repeat(sell_on_bid)
                         )
 
+                    # TODO: fix this block, though it definitely
+                    # costs a lot more CPU-wise
+                    # - doesn't seem like clears are happening still on
+                    #   "resting" limit orders?
                     case {
                         'price': tick_price,
                         'type': ('trade' | 'last'),
@@ -390,11 +397,19 @@ async def simulate_fills(
 
                         iter_entries = interleave()
 
+                    # NOTE: all other (non-clearable) tick event types
+                    # - we don't want to sping the simulated clear loop
+                    # below unecessarily and further don't want to pop
+                    # simulated live orders prematurely.
+                    case _:
+                        continue
+
                 # iterate all potentially clearable book prices
                 # in FIFO order per side.
                 for order_info, pred in iter_entries:
                     (our_price, size, reqid, action) = order_info
 
+                    # print(order_info)
                     clearable = pred(our_price)
                     if clearable:
                         # pop and retreive order info
@@ -469,8 +484,8 @@ async def handle_order_requests(
                     # counter - collision prone..)
                     reqid=reqid,
                 )
+                log.info(f'Submitted paper LIMIT {reqid}:\n{order}')
 
-            # elif action == 'cancel':
             case {'action': 'cancel'}:
                 msg = BrokerdCancel(**request_msg)
                 await client.submit_cancel(
@@ -532,7 +547,10 @@ async def trades_dialogue(
 
         # TODO: load paper positions per broker from .toml config file
         # and pass as symbol to position data mapping: ``dict[str, dict]``
-        await ctx.started((pp_msgs, ['paper']))
+        await ctx.started((
+            pp_msgs,
+            ['paper'],
+        ))
 
         async with (
             ctx.open_stream() as ems_stream,

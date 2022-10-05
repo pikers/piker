@@ -152,11 +152,11 @@ class OrderMode:
         A callback applied for each level change to the line
         which will recompute the order size based on allocator
         settings. this is assigned inside
-        ``OrderMode.line_from_order()``
+        ``OrderMode.new_line_from_order()``
 
         '''
         # NOTE: the ``Order.account`` is set at order stage time inside
-        # ``OrderMode.line_from_order()`` or is inside ``Order`` msg
+        # ``OrderMode.new_line_from_order()`` or is inside ``Order`` msg
         # field for loaded orders.
         order_info = tracker.alloc.next_order_info(
             startup_pp=tracker.startup_pp,
@@ -174,7 +174,7 @@ class OrderMode:
         # reflect the corresponding account and pos info.
         self.pane.on_ui_settings_change('account', order.account)
 
-    def line_from_order(
+    def new_line_from_order(
         self,
         order: Order,
         chart: Optional[ChartPlotWidget] = None,
@@ -240,7 +240,7 @@ class OrderMode:
             (self.hist_chart, {'only_show_markers_on_hover': True}),
         ]:
             kwargs.update(line_kwargs)
-            line = self.line_from_order(
+            line = self.new_line_from_order(
                 order=order,
                 chart=chart,
                 **kwargs,
@@ -300,7 +300,7 @@ class OrderMode:
         # `LineEditor.unstage_line()` on all staged lines..
         # lines = self.lines_from_order(
 
-        line = self.line_from_order(
+        line = self.new_line_from_order(
             order,
             chart=chart,
             show_markers=True,
@@ -428,10 +428,11 @@ class OrderMode:
     ) -> None:
 
         level = line.value()
-        # updated by level change callback set in ``.line_from_order()``
+        # updated by level change callback set in ``.new_line_from_order()``
         dialog = line.dialog
         size = dialog.order.size
 
+        # NOTE: sends modified order msg to EMS
         self.book.update(
             uuid=line.dialog.uuid,
             price=level,
@@ -447,7 +448,8 @@ class OrderMode:
     # EMS response msg handlers
     def on_submit(
         self,
-        uuid: str
+        uuid: str,
+        order: Optional[Order] = None,
 
     ) -> Dialog:
         '''
@@ -464,6 +466,20 @@ class OrderMode:
         dialog.last_status_close()
 
         for line in lines:
+
+            # if an order msg is provided update the line
+            # **from** that msg.
+            if order:
+                line.set_level(order.price)
+                self.on_level_change_update_next_order_info(
+                    level=order.price,
+                    line=line,
+                    order=order,
+                    # use the corresponding position tracker for the
+                    # order's account.
+                    tracker=self.trackers[order.account],
+                )
+
             # hide any lines not currently moused-over
             if not line.get_cursor():
                 line.hide_labels()
@@ -980,9 +996,11 @@ async def process_trade_msg(
     match msg:
         case Status(resp='dark_open' | 'open'):
 
+            order = Order(**msg.req)
+
             if dialog is not None:
                 # show line label once order is live
-                mode.on_submit(oid)
+                mode.on_submit(oid, order=order)
 
             else:
                 log.warning(
@@ -992,7 +1010,6 @@ async def process_trade_msg(
 
                 sym = mode.chart.linked.symbol
                 fqsn = sym.front_fqsn()
-                order = Order(**msg.req)
                 if (
                     ((order.symbol + f'.{msg.src}') == fqsn)
 
@@ -1009,7 +1026,6 @@ async def process_trade_msg(
                     msg.req = order
                     dialog = mode.load_unknown_dialog_from_msg(msg)
                     mode.on_submit(oid)
-                    # return dialog, msg
 
         case Status(resp='error'):
             # delete level line from view

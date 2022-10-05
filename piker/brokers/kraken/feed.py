@@ -61,6 +61,7 @@ class Pair(Struct):
     quote: str  # asset id of quote component
     lot: str  # volume lot size
 
+    cost_decimals: int
     pair_decimals: int  # scaling decimal places for pair
     lot_decimals: int  # scaling decimal places for volume
 
@@ -342,8 +343,8 @@ async def stream_quotes(
 
             # transform to upper since piker style is always lower
             sym = sym.upper()
-
-            si = Pair(**await client.symbol_info(sym))  # validation
+            sym_info = await client.symbol_info(sym)
+            si = Pair(**sym_info)  # validation
             syminfo = si.to_dict()
             syminfo['price_tick_size'] = 1 / 10**si.pair_decimals
             syminfo['lot_tick_size'] = 1 / 10**si.lot_decimals
