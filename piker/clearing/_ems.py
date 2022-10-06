@@ -679,6 +679,8 @@ async def translate_and_relay_brokerd_events(
 
                 # fan-out-relay position msgs immediately by
                 # broadcasting updates on all client streams
+                # TODO: this should be subscription based for privacy
+                # eventually!
                 await router.client_broadcast('all', pos_msg)
                 continue
 
