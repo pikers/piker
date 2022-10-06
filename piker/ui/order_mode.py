@@ -433,7 +433,7 @@ class OrderMode:
         size = dialog.order.size
 
         # NOTE: sends modified order msg to EMS
-        self.book.update(
+        self.book.send_update(
             uuid=line.dialog.uuid,
             price=level,
             size=size,
@@ -1047,12 +1047,12 @@ async def process_trade_msg(
         case Status(resp='fill'):
 
             # handle out-of-piker fills reporting?
-            known_order = book._sent_orders.get(oid)
-            if not known_order:
+            order: Order = book._sent_orders.get(oid)
+            if not order:
                 log.warning(f'order {oid} is unknown')
-                return
+                order = msg.req
 
-            action = known_order.action
+            action = order.action
             details = msg.brokerd_msg
 
             # TODO: some kinda progress system
@@ -1077,7 +1077,9 @@ async def process_trade_msg(
                 ),
             )
 
-            # TODO: how should we look this up?
+            # TODO: append these fill events to the position's clear
+            # table?
+
             # tracker = mode.trackers[msg['account']]
             # tracker.live_pp.fills.append(msg)
 

@@ -842,6 +842,11 @@ async def translate_and_relay_brokerd_events(
                     status_msg.reqid = reqid
                     status_msg.brokerd_msg = msg
 
+                    # TODO: if no client is connected (aka we're
+                    # headless) we should record the fill in the
+                    # ``.msg_flow`` chain and re-transmit on client
+                    # connect so that fills can be displayed in a
+                    # chart?
                     await router.client_broadcast(
                         status_msg.req.symbol,
                         status_msg,
