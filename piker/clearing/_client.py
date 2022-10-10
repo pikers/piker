@@ -19,15 +19,14 @@ Orders and execution client API.
 
 """
 from contextlib import asynccontextmanager as acm
-from typing import Dict
 from pprint import pformat
-from dataclasses import dataclass, field
 
 import trio
 import tractor
 from tractor.trionics import broadcast_receiver
 
 from ..log import get_logger
+from ..data.types import Struct
 from ._ems import _emsd_main
 from .._daemon import maybe_open_emsd
 from ._messages import Order, Cancel
@@ -37,8 +36,7 @@ from ..brokers import get_brokermod
 log = get_logger(__name__)
 
 
-@dataclass
-class OrderBook:
+class OrderBook(Struct):
     '''EMS-client-side order book ctl and tracking.
 
     A style similar to "model-view" is used here where this api is
@@ -53,9 +51,7 @@ class OrderBook:
     # mem channels used to relay order requests to the EMS daemon
     _to_ems: trio.abc.SendChannel
     _from_order_book: trio.abc.ReceiveChannel
-
-    _sent_orders: Dict[str, Order] = field(default_factory=dict)
-    _ready_to_receive: trio.Event = trio.Event()
+    _sent_orders: dict[str, Order] = {}
 
     def send(
         self,
@@ -66,7 +62,7 @@ class OrderBook:
         self._to_ems.send_nowait(msg)
         return msg
 
-    def update(
+    def send_update(
         self,
 
         uuid: str,

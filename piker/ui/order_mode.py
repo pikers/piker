@@ -23,7 +23,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from pprint import pformat
-import platform
 import time
 from typing import (
     Optional,
@@ -64,6 +63,7 @@ from ..clearing._messages import (
     BrokerdPosition,
 )
 from ._forms import open_form_input_handling
+from ._notify import notify_from_ems_status_msg
 
 
 if TYPE_CHECKING:
@@ -433,7 +433,7 @@ class OrderMode:
         size = dialog.order.size
 
         # NOTE: sends modified order msg to EMS
-        self.book.update(
+        self.book.send_update(
             uuid=line.dialog.uuid,
             price=level,
             size=size,
@@ -529,39 +529,6 @@ class OrderMode:
                 )
         else:
             log.warn("No line(s) for order {uuid}!?")
-
-    async def on_exec(
-        self,
-
-        uuid: str,
-        msg: Status,
-
-    ) -> None:
-
-        # DESKTOP NOTIFICATIONS
-        #
-        # TODO: this in another task?
-        # not sure if this will ever be a bottleneck,
-        # we probably could do graphics stuff first tho?
-
-        # TODO: make this not trash.
-        # XXX: linux only for now
-        if platform.system() == "Windows":
-            return
-
-        result = await trio.run_process(
-            [
-                'notify-send',
-                '-u', 'normal',
-                '-t', '1616',
-                'piker',
-
-                # TODO: add in standard fill/exec info that maybe we
-                # pack in a broker independent way?
-                f'{msg.resp}: {msg.req.price}',
-            ],
-        )
-        log.runtime(result)
 
     def on_cancel(
         self,
@@ -1064,7 +1031,7 @@ async def process_trade_msg(
             )
             mode.lines.remove_line(uuid=oid)
             msg.req = req
-            await mode.on_exec(oid, msg)
+            await notify_from_ems_status_msg(msg)
 
         # response to completed 'dialog' for order request
         case Status(
@@ -1073,19 +1040,19 @@ async def process_trade_msg(
             req=req,
         ):
             msg.req = Order(**req)
-            await mode.on_exec(oid, msg)
+            await notify_from_ems_status_msg(msg)
             mode.lines.remove_line(uuid=oid)
 
         # each clearing tick is responded individually
         case Status(resp='fill'):
 
             # handle out-of-piker fills reporting?
-            known_order = book._sent_orders.get(oid)
-            if not known_order:
+            order: Order = book._sent_orders.get(oid)
+            if not order:
                 log.warning(f'order {oid} is unknown')
-                return
+                order = msg.req
 
-            action = known_order.action
+            action = order.action
             details = msg.brokerd_msg
 
             # TODO: some kinda progress system
@@ -1110,7 +1077,9 @@ async def process_trade_msg(
                 ),
             )
 
-            # TODO: how should we look this up?
+            # TODO: append these fill events to the position's clear
+            # table?
+
             # tracker = mode.trackers[msg['account']]
             # tracker.live_pp.fills.append(msg)
 

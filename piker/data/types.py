@@ -49,9 +49,12 @@ class Struct(
             hasattr(sys, 'ps1')
             # TODO: check if we're in pdb
         ):
-            return f'Struct({pformat(self.to_dict())})'
+            return self.pformat()
 
         return super().__repr__()
+
+    def pformat(self) -> str:
+        return f'Struct({pformat(self.to_dict())})'
 
     def copy(
         self,

@@ -42,7 +42,8 @@ from ._anchors import (
     gpath_pin,
 )
 from ..calc import humanize, pnl, puterize
-from ..clearing._allocate import Allocator, Position
+from ..clearing._allocate import Allocator
+from ..pp import Position
 from ..data._normalize import iterticks
 from ..data.feed import Feed
 from ..data.types import Struct
