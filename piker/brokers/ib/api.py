@@ -483,7 +483,7 @@ class Client:
         self,
         pattern: str,
         # how many contracts to search "up to"
-        upto: int = 6,
+        upto: int = 16,
         asdicts: bool = True,
 
     ) -> dict[str, ContractDetails]:
@@ -518,6 +518,16 @@ class Client:
 
                 exch = tract.exchange
                 if exch not in _exch_skip_list:
+
+                    # try to lookup any contracts from our adhoc set
+                    # since often the exchange/venue is named slightly
+                    # different (eg. BRR.CMECRYPTO` instead of just
+                    # `.CME`).
+                    info = _adhoc_symbol_map.get(sym)
+                    if info:
+                        con_kwargs, bars_kwargs = info
+                        exch = con_kwargs['exchange']
+
                     # try get all possible contracts for symbol as per,
                     # https://interactivebrokers.github.io/tws-api/basic_contracts.html#fut
                     con = ibis.Future(
