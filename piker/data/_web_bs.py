@@ -221,28 +221,33 @@ async def open_jsonrpc_session(
             '''
             receives every ws message and stores it in its corresponding result
             field, then sets the event to wakeup original sender tasks.
+            also, recieves responses to requests originated from the server side.
             '''
             async for msg in ws:
-                try:
-                    msg = response_type(**msg)
+                match msg:
+                    case {
+                        'result': _
+                    }:
+                        msg = response_type(**msg)
 
-                    if msg.id not in rpc_results:
-                        log.warning(f'Wasn\'t expecting ws msg: {json.dumps(msg, indent=4)}')
+                        if msg.id not in rpc_results:
+                            log.warning(f'Wasn\'t expecting ws msg: {json.dumps(msg, indent=4)}')
 
-                    res = rpc_results.setdefault(
-                        msg.id,
-                        {'result': None, 'event': trio.Event()}
-                    )
+                        res = rpc_results.setdefault(
+                            msg.id,
+                            {'result': None, 'event': trio.Event()}
+                        )
 
-                    res['result'] = msg
-                    res['event'].set()
+                        res['result'] = msg
+                        res['event'].set()
 
-                except TypeError:
-                    if request_type == None:
-                        raise
-                    await request_hook(request_type(**msg))
+                    case {
+                        'method': _,
+                        'params': _
+                    }:
 
-                
+                        if request_hook:
+                            await request_hook(request_type(**msg))
 
 
         n.start_soon(recv_task)
