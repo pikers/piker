@@ -174,7 +174,9 @@ class JSONRPCResult(Struct):
 async def open_jsonrpc_session(
     url: str,
     start_id: int = 0,
-    dtype: type = JSONRPCResult
+    response_type: type = JSONRPCResult,
+    request_type: Optional[type] = None,
+    request_hook: Optional[Callable] = None
 ) -> Callable[[str, dict], dict]:
 
     async with (
@@ -221,18 +223,26 @@ async def open_jsonrpc_session(
             field, then sets the event to wakeup original sender tasks.
             '''
             async for msg in ws:
-                msg = dtype(**msg)
+                try:
+                    msg = response_type(**msg)
 
-                if msg.id not in rpc_results:
-                    log.warning(f'Wasn\'t expecting ws msg: {json.dumps(msg, indent=4)}')
+                    if msg.id not in rpc_results:
+                        log.warning(f'Wasn\'t expecting ws msg: {json.dumps(msg, indent=4)}')
 
-                res = rpc_results.setdefault(
-                    msg.id,
-                    {'result': None, 'event': trio.Event()}
-                )
+                    res = rpc_results.setdefault(
+                        msg.id,
+                        {'result': None, 'event': trio.Event()}
+                    )
 
-                res['result'] = msg
-                res['event'].set()
+                    res['result'] = msg
+                    res['event'].set()
+
+                except TypeError:
+                    if request_type == None:
+                        raise
+                    await request_hook(request_type(**msg))
+
+                
 
 
         n.start_soon(recv_task)

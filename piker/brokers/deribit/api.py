@@ -95,8 +95,13 @@ class JSONRPCResult(Struct):
     error: Optional[dict] = None
     usIn: int 
     usOut: int 
-    usDiff: int 
+    usDiff: int
     testnet: bool
+
+class JSONRPCChannel(Struct):
+    jsonrpc: str = '2.0'
+    method: str
+    params: dict
 
 
 class KLinesResult(Struct):
