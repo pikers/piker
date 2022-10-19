@@ -491,10 +491,10 @@ async def manage_history(
         readonly=False,
     )
     # TODO: history validation
-    if not opened:
-        raise RuntimeError(
-            "Persistent shm for sym was already open?!"
-        )
+    # if not opened:
+    #     raise RuntimeError(
+    #         "Persistent shm for sym was already open?!"
+    #     )
 
     rt_shm, opened = maybe_open_shm_array(
         key=f'{fqsn}_rt',
@@ -506,10 +506,10 @@ async def manage_history(
         readonly=False,
         size=3*_secs_in_day,
     )
-    if not opened:
-        raise RuntimeError(
-            "Persistent shm for sym was already open?!"
-        )
+    # if not opened:
+    #     raise RuntimeError(
+    #         "Persistent shm for sym was already open?!"
+    #     )
 
     log.info('Scanning for existing `marketstored`')
 
