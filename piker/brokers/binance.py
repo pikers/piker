@@ -36,7 +36,11 @@ import tractor
 import wsproto
 
 from .._cacheables import open_cached_client
-from ._util import resproc, SymbolNotFound
+from ._util import (
+    resproc,
+    SymbolNotFound,
+    DataUnavailable,
+)
 from ..log import get_logger, get_console_log
 from ..data import ShmArray
 from ..data.types import Struct
@@ -397,6 +401,8 @@ async def open_history_client(
             datetime,  # start
             datetime,  # end
         ]:
+            if timeframe != 60:
+                raise DataUnavailable('Only 1m bars are supported')
 
             array = await client.bars(
                 symbol,
