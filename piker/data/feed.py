@@ -552,7 +552,7 @@ async def tsdb_backfill(
                 last_tsdb_dt,
                 None,
                 None,
-                bf_done,
+                None,
             )
             continue
 
@@ -595,7 +595,8 @@ async def tsdb_backfill(
         ) = dts_per_tf[timeframe]
 
         # sync to backend history task's query/load completion
-        await bf_done.wait()
+        if bf_done:
+            await bf_done.wait()
 
         # Load tsdb history into shm buffer (for display).
 
@@ -1294,7 +1295,10 @@ async def install_brokerd_search(
 
             async def search(text: str) -> dict[str, Any]:
                 await stream.send(text)
-                return await stream.receive()
+                try:
+                    return await stream.receive()
+                except trio.EndOfChannel:
+                    return {}
 
             async with _search.register_symbol_search(
 
