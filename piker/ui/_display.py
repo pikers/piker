@@ -49,7 +49,9 @@ from ._fsp import (
     has_vlm,
     open_vlm_displays,
 )
-from ..data._sharedmem import ShmArray
+from ..data._sharedmem import (
+    ShmArray,
+)
 from ..data._source import tf_in_1s
 from ._forms import (
     FieldsForm,
@@ -807,6 +809,140 @@ def graphics_update_cycle(
                     flow.draw_last(array_key=curve_name)
 
 
+async def link_views_with_region(
+    rt_chart: ChartPlotWidget,
+    hist_chart: ChartPlotWidget,
+    feed: Feed,
+
+) -> None:
+
+    # these value are be only pulled once during shm init/startup
+    izero_hist = feed.izero_hist
+    izero_rt = feed.izero_rt
+
+    # Add the LinearRegionItem to the ViewBox, but tell the ViewBox
+    # to exclude this item when doing auto-range calculations.
+    rt_pi = rt_chart.plotItem
+    hist_pi = hist_chart.plotItem
+
+    region = pg.LinearRegionItem(
+        movable=False,
+        # color scheme that matches sidepane styling
+        pen=pg.mkPen(hcolor('gunmetal')),
+        brush=pg.mkBrush(hcolor('default_darkest')),
+    )
+    region.setZValue(10)  # put linear region "in front" in layer terms
+
+    hist_pi.addItem(region, ignoreBounds=True)
+
+    flow = rt_chart._flows[hist_chart.name]
+    assert flow
+
+    # XXX: no idea why this doesn't work but it's causing
+    # a weird placement of the region on the way-far-left..
+    # region.setClipItem(flow.graphics)
+
+    # poll for datums load and timestep detection
+    for _ in range(100):
+        try:
+            _, _, ratio = feed.get_ds_info()
+            break
+        except IndexError:
+            await trio.sleep(0.01)
+            continue
+    else:
+        raise RuntimeError(
+            'Failed to detect sampling periods from shm!?')
+
+    # sampling rate transform math:
+    # -----------------------------
+    # define the fast chart to slow chart as a linear mapping
+    # over the fast index domain `i` to the slow index domain
+    # `j` as:
+    #
+    # j = i - i_offset
+    #     ------------  + j_offset
+    #         j/i
+    #
+    # conversely the inverse function is:
+    #
+    # i = j/i * (j - j_offset) + i_offset
+    #
+    # Where `j_offset` is our ``izero_hist`` and `i_offset` is our
+    # `izero_rt`, the ``ShmArray`` offsets which correspond to the
+    # indexes in each array where the "current" time is indexed at init.
+    # AKA the index where new data is "appended to" and historical data
+    # if "prepended from".
+    #
+    # more practically (and by default) `i` is normally an index
+    # into 1s samples and `j` is an index into 60s samples (aka 1m).
+    # in the below handlers ``ratio`` is the `j/i` and ``mn``/``mx``
+    # are the low and high index input from the source index domain.
+
+    def update_region_from_pi(
+        window,
+        viewRange: tuple[tuple, tuple],
+        is_manual: bool = True,
+
+    ) -> None:
+        # put linear region "in front" in layer terms
+        region.setZValue(10)
+
+        # set the region on the history chart
+        # to the range currently viewed in the
+        # HFT/real-time chart.
+        mn, mx = viewRange[0]
+        ds_mn = (mn - izero_rt)/ratio
+        ds_mx = (mx - izero_rt)/ratio
+        lhmn = ds_mn + izero_hist
+        lhmx = ds_mx + izero_hist
+        # print(
+        #     f'rt_view_range: {(mn, mx)}\n'
+        #     f'ds_mn, ds_mx: {(ds_mn, ds_mx)}\n'
+        #     f'lhmn, lhmx: {(lhmn, lhmx)}\n'
+        # )
+        region.setRegion((
+            lhmn,
+            lhmx,
+        ))
+
+        # TODO: if we want to have the slow chart adjust range to
+        # match the fast chart's selection -> results in the
+        # linear region expansion never can go "outside of view".
+        # hmn, hmx = hvr = hist_chart.view.state['viewRange'][0]
+        # print((hmn, hmx))
+        # if (
+        #     hvr
+        #     and (lhmn < hmn or lhmx > hmx)
+        # ):
+        #     hist_pi.setXRange(
+        #         lhmn,
+        #         lhmx,
+        #         padding=0,
+        #     )
+        #     hist_linked.graphics_cycle()
+
+    # connect region to be updated on plotitem interaction.
+    rt_pi.sigRangeChanged.connect(update_region_from_pi)
+
+    def update_pi_from_region():
+        region.setZValue(10)
+        mn, mx = region.getRegion()
+        # print(f'region_x: {(mn, mx)}')
+        rt_pi.setXRange(
+            ((mn - izero_hist) * ratio) + izero_rt,
+            ((mx - izero_hist) * ratio) + izero_rt,
+            padding=0,
+        )
+
+    # TODO BUG XXX: seems to cause a real perf hit and a recursion error
+    # (but used to work before generalizing for 1s ohlc offset?)..
+    # something to do with the label callback handlers?
+
+    # region.sigRegionChanged.connect(update_pi_from_region)
+    # region.sigRegionChangeFinished.connect(update_pi_from_region)
+
+
 async def display_symbol_data(
     godwidget: GodWidget,
     provider: str,
@@ -850,10 +986,6 @@ async def display_symbol_data(
     ) as feed:
         ohlcv: ShmArray = feed.rt_shm
         hist_ohlcv: ShmArray = feed.hist_shm
-
-        # this value needs to be pulled once and only once during
-        # startup
-        end_index = feed.startup_hist_index
 
         symbol = feed.symbols[sym]
         fqsn = symbol.front_fqsn()
@@ -917,91 +1049,6 @@ async def display_symbol_data(
         #         color='default_light',
         #         add_label=False,
         #     )
-
-        # Add the LinearRegionItem to the ViewBox, but tell the ViewBox
-        # to exclude this item when doing auto-range calculations.
-        rt_pi = chart.plotItem
-        hist_pi = hist_chart.plotItem
-        region = pg.LinearRegionItem(
-            # color scheme that matches sidepane styling
-            pen=pg.mkPen(hcolor('gunmetal')),
-            brush=pg.mkBrush(hcolor('default_darkest')),
-        )
-        region.setZValue(10)  # put linear region "in front" in layer terms
-        hist_pi.addItem(region, ignoreBounds=True)
-        flow = chart._flows[hist_chart.name]
-        assert flow
-        # XXX: no idea why this doesn't work but it's causing
-        # a weird placement of the region on the way-far-left..
-        # region.setClipItem(flow.graphics)
-
-        # poll for datums load and timestep detection
-        for _ in range(100):
-            try:
-                _, _, ratio = feed.get_ds_info()
-                break
-            except IndexError:
-                await trio.sleep(0.01)
-                continue
-        else:
-            raise RuntimeError(
-                'Failed to detect sampling periods from shm!?')
-
-        def update_pi_from_region():
-            region.setZValue(10)
-            mn, mx = region.getRegion()
-            # print(f'region_x: {(mn, mx)}')
-
-            # XXX: seems to cause a real perf hit?
-            rt_pi.setXRange(
-                (mn - end_index) * ratio,
-                (mx - end_index) * ratio,
-                padding=0,
-            )
-
-        region.sigRegionChanged.connect(update_pi_from_region)
-
-        def update_region_from_pi(
-            window,
-            viewRange: tuple[tuple, tuple],
-            is_manual: bool = True,
-
-        ) -> None:
-            # set the region on the history chart
-            # to the range currently viewed in the
-            # HFT/real-time chart.
-            mn, mx = viewRange[0]
-            ds_mn = mn/ratio
-            ds_mx = mx/ratio
-            # print(
-            #     f'rt_view_range: {(mn, mx)}\n'
-            #     f'ds_mn, ds_mx: {(ds_mn, ds_mx)}\n'
-            # )
-            lhmn = ds_mn + end_index
-            lhmx = ds_mx + end_index
-            region.setRegion((
-                lhmn,
-                lhmx,
-            ))
-
-            # TODO: if we want to have the slow chart adjust range to
-            # match the fast chart's selection -> results in the
-            # linear region expansion never can go "outside of view".
-            # hmn, hmx = hvr = hist_chart.view.state['viewRange'][0]
-            # print((hmn, hmx))
-            # if (
-            #     hvr
-            #     and (lhmn < hmn or lhmx > hmx)
-            # ):
-            #     hist_pi.setXRange(
-            #         lhmn,
-            #         lhmx,
-            #         padding=0,
-            #     )
-            #     hist_linked.graphics_cycle()
-
-        # connect region to be updated on plotitem interaction.
-        rt_pi.sigRangeChanged.connect(update_region_from_pi)
 
         # NOTE: we must immediately tell Qt to show the OHLC chart
         # to avoid a race where the subplots get added/shown to
@@ -1069,6 +1116,12 @@ async def display_symbol_data(
             await trio.sleep(0)
 
             godwidget.resize_all()
+
+            await link_views_with_region(
+                chart,
+                hist_chart,
+                feed,
+            )
 
             mode: OrderMode
             async with (
