@@ -39,7 +39,11 @@ import tractor
 import trio
 from trio_typing import TaskStatus
 
-from .._util import SymbolNotFound, NoData
+from .._util import (
+    NoData,
+    DataUnavailable,
+    SymbolNotFound,
+)
 from .api import (
     # _adhoc_futes_set,
     con2fqsn,
@@ -126,6 +130,8 @@ async def open_history_client(
         mean: float = 0
         count: int = 0
 
+        head_dt = await proxy.get_head_time(fqsn=symbol)
+
         async def get_hist(
             timeframe: float,
             end_dt: Optional[datetime] = None,
@@ -153,13 +159,18 @@ async def open_history_client(
                     f'mean: {mean}'
                 )
 
-            if out is None:
+            if (
+                out is None
+            ):
                 # could be trying to retreive bars over weekend
                 log.error(f"Can't grab bars starting at {end_dt}!?!?")
                 raise NoData(
                     f'{end_dt}',
                     # frame_size=2000,
                 )
+
+            if end_dt and end_dt <= head_dt:
+                raise DataUnavailable(f'First timestamp is {head_dt}')
 
             bars, bars_array, first_dt, last_dt = out
 
@@ -363,8 +374,12 @@ async def get_bars(
 
                         # try to decrement start point and look further back
                         # end_dt = end_dt.subtract(seconds=2000)
-                        end_dt = end_dt.subtract(days=1)
-                        print("SUBTRACTING DAY")
+                        if end_dt is not None:
+                            end_dt = end_dt.subtract(days=1)
+                            print("SUBTRACTING DAY")
+                        else:
+                            end_dt = pendulum.now().subtract(days=1)
+
                         continue
 
                     elif 'API historical data query cancelled' in err.message:
