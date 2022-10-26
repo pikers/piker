@@ -58,8 +58,11 @@ async def notify_from_ems_status_msg(
 
     if is_subproc:
         global _dbus_uid
-        if not _dbus_uid:
-            su = os.environ['SUDO_USER']
+        su = os.environ.get('SUDO_USER')
+        if (
+            not _dbus_uid
+            and su
+        ):
 
             # TODO: use `trio` but we need to use nursery.start()
             # to use pipes?
