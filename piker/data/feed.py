@@ -78,7 +78,6 @@ from ._sampling import (
     _default_delay_s,
 )
 from ..brokers._util import (
-    NoData,
     DataUnavailable,
 )
 
@@ -369,15 +368,8 @@ async def start_backfill(
                     end_dt=start_dt,
                 )
 
-            except NoData:
-                # XXX: unhandled history gap (shouldn't happen?)
-                log.warning(
-                    f'NO DATA for {frame_size_s}s frame @ {start_dt} ?!?'
-                )
-                await tractor.breakpoint()
-
-            except DataUnavailable:  # as duerr:
-                # broker is being a bish and we can't pull any more..
+            # broker says there never was or is no more history to pull
+            except DataUnavailable:
                 log.warning(
                     f'NO-MORE-DATA: backend {mod.name} halted history!?'
                 )
@@ -644,7 +636,6 @@ async def tsdb_backfill(
 
             while (
                 shm._first.value > 0
-                # and frame_start < last_frame_start
             ):
                 tsdb_history = await storage.read_ohlcv(
                     fqsn,
