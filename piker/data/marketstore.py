@@ -450,35 +450,11 @@ class Storage:
             limit=limit,
         )
 
-        if timeframe is None:
-            log.info(f'starting {fqsn} tsdb granularity scan..')
-            # loop through and try to find highest granularity
-            for tfstr in tf_in_1s.values():
-                try:
-                    log.info(f'querying for {tfstr}@{fqsn}')
-                    params.set('timeframe', tfstr)
-                    result = await client.query(params)
-                    timeframe = tf_in_1s.inverse[tfstr]
-                    break
-
-                except purerpc.grpclib.exceptions.UnknownError:
-                    # XXX: this is already logged by the container and
-                    # thus shows up through `marketstored` logs relay.
-                    # log.warning(f'{tfstr}@{fqsn} not found')
-                    continue
-            else:
-                return {}
-
-        else:
-            params.set('timeframe', tfstr)
-            try:
-                result = await client.query(params)
-            except purerpc.grpclib.exceptions.UnknownError:
-                # indicate there is no history for this timeframe
-                return {}
-
-        # # Fill out a `numpy` array-results map keyed by timeframe
-        # arrays = {}
+        try:
+            result = await client.query(params)
+        except purerpc.grpclib.exceptions.UnknownError:
+            # indicate there is no history for this timeframe
+            return {}
 
         # TODO: it turns out column access on recarrays is actually slower:
         # https://jakevdp.github.io/PythonDataScienceHandbook/02.09-structured-data-numpy.html#RecordArrays:-Structured-Arrays-with-a-Twist
@@ -496,10 +472,7 @@ class Storage:
             ts = tf_in_1s.inverse[data_set.timeframe]
             if time_step > ts:
                 log.warning(f'MKTS BUG: wrong timeframe loaded: {time_step}')
-                print("WTF MKTS")
                 return {}
-        else:
-            ts = timeframe
 
         return array
 
