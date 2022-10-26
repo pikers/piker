@@ -778,11 +778,14 @@ class Client:
 
     async def get_head_time(
         self,
-        contract: Contract,
-    ) -> datetime:
-        """Return the first datetime stamp for ``contract``.
+        fqsn: str,
 
-        """
+    ) -> datetime:
+        '''
+        Return the first datetime stamp for ``contract``.
+
+        '''
+        contract = (await self.find_contracts(fqsn))[0]
         return await self.ib.reqHeadTimeStampAsync(
             contract,
             whatToShow='TRADES',
