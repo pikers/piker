@@ -552,6 +552,7 @@ async def tsdb_backfill(
                 last_tsdb_dt,
                 None,
                 None,
+                bf_done,
             )
             continue
 
@@ -561,6 +562,7 @@ async def tsdb_backfill(
             last_tsdb_dt,
             latest_start_dt,
             latest_end_dt,
+            bf_done,
         )
 
         # if len(hist_shm.array) < 2:
@@ -580,21 +582,26 @@ async def tsdb_backfill(
         shms[1],
     ))
 
-    # sync to backend history task's query/load completion
-    await bf_done.wait()
-
-    # Load tsdb history into shm buffer (for display).
-
-    # TODO: eventually it'd be nice to not require a shm array/buffer
-    # to accomplish this.. maybe we can do some kind of tsdb direct to
-    # graphics format eventually in a child-actor?
-    for timeframe, shm in shms.items():
+    async def back_load_from_tsdb(
+        timeframe: int,
+        shm: ShmArray,
+    ):
         (
             tsdb_history,
             last_tsdb_dt,
             latest_start_dt,
             latest_end_dt,
+            bf_done,
         ) = dts_per_tf[timeframe]
+
+        # sync to backend history task's query/load completion
+        await bf_done.wait()
+
+        # Load tsdb history into shm buffer (for display).
+
+        # TODO: eventually it'd be nice to not require a shm array/buffer
+        # to accomplish this.. maybe we can do some kind of tsdb direct to
+        # graphics format eventually in a child-actor?
 
         # do diff against last start frame of history and only fill
         # in from the tsdb an allotment that allows for most recent
@@ -686,7 +693,18 @@ async def tsdb_backfill(
                 for delay_s in sampler.subscribers:
                     await broadcast(delay_s)
 
-        # TODO: write new data to tsdb to be ready to for next read.
+                # TODO: write new data to tsdb to be ready to for next read.
+
+    # backload from db (concurrently per timeframe) once backfilling of
+    # recent dat a loaded from the backend provider (see
+    # ``bf_done.wait()`` call).
+    async with trio.open_nursery() as nurse:
+        for timeframe, shm in shms.items():
+            nurse.start_soon(
+                back_load_from_tsdb,
+                timeframe,
+                shm,
+            )
 
 
 async def manage_history(
