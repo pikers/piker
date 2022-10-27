@@ -434,8 +434,7 @@ class Storage:
         syms = await client.list_symbols()
 
         if fqsn not in syms:
-            raise KeyError('No entry for {fqsn}')
-            # return {}
+            return {}
 
         # use the provided timeframe or 1s by default
         tfstr = tf_in_1s.get(timeframe, tf_in_1s[1])
