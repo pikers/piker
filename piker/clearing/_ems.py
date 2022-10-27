@@ -581,6 +581,7 @@ class Router(Struct):
         notify_on_headless: bool = True,
 
     ) -> bool:
+        # print(f'SUBSCRIBERS: {self.subscribers}')
         to_remove: set[tractor.MsgStream] = set()
 
         if sub_key == 'all':
@@ -611,7 +612,8 @@ class Router(Struct):
             and notify_on_headless
         ):
             log.info(
-                'No clients attached, firing notification for {sub_key} msg:\n'
+                'No clients attached, '
+                f'firing notification for {sub_key} msg:\n'
                 f'{msg}'
             )
             await notify_from_ems_status_msg(
@@ -763,8 +765,8 @@ async def translate_and_relay_brokerd_events(
                 'oid': oid,  # ems order-dialog id
                 'reqid': reqid,  # brokerd generated order-request id
                 'symbol': sym,
-            } if status_msg := book._active.get(oid):
-
+            }:
+                status_msg = book._active.get(oid)
                 msg = BrokerdError(**brokerd_msg)
                 log.error(fmsg)  # XXX make one when it's blank?
 
@@ -776,11 +778,21 @@ async def translate_and_relay_brokerd_events(
                 # about.  In most default situations, with composed orders
                 # (ex.  brackets), most brokers seem to use a oca policy.
 
-                status_msg.resp = 'error'
-                status_msg.brokerd_msg = msg
-                book._active[oid] = status_msg
+                # only relay to client side if we have an active
+                # ongoing dialog
+                if status_msg:
+                    status_msg.resp = 'error'
+                    status_msg.brokerd_msg = msg
+                    book._active[oid] = status_msg
 
-                await router.client_broadcast(sym, status_msg)
+                    await router.client_broadcast(
+                        status_msg.req.symbol,
+                        status_msg,
+                    )
+
+                else:
+                    log.error(f'Error for unknown order flow:\n{msg}')
+                    continue
 
             # BrokerdStatus
             case {
@@ -1264,6 +1276,9 @@ async def process_client_order_cmds(
                     fqsn,
                     status,
                 )
+
+            case _:
+                log.warning(f'Rx UNHANDLED order request {cmd}')
 
 
 @acm
