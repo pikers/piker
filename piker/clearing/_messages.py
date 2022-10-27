@@ -110,6 +110,7 @@ class Cancel(Struct):
     action: str = 'cancel'
     oid: str  # uuid4
     symbol: str
+    account: str = ''
 
 
 # --------------

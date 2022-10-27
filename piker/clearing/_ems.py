@@ -56,7 +56,7 @@ from . import _paper_engine as paper
 from ._messages import (
     Order,
     Status,
-    # Cancel,
+    Cancel,
     BrokerdCancel,
     BrokerdOrder,
     # BrokerdOrderAck,
@@ -748,7 +748,21 @@ async def translate_and_relay_brokerd_events(
                     # assign newly providerd broker backend request id
                     # and tell broker to cancel immediately
                     status_msg.reqid = reqid
-                    await brokerd_trades_stream.send(req)
+
+                    # NOTE: as per comment in cancel-request-block
+                    # above: This is an ack to
+                    # a client-already-cancelled order request so we
+                    # must immediately send a cancel to the brokerd upon
+                    # rx of this ACK.
+                    cancel_req = status_msg.req
+                    await brokerd_trades_stream.send(
+                        BrokerdCancel(
+                            oid=oid,
+                            reqid=reqid,
+                            time_ns=time.time_ns(),
+                            account=cancel_req.account,
+                        )
+                    )
 
                 # 2. the order is now active and will be mirrored in
                 # our book -> registered as live flow
@@ -1051,13 +1065,8 @@ async def process_client_order_cmds(
             ):
                 reqid = status.reqid
                 order = status.req
-                to_brokerd_msg = BrokerdCancel(
-                    oid=oid,
-                    reqid=reqid,
-                    time_ns=time.time_ns(),
-                    # account=live_entry.account,
-                    account=order.account,
-                )
+                cancreq = status.req = Cancel(**cmd)
+                cancreq.account = order.account
 
                 # NOTE: cancel response will be relayed back in messages
                 # from corresponding broker
@@ -1066,15 +1075,26 @@ async def process_client_order_cmds(
                     log.info(
                         f'Submitting cancel for live order {reqid}'
                     )
-                    await brokerd_order_stream.send(to_brokerd_msg)
+                    await brokerd_order_stream.send(
+                        BrokerdCancel(
+                            oid=oid,
+                            reqid=reqid,
+                            time_ns=time.time_ns(),
+                            account=order.account,
+                        )
+                    )
 
-                else:
+                # else:
                     # this might be a cancel for an order that hasn't been
-                    # acked yet by a brokerd, so register a cancel for when
-                    # the order ack does show up later such that the brokerd
-                    # order request can be cancelled at that time.
+                    # acked yet by a brokerd (so it's in the midst of
+                    # being ACKed for submission but we don't have that
+                    # confirmation yet). In this race case, save the
+                    # client-side cancel request for when
+                    # the ack does show up (later) such that the brokerd
+                    # live-order can be cancelled immediately upon
+                    # reception.
                     # special case for now..
-                    status.req = to_brokerd_msg
+                    # status.req = to_brokerd_msg
 
             # dark trigger cancel
             case {
