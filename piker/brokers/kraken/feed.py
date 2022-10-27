@@ -62,6 +62,7 @@ class Pair(Struct):
     lot: str  # volume lot size
 
     cost_decimals: int
+    costmin: float
     pair_decimals: int  # scaling decimal places for pair
     lot_decimals: int  # scaling decimal places for volume
 
