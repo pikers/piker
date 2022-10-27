@@ -795,7 +795,7 @@ async def handle_order_updates(
                     # 'vol_exec': exec_vlm}  # 0.0000
                     match update_msg:
 
-                        # EMS-unknown live order that needs to be
+                        # EMS-unknown LIVE order that needs to be
                         # delivered and loaded on the client-side.
                         case {
                             'userref': reqid,
@@ -849,7 +849,7 @@ async def handle_order_updates(
                                 ),
                                 src='kraken',
                             )
-                            apiflows[reqid].maps.append(status_msg)
+                            apiflows[reqid].maps.append(status_msg.to_dict())
                             await ems_stream.send(status_msg)
                             continue
 
@@ -1104,7 +1104,6 @@ async def handle_order_updates(
                             'txid': [txid],
                         })
             case _:
-
                 log.warning(f'Unhandled trades update msg: {msg}')
 
 
