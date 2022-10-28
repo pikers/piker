@@ -469,13 +469,21 @@ class Storage:
             time_step = time[-1] - time[-2]
             ts = tf_in_1s.inverse[data_set.timeframe]
 
-            assert time_step == ts
+            if time_step != ts:
+                log.warning(
+                    f'MKTS BUG: wrong timeframe loaded: {time_step}'
+                    'YOUR DATABASE LIKELY CONTAINS BAD DATA FROM AN OLD BUG'
+                    f'WIPING HISTORY FOR {ts}s'
+                )
+                await self.delete_ts(fqsn, timeframe)
 
-            # if time_step != ts:
-            #     log.warning(f'MKTS BUG: wrong timeframe loaded: {time_step}')
-            #     if timeframe == 1:
-            #         await tractor.breakpoint()
-            #     return {}
+                # try reading again..
+                return await self.read_ohlcv(
+                    fqsn,
+                    timeframe,
+                    end,
+                    limit,
+                )
 
         return array
 
