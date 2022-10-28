@@ -293,7 +293,7 @@ class SettingsPane:
 
             # don't log account "change" case since it'll be submitted
             # on every mouse interaction.
-            log.info(f'settings change: {key}: {value}')
+            log.runtime(f'settings change: {key}: {value}')
 
         # TODO: maybe return a diff of settings so if we can an error we
         # can have general input handling code to report it through the

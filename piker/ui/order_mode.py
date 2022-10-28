@@ -56,6 +56,7 @@ from ._position import (
 from ._forms import FieldsForm
 from ._window import MultiStatus
 from ..clearing._messages import (
+    # Cancel,
     Order,
     Status,
     # BrokerdOrder,
@@ -961,15 +962,20 @@ async def process_trade_msg(
     dialog: Dialog = mode.dialogs.get(oid)
 
     match msg:
-        case Status(resp='dark_open' | 'open'):
+        case Status(
+            resp='dark_open' | 'open',
+        ) if msg.req['action'] != 'cancel':
 
             order = Order(**msg.req)
 
-            if dialog is not None:
+            if (
+                dialog is not None
+                and order.action != 'cancel'
+            ):
                 # show line label once order is live
                 mode.on_submit(oid, order=order)
 
-            else:
+            elif order.action != 'cancel':
                 log.warning(
                     f'received msg for untracked dialog:\n{fmsg}'
                 )
@@ -1005,12 +1011,12 @@ async def process_trade_msg(
         case Status(resp='canceled'):
             # delete level line from view
             mode.on_cancel(oid)
-            req = Order(**msg.req)
-            log.cancel(f'Canceled {req.action}:{oid}')
+            action = msg.req["action"]
+            log.cancel(f'Canceled {action}:{oid}')
 
         case Status(
             resp='triggered',
-            # req=Order(exec_mode='dark')  # TODO:
+            # req=Order(exec_mode='dark')  # TODO: msgspec
             req={'exec_mode': 'dark'},
         ):
             # TODO: UX for a "pending" clear/live order
