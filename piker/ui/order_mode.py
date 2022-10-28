@@ -56,7 +56,7 @@ from ._position import (
 from ._forms import FieldsForm
 from ._window import MultiStatus
 from ..clearing._messages import (
-    Cancel,
+    # Cancel,
     Order,
     Status,
     # BrokerdOrder,
@@ -1011,12 +1011,11 @@ async def process_trade_msg(
         case Status(resp='canceled'):
             # delete level line from view
             mode.on_cancel(oid)
-            req = Cancel(**msg.req)
-            log.cancel(f'Canceled {req.action}:{oid}')
+            log.cancel(f'Canceled {msg.req["action"]}:{oid}')
 
         case Status(
             resp='triggered',
-            # req=Order(exec_mode='dark')  # TODO:
+            # req=Order(exec_mode='dark')  # TODO: msgspec
             req={'exec_mode': 'dark'},
         ):
             # TODO: UX for a "pending" clear/live order
