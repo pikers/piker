@@ -855,9 +855,7 @@ class Client:
     # async to be consistent for the client proxy, and cuz why not.
     def submit_limit(
         self,
-        # ignored since ib doesn't support defining your
-        # own order id
-        oid: str,
+        oid: str,  # ignored since doesn't support defining your own
         symbol: str,
         price: float,
         action: str,
@@ -872,6 +870,9 @@ class Client:
     ) -> int:
         '''
         Place an order and return integer request id provided by client.
+
+        Relevant docs:
+        - https://interactivebrokers.github.io/tws-api/order_limitations.html
 
         '''
         try:
@@ -898,6 +899,9 @@ class Client:
                     optOutSmartRouting=True,
                     routeMarketableToBbo=True,
                     designatedLocation='SMART',
+                    # TODO: make all orders GTC?
+                    # https://interactivebrokers.github.io/tws-api/classIBApi_1_1Order.html#a95539081751afb9980f4c6bd1655a6ba
+                    # goodTillDate=f"yyyyMMdd-HH:mm:ss",
                 ),
             )
         except AssertionError:  # errrg insync..
