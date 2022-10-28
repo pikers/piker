@@ -8,7 +8,6 @@ from trio.testing import trio_test
 from piker.brokers import questrade as qt
 import pytest
 import tractor
-from tractor.testing import tractor_test
 
 import piker
 from piker.brokers import get_brokermod
@@ -22,6 +21,12 @@ pytestmark = pytest.mark.skipif(
     True,
     reason="questrade tests can only be run locally with an API key",
 )
+
+# TODO: this module was removed from tractor into it's
+# tests/conftest.py, we need to rewrite the below tests
+# to use the `open_pikerd_runtime()` to make these work again
+# (if we're not just gonna junk em).
+# from tractor.testing import tractor_test
 
 
 # stock quote
@@ -106,7 +111,7 @@ def match_packet(symbols, quotes, feed_type='stock'):
     assert not quotes
 
 
-@tractor_test
+# @tractor_test
 async def test_concurrent_tokens_refresh(us_symbols, loglevel):
     """Verify that concurrent requests from mulitple tasks work alongside
     random token refreshing which simulates an access token expiry + refresh
@@ -337,7 +342,7 @@ async def stream_stocks(feed, symbols):
         'options_and_options',
     ],
 )
-@tractor_test
+# @tractor_test
 async def test_quote_streaming(tmx_symbols, loglevel, stream_what):
     """Set up option streaming using the broker daemon.
     """
