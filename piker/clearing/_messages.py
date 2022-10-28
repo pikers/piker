@@ -110,7 +110,6 @@ class Cancel(Struct):
     action: str = 'cancel'
     oid: str  # uuid4
     symbol: str
-    account: str = ''
 
 
 # --------------
@@ -144,7 +143,7 @@ class Status(Struct):
     # (eg. the Order/Cancel which causes this msg) and
     # acts as a back-reference to the corresponding
     # request message which was the source of this msg.
-    req: Optional[Order | Cancel] = None
+    req: Order | None = None
 
     # XXX: better design/name here?
     # flag that can be set to indicate a message for an order
@@ -152,6 +151,10 @@ class Status(Struct):
     # trading system which does it's own order control but that you
     # might want to "track" using piker UIs/systems).
     src: Optional[str] = None
+
+    # set when a cancel request msg was set for this order flow dialog
+    # but the brokerd dialog isn't yet in a cancelled state.
+    cancel_called: bool = False
 
     # for relaying a boxed brokerd-dialog-side msg data "through" the
     # ems layer to clients.
