@@ -1011,7 +1011,8 @@ async def process_trade_msg(
         case Status(resp='canceled'):
             # delete level line from view
             mode.on_cancel(oid)
-            log.cancel(f'Canceled {msg.req["action"]}:{oid}')
+            action = msg.req["action"]
+            log.cancel(f'Canceled {action}:{oid}')
 
         case Status(
             resp='triggered',
