@@ -517,7 +517,9 @@ class OrderMode:
             _, _, ratio = self.feed.get_ds_info()
             for i, chart in [
                 (arrow_index, self.chart),
-                (self.feed.startup_hist_index + round(arrow_index/ratio),
+                (self.feed.izero_hist
+                 +
+                 round((arrow_index - self.feed.izero_rt)/ratio),
                  self.hist_chart)
             ]:
                 self.arrows.add(

@@ -43,6 +43,7 @@ from bidict import bidict
 import trio
 import tractor
 from tractor import to_asyncio
+import pendulum
 import ib_insync as ibis
 from ib_insync.contract import (
     Contract,
@@ -52,6 +53,7 @@ from ib_insync.contract import (
 from ib_insync.order import Order
 from ib_insync.ticker import Ticker
 from ib_insync.objects import (
+    BarDataList,
     Position,
     Fill,
     Execution,
@@ -78,26 +80,11 @@ _time_units = {
     'h': ' hours',
 }
 
-_time_frames = {
-    '1s': '1 Sec',
-    '5s': '5 Sec',
-    '30s': '30 Sec',
-    '1m': 'OneMinute',
-    '2m': 'TwoMinutes',
-    '3m': 'ThreeMinutes',
-    '4m': 'FourMinutes',
-    '5m': 'FiveMinutes',
-    '10m': 'TenMinutes',
-    '15m': 'FifteenMinutes',
-    '20m': 'TwentyMinutes',
-    '30m': 'HalfHour',
-    '1h': 'OneHour',
-    '2h': 'TwoHours',
-    '4h': 'FourHours',
-    'D': 'OneDay',
-    'W': 'OneWeek',
-    'M': 'OneMonth',
-    'Y': 'OneYear',
+_bar_sizes = {
+    1: '1 Sec',
+    60: '1 min',
+    60*60: '1 hour',
+    24*60*60: '1 day',
 }
 
 _show_wap_in_history: bool = False
@@ -199,7 +186,8 @@ _adhoc_futes_set = {
     'lb.nymex',  # random len lumber
 
     # metals
-    'xauusd.cmdty',  # gold spot
+    # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
+    'xauusd.cmdty',  # london gold spot ^
     'gc.nymex',
     'mgc.nymex',  # micro
 
@@ -257,14 +245,12 @@ _exch_skip_list = {
     'PSE',
 }
 
-# https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
-
 _enters = 0
 
 
 def bars_to_np(bars: list) -> np.ndarray:
     '''
-    Convert a "bars list thing" (``BarsList`` type from ibis)
+    Convert a "bars list thing" (``BarDataList`` type from ibis)
     into a numpy struct array.
 
     '''
@@ -282,6 +268,27 @@ def bars_to_np(bars: list) -> np.ndarray:
     assert nparr['time'][0] == bars[0].date.timestamp()
     assert nparr['time'][-1] == bars[-1].date.timestamp()
     return nparr
+
+
+# NOTE: pacing violations exist for higher sample rates:
+# https://interactivebrokers.github.io/tws-api/historical_limitations.html#pacing_violations
+# Also see note on duration limits being lifted on 1m+ periods,
+# but they say "use with discretion":
+# https://interactivebrokers.github.io/tws-api/historical_limitations.html#non-available_hd
+_samplings: dict[int, tuple[str, str]] = {
+    1: (
+        '1 secs',
+        f'{int(2e3)} S',
+        pendulum.duration(seconds=2e3),
+    ),
+    # TODO: benchmark >1 D duration on query to see if
+    # throughput can be made faster during backfilling.
+    60: (
+        '1 min',
+        '1 D',
+        pendulum.duration(days=1),
+    ),
+}
 
 
 class Client:
@@ -338,19 +345,32 @@ class Client:
         start_dt: Union[datetime, str] = "1970-01-01T00:00:00.000000-05:00",
         end_dt: Union[datetime, str] = "",
 
-        sample_period_s: str = 1,  # ohlc sample period
-        period_count: int = int(2e3),  # <- max per 1s sample query
+        # ohlc sample period in seconds
+        sample_period_s: int = 1,
 
-    ) -> list[dict[str, Any]]:
+        # optional "duration of time" equal to the
+        # length of the returned history frame.
+        duration: Optional[str] = None,
+
+        **kwargs,
+
+    ) -> tuple[BarDataList, np.ndarray, pendulum.Duration]:
         '''
         Retreive OHLCV bars for a fqsn over a range to the present.
 
         '''
+        # See API docs here:
+        # https://interactivebrokers.github.io/tws-api/historical_data.html
         bars_kwargs = {'whatToShow': 'TRADES'}
+        bars_kwargs.update(kwargs)
+        bar_size, duration, dt_duration = _samplings[sample_period_s]
 
         global _enters
         # log.info(f'REQUESTING BARS {_enters} @ end={end_dt}')
-        print(f'REQUESTING BARS {_enters} @ end={end_dt}')
+        print(
+            f"REQUESTING {duration}'s worth {bar_size} BARS\n"
+            f'{_enters} @ end={end_dt}"'
+        )
 
         if not end_dt:
             end_dt = ''
@@ -360,30 +380,20 @@ class Client:
         contract = (await self.find_contracts(fqsn))[0]
         bars_kwargs.update(getattr(contract, 'bars_kwargs', {}))
 
-        # _min = min(2000*100, count)
         bars = await self.ib.reqHistoricalDataAsync(
             contract,
             endDateTime=end_dt,
             formatDate=2,
 
-            # time history length values format:
-            # ``durationStr=integer{SPACE}unit (S|D|W|M|Y)``
-
             # OHLC sampling values:
             # 1 secs, 5 secs, 10 secs, 15 secs, 30 secs, 1 min, 2 mins,
             # 3 mins, 5 mins, 10 mins, 15 mins, 20 mins, 30 mins,
             # 1 hour, 2 hours, 3 hours, 4 hours, 8 hours, 1 day, 1W, 1M
-            # barSizeSetting='1 secs',
+            barSizeSetting=bar_size,
 
-            # durationStr='{count} S'.format(count=15000 * 5),
-            # durationStr='{count} D'.format(count=1),
-            # barSizeSetting='5 secs',
-
-            durationStr='{count} S'.format(count=period_count),
-            # barSizeSetting='5 secs',
-            barSizeSetting='1 secs',
-
-            # barSizeSetting='1 min',
+            # time history length values format:
+            # ``durationStr=integer{SPACE}unit (S|D|W|M|Y)``
+            durationStr=duration,
 
             # always use extended hours
             useRTH=False,
@@ -394,11 +404,21 @@ class Client:
             # whatToShow='TRADES',
         )
         if not bars:
-            # TODO: raise underlying error here
-            raise ValueError(f"No bars retreived for {fqsn}?")
+            # NOTE: there's 2 cases here to handle (and this should be
+            # read alongside the implementation of
+            # ``.reqHistoricalDataAsync()``):
+            # - no data is returned for the period likely due to
+            # a weekend, holiday or other non-trading period prior to
+            # ``end_dt`` which exceeds the ``duration``,
+            # - a timeout occurred in which case insync internals return
+            # an empty list thing with bars.clear()...
+            return [], np.empty(0), dt_duration
+            # TODO: we could maybe raise ``NoData`` instead if we
+            # rewrite the method in the first case? right now there's no
+            # way to detect a timeout.
 
         nparr = bars_to_np(bars)
-        return bars, nparr
+        return bars, nparr, dt_duration
 
     async def con_deats(
         self,
@@ -463,7 +483,7 @@ class Client:
         self,
         pattern: str,
         # how many contracts to search "up to"
-        upto: int = 6,
+        upto: int = 16,
         asdicts: bool = True,
 
     ) -> dict[str, ContractDetails]:
@@ -498,6 +518,16 @@ class Client:
 
                 exch = tract.exchange
                 if exch not in _exch_skip_list:
+
+                    # try to lookup any contracts from our adhoc set
+                    # since often the exchange/venue is named slightly
+                    # different (eg. BRR.CMECRYPTO` instead of just
+                    # `.CME`).
+                    info = _adhoc_symbol_map.get(sym)
+                    if info:
+                        con_kwargs, bars_kwargs = info
+                        exch = con_kwargs['exchange']
+
                     # try get all possible contracts for symbol as per,
                     # https://interactivebrokers.github.io/tws-api/basic_contracts.html#fut
                     con = ibis.Future(
@@ -748,11 +778,14 @@ class Client:
 
     async def get_head_time(
         self,
-        contract: Contract,
-    ) -> datetime:
-        """Return the first datetime stamp for ``contract``.
+        fqsn: str,
 
-        """
+    ) -> datetime:
+        '''
+        Return the first datetime stamp for ``contract``.
+
+        '''
+        contract = (await self.find_contracts(fqsn))[0]
         return await self.ib.reqHeadTimeStampAsync(
             contract,
             whatToShow='TRADES',
@@ -822,9 +855,7 @@ class Client:
     # async to be consistent for the client proxy, and cuz why not.
     def submit_limit(
         self,
-        # ignored since ib doesn't support defining your
-        # own order id
-        oid: str,
+        oid: str,  # ignored since doesn't support defining your own
         symbol: str,
         price: float,
         action: str,
@@ -839,6 +870,9 @@ class Client:
     ) -> int:
         '''
         Place an order and return integer request id provided by client.
+
+        Relevant docs:
+        - https://interactivebrokers.github.io/tws-api/order_limitations.html
 
         '''
         try:
@@ -865,6 +899,9 @@ class Client:
                     optOutSmartRouting=True,
                     routeMarketableToBbo=True,
                     designatedLocation='SMART',
+                    # TODO: make all orders GTC?
+                    # https://interactivebrokers.github.io/tws-api/classIBApi_1_1Order.html#a95539081751afb9980f4c6bd1655a6ba
+                    # goodTillDate=f"yyyyMMdd-HH:mm:ss",
                 ),
             )
         except AssertionError:  # errrg insync..
@@ -1066,6 +1103,7 @@ async def load_aio_clients(
     # retry a few times to get the client going..
     connect_retries: int = 3,
     connect_timeout: float = 0.5,
+    disconnect_on_exit: bool = True,
 
 ) -> dict[str, Client]:
     '''
@@ -1207,10 +1245,11 @@ async def load_aio_clients(
     finally:
         # TODO: for re-scans we'll want to not teardown clients which
         # are up and stable right?
-        for acct, client in _accounts2clients.items():
-            log.info(f'Disconnecting {acct}@{client}')
-            client.ib.disconnect()
-            _client_cache.pop((host, port), None)
+        if disconnect_on_exit:
+            for acct, client in _accounts2clients.items():
+                log.info(f'Disconnecting {acct}@{client}')
+                client.ib.disconnect()
+                _client_cache.pop((host, port), None)
 
 
 async def load_clients_for_trio(

@@ -22,6 +22,7 @@ import asyncio
 from contextlib import asynccontextmanager as acm
 from dataclasses import asdict
 from datetime import datetime
+from functools import partial
 from math import isnan
 import time
 from typing import (
@@ -38,8 +39,11 @@ import tractor
 import trio
 from trio_typing import TaskStatus
 
-from piker.data._sharedmem import ShmArray
-from .._util import SymbolNotFound, NoData
+from .._util import (
+    NoData,
+    DataUnavailable,
+    SymbolNotFound,
+)
 from .api import (
     # _adhoc_futes_set,
     con2fqsn,
@@ -103,7 +107,7 @@ async def open_data_client() -> MethodProxy:
 
 @acm
 async def open_history_client(
-    symbol: str,
+    fqsn: str,
 
 ) -> tuple[Callable, int]:
     '''
@@ -111,25 +115,64 @@ async def open_history_client(
     that takes in ``pendulum.datetime`` and returns ``numpy`` arrays.
 
     '''
+    # TODO:
+    # - add logic to handle tradable hours and only grab
+    #   valid bars in the range?
+    # - we want to avoid overrunning the underlying shm array buffer and
+    #   we should probably calc the number of calls to make depending on
+    #   that until we have the `marketstore` daemon in place in which case
+    #   the shm size will be driven by user config and available sys
+    #   memory.
+
     async with open_data_client() as proxy:
 
+        max_timeout: float = 2.
+        mean: float = 0
+        count: int = 0
+
+        head_dt = await proxy.get_head_time(fqsn=fqsn)
+
         async def get_hist(
+            timeframe: float,
             end_dt: Optional[datetime] = None,
             start_dt: Optional[datetime] = None,
 
         ) -> tuple[np.ndarray, str]:
+            nonlocal max_timeout, mean, count
 
-            out, fails = await get_bars(proxy, symbol, end_dt=end_dt)
+            query_start = time.time()
+            out, timedout = await get_bars(
+                proxy,
+                fqsn,
+                timeframe,
+                end_dt=end_dt,
+            )
+            latency = time.time() - query_start
+            if (
+                not timedout
+                # and latency <= max_timeout
+            ):
+                count += 1
+                mean += latency / count
+                print(
+                    f'HISTORY FRAME QUERY LATENCY: {latency}\n'
+                    f'mean: {mean}'
+                )
 
-            # TODO: add logic here to handle tradable hours and only grab
-            # valid bars in the range
-            if out is None:
+            if (
+                out is None
+            ):
                 # could be trying to retreive bars over weekend
                 log.error(f"Can't grab bars starting at {end_dt}!?!?")
                 raise NoData(
                     f'{end_dt}',
-                    frame_size=2000,
+                    # frame_size=2000,
                 )
+
+            if (
+                end_dt and end_dt <= head_dt
+            ):
+                raise DataUnavailable(f'First timestamp is {head_dt}')
 
             bars, bars_array, first_dt, last_dt = out
 
@@ -145,7 +188,7 @@ async def open_history_client(
         # quite sure why.. needs some tinkering and probably
         # a lookthrough of the ``ib_insync`` machinery, for eg. maybe
         # we have to do the batch queries on the `asyncio` side?
-        yield get_hist, {'erlangs': 1, 'rate': 6}
+        yield get_hist, {'erlangs': 1, 'rate': 3}
 
 
 _pacing: str = (
@@ -154,13 +197,98 @@ _pacing: str = (
 )
 
 
+async def wait_on_data_reset(
+    proxy: MethodProxy,
+    reset_type: str = 'data',
+    timeout: float = 16,
+
+    task_status: TaskStatus[
+        tuple[
+            trio.CancelScope,
+            trio.Event,
+        ]
+    ] = trio.TASK_STATUS_IGNORED,
+) -> bool:
+
+    # TODO: we might have to put a task lock around this
+    # method..
+    hist_ev = proxy.status_event(
+        'HMDS data farm connection is OK:ushmds'
+    )
+
+    # XXX: other event messages we might want to try and
+    # wait for but i wasn't able to get any of this
+    # reliable..
+    # reconnect_start = proxy.status_event(
+    #     'Market data farm is connecting:usfuture'
+    # )
+    # live_ev = proxy.status_event(
+    #     'Market data farm connection is OK:usfuture'
+    # )
+    # try to wait on the reset event(s) to arrive, a timeout
+    # will trigger a retry up to 6 times (for now).
+
+    done = trio.Event()
+    with trio.move_on_after(timeout) as cs:
+
+        task_status.started((cs, done))
+
+        log.warning('Sending DATA RESET request')
+        res = await data_reset_hack(reset_type=reset_type)
+
+        if not res:
+            log.warning(
+                'NO VNC DETECTED!\n'
+                'Manually press ctrl-alt-f on your IB java app'
+            )
+            done.set()
+            return False
+
+        # TODO: not sure if waiting on other events
+        # is all that useful here or not.
+        # - in theory you could wait on one of the ones above first
+        # to verify the reset request was sent?
+        # - we need the same for real-time quote feeds which can
+        # sometimes flake out and stop delivering..
+        for name, ev in [
+            ('history', hist_ev),
+        ]:
+            await ev.wait()
+            log.info(f"{name} DATA RESET")
+            done.set()
+            return True
+
+    if cs.cancel_called:
+        log.warning(
+            'Data reset task canceled?'
+        )
+
+    done.set()
+    return False
+
+
+_data_resetter_task: trio.Task | None = None
+
+
 async def get_bars(
 
     proxy: MethodProxy,
     fqsn: str,
+    timeframe: int,
 
     # blank to start which tells ib to look up the latest datum
     end_dt: str = '',
+
+    # TODO: make this more dynamic based on measured frame rx latency?
+    # how long before we trigger a feed reset (seconds)
+    feed_reset_timeout: float = 3,
+
+    # how many days to subtract before giving up on further
+    # history queries for instrument, presuming that most don't
+    # not trade for a week XD
+    max_nodatas: int = 6,
+
+    task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
 ) -> (dict, np.ndarray):
     '''
@@ -168,247 +296,188 @@ async def get_bars(
     a ``MethoProxy``.
 
     '''
-    fails = 0
-    bars: Optional[list] = None
-    first_dt: datetime = None
-    last_dt: datetime = None
+    global _data_resetter_task
+    nodatas_count: int = 0
 
-    if end_dt:
-        last_dt = pendulum.from_timestamp(end_dt.timestamp())
+    data_cs: trio.CancelScope | None = None
+    result: tuple[
+        ibis.objects.BarDataList,
+        np.ndarray,
+        datetime,
+        datetime,
+    ] | None = None
+    result_ready = trio.Event()
 
-    for _ in range(10):
-        try:
-            out = await proxy.bars(
-                fqsn=fqsn,
-                end_dt=end_dt,
-            )
-            if out:
-                bars, bars_array = out
+    async def query():
+        nonlocal result, data_cs, end_dt, nodatas_count
+        while True:
+            try:
+                out = await proxy.bars(
+                    fqsn=fqsn,
+                    end_dt=end_dt,
+                    sample_period_s=timeframe,
 
-            else:
-                await tractor.breakpoint()
-
-            if bars_array is None:
-                raise SymbolNotFound(fqsn)
-
-            first_dt = pendulum.from_timestamp(
-                bars[0].date.timestamp())
-
-            last_dt = pendulum.from_timestamp(
-                bars[-1].date.timestamp())
-
-            time = bars_array['time']
-            assert time[-1] == last_dt.timestamp()
-            assert time[0] == first_dt.timestamp()
-            log.info(
-                f'{len(bars)} bars retreived for {first_dt} -> {last_dt}'
-            )
-
-            return (bars, bars_array, first_dt, last_dt), fails
-
-        except RequestError as err:
-            msg = err.message
-
-            if 'No market data permissions for' in msg:
-                # TODO: signalling for no permissions searches
-                raise NoData(
-                    f'Symbol: {fqsn}',
+                    # ideally we cancel the request just before we
+                    # cancel on the ``trio``-side and trigger a data
+                    # reset hack.. the problem is there's no way (with
+                    # current impl) to detect a cancel case.
+                    # timeout=timeout,
                 )
-
-            elif (
-                err.code == 162 and
-                'HMDS query returned no data' in err.message
-            ):
-                # XXX: this is now done in the storage mgmt layer
-                # and we shouldn't implicitly decrement the frame dt
-                # index since the upper layer may be doing so
-                # concurrently and we don't want to be delivering frames
-                # that weren't asked for.
-                log.warning(
-                    f'NO DATA found ending @ {end_dt}\n'
-                )
-
-                # try to decrement start point and look further back
-                # end_dt = last_dt = last_dt.subtract(seconds=2000)
-
-                raise NoData(
-                    f'Symbol: {fqsn}',
-                    frame_size=2000,
-                )
-
-            # elif (
-            #     err.code == 162 and
-            #     'Trading TWS session is connected from a different IP
-            #     address' in err.message
-            # ):
-            #     log.warning("ignoring ip address warning")
-            #     continue
-
-            elif _pacing in msg:
-
-                log.warning(
-                    'History throttle rate reached!\n'
-                    'Resetting farms with `ctrl-alt-f` hack\n'
-                )
-                # TODO: we might have to put a task lock around this
-                # method..
-                hist_ev = proxy.status_event(
-                    'HMDS data farm connection is OK:ushmds'
-                )
-
-                # XXX: other event messages we might want to try and
-                # wait for but i wasn't able to get any of this
-                # reliable..
-                # reconnect_start = proxy.status_event(
-                #     'Market data farm is connecting:usfuture'
-                # )
-                # live_ev = proxy.status_event(
-                #     'Market data farm connection is OK:usfuture'
-                # )
-
-                # try to wait on the reset event(s) to arrive, a timeout
-                # will trigger a retry up to 6 times (for now).
-                tries: int = 2
-                timeout: float = 10
-
-                # try 3 time with a data reset then fail over to
-                # a connection reset.
-                for i in range(1, tries):
-
-                    log.warning('Sending DATA RESET request')
-                    await data_reset_hack(reset_type='data')
-
-                    with trio.move_on_after(timeout) as cs:
-                        for name, ev in [
-                            # TODO: not sure if waiting on other events
-                            # is all that useful here or not. in theory
-                            # you could wait on one of the ones above
-                            # first to verify the reset request was
-                            # sent?
-                            ('history', hist_ev),
-                        ]:
-                            await ev.wait()
-                            log.info(f"{name} DATA RESET")
-                            break
-
-                    if cs.cancelled_caught:
-                        fails += 1
-                        log.warning(
-                            f'Data reset {name} timeout, retrying {i}.'
-                        )
-
-                        continue
-                else:
-
-                    log.warning('Sending CONNECTION RESET')
-                    res = await data_reset_hack(reset_type='connection')
-                    if not res:
-                        log.warning(
-                            'NO VNC DETECTED!\n'
-                            'Manually press ctrl-alt-f on your IB java app'
-                        )
-                        # break
-
-                    with trio.move_on_after(timeout) as cs:
-                        for name, ev in [
-                            # TODO: not sure if waiting on other events
-                            # is all that useful here or not. in theory
-                            # you could wait on one of the ones above
-                            # first to verify the reset request was
-                            # sent?
-                            ('history', hist_ev),
-                        ]:
-                            await ev.wait()
-                            log.info(f"{name} DATA RESET")
-
-                    if cs.cancelled_caught:
-                        fails += 1
-                        log.warning('Data CONNECTION RESET timeout!?')
-
-            else:
-                raise
-
-    return None, None
-    # else:  # throttle wasn't fixed so error out immediately
-    #     raise _err
-
-
-async def backfill_bars(
-
-    fqsn: str,
-    shm: ShmArray,  # type: ignore # noqa
-
-    # TODO: we want to avoid overrunning the underlying shm array buffer
-    # and we should probably calc the number of calls to make depending
-    # on that until we have the `marketstore` daemon in place in which
-    # case the shm size will be driven by user config and available sys
-    # memory.
-    count: int = 16,
-
-    task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
-
-) -> None:
-    '''
-    Fill historical bars into shared mem / storage afap.
-
-    TODO: avoid pacing constraints:
-    https://github.com/pikers/piker/issues/128
-
-    '''
-    # last_dt1 = None
-    last_dt = None
-
-    with trio.CancelScope() as cs:
-
-        async with open_data_client() as proxy:
-
-            out, fails = await get_bars(proxy, fqsn)
-
-            if out is None:
-                raise RuntimeError("Could not pull currrent history?!")
-
-            (first_bars, bars_array, first_dt, last_dt) = out
-            vlm = bars_array['volume']
-            vlm[vlm < 0] = 0
-            last_dt = first_dt
-
-            # write historical data to buffer
-            shm.push(bars_array)
-
-            task_status.started(cs)
-
-            i = 0
-            while i < count:
-
-                out, fails = await get_bars(proxy, fqsn, end_dt=first_dt)
-
                 if out is None:
-                    # could be trying to retreive bars over weekend
-                    # TODO: add logic here to handle tradable hours and
-                    # only grab valid bars in the range
-                    log.error(f"Can't grab bars starting at {first_dt}!?!?")
+                    raise NoData(f'{end_dt}')
 
-                    # XXX: get_bars() should internally decrement dt by
-                    # 2k seconds and try again.
+                bars, bars_array, dt_duration = out
+
+                if not bars:
+                    log.warning(
+                        f'History is blank for {dt_duration} from {end_dt}'
+                    )
+                    end_dt -= dt_duration
                     continue
 
-                (first_bars, bars_array, first_dt, last_dt) = out
-                # last_dt1 = last_dt
-                # last_dt = first_dt
+                if bars_array is None:
+                    raise SymbolNotFound(fqsn)
 
-                # volume cleaning since there's -ve entries,
-                # wood luv to know what crookery that is..
-                vlm = bars_array['volume']
-                vlm[vlm < 0] = 0
+                first_dt = pendulum.from_timestamp(
+                    bars[0].date.timestamp())
 
-                # TODO we should probably dig into forums to see what peeps
-                # think this data "means" and then use it as an indicator of
-                # sorts? dinkus has mentioned that $vlms for the day dont'
-                # match other platforms nor the summary stat tws shows in
-                # the monitor - it's probably worth investigating.
+                last_dt = pendulum.from_timestamp(
+                    bars[-1].date.timestamp())
 
-                shm.push(bars_array, prepend=True)
-                i += 1
+                time = bars_array['time']
+                assert time[-1] == last_dt.timestamp()
+                assert time[0] == first_dt.timestamp()
+                log.info(
+                    f'{len(bars)} bars retreived {first_dt} -> {last_dt}'
+                )
+
+                if data_cs:
+                    data_cs.cancel()
+
+                result = (bars, bars_array, first_dt, last_dt)
+
+                # signal data reset loop parent task
+                result_ready.set()
+
+                return result
+
+            except RequestError as err:
+                msg = err.message
+
+                if 'No market data permissions for' in msg:
+                    # TODO: signalling for no permissions searches
+                    raise NoData(
+                        f'Symbol: {fqsn}',
+                    )
+
+                elif err.code == 162:
+                    if (
+                        'HMDS query returned no data' in msg
+                    ):
+                        # XXX: this is now done in the storage mgmt
+                        # layer and we shouldn't implicitly decrement
+                        # the frame dt index since the upper layer may
+                        # be doing so concurrently and we don't want to
+                        # be delivering frames that weren't asked for.
+                        # try to decrement start point and look further back
+                        # end_dt = end_dt.subtract(seconds=2000)
+                        logmsg = "SUBTRACTING DAY from DT index"
+                        if end_dt is not None:
+                            end_dt = end_dt.subtract(days=1)
+                        elif end_dt is None:
+                            end_dt = pendulum.now().subtract(days=1)
+
+                        log.warning(
+                            f'NO DATA found ending @ {end_dt}\n'
+                            + logmsg
+                        )
+
+                        if nodatas_count >= max_nodatas:
+                            raise DataUnavailable(
+                                f'Presuming {fqsn} has no further history '
+                                f'after {max_nodatas} tries..'
+                            )
+
+                        nodatas_count += 1
+                        continue
+
+                    elif 'API historical data query cancelled' in err.message:
+                        log.warning(
+                            'Query cancelled by IB (:eyeroll:):\n'
+                            f'{err.message}'
+                        )
+                        continue
+                    elif (
+                        'Trading TWS session is connected from a different IP'
+                            in err.message
+                    ):
+                        log.warning("ignoring ip address warning")
+                        continue
+
+                # XXX: more or less same as above timeout case
+                elif _pacing in msg:
+                    log.warning(
+                        'History throttle rate reached!\n'
+                        'Resetting farms with `ctrl-alt-f` hack\n'
+                    )
+
+                    # cancel any existing reset task
+                    if data_cs:
+                        data_cs.cancel()
+
+                    # spawn new data reset task
+                    data_cs, reset_done = await nurse.start(
+                        partial(
+                            wait_on_data_reset,
+                            proxy,
+                            timeout=float('inf'),
+                            reset_type='connection'
+                        )
+                    )
+                    continue
+
+                else:
+                    raise
+
+    # TODO: make this global across all history task/requests
+    # such that simultaneous symbol queries don't try data resettingn
+    # too fast..
+    unset_resetter: bool = False
+    async with trio.open_nursery() as nurse:
+
+        # start history request that we allow
+        # to run indefinitely until a result is acquired
+        nurse.start_soon(query)
+
+        # start history reset loop which waits up to the timeout
+        # for a result before triggering a data feed reset.
+        while not result_ready.is_set():
+
+            with trio.move_on_after(feed_reset_timeout):
+                await result_ready.wait()
+                break
+
+            if _data_resetter_task:
+                # don't double invoke the reset hack if another
+                # requester task already has it covered.
+                continue
+            else:
+                _data_resetter_task = trio.lowlevel.current_task()
+                unset_resetter = True
+
+            # spawn new data reset task
+            data_cs, reset_done = await nurse.start(
+                partial(
+                    wait_on_data_reset,
+                    proxy,
+                    timeout=float('inf'),
+                )
+            )
+            # sync wait on reset to complete
+            await reset_done.wait()
+
+    _data_resetter_task = None if unset_resetter else _data_resetter_task
+    return result, data_cs is not None
 
 
 asset_type_map = {
@@ -466,7 +535,9 @@ async def _setup_quote_stream(
 
     to_trio.send_nowait(None)
 
-    async with load_aio_clients() as accts2clients:
+    async with load_aio_clients(
+        disconnect_on_exit=False,
+    ) as accts2clients:
         caccount_name, client = get_preferred_data_client(accts2clients)
         contract = contract or (await client.find_contract(symbol))
         ticker: Ticker = client.ib.reqMktData(contract, ','.join(opts))
@@ -512,10 +583,11 @@ async def _setup_quote_stream(
                 # Manually do the dereg ourselves.
                 teardown()
             except trio.WouldBlock:
-                log.warning(
-                    f'channel is blocking symbol feed for {symbol}?'
-                    f'\n{to_trio.statistics}'
-                )
+                # log.warning(
+                #     f'channel is blocking symbol feed for {symbol}?'
+                #     f'\n{to_trio.statistics}'
+                # )
+                pass
 
             # except trio.WouldBlock:
             #     # for slow debugging purposes to avoid clobbering prompt
@@ -545,7 +617,8 @@ async def open_aio_quote_stream(
     from_aio = _quote_streams.get(symbol)
     if from_aio:
 
-        # if we already have a cached feed deliver a rx side clone to consumer
+        # if we already have a cached feed deliver a rx side clone
+        # to consumer
         async with broadcast_receiver(
             from_aio,
             2**6,
@@ -736,67 +809,97 @@ async def stream_quotes(
             await trio.sleep_forever()
             return  # we never expect feed to come up?
 
-        async with open_aio_quote_stream(
-            symbol=sym,
-            contract=con,
-        ) as stream:
-
-            # ugh, clear ticks since we've consumed them
-            # (ahem, ib_insync is stateful trash)
-            first_ticker.ticks = []
-
-            task_status.started((init_msgs, first_quote))
-
-            async with aclosing(stream):
-                if syminfo.get('no_vlm', False):
-
-                    # generally speaking these feeds don't
-                    # include vlm data.
-                    atype = syminfo['asset_type']
-                    log.info(
-                        f'Non-vlm asset {sym}@{atype}, skipping quote poll...'
-                    )
-
-                else:
-                    # wait for real volume on feed (trading might be closed)
-                    while True:
-                        ticker = await stream.receive()
-
-                        # for a real volume contract we rait for the first
-                        # "real" trade to take place
-                        if (
-                            # not calc_price
-                            # and not ticker.rtTime
-                            not ticker.rtTime
-                        ):
-                            # spin consuming tickers until we get a real
-                            # market datum
-                            log.debug(f"New unsent ticker: {ticker}")
-                            continue
-                        else:
-                            log.debug("Received first real volume tick")
-                            # ugh, clear ticks since we've consumed them
-                            # (ahem, ib_insync is truly stateful trash)
-                            ticker.ticks = []
-
-                            # XXX: this works because we don't use
-                            # ``aclosing()`` above?
-                            break
-
-                    quote = normalize(ticker)
-                    log.debug(f"First ticker received {quote}")
-
-                # tell caller quotes are now coming in live
-                feed_is_live.set()
-
-                # last = time.time()
-                async for ticker in stream:
-                    quote = normalize(ticker)
-                    await send_chan.send({quote['fqsn']: quote})
-
+        cs: Optional[trio.CancelScope] = None
+        startup: bool = True
+        while (
+            startup
+            or cs.cancel_called
+        ):
+            with trio.CancelScope() as cs:
+                async with (
+                    trio.open_nursery() as nurse,
+                    open_aio_quote_stream(
+                        symbol=sym,
+                        contract=con,
+                    ) as stream,
+                ):
                     # ugh, clear ticks since we've consumed them
-                    ticker.ticks = []
-                    # last = time.time()
+                    # (ahem, ib_insync is stateful trash)
+                    first_ticker.ticks = []
+
+                    # only on first entry at feed boot up
+                    if startup:
+                        startup = False
+                        task_status.started((init_msgs, first_quote))
+
+                    # start a stream restarter task which monitors the
+                    # data feed event.
+                    async def reset_on_feed():
+
+                        # TODO: this seems to be surpressed from the
+                        # traceback in ``tractor``?
+                        # assert 0
+
+                        rt_ev = proxy.status_event(
+                            'Market data farm connection is OK:usfarm'
+                        )
+                        await rt_ev.wait()
+                        cs.cancel()  # cancel called should now be set
+
+                    nurse.start_soon(reset_on_feed)
+
+                    async with aclosing(stream):
+                        if syminfo.get('no_vlm', False):
+
+                            # generally speaking these feeds don't
+                            # include vlm data.
+                            atype = syminfo['asset_type']
+                            log.info(
+                                f'No-vlm {sym}@{atype}, skipping quote poll'
+                            )
+
+                        else:
+                            # wait for real volume on feed (trading might be
+                            # closed)
+                            while True:
+                                ticker = await stream.receive()
+
+                                # for a real volume contract we rait for
+                                # the first "real" trade to take place
+                                if (
+                                    # not calc_price
+                                    # and not ticker.rtTime
+                                    not ticker.rtTime
+                                ):
+                                    # spin consuming tickers until we
+                                    # get a real market datum
+                                    log.debug(f"New unsent ticker: {ticker}")
+                                    continue
+                                else:
+                                    log.debug("Received first volume tick")
+                                    # ugh, clear ticks since we've
+                                    # consumed them (ahem, ib_insync is
+                                    # truly stateful trash)
+                                    ticker.ticks = []
+
+                                    # XXX: this works because we don't use
+                                    # ``aclosing()`` above?
+                                    break
+
+                            quote = normalize(ticker)
+                            log.debug(f"First ticker received {quote}")
+
+                        # tell caller quotes are now coming in live
+                        feed_is_live.set()
+
+                        # last = time.time()
+                        async for ticker in stream:
+                            quote = normalize(ticker)
+                            await send_chan.send({quote['fqsn']: quote})
+
+                            # ugh, clear ticks since we've consumed them
+                            ticker.ticks = []
+                            # last = time.time()
 
 
 async def data_reset_hack(
@@ -904,7 +1007,14 @@ async def open_symbol_search(
                     except trio.WouldBlock:
                         pass
 
-                if not pattern or pattern.isspace():
+                if (
+                    not pattern
+                    or pattern.isspace()
+
+                    # XXX: not sure if this is a bad assumption but it
+                    # seems to make search snappier?
+                    or len(pattern) < 1
+                ):
                     log.warning('empty pattern received, skipping..')
 
                     # TODO: *BUG* if nothing is returned here the client

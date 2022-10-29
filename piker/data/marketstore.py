@@ -387,50 +387,57 @@ class Storage:
     async def load(
         self,
         fqsn: str,
+        timeframe: int,
 
     ) -> tuple[
-        dict[int, np.ndarray],  # timeframe (in secs) to series
+        np.ndarray,  # timeframe sampled array-series
         Optional[datetime],  # first dt
         Optional[datetime],  # last dt
     ]:
 
         first_tsdb_dt, last_tsdb_dt = None, None
-        tsdb_arrays = await self.read_ohlcv(
+        hist = await self.read_ohlcv(
             fqsn,
             # on first load we don't need to pull the max
             # history per request size worth.
             limit=3000,
+            timeframe=timeframe,
         )
-        log.info(f'Loaded tsdb history {tsdb_arrays}')
+        log.info(f'Loaded tsdb history {hist}')
 
-        if tsdb_arrays:
-            fastest = list(tsdb_arrays.values())[0]
-            times = fastest['Epoch']
+        if len(hist):
+            times = hist['Epoch']
             first, last = times[0], times[-1]
             first_tsdb_dt, last_tsdb_dt = map(
                 pendulum.from_timestamp, [first, last]
             )
 
-        return tsdb_arrays, first_tsdb_dt, last_tsdb_dt
+        return (
+            hist,  # array-data
+            first_tsdb_dt,  # start of query-frame
+            last_tsdb_dt,  # most recent
+        )
 
     async def read_ohlcv(
         self,
         fqsn: str,
-        timeframe: Optional[Union[int, str]] = None,
+        timeframe: int | str,
         end: Optional[int] = None,
         limit: int = int(800e3),
 
-    ) -> tuple[
-        MarketstoreClient,
-        Union[dict, np.ndarray]
+    ) -> dict[
+        int,
+        Union[dict, np.ndarray],
     ]:
+
         client = self.client
         syms = await client.list_symbols()
 
         if fqsn not in syms:
             return {}
 
-        tfstr = tf_in_1s[1]
+        # use the provided timeframe or 1s by default
+        tfstr = tf_in_1s.get(timeframe, tf_in_1s[1])
 
         params = Params(
             symbols=fqsn,
@@ -444,58 +451,68 @@ class Storage:
             limit=limit,
         )
 
-        if timeframe is None:
-            log.info(f'starting {fqsn} tsdb granularity scan..')
-            # loop through and try to find highest granularity
-            for tfstr in tf_in_1s.values():
-                try:
-                    log.info(f'querying for {tfstr}@{fqsn}')
-                    params.set('timeframe', tfstr)
-                    result = await client.query(params)
-                    break
-
-                except purerpc.grpclib.exceptions.UnknownError:
-                    # XXX: this is already logged by the container and
-                    # thus shows up through `marketstored` logs relay.
-                    # log.warning(f'{tfstr}@{fqsn} not found')
-                    continue
-            else:
-                return {}
-
-        else:
+        try:
             result = await client.query(params)
+        except purerpc.grpclib.exceptions.UnknownError:
+            # indicate there is no history for this timeframe
+            return {}
 
         # TODO: it turns out column access on recarrays is actually slower:
         # https://jakevdp.github.io/PythonDataScienceHandbook/02.09-structured-data-numpy.html#RecordArrays:-Structured-Arrays-with-a-Twist
         # it might make sense to make these structured arrays?
-        # Fill out a `numpy` array-results map
-        arrays = {}
-        for fqsn, data_set in result.by_symbols().items():
-            arrays.setdefault(fqsn, {})[
-                tf_in_1s.inverse[data_set.timeframe]
-            ] = data_set.array
+        data_set = result.by_symbols()[fqsn]
+        array = data_set.array
 
-        return arrays[fqsn][timeframe] if timeframe else arrays[fqsn]
+        # XXX: ensure sample rate is as expected
+        time = data_set.array['Epoch']
+        if len(time) > 1:
+            time_step = time[-1] - time[-2]
+            ts = tf_in_1s.inverse[data_set.timeframe]
+
+            if time_step != ts:
+                log.warning(
+                    f'MKTS BUG: wrong timeframe loaded: {time_step}'
+                    'YOUR DATABASE LIKELY CONTAINS BAD DATA FROM AN OLD BUG'
+                    f'WIPING HISTORY FOR {ts}s'
+                )
+                await self.delete_ts(fqsn, timeframe)
+
+                # try reading again..
+                return await self.read_ohlcv(
+                    fqsn,
+                    timeframe,
+                    end,
+                    limit,
+                )
+
+        return array
 
     async def delete_ts(
         self,
         key: str,
         timeframe: Optional[Union[int, str]] = None,
+        fmt: str = 'OHLCV',
 
     ) -> bool:
 
         client = self.client
         syms = await client.list_symbols()
         print(syms)
-        # if key not in syms:
-        #     raise KeyError(f'`{fqsn}` table key not found?')
+        if key not in syms:
+            raise KeyError(f'`{key}` table key not found in\n{syms}?')
 
-        return await client.destroy(tbk=key)
+        tbk = mk_tbk((
+            key,
+            tf_in_1s.get(timeframe, tf_in_1s[60]),
+            fmt,
+        ))
+        return await client.destroy(tbk=tbk)
 
     async def write_ohlcv(
         self,
         fqsn: str,
         ohlcv: np.ndarray,
+        timeframe: int,
         append_and_duplicate: bool = True,
         limit: int = int(800e3),
 
@@ -519,17 +536,18 @@ class Storage:
 
         m, r = divmod(len(mkts_array), limit)
 
+        tfkey = tf_in_1s[timeframe]
         for i in range(m, 1):
             to_push = mkts_array[i-1:i*limit]
 
             # write to db
             resp = await self.client.write(
                 to_push,
-                tbk=f'{fqsn}/1Sec/OHLCV',
+                tbk=f'{fqsn}/{tfkey}/OHLCV',
 
                 # NOTE: will will append duplicates
                 # for the same timestamp-index.
-                # TODO: pre deduplicate?
+                # TODO: pre-deduplicate?
                 isvariablelength=append_and_duplicate,
             )
 
@@ -548,7 +566,7 @@ class Storage:
             # write to db
             resp = await self.client.write(
                 to_push,
-                tbk=f'{fqsn}/1Sec/OHLCV',
+                tbk=f'{fqsn}/{tfkey}/OHLCV',
 
                 # NOTE: will will append duplicates
                 # for the same timestamp-index.
@@ -576,6 +594,7 @@ class Storage:
     # https://github.com/alpacahq/marketstore/blob/master/cmd/connect/session/trim.go#L14
     # def delete_range(self, start_dt, end_dt) -> None:
     #     ...
+
 
 @acm
 async def open_storage_client(
@@ -642,8 +661,8 @@ async def tsdb_history_update(
     ):
         profiler(f'opened feed for {fqsn}')
 
-        to_append = feed.shm.array
-        to_prepend = None
+        # to_append = feed.hist_shm.array
+        # to_prepend = None
 
         if fqsn:
             symbol = feed.symbols.get(fqsn)
@@ -651,21 +670,21 @@ async def tsdb_history_update(
                 fqsn = symbol.front_fqsn()
 
             # diff db history with shm and only write the missing portions
-            ohlcv = feed.shm.array
+            # ohlcv = feed.hist_shm.array
 
             # TODO: use pg profiler
-            tsdb_arrays = await storage.read_ohlcv(fqsn)
-            # hist diffing
-            if tsdb_arrays:
-                for secs in (1, 60):
-                    ts = tsdb_arrays.get(secs)
-                    if ts is not None and len(ts):
-                        # these aren't currently used but can be referenced from
-                        # within the embedded ipython shell below.
-                        to_append = ohlcv[ohlcv['time'] > ts['Epoch'][-1]]
-                        to_prepend = ohlcv[ohlcv['time'] < ts['Epoch'][0]]
+            # for secs in (1, 60):
+            #     tsdb_array = await storage.read_ohlcv(
+            #         fqsn,
+            #         timeframe=timeframe,
+            #     )
+            #     # hist diffing:
+            #     # these aren't currently used but can be referenced from
+            #     # within the embedded ipython shell below.
+            #     to_append = ohlcv[ohlcv['time'] > ts['Epoch'][-1]]
+            #     to_prepend = ohlcv[ohlcv['time'] < ts['Epoch'][0]]
 
-            profiler('Finished db arrays diffs')
+            # profiler('Finished db arrays diffs')
 
         syms = await storage.client.list_symbols()
         log.info(f'Existing tsdb symbol set:\n{pformat(syms)}')

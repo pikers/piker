@@ -138,25 +138,26 @@ def cli(ctx, brokers, loglevel, tl, configdir):
 @click.pass_obj
 def services(config, tl, names):
 
-    async def list_services():
+    from .._daemon import open_piker_runtime
 
-        async with tractor.get_arbiter(
-            *_tractor_kwargs['arbiter_addr']
-        ) as portal:
+    async def list_services():
+        async with (
+            open_piker_runtime(
+                name='service_query',
+                loglevel=config['loglevel'] if tl else None,
+            ),
+            tractor.get_arbiter(
+                *_tractor_kwargs['arbiter_addr']
+            ) as portal
+        ):
             registry = await portal.run_from_ns('self', 'get_registry')
             json_d = {}
             for key, socket in registry.items():
-                # name, uuid = uid
                 host, port = socket
                 json_d[key] = f'{host}:{port}'
             click.echo(f"{colorize_json(json_d)}")
 
-    tractor.run(
-        list_services,
-        name='service_query',
-        loglevel=config['loglevel'] if tl else None,
-        arbiter_addr=_tractor_kwargs['arbiter_addr'],
-    )
+    trio.run(list_services)
 
 
 def _load_clis() -> None:
