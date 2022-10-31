@@ -360,7 +360,7 @@ class SelectRect(QtWidgets.QGraphicsRectItem):
 
         self.setPos(r.topLeft())
         self.resetTransform()
-        self.scale(r.width(), r.height())
+        self.setRect(r)
         self.show()
 
         y1, y2 = start_pos.y(), end_pos.y()
