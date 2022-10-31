@@ -44,6 +44,7 @@ from ._style import hcolor
 #     ds_m4,
 # )
 from ..log import get_logger
+from .._profile import Profiler
 
 
 log = get_logger(__name__)
@@ -331,7 +332,7 @@ class Curve(pg.GraphicsObject):
 
     ) -> None:
 
-        profiler = pg.debug.Profiler(
+        profiler = Profiler(
             msg=f'Curve.paint(): `{self._name}`',
             disabled=not pg_profile_enabled(),
             ms_threshold=ms_slower_then,
@@ -466,7 +467,7 @@ class StepCurve(Curve):
     def sub_paint(
         self,
         p: QPainter,
-        profiler: pg.debug.Profiler,
+        profiler: Profiler,
 
     ) -> None:
         # p.drawLines(*tuple(filter(bool, self._last_step_lines)))

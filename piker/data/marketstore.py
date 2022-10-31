@@ -56,6 +56,7 @@ if TYPE_CHECKING:
 
 from .feed import maybe_open_feed
 from ..log import get_logger, get_console_log
+from .._profile import Profiler
 
 
 log = get_logger(__name__)
@@ -645,7 +646,7 @@ async def tsdb_history_update(
     #   * the original data feed arch blurb:
     #     - https://github.com/pikers/piker/issues/98
     #
-    profiler = pg.debug.Profiler(
+    profiler = Profiler(
         disabled=False,  # not pg_profile_enabled(),
         delayed=False,
     )

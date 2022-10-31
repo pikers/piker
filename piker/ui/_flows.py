@@ -59,6 +59,7 @@ from ._curve import (
     FlattenedOHLC,
 )
 from ..log import get_logger
+from .._profile import Profiler
 
 
 log = get_logger(__name__)
@@ -130,7 +131,7 @@ def render_baritems(
         int, int, np.ndarray,
         int, int, np.ndarray,
     ],
-    profiler: pg.debug.Profiler,
+    profiler: Profiler,
     **kwargs,
 
 ) -> None:
@@ -517,7 +518,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
         render: bool = True,
         array_key: Optional[str] = None,
 
-        profiler: Optional[pg.debug.Profiler] = None,
+        profiler: Optional[Profiler] = None,
         do_append: bool = True,
 
         **kwargs,
@@ -528,7 +529,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
         render to graphics.
 
         '''
-        profiler = pg.debug.Profiler(
+        profiler = Profiler(
             msg=f'Flow.update_graphics() for {self.name}',
             disabled=not pg_profile_enabled(),
             ms_threshold=4,
@@ -948,7 +949,7 @@ class Renderer(msgspec.Struct):
 
         new_read,
         array_key: str,
-        profiler: pg.debug.Profiler,
+        profiler: Profiler,
         uppx: float = 1,
 
         # redraw and ds flags

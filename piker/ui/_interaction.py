@@ -33,6 +33,7 @@ import numpy as np
 import trio
 
 from ..log import get_logger
+from .._profile import Profiler
 from .._profile import pg_profile_enabled, ms_slower_then
 # from ._style import _min_points_to_show
 from ._editors import SelectRect
@@ -779,7 +780,7 @@ class ChartView(ViewBox):
         '''
         name = self.name
         # print(f'YRANGE ON {name}')
-        profiler = pg.debug.Profiler(
+        profiler = Profiler(
             msg=f'`ChartView._set_yrange()`: `{name}`',
             disabled=not pg_profile_enabled(),
             ms_threshold=ms_slower_then,
@@ -916,7 +917,7 @@ class ChartView(ViewBox):
         autoscale_overlays: bool = True,
     ):
 
-        profiler = pg.debug.Profiler(
+        profiler = Profiler(
             msg=f'ChartView.maybe_downsample_graphics() for {self.name}',
             disabled=not pg_profile_enabled(),
 

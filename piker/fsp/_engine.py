@@ -44,6 +44,7 @@ from ._api import (
     _load_builtins,
     _Token,
 )
+from .._profile import Profiler
 
 log = get_logger(__name__)
 
@@ -91,7 +92,7 @@ async def fsp_compute(
 
 ) -> None:
 
-    profiler = pg.debug.Profiler(
+    profiler = Profiler(
         delayed=False,
         disabled=True
     )
@@ -262,7 +263,7 @@ async def cascade(
     destination shm array buffer.
 
     '''
-    profiler = pg.debug.Profiler(
+    profiler = Profiler(
         delayed=False,
         disabled=False
     )
