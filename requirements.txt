@@ -6,7 +6,7 @@
 # `pyqtgraph` peeps keep breaking, fixing, improving so might as well
 # pin this to a dev branch that we have more control over especially
 # as more graphics stuff gets hashed out.
--e git+https://github.com/pikers/pyqtgraph.git@piker_pin#egg=pyqtgraph
+-e git+https://github.com/pikers/pyqtgraph.git@master#egg=pyqtgraph
 
 # our async client for ``marketstore`` (the tsdb)
 -e git+https://github.com/pikers/anyio-marketstore.git@master#egg=anyio-marketstore
