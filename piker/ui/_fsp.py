@@ -59,6 +59,7 @@ from ..fsp._volume import (
     flow_rates,
 )
 from ..log import get_logger
+from .._profile import Profiler
 
 log = get_logger(__name__)
 
@@ -190,7 +191,7 @@ async def open_fsp_actor_cluster(
 
     from tractor._clustering import open_actor_cluster
 
-    # profiler = pg.debug.Profiler(
+    # profiler = Profiler(
     #     delayed=False,
     #     disabled=False
     # )
@@ -212,7 +213,7 @@ async def run_fsp_ui(
     target: Fsp,
     conf: dict[str, dict],
     loglevel: str,
-    # profiler: pg.debug.Profiler,
+    # profiler: Profiler,
     # _quote_throttle_rate: int = 58,
 
 ) -> None:
@@ -746,6 +747,8 @@ async def open_vlm_displays(
                 },
             )
 
+            dvlm_pi.hideAxis('left')
+            dvlm_pi.hideAxis('bottom')
             # all to be overlayed curve names
             fields = [
                'dolla_vlm',
@@ -878,6 +881,7 @@ async def open_vlm_displays(
                 # keep both regular and dark vlm in view
                 names=trade_rate_fields,
             )
+            tr_pi.hideAxis('bottom')
 
             chart_curves(
                 trade_rate_fields,
@@ -951,7 +955,7 @@ async def start_fsp_displays(
         #     },
         # },
     }
-    profiler = pg.debug.Profiler(
+    profiler = Profiler(
         delayed=False,
         disabled=False
     )

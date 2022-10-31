@@ -78,6 +78,8 @@ async def _async_main(
 
     """
     from . import _display
+    from ._pg_overrides import _do_overrides
+    _do_overrides()
 
     godwidget = main_widget
 
