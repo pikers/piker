@@ -111,7 +111,8 @@ class LevelMarker(QGraphicsPathItem):
 
         # get polygon and scale
         super().__init__()
-        self.scale(size, size)
+        # self.setScale(size, size)
+        self.setScale(size)
 
         # interally generates path
         self._style = None

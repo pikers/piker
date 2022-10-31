@@ -32,6 +32,7 @@ from PyQt5.QtGui import QPainterPath
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._style import hcolor
 from ..log import get_logger
+from .._profile import Profiler
 
 if TYPE_CHECKING:
     from ._chart import LinkedSplits
@@ -170,7 +171,7 @@ class BarItems(pg.GraphicsObject):
 
     ) -> None:
 
-        profiler = pg.debug.Profiler(
+        profiler = Profiler(
             disabled=not pg_profile_enabled(),
             ms_threshold=ms_slower_then,
         )
