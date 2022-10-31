@@ -22,7 +22,6 @@ Generally, our does not require "scentific precision" for pixel perfect
 view transforms.
 
 """
-import functools
 from typing import Optional
 
 import pyqtgraph as pg
@@ -52,7 +51,6 @@ def _do_overrides() -> None:
     # we don't care about potential fp issues inside Qt
     pg.functions.invertQTransform = invertQTransform
     pg.PlotItem = PlotItem
-    pg.AxisItem = AxisItem
 
 
 # NOTE: the below customized type contains all our changes on a method
@@ -211,7 +209,7 @@ class PlotItem(pg.PlotItem):
                 # adding this is without it there's some weird
                 # ``ViewBox`` geometry bug.. where a gap for the
                 # 'bottom' axis is somehow left in?
-                axis = AxisItem(orientation=name, parent=self)
+                axis = pg.AxisItem(orientation=name, parent=self)
 
             axis.linkToView(self.vb)
 
@@ -260,59 +258,3 @@ class PlotItem(pg.PlotItem):
         # self.getAxis('bottom').setGrid(x)
         # self.getAxis('left').setGrid(y)
         # self.getAxis('right').setGrid(y)
-
-
-# NOTE: overrides to lru_cache the ``.tickStrings()`` output.
-class AxisItem(pg.AxisItem):
-
-    def __init__(
-        self,
-        orientation,
-        pen=None,
-        textPen=None,
-        linkView=None,
-        parent=None,
-        maxTickLength=-5,
-        showValues=True,
-        text='',
-        units='',
-        unitPrefix='',
-        lru_cache_tick_strings: bool = True,
-        **args,
-    ):
-        super().__init__(
-            orientation=orientation,
-            pen=pen,
-            textPen=textPen,
-            linkView=linkView,
-            maxTickLength=maxTickLength,
-            showValues=showValues,
-            text=text,
-            units=units,
-            unitPrefix=unitPrefix,
-            parent=parent,
-        )
-        if lru_cache_tick_strings:
-            self.tickStrings = functools.lru_cache(
-                maxsize=2**20
-            )(self.tickStrings)
-
-    def tickValues(
-        self,
-        minVal: float,
-        maxVal: float,
-        size: int,
-
-    ) -> list[tuple[float, tuple[str]]]:
-        '''
-        Repack tick values into tuples for lru caching.
-
-        '''
-        ticks = []
-        for scalar, values in super().tickValues(minVal, maxVal, size):
-            ticks.append((
-                scalar,
-                tuple(values),  # this
-            ))
-
-        return ticks
