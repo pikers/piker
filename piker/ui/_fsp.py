@@ -624,6 +624,8 @@ async def open_vlm_displays(
         # built-in vlm which we plot ASAP since it's
         # usually data provided directly with OHLC history.
         shm = ohlcv
+        ohlc_chart = linked.chart
+
         chart = linked.add_plot(
             name='volume',
             shm=shm,
@@ -638,6 +640,9 @@ async def open_vlm_displays(
             # we do this internally ourselves since
             # the curve item internals are pretty convoluted.
             style='step',
+        )
+        ohlc_chart.view.enable_auto_yrange(
+            src_vb=chart.view,
         )
 
         # force 0 to always be in view
