@@ -329,7 +329,6 @@ async def handle_viewmode_mouse(
         ):
             # when in order mode, submit execution
             # msg.event.accept()
-            # breakpoint()
             view.order_mode.submit_order()
 
 
@@ -345,16 +344,6 @@ class ChartView(ViewBox):
 
     '''
     mode_name: str = 'view'
-
-    # "relay events" for making overlaid views work.
-    # NOTE: these MUST be defined here (and can't be monkey patched
-    # on later) due to signal construction requiring refs to be
-    # in place during the run of meta-class machinery.
-    mouseDragEventRelay = QtCore.Signal(object, object, object)
-    wheelEventRelay = QtCore.Signal(object, object, object)
-
-    event_relay_source: 'Optional[ViewBox]' = None
-    relays: dict[str, QtCore.Signal] = {}
 
     def __init__(
         self,
@@ -479,7 +468,7 @@ class ChartView(ViewBox):
         self,
         ev,
         axis=None,
-        relayed_from: ChartView = None,
+        # relayed_from: ChartView = None,
     ):
         '''
         Override "center-point" location for scrolling.
@@ -490,6 +479,13 @@ class ChartView(ViewBox):
         TODO: PR a method into ``pyqtgraph`` to make this configurable
 
         '''
+        linked = self.linked
+        if (
+            not linked
+        ):
+            # print(f'{self.name} not linked but relay from {relayed_from.name}')
+            return
+
         if axis in (0, 1):
             mask = [False, False]
             mask[axis] = self.state['mouseEnabled'][axis]
@@ -609,9 +605,20 @@ class ChartView(ViewBox):
         self,
         ev,
         axis: Optional[int] = None,
-        relayed_from: ChartView = None,
+        # relayed_from: ChartView = None,
 
     ) -> None:
+        # if relayed_from:
+        #     print(f'PAN: {self.name} -> RELAYED FROM: {relayed_from.name}')
+
+        # NOTE since in the overlay case axes are already
+        # "linked" any x-range change will already be mirrored
+        # in all overlaid ``PlotItems``, so we need to simply
+        # ignore the signal here since otherwise we get N-calls
+        # from N-overlays resulting in an "accelerated" feeling
+        # panning motion instead of the expect linear shift.
+        # if relayed_from:
+        #     return
 
         pos = ev.pos()
         lastPos = ev.lastPos()
@@ -849,33 +856,37 @@ class ChartView(ViewBox):
 
     ) -> None:
         '''
-        Assign callback for rescaling y-axis automatically
-        based on data contents and ``ViewBox`` state.
+        Assign callbacks for rescaling and resampling y-axis data
+        automatically based on data contents and ``ViewBox`` state.
 
         '''
         if src_vb is None:
             src_vb = self
 
-        # splitter(s) resizing
+        # widget-UIs/splitter(s) resizing
         src_vb.sigResized.connect(self._set_yrange)
 
+        # re-sampling trigger:
         # TODO: a smarter way to avoid calling this needlessly?
         # 2 things i can think of:
         # - register downsample-able graphics specially and only
         #   iterate those.
-        # - only register this when certain downsampleable graphics are
+        # - only register this when certain downsample-able graphics are
         #   "added to scene".
         src_vb.sigRangeChangedManually.connect(
             self.maybe_downsample_graphics
         )
-
         # mouse wheel doesn't emit XRangeChanged
         src_vb.sigRangeChangedManually.connect(self._set_yrange)
 
-        # src_vb.sigXRangeChanged.connect(self._set_yrange)
-        # src_vb.sigXRangeChanged.connect(
-        #     self.maybe_downsample_graphics
-        # )
+        # XXX: enabling these will cause "jittery"-ness
+        # on zoom where sharp diffs in the y-range will
+        # not re-size right away until a new sample update?
+        # if src_vb is not self:
+        #     src_vb.sigXRangeChanged.connect(self._set_yrange)
+        #     src_vb.sigXRangeChanged.connect(
+        #         self.maybe_downsample_graphics
+        #     )
 
     def disable_auto_yrange(self) -> None:
 
@@ -916,7 +927,6 @@ class ChartView(ViewBox):
         self,
         autoscale_overlays: bool = True,
     ):
-
         profiler = Profiler(
             msg=f'ChartView.maybe_downsample_graphics() for {self.name}',
             disabled=not pg_profile_enabled(),
@@ -931,8 +941,12 @@ class ChartView(ViewBox):
 
         # TODO: a faster single-loop-iterator way of doing this XD
         chart = self._chart
+        plots = {chart.name: chart}
+
         linked = self.linked
-        plots = linked.subplots | {chart.name: chart}
+        if linked:
+            plots |= linked.subplots
+
         for chart_name, chart in plots.items():
             for name, flow in chart._flows.items():
 
