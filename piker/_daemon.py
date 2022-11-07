@@ -254,6 +254,7 @@ async def maybe_open_runtime(
 @acm
 async def maybe_open_pikerd(
     loglevel: Optional[str] = None,
+    registry_addr: None | tuple = None,
     **kwargs,
 
 ) -> Union[tractor._portal.Portal, Services]:
@@ -266,13 +267,21 @@ async def maybe_open_pikerd(
         get_console_log(loglevel)
 
     # subtle, we must have the runtime up here or portal lookup will fail
-    async with maybe_open_runtime(loglevel, **kwargs):
-
-        async with tractor.find_actor(_root_dname) as portal:
-            # assert portal is not None
-            if portal is not None:
-                yield portal
-                return
+    async with (
+        maybe_open_runtime(loglevel, **kwargs),
+        tractor.find_actor(_root_dname) as portal
+    ):
+        # connect to any existing daemon presuming
+        # its registry socket was selected.
+        if (
+            portal is not None
+            and (
+                registry_addr is None
+                or portal.channel.raddr == registry_addr
+            )
+        ):
+            yield portal
+            return
 
     # presume pikerd role since no daemon could be found at
     # configured address
@@ -280,6 +289,7 @@ async def maybe_open_pikerd(
 
         loglevel=loglevel,
         debug_mode=kwargs.get('debug_mode', False),
+        registry_addr=registry_addr,
 
     ) as _:
         # in the case where we're starting up the
