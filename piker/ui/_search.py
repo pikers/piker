@@ -665,9 +665,9 @@ class SearchWidget(QtWidgets.QWidget):
 
         log.info(f'Requesting symbol: {symbol}.{provider}')
 
-        await godw.load_symbol(
+        await godw.load_symbols(
             provider,
-            symbol,
+            [symbol],
             'info',
         )
 
