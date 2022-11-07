@@ -85,6 +85,7 @@ class Pair(Struct):
     margin_call: str  # margin call level
     margin_stop: str  # stop-out/liquidation margin level
     ordermin: float  # minimum order volume for pair
+    tick_size: float # min price step size
 
 
 class OHLC(Struct):
