@@ -18,3 +18,10 @@
 piker: trading gear for hackers.
 
 """
+from ._daemon import open_piker_runtime
+from .data.feed import open_feed
+
+__all__ = [
+    'open_piker_runtime',
+    'open_feed',
+]

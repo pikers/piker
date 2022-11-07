@@ -199,7 +199,7 @@ async def open_piker_runtime(
     # for data daemons when running in production.
     debug_mode: bool = False,
 
-) -> Optional[tractor._portal.Portal]:
+) -> tractor.Actor:
     '''
     Start a piker actor who's runtime will automatically sync with
     existing piker actors on the local link based on configuration.
