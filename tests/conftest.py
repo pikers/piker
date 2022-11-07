@@ -14,15 +14,6 @@ def pytest_addoption(parser):
                      help="Use a practice API account")
 
 
-@pytest.fixture(scope='session', autouse=True)
-def loglevel(request):
-    orig = tractor.log._default_loglevel
-    level = tractor.log._default_loglevel = request.config.option.loglevel
-    log.get_console_log(level)
-    yield level
-    tractor.log._default_loglevel = orig
-
-
 @pytest.fixture(scope='session')
 def test_config():
     dirname = os.path.dirname
