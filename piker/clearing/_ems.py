@@ -1239,8 +1239,7 @@ async def process_client_order_cmds(
                 pred = mk_check(trigger_price, last, action)
 
                 spread_slap: float = 5
-                sym = fqsn.replace(f'.{brokers[0]}', '')
-                min_tick = feed.symbols[sym].tick_size
+                min_tick = feed.symbols[fqsn].tick_size
 
                 if action == 'buy':
                     tickfilter = ('ask', 'last', 'trade')
