@@ -1410,7 +1410,7 @@ async def open_feed(
 
             # symbol.broker_info[brokername] = si
             feed.symbols[fqsn] = symbol
-            feed.symbols[sym] = symbol
+            feed.symbols[f'{sym}.{brokername}'] = symbol
 
             # cast shm dtype to list... can't member why we need this
             for shm_key, shm in [
