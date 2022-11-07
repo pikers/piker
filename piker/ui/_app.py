@@ -66,7 +66,7 @@ async def _async_main(
     # implicit required argument provided by ``qtractor_run()``
     main_widget: GodWidget,
 
-    sym: str,
+    syms: list[str],
     brokernames: str,
     loglevel: str,
 
@@ -113,12 +113,16 @@ async def _async_main(
         # godwidget.hbox.addWidget(search)
         godwidget.search = search
 
-        symbol, _, provider = sym.rpartition('.')
+        symbols: list[str] = []
+
+        for sym in syms:
+            symbol, _, provider = sym.rpartition('.')
+            symbols.append(symbol)
 
         # this internally starts a ``display_symbol_data()`` task above
-        order_mode_ready = await godwidget.load_symbol(
+        order_mode_ready = await godwidget.load_symbols(
             provider,
-            symbol,
+            symbols,
             loglevel
         )
 
@@ -166,7 +170,7 @@ async def _async_main(
 
 
 def _main(
-    sym: str,
+    syms: list[str],
     brokernames: [str],
     piker_loglevel: str,
     tractor_kwargs,
@@ -178,7 +182,7 @@ def _main(
     '''
     run_qtractor(
         func=_async_main,
-        args=(sym, brokernames, piker_loglevel),
+        args=(syms, brokernames, piker_loglevel),
         main_widget_type=GodWidget,
         tractor_kwargs=tractor_kwargs,
     )

@@ -947,7 +947,7 @@ async def link_views_with_region(
 async def display_symbol_data(
     godwidget: GodWidget,
     provider: str,
-    sym: str,
+    fqsns: list[str],
     loglevel: str,
     order_mode_started: trio.Event,
 
@@ -961,11 +961,6 @@ async def display_symbol_data(
 
     '''
     sbar = godwidget.window.status_bar
-    loading_sym_key = sbar.open_status(
-        f'loading {sym}.{provider} ->',
-        group_key=True
-    )
-
     # historical data fetch
     # brokermod = brokers.get_brokermod(provider)
 
@@ -974,10 +969,18 @@ async def display_symbol_data(
     #     clear_on_next=True,
     #     group_key=loading_sym_key,
     # )
-    fqsn = '.'.join((sym, provider))
+
+    for fqsn in fqsns:
+
+        loading_sym_key = sbar.open_status(
+            f'loading {fqsn} ->',
+            group_key=True
+        )
+
+    first_fqsn = fqsns[0]
 
     async with open_feed(
-        [fqsn],
+        fqsns,
         loglevel=loglevel,
 
         # limit to at least display's FPS
@@ -988,7 +991,7 @@ async def display_symbol_data(
         ohlcv: ShmArray = feed.rt_shm
         hist_ohlcv: ShmArray = feed.hist_shm
 
-        symbol = feed.symbols[sym]
+        symbol = feed.symbols[first_fqsn]
         fqsn = symbol.front_fqsn()
 
         step_size_s = 1
@@ -1025,7 +1028,7 @@ async def display_symbol_data(
         godwidget.pp_pane = pp_pane
 
         # create main OHLC chart
-        chart = rt_linked.plot_ohlc_main(
+        ohlc_chart = rt_linked.plot_ohlc_main(
             symbol,
             ohlcv,
             # in the case of history chart we explicitly set `False`
@@ -1033,8 +1036,8 @@ async def display_symbol_data(
             sidepane=pp_pane,
         )
 
-        chart._feeds[symbol.key] = feed
-        chart.setFocus()
+        ohlc_chart._feeds[symbol.key] = feed
+        ohlc_chart.setFocus()
 
         # XXX: FOR SOME REASON THIS IS CAUSING HANGZ!?!
         # plot historical vwap if available
@@ -1044,7 +1047,7 @@ async def display_symbol_data(
         #     and 'bar_wap' in bars.dtype.fields
         # ):
         #     wap_in_history = True
-        #     chart.draw_curve(
+        #     ohlc_chart.draw_curve(
         #         name='bar_wap',
         #         shm=ohlcv,
         #         color='default_light',
@@ -1105,7 +1108,7 @@ async def display_symbol_data(
             await trio.sleep(0)
 
             # size view to data prior to order mode init
-            chart.default_view()
+            ohlc_chart.default_view()
             rt_linked.graphics_cycle()
             await trio.sleep(0)
 
@@ -1119,7 +1122,7 @@ async def display_symbol_data(
             godwidget.resize_all()
 
             await link_views_with_region(
-                chart,
+                ohlc_chart,
                 hist_chart,
                 feed,
             )
@@ -1135,7 +1138,7 @@ async def display_symbol_data(
             ):
                 if not vlm_chart:
                     # trigger another view reset if no sub-chart
-                    chart.default_view()
+                    ohlc_chart.default_view()
 
                 rt_linked.mode = mode
 
