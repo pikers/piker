@@ -35,7 +35,12 @@ log = get_logger(__name__)
 
 _root_dname = 'pikerd'
 
-_registry_addr = ('127.0.0.1', 6116)
+_registry_host: str = '127.0.0.1'
+_registry_port: int = 6116
+_registry_addr = (
+    _registry_host,
+    _registry_port,
+)
 _tractor_kwargs: dict[str, Any] = {
     # use a different registry addr then tractor's default
     'arbiter_addr': _registry_addr
@@ -135,6 +140,7 @@ async def open_pikerd(
     # XXX: you should pretty much never want debug mode
     # for data daemons when running in production.
     debug_mode: bool = False,
+    registry_addr: None | tuple[str, int] = None,
 
 ) -> Optional[tractor._portal.Portal]:
     '''
@@ -153,7 +159,7 @@ async def open_pikerd(
         tractor.open_root_actor(
 
             # passed through to ``open_root_actor``
-            arbiter_addr=_registry_addr,
+            arbiter_addr=registry_addr or _registry_addr,
             name=_root_dname,
             loglevel=loglevel,
             debug_mode=debug_mode,
