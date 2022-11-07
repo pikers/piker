@@ -371,8 +371,8 @@ async def update_and_audit_msgs(
                     else:
                         entry = f'split_ratio = 1/{int(reverse_split_ratio)}'
 
-                    raise ValueError(
-                    # log.error(
+                    # raise ValueError(
+                    log.error(
                         f'POSITION MISMATCH ib <-> piker ledger:\n'
                         f'ib: {ibppmsg}\n'
                         f'piker: {msg}\n'
@@ -883,7 +883,7 @@ async def deliver_trade_events(
                     # execdict.pop('acctNumber')
 
                     fill_msg = BrokerdFill(
-                        # should match the value returned from
+                        # NOTE: should match the value returned from
                         # `.submit_limit()`
                         reqid=execu.orderId,
                         time_ns=time.time_ns(),  # cuz why not
