@@ -26,7 +26,19 @@ from typing import (
 )
 
 import pyqtgraph as pg
-from pyqtgraph import ViewBox, Point, QtCore, QtGui
+from pyqtgraph import (
+    ViewBox,
+    Point,
+    QtCore,
+    QtWidgets,
+)
+from PyQt5.QtGui import (
+    QColor,
+)
+from PyQt5.QtWidgets import (
+    QLabel,
+)
+
 from pyqtgraph import functions as fn
 from PyQt5.QtCore import QPointF
 import numpy as np
@@ -240,7 +252,7 @@ class LineEditor(Struct):
         return lines
 
 
-class SelectRect(QtGui.QGraphicsRectItem):
+class SelectRect(QtWidgets.QGraphicsRectItem):
 
     def __init__(
         self,
@@ -249,12 +261,12 @@ class SelectRect(QtGui.QGraphicsRectItem):
     ) -> None:
         super().__init__(0, 0, 1, 1)
 
-        # self.rbScaleBox = QtGui.QGraphicsRectItem(0, 0, 1, 1)
+        # self.rbScaleBox = QGraphicsRectItem(0, 0, 1, 1)
         self.vb = viewbox
         self._chart: 'ChartPlotWidget' = None  # noqa
 
         # override selection box color
-        color = QtGui.QColor(hcolor(color))
+        color = QColor(hcolor(color))
         self.setPen(fn.mkPen(color, width=1))
         color.setAlpha(66)
         self.setBrush(fn.mkBrush(color))
@@ -262,7 +274,7 @@ class SelectRect(QtGui.QGraphicsRectItem):
         self.hide()
         self._label = None
 
-        label = self._label = QtGui.QLabel()
+        label = self._label = QLabel()
         label.setTextFormat(0)  # markdown
         label.setFont(_font.font)
         label.setMargin(0)
@@ -299,8 +311,8 @@ class SelectRect(QtGui.QGraphicsRectItem):
         # TODO: get bg color working
         palette.setColor(
             self._label.backgroundRole(),
-            # QtGui.QColor(chart.backgroundBrush()),
-            QtGui.QColor(hcolor('papas_special')),
+            # QColor(chart.backgroundBrush()),
+            QColor(hcolor('papas_special')),
         )
 
     def update_on_resize(self, vr, r):
@@ -348,7 +360,7 @@ class SelectRect(QtGui.QGraphicsRectItem):
 
         self.setPos(r.topLeft())
         self.resetTransform()
-        self.scale(r.width(), r.height())
+        self.setRect(r)
         self.show()
 
         y1, y2 = start_pos.y(), end_pos.y()

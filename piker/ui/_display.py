@@ -66,6 +66,7 @@ from .._profile import (
     ms_slower_then,
 )
 from ..log import get_logger
+from .._profile import Profiler
 
 log = get_logger(__name__)
 
@@ -441,7 +442,7 @@ def graphics_update_cycle(
     # TODO: just pass this as a direct ref to avoid so many attr accesses?
     hist_chart = ds.godwidget.hist_linked.chart
 
-    profiler = pg.debug.Profiler(
+    profiler = Profiler(
         msg=f'Graphics loop cycle for: `{chart.name}`',
         delayed=True,
         disabled=not pg_profile_enabled(),

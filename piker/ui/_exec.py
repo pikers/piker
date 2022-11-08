@@ -20,19 +20,24 @@ Trio - Qt integration
 Run ``trio`` in guest mode on top of the Qt event loop.
 All global Qt runtime settings are mostly defined here.
 """
+from __future__ import annotations
 from typing import (
     Callable,
     Any,
     Type,
+    TYPE_CHECKING,
 )
 import platform
 import traceback
 
 # Qt specific
 import PyQt5  # noqa
-from pyqtgraph import QtGui
+from PyQt5.QtWidgets import (
+    QWidget,
+    QMainWindow,
+    QApplication,
+)
 from PyQt5 import QtCore
-# from PyQt5.QtGui import QLabel, QStatusBar
 from PyQt5.QtCore import (
     pyqtRemoveInputHook,
     Qt,
@@ -48,6 +53,7 @@ from .._daemon import maybe_open_pikerd, _tractor_kwargs
 from ..log import get_logger
 from ._pg_overrides import _do_overrides
 from . import _style
+
 
 log = get_logger(__name__)
 
@@ -76,17 +82,17 @@ if platform.system() == "Windows":
 def run_qtractor(
     func: Callable,
     args: tuple,
-    main_widget_type: Type[QtGui.QWidget],
+    main_widget_type: Type[QWidget],
     tractor_kwargs: dict[str, Any] = {},
-    window_type: QtGui.QMainWindow = None,
+    window_type: QMainWindow = None,
 
 ) -> None:
     # avoids annoying message when entering debugger from qt loop
     pyqtRemoveInputHook()
 
-    app = QtGui.QApplication.instance()
+    app = QApplication.instance()
     if app is None:
-        app = PyQt5.QtWidgets.QApplication([])
+        app = QApplication([])
 
     # TODO: we might not need this if it's desired
     # to cancel the tractor machinery on Qt loop

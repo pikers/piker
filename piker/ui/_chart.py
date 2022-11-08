@@ -73,6 +73,8 @@ from .._profile import pg_profile_enabled, ms_slower_then
 from ._overlay import PlotItemOverlay
 from ._flows import Flow
 from ._search import SearchWidget
+from . import _pg_overrides as pgo
+from .._profile import Profiler
 
 if TYPE_CHECKING:
     from ._display import DisplayState
@@ -831,6 +833,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         static_yrange: Optional[tuple[float, float]] = None,
 
+        parent=None,
         **kwargs,
     ):
         '''
@@ -848,12 +851,15 @@ class ChartPlotWidget(pg.PlotWidget):
         # source of our custom interactions
         self.cv = cv = self.mk_vb(name)
 
+        pi = pgo.PlotItem(viewBox=cv, **kwargs)
         super().__init__(
             background=hcolor(view_color),
             viewBox=cv,
             # parent=None,
             # plotItem=None,
             # antialias=True,
+            parent=parent,
+            plotItem=pi,
             **kwargs
         )
         # give viewbox as reference to chart
@@ -1144,7 +1150,7 @@ class ChartPlotWidget(pg.PlotWidget):
         axis_side: str = 'right',
         axis_kwargs: dict = {},
 
-    ) -> pg.PlotItem:
+    ) -> pgo.PlotItem:
 
         # Custom viewbox impl
         cv = self.mk_vb(name)
@@ -1153,13 +1159,14 @@ class ChartPlotWidget(pg.PlotWidget):
         allowed_sides = {'left', 'right'}
         if axis_side not in allowed_sides:
             raise ValueError(f'``axis_side``` must be in {allowed_sides}')
+
         yaxis = PriceAxis(
             orientation=axis_side,
             linkedsplits=self.linked,
             **axis_kwargs,
         )
 
-        pi = pg.PlotItem(
+        pi = pgo.PlotItem(
             parent=self.plotItem,
             name=name,
             enableMenu=False,
@@ -1246,7 +1253,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # TODO: this probably needs its own method?
         if overlay:
-            if isinstance(overlay, pg.PlotItem):
+            if isinstance(overlay, pgo.PlotItem):
                 if overlay not in self.pi_overlay.overlays:
                     raise RuntimeError(
                             f'{overlay} must be from `.plotitem_overlay()`'
@@ -1405,7 +1412,7 @@ class ChartPlotWidget(pg.PlotWidget):
         If ``bars_range`` is provided use that range.
 
         '''
-        profiler = pg.debug.Profiler(
+        profiler = Profiler(
             msg=f'`{str(self)}.maxmin(name={name})`: `{self.name}`',
             disabled=not pg_profile_enabled(),
             ms_threshold=ms_slower_then,

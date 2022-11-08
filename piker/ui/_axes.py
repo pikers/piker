@@ -39,12 +39,17 @@ class Axis(pg.AxisItem):
     '''
     A better axis that sizes tick contents considering font size.
 
+    Also includes tick values lru caching originally proposed in but never
+    accepted upstream:
+    https://github.com/pyqtgraph/pyqtgraph/pull/2160
+
     '''
     def __init__(
         self,
         linkedsplits,
         typical_max_str: str = '100 000.000',
         text_color: str = 'bracket',
+        lru_cache_tick_strings: bool = True,
         **kwargs
 
     ) -> None:
@@ -90,6 +95,34 @@ class Axis(pg.AxisItem):
 
         # size the pertinent axis dimension to a "typical value"
         self.size_to_values()
+
+        # NOTE: requires override ``.tickValues()`` method seen below.
+        if lru_cache_tick_strings:
+            self.tickStrings = lru_cache(
+                maxsize=2**20
+            )(self.tickStrings)
+
+    # NOTE: only overriden to cast tick values entries into tuples
+    # for use with the lru caching.
+    def tickValues(
+        self,
+        minVal: float,
+        maxVal: float,
+        size: int,
+
+    ) -> list[tuple[float, tuple[str]]]:
+        '''
+        Repack tick values into tuples for lru caching.
+
+        '''
+        ticks = []
+        for scalar, values in super().tickValues(minVal, maxVal, size):
+            ticks.append((
+                scalar,
+                tuple(values),  # this
+            ))
+
+        return ticks
 
     @property
     def text_color(self) -> str:

@@ -28,10 +28,19 @@ from typing import (
 )
 import uuid
 
-from pyqtgraph import QtGui
 from PyQt5 import QtCore
-from PyQt5.QtWidgets import QLabel, QStatusBar
+from PyQt5.QtWidgets import (
+    QWidget,
+    QMainWindow,
+    QApplication,
+    QLabel,
+    QStatusBar,
+)
 
+from PyQt5.QtGui import (
+    QScreen,
+    QCloseEvent,
+)
 from ..log import get_logger
 from ._style import _font_small, hcolor
 from ._chart import GodWidget
@@ -153,7 +162,7 @@ class MultiStatus:
             self.bar.clearMessage()
 
 
-class MainWindow(QtGui.QMainWindow):
+class MainWindow(QMainWindow):
 
     # XXX: for tiling wms this should scale
     # with the alloted window size.
@@ -176,12 +185,12 @@ class MainWindow(QtGui.QMainWindow):
         self._size: Optional[tuple[int, int]] = None
 
     @property
-    def mode_label(self) -> QtGui.QLabel:
+    def mode_label(self) -> QLabel:
 
         # init mode label
         if not self._status_label:
 
-            self._status_label = label = QtGui.QLabel()
+            self._status_label = label = QLabel()
             label.setStyleSheet(
                 f"""QLabel {{
                     color : {hcolor('gunmetal')};
@@ -203,8 +212,7 @@ class MainWindow(QtGui.QMainWindow):
 
     def closeEvent(
         self,
-
-        event: QtGui.QCloseEvent,
+        event: QCloseEvent,
 
     ) -> None:
         '''Cancel the root actor asap.
@@ -244,8 +252,8 @@ class MainWindow(QtGui.QMainWindow):
     def on_focus_change(
         self,
 
-        last: QtGui.QWidget,
-        current: QtGui.QWidget,
+        last: QWidget,
+        current: QWidget,
 
     ) -> None:
 
@@ -256,12 +264,12 @@ class MainWindow(QtGui.QMainWindow):
             name = getattr(current, 'mode_name', '')
             self.set_mode_name(name)
 
-    def current_screen(self) -> QtGui.QScreen:
+    def current_screen(self) -> QScreen:
         '''
         Get a frickin screen (if we can, gawd).
 
         '''
-        app = QtGui.QApplication.instance()
+        app = QApplication.instance()
 
         for _ in range(3):
             screen = app.screenAt(self.pos())
@@ -294,7 +302,7 @@ class MainWindow(QtGui.QMainWindow):
         '''
         # https://stackoverflow.com/a/18975846
         if not size and not self._size:
-            # app = QtGui.QApplication.instance()
+            # app = QApplication.instance()
             geo = self.current_screen().geometry()
             h, w = geo.height(), geo.width()
             # use approx 1/3 of the area of the screen by default
@@ -331,7 +339,7 @@ class MainWindow(QtGui.QMainWindow):
 
 
 # singleton app per actor
-_qt_win: QtGui.QMainWindow = None
+_qt_win: QMainWindow = None
 
 
 def main_window() -> MainWindow:
