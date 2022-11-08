@@ -5,6 +5,7 @@ Data feed layer APIs, performance, msg throttling.
 from pprint import pprint
 
 import pytest
+import tractor
 import trio
 from piker import (
     open_piker_runtime,
@@ -16,7 +17,7 @@ from piker.data import ShmArray
 @pytest.mark.parametrize(
     'fqsns',
     [
-        ['btcusdt.binance']
+        ['btcusdt.binance', 'ethusdt.binance']
     ],
     ids=lambda param: f'fqsns={param}',
 )
@@ -30,7 +31,13 @@ def test_basic_rt_feed(
     '''
     async def main():
         async with (
-            open_piker_runtime('test_basic_rt_feed'),
+            open_piker_runtime(
+                'test_basic_rt_feed',
+                # XXX tractor BUG: this doesn't translate through to the
+                # ``tractor._state._runtimevars``...
+                registry_addr=('127.0.0.1', 6666),
+                debug_mode=True,
+            ),
             open_feed(
                 fqsns,
                 loglevel='info',
@@ -42,24 +49,38 @@ def test_basic_rt_feed(
 
             ) as feed
         ):
+            # verify shm buffers exist
             for fqin in fqsns:
-                assert feed.symbols[fqin]
+                flume = feed.flumes[fqin]
+                ohlcv: ShmArray = flume.rt_shm
+                hist_ohlcv: ShmArray = flume.hist_shm
 
-            ohlcv: ShmArray = feed.rt_shm
-            hist_ohlcv: ShmArray = feed.hist_shm
+            quote_count: int = 0
+            stream = feed.streams['binance']
+            async for quotes in stream:
+                for fqsn, quote in quotes.items():
 
-            count: int = 0
-            async for quotes in feed.stream:
+                    # await tractor.breakpoint()
+                    flume = feed.flumes[fqsn]
+                    ohlcv: ShmArray = flume.rt_shm
+                    hist_ohlcv: ShmArray = flume.hist_shm
 
-                # print quote msg, rt and history
-                # buffer values on console.
-                pprint(quotes)
-                pprint(ohlcv.array[-1])
-                pprint(hist_ohlcv.array[-1])
+                    # print quote msg, rt and history
+                    # buffer values on console.
+                    rt_row = ohlcv.array[-1]
+                    hist_row = hist_ohlcv.array[-1]
+                    # last = quote['last']
 
-                if count >= 100:
+                    # assert last == rt_row['close']
+                    # assert last == hist_row['close']
+                    pprint(
+                        f'{fqsn}: {quote}\n'
+                        f'rt_ohlc: {rt_row}\n'
+                        f'hist_ohlc: {hist_row}\n'
+                    )
+                    quote_count += 1
+
+                if quote_count >= 100:
                     break
-
-                count += 1
 
     trio.run(main)
