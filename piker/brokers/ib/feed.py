@@ -1047,7 +1047,13 @@ async def open_symbol_search(
                 stock_results = []
 
                 async def stash_results(target: Awaitable[list]):
-                    stock_results.extend(await target)
+                    try:
+                        results = await target
+                    except tractor.trionics.Lagged:
+                        print("IB SYM-SEARCH OVERRUN?!?")
+                        return
+
+                    stock_results.extend(results)
 
                 for i in range(10):
                     with trio.move_on_after(3) as cs:
