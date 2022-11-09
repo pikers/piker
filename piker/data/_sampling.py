@@ -22,7 +22,10 @@ financial data flows.
 from __future__ import annotations
 from collections import Counter
 import time
-from typing import TYPE_CHECKING, Optional, Union
+from typing import (
+    TYPE_CHECKING,
+    Union,
+)
 
 import tractor
 import trio
@@ -147,7 +150,7 @@ async def increment_ohlc_buffer(
 
 async def broadcast(
     delay_s: int,
-    shm: Optional[ShmArray] = None,
+    shm: ShmArray | None = None,
 
 ) -> None:
     '''
@@ -241,6 +244,8 @@ async def sample_and_broadcast(
 
     # iterate stream delivered by broker
     async for quotes in quote_stream:
+        # print(quotes)
+
         # TODO: ``numba`` this!
         for broker_symbol, quote in quotes.items():
             # TODO: in theory you can send the IPC msg *before* writing
@@ -314,7 +319,7 @@ async def sample_and_broadcast(
                 tuple[
                     Union[tractor.MsgStream, trio.MemorySendChannel],
                     tractor.Context,
-                    Optional[float],  # tick throttle in Hz
+                    float | None,  # tick throttle in Hz
                 ]
             ] = bus._subscribers[broker_symbol.lower()]
 
