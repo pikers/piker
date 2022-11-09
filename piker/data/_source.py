@@ -217,6 +217,10 @@ class Symbol(Struct):
         else:
             return (key, broker)
 
+    @property
+    def fqsn(self) -> str:
+        return '.'.join(self.tokens()).lower()
+
     def front_fqsn(self) -> str:
         '''
         fqsn = "fully qualified symbol name"
