@@ -5,7 +5,7 @@ Data feed layer APIs, performance, msg throttling.
 from pprint import pprint
 
 import pytest
-import tractor
+# import tractor
 import trio
 from piker import (
     open_piker_runtime,
@@ -37,6 +37,7 @@ def test_basic_rt_feed(
                 # ``tractor._state._runtimevars``...
                 registry_addr=('127.0.0.1', 6666),
                 debug_mode=True,
+                loglevel='runtime',
             ),
             open_feed(
                 fqsns,
@@ -55,8 +56,20 @@ def test_basic_rt_feed(
                 ohlcv: ShmArray = flume.rt_shm
                 hist_ohlcv: ShmArray = flume.hist_shm
 
+            # stream some ticks and ensure we see data from both symbol
+            # subscriptions.
             quote_count: int = 0
             stream = feed.streams['binance']
+
+            # pull the first couple startup quotes and ensure
+            # they match the history buffer last entries.
+            for _ in range(1):
+                first_quotes = await stream.receive()
+                for fqsn, quote in first_quotes.items():
+                    assert fqsn in fqsns
+                    flume = feed.flumes[fqsn]
+                    assert quote['last'] == flume.first_quote['last']
+
             async for quotes in stream:
                 for fqsn, quote in quotes.items():
 
