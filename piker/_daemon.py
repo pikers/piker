@@ -198,6 +198,7 @@ async def open_piker_runtime(
     # XXX: you should pretty much never want debug mode
     # for data daemons when running in production.
     debug_mode: bool = False,
+    registry_addr: None | tuple[str, int] = _registry_addr,
 
 ) -> tractor.Actor:
     '''
@@ -213,7 +214,7 @@ async def open_piker_runtime(
         tractor.open_root_actor(
 
             # passed through to ``open_root_actor``
-            arbiter_addr=_registry_addr,
+            arbiter_addr=registry_addr,
             name=name,
             loglevel=loglevel,
             debug_mode=debug_mode,
