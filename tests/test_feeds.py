@@ -2,10 +2,11 @@
 Data feed layer APIs, performance, msg throttling.
 
 '''
+from collections import Counter
 from pprint import pprint
 
 import pytest
-# import tractor
+import tractor
 import trio
 from piker import (
     open_piker_runtime,
@@ -17,12 +18,12 @@ from piker.data import ShmArray
 @pytest.mark.parametrize(
     'fqsns',
     [
-        ['btcusdt.binance', 'ethusdt.binance']
+        {'btcusdt.binance', 'ethusdt.binance'}
     ],
     ids=lambda param: f'fqsns={param}',
 )
 def test_basic_rt_feed(
-    fqsns: list[str],
+    fqsns: set[str],
 ):
     '''
     Start a real-time data feed for provided fqsn and pull
@@ -33,11 +34,12 @@ def test_basic_rt_feed(
         async with (
             open_piker_runtime(
                 'test_basic_rt_feed',
+
                 # XXX tractor BUG: this doesn't translate through to the
                 # ``tractor._state._runtimevars``...
                 registry_addr=('127.0.0.1', 6666),
-                debug_mode=True,
-                loglevel='runtime',
+
+                # debug_mode=True,
             ),
             open_feed(
                 fqsns,
@@ -58,20 +60,29 @@ def test_basic_rt_feed(
 
             # stream some ticks and ensure we see data from both symbol
             # subscriptions.
-            quote_count: int = 0
             stream = feed.streams['binance']
 
-            # pull the first couple startup quotes and ensure
-            # they match the history buffer last entries.
+            # pull the first startup quotes, one for each fqsn, and
+            # ensure they match each flume's startup quote value.
+            fqsns_copy = fqsns.copy()
             for _ in range(1):
                 first_quotes = await stream.receive()
                 for fqsn, quote in first_quotes.items():
-                    assert fqsn in fqsns
+
+                    # XXX: TODO: WTF apparently this error will get
+                    # supressed and only show up in the teardown
+                    # excgroup if we don't have the fix from
+                    # <tractorbugurl>
+                    # assert 0
+
+                    fqsns_copy.remove(fqsn)
                     flume = feed.flumes[fqsn]
                     assert quote['last'] == flume.first_quote['last']
 
+            cntr = Counter()
             async for quotes in stream:
                 for fqsn, quote in quotes.items():
+                    cntr[fqsn] += 1
 
                     # await tractor.breakpoint()
                     flume = feed.flumes[fqsn]
@@ -91,9 +102,11 @@ def test_basic_rt_feed(
                         f'rt_ohlc: {rt_row}\n'
                         f'hist_ohlc: {hist_row}\n'
                     )
-                    quote_count += 1
 
-                if quote_count >= 100:
+                if cntr.total() >= 100:
                     break
+
+            # await tractor.breakpoint()
+            assert set(cntr.keys()) == fqsns
 
     trio.run(main)
