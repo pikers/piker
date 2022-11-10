@@ -814,7 +814,8 @@ class ChartPlotWidget(pg.PlotWidget):
     # a better one?
     def mk_vb(self, name: str) -> ChartView:
         cv = ChartView(name)
-        cv.linkedsplits = self.linked
+        # link new view to chart's view set
+        cv.linked = self.linked
         return cv
 
     def __init__(
@@ -1179,18 +1180,26 @@ class ChartPlotWidget(pg.PlotWidget):
         )
         pi.hideButtons()
 
-        # cv.enable_auto_yrange(self.view)
-        cv.enable_auto_yrange()
-
         # compose this new plot's graphics with the current chart's
         # existing one but with separate axes as neede and specified.
         self.pi_overlay.add_plotitem(
             pi,
             index=index,
 
-            # only link x-axes,
+            # only link x-axes and
+            # don't relay any ``ViewBox`` derived event
+            # handlers since we only care about keeping charts
+            # x-synced on interaction (at least for now).
             link_axes=(0,),
         )
+
+        # connect auto-yrange callbacks *from* this new
+        # view **to** this parent and likewise *from* the
+        # main/parent chart back *to* the created overlay.
+        cv.enable_auto_yrange(src_vb=self.view)
+        # makes it so that interaction on the new overlay will reflect
+        # back on the main chart (which overlay was added to).
+        self.view.enable_auto_yrange(src_vb=cv)
 
         # add axis title
         # TODO: do we want this API to still work?

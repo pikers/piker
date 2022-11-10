@@ -746,12 +746,12 @@ async def manage_history(
 
         # we expect the sub-actor to write
         readonly=False,
-        size=4*_secs_in_day,
+        size=3*_secs_in_day,
     )
 
     # (for now) set the rt (hft) shm array with space to prepend
     # only a few days worth of 1s history.
-    days = 3
+    days = 2
     start_index = days*_secs_in_day
     rt_shm._first.value = start_index
     rt_shm._last.value = start_index
