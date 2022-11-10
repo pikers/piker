@@ -271,8 +271,12 @@ async def open_history_client(
         ]:
 
             nonlocal queries
-            if queries > 0:
-                raise DataUnavailable
+            if (
+                queries > 0
+                or timeframe != 60
+            ):
+                raise DataUnavailable(
+                    'Only a single query for 1m bars supported')
 
             count = 0
             while count <= 3:
