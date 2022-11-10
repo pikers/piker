@@ -27,7 +27,11 @@ import tractor
 
 from ..log import get_console_log, get_logger, colorize_json
 from ..brokers import get_brokermod
-from .._daemon import _tractor_kwargs
+from .._daemon import (
+    _tractor_kwargs,
+    _registry_host,
+    _registry_port,
+)
 from .. import config
 
 
@@ -39,13 +43,21 @@ DEFAULT_BROKER = 'questrade'
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--tl', is_flag=True, help='Enable tractor logging')
 @click.option('--pdb', is_flag=True, help='Enable tractor debug mode')
-@click.option('--host', '-h', default='127.0.0.1', help='Host address to bind')
+@click.option('--host', '-h', default=None, help='Host addr to bind')
+@click.option('--port', '-p', default=None, help='Port number to bind')
 @click.option(
     '--tsdb',
     is_flag=True,
     help='Enable local ``marketstore`` instance'
 )
-def pikerd(loglevel, host, tl, pdb, tsdb):
+def pikerd(
+    loglevel: str,
+    host: str,
+    port: int,
+    tl: bool,
+    pdb: bool,
+    tsdb: bool,
+):
     '''
     Spawn the piker broker-daemon.
 
@@ -62,12 +74,21 @@ def pikerd(loglevel, host, tl, pdb, tsdb):
             "\n"
         ))
 
+    reg_addr: None | tuple[str, int] = None
+    if host or port:
+        reg_addr = (
+            host or _registry_host,
+            int(port) or _registry_port,
+        )
+
     async def main():
 
         async with (
             open_pikerd(
                 loglevel=loglevel,
                 debug_mode=pdb,
+                registry_addr=reg_addr,
+
             ),  # normally delivers a ``Services`` handle
             trio.open_nursery() as n,
         ):
@@ -104,8 +125,19 @@ def pikerd(loglevel, host, tl, pdb, tsdb):
 @click.option('--loglevel', '-l', default='warning', help='Logging level')
 @click.option('--tl', is_flag=True, help='Enable tractor logging')
 @click.option('--configdir', '-c', help='Configuration directory')
+@click.option('--host', '-h', default=None, help='Host addr to bind')
+@click.option('--port', '-p', default=None, help='Port number to bind')
 @click.pass_context
-def cli(ctx, brokers, loglevel, tl, configdir):
+def cli(
+    ctx: click.Context,
+    brokers: list[str],
+    loglevel: str,
+    tl: bool,
+    configdir: str,
+    host: str,
+    port: int,
+
+) -> None:
     if configdir is not None:
         assert os.path.isdir(configdir), f"`{configdir}` is not a valid path"
         config._override_config_dir(configdir)
@@ -117,6 +149,13 @@ def cli(ctx, brokers, loglevel, tl, configdir):
     else:
         brokermods = [get_brokermod(broker) for broker in brokers]
 
+    reg_addr: None | tuple[str, int] = None
+    if host or port:
+        reg_addr = (
+            host or _registry_host,
+            int(port) or _registry_port,
+        )
+
     ctx.obj.update({
         'brokers': brokers,
         'brokermods': brokermods,
@@ -125,6 +164,7 @@ def cli(ctx, brokers, loglevel, tl, configdir):
         'log': get_console_log(loglevel),
         'confdir': config._config_dir,
         'wl_path': config._watchlists_data_path,
+        'registry_addr': reg_addr,
     })
 
     # allow enabling same loglevel in ``tractor`` machinery

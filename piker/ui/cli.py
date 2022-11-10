@@ -46,8 +46,10 @@ def _kivy_import_hack():
 @click.argument('name', nargs=1, required=True)
 @click.pass_obj
 def monitor(config, rate, name, dhost, test, tl):
-    """Start a real-time watchlist UI
-    """
+    '''
+    Start a real-time watchlist UI
+
+    '''
     # global opts
     brokermod = config['brokermods'][0]
     loglevel = config['loglevel']
@@ -70,8 +72,12 @@ def monitor(config, rate, name, dhost, test, tl):
         ) as portal:
             # run app "main"
             await _async_main(
-                name, portal, tickers,
-                brokermod, rate, test=test,
+                name,
+                portal,
+                tickers,
+                brokermod,
+                rate,
+                test=test,
             )
 
     tractor.run(
@@ -122,7 +128,7 @@ def optschain(config, symbol, date, rate, test):
 @cli.command()
 @click.option(
     '--profile',
-    '-p',
+    # '-p',
     default=None,
     help='Enable pyqtgraph profiling'
 )
@@ -131,9 +137,14 @@ def optschain(config, symbol, date, rate, test):
     is_flag=True,
     help='Enable tractor debug mode'
 )
-@click.argument('symbol', required=True)
+@click.argument('symbols', nargs=-1, required=True)
 @click.pass_obj
-def chart(config, symbol, profile, pdb):
+def chart(
+    config,
+    symbols: list[str],
+    profile,
+    pdb: bool,
+):
     '''
     Start a real-time chartng UI
 
@@ -144,14 +155,16 @@ def chart(config, symbol, profile, pdb):
         _profile._pg_profile = True
         _profile.ms_slower_then = float(profile)
 
+    # Qt UI entrypoint
     from ._app import _main
 
-    if '.' not in symbol:
-        click.echo(click.style(
-            f'symbol: {symbol} must have a {symbol}.<provider> suffix',
-            fg='red',
-        ))
-        return
+    for symbol in symbols:
+        if '.' not in symbol:
+            click.echo(click.style(
+                f'symbol: {symbol} must have a {symbol}.<provider> suffix',
+                fg='red',
+            ))
+            return
 
 
     # global opts
@@ -159,8 +172,9 @@ def chart(config, symbol, profile, pdb):
     tractorloglevel = config['tractorloglevel']
     pikerloglevel = config['loglevel']
 
+
     _main(
-        sym=symbol,
+        syms=symbols,
         brokernames=brokernames,
         piker_loglevel=pikerloglevel,
         tractor_kwargs={
@@ -170,5 +184,6 @@ def chart(config, symbol, profile, pdb):
             'enable_modules': [
                 'piker.clearing._client'
             ],
+            'registry_addr': config.get('registry_addr'),
         },
     )

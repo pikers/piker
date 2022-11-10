@@ -35,7 +35,12 @@ log = get_logger(__name__)
 
 _root_dname = 'pikerd'
 
-_registry_addr = ('127.0.0.1', 6116)
+_registry_host: str = '127.0.0.1'
+_registry_port: int = 6116
+_registry_addr = (
+    _registry_host,
+    _registry_port,
+)
 _tractor_kwargs: dict[str, Any] = {
     # use a different registry addr then tractor's default
     'arbiter_addr': _registry_addr
@@ -135,6 +140,7 @@ async def open_pikerd(
     # XXX: you should pretty much never want debug mode
     # for data daemons when running in production.
     debug_mode: bool = False,
+    registry_addr: None | tuple[str, int] = None,
 
 ) -> Optional[tractor._portal.Portal]:
     '''
@@ -146,14 +152,13 @@ async def open_pikerd(
 
     '''
     global _services
-    assert _services is None
 
     # XXX: this may open a root actor as well
     async with (
         tractor.open_root_actor(
 
             # passed through to ``open_root_actor``
-            arbiter_addr=_registry_addr,
+            arbiter_addr=registry_addr or _registry_addr,
             name=_root_dname,
             loglevel=loglevel,
             debug_mode=debug_mode,
@@ -192,22 +197,22 @@ async def open_piker_runtime(
     # XXX: you should pretty much never want debug mode
     # for data daemons when running in production.
     debug_mode: bool = False,
+    registry_addr: None | tuple[str, int] = _registry_addr,
 
-) -> Optional[tractor._portal.Portal]:
+) -> tractor.Actor:
     '''
     Start a piker actor who's runtime will automatically sync with
     existing piker actors on the local link based on configuration.
 
     '''
     global _services
-    assert _services is None
 
     # XXX: this may open a root actor as well
     async with (
         tractor.open_root_actor(
 
             # passed through to ``open_root_actor``
-            arbiter_addr=_registry_addr,
+            arbiter_addr=registry_addr,
             name=name,
             loglevel=loglevel,
             debug_mode=debug_mode,
@@ -248,6 +253,7 @@ async def maybe_open_runtime(
 @acm
 async def maybe_open_pikerd(
     loglevel: Optional[str] = None,
+    registry_addr: None | tuple = None,
     **kwargs,
 
 ) -> Union[tractor._portal.Portal, Services]:
@@ -260,13 +266,21 @@ async def maybe_open_pikerd(
         get_console_log(loglevel)
 
     # subtle, we must have the runtime up here or portal lookup will fail
-    async with maybe_open_runtime(loglevel, **kwargs):
-
-        async with tractor.find_actor(_root_dname) as portal:
-            # assert portal is not None
-            if portal is not None:
-                yield portal
-                return
+    async with (
+        maybe_open_runtime(loglevel, **kwargs),
+        tractor.find_actor(_root_dname) as portal
+    ):
+        # connect to any existing daemon presuming
+        # its registry socket was selected.
+        if (
+            portal is not None
+            and (
+                registry_addr is None
+                or portal.channel.raddr == registry_addr
+            )
+        ):
+            yield portal
+            return
 
     # presume pikerd role since no daemon could be found at
     # configured address
@@ -274,6 +288,7 @@ async def maybe_open_pikerd(
 
         loglevel=loglevel,
         debug_mode=kwargs.get('debug_mode', False),
+        registry_addr=registry_addr,
 
     ) as _:
         # in the case where we're starting up the
