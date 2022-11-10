@@ -578,7 +578,7 @@ async def trades_dialogue(
             )
 
             # paper engine simulator clearing task
-            await simulate_fills(feed.stream, client)
+            await simulate_fills(feed.streams[broker], client)
 
 
 @asynccontextmanager

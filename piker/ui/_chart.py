@@ -915,14 +915,16 @@ class ChartPlotWidget(pg.PlotWidget):
     def resume_all_feeds(self):
         try:
             for feed in self._feeds.values():
-                self.linked.godwidget._root_n.start_soon(feed.resume)
+                for flume in feed.flumes.values():
+                    self.linked.godwidget._root_n.start_soon(flume.resume)
         except RuntimeError:
             # TODO: cancel the qtractor runtime here?
             raise
 
     def pause_all_feeds(self):
         for feed in self._feeds.values():
-            self.linked.godwidget._root_n.start_soon(feed.pause)
+            for flume in feed.flumes.values():
+                self.linked.godwidget._root_n.start_soon(flume.pause)
 
     @property
     def view(self) -> ChartView:
