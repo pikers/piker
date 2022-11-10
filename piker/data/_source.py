@@ -23,7 +23,8 @@ import decimal
 
 from bidict import bidict
 import numpy as np
-from msgspec import Struct
+
+from .types import Struct
 # from numba import from_dtype
 
 

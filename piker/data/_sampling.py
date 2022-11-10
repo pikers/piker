@@ -331,7 +331,6 @@ async def sample_and_broadcast(
             lags: int = 0
 
             for (stream, ctx, tick_throttle) in subs:
-
                 try:
                     with trio.move_on_after(0.2) as cs:
                         if tick_throttle:
