@@ -85,6 +85,7 @@ class Pair(Struct):
     margin_call: str  # margin call level
     margin_stop: str  # stop-out/liquidation margin level
     ordermin: float  # minimum order volume for pair
+    tick_size: float # min price step size
 
 
 class OHLC(Struct):
@@ -270,8 +271,12 @@ async def open_history_client(
         ]:
 
             nonlocal queries
-            if queries > 0:
-                raise DataUnavailable
+            if (
+                queries > 0
+                or timeframe != 60
+            ):
+                raise DataUnavailable(
+                    'Only a single query for 1m bars supported')
 
             count = 0
             while count <= 3:
