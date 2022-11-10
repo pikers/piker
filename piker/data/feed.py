@@ -1255,7 +1255,7 @@ async def open_feed_bus(
         assert bfqsn in fqsn and brokername in fqsn
 
         if sym.suffix:
-            bfqsn = fqsn.rstrip(f'.{brokername}')
+            bfqsn = fqsn.removesuffix(f'.{brokername}')
             log.warning(f'{brokername} expanded symbol {symbol} -> {bfqsn}')
 
         # pack for ``.started()`` sync msg
@@ -1327,7 +1327,7 @@ async def open_feed_bus(
             # maybe use the current task-id to key the sub list that's
             # added / removed? Or maybe we can add a general
             # pause-resume by sub-key api?
-            bfqsn = fqsn.rstrip(f'.{brokername}')
+            bfqsn = fqsn.removesuffix(f'.{brokername}')
             bus_subs = bus._subscribers[bfqsn]
             bus_subs.append(sub)
             local_subs.append(sub)
