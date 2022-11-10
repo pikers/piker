@@ -152,7 +152,6 @@ async def open_pikerd(
 
     '''
     global _services
-    assert _services is None
 
     # XXX: this may open a root actor as well
     async with (
@@ -207,7 +206,6 @@ async def open_piker_runtime(
 
     '''
     global _services
-    assert _services is None
 
     # XXX: this may open a root actor as well
     async with (
