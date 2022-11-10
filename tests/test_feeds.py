@@ -13,14 +13,18 @@ from piker import (
     open_feed,
 )
 from piker.data import ShmArray
+from piker.data._source import (
+    unpack_fqsn,
+)
 
 
 @pytest.mark.parametrize(
     'fqsns',
     [
-        {'btcusdt.binance', 'ethusdt.binance'}
+        (100, {'btcusdt.binance', 'ethusdt.binance'}),
+        (50, {'xbteur.kraken', 'xbtusd.kraken'}),
     ],
-    ids=lambda param: f'fqsns={param}',
+    ids=lambda param: f'quotes={param[0]}@fqsns={param[1]}',
 )
 def test_basic_rt_feed(
     fqsns: set[str],
@@ -30,6 +34,17 @@ def test_basic_rt_feed(
     a few quotes then simply shut down.
 
     '''
+    max_quotes, fqsns = fqsns
+
+    brokers = set()
+    for fqsn in fqsns:
+        brokername, key, suffix = unpack_fqsn(fqsn)
+        brokers.add(brokername)
+
+    # NOTE: we only have single broker-backed multi-symbol streams
+    # currently.
+    assert len(brokers) == 1
+
     async def main():
         async with (
             open_piker_runtime(
@@ -60,7 +75,7 @@ def test_basic_rt_feed(
 
             # stream some ticks and ensure we see data from both symbol
             # subscriptions.
-            stream = feed.streams['binance']
+            stream = feed.streams[brokername]
 
             # pull the first startup quotes, one for each fqsn, and
             # ensure they match each flume's startup quote value.
