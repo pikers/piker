@@ -27,6 +27,7 @@ from contextlib import asynccontextmanager as acm
 from math import isnan
 from pprint import pformat
 import time
+from types import ModuleType
 from typing import (
     AsyncIterator,
     Any,
@@ -381,14 +382,15 @@ class Router(Struct):
     @acm
     async def maybe_open_brokerd_dialog(
         self,
-        feed: Feed,
+        brokermod: ModuleType,
+        portal: tractor.Portal,
         exec_mode: str,
         symbol: str,
         loglevel: str,
 
     ) -> None:
-        brokermod = feed.mod
         broker = brokermod.name
+
         relay: TradesRelay = self.relays.get(broker)
         if (
             relay
@@ -427,7 +429,7 @@ class Router(Struct):
 
         else:
             # open live brokerd trades endpoint
-            open_trades_endpoint = feed.portal.open_context(
+            open_trades_endpoint = portal.open_context(
                 trades_endpoint,
                 loglevel=loglevel,
             )
@@ -526,8 +528,10 @@ class Router(Struct):
                 loglevel=loglevel,
             ) as feed,
         ):
-            brokermod = feed.mod
+            brokername, _, _ = unpack_fqsn(fqsn)
+            brokermod = feed.mods[brokername]
             broker = brokermod.name
+            portal = feed.portals[brokermod]
 
             # XXX: this should be initial price quote from target provider
             flume = feed.flumes[fqsn]
@@ -536,7 +540,8 @@ class Router(Struct):
             book.lasts[fqsn]: float = first_quote['last']
 
             async with self.maybe_open_brokerd_dialog(
-                feed=feed,
+                brokermod=brokermod,
+                portal=portal,
                 exec_mode=exec_mode,
                 symbol=symbol,
                 loglevel=loglevel,
