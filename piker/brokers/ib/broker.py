@@ -575,17 +575,18 @@ async def trades_dialogue(
                         # if new trades are detected from the API, prepare
                         # them for the ledger file and update the pptable.
                         if api_to_ledger_entries:
-                            trade_entries = api_to_ledger_entries[acctid]
+                            trade_entries = api_to_ledger_entries.get(acctid)
 
-                            # write ledger with all new trades **AFTER**
-                            # we've updated the `pps.toml` from the
-                            # original ledger state! (i.e. this is
-                            # currently done on exit)
-                            ledger.update(trade_entries)
+                            if trade_entries:
+                                # write ledger with all new trades **AFTER**
+                                # we've updated the `pps.toml` from the
+                                # original ledger state! (i.e. this is
+                                # currently done on exit)
+                                ledger.update(trade_entries)
 
-                            trans = trans_by_acct.get(acctid)
-                            if trans:
-                                table.update_from_trans(trans)
+                                trans = trans_by_acct.get(acctid)
+                                if trans:
+                                    table.update_from_trans(trans)
 
                         # XXX: not sure exactly why it wouldn't be in
                         # the updated output (maybe this is a bug?) but
