@@ -38,7 +38,7 @@ from math import isnan
 
 from bidict import bidict
 from msgspec.msgpack import encode, decode
-import pyqtgraph as pg
+# import pyqtgraph as pg
 import numpy as np
 import tractor
 from trio_websocket import open_websocket_url
@@ -429,10 +429,7 @@ class Storage:
         end: Optional[int] = None,
         limit: int = int(800e3),
 
-    ) -> dict[
-        int,
-        Union[dict, np.ndarray],
-    ]:
+    ) -> np.ndarray:
 
         client = self.client
         syms = await client.list_symbols()
