@@ -197,6 +197,9 @@ def load(
     '''
     path = path or get_conf_path(conf_name)
 
+    if not os.path.isdir(_config_dir):
+        os.mkdir(_config_dir)
+
     if not os.path.isfile(path):
         fn = _conf_fn_w_ext(conf_name)
 
@@ -209,9 +212,9 @@ def load(
         # if one exists.
         if os.path.isfile(template):
             shutil.copyfile(template, path)
-        else:
-            with open(path, 'w'):
-                pass  # touch
+    else:
+        with open(path, 'r'):
+            pass  # touch it
 
     config = toml.load(path, **tomlkws)
     log.debug(f"Read config file {path}")
