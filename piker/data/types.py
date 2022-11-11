@@ -42,16 +42,17 @@ class Struct(
             for f in self.__struct_fields__
         }
 
-    def __repr__(self):
-        # only turn on pprint when we detect a python REPL
-        # at runtime B)
-        if (
-            hasattr(sys, 'ps1')
-            # TODO: check if we're in pdb
-        ):
-            return self.pformat()
+    # Lul, doesn't seem to work that well..
+    # def __repr__(self):
+    #     # only turn on pprint when we detect a python REPL
+    #     # at runtime B)
+    #     if (
+    #         hasattr(sys, 'ps1')
+    #         # TODO: check if we're in pdb
+    #     ):
+    #         return self.pformat()
 
-        return super().__repr__()
+    #     return super().__repr__()
 
     def pformat(self) -> str:
         return f'Struct({pformat(self.to_dict())})'
