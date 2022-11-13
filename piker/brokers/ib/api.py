@@ -167,35 +167,35 @@ _futes_venues = (
 _adhoc_futes_set = {
 
     # equities
-    'nq.globex',
-    'mnq.globex',  # micro
+    'nq.cme',
+    'mnq.cme',  # micro
 
-    'es.globex',
-    'mes.globex',  # micro
+    'es.cme',
+    'mes.cme',  # micro
 
     # cypto$
-    'brr.cmecrypto',
-    'ethusdrr.cmecrypto',
+    'brr.cme',
+    'ethusdrr.cme',
 
     # agriculture
-    'he.nymex',  # lean hogs
-    'le.nymex',  # live cattle (geezers)
-    'gf.nymex',  # feeder cattle (younguns)
+    'he.comex',  # lean hogs
+    'le.comex',  # live cattle (geezers)
+    'gf.comex',  # feeder cattle (younguns)
 
     # raw
-    'lb.nymex',  # random len lumber
+    'lb.comex',  # random len lumber
 
     # metals
     # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
     'xauusd.cmdty',  # london gold spot ^
-    'gc.nymex',
-    'mgc.nymex',  # micro
+    'gc.comex',
+    'mgc.comex',  # micro
 
     # oil & gas
-    'cl.nymex',
+    'cl.comex',
 
     'xagusd.cmdty',  # silver spot
-    'ni.nymex',  # silver futes
+    'ni.comex',  # silver futes
     'qi.comex',  # mini-silver futes
 }
 
