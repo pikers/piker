@@ -522,7 +522,7 @@ class XAxisLabel(AxisLabel):
 
 
 class YAxisLabel(AxisLabel):
-    _y_margin = 4
+    _y_margin: int = 4
 
     text_flags = (
         QtCore.Qt.AlignLeft
@@ -546,6 +546,7 @@ class YAxisLabel(AxisLabel):
 
         self._last_datum = (None, None)
 
+        self.x_offset = 0
         # pull text offset from axis from parent axis
         if getattr(self._parent, 'txt_offsets', False):
             self.x_offset, y_offset = self._parent.txt_offsets()
@@ -564,7 +565,8 @@ class YAxisLabel(AxisLabel):
         value: float,  # data for text
 
         # on odd dimension and/or adds nice black line
-        x_offset: Optional[int] = None
+        x_offset: int = 0,
+
     ) -> None:
 
         # this is read inside ``.paint()``
