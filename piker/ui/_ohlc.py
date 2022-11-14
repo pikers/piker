@@ -98,7 +98,7 @@ class BarItems(pg.GraphicsObject):
         self,
         linked: LinkedSplits,
         plotitem: 'pg.PlotItem',  # noqa
-        pen_color: str = 'bracket',
+        color: str = 'bracket',
         last_bar_color: str = 'bracket',
 
         name: Optional[str] = None,
@@ -108,8 +108,8 @@ class BarItems(pg.GraphicsObject):
         self.linked = linked
         # XXX: for the mega-lulz increasing width here increases draw
         # latency...  so probably don't do it until we figure that out.
-        self._color = pen_color
-        self.bars_pen = pg.mkPen(hcolor(pen_color), width=1)
+        self._color = color
+        self.bars_pen = pg.mkPen(hcolor(color), width=1)
         self.last_bar_pen = pg.mkPen(hcolor(last_bar_color), width=2)
         self._name = name
 
