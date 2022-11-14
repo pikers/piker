@@ -80,9 +80,9 @@ async def update_pnl_from_feed(
     '''
     global _pnl_tasks
 
-    pp = order_mode.current_pp
-    live = pp.live_pp
-    key = live.symbol.front_fqsn()
+    pp: PositionTracker = order_mode.current_pp
+    live: Position = pp.live_pp
+    key: str = live.symbol.front_fqsn()
 
     log.info(f'Starting pnl display for {pp.alloc.account}')
 
@@ -101,11 +101,17 @@ async def update_pnl_from_feed(
         async with flume.stream.subscribe() as bstream:
             # last_tick = time.time()
             async for quotes in bstream:
-
                 # now = time.time()
                 # period = now - last_tick
 
                 for sym, quote in quotes.items():
+
+                    # TODO: uggggh we probably want a better state
+                    # management then this sincce we want to enable
+                    # updating whatever the current symbol is in
+                    # real-time right?
+                    if sym != key:
+                        continue
 
                     for tick in iterticks(quote, types):
                         # print(f'{1/period} Hz')
@@ -119,6 +125,7 @@ async def update_pnl_from_feed(
 
                         else:
                             # compute and display pnl status
+                            # print(f'formatting PNL {sym}: {quote}')
                             order_mode.pane.pnl_label.format(
                                 pnl=copysign(1, size) * pnl(
                                     # live.ppu,
