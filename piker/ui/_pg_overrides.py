@@ -26,6 +26,8 @@ from typing import Optional
 
 import pyqtgraph as pg
 
+from ._axes import Axis
+
 
 def invertQTransform(tr):
     """Return a QTransform that is the inverse of *tr*.
@@ -62,6 +64,20 @@ class PlotItem(pg.PlotItem):
     Overrides for the core plot object mostly pertaining to overlayed
     multi-view management as it relates to multi-axis managment.
 
+    This object is the combination of a ``ViewBox`` and multiple
+    ``AxisItem``s and so far we've added additional functionality and
+    APIs for:
+    - removal of axes
+
+    ---
+
+    From ``pyqtgraph`` super type docs:
+    - Manage placement of ViewBox, AxisItems, and LabelItems
+    - Create and manage a list of PlotDataItems displayed inside the
+      ViewBox
+    - Implement a context menu with commonly used display and analysis
+      options
+
     '''
     def __init__(
         self,
@@ -86,6 +102,8 @@ class PlotItem(pg.PlotItem):
             enableMenu=enableMenu,
             kargs=kargs,
         )
+        self.name = name
+        self.chart_widget = None
         # self.setAxisItems(
         #     axisItems,
         #     default_axes=default_axes,
@@ -209,7 +227,12 @@ class PlotItem(pg.PlotItem):
                 # adding this is without it there's some weird
                 # ``ViewBox`` geometry bug.. where a gap for the
                 # 'bottom' axis is somehow left in?
-                axis = pg.AxisItem(orientation=name, parent=self)
+                # axis = pg.AxisItem(orientation=name, parent=self)
+                axis = Axis(
+                    self,
+                    orientation=name,
+                    parent=self,
+                )
 
             axis.linkToView(self.vb)
 
