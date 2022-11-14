@@ -418,7 +418,7 @@ class Cursor(pg.GraphicsObject):
         hl.hide()
 
         yl = YAxisLabel(
-            chart=plot,
+            pi=plot.plotItem,
             # parent=plot.getAxis('right'),
             parent=plot.pi_overlay.get_axis(plot.plotItem, 'right'),
             digits=digits or self.digits,
