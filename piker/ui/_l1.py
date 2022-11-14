@@ -26,6 +26,7 @@ from PyQt5.QtCore import QPointF
 
 from ._axes import YAxisLabel
 from ._style import hcolor
+from ._pg_overrides import PlotItem
 
 
 class LevelLabel(YAxisLabel):
@@ -132,7 +133,7 @@ class LevelLabel(YAxisLabel):
         level = self.fields['level']
 
         # map "level" to local coords
-        abs_xy = self._chart.mapFromView(QPointF(0, level))
+        abs_xy = self._pi.mapFromView(QPointF(0, level))
 
         self.update_label(
             abs_xy,
@@ -149,7 +150,7 @@ class LevelLabel(YAxisLabel):
         h, w = self.set_label_str(fields)
 
         if self._adjust_to_l1:
-            self._x_offset = self._chart._max_l1_line_len
+            self._x_offset = self._pi.chart_widget._max_l1_line_len
 
         self.setPos(QPointF(
             self._h_shift * (w + self._x_offset),
@@ -236,10 +237,10 @@ class L1Label(LevelLabel):
         # Set a global "max L1 label length" so we can
         # look it up on order lines and adjust their
         # labels not to overlap with it.
-        chart = self._chart
+        chart = self._pi.chart_widget
         chart._max_l1_line_len: float = max(
             chart._max_l1_line_len,
-            w
+            w,
         )
 
         return h, w
@@ -251,17 +252,17 @@ class L1Labels:
     """
     def __init__(
         self,
-        chart: 'ChartPlotWidget',  # noqa
+        plotitem: PlotItem,
         digits: int = 2,
         size_digits: int = 3,
         font_size: str = 'small',
     ) -> None:
 
-        self.chart = chart
+        chart = self.chart = plotitem.chart_widget
 
-        raxis = chart.getAxis('right')
+        raxis = plotitem.getAxis('right')
         kwargs = {
-            'chart': chart,
+            'chart': plotitem,
             'parent': raxis,
 
             'opacity': 1,
