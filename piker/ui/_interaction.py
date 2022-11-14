@@ -467,7 +467,6 @@ class ChartView(ViewBox):
         self,
         ev,
         axis=None,
-        # relayed_from: ChartView = None,
     ):
         '''
         Override "center-point" location for scrolling.
@@ -482,7 +481,6 @@ class ChartView(ViewBox):
         if (
             not linked
         ):
-            # print(f'{self.name} not linked but relay from {relayed_from.name}')
             return
 
         if axis in (0, 1):
@@ -604,21 +602,8 @@ class ChartView(ViewBox):
         self,
         ev,
         axis: Optional[int] = None,
-        # relayed_from: ChartView = None,
 
     ) -> None:
-        # if relayed_from:
-        #     print(f'PAN: {self.name} -> RELAYED FROM: {relayed_from.name}')
-
-        # NOTE since in the overlay case axes are already
-        # "linked" any x-range change will already be mirrored
-        # in all overlaid ``PlotItems``, so we need to simply
-        # ignore the signal here since otherwise we get N-calls
-        # from N-overlays resulting in an "accelerated" feeling
-        # panning motion instead of the expect linear shift.
-        # if relayed_from:
-        #     return
-
         pos = ev.pos()
         lastPos = ev.lastPos()
         dif = pos - lastPos
