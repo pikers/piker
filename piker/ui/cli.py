@@ -166,16 +166,16 @@ def chart(
             ))
             return
 
-
     # global opts
     brokernames = config['brokers']
+    brokermods = config['brokermods']
+    assert brokermods
     tractorloglevel = config['tractorloglevel']
     pikerloglevel = config['loglevel']
 
-
     _main(
         syms=symbols,
-        brokernames=brokernames,
+        brokermods=brokermods,
         piker_loglevel=pikerloglevel,
         tractor_kwargs={
             'debug_mode': pdb,
