@@ -580,9 +580,8 @@ def graphics_update_cycle(
         profiler('view incremented')
 
     ticks_frame = quote.get('ticks', ())
-
-    frames_by_type: dict[str, dict] = {}
-    lasts = {}
+    # frames_by_type: dict[str, dict] = {}
+    # lasts = {}
 
     # build tick-type "frames" of tick sequences since
     # likely the tick arrival rate is higher then our
@@ -616,22 +615,22 @@ def graphics_update_cycle(
         log.debug('Skipping prepend graphics cycle: frame not in view')
         return
 
-    for tick in ticks_frame:
-        price = tick.get('price')
-        ticktype = tick.get('type')
+    # for tick in ticks_frame:
+    #     price = tick.get('price')
+    #     ticktype = tick.get('type')
 
-        # if ticktype == 'n/a' or price == -1:
-        #     # okkk..
-        #     continue
+    #     # if ticktype == 'n/a' or price == -1:
+    #     #     # okkk..
+    #     #     continue
 
-        # keys are entered in olded-event-inserted-first order
-        # since we iterate ``ticks_frame`` in standard order
-        # above. in other words the order of the keys is the order
-        # of tick events by type from the provider feed.
-        frames_by_type.setdefault(ticktype, []).append(tick)
+    #     # keys are entered in olded-event-inserted-first order
+    #     # since we iterate ``ticks_frame`` in standard order
+    #     # above. in other words the order of the keys is the order
+    #     # of tick events by type from the provider feed.
+    #     frames_by_type.setdefault(ticktype, []).append(tick)
 
-        # overwrites so the last tick per type is the entry
-        lasts[ticktype] = tick
+    #     # overwrites so the last tick per type is the entry
+    #     lasts[ticktype] = tick
 
     # from pprint import pformat
     # frame_counts = {
@@ -675,11 +674,18 @@ def graphics_update_cycle(
     # NOTE: we always update the "last" datum
     # since the current range should at least be updated
     # to it's max/min on the last pixel.
+    typs: set[str] = set()
 
-    for typ, tick in lasts.items():
-
+    # for typ, tick in lasts.items():
+    for tick in ticks_frame:
+        typ = tick.get('type')
         price = tick.get('price')
         size = tick.get('size')
+
+        if typ in typs:
+            continue
+
+        typs.add(typ)
 
         # compute max and min prices (including bid/ask) from
         # tick frames to determine the y-range for chart
