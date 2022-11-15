@@ -690,14 +690,13 @@ async def tsdb_backfill(
                     timeframe=timeframe,
                 )
 
+                # empty query
+                if not len(tsdb_history):
+                    break
+
                 next_start = tsdb_history['Epoch'][0]
-                if (
-                    not len(tsdb_history)  # empty query
-
+                if next_start >= tsdb_last_frame_start:
                     # no earlier data detected
-                    or next_start >= tsdb_last_frame_start
-
-                ):
                     break
                 else:
                     tsdb_last_frame_start = next_start
