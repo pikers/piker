@@ -1450,6 +1450,7 @@ class Feed(Struct):
 
         if brokers is None:
             mods = self.mods
+            brokers = list(self.mods)
         else:
             mods = {name: self.mods[name] for name in brokers}
 

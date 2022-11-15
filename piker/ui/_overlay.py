@@ -304,7 +304,7 @@ class PlotItemOverlay:
         # NOTE: required for scene layering/relaying; this guarantees
         # the "root" plot receives priority for interaction
         # events/signals.
-        root_plotitem.vb.setZValue(1000)
+        root_plotitem.vb.setZValue(10)
 
         self.overlays: list[PlotItem] = []
         self.layout = ComposedGridLayout(root_plotitem)
@@ -493,6 +493,8 @@ class PlotItemOverlay:
         assert not vb.focusWidget()
         root.vb.setFocus()
         assert root.vb.focusWidget()
+
+        vb.setZValue(100)
 
     def get_axis(
         self,
