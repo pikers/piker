@@ -483,7 +483,11 @@ class LinkedSplits(QWidget):
         from . import _display
         ds = self.display_state
         if ds:
-            return _display.graphics_update_cycle(ds, **kwargs)
+            return _display.graphics_update_cycle(
+                ds,
+                ds.quotes,
+                **kwargs,
+            )
 
     @property
     def symbol(self) -> Symbol:
@@ -536,7 +540,7 @@ class LinkedSplits(QWidget):
         shm: ShmArray,
         sidepane: FieldsForm,
 
-        style: str = 'bar',
+        style: str = 'ohlc_bar',
 
     ) -> ChartPlotWidget:
         '''
@@ -699,7 +703,7 @@ class LinkedSplits(QWidget):
         anchor_at = ('top', 'left')
 
         # draw curve graphics
-        if style == 'bar':
+        if style == 'ohlc_bar':
 
             graphics, data_key = cpw.draw_ohlc(
                 name,
@@ -736,30 +740,33 @@ class LinkedSplits(QWidget):
         else:
             raise ValueError(f"Chart style {style} is currently unsupported")
 
-        if not _is_main:
+        if _is_main:
+            assert style == 'ohlc_bar', 'main chart must be OHLC'
+        else:
             # track by name
             self.subplots[name] = cpw
             if qframe is not None:
                 self.splitter.addWidget(qframe)
 
-        else:
-            assert style == 'bar', 'main chart must be OHLC'
-
         # add to cross-hair's known plots
         # NOTE: add **AFTER** creating the underlying ``PlotItem``s
         # since we require that global (linked charts wide) axes have
         # been created!
-        self.cursor.add_plot(cpw)
+        if self.cursor:
+            if (
+                _is_main
+                or style != 'ohlc_bar'
+            ):
+                self.cursor.add_plot(cpw)
+                if style != 'ohlc_bar':
+                    self.cursor.add_curve_cursor(cpw, graphics)
 
-        if self.cursor and style != 'bar':
-            self.cursor.add_curve_cursor(cpw, graphics)
-
-            if add_label:
-                self.cursor.contents_labels.add_label(
-                    cpw,
-                    data_key,
-                    anchor_at=anchor_at,
-                )
+                if add_label:
+                    self.cursor.contents_labels.add_label(
+                        cpw,
+                        data_key,
+                        anchor_at=anchor_at,
+                    )
 
         self.resize_sidepanes()
         return cpw
@@ -1150,6 +1157,7 @@ class ChartPlotWidget(pg.PlotWidget):
             },
             default_axes=[],
         )
+        # pi.vb.background.setOpacity(0)
         yaxis.pi = pi
         pi.chart_widget = self
         pi.hideButtons()
@@ -1210,10 +1218,6 @@ class ChartPlotWidget(pg.PlotWidget):
 
         '''
         color = color or self.pen_color or 'default_light'
-        # graphics_kwargs.update({
-        #     'color': color
-        # })
-
         data_key = array_key or name
 
         pi = pi or self.plotItem
