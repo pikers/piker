@@ -42,6 +42,7 @@ from ..data._sharedmem import (
     _Token,
     try_read,
 )
+from ..data.feed import Flume
 from ._chart import (
     ChartPlotWidget,
     LinkedSplits,
@@ -111,7 +112,7 @@ def update_fsp_chart(
 
     # read from last calculated value and update any label
     last_val_sticky = chart.plotItem.getAxis(
-        'right')._stickies.get(chart.name)
+        'right')._stickies.get(graphics_name)
     if last_val_sticky:
         last = last_row[array_key]
         last_val_sticky.update_from_data(-1, last)
@@ -363,7 +364,7 @@ class FspAdmin:
         tn: trio.Nursery,
         cluster: dict[str, tractor.Portal],
         linked: LinkedSplits,
-        src_shm: ShmArray,
+        flume: Flume,
 
     ) -> None:
         self.tn = tn
@@ -375,7 +376,7 @@ class FspAdmin:
             tuple[tractor.MsgStream, ShmArray]
         ] = {}
         self._flow_registry: dict[_Token, str] = {}
-        self.src_shm = src_shm
+        self.flume = flume
 
     def rr_next_portal(self) -> tractor.Portal:
         name, portal = next(self._rr_next_actor)
@@ -410,7 +411,7 @@ class FspAdmin:
                 fqsn=fqsn,
 
                 # mems
-                src_shm_token=self.src_shm.token,
+                src_shm_token=self.flume.rt_shm.token,
                 dst_shm_token=dst_shm.token,
 
                 # target
@@ -470,7 +471,7 @@ class FspAdmin:
 
     ) -> (ShmArray, trio.Event):
 
-        fqsn = self.linked.symbol.front_fqsn()
+        fqsn = self.flume.symbol.fqsn
 
         # allocate an output shm array
         key, dst_shm, opened = maybe_mk_fsp_shm(
@@ -479,7 +480,7 @@ class FspAdmin:
             readonly=True,
         )
         self._flow_registry[(
-            self.src_shm._token,
+            self.flume.rt_shm._token,
             target.name
         )] = dst_shm._token
 
@@ -541,7 +542,7 @@ class FspAdmin:
 @acm
 async def open_fsp_admin(
     linked: LinkedSplits,
-    src_shm: ShmArray,
+    flume: Flume,
     **kwargs,
 
 ) -> AsyncGenerator[dict, dict[str, tractor.Portal]]:
@@ -562,7 +563,7 @@ async def open_fsp_admin(
             tn,
             cluster_map,
             linked,
-            src_shm,
+            flume,
         )
         try:
             yield admin
@@ -576,7 +577,7 @@ async def open_fsp_admin(
 async def open_vlm_displays(
 
     linked: LinkedSplits,
-    ohlcv: ShmArray,
+    flume: Flume,
     dvlm: bool = True,
 
     task_status: TaskStatus[ChartPlotWidget] = trio.TASK_STATUS_IGNORED,
@@ -598,6 +599,8 @@ async def open_vlm_displays(
     sig = inspect.signature(flow_rates.func)
     params = sig.parameters
 
+    ohlcv: ShmArray = flume.rt_shm
+
     async with (
         open_fsp_sidepane(
             linked, {
@@ -617,7 +620,7 @@ async def open_vlm_displays(
                 }
             },
         ) as sidepane,
-        open_fsp_admin(linked, ohlcv) as admin,
+        open_fsp_admin(linked, flume) as admin,
     ):
         # TODO: support updates
         # period_field = sidepane.fields['period']
@@ -645,6 +648,8 @@ async def open_vlm_displays(
             # the curve item internals are pretty convoluted.
             style='step',
         )
+        # back-link the volume chart to trigger y-autoranging
+        # in the ohlc (parent) chart.
         ohlc_chart.view.enable_auto_yrange(
             src_vb=chart.view,
         )
@@ -930,7 +935,7 @@ async def open_vlm_displays(
 async def start_fsp_displays(
 
     linked: LinkedSplits,
-    ohlcv: ShmArray,
+    flume: Flume,
     group_status_key: str,
     loglevel: str,
 
@@ -973,7 +978,10 @@ async def start_fsp_displays(
     async with (
 
         # NOTE: this admin internally opens an actor cluster
-        open_fsp_admin(linked, ohlcv) as admin,
+        open_fsp_admin(
+            linked,
+            flume,
+        ) as admin,
     ):
         statuses = []
         for target, conf in fsp_conf.items():
