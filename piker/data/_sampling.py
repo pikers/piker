@@ -24,7 +24,6 @@ from collections import Counter
 import time
 from typing import (
     TYPE_CHECKING,
-    Union,
 )
 
 import tractor
@@ -319,11 +318,10 @@ async def sample_and_broadcast(
             sub_key: str = broker_symbol.lower()
             subs: list[
                 tuple[
-                    Union[tractor.MsgStream, trio.MemorySendChannel],
-                    tractor.Context,
+                    tractor.MsgStream | trio.MemorySendChannel,
                     float | None,  # tick throttle in Hz
                 ]
-            ] = bus._subscribers[sub_key]
+            ] = bus.get_subs(sub_key)
 
             # NOTE: by default the broker backend doesn't append
             # it's own "name" into the fqsn schema (but maybe it
@@ -332,7 +330,7 @@ async def sample_and_broadcast(
             fqsn = f'{broker_symbol}.{brokername}'
             lags: int = 0
 
-            for (stream, ctx, tick_throttle) in subs:
+            for (stream, tick_throttle) in subs.copy():
                 try:
                     with trio.move_on_after(0.2) as cs:
                         if tick_throttle:
@@ -344,6 +342,7 @@ async def sample_and_broadcast(
                                 )
                             except trio.WouldBlock:
                                 overruns[sub_key] += 1
+                                ctx = stream._ctx
                                 chan = ctx.chan
 
                                 log.warning(
@@ -399,9 +398,9 @@ async def sample_and_broadcast(
                     # so far seems like no since this should all
                     # be single-threaded. Doing it anyway though
                     # since there seems to be some kinda race..
-                    bus.remove_sub(
+                    bus.remove_subs(
                         sub_key,
-                        (stream, ctx, tick_throttle),
+                        {(stream, tick_throttle)},
                     )
 
 
