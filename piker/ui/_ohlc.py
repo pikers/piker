@@ -99,7 +99,7 @@ class BarItems(pg.GraphicsObject):
         linked: LinkedSplits,
         plotitem: 'pg.PlotItem',  # noqa
         color: str = 'bracket',
-        last_bar_color: str = 'bracket',
+        last_bar_color: str = 'original',
 
         name: Optional[str] = None,
 
