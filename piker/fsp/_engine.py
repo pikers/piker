@@ -36,6 +36,7 @@ from .. import data
 from ..data import attach_shm_array
 from ..data.feed import (
     Flume,
+    Feed,
 )
 from ..data._sharedmem import ShmArray
 from ..data._sampling import _default_delay_s
@@ -302,6 +303,7 @@ async def cascade(
         raise ValueError(f'Unknown fsp target: {ns_path}')
 
     # open a data feed stream with requested broker
+    feed: Feed
     async with data.feed.maybe_open_feed(
         [fqsn],
 
