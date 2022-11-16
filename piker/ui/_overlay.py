@@ -92,11 +92,11 @@ class ComposedGridLayout:
     '''
     def __init__(
         self,
-        item: PlotItem,
+        pi: PlotItem,
 
     ) -> None:
 
-        self.items: list[PlotItem] = []
+        self.pitems: list[PlotItem] = []
         self._pi2axes: dict[  # TODO: use a ``bidict`` here?
             int,
             dict[str, AxisItem],
@@ -125,7 +125,7 @@ class ComposedGridLayout:
 
             layout.setOrientation(orient)
 
-        self.insert_plotitem(0, item)
+        self.insert_plotitem(0, pi)
 
         # insert surrounding linear layouts into the parent pi's layout
         # such that additional axes can be appended arbitrarily without
@@ -135,13 +135,14 @@ class ComposedGridLayout:
             # TODO: do we need this?
             # axis should have been removed during insert above
             index = _axes_layout_indices[name]
-            axis = item.layout.itemAt(*index)
+            axis = pi.layout.itemAt(*index)
             if axis and axis.isVisible():
                 assert linlayout.itemAt(0) is axis
 
-            # item.layout.removeItem(axis)
-            item.layout.addItem(linlayout, *index)
-            layout = item.layout.itemAt(*index)
+            # XXX: see comment in ``.insert_plotitem()``...
+            # pi.layout.removeItem(axis)
+            pi.layout.addItem(linlayout, *index)
+            layout = pi.layout.itemAt(*index)
             assert layout is linlayout
 
     def _register_item(
@@ -157,14 +158,14 @@ class ComposedGridLayout:
             self._pi2axes.setdefault(name, {})[index] = axis
 
         # enter plot into list for index tracking
-        self.items.insert(index, plotitem)
+        self.pitems.insert(index, plotitem)
 
     def insert_plotitem(
         self,
         index: int,
         plotitem: PlotItem,
 
-    ) -> (int, int):
+    ) -> tuple[int, list[AxisItem]]:
         '''
         Place item at index by inserting all axes into the grid
         at list-order appropriate position.
@@ -175,11 +176,14 @@ class ComposedGridLayout:
                 '`.insert_plotitem()` only supports an index >= 0'
             )
 
+        inserted_axes: list[AxisItem] = []
+
         # add plot's axes in sequence to the embedded linear layouts
         # for each "side" thus avoiding graphics collisions.
         for name, axis_info in plotitem.axes.copy().items():
             linlayout, axes = self.sides[name]
             axis = axis_info['item']
+            inserted_axes.append(axis)
 
             if axis in axes:
                 # TODO: re-order using ``.pop()`` ?
@@ -192,19 +196,20 @@ class ComposedGridLayout:
             if (
                 not axis.isVisible()
 
-                # XXX: we never skip moving the axes for the *first*
+                # XXX: we never skip moving the axes for the *root*
                 # plotitem inserted (even if not shown) since we need to
                 # move all the hidden axes into linear sub-layouts for
                 # that "central" plot in the overlay. Also if we don't
                 # do it there's weird geomoetry calc offsets that make
                 # view coords slightly off somehow .. smh
-                and not len(self.items) == 0
+                and not len(self.pitems) == 0
             ):
                 continue
 
-            # XXX: Remove old axis? No, turns out we don't need this?
-            # DON'T unlink it since we the original ``ViewBox``
-            # to still drive it B)
+            # XXX: Remove old axis?
+            # No, turns out we don't need this?
+            # DON'T UNLINK IT since we need the original ``ViewBox`` to
+            # still drive it with events/handlers B)
             # popped = plotitem.removeAxis(name, unlink=False)
             # assert axis is popped
 
@@ -220,7 +225,7 @@ class ComposedGridLayout:
 
         self._register_item(index, plotitem)
 
-        return index
+        return (index, inserted_axes)
 
     def append_plotitem(
         self,
@@ -234,7 +239,7 @@ class ComposedGridLayout:
         '''
         # for left and bottom axes we have to first remove
         # items and re-insert to maintain a list-order.
-        return self.insert_plotitem(len(self.items), item)
+        return self.insert_plotitem(len(self.pitems), item)
 
     def get_axis(
         self,
@@ -247,7 +252,7 @@ class ComposedGridLayout:
         if axis for that name is not shown.
 
         '''
-        index = self.items.index(plot)
+        index = self.pitems.index(plot)
         named = self._pi2axes[name]
         return named.get(index)
 
@@ -306,9 +311,12 @@ class PlotItemOverlay:
         # events/signals.
         root_plotitem.vb.setZValue(10)
 
-        self.overlays: list[PlotItem] = []
         self.layout = ComposedGridLayout(root_plotitem)
         self._relays: dict[str, Signal] = {}
+
+    @property
+    def overlays(self) -> list[PlotItem]:
+        return self.layout.pitems
 
     def add_plotitem(
         self,
@@ -324,11 +332,9 @@ class PlotItemOverlay:
         # (0, 1),  # link both
         link_axes: tuple[int] = (),
 
-    ) -> None:
+    ) -> tuple[int, list[AxisItem]]:
 
-        index = index or len(self.overlays)
         root = self.root_plotitem
-        self.overlays.insert(index, plotitem)
         vb: ViewBox = plotitem.vb
 
         # TODO: some sane way to allow menu event broadcast XD
@@ -476,7 +482,10 @@ class PlotItemOverlay:
         # ``PlotItem`` dynamically.
 
         # append-compose into the layout all axes from this plot
-        self.layout.insert_plotitem(index, plotitem)
+        if index is None:
+            insert_index, axes = self.layout.append_plotitem(plotitem)
+        else:
+            insert_index, axes = self.layout.insert_plotitem(index, plotitem)
 
         plotitem.setGeometry(root.vb.sceneBoundingRect())
 
@@ -495,6 +504,11 @@ class PlotItemOverlay:
         assert root.vb.focusWidget()
 
         vb.setZValue(100)
+
+        return (
+            index,
+            axes,
+        )
 
     def get_axis(
         self,
