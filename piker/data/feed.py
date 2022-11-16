@@ -990,7 +990,7 @@ async def allocate_persistent_feed(
     #   a small streaming machine around the remote feed which can then
     #   do the normal work of sampling and writing shm buffers
     #   (depending on if we want sampling done on the far end or not?)
-    msg = init_msg[symstr.lower()]
+    msg = init_msg[symstr]
 
     # the broker-specific fully qualified symbol name,
     # but ensure it is lower-cased for external use.
