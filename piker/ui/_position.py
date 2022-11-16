@@ -41,7 +41,11 @@ from ._anchors import (
     pp_tight_and_right,  # wanna keep it straight in the long run
     gpath_pin,
 )
-from ..calc import humanize, pnl, puterize
+from ..calc import (
+    humanize,
+    pnl,
+    puterize,
+)
 from ..clearing._allocate import Allocator
 from ..pp import Position
 from ..data._normalize import iterticks
@@ -105,6 +109,7 @@ async def update_pnl_from_feed(
                 # period = now - last_tick
 
                 for sym, quote in quotes.items():
+                    # print(f'{key} PnL: sym:{sym}')
 
                     # TODO: uggggh we probably want a better state
                     # management then this sincce we want to enable
@@ -112,6 +117,10 @@ async def update_pnl_from_feed(
                     # real-time right?
                     if sym != key:
                         continue
+
+                    # watch out for wrong quote msg-data if you muck
+                    # with backend feed subs code..
+                    # assert sym == quote['fqsn']
 
                     for tick in iterticks(quote, types):
                         # print(f'{1/period} Hz')
@@ -125,14 +134,17 @@ async def update_pnl_from_feed(
 
                         else:
                             # compute and display pnl status
-                            # print(f'formatting PNL {sym}: {quote}')
-                            order_mode.pane.pnl_label.format(
-                                pnl=copysign(1, size) * pnl(
-                                    # live.ppu,
-                                    order_mode.current_pp.live_pp.ppu,
-                                    tick['price'],
-                                ),
-                            )
+                            pnl_val = (
+                                 copysign(1, size)
+                                 *
+                                 pnl(
+                                     # live.ppu,
+                                     order_mode.current_pp.live_pp.ppu,
+                                     tick['price'],
+                                 )
+                             )
+                            # print(f'formatting PNL {sym} => {pnl_val}')
+                            order_mode.pane.pnl_label.format(pnl=pnl_val)
 
                         # last_tick = time.time()
     finally:
