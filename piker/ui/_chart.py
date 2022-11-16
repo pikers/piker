@@ -1224,7 +1224,6 @@ class ChartPlotWidget(pg.PlotWidget):
             graphics = BarItems(
                 linked=self.linked,
                 plotitem=pi,
-                # pen_color=self.pen_color,
                 color=color,
                 name=name,
                 **graphics_kwargs,

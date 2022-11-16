@@ -240,11 +240,11 @@ def hcolor(name: str) -> str:
         'gunmetal': '#91A3B0',
         'battleship': '#848482',
 
+        # default ohlc-bars/curve gray
+        'bracket': '#666666',  # like the logo
+
         # bluish
         'charcoal': '#36454F',
-
-        # default bars
-        'bracket': '#666666',  # like the logo
 
         # work well for filled polygons which want a 'bracket' feel
         # going light to dark
