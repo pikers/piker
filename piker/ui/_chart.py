@@ -896,7 +896,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # registry of overlay curve names
         self._flows: dict[str, Flow] = {}
 
-        self._feeds: dict[Symbol, Feed] = {}
+        self.feed: Feed | None = None
 
         self._labels = {}  # registry of underlying graphics
         self._ysticks = {}  # registry of underlying graphics
@@ -917,20 +917,18 @@ class ChartPlotWidget(pg.PlotWidget):
         self._on_screen: bool = False
 
     def resume_all_feeds(self):
-        ...
-        # try:
-        #     for feed in self._feeds.values():
-        #         for flume in feed.flumes.values():
-        #             self.linked.godwidget._root_n.start_soon(flume.resume)
-        # except RuntimeError:
-        #     # TODO: cancel the qtractor runtime here?
-        #     raise
+        feed = self.feed
+        if feed:
+            try:
+                self.linked.godwidget._root_n.start_soon(feed.resume)
+            except RuntimeError:
+                # TODO: cancel the qtractor runtime here?
+                raise
 
     def pause_all_feeds(self):
-        ...
-        # for feed in self._feeds.values():
-        #     for flume in feed.flumes.values():
-        #         self.linked.godwidget._root_n.start_soon(flume.pause)
+        feed = self.feed
+        if feed:
+            self.linked.godwidget._root_n.start_soon(feed.pause)
 
     @property
     def view(self) -> ChartView:
