@@ -22,6 +22,7 @@ graphics update methods via our custom ``pyqtgraph`` charting api.
 
 '''
 from functools import partial
+import itertools
 import time
 from typing import Optional, Any, Callable
 
@@ -73,7 +74,7 @@ from .._profile import Profiler
 log = get_logger(__name__)
 
 # TODO: load this from a config.toml!
-_quote_throttle_rate: int = 16  # Hz
+_quote_throttle_rate: int = round(60 * 6/16) # Hz
 
 
 # a working tick-type-classes template
@@ -93,7 +94,7 @@ def chart_maxmin(
     chart: ChartPlotWidget,
     fqsn: str,
     # ohlcv_shm: ShmArray,
-    vlm_chart: Optional[ChartPlotWidget] = None,
+    vlm_chart: ChartPlotWidget | None = None,
 
 ) -> tuple[
 
@@ -487,16 +488,16 @@ async def graphics_update_loop(
                     fast_chart.linked.isHidden()
                     or not rt_pi.isVisible()
                 ):
-                    print(f'{fqsn} skipping update -> CHART HIDDEN')
+                    print(f'{fqsn} skipping update for HIDDEN CHART')
+                    fast_chart.pause_all_feeds()
                     continue
-                # if fast_chart.linked.isHidden():
-                #     fast_chart.pause_all_feeds()
 
-                # ic = fast_chart.view._ic
-                # if ic:
-                #     fast_chart.pause_all_feeds()
-                #     await ic.wait()
-                #     fast_chart.resume_all_feeds()
+                ic = fast_chart.view._ic
+                if ic:
+                    fast_chart.pause_all_feeds()
+                    print(f'{fqsn} PAUSING DURING INTERACTION')
+                    await ic.wait()
+                    fast_chart.resume_all_feeds()
 
                 # sync call to update all graphics/UX components.
                 graphics_update_cycle(
@@ -837,6 +838,9 @@ def graphics_update_cycle(
     # volume chart logic..
     # TODO: can we unify this with the above loop?
     if vlm_chart:
+        # print(f"DOING VLM {fqsn}")
+        vlm_flows = vlm_chart._flows
+
         # always update y-label
         ds.vlm_sticky.update_from_data(
             *array[-1][['index', 'volume']]
@@ -879,49 +883,49 @@ def graphics_update_cycle(
                 # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
                 vars['last_mx_vlm'] = mx_vlm_in_view
 
-    # update all downstream FSPs
-    for curve_name, flow in vlm_chart._flows.items():
+        # update all downstream FSPs
+        for curve_name, flow in vlm_flows.items():
 
-        if (
-            curve_name not in {'volume', fqsn}
-            and flow.render
-            and (
-                liv and do_rt_update
-                or do_append
-            )
-            # and not flow.is_ohlc
-            # and curve_name != fqsn
-        ):
-            update_fsp_chart(
-                vlm_chart,
-                flow,
-                curve_name,
-                array_key=curve_name,
-                # do_append=uppx < update_uppx,
-                do_append=do_append,
-            )
-            # is this even doing anything?
-            # (pretty sure it's the real-time
-            # resizing from last quote?)
-            fvb = flow.plot.vb
-            fvb._set_yrange(
-                name=curve_name,
-            )
+            if (
+                curve_name not in {'volume', fqsn}
+                and flow.render
+                and (
+                    liv and do_rt_update
+                    or do_append
+                )
+                # and not flow.is_ohlc
+                # and curve_name != fqsn
+            ):
+                update_fsp_chart(
+                    vlm_chart,
+                    flow,
+                    curve_name,
+                    array_key=curve_name,
+                    # do_append=uppx < update_uppx,
+                    do_append=do_append,
+                )
+                # is this even doing anything?
+                # (pretty sure it's the real-time
+                # resizing from last quote?)
+                fvb = flow.plot.vb
+                fvb._set_yrange(
+                    name=curve_name,
+                )
 
-        elif (
-            curve_name != 'volume'
-            and not do_append
-            and liv
-            and uppx >= 1
-            # even if we're downsampled bigly
-            # draw the last datum in the final
-            # px column to give the user the mx/mn
-            # range of that set.
-        ):
-            # always update the last datum-element
-            # graphic for all flows
-            # print(f'drawing last {flow.name}')
-            flow.draw_last(array_key=curve_name)
+            elif (
+                curve_name != 'volume'
+                and not do_append
+                and liv
+                and uppx >= 1
+                # even if we're downsampled bigly
+                # draw the last datum in the final
+                # px column to give the user the mx/mn
+                # range of that set.
+            ):
+                # always update the last datum-element
+                # graphic for all flows
+                # print(f'drawing last {flow.name}')
+                flow.draw_last(array_key=curve_name)
 
 
 async def link_views_with_region(
@@ -1124,7 +1128,8 @@ async def display_symbol_data(
 
         # limit to at least display's FPS
         # avoiding needless Qt-in-guest-mode context switches
-        tick_throttle=_quote_throttle_rate,
+        tick_throttle=round(_quote_throttle_rate/len(fqsns)),
+        # tick_throttle=round(_quote_throttle_rate),
 
     ) as feed:
 
@@ -1155,34 +1160,122 @@ async def display_symbol_data(
 
         rt_chart: None | ChartPlotWidget = None
         hist_chart: None | ChartPlotWidget = None
+        vlm_chart: None | ChartPlotWidget = None
 
-        bg_chart_color = 'grayest'
-        bg_last_bar_color = 'grayer'
+        # TODO: I think some palette's based on asset group types
+        # would be good, for eg:
+        # - underlying and opts contracts
+        # - index and underlyings + futures
+        # - gradient in "lightness" based on liquidity, or lifetime in derivs?
+        palette = itertools.cycle([
+            # curve color, last bar curve color
+            ['i3', 'gray'],
+            ['grayer', 'bracket'],
+            ['grayest', 'i3'],
+            ['default_dark', 'default'],
+        ])
 
         pis: dict[str, list[pgo.PlotItem, pgo.PlotItem]] = {}
 
         # load in ohlc data to a common linked but split chart set.
-        for fqsn, flume in feed.flumes.items():
-            rt_linked._symbol = flume.symbol
-            hist_linked._symbol = flume.symbol
+        fitems: list[
+            tuple[str, Flume]
+        ] = list(feed.flumes.items())
 
-            ohlcv: ShmArray = flume.rt_shm
-            hist_ohlcv: ShmArray = flume.hist_shm
+        # for the "first"/selected symbol we create new chart widgets
+        # and sub-charts for FSPs
+        fqsn, flume = fitems[0]
 
-            symbol = flume.symbol
-            fqsn = symbol.fqsn
+        rt_linked._symbol = flume.symbol
+        hist_linked._symbol = flume.symbol
 
-            if hist_chart is None:
-                hist_chart = hist_linked.plot_ohlc_main(
-                    symbol,
-                    hist_ohlcv,
-                    # in the case of history chart we explicitly set `False`
-                    # to avoid internal pane creation.
-                    # sidepane=False,
-                    sidepane=godwidget.search,
+        ohlcv: ShmArray = flume.rt_shm
+        hist_ohlcv: ShmArray = flume.hist_shm
+
+        symbol = flume.symbol
+        brokername = symbol.brokers[0]
+        fqsn = symbol.fqsn
+
+        hist_chart = hist_linked.plot_ohlc_main(
+            symbol,
+            hist_ohlcv,
+            # in the case of history chart we explicitly set `False`
+            # to avoid internal pane creation.
+            # sidepane=False,
+            sidepane=godwidget.search,
+        )
+        pis.setdefault(fqsn, [None, None])[1] = hist_chart.plotItem
+
+        # don't show when not focussed
+        hist_linked.cursor.always_show_xlabel = False
+
+        rt_chart = rt_linked.plot_ohlc_main(
+            symbol,
+            ohlcv,
+            # in the case of history chart we explicitly set `False`
+            # to avoid internal pane creation.
+            sidepane=pp_pane,
+        )
+        pis.setdefault(fqsn, [None, None])[0] = rt_chart.plotItem
+
+        # for pause/resume on mouse interaction
+        rt_chart.feed = feed
+
+        async with trio.open_nursery() as ln:
+            # if available load volume related built-in display(s)
+            vlm_charts: dict[
+                str,
+                None | ChartPlotWidget
+            ] = {}.fromkeys(feed.flumes)
+            if (
+                not symbol.broker_info[brokername].get('no_vlm', False)
+                and has_vlm(ohlcv)
+                and vlm_chart is None
+            ):
+                vlm_charts[fqsn] = await ln.start(
+                    open_vlm_displays,
+                    rt_linked,
+                    flume,
                 )
-                pis.setdefault(fqsn, [None, None])[1] = hist_chart.plotItem
-            else:
+
+            # load (user's) FSP set (otherwise known as "indicators")
+            # from an input config.
+            ln.start_soon(
+                start_fsp_displays,
+                rt_linked,
+                flume,
+                loading_sym_key,
+                loglevel,
+            )
+
+            # XXX: FOR SOME REASON THIS IS CAUSING HANGZ!?!
+            # plot historical vwap if available
+            wap_in_history = False
+            # if (
+            #     brokermod._show_wap_in_history
+            #     and 'bar_wap' in bars.dtype.fields
+            # ):
+            #     wap_in_history = True
+            #     rt_chart.draw_curve(
+            #         name='bar_wap',
+            #         shm=ohlcv,
+            #         color='default_light',
+            #         add_label=False,
+            #     )
+
+            for fqsn, flume in fitems[1:]:
+                # get a new color from the palette
+                bg_chart_color, bg_last_bar_color = next(palette)
+
+                rt_linked._symbol = flume.symbol
+                hist_linked._symbol = flume.symbol
+
+                ohlcv: ShmArray = flume.rt_shm
+                hist_ohlcv: ShmArray = flume.hist_shm
+
+                symbol = flume.symbol
+                fqsn = symbol.fqsn
+
                 hist_pi = hist_chart.overlay_plotitem(
                     name=fqsn,
                     axis_title=fqsn,
@@ -1212,29 +1305,8 @@ async def display_symbol_data(
                 # ``.draw_curve()``.
                 flow = hist_chart._flows[fqsn]
                 assert flow.plot is hist_pi
-
-                # group_mxmn = partial(
-                #     multi_maxmin,
-                #     names=fqsns,
-                #     chart=hist_chart,
-                # )
-                # hist_pi.vb._maxmin = group_mxmn
                 pis.setdefault(fqsn, [None, None])[1] = hist_pi
 
-            # don't show when not focussed
-            hist_linked.cursor.always_show_xlabel = False
-
-            # create main OHLC chart
-            if rt_chart is None:
-                rt_chart = rt_linked.plot_ohlc_main(
-                    symbol,
-                    ohlcv,
-                    # in the case of history chart we explicitly set `False`
-                    # to avoid internal pane creation.
-                    sidepane=pp_pane,
-                )
-                pis.setdefault(fqsn, [None, None])[0] = rt_chart.plotItem
-            else:
                 rt_pi = rt_chart.overlay_plotitem(
                     name=fqsn,
                     axis_title=fqsn,
@@ -1258,8 +1330,6 @@ async def display_symbol_data(
                     rt_chart.maxmin,
                     name=fqsn,
                 )
-                #     multi_maxmin,
-                #     names=fqsn
 
                 # TODO: we need a better API to do this..
                 # specially store ref to shm for lookup in display loop
@@ -1267,76 +1337,25 @@ async def display_symbol_data(
                 # ``.draw_curve()``.
                 flow = rt_chart._flows[fqsn]
                 assert flow.plot is rt_pi
-
-                # group_mxmn = partial(
-                #     multi_maxmin,
-                #     names=fqsns,
-                #     chart=rt_chart,
-                # )
-                # rt_pi.vb._maxmin = group_mxmn
                 pis.setdefault(fqsn, [None, None])[0] = rt_pi
 
-            rt_chart._feeds[symbol.key] = feed
             rt_chart.setFocus()
 
-            # XXX: FOR SOME REASON THIS IS CAUSING HANGZ!?!
-            # plot historical vwap if available
-            wap_in_history = False
-            # if (
-            #     brokermod._show_wap_in_history
-            #     and 'bar_wap' in bars.dtype.fields
-            # ):
-            #     wap_in_history = True
-            #     rt_chart.draw_curve(
-            #         name='bar_wap',
-            #         shm=ohlcv,
-            #         color='default_light',
-            #         add_label=False,
-            #     )
+            # NOTE: we must immediately tell Qt to show the OHLC chart
+            # to avoid a race where the subplots get added/shown to
+            # the linked set *before* the main price chart!
+            rt_linked.show()
+            rt_linked.focus()
+            await trio.sleep(0)
 
-        # NOTE: we must immediately tell Qt to show the OHLC chart
-        # to avoid a race where the subplots get added/shown to
-        # the linked set *before* the main price chart!
-        rt_linked.show()
-        rt_linked.focus()
-        await trio.sleep(0)
+            # XXX: if we wanted it at the bottom?
+            # rt_linked.splitter.addWidget(hist_linked)
+            rt_linked.focus()
 
-        # XXX: if we wanted it at the bottom?
-        # rt_linked.splitter.addWidget(hist_linked)
-        rt_linked.focus()
+            godwidget.resize_all()
 
-        godwidget.resize_all()
-
-        vlms: dict[str, ChartPlotWidget] = {}
-        async with trio.open_nursery() as ln:
+            # add all additional symbols as overlays
             for fqsn, flume in feed.flumes.items():
-
-                vlm_chart: Optional[ChartPlotWidget] = None
-                ohlcv: ShmArray = flume.rt_shm
-                hist_ohlcv: ShmArray = flume.hist_shm
-
-                symbol = flume.symbol
-                brokername = symbol.brokers[0]
-                # if available load volume related built-in display(s)
-                if (
-                    not symbol.broker_info[brokername].get('no_vlm', False)
-                    and has_vlm(ohlcv)
-                ):
-                    vlms[fqsn] = vlm_chart = await ln.start(
-                        open_vlm_displays,
-                        rt_linked,
-                        flume,
-                    )
-
-                # load (user's) FSP set (otherwise known as "indicators")
-                # from an input config.
-                ln.start_soon(
-                    start_fsp_displays,
-                    rt_linked,
-                    flume,
-                    loading_sym_key,
-                    loglevel,
-                )
 
                 # size view to data prior to order mode init
                 rt_chart.default_view()
@@ -1352,9 +1371,9 @@ async def display_symbol_data(
 
                 godwidget.resize_all()
 
-                if not vlm_chart:
-                    # trigger another view reset if no sub-chart
-                    rt_chart.default_view()
+                # trigger another view reset if no sub-chart
+                hist_chart.default_view()
+                rt_chart.default_view()
 
                 # let Qt run to render all widgets and make sure the
                 # sidepanes line up vertically.
@@ -1376,6 +1395,7 @@ async def display_symbol_data(
                 # sbar._status_groups[loading_sym_key][1]()
 
                 hist_linked.graphics_cycle()
+                rt_chart.default_view()
                 await trio.sleep(0)
 
                 bars_in_mem = int(len(hist_ohlcv.array))
@@ -1400,9 +1420,10 @@ async def display_symbol_data(
                 feed,
                 pis,
                 wap_in_history,
-                vlms,
+                vlm_charts,
             )
 
+            rt_chart.default_view()
             await trio.sleep(0)
 
             mode: OrderMode
@@ -1416,5 +1437,6 @@ async def display_symbol_data(
             ):
                 rt_linked.mode = mode
 
-                # let the app run.. bby
-                await trio.sleep_forever()
+                rt_chart.default_view()
+                hist_chart.default_view()
+                await trio.sleep_forever()  # let the app run.. bby
