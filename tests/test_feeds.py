@@ -96,7 +96,7 @@ def test_multi_fqsn_feed(
                             assert quote['last'] == flume.first_quote['last']
 
                 cntr = Counter()
-                with trio.fail_after(3):
+                with trio.fail_after(5):
                     async for quotes in stream:
                         for fqsn, quote in quotes.items():
                             cntr[fqsn] += 1
