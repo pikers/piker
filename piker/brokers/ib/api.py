@@ -1031,7 +1031,7 @@ def con2fqsn(
         case ibis.Forex() | ibis.Contract(secType='CASH'):
             dst, src = con.localSymbol.split('.')
             symbol = ''.join([dst, src])
-            suffix = con.exchange
+            suffix = con.exchange or 'idealpro'
 
             # no real volume on forex feeds..
             calc_price = True
@@ -1053,7 +1053,10 @@ def con2fqsn(
     if expiry:
         suffix += f'.{expiry}'
 
-    fqsn_key = '.'.join((symbol, suffix)).lower()
+    fqsn_key = symbol.lower()
+    if suffix:
+        fqsn_key = '.'.join((fqsn_key, suffix)).lower()
+
     _cache[con.conId] = fqsn_key, calc_price
     return fqsn_key, calc_price
 
