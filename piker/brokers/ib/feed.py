@@ -130,7 +130,12 @@ async def open_history_client(
         mean: float = 0
         count: int = 0
 
-        head_dt = await proxy.get_head_time(fqsn=fqsn)
+        head_dt: None | datetime = None
+        if (
+            # fx cons seem to not provide this endpoint?
+            'idealpro' not in fqsn
+        ):
+            head_dt = await proxy.get_head_time(fqsn=fqsn)
 
         async def get_hist(
             timeframe: float,
@@ -170,7 +175,9 @@ async def open_history_client(
                 )
 
             if (
-                end_dt and end_dt <= head_dt
+                end_dt
+                and head_dt
+                and end_dt <= head_dt
             ):
                 raise DataUnavailable(f'First timestamp is {head_dt}')
 
@@ -895,7 +902,9 @@ async def stream_quotes(
                         # last = time.time()
                         async for ticker in stream:
                             quote = normalize(ticker)
-                            await send_chan.send({quote['fqsn']: quote})
+                            fqsn = quote['fqsn']
+                            # print(f'sending {fqsn}:\n{quote}')
+                            await send_chan.send({fqsn: quote})
 
                             # ugh, clear ticks since we've consumed them
                             ticker.ticks = []
