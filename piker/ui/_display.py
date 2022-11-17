@@ -23,6 +23,7 @@ graphics update methods via our custom ``pyqtgraph`` charting api.
 '''
 from functools import partial
 import itertools
+from math import floor
 import time
 from typing import Optional, Any, Callable
 
@@ -60,6 +61,7 @@ from ._forms import (
 )
 from . import _pg_overrides as pgo
 # from ..data._source import tf_in_1s
+from ..data._sampling import _tick_groups
 from .order_mode import (
     open_order_mode,
     OrderMode,
@@ -72,17 +74,6 @@ from ..log import get_logger
 from .._profile import Profiler
 
 log = get_logger(__name__)
-
-# TODO: load this from a config.toml!
-_quote_throttle_rate: int = round(60 * 6/16) # Hz
-
-
-# a working tick-type-classes template
-_tick_groups = {
-    'clears': {'trade', 'utrade', 'last'},
-    'bids': {'bid', 'bsize'},
-    'asks': {'ask', 'asize'},
-}
 
 
 # TODO: delegate this to each `Flow.maxmin()` which includes
@@ -580,7 +571,6 @@ def graphics_update_cycle(
 
         profiler('view incremented')
 
-    ticks_frame = quote.get('ticks', ())
     # frames_by_type: dict[str, dict] = {}
     # lasts = {}
 
@@ -616,33 +606,6 @@ def graphics_update_cycle(
         log.debug('Skipping prepend graphics cycle: frame not in view')
         return
 
-    # for tick in ticks_frame:
-    #     price = tick.get('price')
-    #     ticktype = tick.get('type')
-
-    #     # if ticktype == 'n/a' or price == -1:
-    #     #     # okkk..
-    #     #     continue
-
-    #     # keys are entered in olded-event-inserted-first order
-    #     # since we iterate ``ticks_frame`` in standard order
-    #     # above. in other words the order of the keys is the order
-    #     # of tick events by type from the provider feed.
-    #     frames_by_type.setdefault(ticktype, []).append(tick)
-
-    #     # overwrites so the last tick per type is the entry
-    #     lasts[ticktype] = tick
-
-    # from pprint import pformat
-    # frame_counts = {
-    #     typ: len(frame) for typ, frame in frames_by_type.items()
-    # }
-    # print(
-    #     f'{pformat(frame_counts)}\n'
-    #     f'framed: {pformat(frames_by_type)}\n'
-    #     f'lasts: {pformat(lasts)}\n'
-    # )
-
     # TODO: eventually we want to separate out the utrade (aka
     # dark vlm prices) here and show them as an additional
     # graphic.
@@ -677,9 +640,26 @@ def graphics_update_cycle(
     # to it's max/min on the last pixel.
     typs: set[str] = set()
 
+    # from pprint import pformat
+    # frame_counts = {
+    #     typ: len(frame) for typ, frame in frames_by_type.items()
+    # }
+    # print(
+    #     f'{pformat(frame_counts)}\n'
+    #     f'framed: {pformat(frames_by_type)}\n'
+    #     f'lasts: {pformat(lasts)}\n'
+    # )
     # for typ, tick in lasts.items():
-    for tick in ticks_frame:
-        typ = tick.get('type')
+    # ticks_frame = quote.get('ticks', ())
+    ticks_by_type = quote.get('tbt', {})
+
+    # for tick in ticks_frame:
+    for typ, ticks in ticks_by_type.items():
+
+        # NOTE: ticks are `.append()`-ed to the `ticks_by_type: dict` by the
+        # `._sampling.uniform_rate_send()` loop
+        tick = ticks[-1]
+        # typ = tick.get('type')
         price = tick.get('price')
         size = tick.get('size')
 
@@ -1089,6 +1069,9 @@ def multi_maxmin(
         return 0, mx
 
 
+_quote_throttle_rate: int = 60 - 6
+
+
 async def display_symbol_data(
     godwidget: GodWidget,
     fqsns: list[str],
@@ -1120,8 +1103,15 @@ async def display_symbol_data(
             group_key=True
         )
 
+    # TODO: ctl over update loop's maximum frequency.
+    # - load this from a config.toml!
+    # - allow dyanmic configuration from chart UI?
+    global _quote_throttle_rate
+    from ._window import main_window
+    display_rate = main_window().current_screen().refreshRate()
+    _quote_throttle_rate = floor(display_rate) - 6
+
     feed: Feed
-    # assert len(fqsns) == 2
     async with open_feed(
         fqsns,
         loglevel=loglevel,
@@ -1129,7 +1119,6 @@ async def display_symbol_data(
         # limit to at least display's FPS
         # avoiding needless Qt-in-guest-mode context switches
         tick_throttle=round(_quote_throttle_rate/len(fqsns)),
-        # tick_throttle=round(_quote_throttle_rate),
 
     ) as feed:
 
