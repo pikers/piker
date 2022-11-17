@@ -525,7 +525,7 @@ async def uniform_rate_send(
 
             # we have a quote already so send it now.
 
-        with trio.move_on_after(1/60) as cs:
+        with trio.move_on_after(throttle_period) as cs:
             while (
                 not set(ticks_by_type).intersection(clear_types)
             ):
