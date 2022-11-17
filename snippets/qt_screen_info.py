@@ -38,54 +38,41 @@ main_widget = QtWidgets.QWidget()
 window.setCentralWidget(main_widget)
 window.show()
 
+# TODO: move widget through multiple displays and auto-detect the pixel
+# ratio? (probably is gonna require calls to i3ipc on linux)..
 pxr = main_widget.devicePixelRatioF()
 
-# screen_num = app.desktop().screenNumber()
+# TODO: how to detect list of displays from API?
 # screen = app.screens()[screen_num]
 
+
+def ppscreeninfo(screen: 'QScreen') -> None:
+    # screen_num = app.desktop().screenNumber()
+    name = screen.name()
+    size = screen.size()
+    geo = screen.availableGeometry()
+    phydpi = screen.physicalDotsPerInch()
+    logdpi = screen.logicalDotsPerInch()
+    rr = screen.refreshRate()
+
+    print(
+        # f'screen number: {screen_num}\n',
+        f'screen: {name}\n'
+        f'  size: {size}\n'
+        f'  geometry: {geo}\n'
+        f'  logical dpi: {logdpi}\n'
+        f'  devicePixelRationF(): {pxr}\n'
+        f'  physical dpi: {phydpi}\n'
+        f'  refresh rate: {rr}\n'
+    )
+
+    print('-'*50 + '\n')
+
 screen = app.screenAt(main_widget.geometry().center())
-
-name = screen.name()
-size = screen.size()
-geo = screen.availableGeometry()
-phydpi = screen.physicalDotsPerInch()
-logdpi = screen.logicalDotsPerInch()
-rr = screen.refreshRate()
-
-print(
-    # f'screen number: {screen_num}\n',
-    f'screen: {name}\n'
-    f'  size: {size}\n'
-    f'  geometry: {geo}\n'
-    f'  logical dpi: {logdpi}\n'
-    f'  devicePixelRationF(): {pxr}\n'
-    f'  physical dpi: {phydpi}\n'
-    f'  refresh rate: {rr}\n'
-)
-
-print('-'*50 + '\n')
+ppscreeninfo(screen)
 
 screen = app.primaryScreen()
-
-name = screen.name()
-size = screen.size()
-geo = screen.availableGeometry()
-phydpi = screen.physicalDotsPerInch()
-logdpi = screen.logicalDotsPerInch()
-rr = screen.refreshRate()
-
-print(
-    # f'screen number: {screen_num}\n',
-    f'screen: {name}\n'
-    f'  size: {size}\n'
-    f'  geometry: {geo}\n'
-    f'  logical dpi: {logdpi}\n'
-    f'  devicePixelRationF(): {pxr}\n'
-    f'  physical dpi: {phydpi}\n'
-    f'  refresh rate: {rr}\n'
-)
-
-print('-'*50 + '\n')
+ppscreeninfo(screen)
 
 # app-wide font
 font = QtGui.QFont("Hack")
