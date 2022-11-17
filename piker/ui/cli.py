@@ -174,7 +174,7 @@ def chart(
 
 
     _main(
-        sym=symbols[0],
+        syms=symbols,
         brokernames=brokernames,
         piker_loglevel=pikerloglevel,
         tractor_kwargs={
