@@ -625,14 +625,14 @@ def graphics_update_cycle(
         chart.update_graphics_from_flow(
             fqsn,
             # chart.name,
-            do_append=do_append,
+            # do_append=do_append,
         )
         main_flow.draw_last(array_key=fqsn)
 
         hist_chart.update_graphics_from_flow(
             fqsn,
             # chart.name,
-            do_append=do_append,
+            # do_append=do_append,
         )
 
     # NOTE: we always update the "last" datum
@@ -882,7 +882,7 @@ def graphics_update_cycle(
                     curve_name,
                     array_key=curve_name,
                     # do_append=uppx < update_uppx,
-                    do_append=do_append,
+                    # do_append=do_append,
                 )
                 # is this even doing anything?
                 # (pretty sure it's the real-time
@@ -1118,7 +1118,10 @@ async def display_symbol_data(
 
         # limit to at least display's FPS
         # avoiding needless Qt-in-guest-mode context switches
-        tick_throttle=round(_quote_throttle_rate/len(fqsns)),
+        tick_throttle=min(
+            round(_quote_throttle_rate/len(fqsns)),
+            22,
+        ),
 
     ) as feed:
 
