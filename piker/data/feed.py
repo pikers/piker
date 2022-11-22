@@ -25,6 +25,7 @@ from collections import defaultdict
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
 from functools import partial
+import time
 from types import ModuleType
 from typing import (
     Any,
@@ -678,6 +679,10 @@ async def tsdb_backfill(
 
             tsdb_last_frame_start = tsdb_history['Epoch'][0]
 
+            if timeframe == 1:
+                times = shm.array['time']
+                assert (times[1] - times[0]) == 1
+
             # load as much from storage into shm possible (depends on
             # user's shm size settings).
             while (
@@ -1204,7 +1209,12 @@ async def allocate_persistent_feed(
         rt_shm.push(hist_shm.array[-3:-1])
         ohlckeys = ['open', 'high', 'low', 'close']
         rt_shm.array[ohlckeys][-2:] = hist_shm.array['close'][-1]
-        rt_shm.array['volume'][-2] = 0
+        rt_shm.array['volume'][-2:] = 0
+
+        # set fast buffer time step to 1s
+        ts = round(time.time())
+        rt_shm.array['time'][0] = ts
+        rt_shm.array['time'][1] = ts + 1
 
     # wait the spawning parent task to register its subscriber
     # send-stream entry before we start the sample loop.
