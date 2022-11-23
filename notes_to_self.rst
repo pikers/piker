@@ -13,11 +13,16 @@ cool chart features
 - auto-highlight current time range on tick feed
 
 
-features from IB charting
+IB Ideas
 -------------------------
 - vlm diffing from ticks and compare when bar arrives from historical
   - should help isolate dark vlm / trades
 
+IB TWS protips
+-------------------------
+- for realtime derivatives (calls/puts) charting, select midpoint and candlestick under chart 
+  parameters for a big performance boost when trying to load a multitude of different assets and charts.
+  
 
 chart ux ideas
 --------------
