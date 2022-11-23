@@ -25,8 +25,15 @@ from typing import (
 
 import numpy as np
 import pyqtgraph as pg
-from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtCore import QLineF, QPointF
+from PyQt5 import (
+    QtGui,
+    QtWidgets,
+)
+from PyQt5.QtCore import (
+    QLineF,
+    QRectF,
+)
+
 from PyQt5.QtGui import QPainterPath
 
 from .._profile import pg_profile_enabled, ms_slower_then
@@ -114,8 +121,13 @@ class BarItems(pg.GraphicsObject):
         # we expect the downsample curve report this.
         return 0
 
+    # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
     def boundingRect(self):
-        # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
+        profiler = Profiler(
+            msg=f'BarItems.boundingRect(): `{self._name}`',
+            disabled=not pg_profile_enabled(),
+            ms_threshold=ms_slower_then,
+        )
 
         # TODO: Can we do rect caching to make this faster
         # like `pg.PlotCurveItem` does? In theory it's just
@@ -135,32 +147,53 @@ class BarItems(pg.GraphicsObject):
             hb.topLeft(),
             hb.bottomRight(),
         )
+        mn_y = hb_tl.y()
+        mx_y = hb_br.y()
+        most_left = hb_tl.x()
+        most_right = hb_br.x()
+        profiler('calc path vertices')
 
         # need to include last bar height or BR will be off
-        mx_y = hb_br.y()
-        mn_y = hb_tl.y()
-
-        last_lines = self._last_bar_lines
+        # OHLC line segments: [hl, o, c]
+        last_lines: tuple[QLineF] | None = self._last_bar_lines
         if last_lines:
-            body_line = self._last_bar_lines[0]
-            if body_line:
-                mx_y = max(mx_y, max(body_line.y1(), body_line.y2()))
-                mn_y = min(mn_y, min(body_line.y1(), body_line.y2()))
+            (
+                hl,
+                o,
+                c,
+            ) = last_lines
+            most_right = c.x2() + 1
+            ymx = ymn = c.y2()
 
-        return QtCore.QRectF(
+            if hl:
+                y1, y2 = hl.y1(), hl.y2()
+                ymn = min(y1, y2)
+                ymx = max(y1, y2)
+                mx_y = max(ymx, mx_y)
+                mn_y = min(ymn, mn_y)
 
-            # top left
-            QPointF(
-                hb_tl.x(),
-                mn_y,
-            ),
+                profiler('calc last bar vertices')
+            # TODO: see if this br uniting works faster?
+            # last_bar_rect = QRectF(
+            #     o.x1(),
+            #     ymn,
+            #     c.x2() - o.x1() + 1,
+            #     ymx,
+            # )
+            # tot_br = hb.united(last_bar_rect)
+            # print(
+            #     f'last datum bar br: {last_bar_rect}\n'
+            #     f'path br: {hb}\n'
+            #     f'sum br: {tot_br}\n'
+            # )
+            # profiler('calc united rects')
+            # return tot_br
 
-            # bottom right
-            QPointF(
-                hb_br.x() + 1,
-                mx_y,
-            )
-
+        return QRectF(
+            most_left,
+            mn_y,
+            most_right - most_left + 1,
+            mx_y - mn_y,
         )
 
     def paint(
@@ -213,10 +246,14 @@ class BarItems(pg.GraphicsObject):
 
         # relevant fields
         ohlc = src_data[fields]
-        last_row = ohlc[-1:]
+        # last_row = ohlc[-1:]
 
         # individual values
         last_row = i, o, h, l, last = ohlc[-1]
+
+        # times = src_data['time']
+        # if times[-1] - times[-2]:
+        #     breakpoint()
 
         # generate new lines objects for updatable "current bar"
         self._last_bar_lines = bar_from_ohlc_row(last_row)
@@ -248,4 +285,5 @@ class BarItems(pg.GraphicsObject):
             # date / from some previous sample. It's weird though
             # because i've seen it do this to bars i - 3 back?
 
+        # return ohlc['time'], ohlc['close']
         return ohlc['index'], ohlc['close']
