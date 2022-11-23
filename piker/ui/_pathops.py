@@ -355,6 +355,25 @@ class IncrementalFormatter(msgspec.Struct):
             view_range,
         )
 
+        # app_tres = None
+        # if append_len:
+        #     appended = array[-append_len-1:slice_to_head]
+        #     app_tres = self.format_xy_nd_to_1d(
+        #         appended,
+        #         array_key,
+        #         (
+        #             view_range[1] - append_len + slice_to_head,
+        #             view_range[1]
+        #         ),
+        #     )
+        #     # assert (len(appended) - 1) == append_len
+        #     # assert len(appended) == append_len
+        #     print(
+        #         f'{self.flow.name} APPEND LEN: {append_len}\n'
+        #         f'{self.flow.name} APPENDED: {appended}\n'
+        #         f'{self.flow.name} app_tres: {app_tres}\n'
+        #     )
+
         # update the last "in view data range"
         if len(x_1d):
             self._last_ivdr = x_1d[0], x_1d[slice_to_head]
@@ -373,6 +392,7 @@ class IncrementalFormatter(msgspec.Struct):
             prepend_len,
             append_len,
             view_changed,
+            # app_tres,
         )
 
     ###############################
@@ -767,12 +787,12 @@ class StepCurveFmtr(IncrementalFormatter):
         np.ndarray,
         str,
     ]:
+        lasts = array[['index', array_key]]
+        last = lasts[array_key][-1]
+
         # 2 more datum-indexes to capture zero at end
         x_step = self.x_nd[self.xy_nd_start:self.xy_nd_stop+2]
         y_step = self.y_nd[self.xy_nd_start:self.xy_nd_stop+2]
-
-        lasts = array[['index', array_key]]
-        last = lasts[array_key][-1]
         y_step[-1] = last
 
         # slice out in-view data
