@@ -123,11 +123,11 @@ class BarItems(pg.GraphicsObject):
 
     # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
     def boundingRect(self):
-        profiler = Profiler(
-            msg=f'BarItems.boundingRect(): `{self._name}`',
-            disabled=not pg_profile_enabled(),
-            ms_threshold=ms_slower_then,
-        )
+        # profiler = Profiler(
+        #     msg=f'BarItems.boundingRect(): `{self._name}`',
+        #     disabled=not pg_profile_enabled(),
+        #     ms_threshold=ms_slower_then,
+        # )
 
         # TODO: Can we do rect caching to make this faster
         # like `pg.PlotCurveItem` does? In theory it's just
@@ -151,7 +151,7 @@ class BarItems(pg.GraphicsObject):
         mx_y = hb_br.y()
         most_left = hb_tl.x()
         most_right = hb_br.x()
-        profiler('calc path vertices')
+        # profiler('calc path vertices')
 
         # need to include last bar height or BR will be off
         # OHLC line segments: [hl, o, c]
@@ -171,23 +171,7 @@ class BarItems(pg.GraphicsObject):
                 ymx = max(y1, y2)
                 mx_y = max(ymx, mx_y)
                 mn_y = min(ymn, mn_y)
-
-                profiler('calc last bar vertices')
-            # TODO: see if this br uniting works faster?
-            # last_bar_rect = QRectF(
-            #     o.x1(),
-            #     ymn,
-            #     c.x2() - o.x1() + 1,
-            #     ymx,
-            # )
-            # tot_br = hb.united(last_bar_rect)
-            # print(
-            #     f'last datum bar br: {last_bar_rect}\n'
-            #     f'path br: {hb}\n'
-            #     f'sum br: {tot_br}\n'
-            # )
-            # profiler('calc united rects')
-            # return tot_br
+                # profiler('calc last bar vertices')
 
         return QRectF(
             most_left,

@@ -253,11 +253,11 @@ class Curve(pg.GraphicsObject):
         Post init ``.boundingRect()```.
 
         '''
-        profiler = Profiler(
-            msg=f'Curve.boundingRect(): `{self._name}`',
-            disabled=not pg_profile_enabled(),
-            ms_threshold=ms_slower_then,
-        )
+        # profiler = Profiler(
+        #     msg=f'Curve.boundingRect(): `{self._name}`',
+        #     disabled=not pg_profile_enabled(),
+        #     ms_threshold=ms_slower_then,
+        # )
         pr = self.path.controlPointRect()
         hb_tl, hb_br = (
             pr.topLeft(),
@@ -267,7 +267,7 @@ class Curve(pg.GraphicsObject):
         mx_y = hb_br.y()
         most_left = hb_tl.x()
         most_right = hb_br.x()
-        profiler('calc path vertices')
+        # profiler('calc path vertices')
 
         # TODO: if/when we get fast path appends working in the
         # `Renderer`, then we might need to actually use this..
@@ -298,23 +298,7 @@ class Curve(pg.GraphicsObject):
         ymx = max(y1, y2, mx_y)
         most_left = min(x1, x2, most_left)
         most_right = max(x1, x2, most_right)
-
-        profiler('calc last line vertices')
-        # ll_br = QRectF(
-        #     x1,
-        #     ymn,
-        #     # NOTE: a legacy snippet, not sure if it still applies?
-        #     # only on a plane line do we include
-        #     # and extra index step's worth of width
-        #     # since in the step case the end of the curve
-        #     # actually terminates earlier so we don't need
-        #     # this for the last step.
-        #     x2 - x1 + 1,
-        #     ymx,
-        # )
-        # br = br.united(ll_br)
-        # profiler('calc united rects')
-        # return br
+        # profiler('calc last line vertices')
 
         return QRectF(
             most_left,
@@ -339,7 +323,7 @@ class Curve(pg.GraphicsObject):
 
         sub_paint = self.sub_paint
         if sub_paint:
-            sub_paint(p, profiler)
+            sub_paint(p)
 
         p.setPen(self.last_step_pen)
         p.drawLine(self._last_line)
@@ -358,7 +342,6 @@ class Curve(pg.GraphicsObject):
 
         fp = self.fast_path
         if fp:
-            # print("DRAWING PATH")
             p.drawPath(fp)
             profiler('.drawPath(fast_path)')
 
@@ -470,13 +453,11 @@ class StepCurve(Curve):
     def sub_paint(
         self,
         p: QPainter,
-        profiler: Profiler,
 
     ) -> None:
         # p.drawLines(*tuple(filter(bool, self._last_step_lines)))
         # p.drawRect(self._last_step_rect)
         p.fillRect(self._last_step_rect, self._brush)
-        profiler('.fillRect()')
 
     # def sub_br(
     #     self,
