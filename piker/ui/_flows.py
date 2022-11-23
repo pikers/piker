@@ -565,26 +565,27 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
         # XXX: SUPER UGGGHHH... without this we get stale cache
         # graphics that don't update until you downsampler again..
-        if reset:
-            with graphics.reset_cache():
-                # assign output paths to graphicis obj
-                graphics.path = r.path
-                graphics.fast_path = r.fast_path
+        # reset = False
+        # if reset:
+        #     with graphics.reset_cache():
+        #         # assign output paths to graphicis obj
+        #         graphics.path = r.path
+        #         graphics.fast_path = r.fast_path
 
-                # XXX: we don't need this right?
-                # graphics.draw_last_datum(
-                #     path,
-                #     src_array,
-                #     data,
-                #     reset,
-                #     array_key,
-                # )
-                # graphics.update()
-                # profiler('.update()')
-        else:
-            # assign output paths to graphicis obj
-            graphics.path = r.path
-            graphics.fast_path = r.fast_path
+        #         # XXX: we don't need this right?
+        #         # graphics.draw_last_datum(
+        #         #     path,
+        #         #     src_array,
+        #         #     data,
+        #         #     reset,
+        #         #     array_key,
+        #         # )
+        #         # graphics.update()
+        #         # profiler('.update()')
+        # else:
+        # assign output paths to graphicis obj
+        graphics.path = r.path
+        graphics.fast_path = r.fast_path
 
         graphics.draw_last_datum(
             path,
@@ -810,6 +811,7 @@ class Renderer(msgspec.Struct):
             prepend_length,
             append_length,
             view_changed,
+            # append_tres,
 
         ) = fmt_out
 
@@ -817,8 +819,11 @@ class Renderer(msgspec.Struct):
         if (
             prepend_length > 0
             or new_sample_rate
-            or append_length > 0
             or view_changed
+
+            # NOTE: comment this to try and make "append paths"
+            # work below..
+            or append_length > 0
         ):
             should_redraw = True
 
@@ -869,7 +874,6 @@ class Renderer(msgspec.Struct):
         # TODO: get this piecewise prepend working - right now it's
         # giving heck on vwap...
         # elif prepend_length:
-        #     breakpoint()
 
         #     prepend_path = pg.functions.arrayToQPath(
         #         x[0:prepend_length],
@@ -886,18 +890,22 @@ class Renderer(msgspec.Struct):
         elif (
             append_length > 0
             and do_append
-            and not should_redraw
         ):
             print(f'{array_key} append len: {append_length}')
-            new_x = x_1d[-append_length - 2:]  # slice_to_head]
-            new_y = y_1d[-append_length - 2:]  # slice_to_head]
+            # new_x = x_1d[-append_length - 2:]  # slice_to_head]
+            # new_y = y_1d[-append_length - 2:]  # slice_to_head]
             profiler('sliced append path')
+            # (
+            #     x_1d,
+            #     y_1d,
+            #     connect,
+            # ) = append_tres
 
             profiler(
                 f'diffed array input, append_length={append_length}'
             )
 
-            # if should_ds:
+            # if should_ds and uppx > 1:
             #     new_x, new_y = xy_downsample(
             #         new_x,
             #         new_y,
@@ -906,15 +914,15 @@ class Renderer(msgspec.Struct):
             #     profiler(f'fast path downsample redraw={should_ds}')
 
             append_path = self.draw_path(
-                x=new_x,
-                y=new_y,
+                x=x_1d,
+                y=y_1d,
                 connect=connect,
                 path=fast_path,
             )
             profiler('generated append qpath')
 
             if use_fpath:
-                print(f'{self.flow.name}: FAST PATH')
+                # print(f'{self.flow.name}: FAST PATH')
                 # an attempt at trying to make append-updates faster..
                 if fast_path is None:
                     fast_path = append_path
@@ -924,7 +932,12 @@ class Renderer(msgspec.Struct):
                     size = fast_path.capacity()
                     profiler(f'connected fast path w size: {size}')
 
-                    # print(f"append_path br: {append_path.boundingRect()}")
+                    print(
+                        f"append_path br: {append_path.boundingRect()}\n"
+                        f"path size: {size}\n"
+                        f"append_path len: {append_path.length()}\n"
+                        f"fast_path len: {fast_path.length()}\n"
+                    )
                     # graphics.path.moveTo(new_x[0], new_y[0])
                     # path.connectPath(append_path)
 
