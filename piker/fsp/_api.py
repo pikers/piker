@@ -199,7 +199,10 @@ def maybe_mk_fsp_shm(
     # TODO: load output types from `Fsp`
     # - should `index` be a required internal field?
     fsp_dtype = np.dtype(
-        [('index', int)] +
+        [('index', int)]
+        +
+        [('time', float)]
+        +
         [(field_name, float) for field_name in target.outputs]
     )
 
