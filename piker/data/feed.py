@@ -1037,12 +1037,11 @@ async def allocate_persistent_feed(
 
     flume = Flume(
         symbol=symbol,
-        _hist_shm_token=hist_shm.token,
-        _rt_shm_token=rt_shm.token,
         first_quote=first_quote,
+        _rt_shm_token=rt_shm.token,
+        _hist_shm_token=hist_shm.token,
         izero_hist=izero_hist,
         izero_rt=izero_rt,
-        # throttle_rate=tick_throttle,
     )
 
     # for ambiguous names we simply apply the retreived
