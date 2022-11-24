@@ -32,7 +32,7 @@ from msgspec import field
 # from PyQt5 import QtGui
 # from PyQt5.QtCore import QLineF, QPointF
 
-from ..data._sharedmem import (
+from ._sharedmem import (
     ShmArray,
 )
 # from .._profile import pg_profile_enabled, ms_slower_then
@@ -42,24 +42,9 @@ from ._compression import (
 
 if TYPE_CHECKING:
     from ._render import (
-        Renderer,
         Viz,
     )
     from .._profile import Profiler
-
-
-def by_index_and_key(
-    renderer: Renderer,
-    array: np.ndarray,
-    array_key: str,
-    vr: tuple[int, int],
-
-) -> tuple[
-    np.ndarray,
-    np.ndarray,
-    np.ndarray,
-]:
-    return array['index'], array[array_key], 'all'
 
 
 class IncrementalFormatter(msgspec.Struct):
@@ -74,6 +59,7 @@ class IncrementalFormatter(msgspec.Struct):
     '''
     shm: ShmArray
     viz: Viz
+    index_field: str = 'index'
 
     # last read from shm (usually due to an update call)
     _last_read: tuple[
@@ -407,7 +393,6 @@ class IncrementalFormatter(msgspec.Struct):
         self,
         src_shm: ShmArray,
         data_field: str,
-        index_field: str = 'index',
 
     ) -> tuple[
         np.ndarray,  # x
@@ -421,7 +406,7 @@ class IncrementalFormatter(msgspec.Struct):
 
         '''
         y_nd = src_shm._array[data_field].copy()
-        x_nd = src_shm._array[index_field].copy()
+        x_nd = src_shm._array[self.index_field].copy()
         return x_nd, y_nd
 
     # XXX: was ``.update_xy()``
@@ -478,7 +463,7 @@ class IncrementalFormatter(msgspec.Struct):
 
         '''
         return (
-            array['index'],
+            array[self.index_field],
             array[array_key],
 
             # 1d connection array or style-key to
@@ -512,7 +497,7 @@ class OHLCBarsFmtr(IncrementalFormatter):
         # generate an flat-interpolated x-domain
         x_nd = (
             np.broadcast_to(
-                ohlc_shm._array['index'][:, None],
+                ohlc_shm._array[self.index_field][:, None],
                 (
                     ohlc_shm._array.size,
                     # 4,  # only ohlc
@@ -543,6 +528,7 @@ class OHLCBarsFmtr(IncrementalFormatter):
         data: np.ndarray,
         start: int64,
         bar_gap: float64 = 0.43,
+        index_field: str = 'index',
 
     ) -> tuple[
         np.ndarray,
@@ -574,7 +560,7 @@ class OHLCBarsFmtr(IncrementalFormatter):
             high = q['high']
             low = q['low']
             close = q['close']
-            index = float64(q['index'])
+            index = float64(q[index_field])
 
             istart = i * 6
             istop = istart + 6
@@ -631,6 +617,7 @@ class OHLCBarsFmtr(IncrementalFormatter):
             array,
             start,
             bar_gap=w,
+            index_field=self.index_field,
         )
         return x, y, c
 
@@ -723,7 +710,7 @@ class StepCurveFmtr(IncrementalFormatter):
         for use by path graphics generation.
 
         '''
-        i = shm._array['index'].copy()
+        i = shm._array[self.index_field].copy()
         out = shm._array[data_field].copy()
 
         x_out = np.broadcast_to(
