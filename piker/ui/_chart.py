@@ -38,7 +38,6 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QSplitter,
 )
-import numpy as np
 import pyqtgraph as pg
 import trio
 
@@ -63,7 +62,10 @@ from ._style import (
     _xaxis_at,
     _min_points_to_show,
 )
-from ..data.feed import Feed
+from ..data.feed import (
+    Feed,
+    Flume,
+)
 from ..data._source import Symbol
 from ..log import get_logger
 from ._interaction import ChartView
@@ -538,6 +540,7 @@ class LinkedSplits(QWidget):
 
         symbol: Symbol,
         shm: ShmArray,
+        flume: Flume,
         sidepane: FieldsForm,
 
         style: str = 'ohlc_bar',
@@ -562,6 +565,7 @@ class LinkedSplits(QWidget):
         self.chart = self.add_plot(
             name=symbol.fqsn,
             shm=shm,
+            flume=flume,
             style=style,
             _is_main=True,
             sidepane=sidepane,
@@ -582,6 +586,7 @@ class LinkedSplits(QWidget):
 
         name: str,
         shm: ShmArray,
+        flume: Flume,
 
         array_key: Optional[str] = None,
         style: str = 'line',
@@ -705,9 +710,11 @@ class LinkedSplits(QWidget):
         # draw curve graphics
         if style == 'ohlc_bar':
 
-            graphics, data_key = cpw.draw_ohlc(
+            # graphics, data_key = cpw.draw_ohlc(
+            flow = cpw.draw_ohlc(
                 name,
                 shm,
+                flume=flume,
                 array_key=array_key
             )
             self.cursor.contents_labels.add_label(
@@ -719,18 +726,22 @@ class LinkedSplits(QWidget):
 
         elif style == 'line':
             add_label = True
-            graphics, data_key = cpw.draw_curve(
+            # graphics, data_key = cpw.draw_curve(
+            flow = cpw.draw_curve(
                 name,
                 shm,
+                flume,
                 array_key=array_key,
                 color='default_light',
             )
 
         elif style == 'step':
             add_label = True
-            graphics, data_key = cpw.draw_curve(
+            # graphics, data_key = cpw.draw_curve(
+            flow = cpw.draw_curve(
                 name,
                 shm,
+                flume,
                 array_key=array_key,
                 step_mode=True,
                 color='davies',
@@ -739,6 +750,9 @@ class LinkedSplits(QWidget):
 
         else:
             raise ValueError(f"Chart style {style} is currently unsupported")
+
+        graphics = flow.graphics
+        data_key = flow.name
 
         if _is_main:
             assert style == 'ohlc_bar', 'main chart must be OHLC'
@@ -937,12 +951,6 @@ class ChartPlotWidget(pg.PlotWidget):
     def focus(self) -> None:
         self.view.setFocus()
 
-    def last_bar_in_view(self) -> int:
-        self._arrays[self.name][-1]['index']
-
-    def is_valid_index(self, index: int) -> bool:
-        return index >= 0 and index < self._arrays[self.name][-1]['index']
-
     def _set_xlimits(
         self,
         xfirst: int,
@@ -1035,9 +1043,14 @@ class ChartPlotWidget(pg.PlotWidget):
             log.warning(f'`Flow` for {self.name} not loaded yet?')
             return
 
-        index = flow.shm.array['index']
+        arr = flow.shm.array
+        index = arr['index']
+        # times = arr['time']
+
+        # these will be epoch time floats
         xfirst, xlast = index[0], index[-1]
         l, lbar, rbar, r = self.bars_range()
+
         view = self.view
 
         if (
@@ -1194,6 +1207,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         name: str,
         shm: ShmArray,
+        flume: Flume,
 
         array_key: Optional[str] = None,
         overlay: bool = False,
@@ -1206,10 +1220,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         **graphics_kwargs,
 
-    ) -> tuple[
-        pg.GraphicsObject,
-        str,
-    ]:
+    ) -> Flow:
         '''
         Draw a "curve" (line plot graphics) for the provided data in
         the input shm array ``shm``.
@@ -1243,14 +1254,17 @@ class ChartPlotWidget(pg.PlotWidget):
                 **graphics_kwargs,
             )
 
-        self._flows[data_key] = Flow(
-            name=name,
-            plot=pi,
-            _shm=shm,
+        flow = self._flows[data_key] = Flow(
+            data_key,
+            pi,
+            shm,
+            flume,
+
             is_ohlc=is_ohlc,
             # register curve graphics with this flow
             graphics=graphics,
         )
+        assert isinstance(flow.shm, ShmArray)
 
         # TODO: this probably needs its own method?
         if overlay:
@@ -1307,24 +1321,26 @@ class ChartPlotWidget(pg.PlotWidget):
         # understand.
         pi.addItem(graphics)
 
-        return graphics, data_key
+        return flow
 
     def draw_ohlc(
         self,
         name: str,
         shm: ShmArray,
+        flume: Flume,
 
         array_key: Optional[str] = None,
         **draw_curve_kwargs,
 
-    ) -> (pg.GraphicsObject, str):
+    ) -> Flow:
         '''
         Draw OHLC datums to chart.
 
         '''
         return self.draw_curve(
-            name=name,
-            shm=shm,
+            name,
+            shm,
+            flume,
             array_key=array_key,
             is_ohlc=True,
             **draw_curve_kwargs,
@@ -1388,37 +1404,6 @@ class ChartPlotWidget(pg.PlotWidget):
         # pg.PlotWidget.leaveEvent(self, ev)
         self.sig_mouse_leave.emit(self)
         self.scene().leaveEvent(ev)
-
-    def get_index(self, time: float) -> int:
-
-        # TODO: this should go onto some sort of
-        # data-view thinger..right?
-        ohlc = self._flows[self.name].shm.array
-
-        # XXX: not sure why the time is so off here
-        # looks like we're gonna have to do some fixing..
-        indexes = ohlc['time'] >= time
-
-        if any(indexes):
-            return ohlc['index'][indexes][-1]
-        else:
-            return ohlc['index'][-1]
-
-    def in_view(
-        self,
-        array: np.ndarray,
-
-    ) -> np.ndarray:
-        '''
-        Slice an input struct array providing only datums
-        "in view" of this chart.
-
-        '''
-        l, lbar, rbar, r = self.bars_range()
-        ifirst = array[0]['index']
-        # slice data by offset from the first index
-        # available in the passed datum set.
-        return array[lbar - ifirst:(rbar - ifirst) + 1]
 
     def maxmin(
         self,
