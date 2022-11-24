@@ -72,7 +72,7 @@ class Curve(pg.GraphicsObject):
     lower level graphics data can be rendered in different threads and
     then read and drawn in this main thread without having to worry
     about dealing with Qt's concurrency primitives. See
-    ``piker.ui._flows.Renderer`` for details and logic related to lower
+    ``piker.ui._render.Renderer`` for details and logic related to lower
     level path generation and incremental update. The main differences in
     the path generation code include:
 
