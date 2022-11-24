@@ -128,21 +128,42 @@ async def increment_ohlc_buffer(
 
                 # TODO: ``numba`` this!
                 for shm in shms:
+                    # append new entry to buffer thus "incrementing" the bar
+                    array = shm.array
+                    last = array[-1:][shm._write_fields].copy()
+
+                    (t, close) = last[0][[
+                        'time',
+                        'close',
+                    ]]
+
+                    # this copies non-std fields (eg. vwap) from the last datum
+                    last[[
+                        'time',
+
+                        'open',
+                        'high',
+                        'low',
+                        'close',
+
+                        'volume',
+                    ]][0] = (
+                        # epoch timestamp
+                        t + this_delay_s,
+
+                        # OHLC
+                        close,
+                        close,
+                        close,
+                        close,
+
+                        0,  # vlm
+                    )
+
                     # TODO: in theory we could make this faster by copying the
                     # "last" readable value into the underlying larger buffer's
                     # next value and then incrementing the counter instead of
                     # using ``.push()``?
-
-                    # append new entry to buffer thus "incrementing" the bar
-                    array = shm.array
-                    last = array[-1:][shm._write_fields].copy()
-                    # (index, t, close) = last[0][['index', 'time', 'close']]
-                    (t, close) = last[0][['time', 'close']]
-
-                    # this copies non-std fields (eg. vwap) from the last datum
-                    last[
-                        ['time', 'volume', 'open', 'high', 'low', 'close']
-                    ][0] = (t + this_delay_s, 0, close, close, close, close)
 
                     # write to the buffer
                     shm.push(last)
