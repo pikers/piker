@@ -1191,6 +1191,7 @@ async def display_symbol_data(
         hist_chart = hist_linked.plot_ohlc_main(
             symbol,
             hist_ohlcv,
+            flume,
             # in the case of history chart we explicitly set `False`
             # to avoid internal pane creation.
             # sidepane=False,
@@ -1204,6 +1205,7 @@ async def display_symbol_data(
         rt_chart = rt_linked.plot_ohlc_main(
             symbol,
             ohlcv,
+            flume,
             # in the case of history chart we explicitly set `False`
             # to avoid internal pane creation.
             sidepane=pp_pane,
@@ -1275,9 +1277,10 @@ async def display_symbol_data(
                 hist_pi.hideAxis('left')
                 hist_pi.hideAxis('bottom')
 
-                curve, _ = hist_chart.draw_curve(
-                    name=fqsn,
-                    shm=hist_ohlcv,
+                flow = hist_chart.draw_curve(
+                    fqsn,
+                    hist_ohlcv,
+                    flume,
                     array_key=fqsn,
                     overlay=hist_pi,
                     pi=hist_pi,
@@ -1307,9 +1310,10 @@ async def display_symbol_data(
                 rt_pi.hideAxis('left')
                 rt_pi.hideAxis('bottom')
 
-                curve, _ = rt_chart.draw_curve(
-                    name=fqsn,
-                    shm=ohlcv,
+                flow = rt_chart.draw_curve(
+                    fqsn,
+                    ohlcv,
+                    flume,
                     array_key=fqsn,
                     overlay=rt_pi,
                     pi=rt_pi,
