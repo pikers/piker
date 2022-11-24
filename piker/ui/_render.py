@@ -37,16 +37,16 @@ from ..data._sharedmem import (
     ShmArray,
 )
 from ..data.feed import Flume
-from .._profile import (
-    pg_profile_enabled,
-    # ms_slower_then,
-)
-from ._pathops import (
+from ..data._pathops import (
     IncrementalFormatter,
     OHLCBarsFmtr,  # Plain OHLC renderer
     OHLCBarsAsCurveFmtr,  # OHLC converted to line
     StepCurveFmtr,  # "step" curve (like for vlm)
     xy_downsample,
+)
+from .._profile import (
+    pg_profile_enabled,
+    # ms_slower_then,
 )
 from ._ohlc import (
     BarItems,
