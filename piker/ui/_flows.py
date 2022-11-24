@@ -65,7 +65,7 @@ log = get_logger(__name__)
 
 
 def render_baritems(
-    flow: Flow,
+    viz: Viz,
     graphics: BarItems,
     read: tuple[
         int, int, np.ndarray,
@@ -89,7 +89,7 @@ def render_baritems(
     bars = graphics
 
     # if no source data renderer exists create one.
-    self = flow
+    self = viz
     show_bars: bool = False
 
     r = self._src_r
@@ -98,28 +98,28 @@ def render_baritems(
 
         # OHLC bars path renderer
         r = self._src_r = Renderer(
-            flow=self,
+            viz=self,
             fmtr=OHLCBarsFmtr(
-                shm=flow.shm,
-                flow=flow,
+                shm=viz.shm,
+                viz=viz,
                 _last_read=read,
             ),
         )
 
         ds_curve_r = Renderer(
-            flow=self,
+            viz=self,
             fmtr=OHLCBarsAsCurveFmtr(
-                shm=flow.shm,
-                flow=flow,
+                shm=viz.shm,
+                viz=viz,
                 _last_read=read,
             ),
         )
 
         curve = FlattenedOHLC(
-            name=f'{flow.name}_ds_ohlc',
+            name=f'{viz.name}_ds_ohlc',
             color=bars._color,
         )
-        flow.ds_graphics = curve
+        viz.ds_graphics = curve
         curve.hide()
         self.plot.addItem(curve)
 
@@ -142,7 +142,7 @@ def render_baritems(
     ):
         # print('FLIPPING TO BARS')
         should_line = False
-        flow._in_ds = False
+        viz._in_ds = False
 
     elif (
         not in_line
@@ -150,7 +150,7 @@ def render_baritems(
     ):
         # print('FLIPPING TO LINE')
         should_line = True
-        flow._in_ds = True
+        viz._in_ds = True
 
     profiler(f'ds logic complete line={should_line}')
 
@@ -196,9 +196,9 @@ def render_baritems(
     )
 
 
-class Flow(msgspec.Struct):  # , frozen=True):
+class Viz(msgspec.Struct):  # , frozen=True):
     '''
-    (Financial Signal-)Flow compound type which wraps a real-time
+    (Data) "Visualization" compound type which wraps a real-time
     shm array stream with displayed graphics (curves, charts)
     for high level access and control as well as efficient incremental
     update.
@@ -216,7 +216,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
     # for tracking y-mn/mx for y-axis auto-ranging
     yrange: tuple[float, float] = None
 
-    # in some cases a flow may want to change its
+    # in some cases a viz may want to change its
     # graphical "type" or, "form" when downsampling, to
     # start this is only ever an interpolation line.
     ds_graphics: Optional[Curve] = None
@@ -250,12 +250,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
     @property
     def shm(self) -> ShmArray:
         return self._shm
-
-    # TODO: remove this and only allow setting through
-    # private ``._shm`` attr?
-    # @shm.setter
-    # def shm(self, shm: ShmArray) -> ShmArray:
-    #     self._shm = shm
 
     def maxmin(
         self,
@@ -318,7 +312,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
     def view_range(self) -> tuple[int, int]:
         '''
         Return the indexes in view for the associated
-        plot displaying this flow's data.
+        plot displaying this viz's data.
 
         '''
         vr = self.plot.viewRect()
@@ -344,7 +338,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
         # TODO: avoid this and have shm passed
         # in earlier.
         if self.shm is None:
-            # haven't initialized the flow yet
+            # haven't initialized the viz yet
             return (0, l, 0, 0, r, 0)
 
         array = self.shm.array
@@ -420,7 +414,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
         '''
         profiler = Profiler(
-            msg=f'Flow.update_graphics() for {self.name}',
+            msg=f'Viz.update_graphics() for {self.name}',
             disabled=not pg_profile_enabled(),
             ms_threshold=4,
             # ms_threshold=ms_slower_then,
@@ -475,10 +469,10 @@ class Flow(msgspec.Struct):  # , frozen=True):
             if isinstance(graphics, StepCurve):
 
                 r = self._src_r = Renderer(
-                    flow=self,
+                    viz=self,
                     fmtr=StepCurveFmtr(
                         shm=self.shm,
-                        flow=self,
+                        viz=self,
                         _last_read=read,
                     ),
                 )
@@ -493,10 +487,10 @@ class Flow(msgspec.Struct):  # , frozen=True):
                 if not r:
                     # just using for ``.diff()`` atm..
                     r = self._src_r = Renderer(
-                        flow=self,
+                        viz=self,
                         fmtr=IncrementalFormatter(
                             shm=self.shm,
-                            flow=self,
+                            viz=self,
                             _last_read=read,
                         ),
                     )
@@ -581,7 +575,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
         path, data, reset = out
 
         # if self.yrange:
-        #     print(f'flow {self.name} yrange from m4: {self.yrange}')
+        #     print(f'viz {self.name} yrange from m4: {self.yrange}')
 
         # XXX: SUPER UGGGHHH... without this we get stale cache
         # graphics that don't update until you downsampler again..
@@ -691,7 +685,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
 class Renderer(msgspec.Struct):
 
-    flow: Flow
+    viz: Viz
     fmtr: IncrementalFormatter
 
     # output graphics rendering, the main object
@@ -794,7 +788,7 @@ class Renderer(msgspec.Struct):
         - blah blah blah (from notes)
 
         '''
-        # TODO: can the renderer just call ``Flow.read()`` directly?
+        # TODO: can the renderer just call ``Viz.read()`` directly?
         # unpack latest source data read
         fmtr = self.fmtr
 
@@ -858,7 +852,7 @@ class Renderer(msgspec.Struct):
             path is None
             or should_redraw
         ):
-            # print(f"{self.flow.name} -> REDRAWING BRUH")
+            # print(f"{self.viz.name} -> REDRAWING BRUH")
             if new_sample_rate and showing_src_data:
                 log.info(f'DEDOWN -> {array_key}')
                 self._in_ds = False
@@ -870,8 +864,8 @@ class Renderer(msgspec.Struct):
                     y_1d,
                     uppx,
                 )
-                self.flow.yrange = ymn, ymx
-                # print(f'{self.flow.name} post ds: ymn, ymx: {ymn},{ymx}')
+                self.viz.yrange = ymn, ymx
+                # print(f'{self.viz.name} post ds: ymn, ymx: {ymn},{ymx}')
 
                 reset = True
                 profiler(f'FULL PATH downsample redraw={should_ds}')
@@ -942,7 +936,7 @@ class Renderer(msgspec.Struct):
             profiler('generated append qpath')
 
             if use_fpath:
-                # print(f'{self.flow.name}: FAST PATH')
+                # print(f'{self.viz.name}: FAST PATH')
                 # an attempt at trying to make append-updates faster..
                 if fast_path is None:
                     fast_path = append_path

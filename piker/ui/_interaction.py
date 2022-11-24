@@ -504,7 +504,7 @@ class ChartView(ViewBox):
 
         # if (
         #     ev.delta() < 0
-        #     and vl >= len(chart._flows[chart.name].shm.array) + 666
+        #     and vl >= len(chart._vizs[chart.name].shm.array) + 666
         # ):
         #     log.debug("Min zoom bruh...")
         #     return
@@ -821,7 +821,7 @@ class ChartView(ViewBox):
             # XXX: only compute the mxmn range
             # if none is provided as input!
             if not yrange:
-                # flow = chart._flows[name]
+                # flow = chart._vizs[name]
                 yrange = self._maxmin()
 
                 if yrange is None:
@@ -912,7 +912,7 @@ class ChartView(ViewBox):
         graphics items which are our children.
 
         '''
-        graphics = [f.graphics for f in self._chart._flows.values()]
+        graphics = [f.graphics for f in self._chart._vizs.values()]
         if not graphics:
             return 0
 
@@ -948,7 +948,7 @@ class ChartView(ViewBox):
             plots |= linked.subplots
 
         for chart_name, chart in plots.items():
-            for name, flow in chart._flows.items():
+            for name, flow in chart._vizs.items():
 
                 if (
                     not flow.render
