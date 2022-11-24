@@ -56,7 +56,7 @@ from .._daemon import (
     maybe_spawn_brokerd,
     check_for_service,
 )
-from ._flumes import Flume
+from .flows import Flume
 from ._sharedmem import (
     maybe_open_shm_array,
     ShmArray,
