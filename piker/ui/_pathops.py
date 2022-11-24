@@ -40,7 +40,7 @@ from ._compression import (
 )
 
 if TYPE_CHECKING:
-    from ._flows import (
+    from ._render import (
         Renderer,
         Viz,
     )
