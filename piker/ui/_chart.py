@@ -72,7 +72,7 @@ from ._interaction import ChartView
 from ._forms import FieldsForm
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._overlay import PlotItemOverlay
-from ._flows import Flow
+from ._flows import Viz
 from ._search import SearchWidget
 from . import _pg_overrides as pgo
 from .._profile import Profiler
@@ -711,7 +711,7 @@ class LinkedSplits(QWidget):
         if style == 'ohlc_bar':
 
             # graphics, data_key = cpw.draw_ohlc(
-            flow = cpw.draw_ohlc(
+            viz = cpw.draw_ohlc(
                 name,
                 shm,
                 flume=flume,
@@ -727,7 +727,7 @@ class LinkedSplits(QWidget):
         elif style == 'line':
             add_label = True
             # graphics, data_key = cpw.draw_curve(
-            flow = cpw.draw_curve(
+            viz = cpw.draw_curve(
                 name,
                 shm,
                 flume,
@@ -738,7 +738,7 @@ class LinkedSplits(QWidget):
         elif style == 'step':
             add_label = True
             # graphics, data_key = cpw.draw_curve(
-            flow = cpw.draw_curve(
+            viz = cpw.draw_curve(
                 name,
                 shm,
                 flume,
@@ -751,8 +751,8 @@ class LinkedSplits(QWidget):
         else:
             raise ValueError(f"Chart style {style} is currently unsupported")
 
-        graphics = flow.graphics
-        data_key = flow.name
+        graphics = viz.graphics
+        data_key = viz.name
 
         if _is_main:
             assert style == 'ohlc_bar', 'main chart must be OHLC'
@@ -908,7 +908,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # self.setViewportMargins(0, 0, 0, 0)
 
         # registry of overlay curve names
-        self._flows: dict[str, Flow] = {}
+        self._vizs: dict[str, Viz] = {}
 
         self.feed: Feed | None = None
 
@@ -974,7 +974,7 @@ class ChartPlotWidget(pg.PlotWidget):
         Return a range tuple for the bars present in view.
 
         '''
-        main_flow = self._flows[self.name]
+        main_flow = self._vizs[self.name]
         ifirst, l, lbar, rbar, r, ilast = main_flow.datums_range()
         return l, lbar, rbar, r
 
@@ -1038,9 +1038,9 @@ class ChartPlotWidget(pg.PlotWidget):
         Set the view box to the "default" startup view of the scene.
 
         '''
-        flow = self._flows.get(self.name)
+        flow = self._vizs.get(self.name)
         if not flow:
-            log.warning(f'`Flow` for {self.name} not loaded yet?')
+            log.warning(f'`Viz` for {self.name} not loaded yet?')
             return
 
         arr = flow.shm.array
@@ -1220,7 +1220,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         **graphics_kwargs,
 
-    ) -> Flow:
+    ) -> Viz:
         '''
         Draw a "curve" (line plot graphics) for the provided data in
         the input shm array ``shm``.
@@ -1254,7 +1254,7 @@ class ChartPlotWidget(pg.PlotWidget):
                 **graphics_kwargs,
             )
 
-        flow = self._flows[data_key] = Flow(
+        flow = self._vizs[data_key] = Viz(
             data_key,
             pi,
             shm,
@@ -1332,7 +1332,7 @@ class ChartPlotWidget(pg.PlotWidget):
         array_key: Optional[str] = None,
         **draw_curve_kwargs,
 
-    ) -> Flow:
+    ) -> Viz:
         '''
         Draw OHLC datums to chart.
 
@@ -1358,7 +1358,7 @@ class ChartPlotWidget(pg.PlotWidget):
         Update the named internal graphics from ``array``.
 
         '''
-        flow = self._flows[array_key or graphics_name]
+        flow = self._vizs[array_key or graphics_name]
         return flow.update_graphics(
             array_key=array_key,
             **kwargs,
@@ -1426,15 +1426,15 @@ class ChartPlotWidget(pg.PlotWidget):
             delayed=True,
         )
 
-        # TODO: here we should instead look up the ``Flow.shm.array``
+        # TODO: here we should instead look up the ``Viz.shm.array``
         # and read directly from shm to avoid copying to memory first
         # and then reading it again here.
         flow_key = name or self.name
-        flow = self._flows.get(flow_key)
+        viz = self._vizs.get(flow_key)
         if (
-            flow is None
+            viz is None
         ):
-            log.error(f"flow {flow_key} doesn't exist in chart {self.name} !?")
+            log.error(f"viz {flow_key} doesn't exist in chart {self.name} !?")
             key = res = 0, 0
 
         else:
@@ -1445,11 +1445,11 @@ class ChartPlotWidget(pg.PlotWidget):
                 rbar,
                 r,
                 last,
-            ) = bars_range or flow.datums_range()
+            ) = bars_range or viz.datums_range()
             profiler(f'{self.name} got bars range')
 
             key = round(lbar), round(rbar)
-            res = flow.maxmin(*key)
+            res = viz.maxmin(*key)
 
             if (
                 res is None
@@ -1465,3 +1465,9 @@ class ChartPlotWidget(pg.PlotWidget):
         profiler(f'yrange mxmn: {key} -> {res}')
         # print(f'{flow_key} yrange mxmn: {key} -> {res}')
         return res
+
+    def get_viz(
+        self,
+        key: str,
+    ) -> Viz:
+        return self._vizs[key]

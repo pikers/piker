@@ -377,7 +377,7 @@ class SelectRect(QtWidgets.QGraphicsRectItem):
         nbars = ixmx - ixmn + 1
 
         chart = self._chart
-        data = chart._flows[chart.name].shm.array[ixmn:ixmx]
+        data = chart.get_viz(chart.name).shm.array[ixmn:ixmx]
 
         if len(data):
             std = data['close'].std()

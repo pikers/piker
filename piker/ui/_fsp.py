@@ -289,7 +289,7 @@ async def run_fsp_ui(
         # first UI update, usually from shm pushed history
         update_fsp_chart(
             chart,
-            chart._flows[array_key],
+            chart.get_viz(array_key),
             name,
             array_key=array_key,
         )
@@ -357,7 +357,7 @@ async def run_fsp_ui(
         #         last = time.time()
 
 
-# TODO: maybe this should be our ``Flow`` type since it maps
+# TODO: maybe this should be our ``Viz`` type since it maps
 # one flume to the next? The machinery for task/actor mgmt should
 # be part of the instantiation API?
 class FspAdmin:
@@ -386,7 +386,7 @@ class FspAdmin:
 
         # TODO: make this a `.src_flume` and add
         # a `dst_flume`?
-        # (=> but then wouldn't this be the most basic `Flow`?)
+        # (=> but then wouldn't this be the most basic `Viz`?)
         self.flume = flume
 
     def rr_next_portal(self) -> tractor.Portal:
@@ -694,7 +694,7 @@ async def open_vlm_displays(
 
         ) -> tuple[float, float]:
             '''
-            Flows "group" maxmin loop; assumes all named flows
+            Viz "group" maxmin loop; assumes all named flows
             are in the same co-domain and thus can be sorted
             as one set.
 
@@ -865,7 +865,7 @@ async def open_vlm_displays(
                     # specially store ref to shm for lookup in display loop
                     # since only a placeholder of `None` is entered in
                     # ``.draw_curve()``.
-                    # flow = chart._flows[name]
+                    # viz = chart._vizs[name]
                     assert flow.plot is pi
 
             chart_curves(
@@ -901,7 +901,7 @@ async def open_vlm_displays(
             # liquidity events (well at least on low OHLC periods - 1s).
             vlm_curve.hide()
             chart.removeItem(vlm_curve)
-            vflow = chart._flows['volume']
+            vflow = chart._vizs['volume']
             vflow.render = False
 
             # avoid range sorting on volume once disabled
