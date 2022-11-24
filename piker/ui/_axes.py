@@ -302,7 +302,7 @@ class DynamicDateAxis(Axis):
         # XX: ARGGGGG AG:LKSKDJF:LKJSDFD
         chart = self.pi.chart_widget
 
-        flow = chart._flows[chart.name]
+        flow = chart._vizs[chart.name]
         shm = flow.shm
         bars = shm.array
         first = shm._first.value

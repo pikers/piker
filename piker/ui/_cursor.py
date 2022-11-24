@@ -274,7 +274,7 @@ class ContentsLabels:
     ) -> None:
         for chart, name, label, update in self._labels:
 
-            flow = chart._flows[name]
+            viz = chart.get_viz(name)
             array = flow.shm.array
 
             if not (
@@ -482,25 +482,32 @@ class Cursor(pg.GraphicsObject):
 
     def add_curve_cursor(
         self,
-        plot: ChartPlotWidget,  # noqa
+        chart: ChartPlotWidget,  # noqa
         curve: 'PlotCurveItem',  # noqa
 
     ) -> LineDot:
-        # if this plot contains curves add line dot "cursors" to denote
+        # if this chart contains curves add line dot "cursors" to denote
         # the current sample under the mouse
-        main_flow = plot._flows[plot.name]
+        main_viz = chart.get_viz(chart.name)
+
         # read out last index
-        i = main_flow.shm.array[-1]['index']
+        i = main_viz.shm.array[-1]['index']
         cursor = LineDot(
             curve,
             index=i,
-            plot=plot
+            plot=chart
         )
-        plot.addItem(cursor)
-        self.graphics[plot].setdefault('cursors', []).append(cursor)
+        chart.addItem(cursor)
+        self.graphics[chart].setdefault('cursors', []).append(cursor)
         return cursor
 
-    def mouseAction(self, action, plot):  # noqa
+    def mouseAction(
+        self,
+        action: str,
+        plot: ChartPlotWidget,
+
+    ) -> None:  # noqa
+
         log.debug(f"{(action, plot.name)}")
         if action == 'Enter':
             self.active_plot = plot

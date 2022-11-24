@@ -42,7 +42,7 @@ from ._compression import (
 if TYPE_CHECKING:
     from ._flows import (
         Renderer,
-        Flow,
+        Viz,
     )
     from .._profile import Profiler
 
@@ -72,7 +72,7 @@ class IncrementalFormatter(msgspec.Struct):
 
     '''
     shm: ShmArray
-    flow: Flow
+    viz: Viz
 
     # last read from shm (usually due to an update call)
     _last_read: tuple[
@@ -89,7 +89,7 @@ class IncrementalFormatter(msgspec.Struct):
     def __repr__(self) -> str:
         msg = (
             f'{type(self)}: ->\n\n'
-            f'fqsn={self.flow.name}\n'
+            f'fqsn={self.viz.name}\n'
             f'shm_name={self.shm.token["shm_name"]}\n\n'
 
             f'last_vr={self._last_vr}\n'
@@ -129,7 +129,7 @@ class IncrementalFormatter(msgspec.Struct):
             last_in_view,
         ) = self.last_read
 
-        # TODO: can the renderer just call ``Flow.read()`` directly?
+        # TODO: can the renderer just call ``Viz.read()`` directly?
         # unpack latest source data read
         (
             xfirst,
@@ -336,7 +336,7 @@ class IncrementalFormatter(msgspec.Struct):
         if slice_to_inview:
             view_changed = self._track_inview_range(view_range)
             array = in_view
-            profiler(f'{self.flow.name} view range slice {view_range}')
+            profiler(f'{self.viz.name} view range slice {view_range}')
 
         hist = array[:slice_to_head]
 
@@ -369,9 +369,9 @@ class IncrementalFormatter(msgspec.Struct):
         #     # assert (len(appended) - 1) == append_len
         #     # assert len(appended) == append_len
         #     print(
-        #         f'{self.flow.name} APPEND LEN: {append_len}\n'
-        #         f'{self.flow.name} APPENDED: {appended}\n'
-        #         f'{self.flow.name} app_tres: {app_tres}\n'
+        #         f'{self.viz.name} APPEND LEN: {append_len}\n'
+        #         f'{self.viz.name} APPENDED: {appended}\n'
+        #         f'{self.viz.name} app_tres: {app_tres}\n'
         #     )
 
         # update the last "in view data range"
