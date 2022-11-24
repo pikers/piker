@@ -930,7 +930,6 @@ async def process_trade_msg(
 
 ) -> tuple[Dialog, Status]:
 
-    get_index = mode.chart.get_index
     fmsg = pformat(msg)
     log.debug(f'Received order msg:\n{fmsg}')
     name = msg['name']
@@ -964,6 +963,9 @@ async def process_trade_msg(
     resp = msg.resp
     oid = msg.oid
     dialog: Dialog = mode.dialogs.get(oid)
+
+    fqsn = dialog.symbol.front_fqsn()
+    flume = mode.feed.flumes[fqsn]
 
     match msg:
         case Status(
@@ -1037,7 +1039,7 @@ async def process_trade_msg(
             mode.on_fill(
                 oid,
                 price=req.price,
-                arrow_index=get_index(time.time()),
+                arrow_index=flume.get_index(time.time()),
             )
             mode.lines.remove_line(uuid=oid)
             msg.req = req
@@ -1072,7 +1074,7 @@ async def process_trade_msg(
                 pointing='up' if action == 'buy' else 'down',
 
                 # TODO: put the actual exchange timestamp
-                arrow_index=get_index(
+                arrow_index=flume.get_index(
                     # TODO: note currently the ``kraken`` openOrders sub
                     # doesn't deliver their engine timestamp as part of
                     # it's schema, so this value is **not** from them
