@@ -76,7 +76,7 @@ from .._profile import Profiler
 log = get_logger(__name__)
 
 
-# TODO: delegate this to each `Flow.maxmin()` which includes
+# TODO: delegate this to each `Viz.maxmin()` which includes
 # caching and further we should implement the following stream based
 # approach, likely with ``numba``:
 # https://arxiv.org/abs/cs/0610046
@@ -111,7 +111,7 @@ def chart_maxmin(
 
     # TODO: we need to NOT call this to avoid a manual
     # np.max/min trigger and especially on the vlm_chart
-    # flows which aren't shown.. like vlm?
+    # vizs which aren't shown.. like vlm?
     if vlm_chart:
         out = vlm_chart.maxmin()
         if out:
@@ -218,7 +218,7 @@ class DisplayState(Struct):
         _, _, _, r = chart.bars_range()
         liv = r >= shm.index
 
-        # update the "last datum" (aka extending the flow graphic with
+        # update the "last datum" (aka extending the vizs graphic with
         # new data) only if the number of unit steps is >= the number of
         # such unit steps per pixel (aka uppx). Iow, if the zoom level
         # is such that a datum(s) update to graphics wouldn't span
@@ -299,14 +299,14 @@ async def graphics_update_loop(
         fqsn = symbol.fqsn
 
         # update last price sticky
-        fast_pi = fast_chart._flows[fqsn].plot
+        fast_pi = fast_chart._vizs[fqsn].plot
         last_price_sticky = fast_pi.getAxis('right')._stickies[fqsn]
         last_price_sticky.update_from_data(
             *ohlcv.array[-1][['index', 'close']]
         )
         last_price_sticky.show()
 
-        slow_pi = hist_chart._flows[fqsn].plot
+        slow_pi = hist_chart._vizs[fqsn].plot
         hist_last_price_sticky = slow_pi.getAxis('right')._stickies[fqsn]
         hist_last_price_sticky.update_from_data(
             *hist_ohlcv.array[-1][['index', 'close']]
@@ -381,7 +381,7 @@ async def graphics_update_loop(
         })
 
         if vlm_chart:
-            vlm_pi = vlm_chart._flows['volume'].plot
+            vlm_pi = vlm_chart._vizs['volume'].plot
             vlm_sticky = vlm_pi.getAxis('right')._stickies['volume']
             ds.vlm_chart = vlm_chart
             ds.vlm_sticky = vlm_sticky
@@ -439,8 +439,8 @@ async def graphics_update_loop(
                         and liv
                     ):
                         # hist_chart.increment_view(steps=i_diff)
-                        flow = hist_chart._flows[fqsn]
-                        flow.plot.vb._set_yrange(
+                        viz = hist_chart._vizs[fqsn]
+                        viz.plot.vb._set_yrange(
                             # yrange=hist_chart.maxmin(name=fqsn)
                         )
                         # hist_chart.view._set_yrange(yrange=hist_chart.maxmin())
@@ -516,7 +516,7 @@ def graphics_update_cycle(
     flume = ds.flume
     sym = flume.symbol
     fqsn = sym.fqsn
-    main_flow = chart._flows[fqsn]
+    main_viz = chart._vizs[fqsn]
 
     profiler = Profiler(
         msg=f'Graphics loop cycle for: `{chart.name}`',
@@ -560,7 +560,7 @@ def graphics_update_cycle(
     ):
         # print(f'INCREMENTING {fqsn}')
         chart.increment_view(steps=i_diff)
-        main_flow.plot.vb._set_yrange(
+        main_viz.plot.vb._set_yrange(
             # yrange=(mn, mx),
         )
 
@@ -627,7 +627,7 @@ def graphics_update_cycle(
             # chart.name,
             # do_append=do_append,
         )
-        main_flow.draw_last(array_key=fqsn)
+        main_viz.draw_last(array_key=fqsn)
 
         hist_chart.update_graphics_from_flow(
             fqsn,
@@ -746,7 +746,7 @@ def graphics_update_cycle(
             and not chart._static_yrange == 'axis'
         ):
             # main_vb = chart.view
-            main_vb = chart._flows[fqsn].plot.vb
+            main_vb = chart._vizs[fqsn].plot.vb
             if (
                 main_vb._ic is None
                 or not main_vb._ic.is_set()
@@ -777,26 +777,26 @@ def graphics_update_cycle(
             is_1m=True,
         )
         if hist_liv:
-            flow = hist_chart._flows[fqsn]
-            flow.plot.vb._set_yrange(
+            viz = hist_chart._vizs[fqsn]
+            viz.plot.vb._set_yrange(
                 # yrange=hist_chart.maxmin(name=fqsn),
             )
 
     # XXX: update this every draw cycle to make L1-always-in-view work.
     vars['last_mx'], vars['last_mn'] = mx, mn
 
-    # run synchronous update on all linked flows
-    # TODO: should the "main" (aka source) flow be special?
-    for curve_name, flow in chart._flows.items():
+    # run synchronous update on all linked viz
+    # TODO: should the "main" (aka source) viz be special?
+    for curve_name, viz in chart._vizs.items():
         # update any overlayed fsp flows
         if (
             # curve_name != chart.data_key
             curve_name != fqsn
-            and not flow.is_ohlc
+            and not viz.is_ohlc
         ):
             update_fsp_chart(
                 chart,
-                flow,
+                viz,
                 curve_name,
                 array_key=curve_name,
             )
@@ -810,7 +810,7 @@ def graphics_update_cycle(
             # and not do_append
             # and not do_rt_update
         ):
-            flow.draw_last(
+            viz.draw_last(
                 array_key=curve_name,
                 only_last_uppx=True,
             )
@@ -819,7 +819,7 @@ def graphics_update_cycle(
     # TODO: can we unify this with the above loop?
     if vlm_chart:
         # print(f"DOING VLM {fqsn}")
-        vlm_flows = vlm_chart._flows
+        vlm_vizs = vlm_chart._vizs
 
         # always update y-label
         ds.vlm_sticky.update_from_data(
@@ -864,21 +864,21 @@ def graphics_update_cycle(
                 vars['last_mx_vlm'] = mx_vlm_in_view
 
         # update all downstream FSPs
-        for curve_name, flow in vlm_flows.items():
+        for curve_name, viz in vlm_vizs.items():
 
             if (
                 curve_name not in {'volume', fqsn}
-                and flow.render
+                and viz.render
                 and (
                     liv and do_rt_update
                     or do_append
                 )
-                # and not flow.is_ohlc
+                # and not viz.is_ohlc
                 # and curve_name != fqsn
             ):
                 update_fsp_chart(
                     vlm_chart,
-                    flow,
+                    viz,
                     curve_name,
                     array_key=curve_name,
                     # do_append=uppx < update_uppx,
@@ -887,7 +887,7 @@ def graphics_update_cycle(
                 # is this even doing anything?
                 # (pretty sure it's the real-time
                 # resizing from last quote?)
-                fvb = flow.plot.vb
+                fvb = viz.plot.vb
                 fvb._set_yrange(
                     name=curve_name,
                 )
@@ -903,9 +903,9 @@ def graphics_update_cycle(
                 # range of that set.
             ):
                 # always update the last datum-element
-                # graphic for all flows
-                # print(f'drawing last {flow.name}')
-                flow.draw_last(array_key=curve_name)
+                # graphic for all vizs
+                # print(f'drawing last {viz.name}')
+                viz.draw_last(array_key=curve_name)
 
 
 async def link_views_with_region(
@@ -935,12 +935,12 @@ async def link_views_with_region(
     hist_pi.addItem(region, ignoreBounds=True)
     region.setOpacity(6/16)
 
-    flow = rt_chart._flows[flume.symbol.fqsn]
-    assert flow
+    viz = rt_chart._vizs[flume.symbol.fqsn]
+    assert viz
 
     # XXX: no idea why this doesn't work but it's causing
     # a weird placement of the region on the way-far-left..
-    # region.setClipItem(flow.graphics)
+    # region.setClipItem(viz.graphics)
 
     # poll for datums load and timestep detection
     for _ in range(100):
@@ -1050,11 +1050,11 @@ def multi_maxmin(
 
 ) -> tuple[float, float]:
     '''
-    Flows "group" maxmin loop; assumes all named flows
+    Viz "group" maxmin loop; assumes all named vizs
     are in the same co-domain and thus can be sorted
     as one set.
 
-    Iterates all the named flows and calls the chart
+    Iterates all the named vizs and calls the chart
     api to find their range values and return.
 
     TODO: really we should probably have a more built-in API
@@ -1277,7 +1277,7 @@ async def display_symbol_data(
                 hist_pi.hideAxis('left')
                 hist_pi.hideAxis('bottom')
 
-                flow = hist_chart.draw_curve(
+                viz = hist_chart.draw_curve(
                     fqsn,
                     hist_ohlcv,
                     flume,
@@ -1298,8 +1298,8 @@ async def display_symbol_data(
                 # specially store ref to shm for lookup in display loop
                 # since only a placeholder of `None` is entered in
                 # ``.draw_curve()``.
-                flow = hist_chart._flows[fqsn]
-                assert flow.plot is hist_pi
+                viz = hist_chart._vizs[fqsn]
+                assert viz.plot is hist_pi
                 pis.setdefault(fqsn, [None, None])[1] = hist_pi
 
                 rt_pi = rt_chart.overlay_plotitem(
@@ -1310,7 +1310,7 @@ async def display_symbol_data(
                 rt_pi.hideAxis('left')
                 rt_pi.hideAxis('bottom')
 
-                flow = rt_chart.draw_curve(
+                viz = rt_chart.draw_curve(
                     fqsn,
                     ohlcv,
                     flume,
@@ -1331,8 +1331,8 @@ async def display_symbol_data(
                 # specially store ref to shm for lookup in display loop
                 # since only a placeholder of `None` is entered in
                 # ``.draw_curve()``.
-                flow = rt_chart._flows[fqsn]
-                assert flow.plot is rt_pi
+                viz = rt_chart._vizs[fqsn]
+                assert viz.plot is rt_pi
                 pis.setdefault(fqsn, [None, None])[0] = rt_pi
 
             rt_chart.setFocus()
