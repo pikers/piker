@@ -74,8 +74,11 @@ class Flume(Struct):
     '''
     symbol: Symbol
     first_quote: dict
-    _hist_shm_token: _Token
     _rt_shm_token: _Token
+
+    # optional since some data flows won't have a "downsampled" history
+    # buffer/stream (eg. FSPs).
+    _hist_shm_token: _Token | None = None
 
     # private shm refs loaded dynamically from tokens
     _hist_shm: ShmArray | None = None
@@ -104,7 +107,14 @@ class Flume(Struct):
     @property
     def hist_shm(self) -> ShmArray:
 
-        if self._hist_shm is None:
+        if self._hist_shm_token is None:
+            raise RuntimeError(
+                'No shm token has been set for the history buffer?'
+            )
+
+        if (
+            self._hist_shm is None
+        ):
             self._hist_shm = attach_shm_array(
                 token=self._hist_shm_token,
                 readonly=True,
@@ -288,16 +298,14 @@ class Flume(Struct):
 
         # get far-side x-indices plot view
         vr = plot.viewRect()
-        l = vr.left()
-        r = vr.right()
 
         (
             abs_slc,
             buf_slc,
             iv_arr,
         ) = self.slice_from_time(
-            start_t=l,
-            stop_t=r,
+            start_t=vr.left(),
+            stop_t=vr.right(),
             timeframe_s=timeframe_s,
             return_data=True,
         )
