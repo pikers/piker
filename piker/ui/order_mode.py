@@ -88,7 +88,7 @@ class Dialog(Struct):
     # TODO: use ``pydantic.UUID4`` field
     uuid: str
     order: Order
-    symbol: Symbol
+    symbol: str
     lines: list[LevelLine]
     last_status_close: Callable = lambda: None
     msgs: dict[str, dict] = {}
@@ -379,7 +379,7 @@ class OrderMode:
         dialog = Dialog(
             uuid=order.oid,
             order=order,
-            symbol=order.symbol,
+            symbol=order.symbol,  # XXX: always a str?
             lines=lines,
             last_status_close=self.multistatus.open_status(
                 f'submitting {order.exec_mode}-{order.action}',
@@ -964,8 +964,9 @@ async def process_trade_msg(
     oid = msg.oid
     dialog: Dialog = mode.dialogs.get(oid)
 
-    fqsn = dialog.symbol.front_fqsn()
-    flume = mode.feed.flumes[fqsn]
+    if dialog:
+        fqsn = dialog.symbol
+        flume = mode.feed.flumes[fqsn]
 
     match msg:
         case Status(
