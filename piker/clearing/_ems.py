@@ -866,7 +866,7 @@ async def translate_and_relay_brokerd_events(
 
                 elif status == 'canceled':
                     log.cancel(f'Cancellation for {oid} is complete!')
-                    status_msg = book._active.pop(oid)
+                    status_msg = book._active.pop(oid, None)
 
                 else:  # open
                     # relayed from backend but probably not handled so
