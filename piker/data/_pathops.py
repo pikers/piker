@@ -26,15 +26,20 @@ from typing import (
 import msgspec
 import numpy as np
 from numpy.lib import recfunctions as rfn
-from numba import njit, float64, int64  # , optional
-# import pyqtgraph as pg
-# from PyQt5 import QtGui
-# from PyQt5.QtCore import QLineF, QPointF
+from numba import (
+    types,
+    njit,
+    float64,
+    int64,
+    optional,
+)
+from numba.core.types.misc import StringLiteral
+# from numba.extending import as_numba_type
 
 from ._sharedmem import (
     ShmArray,
 )
-# from .._profile import pg_profile_enabled, ms_slower_then
+# from ._source import numba_ohlc_dtype
 from ._compression import (
     ds_m4,
 )
@@ -514,11 +519,17 @@ class OHLCBarsFmtr(IncrementalFormatter):
 
     @staticmethod
     @njit(
-        # TODO: for now need to construct this manually for readonly
+        # NOTE: need to construct this manually for readonly
         # arrays, see https://github.com/numba/numba/issues/4511
-        # ntypes.tuple((float64[:], float64[:], float64[:]))(
-        #     numba_ohlc_dtype[::1],  # contiguous
+        # (
+        #     types.Array(
+        #         numba_ohlc_dtype,
+        #         1,
+        #         'C',
+        #         readonly=True,
+        #     ),
         #     int64,
+        #     types.unicode_type,
         #     optional(float64),
         # ),
         nogil=True
@@ -527,7 +538,7 @@ class OHLCBarsFmtr(IncrementalFormatter):
         data: np.ndarray,
         start: int64,
         bar_gap: float64 = 0.43,
-        index_field: str = 'index',
+        # index_field: str,
 
     ) -> tuple[
         np.ndarray,
@@ -540,8 +551,10 @@ class OHLCBarsFmtr(IncrementalFormatter):
         '''
         size = int(data.shape[0] * 6)
 
+        # XXX: see this for why the dtype might have to be defined outside
+        # the routine.
+        # https://github.com/numba/numba/issues/4098#issuecomment-493914533
         x = np.zeros(
-            # data,
             shape=size,
             dtype=float64,
         )
@@ -559,7 +572,8 @@ class OHLCBarsFmtr(IncrementalFormatter):
             high = q['high']
             low = q['low']
             close = q['close']
-            index = float64(q[index_field])
+            # index = float64(q[index_field])
+            index = float64(q['index'])
 
             istart = i * 6
             istop = istart + 6
@@ -615,8 +629,8 @@ class OHLCBarsFmtr(IncrementalFormatter):
         x, y, c = self.path_arrays_from_ohlc(
             array,
             start,
+            # self.index_field,
             bar_gap=w,
-            index_field=self.index_field,
         )
         return x, y, c
 
