@@ -268,8 +268,7 @@ async def flow_rates(
         'dark_dvlm_rate': None,
     }
 
-    # TODO: 3.10 do ``anext()``
-    quote = await source.__anext__()
+    quote = await anext(source)
 
     # ltr = 0
     # lvr = 0
