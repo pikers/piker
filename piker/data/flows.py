@@ -236,29 +236,43 @@ class Flume(Struct):
 
     def slice_from_time(
         self,
-        array: np.ndarray,
+        arr: np.ndarray,
         start_t: float,
         stop_t: float,
-        timeframe_s: int = 1,
-        return_data: bool = False,
 
-    ) -> np.ndarray:
+    ) -> tuple[
+        slice,
+        slice,
+        np.ndarray | None,
+    ]:
         '''
-        Slice an input struct array providing only datums
-        "in view" of this chart.
+        Slice an input struct array to a time range and return the absolute
+        and "readable" slices for that array as well as the indexing mask
+        for the caller to use to slice the input array if needed.
 
         '''
-        arr = {
-            1: self.rt_shm.array,
-            60: self.hist_shm.arry,
-        }[timeframe_s]
-
         times = arr['time']
-        index = array['index']
+        index = arr['index']
+
+        if (
+            start_t < 0
+            or start_t >= stop_t
+        ):
+            return (
+                slice(
+                    index[0],
+                    index[-1],
+                ),
+                slice(
+                    0,
+                    len(arr),
+                ),
+                None,
+            )
 
         # use advanced indexing to map the
         # time range to the index range.
-        mask = (
+        mask: np.ndarray = (
             (times >= start_t)
             &
             (times < stop_t)
@@ -273,7 +287,24 @@ class Flume(Struct):
         # ]
 
         i_by_t = index[mask]
-        i_0 = i_by_t[0]
+        try:
+            i_0 = i_by_t[0]
+        except IndexError:
+            if (
+                start_t < times[0]
+                or stop_t >= times[-1]
+            ):
+                return (
+                    slice(
+                        index[0],
+                        index[-1],
+                    ),
+                    slice(
+                        0,
+                        len(arr),
+                    ),
+                    None,
+                )
 
         abs_slc = slice(
             i_0,
@@ -285,17 +316,12 @@ class Flume(Struct):
             0,
             i_by_t[-1] - i_0,
         )
-        if not return_data:
-            return (
-                abs_slc,
-                read_slc,
-            )
 
         # also return the readable data from the timerange
         return (
             abs_slc,
             read_slc,
-            arr[mask],
+            mask,
         )
 
     def view_data(
@@ -304,18 +330,32 @@ class Flume(Struct):
         timeframe_s: int = 1,
 
     ) -> np.ndarray:
+        '''
+        Return sliced-to-view source data along with absolute
+        (``ShmArray._array['index']``) and read-relative
+        (``ShmArray.array``) slices.
 
+        '''
         # get far-side x-indices plot view
         vr = plot.viewRect()
 
+        if timeframe_s > 1:
+            arr = self.hist_shm.array
+        else:
+            arr = self.rt_shm.array
+
         (
             abs_slc,
-            buf_slc,
-            iv_arr,
+            read_slc,
+            mask,
         ) = self.slice_from_time(
+            arr,
             start_t=vr.left(),
             stop_t=vr.right(),
             timeframe_s=timeframe_s,
-            return_data=True,
         )
-        return iv_arr
+        return (
+            abs_slc,
+            read_slc,
+            arr[mask] if mask is not None else arr,
+        )
