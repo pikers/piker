@@ -190,6 +190,8 @@ def ds_m4(
     if xrange is None:
         x_end = x[-1]  # x end value/highest in domain
         xrange = (x_end - x_start)
+        if xrange < 0:
+            breakpoint()
 
     # XXX: always round up on the input pixels
     # lnx = len(x)
