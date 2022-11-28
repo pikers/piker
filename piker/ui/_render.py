@@ -140,7 +140,7 @@ def render_baritems(
     # - if instead we are in a downsamplig state then we to
     x_gt = 6
     uppx = curve.x_uppx()
-    print(f'BARS UPPX: {uppx}')
+    # print(f'BARS UPPX: {uppx}')
     in_line = should_line = curve.isVisible()
     if (
         in_line
@@ -280,26 +280,25 @@ class Viz(msgspec.Struct):  # , frozen=True):
         arr = shm.array
 
         # get relative slice indexes into array
-        (
-            abs_slc,
-            read_slc,
-            mask,
-        ) = self.flume.slice_from_time(
-            arr,
-            start_t=lbar,
-            stop_t=rbar,
-        )
+        # (
+        #     abs_slc,
+        #     read_slc,
+        #     mask,
+        # ) = self.flume.slice_from_time(
+        #     arr,
+        #     start_t=lbar,
+        #     stop_t=rbar,
+        # )
+        # slice_view = arr[mask]
 
         # TODO: should we just add/use a method
         # on the shm to do this?
 
-        # ifirst = arr[0]['index']
-        # slice_view = arr[
-        #     lbar - ifirst:
-        #     (rbar - ifirst) + 1
-        # ]
-
-        slice_view = arr[mask]
+        ifirst = arr[0]['index']
+        slice_view = arr[
+            lbar - ifirst:
+            (rbar - ifirst) + 1
+        ]
 
         if not slice_view.size:
             return None
@@ -349,7 +348,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
     def datums_range(
         self,
-        index_field: str = 'time',
+        index_field: str = 'index',
 
     ) -> tuple[
         int, int, int, int, int, int
@@ -359,11 +358,11 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         '''
         l, r = self.view_range()
-        l = round(l)
-        r = round(r)
 
-        # # TODO: avoid this and have shm passed
-        # # in earlier.
+        if index_field == 'index':
+            l, r = round(l), round(r)
+
+        # # TODO: avoid this and have shm passed in earlier?
         # if self.shm is None:
         #     # haven't initialized the viz yet
         #     return (0, l, 0, 0, r, 0)
@@ -383,22 +382,14 @@ class Viz(msgspec.Struct):  # , frozen=True):
             stop,
         )
 
-    def bars_range(self) -> tuple[int, int, int, int]:
-        '''
-        Return a range tuple for the bars present in view.
-
-        '''
-        start, l, datum_start, datum_stop, r, stop = self.datums_range()
-        return l, datum_start, datum_stop, r
-
     def read(
         self,
         array_field: Optional[str] = None,
-        index_field: str = 'time',
+        index_field: str = 'index',
 
     ) -> tuple[
-            int, int, np.ndarray,
-            int, int, np.ndarray,
+        int, int, np.ndarray,
+        int, int, np.ndarray,
     ]:
         '''
         Read the underlying shm array buffer and
@@ -410,10 +401,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # readable data
         array = self.shm.array
 
-        # indexes = array[index_field]
-        # ifirst = indexes[0]
-        # ilast = indexes[-1]
-
         (
             ifirst,
             l,
@@ -423,35 +410,39 @@ class Viz(msgspec.Struct):  # , frozen=True):
             ilast,
         ) = self.datums_range(index_field=index_field)
 
-        (
-            abs_slc,
-            read_slc,
-            mask,
-        ) = self.flume.slice_from_time(
-            array,
-            start_t=lbar,
-            stop_t=rbar,
-        )
+        abs_slc = slice(ifirst, ilast)
 
-        # (
-        #     abs_slc,
-        #     read_slc,
-        #     in_view,
-        # ) = self.flume.view_data(
-        #     self.plot,
-        # )
-        # get read-relative indices adjusting
-        # for master shm index.
-        # lbar_i = max(l, ifirst) - ifirst
-        # rbar_i = min(r, ilast) - ifirst
-        in_view = array[read_slc]
+        # TODO: support time slicing
+        if index_field == 'time':
+            (
+                abs_slc,
+                read_slc,
+                mask,
+            ) = self.flume.slice_from_time(
+                array,
+                start_t=lbar,
+                stop_t=rbar,
+            )
+            in_view = array[read_slc]
+
+        # array-index slicing
+        # TODO: can we do time based indexing using arithmetic presuming
+        # a uniform time stamp step size?
+        else:
+            # get read-relative indices adjusting for master shm index.
+            lbar_i = max(l, ifirst) - ifirst
+            rbar_i = min(r, ilast) - ifirst
+
+            # NOTE: the slice here does NOT include the extra ``+ 1``
+            # BUT the ``in_view`` slice DOES..
+            read_slc = slice(lbar_i, rbar_i)
+            in_view = array[lbar_i: rbar_i + 1]
+
+            # XXX: same as ^
+            # to_draw = array[lbar - ifirst:(rbar - ifirst) + 1]
 
         if array_field:
             array = array[array_field]
-
-        # TODO: we could do it this way as well no?
-        # to_draw = array[lbar - ifirst:(rbar - ifirst) + 1]
-        # in_view = array[lbar_i: rbar_i + 1]
 
         return (
             # abs indices + full data set
