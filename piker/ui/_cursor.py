@@ -275,7 +275,7 @@ class ContentsLabels:
         for chart, name, label, update in self._labels:
 
             viz = chart.get_viz(name)
-            array = flow.shm.array
+            array = viz.shm.array
 
             if not (
                 index >= 0
