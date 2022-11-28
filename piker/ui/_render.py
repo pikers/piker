@@ -129,12 +129,18 @@ def render_baritems(
 
     ds_r, curve = self._render_table
 
+    # print(
+    #     f'r: {r.fmtr.xy_slice}\n'
+    #     f'ds_r: {ds_r.fmtr.xy_slice}\n'
+    # )
+
     # do checks for whether or not we require downsampling:
     # - if we're **not** downsampling then we simply want to
     #   render the bars graphics curve and update..
     # - if instead we are in a downsamplig state then we to
     x_gt = 6
     uppx = curve.x_uppx()
+    print(f'BARS UPPX: {uppx}')
     in_line = should_line = curve.isVisible()
     if (
         in_line
@@ -241,9 +247,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
     # to the underlying shm ref after startup?
     # _shm: Optional[ShmArray] = None  # currently, may be filled in "later"
 
-    # last read from shm (usually due to an update call)
-    _last_read: Optional[np.ndarray] = None
-
     # cache of y-range values per x-range input.
     _mxmns: dict[tuple[int, int], tuple[float, float]] = {}
 
@@ -263,6 +266,8 @@ class Viz(msgspec.Struct):  # , frozen=True):
         if no range can be determined (yet).
 
         '''
+        # TODO: hash the slice instead maybe?
+        # https://stackoverflow.com/a/29980872
         rkey = (lbar, rbar)
         cached_result = self._mxmns.get(rkey)
         if cached_result:
@@ -274,14 +279,27 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         arr = shm.array
 
-        # build relative indexes into shm array
+        # get relative slice indexes into array
+        (
+            abs_slc,
+            read_slc,
+            mask,
+        ) = self.flume.slice_from_time(
+            arr,
+            start_t=lbar,
+            stop_t=rbar,
+        )
+
         # TODO: should we just add/use a method
         # on the shm to do this?
-        ifirst = arr[0]['index']
-        slice_view = arr[
-            lbar - ifirst:
-            (rbar - ifirst) + 1
-        ]
+
+        # ifirst = arr[0]['index']
+        # slice_view = arr[
+        #     lbar - ifirst:
+        #     (rbar - ifirst) + 1
+        # ]
+
+        slice_view = arr[mask]
 
         if not slice_view.size:
             return None
@@ -321,9 +339,18 @@ class Viz(msgspec.Struct):  # , frozen=True):
             vr.right(),
         )
 
+    def bars_range(self) -> tuple[int, int, int, int]:
+        '''
+        Return a range tuple for the bars present in view.
+
+        '''
+        start, l, datum_start, datum_stop, r, stop = self.datums_range()
+        return l, datum_start, datum_stop, r
+
     def datums_range(
         self,
-        index_field: str = 'index',
+        index_field: str = 'time',
+
     ) -> tuple[
         int, int, int, int, int, int
     ]:
@@ -335,26 +362,39 @@ class Viz(msgspec.Struct):  # , frozen=True):
         l = round(l)
         r = round(r)
 
-        # TODO: avoid this and have shm passed
-        # in earlier.
-        if self.shm is None:
-            # haven't initialized the viz yet
-            return (0, l, 0, 0, r, 0)
+        # # TODO: avoid this and have shm passed
+        # # in earlier.
+        # if self.shm is None:
+        #     # haven't initialized the viz yet
+        #     return (0, l, 0, 0, r, 0)
 
         array = self.shm.array
-        index = array['index']
+        index = array[index_field]
         start = index[0]
-        end = index[-1]
-        lbar = max(l, start)
-        rbar = min(r, end)
+        stop = index[-1]
+        datum_start = max(l, start)
+        datum_stop = min(r, stop)
         return (
-            start, l, lbar, rbar, r, end,
+            start,
+            l,  # left x-in-view
+            datum_start,
+            datum_stop,
+            r,  # right-x-in-view
+            stop,
         )
+
+    def bars_range(self) -> tuple[int, int, int, int]:
+        '''
+        Return a range tuple for the bars present in view.
+
+        '''
+        start, l, datum_start, datum_stop, r, stop = self.datums_range()
+        return l, datum_start, datum_stop, r
 
     def read(
         self,
         array_field: Optional[str] = None,
-        index_field: str = 'index',
+        index_field: str = 'time',
 
     ) -> tuple[
             int, int, np.ndarray,
@@ -370,30 +410,59 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # readable data
         array = self.shm.array
 
-        indexes = array[index_field]
-        ifirst = indexes[0]
-        ilast = indexes[-1]
+        # indexes = array[index_field]
+        # ifirst = indexes[0]
+        # ilast = indexes[-1]
 
-        ifirst, l, lbar, rbar, r, ilast = self.datums_range()
+        (
+            ifirst,
+            l,
+            lbar,
+            rbar,
+            r,
+            ilast,
+        ) = self.datums_range(index_field=index_field)
 
+        (
+            abs_slc,
+            read_slc,
+            mask,
+        ) = self.flume.slice_from_time(
+            array,
+            start_t=lbar,
+            stop_t=rbar,
+        )
+
+        # (
+        #     abs_slc,
+        #     read_slc,
+        #     in_view,
+        # ) = self.flume.view_data(
+        #     self.plot,
+        # )
         # get read-relative indices adjusting
         # for master shm index.
-        lbar_i = max(l, ifirst) - ifirst
-        rbar_i = min(r, ilast) - ifirst
+        # lbar_i = max(l, ifirst) - ifirst
+        # rbar_i = min(r, ilast) - ifirst
+        in_view = array[read_slc]
 
         if array_field:
             array = array[array_field]
 
         # TODO: we could do it this way as well no?
         # to_draw = array[lbar - ifirst:(rbar - ifirst) + 1]
-        in_view = array[lbar_i: rbar_i + 1]
+        # in_view = array[lbar_i: rbar_i + 1]
 
         return (
             # abs indices + full data set
-            ifirst, ilast, array,
+            abs_slc.start,
+            abs_slc.stop,
+            array,
 
-            # relative indices + in view datums
-            lbar_i, rbar_i, in_view,
+            # relative (read) indices + in view data
+            read_slc.start,
+            read_slc.stop,
+            in_view,
         )
 
     def update_graphics(
@@ -494,6 +563,9 @@ class Viz(msgspec.Struct):  # , frozen=True):
                             _last_read=read,
                         ),
                     )
+
+        if isinstance(graphics, StepCurve):
+            slice_to_head = -2
 
         # ``Curve`` derivative case(s):
         array_key = array_key or self.name
@@ -681,6 +753,21 @@ class Viz(msgspec.Struct):  # , frozen=True):
         else:
             # print(f'updating NOT DS curve {self.name}')
             g.update()
+
+    def curve_width_pxs(
+        self,
+    ) -> float:
+        '''
+
+        Return the width of the current datums in view in pixel units.
+        '''
+        _, lbar, rbar, _ = self.bars_range()
+        return self.view.mapViewToDevice(
+            QLineF(
+                lbar, 0,
+                rbar, 0
+            )
+        ).length()
 
 
 class Renderer(msgspec.Struct):
