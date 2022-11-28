@@ -76,7 +76,6 @@ async def handle_viewmode_kb_inputs(
     pressed: set[str] = set()
 
     last = time.time()
-    trigger_mode: str
     action: str
 
     on_next_release: Optional[Callable] = None
@@ -495,7 +494,7 @@ class ChartView(ViewBox):
         chart = self.linked.chart
 
         # don't zoom more then the min points setting
-        l, lbar, rbar, r = chart.bars_range()
+        l, lbar, rbar, r = chart.get_viz(chart.name).bars_range()
         # vl = r - l
 
         # if ev.delta() > 0 and vl <= _min_points_to_show:
