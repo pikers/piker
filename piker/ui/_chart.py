@@ -60,7 +60,7 @@ from ._style import (
     hcolor,
     CHART_MARGINS,
     _xaxis_at,
-    _min_points_to_show,
+    # _min_points_to_show,
 )
 from ..data.feed import (
     Feed,
@@ -951,40 +951,9 @@ class ChartPlotWidget(pg.PlotWidget):
     def focus(self) -> None:
         self.view.setFocus()
 
-    def _set_xlimits(
-        self,
-        xfirst: int,
-        xlast: int
-    ) -> None:
-        """Set view limits (what's shown in the main chart "pane")
-        based on max/min x/y coords.
-        """
-        self.setLimits(
-            xMin=xfirst,
-            xMax=xlast,
-            minXRange=_min_points_to_show,
-        )
-
     def view_range(self) -> tuple[int, int]:
         vr = self.viewRect()
         return int(vr.left()), int(vr.right())
-
-    def bars_range(self) -> tuple[int, int, int, int]:
-        '''
-        Return a range tuple for the bars present in view.
-
-        '''
-        main_flow = self._vizs[self.name]
-        ifirst, l, lbar, rbar, r, ilast = main_flow.datums_range()
-        return l, lbar, rbar, r
-
-    def curve_width_pxs(
-        self,
-    ) -> float:
-        _, lbar, rbar, _ = self.bars_range()
-        return self.view.mapViewToDevice(
-            QLineF(lbar, 0, rbar, 0)
-        ).length()
 
     def pre_l1_xs(self) -> tuple[float, float]:
         '''
@@ -1038,37 +1007,65 @@ class ChartPlotWidget(pg.PlotWidget):
         Set the view box to the "default" startup view of the scene.
 
         '''
-        flow = self._vizs.get(self.name)
-        if not flow:
+        viz = self.get_viz(self.name)
+        if not viz:
             log.warning(f'`Viz` for {self.name} not loaded yet?')
             return
 
-        arr = flow.shm.array
-        index = arr['index']
-        # times = arr['time']
+        renderer = viz._src_r
+        if renderer is None:
+            return
 
-        # these will be epoch time floats
-        xfirst, xlast = index[0], index[-1]
-        l, lbar, rbar, r = self.bars_range()
+        (
+            start,
+            l,
+            datum_start,
+            datum_stop,
+            r,
+            stop,
+        ) = viz.datums_range()
 
-        view = self.view
+        array = viz.shm.array
+        index_field = renderer.fmtr.index_field
+
+        if index_field == 'time':
+            vr = viz.plot.viewRect()
+            (
+                abs_slc,
+                read_slc,
+                mask,
+
+            ) = viz.flume.slice_from_time(
+                array,
+                start_t=vr.left(),
+                stop_t=vr.right(),
+            )
+            iv_arr = array[mask]
+            index = iv_arr['index']
+
+        # these must be array-index-ints (hence the slice from time
+        # above).
+        x_start, x_stop = index[0], index[-1]
+        l, lbar, rbar, r = viz.bars_range()
+        view: ChartView = viz.plot.vb
 
         if (
             rbar < 0
-            or l < xfirst
+            or l < x_start
             or l < 0
             or (rbar - lbar) < 6
         ):
+
             # TODO: set fixed bars count on screen that approx includes as
             # many bars as possible before a downsample line is shown.
-            begin = xlast - bars_from_y
+            begin = x_stop - bars_from_y
             view.setXRange(
                 min=begin,
-                max=xlast,
+                max=x_stop,
                 padding=0,
             )
             # re-get range
-            l, lbar, rbar, r = self.bars_range()
+            l, lbar, rbar, r = viz.bars_range()
 
         # we get the L1 spread label "length" in view coords
         # terms now that we've scaled either by user control
@@ -1076,21 +1073,21 @@ class ChartPlotWidget(pg.PlotWidget):
         # above.
         if not y_offset:
             marker_pos, l1_len = self.pre_l1_xs()
-            end = xlast + l1_len + 1
+            end = x_stop + l1_len + 1
         else:
-            end = xlast + y_offset + 1
+            end = x_stop + y_offset + 1
 
         begin = end - (r - l)
 
         # for debugging
-        # print(
-        #     # f'bars range: {brange}\n'
-        #     f'xlast: {xlast}\n'
-        #     f'marker pos: {marker_pos}\n'
-        #     f'l1 len: {l1_len}\n'
-        #     f'begin: {begin}\n'
-        #     f'end: {end}\n'
-        # )
+        print(
+            # f'bars range: {brange}\n'
+            f'x_stop: {x_stop}\n'
+            f'marker pos: {marker_pos}\n'
+            f'l1 len: {l1_len}\n'
+            f'begin: {begin}\n'
+            f'end: {end}\n'
+        )
 
         # remove any custom user yrange setttings
         if self._static_yrange == 'axis':
@@ -1254,17 +1251,17 @@ class ChartPlotWidget(pg.PlotWidget):
                 **graphics_kwargs,
             )
 
-        flow = self._vizs[data_key] = Viz(
+        viz = self._vizs[data_key] = Viz(
             data_key,
             pi,
             shm,
             flume,
 
             is_ohlc=is_ohlc,
-            # register curve graphics with this flow
+            # register curve graphics with this viz
             graphics=graphics,
         )
-        assert isinstance(flow.shm, ShmArray)
+        assert isinstance(viz.shm, ShmArray)
 
         # TODO: this probably needs its own method?
         if overlay:
@@ -1321,7 +1318,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # understand.
         pi.addItem(graphics)
 
-        return flow
+        return viz
 
     def draw_ohlc(
         self,
@@ -1446,6 +1443,7 @@ class ChartPlotWidget(pg.PlotWidget):
                 r,
                 last,
             ) = bars_range or viz.datums_range()
+
             profiler(f'{self.name} got bars range')
 
             key = round(lbar), round(rbar)
@@ -1470,4 +1468,4 @@ class ChartPlotWidget(pg.PlotWidget):
         self,
         key: str,
     ) -> Viz:
-        return self._vizs[key]
+        return self._vizs.get(key)
