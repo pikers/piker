@@ -833,6 +833,7 @@ async def open_vlm_displays(
                 names: list[str],
                 pi: pg.PlotItem,
                 shm: ShmArray,
+                flume: Flume,
                 step_mode: bool = False,
                 style: str = 'solid',
 
@@ -872,6 +873,7 @@ async def open_vlm_displays(
                 fields,
                 dvlm_pi,
                 dvlm_flume.rt_shm,
+                dvlm_flume,
                 step_mode=True,
             )
 
@@ -940,6 +942,7 @@ async def open_vlm_displays(
                 trade_rate_fields,
                 tr_pi,
                 fr_flume.rt_shm,
+                fr_flume,
                 # step_mode=True,
 
                 # dashed line to represent "individual trades" being
