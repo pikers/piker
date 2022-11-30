@@ -232,7 +232,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
     is_ohlc: bool = False
     render: bool = True  # toggle for display loop
 
-    _index_field: str = 'time'
+    _index_field: str = 'index'
 
     # downsampling state
     _last_uppx: float = 0
