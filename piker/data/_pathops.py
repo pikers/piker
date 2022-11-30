@@ -63,18 +63,6 @@ class IncrementalFormatter(msgspec.Struct):
     viz: Viz
     index_field: str = 'index'
 
-    # last read from shm (usually due to an update call)
-    _last_read: tuple[
-        int,
-        int,
-        np.ndarray
-
-    ]
-
-    @property
-    def last_read(self) -> tuple | None:
-        return self._last_read
-
     # Incrementally updated xy ndarray formatted data, a pre-1d
     # format which is updated and cached independently of the final
     # pre-graphics-path 1d format.
@@ -98,8 +86,8 @@ class IncrementalFormatter(msgspec.Struct):
     # indexes which slice into the above arrays (which are allocated
     # based on source data shm input size) and allow retrieving
     # incrementally updated data.
-    xy_nd_start: int = 0
-    xy_nd_stop: int = 0
+    xy_nd_start: int | None = None
+    xy_nd_stop: int | None = None
 
     # TODO: eventually incrementally update 1d-pre-graphics path data?
     # x_1d: Optional[np.ndarray] = None
@@ -143,17 +131,14 @@ class IncrementalFormatter(msgspec.Struct):
         np.ndarray,
         np.ndarray,
     ]:
-        (
-            last_xfirst,
-            last_xlast,
-            last_array,
-            last_ivl,
-            last_ivr,
-            last_in_view,
-        ) = self.last_read
 
-        # TODO: can the renderer just call ``Viz.read()`` directly?
-        # unpack latest source data read
+        # TODO:
+        # - can the renderer just call ``Viz.read()`` directly? unpack
+        #   latest source data read
+        # - eventually maybe we can implement some kind of
+        #   transform on the ``QPainterPath`` that will more or less
+        #   detect the diff in "elements" terms? update diff state since
+        #   we've now rendered paths.
         (
             xfirst,
             xlast,
@@ -163,25 +148,42 @@ class IncrementalFormatter(msgspec.Struct):
             in_view,
         ) = new_read
 
+        index = array['index']
+
+        # if the first index in the read array is 0 then
+        # it means the source buffer has bee completely backfilled to
+        # available space.
+        src_start = index[0]
+        src_stop = index[-1] + 1
+
+        # these are the "formatted output data" indices
+        # for the pre-graphics arrays.
+        nd_start = self.xy_nd_start
+        nd_stop = self.xy_nd_stop
+
+        if (
+            nd_start is None
+        ):
+            assert nd_stop is None
+
+            # setup to do a prepend of all existing src history
+            nd_start = self.xy_nd_start = src_stop
+            # set us in a zero-to-append state
+            nd_stop = self.xy_nd_stop = src_stop
+
         # compute the length diffs between the first/last index entry in
         # the input data and the last indexes we have on record from the
         # last time we updated the curve index.
-        prepend_length = int(last_xfirst - xfirst)
-        append_length = int(xlast - last_xlast)
-
-        # if (
-        #     prepend_length < 0
-        #     or append_length < 0
-        # ):
-        #     breakpoint()
+        prepend_length = int(nd_start - src_start)
+        append_length = int(src_stop - nd_stop)
 
         # blah blah blah
         # do diffing for prepend, append and last entry
         return (
-            slice(xfirst, last_xfirst),
+            slice(src_start, nd_start),
             prepend_length,
             append_length,
-            slice(last_xlast, xlast),
+            slice(nd_stop, src_stop),
         )
 
     def _track_inview_range(
@@ -232,7 +234,6 @@ class IncrementalFormatter(msgspec.Struct):
         array_key: str,
         profiler: Profiler,
 
-        slice_to_head: int = -1,
         read_src_from_key: bool = True,
         slice_to_inview: bool = True,
 
@@ -310,12 +311,6 @@ class IncrementalFormatter(msgspec.Struct):
             self.xy_nd_stop = shm._last.value
             profiler('appened xy history: {append_length}')
 
-        # TODO: eventually maybe we can implement some kind of
-        # transform on the ``QPainterPath`` that will more or less
-        # detect the diff in "elements" terms?
-        # update diff state since we've now rendered paths.
-        self._last_read = new_read
-
         view_changed: bool = False
         view_range: tuple[int, int] = (ivl, ivr)
         if slice_to_inview:
@@ -364,7 +359,7 @@ class IncrementalFormatter(msgspec.Struct):
 
         # update the last "in view data range"
         if len(x_1d):
-            self._last_ivdr = x_1d[0], x_1d[slice_to_head]
+            self._last_ivdr = x_1d[0], x_1d[-1]
             if (x_1d[-1] == 0.5).any():
                 breakpoint()
 
@@ -757,40 +752,61 @@ class StepCurveFmtr(IncrementalFormatter):
         np.ndarray,
         slice,
     ]:
-        # for a step curve we slice from one datum prior
+        # NOTE: for a step curve we slice from one datum prior
         # to the current "update slice" to get the previous
         # "level".
-        last_2 = slice(
-            read_slc.start,
-            read_slc.stop+1,
+        #
+        # why this is needed,
+        # - the current new append slice will often have a zero
+        #   value in the latest datum-step (at least for zero-on-new
+        #   cases like vlm in the) as per configuration of the FSP
+        #   engine.
+        # - we need to look back a datum to get the last level which
+        #   will be used to terminate/complete the last step x-width
+        #   which will be set to pair with the last x-index THIS MEANS
+        #
+        # XXX: this means WE CAN'T USE the append slice since we need to
+        # "look backward" one step to get the needed back-to-zero level
+        # and the update data in ``new_from_src`` will only contain the
+        # latest new data.
+        back_1 = slice(
+            read_slc.start - 1,
+            read_slc.stop,
         )
-        y_nd_new = self.y_nd[last_2]
-        y_nd_new[:] = src_shm._array[last_2][array_key][:, None]
 
-        # NOTE: we can't use the append slice since we need to "look
-        # forward" one step to get the current level and copy it as
-        # well? (though i still don't really grok why..)
-        # y_nd_new[:] = new_from_src[array_key][:, None]
+        to_write = src_shm._array[back_1]
+        y_nd_new = self.y_nd[back_1]
+        y_nd_new[:] = to_write[array_key][:, None]
 
-        # XXX: old approach now duplicated above (we can probably drop
-        # this since the key part was the ``nd_stop + 1``
-        # if is_append:
-        #     start = max(nd_stop - 1, 0)
-        #     end = src_shm._last.value
-        #     y_nd_new = src_shm._array[start:end][array_key]#[:, np.newaxis]
-        #     slc = slice(start, end)
-        #     self.y_nd[slc] = np.broadcast_to(
-        #         y_nd_new[:, None],
-        #         (y_nd_new.size, 2),
+        x_nd_new = self.x_nd[read_slc]
+        x_nd_new[:] = (
+            new_from_src[self.index_field][:, None]
+            +
+            np.array([-0.5, 0.5])
+        )
+
+        # XXX: uncomment for debugging
+        # x_nd = self.x_nd[self.xy_slice]
+        # y_nd = self.y_nd[self.xy_slice]
+        # name = self.viz.name
+        # if 'dolla_vlm' in name:
+        #     s = 4
+        #     print(
+        #         f'{name}:\n'
+        #         'NEW_FROM_SRC:\n'
+        #         f'new_from_src: {new_from_src}\n\n'
+
+        #         f'PRE self.x_nd:'
+        #         f'\n{x_nd[-s:]}\n'
+        #         f'PRE self.y_nd:\n'
+        #         f'{y_nd[-s:]}\n\n'
+
+        #         f'TO WRITE:\n'
+        #         f'x_nd_new:\n'
+        #         f'{x_nd_new}\n'
+        #         f'y_nd_new:\n'
+        #         f'{y_nd_new}\n'
         #     )
-
-        index_field = self.index_field
-        if index_field != 'index':
-            x_nd_new = self.x_nd[read_slc]
-            x_nd_new[:] = new_from_src[index_field][:, np.newaxis]
-
-        # if (self.x_nd[self.xy_slice][-1] == 0.5).any():
-        #     breakpoint()
 
     def format_xy_nd_to_1d(
         self,
@@ -812,15 +828,10 @@ class StepCurveFmtr(IncrementalFormatter):
         x_step = self.x_nd[start:stop]
         y_step = self.y_nd[start:stop]
 
-        # if (x_step[-1] == 0.5).any():
-        #     breakpoint()
-
         # pack in duplicate final value to complete last step level
-        # x_step[-1] = last_t
-        # y_step[-1] = last
-        # x_step[-1, 1] = last_t
         y_step[-1, 1] = last
 
+        # debugging
         # if y_step.any():
         #     s = 3
         #     print(
@@ -830,7 +841,9 @@ class StepCurveFmtr(IncrementalFormatter):
 
         # slice out in-view data
         ivl, ivr = vr
-        # TODO: WHY do we need the extra +1 index?
+
+        # NOTE: add an extra step to get the vertical-line-down-to-zero
+        # adjacent to the last-datum graphic (filled rect).
         x_step_iv = x_step[ivl:ivr+1]
         y_step_iv = y_step[ivl:ivr+1]
 
@@ -844,6 +857,7 @@ class StepCurveFmtr(IncrementalFormatter):
         if x_1d.any() and (x_1d[-1] == 0.5).any():
             breakpoint()
 
+        # debugging
         # if y_1d.any():
         #     s = 6
         #     print(
