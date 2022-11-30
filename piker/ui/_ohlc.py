@@ -59,8 +59,8 @@ def bar_from_ohlc_row(
     OHLC "bar" for use in the "last datum" of a series.
 
     '''
-    open, high, low, close, index = row[
-        ['open', 'high', 'low', 'close', 'index']]
+    open, high, low, close, index = row  #[fields]
+        # ['open', 'high', 'low', 'close', 'index']]
 
     # TODO: maybe consider using `QGraphicsLineItem` ??
     # gives us a ``.boundingRect()`` on the objects which may make
@@ -217,30 +217,33 @@ class BarItems(pg.GraphicsObject):
         render_data: np.ndarray,
         reset: bool,
         array_key: str,
-
-        fields: list[str] = [
-            'index',
-            'open',
-            'high',
-            'low',
-            'close',
-        ],
+        index_field: str,
 
     ) -> None:
 
         # relevant fields
+        fields: list[str] = [
+            'open',
+            'high',
+            'low',
+            'close',
+            index_field,
+        ]
         ohlc = src_data[fields]
         # last_row = ohlc[-1:]
 
         # individual values
-        last_row = i, o, h, l, last = ohlc[-1]
+        last_row = o, h, l, last, i = ohlc[-1]
 
         # times = src_data['time']
         # if times[-1] - times[-2]:
         #     breakpoint()
 
         # generate new lines objects for updatable "current bar"
-        self._last_bar_lines = bar_from_ohlc_row(last_row)
+        self._last_bar_lines = bar_from_ohlc_row(
+            last_row,
+            # fields,
+        )
 
         # assert i == graphics.start_index - 1
         # assert i == last_index
@@ -270,4 +273,4 @@ class BarItems(pg.GraphicsObject):
             # because i've seen it do this to bars i - 3 back?
 
         # return ohlc['time'], ohlc['close']
-        return ohlc['index'], ohlc['close']
+        return ohlc[index_field], ohlc['close']
