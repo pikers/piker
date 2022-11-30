@@ -79,14 +79,14 @@ def has_vlm(ohlcv: ShmArray) -> bool:
 
 def update_fsp_chart(
     chart: ChartPlotWidget,
-    flow,
+    viz,
     graphics_name: str,
     array_key: Optional[str],
     **kwargs,
 
 ) -> None:
 
-    shm = flow.shm
+    shm = viz.shm
     if not shm:
         return
 
@@ -666,7 +666,7 @@ async def open_vlm_displays(
         shm = ohlcv
         ohlc_chart = linked.chart
 
-        chart = linked.add_plot(
+        vlm_chart = linked.add_plot(
             name='volume',
             shm=shm,
             flume=flume,
@@ -682,10 +682,12 @@ async def open_vlm_displays(
             # the curve item internals are pretty convoluted.
             style='step',
         )
+        vlm_chart.view.enable_auto_yrange()
+
         # back-link the volume chart to trigger y-autoranging
         # in the ohlc (parent) chart.
         ohlc_chart.view.enable_auto_yrange(
-            src_vb=chart.view,
+            src_vb=vlm_chart.view,
         )
 
         # force 0 to always be in view
@@ -707,7 +709,7 @@ async def open_vlm_displays(
             '''
             mx = 0
             for name in names:
-                ymn, ymx = chart.maxmin(name=name)
+                ymn, ymx = vlm_chart.maxmin(name=name)
                 mx = max(mx, ymx)
 
             return 0, mx
@@ -715,34 +717,33 @@ async def open_vlm_displays(
         # TODO: fix the x-axis label issue where if you put
         # the axis on the left it's totally not lined up...
         # show volume units value on LHS (for dinkus)
-        # chart.hideAxis('right')
-        # chart.showAxis('left')
+        # vlm_chart.hideAxis('right')
+        # vlm_chart.showAxis('left')
 
         # send back new chart to caller
-        task_status.started(chart)
+        task_status.started(vlm_chart)
 
         # should **not** be the same sub-chart widget
-        assert chart.name != linked.chart.name
+        assert vlm_chart.name != linked.chart.name
 
         # sticky only on sub-charts atm
-        last_val_sticky = chart.plotItem.getAxis(
-            'right')._stickies.get(chart.name)
+        last_val_sticky = vlm_chart.plotItem.getAxis(
+            'right')._stickies.get(vlm_chart.name)
 
         # read from last calculated value
         value = shm.array['volume'][-1]
 
         last_val_sticky.update_from_data(-1, value)
 
-        vlm_curve = chart.update_graphics_from_flow(
+        vlm_curve = vlm_chart.update_graphics_from_flow(
             'volume',
-            # shm.array,
         )
 
         # size view to data once at outset
-        chart.view._set_yrange()
+        vlm_chart.view._set_yrange()
 
         # add axis title
-        axis = chart.getAxis('right')
+        axis = vlm_chart.getAxis('right')
         axis.set_title(' vlm')
 
         if dvlm:
@@ -782,7 +783,7 @@ async def open_vlm_displays(
             # XXX: the main chart already contains a vlm "units" axis
             # so here we add an overlay wth a y-range in
             # $ liquidity-value units (normally a fiat like USD).
-            dvlm_pi = chart.overlay_plotitem(
+            dvlm_pi = vlm_chart.overlay_plotitem(
                 'dolla_vlm',
                 index=0,  # place axis on inside (nearest to chart)
                 axis_title=' $vlm',
@@ -850,7 +851,7 @@ async def open_vlm_displays(
                     assert isinstance(shm, ShmArray)
                     assert isinstance(flume, Flume)
 
-                    flow = chart.draw_curve(
+                    viz = vlm_chart.draw_curve(
                         name,
                         shm,
                         flume,
@@ -861,13 +862,7 @@ async def open_vlm_displays(
                         style=style,
                         pi=pi,
                     )
-
-                    # TODO: we need a better API to do this..
-                    # specially store ref to shm for lookup in display loop
-                    # since only a placeholder of `None` is entered in
-                    # ``.draw_curve()``.
-                    # viz = chart._vizs[name]
-                    assert flow.plot is pi
+                    assert viz.plot is pi
 
             chart_curves(
                 fields,
@@ -902,17 +897,17 @@ async def open_vlm_displays(
             # displayed and the curves are effectively the same minus
             # liquidity events (well at least on low OHLC periods - 1s).
             vlm_curve.hide()
-            chart.removeItem(vlm_curve)
-            vflow = chart._vizs['volume']
-            vflow.render = False
+            vlm_chart.removeItem(vlm_curve)
+            vlm_viz = vlm_chart._vizs['volume']
+            vlm_viz.render = False
 
             # avoid range sorting on volume once disabled
-            # chart.view.disable_auto_yrange()
+            vlm_chart.view.disable_auto_yrange()
 
             # Trade rate overlay
             # XXX: requires an additional overlay for
             # a trades-per-period (time) y-range.
-            tr_pi = chart.overlay_plotitem(
+            tr_pi = vlm_chart.overlay_plotitem(
                 'trade_rates',
 
                 # TODO: dynamically update period (and thus this axis?)
