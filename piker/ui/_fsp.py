@@ -907,7 +907,7 @@ async def open_vlm_displays(
             vflow.render = False
 
             # avoid range sorting on volume once disabled
-            chart.view.disable_auto_yrange()
+            # chart.view.disable_auto_yrange()
 
             # Trade rate overlay
             # XXX: requires an additional overlay for
