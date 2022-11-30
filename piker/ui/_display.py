@@ -1438,5 +1438,8 @@ async def display_symbol_data(
                 rt_linked.mode = mode
 
                 rt_chart.default_view()
+                rt_chart.view.enable_auto_yrange()
                 hist_chart.default_view()
+                hist_chart.view.enable_auto_yrange()
+
                 await trio.sleep_forever()  # let the app run.. bby
