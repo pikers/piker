@@ -169,11 +169,11 @@ class IncrementalFormatter(msgspec.Struct):
         prepend_length = int(last_xfirst - xfirst)
         append_length = int(xlast - last_xlast)
 
-        if (
-            prepend_length < 0
-            or append_length < 0
-        ):
-            breakpoint()
+        # if (
+        #     prepend_length < 0
+        #     or append_length < 0
+        # ):
+        #     breakpoint()
 
         # blah blah blah
         # do diffing for prepend, append and last entry
@@ -789,8 +789,8 @@ class StepCurveFmtr(IncrementalFormatter):
             x_nd_new = self.x_nd[read_slc]
             x_nd_new[:] = new_from_src[index_field][:, np.newaxis]
 
-        if (self.x_nd[self.xy_slice][-1] == 0.5).any():
-            breakpoint()
+        # if (self.x_nd[self.xy_slice][-1] == 0.5).any():
+        #     breakpoint()
 
     def format_xy_nd_to_1d(
         self,
