@@ -274,7 +274,7 @@ class Flume(Struct):
         # time range to the index range.
         mask: np.ndarray = (
             (times >= start_t)
-            &
+            |  # fml, i guess it's not an `&` ??
             (times < stop_t)
         )
 
@@ -313,7 +313,7 @@ class Flume(Struct):
         # slice data by offset from the first index
         # available in the passed datum set.
         read_slc = slice(
-            0,
+            i_0 - index[0],
             i_by_t[-1] - i_0,
         )
 
@@ -324,6 +324,8 @@ class Flume(Struct):
             mask,
         )
 
+    # TODO: maybe move this our ``Viz`` type to avoid
+    # the shm lookup discrepancy?
     def view_data(
         self,
         plot: PlotItem,
@@ -352,7 +354,6 @@ class Flume(Struct):
             arr,
             start_t=vr.left(),
             stop_t=vr.right(),
-            timeframe_s=timeframe_s,
         )
         return (
             abs_slc,
