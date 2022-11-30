@@ -233,6 +233,36 @@ class Label:
     def delete(self) -> None:
         self.vb.scene().removeItem(self.txt)
 
+    # NOTE: pulled out from ``ChartPlotWidget`` from way way old code.
+    # def _label_h(self, yhigh: float, ylow: float) -> float:
+    #     # compute contents label "height" in view terms
+    #     # to avoid having data "contents" overlap with them
+    #     if self._labels:
+    #         label = self._labels[self.name][0]
+
+    #         rect = label.itemRect()
+    #         tl, br = rect.topLeft(), rect.bottomRight()
+    #         vb = self.plotItem.vb
+
+    #         try:
+    #             # on startup labels might not yet be rendered
+    #             top, bottom = (vb.mapToView(tl).y(), vb.mapToView(br).y())
+
+    #             # XXX: magic hack, how do we compute exactly?
+    #             label_h = (top - bottom) * 0.42
+
+    #         except np.linalg.LinAlgError:
+    #             label_h = 0
+    #     else:
+    #         label_h = 0
+
+    #     # print(f'label height {self.name}: {label_h}')
+
+    #     if label_h > yhigh - ylow:
+    #         label_h = 0
+
+    #     print(f"bounds (ylow, yhigh): {(ylow, yhigh)}")
+
 
 class FormatLabel(QLabel):
     '''
