@@ -103,6 +103,7 @@ def render_baritems(
                 shm=viz.shm,
                 viz=viz,
                 _last_read=read,
+                index_field=viz.index_field,
             ),
         )
 
@@ -112,6 +113,7 @@ def render_baritems(
                 shm=viz.shm,
                 viz=viz,
                 _last_read=read,
+                index_field=viz.index_field,
             ),
         )
 
@@ -230,6 +232,8 @@ class Viz(msgspec.Struct):  # , frozen=True):
     is_ohlc: bool = False
     render: bool = True  # toggle for display loop
 
+    _index_field: str = 'index'
+
     # downsampling state
     _last_uppx: float = 0
     _in_ds: bool = False
@@ -253,6 +257,10 @@ class Viz(msgspec.Struct):  # , frozen=True):
     @property
     def shm(self) -> ShmArray:
         return self._shm
+
+    @property
+    def index_field(self) -> str:
+        return self._index_field
 
     def maxmin(
         self,
@@ -280,25 +288,24 @@ class Viz(msgspec.Struct):  # , frozen=True):
         arr = shm.array
 
         # get relative slice indexes into array
-        # (
-        #     abs_slc,
-        #     read_slc,
-        #     mask,
-        # ) = self.flume.slice_from_time(
-        #     arr,
-        #     start_t=lbar,
-        #     stop_t=rbar,
-        # )
-        # slice_view = arr[mask]
+        if self.index_field == 'time':
+            (
+                abs_slc,
+                read_slc,
+                mask,
+            ) = self.flume.slice_from_time(
+                arr,
+                start_t=lbar,
+                stop_t=rbar,
+            )
+            slice_view = arr[mask]
 
-        # TODO: should we just add/use a method
-        # on the shm to do this?
-
-        ifirst = arr[0]['index']
-        slice_view = arr[
-            lbar - ifirst:
-            (rbar - ifirst) + 1
-        ]
+        else:
+            ifirst = arr[0]['index']
+            slice_view = arr[
+                lbar - ifirst:
+                (rbar - ifirst) + 1
+            ]
 
         if not slice_view.size:
             return None
@@ -318,7 +325,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 yhigh = np.max(view)
 
             mxmn = ylow, yhigh
-            # print(f'{self.name} MANUAL maxmin: {mxmin}')
+            # print(f'{self.name} MANUAL maxmin: {mxmn}')
 
         # cache result for input range
         assert mxmn
@@ -348,7 +355,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
     def datums_range(
         self,
-        index_field: str = 'index',
+        index_field: str | None = None,
 
     ) -> tuple[
         int, int, int, int, int, int
@@ -359,20 +366,30 @@ class Viz(msgspec.Struct):  # , frozen=True):
         '''
         l, r = self.view_range()
 
+        index_field: str = index_field or self.index_field
         if index_field == 'index':
             l, r = round(l), round(r)
-
-        # # TODO: avoid this and have shm passed in earlier?
-        # if self.shm is None:
-        #     # haven't initialized the viz yet
-        #     return (0, l, 0, 0, r, 0)
 
         array = self.shm.array
         index = array[index_field]
         start = index[0]
         stop = index[-1]
-        datum_start = max(l, start)
-        datum_stop = min(r, stop)
+
+        if (
+            l < 0
+            or r < l
+            or l < start
+        ):
+            datum_start = start
+            datum_stop = stop
+        else:
+            datum_start = max(l, start)
+            datum_stop = r
+            if l < stop:
+                datum_stop = min(r, stop)
+
+        assert datum_start < datum_stop
+
         return (
             start,
             l,  # left x-in-view
@@ -385,7 +402,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
     def read(
         self,
         array_field: Optional[str] = None,
-        index_field: str = 'index',
+        index_field: str | None = None,
 
     ) -> tuple[
         int, int, np.ndarray,
@@ -398,6 +415,8 @@ class Viz(msgspec.Struct):  # , frozen=True):
         which has been written to.
 
         '''
+        index_field: str = index_field or self.index_field
+
         # readable data
         array = self.shm.array
 
@@ -409,6 +428,8 @@ class Viz(msgspec.Struct):  # , frozen=True):
             r,
             ilast,
         ) = self.datums_range(index_field=index_field)
+        # if rbar < lbar:
+        #     breakpoint()
 
         abs_slc = slice(ifirst, ilast)
 
@@ -424,6 +445,17 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 stop_t=rbar,
             )
             in_view = array[read_slc]
+
+            # diff = rbar - lbar
+            # if (
+            #     'btc' in self.name
+            #     and 'hist' not in self.shm.token
+            # ):
+            #     print(
+            #         f'{self.name}: len(iv) = {len(in_view)}\n'
+            #         f'start/stop: {lbar},{rbar}\n',
+            #         f'diff: {diff}\n',
+            #     )
 
         # array-index slicing
         # TODO: can we do time based indexing using arithmetic presuming
@@ -534,6 +566,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
                         shm=self.shm,
                         viz=self,
                         _last_read=read,
+                        index_field=self.index_field,
                     ),
                 )
 
@@ -670,6 +703,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
             data,
             reset,
             array_key,
+            index_field=self.index_field,
         )
         graphics.update()
         profiler('.update()')
@@ -707,6 +741,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
             src_array,
             False,  # never reset path
             array_key,
+            self.index_field,
         )
 
         # the renderer is downsampling we choose
