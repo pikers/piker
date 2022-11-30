@@ -1028,6 +1028,12 @@ class ChartPlotWidget(pg.PlotWidget):
 
         if index_field == 'time':
             vr = viz.plot.viewRect()
+            vtl, vtr = vr.left(), vr.right()
+
+            if vtl < datum_start:
+                vtl = datum_start
+                vtr = datum_stop
+
             (
                 abs_slc,
                 read_slc,
@@ -1035,11 +1041,14 @@ class ChartPlotWidget(pg.PlotWidget):
 
             ) = viz.flume.slice_from_time(
                 array,
-                start_t=vr.left(),
-                stop_t=vr.right(),
+                start_t=vtl,
+                stop_t=vtr,
             )
-            iv_arr = array[mask]
-            index = iv_arr['index']
+            iv_arr = array
+            if mask is not None:
+                iv_arr = array[mask]
+
+            index = iv_arr['time']
 
         else:
             index = array['index']
@@ -1358,8 +1367,8 @@ class ChartPlotWidget(pg.PlotWidget):
         Update the named internal graphics from ``array``.
 
         '''
-        flow = self._vizs[array_key or graphics_name]
-        return flow.update_graphics(
+        viz = self._vizs[array_key or graphics_name]
+        return viz.update_graphics(
             array_key=array_key,
             **kwargs,
         )
