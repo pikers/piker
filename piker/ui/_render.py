@@ -102,7 +102,6 @@ def render_baritems(
             fmtr=OHLCBarsFmtr(
                 shm=viz.shm,
                 viz=viz,
-                _last_read=read,
                 index_field=viz.index_field,
             ),
         )
@@ -112,7 +111,6 @@ def render_baritems(
             fmtr=OHLCBarsAsCurveFmtr(
                 shm=viz.shm,
                 viz=viz,
-                _last_read=read,
                 index_field=viz.index_field,
             ),
         )
@@ -528,7 +526,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
             # print('exiting early')
             return graphics
 
-        slice_to_head: int = -1
         should_redraw: bool = False
         should_line: bool = False
         rkwargs = {}
@@ -565,7 +562,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
                     fmtr=StepCurveFmtr(
                         shm=self.shm,
                         viz=self,
-                        _last_read=read,
                         index_field=self.index_field,
                     ),
                 )
@@ -573,7 +569,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 # TODO: append logic inside ``.render()`` isn't
                 # correct yet for step curves.. remove this to see it.
                 should_redraw = True
-                slice_to_head = -2
 
             else:
                 r = self._src_r
@@ -584,12 +579,8 @@ class Viz(msgspec.Struct):  # , frozen=True):
                         fmtr=IncrementalFormatter(
                             shm=self.shm,
                             viz=self,
-                            _last_read=read,
                         ),
                     )
-
-        if isinstance(graphics, StepCurve):
-            slice_to_head = -2
 
         # ``Curve`` derivative case(s):
         array_key = array_key or self.name
@@ -654,7 +645,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
             should_ds=should_ds,
             showing_src_data=showing_src_data,
 
-            slice_to_head=slice_to_head,
             do_append=do_append,
 
             **rkwargs,
@@ -881,7 +871,6 @@ class Renderer(msgspec.Struct):
         showing_src_data: bool = True,
 
         do_append: bool = True,
-        slice_to_head: int = -1,
         use_fpath: bool = True,
 
         # only render datums "in view" of the ``ChartView``
@@ -921,7 +910,6 @@ class Renderer(msgspec.Struct):
             array_key,
             profiler,
 
-            slice_to_head=slice_to_head,
             read_src_from_key=read_from_key,
             slice_to_inview=use_vr,
         )
