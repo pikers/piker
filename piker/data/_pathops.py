@@ -49,6 +49,129 @@ if TYPE_CHECKING:
     from .._profile import Profiler
 
 
+def xy_downsample(
+    x,
+    y,
+    uppx,
+
+    x_spacer: float = 0.5,
+
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    float,
+    float,
+]:
+    '''
+    Downsample 1D (flat ``numpy.ndarray``) arrays using M4 given an input
+    ``uppx`` (units-per-pixel) and add space between discreet datums.
+
+    '''
+    # downsample whenever more then 1 pixels per datum can be shown.
+    # always refresh data bounds until we get diffing
+    # working properly, see above..
+    bins, x, y, ymn, ymx = ds_m4(
+        x,
+        y,
+        uppx,
+    )
+
+    # flatten output to 1d arrays suitable for path-graphics generation.
+    x = np.broadcast_to(x[:, None], y.shape)
+    x = (x + np.array(
+        [-x_spacer, 0, 0, x_spacer]
+    )).flatten()
+    y = y.flatten()
+
+    return x, y, ymn, ymx
+
+
+@njit(
+    # NOTE: need to construct this manually for readonly
+    # arrays, see https://github.com/numba/numba/issues/4511
+    # (
+    #     types.Array(
+    #         numba_ohlc_dtype,
+    #         1,
+    #         'C',
+    #         readonly=True,
+    #     ),
+    #     int64,
+    #     types.unicode_type,
+    #     optional(float64),
+    # ),
+    nogil=True
+)
+def path_arrays_from_ohlc(
+    data: np.ndarray,
+    start: int64,
+    bar_gap: float64 = 0.43,
+    # index_field: str,
+
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+]:
+    '''
+    Generate an array of lines objects from input ohlc data.
+
+    '''
+    size = int(data.shape[0] * 6)
+
+    # XXX: see this for why the dtype might have to be defined outside
+    # the routine.
+    # https://github.com/numba/numba/issues/4098#issuecomment-493914533
+    x = np.zeros(
+        shape=size,
+        dtype=float64,
+    )
+    y, c = x.copy(), x.copy()
+
+    # TODO: report bug for assert @
+    # /home/goodboy/repos/piker/env/lib/python3.8/site-packages/numba/core/typing/builtins.py:991
+    for i, q in enumerate(data[start:], start):
+
+        # TODO: ask numba why this doesn't work..
+        # open, high, low, close, index = q[
+        #     ['open', 'high', 'low', 'close', 'index']]
+
+        open = q['open']
+        high = q['high']
+        low = q['low']
+        close = q['close']
+        # index = float64(q[index_field])
+        index = float64(q['index'])
+
+        istart = i * 6
+        istop = istart + 6
+
+        # x,y detail the 6 points which connect all vertexes of a ohlc bar
+        x[istart:istop] = (
+            index - bar_gap,
+            index,
+            index,
+            index,
+            index,
+            index + bar_gap,
+        )
+        y[istart:istop] = (
+            open,
+            open,
+            low,
+            high,
+            close,
+            close,
+        )
+
+        # specifies that the first edge is never connected to the
+        # prior bars last edge thus providing a small "gap"/"space"
+        # between bars determined by ``bar_gap``.
+        c[istart:istop] = (1, 1, 1, 1, 1, 0)
+
+    return x, y, c
+
+
 class IncrementalFormatter(msgspec.Struct):
     '''
     Incrementally updating, pre-path-graphics tracking, formatter.
@@ -131,7 +254,6 @@ class IncrementalFormatter(msgspec.Struct):
         np.ndarray,
         np.ndarray,
     ]:
-
         # TODO:
         # - can the renderer just call ``Viz.read()`` directly? unpack
         #   latest source data read
@@ -422,17 +544,10 @@ class IncrementalFormatter(msgspec.Struct):
     ) -> None:
         # write pushed data to flattened copy
         new_y_nd = new_from_src[data_field]
-
-        # XXX
-        # TODO: this should be returned and written by caller!
-        # XXX
-        # generate same-valued-per-row x support with Nx1 shape
-        index_field = self.index_field
-        if index_field != 'index':
-            x_nd_new = self.x_nd[read_slc]
-            x_nd_new[:] = new_from_src[index_field]
-
         self.y_nd[read_slc] = new_y_nd
+
+        x_nd_new = self.x_nd[read_slc]
+        x_nd_new[:] = new_from_src[self.index_field]
 
     # XXX: was ``.format_xy()``
     def format_xy_nd_to_1d(
@@ -453,6 +568,8 @@ class IncrementalFormatter(msgspec.Struct):
         Return single field column data verbatim
 
         '''
+        # NOTE: we don't include the very last datum which is filled in
+        # normally by another graphics object.
         return (
             array[self.index_field][:-1],
             array[array_key][:-1],
@@ -504,92 +621,37 @@ class OHLCBarsFmtr(IncrementalFormatter):
             y_nd,
         )
 
-    @staticmethod
-    @njit(
-        # NOTE: need to construct this manually for readonly
-        # arrays, see https://github.com/numba/numba/issues/4511
-        # (
-        #     types.Array(
-        #         numba_ohlc_dtype,
-        #         1,
-        #         'C',
-        #         readonly=True,
-        #     ),
-        #     int64,
-        #     types.unicode_type,
-        #     optional(float64),
-        # ),
-        nogil=True
-    )
-    def path_arrays_from_ohlc(
-        data: np.ndarray,
-        start: int64,
-        bar_gap: float64 = 0.43,
-        # index_field: str,
+    def incr_update_xy_nd(
+        self,
 
-    ) -> tuple[
-        np.ndarray,
-        np.ndarray,
-        np.ndarray,
-    ]:
-        '''
-        Generate an array of lines objects from input ohlc data.
+        src_shm: ShmArray,
+        data_field: str,
 
-        '''
-        size = int(data.shape[0] * 6)
+        new_from_src: np.ndarray,  # portion of source that was updated
 
-        # XXX: see this for why the dtype might have to be defined outside
-        # the routine.
-        # https://github.com/numba/numba/issues/4098#issuecomment-493914533
-        x = np.zeros(
-            shape=size,
-            dtype=float64,
+        read_slc: slice,
+        ln: int,  # len of updated
+
+        nd_start: int,
+        nd_stop: int,
+
+        is_append: bool,
+
+    ) -> None:
+        # write newly pushed data to flattened copy
+        # a struct-arr is always passed in.
+        new_y_nd = rfn.structured_to_unstructured(
+            new_from_src[self.fields]
         )
-        y, c = x.copy(), x.copy()
+        self.y_nd[read_slc] = new_y_nd
 
-        # TODO: report bug for assert @
-        # /home/goodboy/repos/piker/env/lib/python3.8/site-packages/numba/core/typing/builtins.py:991
-        for i, q in enumerate(data[start:], start):
+        # generate same-valued-per-row x support based on y shape
+        x_nd_new = self.x_nd[read_slc]
+        x_nd_new[:] = np.broadcast_to(
+            new_from_src[self.index_field][:, None],
+            new_y_nd.shape,
+        ) + np.array([-0.5, 0, 0, 0.5])
 
-            # TODO: ask numba why this doesn't work..
-            # open, high, low, close, index = q[
-            #     ['open', 'high', 'low', 'close', 'index']]
-
-            open = q['open']
-            high = q['high']
-            low = q['low']
-            close = q['close']
-            # index = float64(q[index_field])
-            # index = float64(q['time'])
-            index = float64(q['index'])
-
-            istart = i * 6
-            istop = istart + 6
-
-            # x,y detail the 6 points which connect all vertexes of a ohlc bar
-            x[istart:istop] = (
-                index - bar_gap,
-                index,
-                index,
-                index,
-                index,
-                index + bar_gap,
-            )
-            y[istart:istop] = (
-                open,
-                open,
-                low,
-                high,
-                close,
-                close,
-            )
-
-            # specifies that the first edge is never connected to the
-            # prior bars last edge thus providing a small "gap"/"space"
-            # between bars determined by ``bar_gap``.
-            c[istart:istop] = (1, 1, 1, 1, 1, 0)
-
-        return x, y, c
 
     # TODO: can we drop this frame and just use the above?
     def format_xy_nd_to_1d(
@@ -614,50 +676,13 @@ class OHLCBarsFmtr(IncrementalFormatter):
         for line spacing.
 
         '''
-        x, y, c = self.path_arrays_from_ohlc(
+        x, y, c = path_arrays_from_ohlc(
             array,
             start,
             # self.index_field,
             bar_gap=w,
         )
         return x, y, c
-
-    def incr_update_xy_nd(
-        self,
-
-        src_shm: ShmArray,
-        data_field: str,
-
-        new_from_src: np.ndarray,  # portion of source that was updated
-
-        read_slc: slice,
-        ln: int,  # len of updated
-
-        nd_start: int,
-        nd_stop: int,
-
-        is_append: bool,
-
-    ) -> None:
-        # write newly pushed data to flattened copy
-        # a struct-arr is always passed in.
-        new_y_nd = rfn.structured_to_unstructured(
-            new_from_src[self.fields]
-        )
-
-        # XXX
-        # TODO: this should be returned and written by caller!
-        # XXX
-        # generate same-valued-per-row x support based on y shape
-        index_field: str = self.index_field
-        if index_field != 'index':
-            x_nd_new = self.x_nd[read_slc]
-            x_nd_new[:] = new_from_src[index_field][:, np.newaxis]
-
-            if (self.x_nd[self.xy_slice] == 0.5).any():
-                breakpoint()
-
-        self.y_nd[read_slc] = new_y_nd
 
 
 class OHLCBarsAsCurveFmtr(OHLCBarsFmtr):
@@ -678,8 +703,8 @@ class OHLCBarsAsCurveFmtr(OHLCBarsFmtr):
         # should we be passing in array as an xy arrays tuple?
 
         # 2 more datum-indexes to capture zero at end
-        x_flat = self.x_nd[self.xy_nd_start:self.xy_nd_stop]
-        y_flat = self.y_nd[self.xy_nd_start:self.xy_nd_stop]
+        x_flat = self.x_nd[self.xy_nd_start:self.xy_nd_stop-1]
+        y_flat = self.y_nd[self.xy_nd_start:self.xy_nd_stop-1]
 
         # slice to view
         ivl, ivr = vr
@@ -868,40 +893,3 @@ class StepCurveFmtr(IncrementalFormatter):
         #     )
 
         return x_1d, y_1d, 'all'
-
-
-def xy_downsample(
-    x,
-    y,
-    uppx,
-
-    x_spacer: float = 0.5,
-
-) -> tuple[
-    np.ndarray,
-    np.ndarray,
-    float,
-    float,
-]:
-    '''
-    Downsample 1D (flat ``numpy.ndarray``) arrays using M4 given an input
-    ``uppx`` (units-per-pixel) and add space between discreet datums.
-
-    '''
-    # downsample whenever more then 1 pixels per datum can be shown.
-    # always refresh data bounds until we get diffing
-    # working properly, see above..
-    bins, x, y, ymn, ymx = ds_m4(
-        x,
-        y,
-        uppx,
-    )
-
-    # flatten output to 1d arrays suitable for path-graphics generation.
-    x = np.broadcast_to(x[:, None], y.shape)
-    x = (x + np.array(
-        [-x_spacer, 0, 0, x_spacer]
-    )).flatten()
-    y = y.flatten()
-
-    return x, y, ymn, ymx
