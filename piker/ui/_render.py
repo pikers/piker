@@ -37,7 +37,7 @@ from ..data._sharedmem import (
     ShmArray,
 )
 from ..data.feed import Flume
-from ..data._pathops import (
+from ..data._formatters import (
     IncrementalFormatter,
     OHLCBarsFmtr,  # Plain OHLC renderer
     OHLCBarsAsCurveFmtr,  # OHLC converted to line
