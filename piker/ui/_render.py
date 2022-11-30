@@ -42,8 +42,8 @@ from ..data._formatters import (
     OHLCBarsFmtr,  # Plain OHLC renderer
     OHLCBarsAsCurveFmtr,  # OHLC converted to line
     StepCurveFmtr,  # "step" curve (like for vlm)
-    xy_downsample,
 )
+from ..data._pathops import xy_downsample
 from .._profile import (
     pg_profile_enabled,
     # ms_slower_then,
