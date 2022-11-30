@@ -101,7 +101,8 @@ def chart_maxmin(
     Compute max and min datums "in view" for range limits.
 
     '''
-    last_bars_range = chart.bars_range()
+    main_viz = chart.get_viz(chart.name)
+    last_bars_range = main_viz.bars_range()
     out = chart.maxmin(name=fqsn)
 
     if out is None:
@@ -217,7 +218,8 @@ class DisplayState(Struct):
         append_diff = i_step - _i_last_append
 
         # real-time update necessary?
-        _, _, _, r = chart.bars_range()
+        main_viz = chart.get_viz(chart.name)
+        _, _, _, r = main_viz.bars_range()
         liv = r >= shm.index
 
         # update the "last datum" (aka extending the vizs graphic with
