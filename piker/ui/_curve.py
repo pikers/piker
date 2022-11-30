@@ -360,11 +360,12 @@ class Curve(pg.GraphicsObject):
         render_data: np.ndarray,
         reset: bool,
         array_key: str,
+        index_field: str,
 
     ) -> None:
         # default line draw last call
         # with self.reset_cache():
-        x = render_data['index']
+        x = render_data[index_field]
         y = render_data[array_key]
 
         # draw the "current" step graphic segment so it
@@ -391,10 +392,11 @@ class FlattenedOHLC(Curve):
         render_data: np.ndarray,
         reset: bool,
         array_key: str,
+        index_field: str,
 
     ) -> None:
         lasts = src_data[-2:]
-        x = lasts['index']
+        x = lasts[index_field]
         y = lasts['close']
 
         # draw the "current" step graphic segment so it
@@ -421,6 +423,7 @@ class StepCurve(Curve):
         render_data: np.ndarray,
         reset: bool,
         array_key: str,
+        index_field: str,
 
         w: float = 0.5,
 
@@ -429,7 +432,7 @@ class StepCurve(Curve):
         # TODO: remove this and instead place all step curve
         # updating into pre-path data render callbacks.
         # full input data
-        x = src_data['index']
+        x = src_data[index_field]
         y = src_data[array_key]
 
         x_last = x[-1]
@@ -458,9 +461,3 @@ class StepCurve(Curve):
         # p.drawLines(*tuple(filter(bool, self._last_step_lines)))
         # p.drawRect(self._last_step_rect)
         p.fillRect(self._last_step_rect, self._brush)
-
-    # def sub_br(
-    #     self,
-    #     parent_br: QRectF | None = None,
-    # ) -> QRectF:
-    #     return self._last_step_rect
