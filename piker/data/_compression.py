@@ -35,13 +35,17 @@ from ..log import get_logger
 log = get_logger(__name__)
 
 
-def hl2mxmn(ohlc: np.ndarray) -> np.ndarray:
+def hl2mxmn(
+    ohlc: np.ndarray,
+    index_field: str = 'index',
+
+) -> np.ndarray:
     '''
     Convert a OHLC struct-array containing 'high'/'low' columns
     to a "joined" max/min 1-d array.
 
     '''
-    index = ohlc['index']
+    index = ohlc[index_field]
     hls = ohlc[[
         'low',
         'high',
@@ -109,6 +113,7 @@ def trace_hl(
 def ohlc_flatten(
     ohlc: np.ndarray,
     use_mxmn: bool = True,
+    index_field: str = 'index',
 
 ) -> tuple[np.ndarray, np.ndarray]:
     '''
@@ -117,7 +122,7 @@ def ohlc_flatten(
     evenly (by 0.5 steps) over each index.
 
     '''
-    index = ohlc['index']
+    index = ohlc[index_field]
 
     if use_mxmn:
         # traces a line optimally over highs to lows
