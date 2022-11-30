@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
-Super fast ``QPainterPath`` generation related operator routines.
+Pre-(path)-graphics formatted x/y nd/1d rendering subsystem.
 
 """
 from __future__ import annotations
@@ -26,20 +26,12 @@ from typing import (
 import msgspec
 import numpy as np
 from numpy.lib import recfunctions as rfn
-from numba import (
-    # types,
-    njit,
-    float64,
-    int64,
-    # optional,
-)
 
 from ._sharedmem import (
     ShmArray,
 )
-# from ._source import numba_ohlc_dtype
-from ._compression import (
-    ds_m4,
+from ._pathops import (
+    path_arrays_from_ohlc,
 )
 
 if TYPE_CHECKING:
@@ -47,129 +39,6 @@ if TYPE_CHECKING:
         Viz,
     )
     from .._profile import Profiler
-
-
-def xy_downsample(
-    x,
-    y,
-    uppx,
-
-    x_spacer: float = 0.5,
-
-) -> tuple[
-    np.ndarray,
-    np.ndarray,
-    float,
-    float,
-]:
-    '''
-    Downsample 1D (flat ``numpy.ndarray``) arrays using M4 given an input
-    ``uppx`` (units-per-pixel) and add space between discreet datums.
-
-    '''
-    # downsample whenever more then 1 pixels per datum can be shown.
-    # always refresh data bounds until we get diffing
-    # working properly, see above..
-    bins, x, y, ymn, ymx = ds_m4(
-        x,
-        y,
-        uppx,
-    )
-
-    # flatten output to 1d arrays suitable for path-graphics generation.
-    x = np.broadcast_to(x[:, None], y.shape)
-    x = (x + np.array(
-        [-x_spacer, 0, 0, x_spacer]
-    )).flatten()
-    y = y.flatten()
-
-    return x, y, ymn, ymx
-
-
-@njit(
-    # NOTE: need to construct this manually for readonly
-    # arrays, see https://github.com/numba/numba/issues/4511
-    # (
-    #     types.Array(
-    #         numba_ohlc_dtype,
-    #         1,
-    #         'C',
-    #         readonly=True,
-    #     ),
-    #     int64,
-    #     types.unicode_type,
-    #     optional(float64),
-    # ),
-    nogil=True
-)
-def path_arrays_from_ohlc(
-    data: np.ndarray,
-    start: int64,
-    bar_gap: float64 = 0.43,
-    # index_field: str,
-
-) -> tuple[
-    np.ndarray,
-    np.ndarray,
-    np.ndarray,
-]:
-    '''
-    Generate an array of lines objects from input ohlc data.
-
-    '''
-    size = int(data.shape[0] * 6)
-
-    # XXX: see this for why the dtype might have to be defined outside
-    # the routine.
-    # https://github.com/numba/numba/issues/4098#issuecomment-493914533
-    x = np.zeros(
-        shape=size,
-        dtype=float64,
-    )
-    y, c = x.copy(), x.copy()
-
-    # TODO: report bug for assert @
-    # /home/goodboy/repos/piker/env/lib/python3.8/site-packages/numba/core/typing/builtins.py:991
-    for i, q in enumerate(data[start:], start):
-
-        # TODO: ask numba why this doesn't work..
-        # open, high, low, close, index = q[
-        #     ['open', 'high', 'low', 'close', 'index']]
-
-        open = q['open']
-        high = q['high']
-        low = q['low']
-        close = q['close']
-        # index = float64(q[index_field])
-        index = float64(q['index'])
-
-        istart = i * 6
-        istop = istart + 6
-
-        # x,y detail the 6 points which connect all vertexes of a ohlc bar
-        x[istart:istop] = (
-            index - bar_gap,
-            index,
-            index,
-            index,
-            index,
-            index + bar_gap,
-        )
-        y[istart:istop] = (
-            open,
-            open,
-            low,
-            high,
-            close,
-            close,
-        )
-
-        # specifies that the first edge is never connected to the
-        # prior bars last edge thus providing a small "gap"/"space"
-        # between bars determined by ``bar_gap``.
-        c[istart:istop] = (1, 1, 1, 1, 1, 0)
-
-    return x, y, c
 
 
 class IncrementalFormatter(msgspec.Struct):
@@ -651,7 +520,6 @@ class OHLCBarsFmtr(IncrementalFormatter):
             new_from_src[self.index_field][:, None],
             new_y_nd.shape,
         ) + np.array([-0.5, 0, 0, 0.5])
-
 
     # TODO: can we drop this frame and just use the above?
     def format_xy_nd_to_1d(
