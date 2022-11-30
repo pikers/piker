@@ -923,8 +923,6 @@ class ChartPlotWidget(pg.PlotWidget):
         # show background grid
         self.showGrid(x=False, y=True, alpha=0.3)
 
-        # self.cv.enable_auto_yrange()
-
         self.pi_overlay: PlotItemOverlay = PlotItemOverlay(self.plotItem)
 
         # indempotent startup flag for auto-yrange subsys
