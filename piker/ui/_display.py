@@ -303,17 +303,25 @@ async def graphics_update_loop(
         fqsn = symbol.fqsn
 
         # update last price sticky
-        fast_pi = fast_chart._vizs[fqsn].plot
+        fast_viz = fast_chart._vizs[fqsn]
+        index_field = fast_viz.index_field
+        fast_pi = fast_viz.plot
         last_price_sticky = fast_pi.getAxis('right')._stickies[fqsn]
         last_price_sticky.update_from_data(
-            *ohlcv.array[-1][['index', 'close']]
+            *ohlcv.array[-1][[
+                index_field,
+                'close',
+            ]]
         )
         last_price_sticky.show()
 
         slow_pi = hist_chart._vizs[fqsn].plot
         hist_last_price_sticky = slow_pi.getAxis('right')._stickies[fqsn]
         hist_last_price_sticky.update_from_data(
-            *hist_ohlcv.array[-1][['index', 'close']]
+            *hist_ohlcv.array[-1][[
+                index_field,
+                'close',
+            ]]
         )
 
         vlm_chart = vlm_charts[fqsn]
@@ -515,12 +523,12 @@ def graphics_update_cycle(
     chart = ds.chart
     # TODO: just pass this as a direct ref to avoid so many attr accesses?
     hist_chart = ds.godwidget.hist_linked.chart
-    assert hist_chart
 
     flume = ds.flume
     sym = flume.symbol
     fqsn = sym.fqsn
     main_viz = chart._vizs[fqsn]
+    index_field = main_viz.index_field
 
     profiler = Profiler(
         msg=f'Graphics loop cycle for: `{chart.name}`',
@@ -607,7 +615,7 @@ def graphics_update_cycle(
         # if the segment of history that is being prepended
         # isn't in view there is no reason to do a graphics
         # update.
-        log.debug('Skipping prepend graphics cycle: frame not in view')
+        log.info('Skipping prepend graphics cycle: frame not in view')
         return
 
     # TODO: eventually we want to separate out the utrade (aka
@@ -639,11 +647,6 @@ def graphics_update_cycle(
             # do_append=do_append,
         )
 
-    # NOTE: we always update the "last" datum
-    # since the current range should at least be updated
-    # to it's max/min on the last pixel.
-    typs: set[str] = set()
-
     # from pprint import pformat
     # frame_counts = {
     #     typ: len(frame) for typ, frame in frames_by_type.items()
@@ -667,11 +670,6 @@ def graphics_update_cycle(
         price = tick.get('price')
         size = tick.get('size')
 
-        if typ in typs:
-            continue
-
-        typs.add(typ)
-
         # compute max and min prices (including bid/ask) from
         # tick frames to determine the y-range for chart
         # auto-scaling.
@@ -681,7 +679,6 @@ def graphics_update_cycle(
             mn = min(price - tick_margin, mn)
 
         if typ in clear_types:
-
             # XXX: if we only wanted to update graphics from the
             # "current"/"latest received" clearing price tick
             # once (see alt iteration order above).
@@ -694,7 +691,10 @@ def graphics_update_cycle(
             # set.
 
             # update price sticky(s)
-            end_ic = array[-1][['index', 'close']]
+            end_ic = array[-1][[
+                index_field,
+                'close',
+            ]]
             ds.last_price_sticky.update_from_data(*end_ic)
             ds.hist_last_price_sticky.update_from_data(*end_ic)
 
@@ -827,7 +827,10 @@ def graphics_update_cycle(
 
         # always update y-label
         ds.vlm_sticky.update_from_data(
-            *array[-1][['index', 'volume']]
+            *array[-1][[
+                index_field,
+                'volume',
+            ]]
         )
 
         if (
@@ -1124,7 +1127,7 @@ async def display_symbol_data(
         # avoiding needless Qt-in-guest-mode context switches
         tick_throttle=min(
             round(_quote_throttle_rate/len(fqsns)),
-            22,
+            22,  # aka 6 + 16
         ),
 
     ) as feed:
@@ -1374,8 +1377,7 @@ async def display_symbol_data(
                 # trigger another view reset if no sub-chart
                 hist_chart.default_view()
                 rt_chart.default_view()
-
-                # let Qt run to render all widgets and make sure the
+                # let qt run to render all widgets and make sure the
                 # sidepanes line up vertically.
                 await trio.sleep(0)
 
@@ -1422,9 +1424,6 @@ async def display_symbol_data(
                 wap_in_history,
                 vlm_charts,
             )
-
-            rt_chart.default_view()
-            await trio.sleep(0)
 
             mode: OrderMode
             async with (
