@@ -494,7 +494,7 @@ class ChartView(ViewBox):
         chart = self.linked.chart
 
         # don't zoom more then the min points setting
-        l, lbar, rbar, r = chart.get_viz(chart.name).bars_range()
+        out = l, lbar, rbar, r = chart.get_viz(chart.name).bars_range()
         # vl = r - l
 
         # if ev.delta() > 0 and vl <= _min_points_to_show:
