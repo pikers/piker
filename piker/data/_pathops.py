@@ -27,10 +27,9 @@ from numba import (
     # optional,
 )
 
+# TODO: for ``numba`` typing..
 # from ._source import numba_ohlc_dtype
-from ._compression import (
-    ds_m4,
-)
+from ._m4 import ds_m4
 
 
 def xy_downsample(
