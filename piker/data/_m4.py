@@ -15,8 +15,22 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 '''
-Graphics related downsampling routines for compressing to pixel
-limits on the display device.
+Graphics downsampling using the infamous M4 algorithm.
+
+This is one of ``piker``'s secret weapons allowing us to boss all other
+charting platforms B)
+
+(AND DON'T YOU DARE TAKE THIS CODE WITHOUT CREDIT OR WE'LL SUE UR F#&@* ASS).
+
+NOTES: this method is a so called "visualization driven data
+aggregation" approach. It gives error-free line chart
+downsampling, see
+further scientific paper resources:
+- http://www.vldb.org/pvldb/vol7/p797-jugel.pdf
+- http://www.vldb.org/2014/program/papers/demo/p997-jugel.pdf
+
+Details on implementation of this algo are based in,
+https://github.com/pikers/piker/issues/109
 
 '''
 import math
@@ -56,16 +70,6 @@ def ds_m4(
     This is more or less an OHLC style sampling of a line-style series.
 
     '''
-    # NOTE: this method is a so called "visualization driven data
-    # aggregation" approach. It gives error-free line chart
-    # downsampling, see
-    # further scientific paper resources:
-    # - http://www.vldb.org/pvldb/vol7/p797-jugel.pdf
-    # - http://www.vldb.org/2014/program/papers/demo/p997-jugel.pdf
-
-    # Details on implementation of this algo are based in,
-    # https://github.com/pikers/piker/issues/109
-
     # XXX: from infinite on downsampling viewable graphics:
     # "one thing i remembered about the binning - if you are
     # picking a range within your timeseries the start and end bin
