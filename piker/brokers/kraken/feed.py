@@ -88,6 +88,9 @@ class Pair(Struct):
     tick_size: float # min price step size
     status: str
 
+    short_position_limit: float
+    long_position_limit: float
+
 
 class OHLC(Struct):
     '''
