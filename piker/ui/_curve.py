@@ -36,10 +36,6 @@ from PyQt5.QtGui import (
 )
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._style import hcolor
-# from ._compression import (
-#     # ohlc_to_m4_line,
-#     ds_m4,
-# )
 from ..log import get_logger
 from .._profile import Profiler
 
