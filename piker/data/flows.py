@@ -232,7 +232,7 @@ class Flume(Struct):
             return array['index'][mask][0]
 
         # just the latest index
-        array['index'][-1]
+        return array['index'][-1]
 
     def slice_from_time(
         self,
