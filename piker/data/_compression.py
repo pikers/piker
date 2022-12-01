@@ -23,9 +23,8 @@ import math
 from typing import Optional
 
 import numpy as np
-from numpy.lib import recfunctions as rfn
 from numba import (
-    jit,
+    njit,
     # float64, optional, int64,
 )
 
@@ -33,114 +32,6 @@ from ..log import get_logger
 
 
 log = get_logger(__name__)
-
-
-def hl2mxmn(
-    ohlc: np.ndarray,
-    index_field: str = 'index',
-
-) -> np.ndarray:
-    '''
-    Convert a OHLC struct-array containing 'high'/'low' columns
-    to a "joined" max/min 1-d array.
-
-    '''
-    index = ohlc[index_field]
-    hls = ohlc[[
-        'low',
-        'high',
-    ]]
-
-    mxmn = np.empty(2*hls.size, dtype=np.float64)
-    x = np.empty(2*hls.size, dtype=np.float64)
-    trace_hl(hls, mxmn, x, index[0])
-    x = x + index[0]
-
-    return mxmn, x
-
-
-@jit(
-    # TODO: the type annots..
-    # float64[:](float64[:],),
-    nopython=True,
-)
-def trace_hl(
-    hl: 'np.ndarray',
-    out: np.ndarray,
-    x: np.ndarray,
-    start: int,
-
-    # the "offset" values in the x-domain which
-    # place the 2 output points around each ``int``
-    # master index.
-    margin: float = 0.43,
-
-) -> None:
-    '''
-    "Trace" the outline of the high-low values of an ohlc sequence
-    as a line such that the maximum deviation (aka disperaion) between
-    bars if preserved.
-
-    This routine is expected to modify input arrays in-place.
-
-    '''
-    last_l = hl['low'][0]
-    last_h = hl['high'][0]
-
-    for i in range(hl.size):
-        row = hl[i]
-        l, h = row['low'], row['high']
-
-        up_diff = h - last_l
-        down_diff = last_h - l
-
-        if up_diff > down_diff:
-            out[2*i + 1] = h
-            out[2*i] = last_l
-        else:
-            out[2*i + 1] = l
-            out[2*i] = last_h
-
-        last_l = l
-        last_h = h
-
-        x[2*i] = int(i) - margin
-        x[2*i + 1] = int(i) + margin
-
-    return out
-
-
-def ohlc_flatten(
-    ohlc: np.ndarray,
-    use_mxmn: bool = True,
-    index_field: str = 'index',
-
-) -> tuple[np.ndarray, np.ndarray]:
-    '''
-    Convert an OHLCV struct-array into a flat ready-for-line-plotting
-    1-d array that is 4 times the size with x-domain values distributed
-    evenly (by 0.5 steps) over each index.
-
-    '''
-    index = ohlc[index_field]
-
-    if use_mxmn:
-        # traces a line optimally over highs to lows
-        # using numba. NOTE: pretty sure this is faster
-        # and looks about the same as the below output.
-        flat, x = hl2mxmn(ohlc)
-
-    else:
-        flat = rfn.structured_to_unstructured(
-            ohlc[['open', 'high', 'low', 'close']]
-        ).flatten()
-
-        x = np.linspace(
-            start=index[0] - 0.5,
-            stop=index[-1] + 0.5,
-            num=len(flat),
-        )
-    return x, flat
 
 
 def ds_m4(
@@ -263,8 +154,7 @@ def ds_m4(
     return nb, x_out, y_out, ymn, ymx
 
 
-@jit(
-    nopython=True,
+@njit(
     nogil=True,
 )
 def _m4(
