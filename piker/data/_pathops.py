@@ -89,6 +89,8 @@ def path_arrays_from_ohlc(
     data: np.ndarray,
     start: int64,
     bar_gap: float64 = 0.43,
+
+    # XXX: ``numba`` issue: https://github.com/numba/numba/issues/8622
     # index_field: str,
 
 ) -> tuple[
@@ -115,16 +117,17 @@ def path_arrays_from_ohlc(
     # /home/goodboy/repos/piker/env/lib/python3.8/site-packages/numba/core/typing/builtins.py:991
     for i, q in enumerate(data[start:], start):
 
-        # TODO: ask numba why this doesn't work..
-        # open, high, low, close, index = q[
-        #     ['open', 'high', 'low', 'close', 'index']]
-
         open = q['open']
         high = q['high']
         low = q['low']
         close = q['close']
-        # index = float64(q[index_field])
         index = float64(q['index'])
+
+        # XXX: ``numba`` issue: https://github.com/numba/numba/issues/8622
+        # index = float64(q[index_field])
+        # AND this (probably)
+        # open, high, low, close, index = q[
+        #     ['open', 'high', 'low', 'close', 'index']]
 
         istart = i * 6
         istop = istart + 6
