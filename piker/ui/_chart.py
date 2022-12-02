@@ -1112,11 +1112,7 @@ class ChartPlotWidget(pg.PlotWidget):
         if do_ds:
             self.view.maybe_downsample_graphics()
             view._set_yrange()
-
-        try:
             self.linked.graphics_cycle()
-        except IndexError:
-            pass
 
     def increment_view(
         self,
