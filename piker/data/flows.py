@@ -48,6 +48,7 @@ from ._sharedmem import (
 from ._sampling import (
     open_sample_stream,
 )
+from ._pathops import slice_from_time
 from .._profile import (
     Profiler,
     pg_profile_enabled,
@@ -238,108 +239,6 @@ class Flume(Struct):
         # just the latest index
         return array['index'][-1]
 
-    def slice_from_time(
-        self,
-        arr: np.ndarray,
-        start_t: float,
-        stop_t: float,
-
-    ) -> tuple[
-        slice,
-        slice,
-        np.ndarray | None,
-    ]:
-        '''
-        Slice an input struct array to a time range and return the absolute
-        and "readable" slices for that array as well as the indexing mask
-        for the caller to use to slice the input array if needed.
-
-        '''
-        profiler = Profiler(
-            msg='Flume.slice_from_time()',
-            disabled=not pg_profile_enabled(),
-            ms_threshold=4,
-            # ms_threshold=ms_slower_then,
-        )
-
-        times = arr['time']
-        index = arr['index']
-
-        if (
-            start_t < 0
-            or start_t >= stop_t
-        ):
-            return (
-                slice(
-                    index[0],
-                    index[-1],
-                ),
-                slice(
-                    0,
-                    len(arr),
-                ),
-                None,
-            )
-
-        # use advanced indexing to map the
-        # time range to the index range.
-        mask: np.ndarray = np.where(
-            (times >= start_t)
-            &
-            (times < stop_t)
-        )
-        profiler('advanced indexing slice')
-        # TODO: if we can ensure each time field has a uniform
-        # step we can instead do some arithmetic to determine
-        # the equivalent index like we used to?
-        # return array[
-        #     lbar - ifirst:
-        #     (rbar - ifirst) + 1
-        # ]
-
-        i_by_t = index[mask]
-        try:
-            i_0 = i_by_t[0]
-            i_last = i_by_t[-1]
-            i_first_read = index[0]
-        except IndexError:
-            if (
-                start_t < times[0]
-                or stop_t >= times[-1]
-            ):
-                return (
-                    slice(
-                        index[0],
-                        index[-1],
-                    ),
-                    slice(
-                        0,
-                        len(arr),
-                    ),
-                    None,
-                )
-
-        abs_slc = slice(i_0, i_last)
-
-        # slice data by offset from the first index
-        # available in the passed datum set.
-        read_slc = slice(
-            i_0 - i_first_read,
-            i_last - i_first_read + 1,
-        )
-
-        profiler(
-            'slicing complete'
-            f'{start_t} -> {abs_slc.start} | {read_slc.start}\n'
-            f'{stop_t} -> {abs_slc.stop} | {read_slc.stop}\n'
-        )
-        # also return the readable data from the timerange
-        return (
-            abs_slc,
-            read_slc,
-            mask,
-        )
-
     # TODO: maybe move this our ``Viz`` type to avoid
     # the shm lookup discrepancy?
     def view_data(
@@ -366,7 +265,7 @@ class Flume(Struct):
             abs_slc,
             read_slc,
             mask,
-        ) = self.slice_from_time(
+        ) = slice_from_time(
             arr,
             start_t=vr.left(),
             stop_t=vr.right(),
