@@ -44,10 +44,6 @@ from ..data._formatters import (
     StepCurveFmtr,  # "step" curve (like for vlm)
 )
 from ..data._pathops import xy_downsample
-from .._profile import (
-    pg_profile_enabled,
-    # ms_slower_then,
-)
 from ._ohlc import (
     BarItems,
     # bar_from_ohlc_row,
@@ -58,7 +54,10 @@ from ._curve import (
     FlattenedOHLC,
 )
 from ..log import get_logger
-from .._profile import Profiler
+from .._profile import (
+    Profiler,
+    pg_profile_enabled,
+)
 
 
 log = get_logger(__name__)
@@ -102,7 +101,7 @@ def render_baritems(
             fmtr=OHLCBarsFmtr(
                 shm=viz.shm,
                 viz=viz,
-                index_field=viz.index_field,
+                # index_field=viz.index_field,
             ),
         )
 
@@ -111,7 +110,7 @@ def render_baritems(
             fmtr=OHLCBarsAsCurveFmtr(
                 shm=viz.shm,
                 viz=viz,
-                index_field=viz.index_field,
+                # index_field=viz.index_field,
             ),
         )
 
@@ -192,6 +191,7 @@ def render_baritems(
         curve.hide()
         bars.show()
         bars.update()
+        # breakpoint()
 
     return (
         graphics,
@@ -401,6 +401,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
         self,
         array_field: Optional[str] = None,
         index_field: str | None = None,
+        profiler: None | Profiler = None,
 
     ) -> tuple[
         int, int, np.ndarray,
@@ -418,6 +419,9 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # readable data
         array = self.shm.array
 
+        if profiler:
+            profiler('self.shm.array READ')
+
         (
             ifirst,
             l,
@@ -428,6 +432,9 @@ class Viz(msgspec.Struct):  # , frozen=True):
         ) = self.datums_range(index_field=index_field)
         # if rbar < lbar:
         #     breakpoint()
+
+        if profiler:
+            profiler('self.datums_range()')
 
         abs_slc = slice(ifirst, ilast)
 
@@ -454,6 +461,12 @@ class Viz(msgspec.Struct):  # , frozen=True):
             #         f'start/stop: {lbar},{rbar}\n',
             #         f'diff: {diff}\n',
             #     )
+            if profiler:
+                profiler(
+                    '`Flume.slice_from_time('
+                    f'start_t={lbar}'
+                    f'stop_t={rbar})'
+                )
 
         # array-index slicing
         # TODO: can we do time based indexing using arithmetic presuming
@@ -470,6 +483,8 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
             # XXX: same as ^
             # to_draw = array[lbar - ifirst:(rbar - ifirst) + 1]
+            if profiler:
+                profiler('index arithmetic for slicing')
 
         if array_field:
             array = array[array_field]
@@ -513,7 +528,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
         read = (
             xfirst, xlast, src_array,
             ivl, ivr, in_view,
-        ) = self.read()
+        ) = self.read(profiler=profiler)
 
         profiler('read src shm data')
 
@@ -562,7 +577,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
                     fmtr=StepCurveFmtr(
                         shm=self.shm,
                         viz=self,
-                        index_field=self.index_field,
                     ),
                 )
 
