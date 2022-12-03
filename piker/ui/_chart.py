@@ -66,6 +66,7 @@ from ..data.feed import (
     Feed,
     Flume,
 )
+from ..data._pathops import slice_from_time
 from ..data._source import Symbol
 from ..log import get_logger
 from ._interaction import ChartView
@@ -1037,7 +1038,7 @@ class ChartPlotWidget(pg.PlotWidget):
                 read_slc,
                 mask,
 
-            ) = viz.flume.slice_from_time(
+            ) = slice_from_time(
                 array,
                 start_t=vtl,
                 stop_t=vtr,
