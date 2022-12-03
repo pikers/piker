@@ -291,13 +291,12 @@ class Viz(msgspec.Struct):  # , frozen=True):
             (
                 abs_slc,
                 read_slc,
-                mask,
             ) = slice_from_time(
                 arr,
                 start_t=lbar,
                 stop_t=rbar,
             )
-            slice_view = arr[mask]
+            slice_view = arr[read_slc]
 
         else:
             ifirst = arr[0]['index']
@@ -444,7 +443,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
             (
                 abs_slc,
                 read_slc,
-                mask,
             ) = slice_from_time(
                 array,
                 start_t=lbar,

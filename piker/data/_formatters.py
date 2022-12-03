@@ -183,7 +183,11 @@ class IncrementalFormatter(msgspec.Struct):
             nd_stop = self.xy_nd_stop = src_stop
 
             align_index = array[self.index_field]
-            self._index_step_size = align_index[-1] - align_index[-2]
+            self._index_step_size = (
+                align_index[-1]
+                -
+                align_index[-2]
+            )
 
         # compute the length diffs between the first/last index entry in
         # the input data and the last indexes we have on record from the
