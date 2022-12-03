@@ -53,7 +53,16 @@ class IncrementalFormatter(msgspec.Struct):
     '''
     shm: ShmArray
     viz: Viz
-    index_field: str = 'index'
+
+    @property
+    def index_field(self) -> 'str':
+        '''
+        Value (``str``) used to look up the "index series" from the
+        underlying source ``numpy`` struct-array; delegate directly to
+        the managing ``Viz``.
+
+        '''
+        return self.viz.index_field
 
     # Incrementally updated xy ndarray formatted data, a pre-1d
     # format which is updated and cached independently of the final
