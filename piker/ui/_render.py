@@ -138,7 +138,7 @@ def render_baritems(
     # - if we're **not** downsampling then we simply want to
     #   render the bars graphics curve and update..
     # - if instead we are in a downsamplig state then we to
-    x_gt = 6
+    x_gt = 6 * (r.fmtr.index_step_size or 1)
     uppx = curve.x_uppx()
     # print(f'BARS UPPX: {uppx}')
     in_line = should_line = curve.isVisible()
