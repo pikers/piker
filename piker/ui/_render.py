@@ -43,7 +43,10 @@ from ..data._formatters import (
     OHLCBarsAsCurveFmtr,  # OHLC converted to line
     StepCurveFmtr,  # "step" curve (like for vlm)
 )
-from ..data._pathops import xy_downsample
+from ..data._pathops import (
+    xy_downsample,
+    slice_from_time,
+)
 from ._ohlc import (
     BarItems,
     # bar_from_ohlc_row,
@@ -101,7 +104,6 @@ def render_baritems(
             fmtr=OHLCBarsFmtr(
                 shm=viz.shm,
                 viz=viz,
-                # index_field=viz.index_field,
             ),
         )
 
@@ -110,7 +112,6 @@ def render_baritems(
             fmtr=OHLCBarsAsCurveFmtr(
                 shm=viz.shm,
                 viz=viz,
-                # index_field=viz.index_field,
             ),
         )
 
@@ -291,7 +292,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 abs_slc,
                 read_slc,
                 mask,
-            ) = self.flume.slice_from_time(
+            ) = slice_from_time(
                 arr,
                 start_t=lbar,
                 stop_t=rbar,
@@ -444,7 +445,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 abs_slc,
                 read_slc,
                 mask,
-            ) = self.flume.slice_from_time(
+            ) = slice_from_time(
                 array,
                 start_t=lbar,
                 stop_t=rbar,
@@ -463,7 +464,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
             #     )
             if profiler:
                 profiler(
-                    '`Flume.slice_from_time('
+                    '`slice_from_time('
                     f'start_t={lbar}'
                     f'stop_t={rbar})'
                 )
