@@ -1036,17 +1036,12 @@ class ChartPlotWidget(pg.PlotWidget):
             (
                 abs_slc,
                 read_slc,
-                mask,
-
             ) = slice_from_time(
                 array,
                 start_t=vtl,
                 stop_t=vtr,
             )
-            iv_arr = array
-            if mask is not None:
-                iv_arr = array[mask]
-
+            iv_arr = array[read_slc]
             index = iv_arr['time']
 
         else:
