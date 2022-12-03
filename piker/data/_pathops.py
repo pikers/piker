@@ -126,7 +126,7 @@ def path_arrays_from_ohlc(
         high = q['high']
         low = q['low']
         close = q['close']
-        index = float64(q['time'])
+        index = float64(q['index'])
 
         # XXX: ``numba`` issue: https://github.com/numba/numba/issues/8622
         # index = float64(q[index_field])
