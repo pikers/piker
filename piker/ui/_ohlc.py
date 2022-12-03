@@ -51,7 +51,7 @@ log = get_logger(__name__)
 def bar_from_ohlc_row(
     row: np.ndarray,
     # 0.5 is no overlap between arms, 1.0 is full overlap
-    w: float = 0.43
+    bar_gap: float = 0.43
 
 ) -> tuple[QLineF]:
     '''
@@ -59,8 +59,7 @@ def bar_from_ohlc_row(
     OHLC "bar" for use in the "last datum" of a series.
 
     '''
-    open, high, low, close, index = row  #[fields]
-        # ['open', 'high', 'low', 'close', 'index']]
+    open, high, low, close, index = row
 
     # TODO: maybe consider using `QGraphicsLineItem` ??
     # gives us a ``.boundingRect()`` on the objects which may make
@@ -81,10 +80,10 @@ def bar_from_ohlc_row(
     # the index's range according to the view mapping coordinates.
 
     # open line
-    o = QLineF(index - w, open, index, open)
+    o = QLineF(index - bar_gap, open, index, open)
 
     # close line
-    c = QLineF(index, close, index + w, close)
+    c = QLineF(index, close, index + bar_gap, close)
 
     return [hl, o, c]
 
@@ -239,9 +238,13 @@ class BarItems(pg.GraphicsObject):
         # if times[-1] - times[-2]:
         #     breakpoint()
 
+        index = src_data[index_field]
+        step_size = index[-1] - index[-2]
+
         # generate new lines objects for updatable "current bar"
         self._last_bar_lines = bar_from_ohlc_row(
             last_row,
+            bar_gap=step_size * 0.43
             # fields,
         )
 
