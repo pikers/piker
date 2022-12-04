@@ -126,7 +126,7 @@ def path_arrays_from_ohlc(
         high = q['high']
         low = q['low']
         close = q['close']
-        index = float64(q['index'])
+        index = float64(q['time'])
 
         # XXX: ``numba`` issue: https://github.com/numba/numba/issues/8622
         # index = float64(q[index_field])
@@ -380,8 +380,8 @@ def slice_from_time(
     read_slc = slice(*read_slc_tuple)
     profiler(
         'slicing complete'
-        f'{start_t} -> {abs_slc.start} | {read_slc.start}\n'
-        f'{stop_t} -> {abs_slc.stop} | {read_slc.stop}\n'
+        # f'{start_t} -> {abs_slc.start} | {read_slc.start}\n'
+        # f'{stop_t} -> {abs_slc.stop} | {read_slc.stop}\n'
     )
     return (
         abs_slc,
