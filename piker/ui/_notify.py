@@ -93,6 +93,12 @@ async def notify_from_ems_status_msg(
             # TODO: add in standard fill/exec info that maybe we
             # pack in a broker independent way?
             f"'{msg.pformat()}'",
-        ],
+        ],           
+        capture_stdout=True,
+        capture_stderr=True,
+        check=False,
     )
-    log.runtime(result)
+    if result.returncode != 0:
+        log.warn(f'No notification daemon installed stderr: {result.stderr}')
+                      
+    log.runtime(result)        
