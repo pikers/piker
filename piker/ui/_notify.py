@@ -82,6 +82,7 @@ async def notify_from_ems_status_msg(
             os.environ['DBUS_SESSION_BUS_ADDRESS'] = (
                 f'unix:path=/run/user/{_dbus_uid}/bus'
             )
+            
     result = await trio.run_process(
         [
             'notify-send',
