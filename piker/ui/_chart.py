@@ -1026,20 +1026,13 @@ class ChartPlotWidget(pg.PlotWidget):
         index_field = viz.index_field
 
         if index_field == 'time':
-            vr = viz.plot.viewRect()
-            vtl, vtr = vr.left(), vr.right()
-
-            if vtl < datum_start:
-                vtl = datum_start
-                vtr = datum_stop
-
             (
                 abs_slc,
                 read_slc,
             ) = slice_from_time(
                 array,
-                start_t=vtl,
-                stop_t=vtr,
+                start_t=l,
+                stop_t=r,
             )
             iv_arr = array[read_slc]
             index = iv_arr['time']
@@ -1049,16 +1042,20 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # these must be array-index-ints (hence the slice from time
         # above).
-        x_start, x_stop = index[0], index[-1]
+        x_stop = index[-1]
         view: ChartView = viz.plot.vb
+
+        times = viz.shm.array['time']
+        step = times[-1] - times[-2]
 
         if (
             datum_stop < 0
-            or l < x_start
+            or r < datum_start
+            or l > datum_stop
             or l < 0
             or (datum_stop - datum_start) < 6
         ):
-            begin = x_stop - bars_from_y
+            begin = x_stop - (bars_from_y * step)
             view.setXRange(
                 min=begin,
                 max=x_stop,
@@ -1067,6 +1064,12 @@ class ChartPlotWidget(pg.PlotWidget):
             # re-get range
             l, datum_start, datum_stop, r = viz.bars_range()
 
+        # print(
+        #     f'l: {l}\n'
+        #     f'datum_start: {datum_start}\n'
+        #     f'datum_stop: {datum_stop}\n\n'
+        #     f'r: {r}\n'
+        # )
         # we get the L1 spread label "length" in view coords
         # terms now that we've scaled either by user control
         # or to the default set of bars as per the immediate block
@@ -1085,15 +1088,15 @@ class ChartPlotWidget(pg.PlotWidget):
             )
 
         else:
-            end = x_stop + y_offset + 1
+            end = x_stop + (y_offset * step) + 1
 
         begin = end - (r - l)
 
         debug_msg += (
-            f'end: {end}\n'
             f'begin: {begin}\n'
+            f'end: {end}\n'
         )
-        print(debug_msg)
+        # print(debug_msg)
 
         # remove any custom user yrange setttings
         if self._static_yrange == 'axis':
