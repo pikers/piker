@@ -272,55 +272,6 @@ def ohlc_flatten(
     return x, flat
 
 
-@njit
-def _slice_from_time(
-    arr: np.ndarray,
-    start_t: float,
-    stop_t: float,
-
-) -> tuple[int, int]:
-    '''
-    Slice an input struct array to a time range and return the absolute
-    and "readable" slices for that array as well as the indexing mask
-    for the caller to use to slice the input array if needed.
-
-    '''
-    times = arr['time']
-    index = arr['index']
-
-    if (
-        start_t < 0
-        or start_t >= stop_t
-    ):
-        return (
-            (
-                index[0],
-                index[-1],
-            ),
-            (
-                0,
-                len(arr),
-            ),
-        )
-
-    read_i_0: int = 0
-    read_i_last: int = 0
-
-    for i in range(times.shape[0]):
-        time = times[i]
-        if time >= start_t:
-            read_i_0 = i
-            break
-
-    for i in range(read_i_0, times.shape[0]):
-        time = times[i]
-        if time > stop_t:
-            read_i_last = time
-            break
-
-    return read_i_0, read_i_last
-
-
 def slice_from_time(
     arr: np.ndarray,
     start_t: float,
@@ -436,20 +387,6 @@ def slice_from_time(
             #     f'REMAPPED START i: {read_i_start} -> {new_read_i_start}\n'
             # )
             read_i_start = new_read_i_start
-
-    # old much slower non-bin-search ``numba`` approach..
-    # (
-    #     read_i_start,
-    #     read_i_stop,
-    # ) = _slice_from_time(
-    #     arr,
-    #     start_t,
-    #     stop_t,
-    # )
-    # abs_i_start = int(index[0]) + read_i_0
-    # abs_i_stop = int(index[0]) + read_i_last
-    # if read_i_stop == 0:
-    #     read_i_stop = times.shape[0]
 
     # read-relative indexes: gives a slice where `shm.array[read_slc]`
     # will be the data spanning the input time range `start_t` ->
