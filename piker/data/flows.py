@@ -48,7 +48,6 @@ from ._sharedmem import (
 from ._sampling import (
     open_sample_stream,
 )
-from ._pathops import slice_from_time
 from .._profile import (
     Profiler,
     pg_profile_enabled,
@@ -238,40 +237,3 @@ class Flume(Struct):
 
         # just the latest index
         return array['index'][-1]
-
-    # TODO: maybe move this our ``Viz`` type to avoid
-    # the shm lookup discrepancy?
-    def view_data(
-        self,
-        plot: PlotItem,
-        timeframe_s: int = 1,
-
-    ) -> np.ndarray:
-        '''
-        Return sliced-to-view source data along with absolute
-        (``ShmArray._array['index']``) and read-relative
-        (``ShmArray.array``) slices.
-
-        '''
-        # get far-side x-indices plot view
-        vr = plot.viewRect()
-
-        if timeframe_s > 1:
-            arr = self.hist_shm.array
-        else:
-            arr = self.rt_shm.array
-
-        (
-            abs_slc,
-            read_slc,
-            mask,
-        ) = slice_from_time(
-            arr,
-            start_t=vr.left(),
-            stop_t=vr.right(),
-        )
-        return (
-            abs_slc,
-            read_slc,
-            arr[mask] if mask is not None else arr,
-        )
