@@ -66,7 +66,6 @@ from ..data.feed import (
     Feed,
     Flume,
 )
-from ..data._pathops import slice_from_time
 from ..data._source import Symbol
 from ..log import get_logger
 from ._interaction import ChartView
@@ -964,11 +963,16 @@ class ChartPlotWidget(pg.PlotWidget):
 
         '''
         line_end, marker_right, yaxis_x = self.marker_right_points()
-        view = self.view
-        line = view.mapToView(
+        line = self.view.mapToView(
             QLineF(line_end, 0, yaxis_x, 0)
         )
-        return line.x1(), line.length()
+        linex, linelen = line.x1(), line.length()
+        # print(
+        #     f'line: {line}\n'
+        #     f'linex: {linex}\n'
+        #     f'linelen: {linelen}\n'
+        # )
+        return linex, linelen
 
     def marker_right_points(
         self,
@@ -990,11 +994,16 @@ class ChartPlotWidget(pg.PlotWidget):
         ryaxis = self.getAxis('right')
 
         r_axis_x = ryaxis.pos().x()
-        up_to_l1_sc = r_axis_x - l1_len - 10
-
+        up_to_l1_sc = r_axis_x - l1_len
         marker_right = up_to_l1_sc - (1.375 * 2 * marker_size)
         line_end = marker_right - (6/16 * marker_size)
 
+        # print(
+        #     f'r_axis_x: {r_axis_x}\n'
+        #     f'up_to_l1_sc: {up_to_l1_sc}\n'
+        #     f'marker_right: {marker_right}\n'
+        #     f'line_end: {line_end}\n'
+        # )
         return line_end, marker_right, r_axis_x
 
     def default_view(
@@ -1009,108 +1018,18 @@ class ChartPlotWidget(pg.PlotWidget):
 
         '''
         viz = self.get_viz(self.name)
+
         if not viz:
             log.warning(f'`Viz` for {self.name} not loaded yet?')
             return
 
-        (
-            _,
-            l,
-            datum_start,
-            datum_stop,
-            r,
-            _,
-        ) = viz.datums_range()
-
-        array = viz.shm.array
-        index_field = viz.index_field
-
-        if index_field == 'time':
-            (
-                abs_slc,
-                read_slc,
-            ) = slice_from_time(
-                array,
-                start_t=l,
-                stop_t=r,
-            )
-            iv_arr = array[read_slc]
-            index = iv_arr['time']
-
-        else:
-            index = array['index']
-
-        # these must be array-index-ints (hence the slice from time
-        # above).
-        x_stop = index[-1]
-        view: ChartView = viz.plot.vb
-
-        times = viz.shm.array['time']
-        step = times[-1] - times[-2]
-
-        if (
-            datum_stop < 0
-            or r < datum_start
-            or l > datum_stop
-            or l < 0
-            or (datum_stop - datum_start) < 6
-        ):
-            begin = x_stop - (bars_from_y * step)
-            view.setXRange(
-                min=begin,
-                max=x_stop,
-                padding=0,
-            )
-            # re-get range
-            l, datum_start, datum_stop, r = viz.bars_range()
-
-        # print(
-        #     f'l: {l}\n'
-        #     f'datum_start: {datum_start}\n'
-        #     f'datum_stop: {datum_stop}\n\n'
-        #     f'r: {r}\n'
-        # )
-        # we get the L1 spread label "length" in view coords
-        # terms now that we've scaled either by user control
-        # or to the default set of bars as per the immediate block
-        # above.
-        debug_msg = (
-            f'x_stop: {x_stop}\n'
-        )
-
-        if not y_offset:
-            marker_pos, l1_len = self.pre_l1_xs()
-            end = x_stop + l1_len + 1
-
-            debug_msg += (
-                f'marker pos: {marker_pos}\n'
-                f'l1 len: {l1_len}\n'
-            )
-
-        else:
-            end = x_stop + (y_offset * step) + 1
-
-        begin = end - (r - l)
-
-        debug_msg += (
-            f'begin: {begin}\n'
-            f'end: {end}\n'
-        )
-        # print(debug_msg)
-
-        # remove any custom user yrange setttings
-        if self._static_yrange == 'axis':
-            self._static_yrange = None
-
-        view.setXRange(
-            min=begin,
-            max=end,
-            padding=0,
+        viz.default_view(
+            bars_from_y,
+            y_offset,
+            do_ds,
         )
 
         if do_ds:
-            self.view.maybe_downsample_graphics()
-            view._set_yrange()
             self.linked.graphics_cycle()
 
     def increment_view(
@@ -1126,6 +1045,11 @@ class ChartPlotWidget(pg.PlotWidget):
         """
         l, r = self.view_range()
         view = vb or self.view
+        if steps >= 300:
+            print("FUCKING FIX THE GLOBAL STEP BULLSHIT")
+            # breakpoint()
+            return
+
         view.setXRange(
             min=l + steps,
             max=r + steps,
@@ -1410,17 +1334,16 @@ class ChartPlotWidget(pg.PlotWidget):
 
         else:
             (
-                _,
                 l,
+                _,
                 lbar,
                 rbar,
-                r,
                 _,
+                r,
             ) = bars_range or viz.datums_range()
 
             profiler(f'{self.name} got bars range')
-
-            key = round(lbar), round(rbar)
+            key = lbar, rbar
             res = viz.maxmin(*key)
 
             if (
