@@ -25,6 +25,7 @@ incremental update.
 from __future__ import annotations
 from typing import (
     Optional,
+    TYPE_CHECKING,
 )
 
 import msgspec
@@ -49,7 +50,6 @@ from ..data._pathops import (
 )
 from ._ohlc import (
     BarItems,
-    # bar_from_ohlc_row,
 )
 from ._curve import (
     Curve,
@@ -61,6 +61,11 @@ from .._profile import (
     Profiler,
     pg_profile_enabled,
 )
+
+
+if TYPE_CHECKING:
+    from ._interaction import ChartView
+    from ._chart import ChartPlotWidget
 
 
 log = get_logger(__name__)
@@ -231,11 +236,13 @@ class Viz(msgspec.Struct):  # , frozen=True):
     is_ohlc: bool = False
     render: bool = True  # toggle for display loop
 
+    # _index_field: str = 'index'
     _index_field: str = 'time'
 
     # downsampling state
     _last_uppx: float = 0
     _in_ds: bool = False
+    _index_step: float | None = None
 
     # map from uppx -> (downsampled data, incremental graphics)
     _src_r: Optional[Renderer] = None
@@ -243,12 +250,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
         Optional[int],
         tuple[Renderer, pg.GraphicsItem],
     ] = (None, None)
-
-    # TODO: hackery to be able to set a shm later
-    # but whilst also allowing this type to hashable,
-    # likely will require serializable token that is used to attach
-    # to the underlying shm ref after startup?
-    # _shm: Optional[ShmArray] = None  # currently, may be filled in "later"
 
     # cache of y-range values per x-range input.
     _mxmns: dict[tuple[int, int], tuple[float, float]] = {}
@@ -260,6 +261,17 @@ class Viz(msgspec.Struct):  # , frozen=True):
     @property
     def index_field(self) -> str:
         return self._index_field
+
+    def index_step(
+        self,
+        reset: bool = False,
+
+    ) -> float:
+        if self._index_step is None:
+            index = self.shm.array[self.index_field]
+            self._index_step = index[-1] - index[-2]
+
+        return self._index_step
 
     def maxmin(
         self,
@@ -275,23 +287,35 @@ class Viz(msgspec.Struct):  # , frozen=True):
         '''
         # TODO: hash the slice instead maybe?
         # https://stackoverflow.com/a/29980872
-        rkey = (lbar, rbar)
+        rkey = (round(lbar), round(rbar))
         cached_result = self._mxmns.get(rkey)
+        do_print = 'btc' in self.name
         if cached_result:
+
+            # if do_print:
+            #     print(
+            #         f'{self.name} CACHED maxmin\n'
+            #         f'{rkey} -> {cached_result}'
+            #     )
             return cached_result
 
         shm = self.shm
         if shm is None:
+            breakpoint()
             return None
 
         arr = shm.array
+        # times = arr['time']
+        # step = round(times[-1] - times[-2])
+        # if (
+        #     do_print
+        #     and step == 60
+        # ):
+        #     breakpoint()
 
         # get relative slice indexes into array
         if self.index_field == 'time':
-            (
-                abs_slc,
-                read_slc,
-            ) = slice_from_time(
+            read_slc = slice_from_time(
                 arr,
                 start_t=lbar,
                 stop_t=rbar,
@@ -306,11 +330,17 @@ class Viz(msgspec.Struct):  # , frozen=True):
             ]
 
         if not slice_view.size:
+            log.warning(f'{self.name} no maxmin in view?')
+            # breakpoint()
             return None
 
         elif self.yrange:
             mxmn = self.yrange
-            # print(f'{self.name} M4 maxmin: {mxmn}')
+            if do_print:
+                print(
+                    f'{self.name} M4 maxmin:\n'
+                    f'{rkey} -> {mxmn}'
+                )
 
         else:
             if self.is_ohlc:
@@ -323,7 +353,11 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 yhigh = np.max(view)
 
             mxmn = ylow, yhigh
-            # print(f'{self.name} MANUAL maxmin: {mxmn}')
+            if do_print:
+                print(
+                    f'{self.name} MANUAL ohlc={self.is_ohlc} maxmin:\n'
+                    f'{rkey} -> {mxmn}'
+                )
 
         # cache result for input range
         assert mxmn
@@ -333,8 +367,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
     def view_range(self) -> tuple[int, int]:
         '''
-        Return the indexes in view for the associated
-        plot displaying this viz's data.
+        Return the start and stop x-indexes for the managed ``ViewBox``.
 
         '''
         vr = self.plot.viewRect()
@@ -345,15 +378,18 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
     def bars_range(self) -> tuple[int, int, int, int]:
         '''
-        Return a range tuple for the bars present in view.
+        Return a range tuple for the left-view, left-datum, right-datum
+        and right-view x-indices.
 
         '''
-        start, l, datum_start, datum_stop, r, stop = self.datums_range()
+        l, start, datum_start, datum_stop, stop, r = self.datums_range()
         return l, datum_start, datum_stop, r
 
     def datums_range(
         self,
+        view_range: None | tuple[float, float] = None,
         index_field: str | None = None,
+        array: None | np.ndarray = None,
 
     ) -> tuple[
         int, int, int, int, int, int
@@ -362,39 +398,54 @@ class Viz(msgspec.Struct):  # , frozen=True):
         Return a range tuple for the datums present in view.
 
         '''
-        l, r = self.view_range()
+        l, r = view_range or self.view_range()
 
         index_field: str = index_field or self.index_field
         if index_field == 'index':
             l, r = round(l), round(r)
 
-        array = self.shm.array
+        if array is None:
+            array = self.shm.array
+
         index = array[index_field]
-        start = index[0]
-        stop = index[-1]
+        first = round(index[0])
+        last = round(index[-1])
 
+        # first and last datums in view determined by
+        # l / r view range.
+        leftmost = round(l)
+        rightmost = round(r)
+
+        # invalid view state
         if (
-            l < 0
-            or r < l
-            or l < start
+            r < l
+            or l < 0
+            or r < 0
+            or (l > last and r > last)
         ):
-            datum_start = start
-            datum_stop = stop
+            leftmost = first
+            rightmost = last
         else:
-            datum_start = max(l, start)
-            datum_stop = r
-            if l < stop:
-                datum_stop = min(r, stop)
+            rightmost = max(
+                min(last, rightmost),
+                first,
+            )
 
-        assert datum_start < datum_stop
+            leftmost = min(
+                max(first, leftmost),
+                last,
+                rightmost - 1,
+            )
+
+            assert leftmost < rightmost
 
         return (
-            start,
             l,  # left x-in-view
-            datum_start,
-            datum_stop,
+            first,  # first datum
+            leftmost,
+            rightmost,
+            last,  # last_datum
             r,  # right-x-in-view
-            stop,
         )
 
     def read(
@@ -415,6 +466,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         '''
         index_field: str = index_field or self.index_field
+        vr = l, r = self.view_range()
 
         # readable data
         array = self.shm.array
@@ -423,13 +475,17 @@ class Viz(msgspec.Struct):  # , frozen=True):
             profiler('self.shm.array READ')
 
         (
-            ifirst,
             l,
+            ifirst,
             lbar,
             rbar,
-            r,
             ilast,
-        ) = self.datums_range(index_field=index_field)
+            r,
+        ) = self.datums_range(
+            view_range=vr,
+            index_field=index_field,
+            array=array,
+        )
         # if rbar < lbar:
         #     breakpoint()
 
@@ -440,26 +496,22 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         # TODO: support time slicing
         if index_field == 'time':
-            (
-                abs_slc,
-                read_slc,
-            ) = slice_from_time(
+            read_slc = slice_from_time(
                 array,
                 start_t=lbar,
                 stop_t=rbar,
             )
-            in_view = array[read_slc]
 
-            # diff = rbar - lbar
-            # if (
-            #     'btc' in self.name
-            #     and 'hist' not in self.shm.token
-            # ):
-            #     print(
-            #         f'{self.name}: len(iv) = {len(in_view)}\n'
-            #         f'start/stop: {lbar},{rbar}\n',
-            #         f'diff: {diff}\n',
-            #     )
+            # TODO: maybe we should return this from the slicer call
+            # above?
+            in_view = array[read_slc]
+            if in_view.size:
+                abs_indx = in_view['index']
+                abs_slc = slice(
+                    int(abs_indx[0]),
+                    int(abs_indx[-1]),
+                )
+
             if profiler:
                 profiler(
                     '`slice_from_time('
@@ -635,8 +687,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
             should_redraw = True
 
             showing_src_data = True
-            # reset yrange to be computed from source data
-            self.yrange = None
 
         # MAIN RENDER LOGIC:
         # - determine in view data and redraw on range change
@@ -662,10 +712,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
             **rkwargs,
         )
-        if showing_src_data:
-            # print(f"{self.name} SHOWING SOURCE")
-            # reset yrange to be computed from source data
-            self.yrange = None
 
         if not out:
             log.warning(f'{self.name} failed to render!?')
@@ -678,7 +724,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         # XXX: SUPER UGGGHHH... without this we get stale cache
         # graphics that don't update until you downsampler again..
-        # reset = False
         # if reset:
         #     with graphics.reset_cache():
         #         # assign output paths to graphicis obj
@@ -797,6 +842,129 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 rbar, 0
             )
         ).length()
+
+    def default_view(
+        self,
+        bars_from_y: int = int(616 * 3/8),
+        y_offset: int = 0,
+        do_ds: bool = True,
+
+    ) -> None:
+        '''
+        Set the plot's viewbox to a "default" startup setting where
+        we try to show the underlying data range sanely.
+
+        '''
+        shm: ShmArray = self.shm
+        array: np.ndarray = shm.array
+        view: ChartView = self.plot.vb
+        (
+            vl,
+            first_datum,
+            datum_start,
+            datum_stop,
+            last_datum,
+            vr,
+        ) = self.datums_range(array=array)
+
+        # invalid case: view is not ordered correctly
+        # return and expect caller to sort it out.
+        if (
+            vl > vr
+        ):
+            log.warning(
+                'Skipping `.default_view()` viewbox not initialized..\n'
+                f'l -> r: {vl} -> {vr}\n'
+                f'datum_start -> datum_stop: {datum_start} -> {datum_stop}\n'
+            )
+            return
+
+        chartw: ChartPlotWidget = self.plot.getViewWidget()
+        index_field = self.index_field
+        step = self.index_step()
+
+        if index_field == 'time':
+            # transform l -> r view range values into
+            # data index domain to determine how view
+            # should be reset to better match data.
+            read_slc = slice_from_time(
+                array,
+                start_t=vl,
+                stop_t=vr,
+                step=step,
+            )
+
+        index_iv = array[index_field][read_slc]
+        uppx: float = self.graphics.x_uppx() or 1
+
+        # l->r distance in scene units, no larger then data span
+        data_diff = last_datum - first_datum
+        rl_diff = min(vr - vl, data_diff)
+
+        # orient by offset from the y-axis including
+        # space to compensate for the L1 labels.
+        if not y_offset:
+
+            # we get the L1 spread label "length" in view coords and
+            # make sure it doesn't colide with the right-most datum in
+            # view.
+            _, l1_len = chartw.pre_l1_xs()
+            offset = l1_len/(uppx*step)
+
+            # if no L1 label is present just offset by a few datums
+            # from the y-axis.
+            if chartw._max_l1_line_len == 0:
+                offset += 3*step
+        else:
+            offset = (y_offset * step) + uppx*step
+
+        # align right side of view to the rightmost datum + the selected
+        # offset from above.
+        r_reset = last_datum + offset
+
+        # no data is in view so check for the only 2 sane cases:
+        # - entire view is LEFT of data
+        # - entire view is RIGHT of data
+        if index_iv.size == 0:
+            log.warning(f'No data in view for {vl} -> {vr}')
+
+            # 2 cases either the view is to the left or right of the
+            #   data set.
+            if (
+                vl <= first_datum
+                and vr <= first_datum
+            ):
+                l_reset = first_datum
+
+            elif (
+                vl >= last_datum
+                and vr >= last_datum
+            ):
+                l_reset = r_reset - rl_diff
+
+            else:
+                raise RuntimeError(f'Unknown view state {vl} -> {vr}')
+
+        else:
+            # maintain the l->r view distance
+            l_reset = r_reset - rl_diff
+
+        # remove any custom user yrange setttings
+        if chartw._static_yrange == 'axis':
+            chartw._static_yrange = None
+
+        view.setXRange(
+            min=l_reset,
+            max=r_reset,
+            padding=0,
+        )
+
+        if do_ds:
+            view.maybe_downsample_graphics()
+            view._set_yrange()
+
+            # caller should do this!
+            # self.linked.graphics_cycle()
 
 
 class Renderer(msgspec.Struct):
@@ -958,6 +1126,8 @@ class Renderer(msgspec.Struct):
         path = self.path
         fast_path = self.fast_path
         reset = False
+
+        self.viz.yrange = None
 
         # redraw the entire source data if we have either of:
         # - no prior path graphic rendered or,
