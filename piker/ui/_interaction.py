@@ -35,7 +35,7 @@ import trio
 from ..log import get_logger
 from .._profile import Profiler
 from .._profile import pg_profile_enabled, ms_slower_then
-# from ._style import _min_points_to_show
+from ._style import _min_points_to_show
 from ._editors import SelectRect
 from . import _event
 
@@ -492,18 +492,20 @@ class ChartView(ViewBox):
         chart = self.linked.chart
 
         # don't zoom more then the min points setting
-        out = l, lbar, rbar, r = chart.get_viz(chart.name).bars_range()
-        # vl = r - l
+        viz = chart.get_viz(chart.name)
+        vl, lbar, rbar, vr = viz.bars_range()
+        rl = vr - vl
 
-        # if ev.delta() > 0 and vl <= _min_points_to_show:
-        #     log.debug("Max zoom bruh...")
+        # TODO: max/min zoom limits incorporating time step size.
+        # if ev.delta() > 0 and rl <= _min_points_to_show:
+        #     log.warning("Max zoom bruh...")
         #     return
 
         # if (
         #     ev.delta() < 0
-        #     and vl >= len(chart._vizs[chart.name].shm.array) + 666
+        #     and rl >= len(chart._vizs[chart.name].shm.array) + 666
         # ):
-        #     log.debug("Min zoom bruh...")
+        #     log.warning("Min zoom bruh...")
         #     return
 
         # actual scaling factor
@@ -552,8 +554,7 @@ class ChartView(ViewBox):
 
             # This seems like the most "intuitive option, a hybrid of
             # tws and tv styles
-            last_bar = pg.Point(int(rbar)) + 1
-
+            # last_bar = pg.Point(int(rbar)) + 1
             ryaxis = chart.getAxis('right')
             r_axis_x = ryaxis.pos().x()
 
@@ -561,20 +562,20 @@ class ChartView(ViewBox):
                 round(
                     chart.cv.mapToView(
                         pg.Point(r_axis_x - chart._max_l1_line_len)
-                        # QPointF(chart._max_l1_line_len, 0)
                     ).x()
                 )
-            )  # .x()
+            ).x()
 
             # self.state['viewRange'][0][1] = end_of_l1
             # focal = pg.Point((last_bar.x() + end_of_l1)/2)
-
-            focal = min(
-                last_bar,
-                end_of_l1,
-                key=lambda p: p.x()
-            )
             # focal = pg.Point(last_bar.x() + end_of_l1)
+
+            # use right-most point of current curve graphic
+            xl = viz.graphics.x_last()
+            focal = min(
+                xl,
+                end_of_l1,
+            )
 
             self._resetTarget()
             self.scaleBy(s, focal)
