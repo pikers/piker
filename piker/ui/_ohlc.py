@@ -114,11 +114,19 @@ class BarItems(pg.GraphicsObject):
 
         self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
         self.path = QPainterPath()
-        self._last_bar_lines: Optional[tuple[QLineF, ...]] = None
+
+        self._last_bar_lines: tuple[QLineF, ...] | None = None
 
     def x_uppx(self) -> int:
         # we expect the downsample curve report this.
         return 0
+
+    def x_last(self) -> float:
+        '''
+        Return the last most x value of the close line segment.
+
+        '''
+        return self._last_bar_lines[-1].x2()
 
     # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
     def boundingRect(self):
