@@ -1202,6 +1202,13 @@ async def display_symbol_data(
             # sidepane=False,
             sidepane=godwidget.search,
         )
+
+        # ensure the last datum graphic is generated
+        # for zoom-interaction purposes.
+        hist_chart.get_viz(fqsn).draw_last(
+            array_key=fqsn,
+            only_last_uppx=True,
+        )
         pis.setdefault(fqsn, [None, None])[1] = hist_chart.plotItem
 
         # don't show when not focussed
@@ -1293,6 +1300,13 @@ async def display_symbol_data(
 
                     color=bg_chart_color,
                     last_bar_color=bg_last_bar_color,
+                )
+
+                # ensure the last datum graphic is generated
+                # for zoom-interaction purposes.
+                viz.draw_last(
+                    array_key=fqsn,
+                    only_last_uppx=True,
                 )
 
                 hist_pi.vb.maxmin = partial(
@@ -1406,11 +1420,12 @@ async def display_symbol_data(
                 )
                 godwidget.resize_all()
 
-            await link_views_with_region(
-                rt_chart,
-                hist_chart,
-                flume,
-            )
+            # hist_chart.hide()
+            # await link_views_with_region(
+            #     rt_chart,
+            #     hist_chart,
+            #     flume,
+            # )
 
             # start graphics update loop after receiving first live quote
             ln.start_soon(
