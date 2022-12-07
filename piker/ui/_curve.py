@@ -133,7 +133,7 @@ class Curve(pg.GraphicsObject):
         # self.last_step_pen = pg.mkPen(hcolor(color), width=2)
         self.last_step_pen = pg.mkPen(pen, width=2)
 
-        self._last_line = QLineF()
+        self._last_line: QLineF = QLineF()
 
         # flat-top style histogram-like discrete curve
         # self._step_mode: bool = step_mode
@@ -181,6 +181,13 @@ class Curve(pg.GraphicsObject):
             return round(xs_in_px)
         else:
             return 0
+
+    def x_last(self) -> float:
+        '''
+        Return the last most x value of the last line segment.
+
+        '''
+        return self._last_line.x2()
 
     def px_width(self) -> float:
 
