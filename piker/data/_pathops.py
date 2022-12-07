@@ -29,7 +29,6 @@ from numba import (
 
 # TODO: for ``numba`` typing..
 # from ._source import numba_ohlc_dtype
-from ._sharedmem import ShmArray
 from ._m4 import ds_m4
 from .._profile import (
     Profiler,
@@ -328,7 +327,7 @@ def slice_from_time(
 
     # compute (presumed) uniform-time-step index offsets
     i_start_t = round(start_t)
-    read_i_start = (i_start_t - t_first) // step
+    read_i_start = ((i_start_t - t_first) // step) - 1
 
     i_stop_t = round(stop_t)
     read_i_stop = (i_stop_t - t_first) // step
@@ -339,20 +338,25 @@ def slice_from_time(
     # - never allow an end index > the read array len
     read_i_start = min(
         max(0, read_i_start),
-        read_i_max,
+        read_i_max - 1,
     )
     read_i_stop = max(
         0,
         min(read_i_stop, read_i_max),
     )
 
+    samples = (i_stop_t - i_start_t) // step
+    index_diff = read_i_stop - read_i_start + 1
+    if index_diff > (samples + 3):
+        breakpoint()
+
     # check for larger-then-latest calculated index for given start
     # time, in which case we do a binary search for the correct index.
     # NOTE: this is usually the result of a time series with time gaps
     # where it is expected that each index step maps to a uniform step
     # in the time stamp series.
-    i_iv_start = index[read_i_start - 1]
-    t_iv_start = times[read_i_start - 1]
+    i_iv_start = index[read_i_start]
+    t_iv_start = times[read_i_start]
     if (
         i_iv_start >= i_first
         and t_iv_start > i_start_t
@@ -386,7 +390,20 @@ def slice_from_time(
             #     f'diff: {t_diff}\n'
             #     f'REMAPPED START i: {read_i_start} -> {new_read_i_start}\n'
             # )
-            read_i_start = new_read_i_start
+            read_i_start = new_read_i_start - 1
+
+        t_iv_stop = times[read_i_stop - 1]
+        if (
+            i_stop_t <= t_last
+            and t_iv_stop < i_stop_t
+        ):
+            t_diff = stop_t - t_iv_stop
+            print(
+                f"WE'RE CUTTING OUT TIME - STEP:{step}\n"
+                f'calced iv stop:{t_iv_stop} -> stop_t:{stop_t}\n'
+                f'diff: {t_diff}\n'
+                # f'SHOULD REMAP STOP: {read_i_start} -> {new_read_i_start}\n'
+            )
 
     # read-relative indexes: gives a slice where `shm.array[read_slc]`
     # will be the data spanning the input time range `start_t` ->
