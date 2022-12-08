@@ -892,6 +892,8 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 stop_t=vr,
                 step=step,
             )
+        else:
+            read_slc = slice(0, datum_stop - datum_start + 1)
 
         index_iv = array[index_field][read_slc]
         uppx: float = self.graphics.x_uppx() or 1
