@@ -289,29 +289,21 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # https://stackoverflow.com/a/29980872
         rkey = (round(lbar), round(rbar))
         cached_result = self._mxmns.get(rkey)
-        do_print = 'btc' in self.name
+        do_print = False
         if cached_result:
 
-            # if do_print:
-            #     print(
-            #         f'{self.name} CACHED maxmin\n'
-            #         f'{rkey} -> {cached_result}'
-            #     )
+            if do_print:
+                print(
+                    f'{self.name} CACHED maxmin\n'
+                    f'{rkey} -> {cached_result}'
+                )
             return cached_result
 
         shm = self.shm
         if shm is None:
-            breakpoint()
             return None
 
         arr = shm.array
-        # times = arr['time']
-        # step = round(times[-1] - times[-2])
-        # if (
-        #     do_print
-        #     and step == 60
-        # ):
-        #     breakpoint()
 
         # get relative slice indexes into array
         if self.index_field == 'time':
@@ -331,7 +323,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         if not slice_view.size:
             log.warning(f'{self.name} no maxmin in view?')
-            # breakpoint()
             return None
 
         elif self.yrange:
@@ -353,10 +344,18 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 yhigh = np.max(view)
 
             mxmn = ylow, yhigh
-            if do_print:
+            if (
+                do_print
+                # and self.index_step() > 1
+            ):
+                s = 3
                 print(
                     f'{self.name} MANUAL ohlc={self.is_ohlc} maxmin:\n'
-                    f'{rkey} -> {mxmn}'
+                    f'{rkey} -> {mxmn}\n'
+                    f'read_slc: {read_slc}\n'
+                    f'abs_slc: {slice_view["index"]}\n'
+                    f'first {s}:\n{slice_view[:s]}\n'
+                    f'last {s}:\n{slice_view[-s:]}\n'
                 )
 
         # cache result for input range
