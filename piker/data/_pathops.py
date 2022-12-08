@@ -328,10 +328,10 @@ def slice_from_time(
 
     # compute (presumed) uniform-time-step index offsets
     i_start_t = round(start_t)
-    read_i_start = ((i_start_t - t_first) // step) - 1
+    read_i_start = round(((i_start_t - t_first) // step)) - 1
 
     i_stop_t = round(stop_t)
-    read_i_stop = (i_stop_t - t_first) // step
+    read_i_stop = round((i_stop_t - t_first) // step) + 1
 
     # always clip outputs to array support
     # for read start:
@@ -345,11 +345,6 @@ def slice_from_time(
         0,
         min(read_i_stop, read_i_max),
     )
-
-    samples = (i_stop_t - i_start_t) // step
-    index_diff = read_i_stop - read_i_start + 1
-    if index_diff > (samples + 3):
-        breakpoint()
 
     # check for larger-then-latest calculated index for given start
     # time, in which case we do a binary search for the correct index.
@@ -417,6 +412,12 @@ def slice_from_time(
             new_read_i_stop < read_i_stop
         ):
             read_i_stop = read_i_start + new_read_i_stop
+
+    # sanity checks for range size
+    # samples = (i_stop_t - i_start_t) // step
+    # index_diff = read_i_stop - read_i_start + 1
+    # if index_diff > (samples + 3):
+    #     breakpoint()
 
     # read-relative indexes: gives a slice where `shm.array[read_slc]`
     # will be the data spanning the input time range `start_t` ->
