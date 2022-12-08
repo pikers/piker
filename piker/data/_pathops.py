@@ -305,6 +305,7 @@ def slice_from_time(
 
     index = arr['index']
     i_first = index[0]
+    i_last = index[-1]
     read_i_max = arr.shape[0]
 
     if (
@@ -392,18 +393,30 @@ def slice_from_time(
             # )
             read_i_start = new_read_i_start - 1
 
-        t_iv_stop = times[read_i_stop - 1]
+    i_iv_stop = index[read_i_stop - 1]
+    t_iv_stop = times[read_i_stop - 1]
+    if (
+        i_iv_stop < i_last
+        # i_stop_t <= t_last
+        and t_iv_stop > i_stop_t
+    ):
+        # t_diff = stop_t - t_iv_stop
+        # print(
+        #     f"WE'RE CUTTING OUT TIME - STEP:{step}\n"
+        #     f'calced iv stop:{t_iv_stop} -> stop_t:{stop_t}\n'
+        #     f'diff: {t_diff}\n'
+        #     # f'SHOULD REMAP STOP: {read_i_start} -> {new_read_i_start}\n'
+        # )
+        new_read_i_stop = np.searchsorted(
+            times[read_i_start:],
+            i_stop_t,
+            side='right',
+        )
+
         if (
-            i_stop_t <= t_last
-            and t_iv_stop < i_stop_t
+            new_read_i_stop < read_i_stop
         ):
-            t_diff = stop_t - t_iv_stop
-            print(
-                f"WE'RE CUTTING OUT TIME - STEP:{step}\n"
-                f'calced iv stop:{t_iv_stop} -> stop_t:{stop_t}\n'
-                f'diff: {t_diff}\n'
-                # f'SHOULD REMAP STOP: {read_i_start} -> {new_read_i_start}\n'
-            )
+            read_i_stop = read_i_start + new_read_i_stop
 
     # read-relative indexes: gives a slice where `shm.array[read_slc]`
     # will be the data spanning the input time range `start_t` ->
