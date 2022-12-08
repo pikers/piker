@@ -733,7 +733,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
         #         # graphics.draw_last_datum(
         #         #     path,
         #         #     src_array,
-        #         #     data,
         #         #     reset,
         #         #     array_key,
         #         # )
@@ -747,7 +746,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
         graphics.draw_last_datum(
             path,
             src_array,
-            data,
             reset,
             array_key,
             index_field=self.index_field,
@@ -784,7 +782,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
         array_key = array_key or self.name
         x, y = g.draw_last_datum(
             g.path,
-            src_array,
             src_array,
             False,  # never reset path
             array_key,
