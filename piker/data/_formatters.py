@@ -438,11 +438,36 @@ class IncrementalFormatter(msgspec.Struct):
 
     ) -> None:
         # write pushed data to flattened copy
-        new_y_nd = new_from_src[data_field]
-        self.y_nd[read_slc] = new_y_nd
+        y_nd_new = new_from_src[data_field]
+        self.y_nd[read_slc] = y_nd_new
 
         x_nd_new = self.x_nd[read_slc]
         x_nd_new[:] = new_from_src[self.index_field]
+
+        # x_nd = self.x_nd[self.xy_slice]
+        # y_nd = self.y_nd[self.xy_slice]
+        # name = self.viz.name
+        # if 'trade_rate' == name:
+        #     s = 4
+        #     print(
+        #         f'{name.upper()}:\n'
+        #         'NEW_FROM_SRC:\n'
+        #         f'new_from_src: {new_from_src}\n\n'
+
+        #         f'PRE self.x_nd:'
+        #         f'\n{list(x_nd[-s:])}\n'
+
+        #         f'PRE self.y_nd:\n'
+        #         f'{list(y_nd[-s:])}\n\n'
+
+        #         f'TO WRITE:\n'
+
+        #         f'x_nd_new:\n'
+        #         f'{x_nd_new[0]}\n'
+
+        #         f'y_nd_new:\n'
+        #         f'{y_nd_new}\n'
+        #     )
 
     # XXX: was ``.format_xy()``
     def format_xy_nd_to_1d(
@@ -745,9 +770,6 @@ class StepCurveFmtr(IncrementalFormatter):
 
         x_step = self.x_nd[start:stop]
         y_step = self.y_nd[start:stop]
-
-        # pack in duplicate final value to complete last step level
-        y_step[-1, 1] = last
 
         # debugging
         # if y_step.any():
