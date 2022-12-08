@@ -135,7 +135,10 @@ async def open_history_client(
             # fx cons seem to not provide this endpoint?
             'idealpro' not in fqsn
         ):
-            head_dt = await proxy.get_head_time(fqsn=fqsn)
+            try:
+                head_dt = await proxy.get_head_time(fqsn=fqsn)
+            except RequestError:
+                head_dt = None
 
         async def get_hist(
             timeframe: float,
