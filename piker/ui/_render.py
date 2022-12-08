@@ -718,30 +718,27 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         path, data, reset = out
 
-        # if self.yrange:
-        #     print(f'viz {self.name} yrange from m4: {self.yrange}')
-
         # XXX: SUPER UGGGHHH... without this we get stale cache
         # graphics that don't update until you downsampler again..
-        # if reset:
-        #     with graphics.reset_cache():
-        #         # assign output paths to graphicis obj
-        #         graphics.path = r.path
-        #         graphics.fast_path = r.fast_path
+        if reset:
+            with graphics.reset_cache():
+                # assign output paths to graphicis obj
+                graphics.path = r.path
+                graphics.fast_path = r.fast_path
 
-        #         # XXX: we don't need this right?
-        #         # graphics.draw_last_datum(
-        #         #     path,
-        #         #     src_array,
-        #         #     reset,
-        #         #     array_key,
-        #         # )
-        #         # graphics.update()
-        #         # profiler('.update()')
-        # else:
-        # assign output paths to graphicis obj
-        graphics.path = r.path
-        graphics.fast_path = r.fast_path
+                # XXX: we don't need this right?
+                # graphics.draw_last_datum(
+                #     path,
+                #     src_array,
+                #     reset,
+                #     array_key,
+                # )
+                # graphics.update()
+                # profiler('.update()')
+        else:
+            # assign output paths to graphicis obj
+            graphics.path = r.path
+            graphics.fast_path = r.fast_path
 
         graphics.draw_last_datum(
             path,
