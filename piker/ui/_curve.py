@@ -360,7 +360,6 @@ class Curve(pg.GraphicsObject):
         self,
         path: QPainterPath,
         src_data: np.ndarray,
-        render_data: np.ndarray,
         reset: bool,
         array_key: str,
         index_field: str,
@@ -368,8 +367,8 @@ class Curve(pg.GraphicsObject):
     ) -> None:
         # default line draw last call
         # with self.reset_cache():
-        x = render_data[index_field]
-        y = render_data[array_key]
+        x = src_data[index_field]
+        y = src_data[array_key]
 
         # draw the "current" step graphic segment so it
         # lines up with the "middle" of the current
@@ -392,7 +391,6 @@ class FlattenedOHLC(Curve):
         self,
         path: QPainterPath,
         src_data: np.ndarray,
-        render_data: np.ndarray,
         reset: bool,
         array_key: str,
         index_field: str,
@@ -423,7 +421,6 @@ class StepCurve(Curve):
         self,
         path: QPainterPath,
         src_data: np.ndarray,
-        render_data: np.ndarray,
         reset: bool,
         array_key: str,
         index_field: str,

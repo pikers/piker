@@ -221,7 +221,6 @@ class BarItems(pg.GraphicsObject):
         self,
         path: QPainterPath,
         src_data: np.ndarray,
-        render_data: np.ndarray,
         reset: bool,
         array_key: str,
         index_field: str,
