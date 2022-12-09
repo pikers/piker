@@ -48,13 +48,13 @@ from ._sharedmem import (
 from ._sampling import (
     open_sample_stream,
 )
-from .._profile import (
-    Profiler,
-    pg_profile_enabled,
-)
+# from .._profile import (
+#     Profiler,
+#     pg_profile_enabled,
+# )
 
 if TYPE_CHECKING:
-    from pyqtgraph import PlotItem
+    # from pyqtgraph import PlotItem
     from .feed import Feed
 
 
@@ -222,18 +222,18 @@ class Flume(Struct):
     def get_index(
         self,
         time_s: float,
+        array: np.ndarray,
 
-    ) -> int:
+    ) -> int | float:
         '''
         Return array shm-buffer index for for epoch time.
 
         '''
-        array = self.rt_shm.array
         times = array['time']
-        mask = (times >= time_s)
-
-        if any(mask):
-            return array['index'][mask][0]
-
-        # just the latest index
-        return array['index'][-1]
+        first = np.searchsorted(
+            times,
+            time_s,
+            side='left',
+        )
+        imx = times.shape[0] - 1
+        return min(first, imx)
