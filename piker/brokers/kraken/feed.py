@@ -88,6 +88,9 @@ class Pair(Struct):
     tick_size: float # min price step size
     status: str
 
+    short_position_limit: float
+    long_position_limit: float
+
 
 class OHLC(Struct):
     '''
@@ -352,7 +355,13 @@ async def stream_quotes(
             # transform to upper since piker style is always lower
             sym = sym.upper()
             sym_info = await client.symbol_info(sym)
-            si = Pair(**sym_info)  # validation
+            try:
+                si = Pair(**sym_info)  # validation
+            except TypeError:
+                fields_diff = set(sym_info) - set(Pair.__struct_fields__)
+                raise TypeError(
+                    f'Missing msg fields {fields_diff}'
+                )
             syminfo = si.to_dict()
             syminfo['price_tick_size'] = 1 / 10**si.pair_decimals
             syminfo['lot_tick_size'] = 1 / 10**si.lot_decimals
