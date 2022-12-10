@@ -460,11 +460,19 @@ async def stream_quotes(
             syminfo = Pair(**d)  # validation
 
             si = sym_infos[sym] = syminfo.to_dict()
+            filters = {}
+            for entry in syminfo.filters:
+                ftype = entry.pop('filterType')
+                filters[ftype] = entry
 
             # XXX: after manually inspecting the response format we
             # just directly pick out the info we need
-            si['price_tick_size'] = float(syminfo.filters[0]['tickSize'])
-            si['lot_tick_size'] = float(syminfo.filters[2]['stepSize'])
+            si['price_tick_size'] = float(
+                filters['PRICE_FILTER']['tickSize']
+            )
+            si['lot_tick_size'] = float(
+                filters['LOT_SIZE']['stepSize']
+            )
             si['asset_type'] = 'crypto'
 
         symbol = symbols[0]
