@@ -25,10 +25,10 @@ from piker.data._source import (
         (100, {'btcusdt.binance', 'ethusdt.binance'}),
 
         # kraken
-        (20, {'xbteur.kraken', 'xbtusd.kraken'}),
+        (20, {'ethusdt.kraken', 'xbtusd.kraken'}),
 
         # binance + kraken
-        (200, {'btcusdt.binance', 'xbtusd.kraken'}),
+        (100, {'btcusdt.binance', 'xbtusd.kraken'}),
     ],
     ids=lambda param: f'quotes={param[0]}@fqsns={param[1]}',
 )
@@ -96,7 +96,7 @@ def test_multi_fqsn_feed(
                             assert quote['last'] == flume.first_quote['last']
 
                 cntr = Counter()
-                with trio.fail_after(5):
+                with trio.fail_after(6):
                     async for quotes in stream:
                         for fqsn, quote in quotes.items():
                             cntr[fqsn] += 1
