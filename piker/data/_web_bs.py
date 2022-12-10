@@ -26,6 +26,7 @@ import json
 
 import trio
 import trio_websocket
+from  wsproto.utilities import LocalProtocolError
 from trio_websocket._impl import (
     ConnectionClosed,
     DisconnectionTimeout,
@@ -51,6 +52,7 @@ class NoBsWs:
         ConnectionRejected,
         HandshakeError,
         ConnectionTimeout,
+        LocalProtocolError,
     )
 
     def __init__(
