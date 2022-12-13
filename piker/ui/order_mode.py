@@ -528,15 +528,17 @@ class OrderMode:
                 viz = chart.get_viz(chart.name)
                 index_field = viz.index_field
                 arr = shm.array
+
+                # TODO: borked for int index based..
                 index = flume.get_index(time_s, arr)
 
-                if index_field == 'time':
-                    i = arr['time'][index]
+                # get absolute index for arrow placement
+                arrow_index = arr[index_field][index]
 
                 self.arrows.add(
                     chart.plotItem,
                     uuid,
-                    i,
+                    arrow_index,
                     price,
                     pointing=pointing,
                     color=lines[0].color
@@ -941,8 +943,6 @@ async def process_trade_msg(
     fmsg = pformat(msg)
     log.debug(f'Received order msg:\n{fmsg}')
     name = msg['name']
-    viz = mode.chart.get_viz(mode.chart.name)
-    index_field = viz.index_field
 
     if name in (
         'position',
@@ -976,7 +976,6 @@ async def process_trade_msg(
 
     if dialog:
         fqsn = dialog.symbol
-        flume = mode.feed.flumes[fqsn]
 
     match msg:
         case Status(
