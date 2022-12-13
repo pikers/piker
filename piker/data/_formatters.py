@@ -252,7 +252,6 @@ class IncrementalFormatter(msgspec.Struct):
         array_key: str,
         profiler: Profiler,
 
-        read_src_from_key: bool = True,
         slice_to_inview: bool = True,
 
     ) -> tuple[
