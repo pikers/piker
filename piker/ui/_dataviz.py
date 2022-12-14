@@ -61,6 +61,7 @@ from .._profile import (
 if TYPE_CHECKING:
     from ._interaction import ChartView
     from ._chart import ChartPlotWidget
+    from ._display import DisplayState
 
 
 log = get_logger(__name__)
@@ -953,3 +954,104 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
             # caller should do this!
             # self.linked.graphics_cycle()
+
+    def incr_info(
+        self,
+
+        # NOTE: pass in a copy if you don't want your orignal mutated.
+        state: DisplayState,
+
+        update_state: bool = True,
+        update_uppx: float = 16,
+        is_1m: bool = False,
+
+    ) -> tuple:
+
+        # shm = shm or self.ohlcv
+        # chart = chart or self.chart
+        globalz = state.globalz
+        if is_1m:
+            state = state.hist_vars
+        else:
+            state = state.vars
+
+        _, _, _, r = self.bars_range()
+
+        i_step = self.shm.array[-1][self.index_field]
+
+        # last-in-view: is a real-time update necessary?
+        liv = r >= i_step
+
+        # TODO: make this not loop through all vizs each time?
+        # compute the first available graphic's x-units-per-pixel
+        uppx = self.plot.vb.x_uppx()
+
+        # NOTE: this used to be implemented in a dedicated
+        # "increment task": ``check_for_new_bars()`` but it doesn't
+        # make sense to do a whole task switch when we can just do
+        # this simple index-diff and all the fsp sub-curve graphics
+        # are diffed on each draw cycle anyway; so updates to the
+        # "curve" length is already automatic.
+        glast = globalz['i_last']
+        i_diff = i_step - glast
+
+        # print(f'{chart.name} TIME STEP: {i_step}')
+        # i_diff = i_step - state['i_last']
+
+        should_global_increment: bool = False
+        if i_step > glast:
+            globalz['i_last'] = i_step
+            should_global_increment = True
+
+        # update global state for this chart
+        if (
+            # state is None
+            not is_1m
+            and i_diff > 0
+        ):
+            state['i_last'] = i_step
+
+        append_diff = i_step - state['i_last_append']
+        # append_diff = i_step - _i_last_append
+
+        # update the "last datum" (aka extending the vizs graphic with
+        # new data) only if the number of unit steps is >= the number of
+        # such unit steps per pixel (aka uppx). Iow, if the zoom level
+        # is such that a datum(s) update to graphics wouldn't span
+        # to a new pixel, we don't update yet.
+        do_append = (
+            append_diff >= uppx
+            and i_diff
+        )
+        if (
+            do_append
+            and not is_1m
+        ):
+            # _i_last_append = i_step
+            state['i_last_append'] = i_step
+
+            # fqsn = self.flume.symbol.fqsn
+            # print(
+            #     f'DOING APPEND => {fqsn}\n'
+            #     f'i_step:{i_step}\n'
+            #     f'i_diff:{i_diff}\n'
+            #     f'last:{_i_last}\n'
+            #     f'last_append:{_i_last_append}\n'
+            #     f'append_diff:{append_diff}\n'
+            #     f'r: {r}\n'
+            #     f'liv: {liv}\n'
+            #     f'uppx: {uppx}\n'
+            # )
+
+        do_rt_update = uppx < update_uppx
+
+        # TODO: pack this into a struct
+        return (
+            uppx,
+            liv,
+            do_append,
+            i_diff,
+            append_diff,
+            do_rt_update,
+            should_global_increment,
+        )
