@@ -72,7 +72,7 @@ from ._interaction import ChartView
 from ._forms import FieldsForm
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._overlay import PlotItemOverlay
-from ._render import Viz
+from ._dataviz import Viz
 from ._search import SearchWidget
 from . import _pg_overrides as pgo
 from .._profile import Profiler
