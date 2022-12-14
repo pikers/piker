@@ -95,13 +95,13 @@ def render_baritems(
     '''
     bars = graphics
 
-    # if no source data renderer exists create one.
-    self = viz
-    show_bars: bool = False
-
+    self = viz  # TODO: make this a ``Viz`` method?
     r = self._src_r
+    first_render: bool = False
+
+    # if no source data renderer exists create one.
     if not r:
-        show_bars = True
+        first_render = True
 
         # OHLC bars path renderer
         r = self._src_r = Renderer(
@@ -143,10 +143,11 @@ def render_baritems(
     # - if we're **not** downsampling then we simply want to
     #   render the bars graphics curve and update..
     # - if instead we are in a downsamplig state then we to
-    x_gt = 6 * (r.fmtr.index_step_size or 1)
+    x_gt = 6 * (self.index_step() or 1)
     uppx = curve.x_uppx()
     # print(f'BARS UPPX: {uppx}')
     in_line = should_line = curve.isVisible()
+
     if (
         in_line
         and uppx < x_gt
@@ -174,7 +175,7 @@ def render_baritems(
     else:
         graphics = bars
 
-    if show_bars:
+    if first_render:
         bars.show()
 
     changed_to_line = False
@@ -191,20 +192,30 @@ def render_baritems(
         curve.update()
         changed_to_line = True
 
-    elif in_line and not should_line:
+    elif (
+        in_line
+        and not should_line
+    ):
         # change to bars graphic
-        log.info(f'showing bars graphic {self.name}')
+        log.info(
+            f'showing bars graphic {self.name}\n'
+            f'first bars render?: {first_render}'
+        )
         curve.hide()
         bars.show()
         bars.update()
-        # breakpoint()
 
+    # XXX: is this required?
+    viz._in_ds = should_line
+
+    should_redraw = (
+        changed_to_line
+        or not should_line
+    )
     return (
         graphics,
         r,
-        {'read_from_key': False},
-        should_line,
-        changed_to_line,
+        should_redraw,
     )
 
 
@@ -485,8 +496,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
             index_field=index_field,
             array=array,
         )
-        # if rbar < lbar:
-        #     breakpoint()
 
         if profiler:
             profiler('self.datums_range()')
@@ -555,9 +564,9 @@ class Viz(msgspec.Struct):  # , frozen=True):
         self,
         use_vr: bool = True,
         render: bool = True,
-        array_key: Optional[str] = None,
+        array_key: str | None = None,
 
-        profiler: Optional[Profiler] = None,
+        profiler: Profiler | None = None,
         do_append: bool = True,
 
         **kwargs,
@@ -592,8 +601,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
             return graphics
 
         should_redraw: bool = False
-        should_line: bool = False
-        rkwargs = {}
 
         # TODO: probably specialize ``Renderer`` types instead of
         # these logic checks?
@@ -606,9 +613,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
             (
                 graphics,
                 r,
-                rkwargs,
-                should_line,
-                changed_to_line,
+                should_redraw,
             ) = render_baritems(
                 self,
                 graphics,
@@ -616,8 +621,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 profiler,
                 **kwargs,
             )
-            should_redraw = changed_to_line or not should_line
-            self._in_ds = should_line
 
         elif not r:
             if isinstance(graphics, StepCurve):
@@ -629,10 +632,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
                         viz=self,
                     ),
                 )
-
-                # TODO: append logic inside ``.render()`` isn't
-                # correct yet for step curves.. remove this to see it.
-                should_redraw = True
 
             else:
                 r = self._src_r
@@ -684,7 +683,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
             new_sample_rate = True
             should_ds = False
             should_redraw = True
-
             showing_src_data = True
 
         # MAIN RENDER LOGIC:
@@ -708,15 +706,13 @@ class Viz(msgspec.Struct):  # , frozen=True):
             showing_src_data=showing_src_data,
 
             do_append=do_append,
-
-            **rkwargs,
         )
 
         if not out:
             log.warning(f'{self.name} failed to render!?')
             return graphics
 
-        path, data, reset = out
+        path, reset = out
 
         # XXX: SUPER UGGGHHH... without this we get stale cache
         # graphics that don't update until you downsampler again..
@@ -732,6 +728,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 #     src_array,
                 #     reset,
                 #     array_key,
+                #     index_field=self.index_field,
                 # )
                 # graphics.update()
                 # profiler('.update()')
@@ -786,14 +783,17 @@ class Viz(msgspec.Struct):  # , frozen=True):
         )
 
         # the renderer is downsampling we choose
-        # to always try and updadte a single (interpolating)
+        # to always try and update a single (interpolating)
         # line segment that spans and tries to display
-        # the las uppx's worth of datums.
+        # the last uppx's worth of datums.
         # we only care about the last pixel's
         # worth of data since that's all the screen
         # can represent on the last column where
         # the most recent datum is being drawn.
-        if self._in_ds or only_last_uppx:
+        if (
+            self._in_ds
+            or only_last_uppx
+        ):
             dsg = self.ds_graphics or self.graphics
 
             # XXX: pretty sure we don't need this?
@@ -821,12 +821,10 @@ class Viz(msgspec.Struct):  # , frozen=True):
             # print(f'updating NOT DS curve {self.name}')
             g.update()
 
-    def curve_width_pxs(
-        self,
-    ) -> float:
+    def curve_width_pxs(self) -> float:
         '''
-
         Return the width of the current datums in view in pixel units.
+
         '''
         _, lbar, rbar, _ = self.bars_range()
         return self.view.mapViewToDevice(
@@ -1006,8 +1004,6 @@ class Renderer(msgspec.Struct):
             if self.fast_path:
                 self.fast_path.clear()
 
-            # profiler('cleared paths due to `should_redraw=True`')
-
         path = pg.functions.arrayToQPath(
             x,
             y,
@@ -1051,9 +1047,8 @@ class Renderer(msgspec.Struct):
 
         # only render datums "in view" of the ``ChartView``
         use_vr: bool = True,
-        read_from_key: bool = True,
 
-    ) -> list[QPainterPath]:
+    ) -> tuple[QPainterPath, bool]:
         '''
         Render the current graphics path(s)
 
@@ -1086,7 +1081,6 @@ class Renderer(msgspec.Struct):
             array_key,
             profiler,
 
-            read_src_from_key=read_from_key,
             slice_to_inview=use_vr,
         )
 
@@ -1244,4 +1238,4 @@ class Renderer(msgspec.Struct):
         self.path = path
         self.fast_path = fast_path
 
-        return self.path, array, reset
+        return self.path, reset
