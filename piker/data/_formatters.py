@@ -35,7 +35,7 @@ from ._pathops import (
 )
 
 if TYPE_CHECKING:
-    from ._render import (
+    from ._dataviz import (
         Viz,
     )
     from .._profile import Profiler
