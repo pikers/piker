@@ -128,10 +128,6 @@ def chart_maxmin(
     )
 
 
-_i_last: int = 0
-_i_last_append: int = 0
-
-
 class DisplayState(Struct):
     '''
     Chart-local real-time graphics state container.
@@ -154,112 +150,32 @@ class DisplayState(Struct):
     hist_last_price_sticky: YAxisLabel
 
     # misc state tracking
-    vars: dict[str, Any] = field(default_factory=lambda: {
-        'tick_margin': 0,
-        'i_last': 0,
-        'i_last_append': 0,
-        'last_mx_vlm': 0,
-        'last_mx': 0,
-        'last_mn': 0,
-    })
+    vars: dict[str, Any] = field(
+        default_factory=lambda: {
+            'tick_margin': 0,
+            'i_last': 0,
+            'i_last_append': 0,
+            'last_mx_vlm': 0,
+            'last_mx': 0,
+            'last_mn': 0,
+        }
+    )
+    hist_vars: dict[str, Any] = field(
+        default_factory=lambda: {
+            'tick_margin': 0,
+            'i_last': 0,
+            'i_last_append': 0,
+            'last_mx_vlm': 0,
+            'last_mx': 0,
+            'last_mn': 0,
+        }
+    )
+
+    globalz: None | dict[str, Any] = None
 
     vlm_chart: Optional[ChartPlotWidget] = None
     vlm_sticky: Optional[YAxisLabel] = None
     wap_in_history: bool = False
-
-    def incr_info(
-        self,
-        chart: Optional[ChartPlotWidget] = None,
-        shm: Optional[ShmArray] = None,
-        state: Optional[dict] = None,  # pass in a copy if you don't
-
-        update_state: bool = True,
-        update_uppx: float = 16,
-        is_1m: bool = False,
-
-    ) -> tuple:
-
-        shm = shm or self.ohlcv
-        chart = chart or self.chart
-        # state = state or self.vars
-
-        if (
-            not update_state
-            and state
-        ):
-            state = state.copy()
-
-        # compute the first available graphic's x-units-per-pixel
-        uppx = chart.view.x_uppx()
-
-        # NOTE: this used to be implemented in a dedicated
-        # "increment task": ``check_for_new_bars()`` but it doesn't
-        # make sense to do a whole task switch when we can just do
-        # this simple index-diff and all the fsp sub-curve graphics
-        # are diffed on each draw cycle anyway; so updates to the
-        # "curve" length is already automatic.
-
-        # increment the view position by the sample offset.
-        # i_step = shm.index
-        i_step = shm.array[-1]['time']
-        # i_diff = i_step - state['i_last']
-        # state['i_last'] = i_step
-        global _i_last, _i_last_append
-        i_diff = i_step - _i_last
-        # update global state
-        if (
-            # state is None
-            not is_1m
-            and i_diff > 0
-        ):
-            _i_last = i_step
-
-        # append_diff = i_step - state['i_last_append']
-        append_diff = i_step - _i_last_append
-
-        # real-time update necessary?
-        main_viz = chart.get_viz(chart.name)
-        _, _, _, r = main_viz.bars_range()
-        liv = r >= shm.index
-
-        # update the "last datum" (aka extending the vizs graphic with
-        # new data) only if the number of unit steps is >= the number of
-        # such unit steps per pixel (aka uppx). Iow, if the zoom level
-        # is such that a datum(s) update to graphics wouldn't span
-        # to a new pixel, we don't update yet.
-        do_append = (
-            append_diff >= uppx
-            and i_diff
-        )
-        if (
-            do_append
-            and not is_1m
-        ):
-            _i_last_append = i_step
-            # fqsn = self.flume.symbol.fqsn
-            # print(
-            #     f'DOING APPEND => {fqsn}\n'
-            #     f'i_step:{i_step}\n'
-            #     f'i_diff:{i_diff}\n'
-            #     f'last:{_i_last}\n'
-            #     f'last_append:{_i_last_append}\n'
-            #     f'append_diff:{append_diff}\n'
-            #     f'r: {r}\n'
-            #     f'liv: {liv}\n'
-            #     f'uppx: {uppx}\n'
-            # )
-
-        do_rt_update = uppx < update_uppx
-
-        # TODO: pack this into a struct
-        return (
-            uppx,
-            liv,
-            do_append,
-            i_diff,
-            append_diff,
-            do_rt_update,
-        )
 
 
 async def graphics_update_loop(
@@ -295,7 +211,15 @@ async def graphics_update_loop(
     hist_chart = godwidget.hist_linked.chart
     assert hist_chart
 
+    # per-viz-set global last index tracking for global chart
+    # view UX incrementing.
+    globalz = {
+        'i_last':  0,
+        'i_last_append': 0,
+    }
+
     dss: dict[str, DisplayState] = {}
+
     for fqsn, flume in feed.flumes.items():
         ohlcv = flume.rt_shm
         hist_ohlcv = flume.hist_shm
@@ -315,7 +239,8 @@ async def graphics_update_loop(
         )
         last_price_sticky.show()
 
-        slow_pi = hist_chart._vizs[fqsn].plot
+        hist_viz = hist_chart._vizs[fqsn]
+        slow_pi = hist_viz.plot
         hist_last_price_sticky = slow_pi.getAxis('right')._stickies[fqsn]
         hist_last_price_sticky.update_from_data(
             *hist_ohlcv.array[-1][[
@@ -389,7 +314,8 @@ async def graphics_update_loop(
                 'last_mx_vlm': last_mx_vlm,
                 'last_mx': last_mx,
                 'last_mn': last_mn,
-            }
+            },
+            'globalz': globalz,
         })
 
         if vlm_chart:
@@ -400,15 +326,15 @@ async def graphics_update_loop(
 
         fast_chart.default_view()
 
+        ds.hist_vars.update({
+            'i_last_append': i_last,
+            'i_last': i_last,
+        })
+
         # TODO: probably factor this into some kinda `DisplayState`
         # API that can be reused at least in terms of pulling view
         # params (eg ``.bars_range()``).
         async def increment_history_view():
-            i_last = hist_ohlcv.index
-            state = ds.vars.copy() | {
-                'i_last_append': i_last,
-                'i_last': i_last,
-            }
             _, hist_step_size_s, _ = flume.get_ds_info()
 
             async with flume.index_stream(
@@ -433,12 +359,11 @@ async def graphics_update_loop(
                         i_diff,
                         append_diff,
                         do_rt_update,
-                    ) = ds.incr_info(
-                        chart=hist_chart,
-                        shm=ds.hist_ohlcv,
-                        state=state,
+                        should_incr,
+
+                    ) = hist_viz.incr_info(
+                        state=ds,
                         is_1m=True,
-                        # update_state=False,
                     )
                     # print(
                     #     f'liv: {liv}\n'
@@ -559,40 +484,8 @@ def graphics_update_cycle(
         i_diff,
         append_diff,
         do_rt_update,
-    ) = ds.incr_info()
-
-    # don't real-time "shift" the curve to the
-    # left unless we get one of the following:
-    if (
-        (
-            do_append
-            and liv
-        )
-        or trigger_all
-    ):
-        # print(f'INCREMENTING {fqsn}')
-        chart.increment_view(steps=i_diff)
-        main_viz.plot.vb._set_yrange(
-            # yrange=(mn, mx),
-        )
-
-        # NOTE: since vlm and ohlc charts are axis linked now we don't
-        # need the double increment request?
-        # if vlm_chart:
-        #     vlm_chart.increment_view(steps=i_diff)
-
-        profiler('view incremented')
-
-    # frames_by_type: dict[str, dict] = {}
-    # lasts = {}
-
-    # build tick-type "frames" of tick sequences since
-    # likely the tick arrival rate is higher then our
-    # (throttled) quote stream rate.
-
-    # iterate in FIFO order per tick-frame
-    # if sym != fqsn:
-    #     continue
+        should_incr,
+    ) = main_viz.incr_info(state=ds)
 
     # TODO: we should only run mxmn when we know
     # an update is due via ``do_append`` above.
@@ -623,11 +516,6 @@ def graphics_update_cycle(
     # graphic.
     clear_types = _tick_groups['clears']
 
-    # XXX: if we wanted to iterate in "latest" (i.e. most
-    # current) tick first order as an optimization where we only
-    # update from the last tick from each type class.
-    # last_clear_updated: bool = False
-
     # update ohlc sampled price bars
     if (
         do_rt_update
@@ -646,6 +534,29 @@ def graphics_update_cycle(
             # chart.name,
             # do_append=do_append,
         )
+
+    # don't real-time "shift" the curve to the
+    # left unless we get one of the following:
+    if (
+        (
+            should_incr
+            and do_append
+            and liv
+        )
+        or trigger_all
+    ):
+        # print(f'INCREMENTING {fqsn}')
+        chart.increment_view(steps=i_diff)
+        main_viz.plot.vb._set_yrange(
+            # yrange=(mn, mx),
+        )
+
+        # NOTE: since vlm and ohlc charts are axis linked now we don't
+        # need the double increment request?
+        # if vlm_chart:
+        #     vlm_chart.increment_view(steps=i_diff)
+
+        profiler('view incremented')
 
     # from pprint import pformat
     # frame_counts = {
@@ -767,6 +678,8 @@ def graphics_update_cycle(
                 )
 
         # check if slow chart needs a resize
+
+        hist_viz = hist_chart._vizs[fqsn]
         (
             _,
             hist_liv,
@@ -774,15 +687,13 @@ def graphics_update_cycle(
             _,
             _,
             _,
-        ) = ds.incr_info(
-            chart=hist_chart,
-            shm=ds.hist_ohlcv,
-            update_state=False,
+            _,
+        ) = hist_viz.incr_info(
+            state=ds,
             is_1m=True,
         )
         if hist_liv:
-            viz = hist_chart._vizs[fqsn]
-            viz.plot.vb._set_yrange(
+            hist_viz.plot.vb._set_yrange(
                 # yrange=hist_chart.maxmin(name=fqsn),
             )
 
@@ -816,7 +727,7 @@ def graphics_update_cycle(
         ):
             viz.draw_last(
                 array_key=curve_name,
-                only_last_uppx=True,
+                # only_last_uppx=True,
             )
 
     # volume chart logic..
@@ -1209,7 +1120,7 @@ async def display_symbol_data(
         # for zoom-interaction purposes.
         hist_chart.get_viz(fqsn).draw_last(
             array_key=fqsn,
-            only_last_uppx=True,
+            # only_last_uppx=True,
         )
         pis.setdefault(fqsn, [None, None])[1] = hist_chart.plotItem
 
@@ -1308,7 +1219,7 @@ async def display_symbol_data(
                 # for zoom-interaction purposes.
                 viz.draw_last(
                     array_key=fqsn,
-                    only_last_uppx=True,
+                    # only_last_uppx=True,
                 )
 
                 hist_pi.vb.maxmin = partial(
