@@ -1122,10 +1122,6 @@ async def open_feed_bus(
     servicename = tractor.current_actor().name
     assert 'brokerd' in servicename
 
-    # XXX: figure this not crashing into debug!
-    # await tractor.breakpoint()
-    # assert 0
-
     assert brokername in servicename
 
     bus = get_feed_bus(brokername)
