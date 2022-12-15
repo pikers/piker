@@ -847,92 +847,113 @@ async def link_views_with_region(
     hist_pi.addItem(region, ignoreBounds=True)
     region.setOpacity(6/16)
 
-    viz = rt_chart._vizs[flume.symbol.fqsn]
+    viz = rt_chart.get_viz(flume.symbol.fqsn)
     assert viz
+    index_field = viz.index_field
 
     # XXX: no idea why this doesn't work but it's causing
     # a weird placement of the region on the way-far-left..
     # region.setClipItem(viz.graphics)
 
-    # poll for datums load and timestep detection
-    for _ in range(100):
-        try:
-            _, _, ratio = flume.get_ds_info()
-            break
-        except IndexError:
-            await trio.sleep(0.01)
-            continue
+    if index_field == 'time':
+
+        # in the (epoch) index case we can map directly
+        # from the fast chart's x-domain values since they are
+        # on the same index as the slow chart.
+
+        def update_region_from_pi(
+            window,
+            viewRange: tuple[tuple, tuple],
+            is_manual: bool = True,
+        ) -> None:
+            # put linear region "in front" in layer terms
+            region.setZValue(10)
+
+            # set the region on the history chart
+            # to the range currently viewed in the
+            # HFT/real-time chart.
+            region.setRegion(viewRange[0])
+
     else:
-        raise RuntimeError(
-            'Failed to detect sampling periods from shm!?')
+        # poll for datums load and timestep detection
+        for _ in range(100):
+            try:
+                _, _, ratio = flume.get_ds_info()
+                break
+            except IndexError:
+                await trio.sleep(0.01)
+                continue
+        else:
+            raise RuntimeError(
+                'Failed to detect sampling periods from shm!?')
 
-    # sampling rate transform math:
-    # -----------------------------
-    # define the fast chart to slow chart as a linear mapping
-    # over the fast index domain `i` to the slow index domain
-    # `j` as:
-    #
-    # j = i - i_offset
-    #     ------------  + j_offset
-    #         j/i
-    #
-    # conversely the inverse function is:
-    #
-    # i = j/i * (j - j_offset) + i_offset
-    #
-    # Where `j_offset` is our ``izero_hist`` and `i_offset` is our
-    # `izero_rt`, the ``ShmArray`` offsets which correspond to the
-    # indexes in each array where the "current" time is indexed at init.
-    # AKA the index where new data is "appended to" and historical data
-    # if "prepended from".
-    #
-    # more practically (and by default) `i` is normally an index
-    # into 1s samples and `j` is an index into 60s samples (aka 1m).
-    # in the below handlers ``ratio`` is the `j/i` and ``mn``/``mx``
-    # are the low and high index input from the source index domain.
+        # sampling rate transform math:
+        # -----------------------------
+        # define the fast chart to slow chart as a linear mapping
+        # over the fast index domain `i` to the slow index domain
+        # `j` as:
+        #
+        # j = i - i_offset
+        #     ------------  + j_offset
+        #         j/i
+        #
+        # conversely the inverse function is:
+        #
+        # i = j/i * (j - j_offset) + i_offset
+        #
+        # Where `j_offset` is our ``izero_hist`` and `i_offset` is our
+        # `izero_rt`, the ``ShmArray`` offsets which correspond to the
+        # indexes in each array where the "current" time is indexed at init.
+        # AKA the index where new data is "appended to" and historical data
+        # if "prepended from".
+        #
+        # more practically (and by default) `i` is normally an index
+        # into 1s samples and `j` is an index into 60s samples (aka 1m).
+        # in the below handlers ``ratio`` is the `j/i` and ``mn``/``mx``
+        # are the low and high index input from the source index domain.
 
-    def update_region_from_pi(
-        window,
-        viewRange: tuple[tuple, tuple],
-        is_manual: bool = True,
+        def update_region_from_pi(
+            window,
+            viewRange: tuple[tuple, tuple],
+            is_manual: bool = True,
 
-    ) -> None:
-        # put linear region "in front" in layer terms
-        region.setZValue(10)
+        ) -> None:
+            # put linear region "in front" in layer terms
+            region.setZValue(10)
 
-        # set the region on the history chart
-        # to the range currently viewed in the
-        # HFT/real-time chart.
-        mn, mx = viewRange[0]
-        ds_mn = (mn - izero_rt)/ratio
-        ds_mx = (mx - izero_rt)/ratio
-        lhmn = ds_mn + izero_hist
-        lhmx = ds_mx + izero_hist
-        # print(
-        #     f'rt_view_range: {(mn, mx)}\n'
-        #     f'ds_mn, ds_mx: {(ds_mn, ds_mx)}\n'
-        #     f'lhmn, lhmx: {(lhmn, lhmx)}\n'
-        # )
-        region.setRegion((
-            lhmn,
-            lhmx,
-        ))
+            # set the region on the history chart
+            # to the range currently viewed in the
+            # HFT/real-time chart.
+            mn, mx = viewRange[0]
+            ds_mn = (mn - izero_rt)/ratio
+            ds_mx = (mx - izero_rt)/ratio
+            lhmn = ds_mn + izero_hist
+            lhmx = ds_mx + izero_hist
+            # print(
+            #     f'rt_view_range: {(mn, mx)}\n'
+            #     f'ds_mn, ds_mx: {(ds_mn, ds_mx)}\n'
+            #     f'lhmn, lhmx: {(lhmn, lhmx)}\n'
+            # )
+            region.setRegion((
+                lhmn,
+                lhmx,
+            ))
 
-        # TODO: if we want to have the slow chart adjust range to
-        # match the fast chart's selection -> results in the
-        # linear region expansion never can go "outside of view".
-        # hmn, hmx = hvr = hist_chart.view.state['viewRange'][0]
-        # print((hmn, hmx))
-        # if (
-        #     hvr
-        #     and (lhmn < hmn or lhmx > hmx)
-        # ):
-        #     hist_pi.setXRange(
-        #         lhmn,
-        #         lhmx,
-        #         padding=0,
-        #     )
-        #     hist_linked.graphics_cycle()
+            # TODO: if we want to have the slow chart adjust range to
+            # match the fast chart's selection -> results in the
+            # linear region expansion never can go "outside of view".
+            # hmn, hmx = hvr = hist_chart.view.state['viewRange'][0]
+            # print((hmn, hmx))
+            # if (
+            #     hvr
+            #     and (lhmn < hmn or lhmx > hmx)
+            # ):
+            #     hist_pi.setXRange(
+            #         lhmn,
+            #         lhmx,
+            #         padding=0,
+            #     )
+            #     hist_linked.graphics_cycle()
 
     # connect region to be updated on plotitem interaction.
     rt_pi.sigRangeChanged.connect(update_region_from_pi)
@@ -1327,12 +1348,11 @@ async def display_symbol_data(
                 )
                 godwidget.resize_all()
 
-            # hist_chart.hide()
-            # await link_views_with_region(
-            #     rt_chart,
-            #     hist_chart,
-            #     flume,
-            # )
+            await link_views_with_region(
+                rt_chart,
+                hist_chart,
+                flume,
+            )
 
             # start graphics update loop after receiving first live quote
             ln.start_soon(
