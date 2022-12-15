@@ -94,6 +94,7 @@ def path_arrays_from_ohlc(
     data: np.ndarray,
     start: int64,
     bar_gap: float64 = 0.43,
+    use_time_index: bool = True,
 
     # XXX: ``numba`` issue: https://github.com/numba/numba/issues/8622
     # index_field: str,
@@ -126,8 +127,11 @@ def path_arrays_from_ohlc(
         high = q['high']
         low = q['low']
         close = q['close']
-        # index = float64(q['index'])
-        index = float64(q['time'])
+
+        if use_time_index:
+            index = float64(q['time'])
+        else:
+            index = float64(q['index'])
 
         # XXX: ``numba`` issue: https://github.com/numba/numba/issues/8622
         # index = float64(q[index_field])
