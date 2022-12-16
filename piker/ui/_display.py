@@ -212,10 +212,12 @@ async def graphics_update_loop(
     assert hist_chart
 
     # per-viz-set global last index tracking for global chart
-    # view UX incrementing.
+    # view UX incrementing; these values are singleton
+    # per-multichart-set such that automatic x-domain shifts are only
+    # done once per time step update.
     globalz = {
-        'i_last':  0,
-        'i_last_append': 0,
+        'i_last':  0,  # multiview-global fast (1s) step index
+        'i_last_slow':  0,  # multiview-global slow (1m) step index
     }
 
     dss: dict[str, DisplayState] = {}
@@ -292,8 +294,7 @@ async def graphics_update_loop(
 
         fast_chart.show()
         last_quote = time.time()
-        # global _i_last
-        i_last = ohlcv.index
+        i_last: float = 0
 
         dss[fqsn] = ds = linked.display_state = DisplayState(**{
             'godwidget': godwidget,
@@ -375,12 +376,14 @@ async def graphics_update_loop(
                         do_append
                         and liv
                     ):
-                        # hist_chart.increment_view(steps=i_diff)
                         viz = hist_chart._vizs[fqsn]
                         viz.plot.vb._set_yrange(
                             # yrange=hist_chart.maxmin(name=fqsn)
                         )
                         # hist_chart.view._set_yrange(yrange=hist_chart.maxmin())
+
+                    if should_incr:
+                        hist_chart.increment_view(steps=i_diff)
 
         nurse.start_soon(increment_history_view)
 
@@ -878,7 +881,18 @@ async def link_views_with_region(
             # set the region on the history chart
             # to the range currently viewed in the
             # HFT/real-time chart.
-            region.setRegion(viewRange[0])
+            rng = mn, mx = viewRange[0]
+
+            # hist_viz = hist_chart.get_viz(flume.symbol.fqsn)
+            # hist = hist_viz.shm.array[-3:]
+            # print(
+            #     f'mn: {mn}\n'
+            #     f'mx: {mx}\n'
+            #     f'slow last 3 epochs: {list(hist["time"])}\n'
+            #     f'slow last 3: {hist}\n'
+            # )
+
+            region.setRegion(rng)
 
     else:
         # poll for datums load and timestep detection
@@ -1112,6 +1126,12 @@ async def display_symbol_data(
         fitems: list[
             tuple[str, Flume]
         ] = list(feed.flumes.items())
+
+        # use array int-indexing when no aggregate feed overlays are
+        # loaded.
+        if len(fitems) == 1:
+            from ._dataviz import Viz
+            Viz._index_field = 'index'
 
         # for the "first"/selected symbol we create new chart widgets
         # and sub-charts for FSPs
