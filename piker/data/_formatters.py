@@ -675,8 +675,8 @@ class OHLCBarsAsCurveFmtr(OHLCBarsFmtr):
 class StepCurveFmtr(IncrementalFormatter):
 
     x_offset: np.ndarray = np.array([
-        -0.5,
-        0.5,
+        0,
+        1,
     ])
 
     def allocate_xy_nd(
