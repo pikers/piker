@@ -401,6 +401,8 @@ class IncrementalFormatter(msgspec.Struct):
     # Sub-type override interface #
     ###############################
 
+    x_offset: np.ndarray = np.array([0])
+
     # optional pre-graphics xy formatted data which
     # is incrementally updated in sync with the source data.
     # XXX: was ``.allocate_xy()``
@@ -421,7 +423,11 @@ class IncrementalFormatter(msgspec.Struct):
 
         '''
         y_nd = src_shm._array[data_field].copy()
-        x_nd = src_shm._array[self.index_field].copy()
+        x_nd = (
+            src_shm._array[self.index_field].copy()
+            +
+            self.x_offset
+        )
         return x_nd, y_nd
 
     # XXX: was ``.update_xy()``
@@ -447,7 +453,11 @@ class IncrementalFormatter(msgspec.Struct):
         self.y_nd[read_slc] = y_nd_new
 
         x_nd_new = self.x_nd[read_slc]
-        x_nd_new[:] = new_from_src[self.index_field]
+        x_nd_new[:] = (
+            new_from_src[self.index_field]
+            +
+            self.x_offset
+        )
 
         # x_nd = self.x_nd[self.xy_slice]
         # y_nd = self.y_nd[self.xy_slice]
@@ -515,6 +525,12 @@ class IncrementalFormatter(msgspec.Struct):
 
 
 class OHLCBarsFmtr(IncrementalFormatter):
+    x_offset: np.ndarray = np.array([
+        -0.5,
+        0,
+        0,
+        0.5,
+    ])
 
     fields: list[str] = ['open', 'high', 'low', 'close']
 
@@ -545,7 +561,9 @@ class OHLCBarsFmtr(IncrementalFormatter):
                     # 4,  # only ohlc
                     y_nd.shape[1],
                 ),
-            ) + np.array([-0.5, 0, 0, 0.5])
+            )
+            +
+            self.x_offset
         )
         assert y_nd.any()
 
@@ -584,7 +602,7 @@ class OHLCBarsFmtr(IncrementalFormatter):
         x_nd_new[:] = np.broadcast_to(
             new_from_src[self.index_field][:, None],
             new_y_nd.shape,
-        ) + np.array([-0.5, 0, 0, 0.5])
+        ) + self.x_offset
 
     # TODO: can we drop this frame and just use the above?
     def format_xy_nd_to_1d(
@@ -596,7 +614,7 @@ class OHLCBarsFmtr(IncrementalFormatter):
 
         start: int = 0,  # XXX: do we need this?
         # 0.5 is no overlap between arms, 1.0 is full overlap
-        w: float = 0.43,
+        w: float = 0.16,
 
     ) -> tuple[
         np.ndarray,
@@ -612,6 +630,7 @@ class OHLCBarsFmtr(IncrementalFormatter):
         x, y, c = path_arrays_from_ohlc(
             array,
             start,
+            bar_w=self.index_step_size,
             bar_gap=w * self.index_step_size,
 
             # XXX: don't ask, due to a ``numba`` bug..
@@ -655,6 +674,11 @@ class OHLCBarsAsCurveFmtr(OHLCBarsFmtr):
 
 class StepCurveFmtr(IncrementalFormatter):
 
+    x_offset: np.ndarray = np.array([
+        -0.5,
+        0.5,
+    ])
+
     def allocate_xy_nd(
         self,
 
@@ -673,10 +697,14 @@ class StepCurveFmtr(IncrementalFormatter):
         i = shm._array[self.index_field].copy()
         out = shm._array[data_field].copy()
 
-        x_out = np.broadcast_to(
-            i[:, None],
-            (i.size, 2),
-        ) + np.array([-0.5, 0.5])
+        x_out = (
+            np.broadcast_to(
+                i[:, None],
+                (i.size, 2),
+            )
+            +
+            self.x_offset
+        )
 
         # fill out Nx2 array to hold each step's left + right vertices.
         y_out = np.empty(
@@ -741,7 +769,7 @@ class StepCurveFmtr(IncrementalFormatter):
         x_nd_new[:] = (
             new_from_src[self.index_field][:, None]
             +
-            np.array([-0.5, 0.5])
+            self.x_offset
         )
 
         # XXX: uncomment for debugging
