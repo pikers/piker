@@ -51,7 +51,8 @@ log = get_logger(__name__)
 def bar_from_ohlc_row(
     row: np.ndarray,
     # 0.5 is no overlap between arms, 1.0 is full overlap
-    bar_gap: float = 0.43
+    bar_w: float,
+    bar_gap: float = 0.16
 
 ) -> tuple[QLineF]:
     '''
@@ -67,9 +68,11 @@ def bar_from_ohlc_row(
     # history path faster since it's done in C++:
     # https://doc.qt.io/qt-5/qgraphicslineitem.html
 
+    mid: float = (bar_w / 2) + index
+
     # high -> low vertical (body) line
     if low != high:
-        hl = QLineF(index, low, index, high)
+        hl = QLineF(mid, low, mid, high)
     else:
         # XXX: if we don't do it renders a weird rectangle?
         # see below for filtering this later...
@@ -80,10 +83,13 @@ def bar_from_ohlc_row(
     # the index's range according to the view mapping coordinates.
 
     # open line
-    o = QLineF(index - bar_gap, open, index, open)
+    o = QLineF(index + bar_gap, open, mid, open)
 
     # close line
-    c = QLineF(index, close, index + bar_gap, close)
+    c = QLineF(
+        mid, close,
+        index + bar_w - bar_gap, close,
+    )
 
     return [hl, o, c]
 
@@ -249,10 +255,11 @@ class BarItems(pg.GraphicsObject):
         step_size = index[-1] - index[-2]
 
         # generate new lines objects for updatable "current bar"
+        bg: float = 0.16 * step_size
         self._last_bar_lines = bar_from_ohlc_row(
             last_row,
-            bar_gap=step_size * 0.43
-            # fields,
+            bar_w=step_size,
+            bar_gap=bg,
         )
 
         # assert i == graphics.start_index - 1
@@ -268,10 +275,16 @@ class BarItems(pg.GraphicsObject):
         if l != h:  # noqa
 
             if body is None:
-                body = self._last_bar_lines[0] = QLineF(i, l, i, h)
+                body = self._last_bar_lines[0] = QLineF(
+                    i + bg, l,
+                    i + step_size - bg, h,
+                )
             else:
                 # update body
-                body.setLine(i, l, i, h)
+                body.setLine(
+                    body.x1(), l,
+                    body.x2(), h,
+                )
 
             # XXX: pretty sure this is causing an issue where the
             # bar has a large upward move right before the next
