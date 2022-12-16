@@ -374,6 +374,11 @@ class Curve(pg.GraphicsObject):
         # lines up with the "middle" of the current
         # (OHLC) sample.
         self._last_line = QLineF(
+
+            # NOTE: currently we draw in x-domain
+            # from last datum to current such that
+            # the end of line touches the "beginning"
+            # of the current datum step span.
             x[-2], y[-2],
             x[-1], y[-1],
         )
@@ -439,7 +444,6 @@ class StepCurve(Curve):
         x_2last = x[-2]
         y_last = y[-1]
         step_size = x_last - x_2last
-        half_step = step_size / 2
 
         # lol, commenting this makes step curves
         # all "black" for me :eyeroll:..
@@ -448,7 +452,7 @@ class StepCurve(Curve):
             x_last, 0,
         )
         self._last_step_rect = QRectF(
-            x_last - half_step, 0,
+            x_last, 0,
             step_size, y_last,
         )
         return x, y
