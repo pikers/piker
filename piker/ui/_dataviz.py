@@ -21,6 +21,7 @@ Data vizualization APIs
 from __future__ import annotations
 from typing import (
     Optional,
+    Literal,
     TYPE_CHECKING,
 )
 
@@ -243,8 +244,16 @@ class Viz(msgspec.Struct):  # , frozen=True):
     is_ohlc: bool = False
     render: bool = True  # toggle for display loop
 
-    # _index_field: str = 'index'
-    _index_field: str = 'time'
+    _index_field: Literal[
+        'index',
+        'time',
+
+        # TODO: idea is to re-index all time series to a common
+        # longest-len-int-index where we avoid gaps and instead
+        # graph on the 0 -> N domain of the array index super set.
+        # 'gapless',
+
+    ] = 'time'
 
     # downsampling state
     _last_uppx: float = 0
