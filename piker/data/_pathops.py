@@ -93,7 +93,8 @@ def xy_downsample(
 def path_arrays_from_ohlc(
     data: np.ndarray,
     start: int64,
-    bar_gap: float64 = 0.43,
+    bar_w: float64,
+    bar_gap: float64 = 0.16,
     use_time_index: bool = True,
 
     # XXX: ``numba`` issue: https://github.com/numba/numba/issues/8622
@@ -119,6 +120,8 @@ def path_arrays_from_ohlc(
     )
     y, c = x.copy(), x.copy()
 
+    half_w: float = bar_w/2
+
     # TODO: report bug for assert @
     # /home/goodboy/repos/piker/env/lib/python3.8/site-packages/numba/core/typing/builtins.py:991
     for i, q in enumerate(data[start:], start):
@@ -143,13 +146,14 @@ def path_arrays_from_ohlc(
         istop = istart + 6
 
         # x,y detail the 6 points which connect all vertexes of a ohlc bar
+        mid: float = index + half_w
         x[istart:istop] = (
-            index - bar_gap,
-            index,
-            index,
-            index,
-            index,
             index + bar_gap,
+            mid,
+            mid,
+            mid,
+            mid,
+            index + bar_w - bar_gap,
         )
         y[istart:istop] = (
             open,
