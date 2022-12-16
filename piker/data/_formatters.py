@@ -314,10 +314,6 @@ class IncrementalFormatter(msgspec.Struct):
                 self.xy_nd_start -= prepend_len
                 profiler('prepended xy history: {prepend_length}')
 
-                xndall = self.x_nd[self.xy_slice]
-                if xndall.any() and (xndall == 0.5).any():
-                    breakpoint()
-
             if append_len:
                 self.incr_update_xy_nd(
                     shm,
@@ -383,7 +379,10 @@ class IncrementalFormatter(msgspec.Struct):
         # update the last "in view data range"
         if len(x_1d):
             self._last_ivdr = x_1d[0], x_1d[-1]
-            if (x_1d[-1] == 0.5).any():
+            if (
+                self.index_field == 'time'
+                and (x_1d[-1] == 0.5).any()
+            ):
                 breakpoint()
 
         profiler('.format_to_1d()')
@@ -497,7 +496,11 @@ class IncrementalFormatter(msgspec.Struct):
         # NOTE: we don't include the very last datum which is filled in
         # normally by another graphics object.
         x_1d = array[self.index_field][:-1]
-        if x_1d.any() and (x_1d[-1] == 0.5).any():
+        if (
+            self.index_field == 'time'
+            and x_1d.any()
+            and (x_1d[-1] == 0.5).any()
+        ):
             breakpoint()
 
         y_1d = array[array_key][:-1]
@@ -610,6 +613,9 @@ class OHLCBarsFmtr(IncrementalFormatter):
             array,
             start,
             bar_gap=w * self.index_step_size,
+
+            # XXX: don't ask, due to a ``numba`` bug..
+            use_time_index=(self.index_field == 'time'),
         )
         return x, y, c
 
@@ -674,7 +680,6 @@ class StepCurveFmtr(IncrementalFormatter):
 
         # fill out Nx2 array to hold each step's left + right vertices.
         y_out = np.empty(
-            # (len(out), 2),
             x_out.shape,
             dtype=out.dtype,
         )
@@ -782,14 +787,6 @@ class StepCurveFmtr(IncrementalFormatter):
         x_step = self.x_nd[start:stop]
         y_step = self.y_nd[start:stop]
 
-        # debugging
-        # if y_step.any():
-        #     s = 3
-        #     print(
-        #         f'x_step:\n{x_step[-s:]}\n'
-        #         f'y_step:\n{y_step[-s:]}\n\n'
-        #     )
-
         # slice out in-view data
         ivl, ivr = vr
 
@@ -802,10 +799,11 @@ class StepCurveFmtr(IncrementalFormatter):
         x_1d = x_step_iv.reshape(x_step_iv.size)
         y_1d = y_step_iv.reshape(y_step_iv.size)
 
-        if not x_1d.size == y_1d.size:
-            breakpoint()
-
-        if x_1d.any() and (x_1d == 0.5).any():
+        if (
+            self.index_field == 'time'
+            and x_1d.any()
+            and (x_1d == 0.5).any()
+        ):
             breakpoint()
 
         # debugging
