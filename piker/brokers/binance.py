@@ -107,8 +107,6 @@ class Pair(Struct, frozen=True):
 
     filters: list[dict[str, Union[str, int, float]]]
     permissions: list[str]
-    allowedSelfTradePreventionModes: list[str]
-    defaultSelfTradePreventionMode: str
 
 
 class OHLC(Struct):
