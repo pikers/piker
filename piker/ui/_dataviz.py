@@ -720,23 +720,14 @@ class Viz(msgspec.Struct):  # , frozen=True):
         path, reset = out
 
         # XXX: SUPER UGGGHHH... without this we get stale cache
-        # graphics that don't update until you downsampler again..
+        # graphics that "smear" across the view horizontally
+        # when panning and the first datum is out of view..
         if reset:
+            # assign output paths to graphicis obj but
+            # after a coords-cache reset.
             with graphics.reset_cache():
-                # assign output paths to graphicis obj
                 graphics.path = r.path
                 graphics.fast_path = r.fast_path
-
-                # XXX: we don't need this right?
-                # graphics.draw_last_datum(
-                #     path,
-                #     src_array,
-                #     reset,
-                #     array_key,
-                #     index_field=self.index_field,
-                # )
-                # graphics.update()
-                # profiler('.update()')
         else:
             # assign output paths to graphicis obj
             graphics.path = r.path
@@ -976,23 +967,14 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
     ) -> tuple:
 
-        # shm = shm or self.ohlcv
-        # chart = chart or self.chart
-        globalz = state.globalz
-        if is_1m:
-            state = state.hist_vars
-        else:
-            state = state.vars
+        _, _, _, r = self.bars_range()  # most recent right datum index in-view
+        i_step = self.shm.array[-1][self.index_field]  # last source index.
 
-        _, _, _, r = self.bars_range()
-
-        i_step = self.shm.array[-1][self.index_field]
-
-        # last-in-view: is a real-time update necessary?
+        # check if "last (is) in view" -> is a real-time update necessary?
         liv = r >= i_step
 
-        # TODO: make this not loop through all vizs each time?
-        # compute the first available graphic's x-units-per-pixel
+        # compute the first available graphic obj's x-units-per-pixel
+        # TODO: make this not loop through all vizs each time!
         uppx = self.plot.vb.x_uppx()
 
         # NOTE: this used to be implemented in a dedicated
@@ -1001,60 +983,64 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # this simple index-diff and all the fsp sub-curve graphics
         # are diffed on each draw cycle anyway; so updates to the
         # "curve" length is already automatic.
-        glast = globalz['i_last']
-        i_diff = i_step - glast
+        last_key = 'i_last_slow' if is_1m else 'i_last'
+        globalz = state.globalz
+        varz = state.hist_vars if is_1m else state.vars
+        glast = globalz[last_key]
 
-        # print(f'{chart.name} TIME STEP: {i_step}')
-        # i_diff = i_step - state['i_last']
-
+        # when the current step is now greater then the last we
+        # have read from the display state globals, we presume that the
+        # underlying source shm buffer has added a new sample and thus
+        # we should increment the global view a step iff the last datum
+        # is in view.
         should_global_increment: bool = False
         if i_step > glast:
-            globalz['i_last'] = i_step
+            globalz[last_key] = i_step
             should_global_increment = True
 
         # update global state for this chart
-        if (
-            # state is None
-            not is_1m
-            and i_diff > 0
-        ):
-            state['i_last'] = i_step
-
-        append_diff = i_step - state['i_last_append']
-        # append_diff = i_step - _i_last_append
+        i_diff: float = i_step - glast
+        if i_diff > 0:
+            varz['i_last'] = i_step
 
         # update the "last datum" (aka extending the vizs graphic with
         # new data) only if the number of unit steps is >= the number of
         # such unit steps per pixel (aka uppx). Iow, if the zoom level
         # is such that a datum(s) update to graphics wouldn't span
         # to a new pixel, we don't update yet.
+        i_last_append = varz['i_last_append']
+        append_diff = i_step - i_last_append
         do_append = (
             append_diff >= uppx
             and i_diff
         )
+
+        do_rt_update = uppx < update_uppx
+
         if (
             do_append
             and not is_1m
         ):
-            # _i_last_append = i_step
-            state['i_last_append'] = i_step
+            varz['i_last_append'] = i_step
 
             # fqsn = self.flume.symbol.fqsn
             # print(
             #     f'DOING APPEND => {fqsn}\n'
             #     f'i_step:{i_step}\n'
-            #     f'i_diff:{i_diff}\n'
-            #     f'last:{_i_last}\n'
-            #     f'last_append:{_i_last_append}\n'
-            #     f'append_diff:{append_diff}\n'
+            #     f'glast:{glast}\n'
+            #     f'last_append:{i_last_append}\n'
             #     f'r: {r}\n'
-            #     f'liv: {liv}\n'
+
             #     f'uppx: {uppx}\n'
+            #     f'liv: {liv}\n'
+            #     f'do_append:{do_append}\n'
+            #     f'i_diff:{i_diff}\n'
+            #     f'do_rt_update: {do_rt_update}\n'
+            #     f'append_diff:{append_diff}\n'
+            #     f'should_global_increment: {should_global_increment}\n'
             # )
 
-        do_rt_update = uppx < update_uppx
-
-        # TODO: pack this into a struct
+        # TODO: pack this into a struct?
         return (
             uppx,
             liv,
