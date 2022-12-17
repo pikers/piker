@@ -1365,4 +1365,12 @@ class ChartPlotWidget(pg.PlotWidget):
         self,
         key: str,
     ) -> Viz:
+        '''
+        Try to get an underlying ``Viz`` by key.
+
+        '''
         return self._vizs.get(key)
+
+    @property
+    def main_viz(self) -> Viz:
+        return self.get_viz(self.name)

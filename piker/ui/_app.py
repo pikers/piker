@@ -178,8 +178,7 @@ def _main(
     tractor_kwargs,
 ) -> None:
     '''
-    Sync entry point to start a chart: a ``tractor`` + Qt runtime
-    entry point
+    Sync entry point to start a chart: a ``tractor`` + Qt runtime.
 
     '''
     run_qtractor(
