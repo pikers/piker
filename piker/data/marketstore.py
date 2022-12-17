@@ -132,7 +132,10 @@ def start_marketstore(
 
     mktsdir = os.path.join(config._config_dir, 'marketstore')
 
-    # create when dne
+    # create dirs when dne
+    if not os.path.isdir(config._config_dir):
+        os.mkdir(config._config_dir)
+
     if not os.path.isdir(mktsdir):
         os.mkdir(mktsdir)
 
