@@ -405,7 +405,7 @@ async def start_backfill(
 
             if next_start_dt in starts:
                 start_dt = min(starts)
-                print("SKIPPING DUPLICATE FRAME @ {next_start_dt}")
+                print(f"SKIPPING DUPLICATE FRAME @ {next_start_dt}")
                 continue
 
             # only update new start point if not-yet-seen
