@@ -203,9 +203,9 @@ class Renderer(msgspec.Struct):
         ):
             should_redraw = True
 
-        path = self.path
-        fast_path = self.fast_path
-        reset = False
+        path: QPainterPath = self.path
+        fast_path: QPainterPath = self.fast_path
+        reset: bool = False
 
         self.viz.yrange = None
 
