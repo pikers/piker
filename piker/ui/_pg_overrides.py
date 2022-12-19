@@ -54,6 +54,10 @@ def _do_overrides() -> None:
     pg.functions.invertQTransform = invertQTransform
     pg.PlotItem = PlotItem
 
+    # enable "QPainterPathPrivate for faster arrayToQPath" from
+    # https://github.com/pyqtgraph/pyqtgraph/pull/2324
+    pg.setConfigOption('enableExperimental', True)
+
 
 # NOTE: the below customized type contains all our changes on a method
 # by method basis as per the diff:
