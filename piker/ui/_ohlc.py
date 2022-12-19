@@ -118,9 +118,11 @@ class BarItems(pg.GraphicsObject):
         self.last_bar_pen = pg.mkPen(hcolor(last_bar_color), width=2)
         self._name = name
 
-        self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
-        self.path = QPainterPath()
+        # XXX: causes this weird jitter bug when click-drag panning
+        # where the path curve will awkwardly flicker back and forth?
+        # self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
+        self.path = QPainterPath()
         self._last_bar_lines: tuple[QLineF, ...] | None = None
 
     def x_uppx(self) -> int:
