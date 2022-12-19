@@ -951,10 +951,6 @@ class ChartPlotWidget(pg.PlotWidget):
     def focus(self) -> None:
         self.view.setFocus()
 
-    def view_range(self) -> tuple[int, int]:
-        vr = self.viewRect()
-        return int(vr.left()), int(vr.right())
-
     def pre_l1_xs(self) -> tuple[float, float]:
         '''
         Return the view x-coord for the value just before
@@ -1034,25 +1030,28 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def increment_view(
         self,
-        steps: int = 1,
+        datums: int = 1,
         vb: Optional[ChartView] = None,
 
     ) -> None:
-        """
-        Increment the data view one step to the right thus "following"
-        the current time slot/step/bar.
+        '''
+        Increment the data view ``datums``` steps toward y-axis thus
+        "following" the current time slot/step/bar.
 
-        """
-        l, r = self.view_range()
+        '''
         view = vb or self.view
-        if steps >= 300:
+        viz = self.main_viz
+        l, r = viz.view_range()
+        x_shift = viz.index_step() * datums
+
+        if datums >= 300:
             print("FUCKING FIX THE GLOBAL STEP BULLSHIT")
             # breakpoint()
             return
 
         view.setXRange(
-            min=l + steps,
-            max=r + steps,
+            min=l + x_shift,
+            max=r + x_shift,
 
             # TODO: holy shit, wtf dude... why tf would this not be 0 by
             # default... speechless.
