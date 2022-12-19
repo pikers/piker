@@ -959,21 +959,26 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
     def incr_info(
         self,
-
-        # NOTE: pass in a copy if you don't want your orignal mutated.
-        state: DisplayState,
-
-        update_state: bool = True,
+        ds: DisplayState,
         update_uppx: float = 16,
         is_1m: bool = False,
 
     ) -> tuple:
 
         _, _, _, r = self.bars_range()  # most recent right datum index in-view
-        i_step = self.shm.array[-1][self.index_field]  # last source index.
+        lasts = self.shm.array[-1]
+        i_step = lasts['index']  # last index-specific step.
+        i_step_t = lasts['time']  # last time step.
+
+        fqsn = self.flume.symbol.fqsn
+        if is_1m:
+            print(f'{fqsn} 1Min index: {i_step}, t: {i_step_t}')
 
         # check if "last (is) in view" -> is a real-time update necessary?
-        liv = r >= i_step
+        if self.index_field == 'index':
+            liv = (r >= i_step)
+        else:
+            liv = (r >= i_step_t)
 
         # compute the first available graphic obj's x-units-per-pixel
         # TODO: make this not loop through all vizs each time!
@@ -985,25 +990,25 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # this simple index-diff and all the fsp sub-curve graphics
         # are diffed on each draw cycle anyway; so updates to the
         # "curve" length is already automatic.
-        last_key = 'i_last_slow' if is_1m else 'i_last'
-        globalz = state.globalz
-        varz = state.hist_vars if is_1m else state.vars
+        globalz = ds.globalz
+        varz = ds.hist_vars if is_1m else ds.vars
+
+        last_key = 'i_last_slow_t' if is_1m else 'i_last_t'
         glast = globalz[last_key]
 
-        # when the current step is now greater then the last we
-        # have read from the display state globals, we presume that the
-        # underlying source shm buffer has added a new sample and thus
-        # we should increment the global view a step iff the last datum
-        # is in view.
-        should_global_increment: bool = False
-        if i_step > glast:
-            globalz[last_key] = i_step
-            should_global_increment = True
+        # calc datums diff since last global increment
+        i_diff_t: float = i_step_t - glast
 
-        # update global state for this chart
-        i_diff: float = i_step - glast
-        if i_diff > 0:
-            varz['i_last'] = i_step
+        # when the current step is now greater then the last we have
+        # read from the display state globals, we presume that the
+        # underlying source shm buffer has added a new sample and thus
+        # we should increment the global view a step (i.e. tread the
+        # view in place to keep the current datum at the same spot on
+        # screen).
+        should_tread: bool = False
+        if i_diff_t > 0:
+            globalz[last_key] = i_step_t
+            should_tread = True
 
         # update the "last datum" (aka extending the vizs graphic with
         # new data) only if the number of unit steps is >= the number of
@@ -1012,43 +1017,41 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # to a new pixel, we don't update yet.
         i_last_append = varz['i_last_append']
         append_diff = i_step - i_last_append
-        do_append = (
-            append_diff >= uppx
-            and i_diff
-        )
 
-        do_rt_update = uppx < update_uppx
+        do_px_step = append_diff >= uppx
+        do_rt_update = (uppx < update_uppx)
 
         if (
-            do_append
-            and not is_1m
+            do_px_step
         ):
             varz['i_last_append'] = i_step
 
-            # fqsn = self.flume.symbol.fqsn
             # print(
             #     f'DOING APPEND => {fqsn}\n'
-            #     f'i_step:{i_step}\n'
-            #     f'glast:{glast}\n'
-            #     f'last_append:{i_last_append}\n'
+            #     f'i_step: {i_step}\n'
+            #     f'i_step_t: {i_step_t}\n'
+            #     f'glast: {glast}\n'
+            #     f'last_append: {i_last_append}\n'
             #     f'r: {r}\n'
-
+            #     '-----------------------------\n'
             #     f'uppx: {uppx}\n'
             #     f'liv: {liv}\n'
-            #     f'do_append:{do_append}\n'
-            #     f'i_diff:{i_diff}\n'
+            #     f'do_px_step: {do_px_step}\n'
+            #     f'i_diff_t: {i_diff_t}\n'
             #     f'do_rt_update: {do_rt_update}\n'
-            #     f'append_diff:{append_diff}\n'
-            #     f'should_global_increment: {should_global_increment}\n'
+            #     f'append_diff: {append_diff}\n'
+            #     f'should_tread: {should_tread}\n'
             # )
+
+        varz['i_last'] = i_step
 
         # TODO: pack this into a struct?
         return (
             uppx,
             liv,
-            do_append,
-            i_diff,
+            do_px_step,
+            i_diff_t,
             append_diff,
             do_rt_update,
-            should_global_increment,
+            should_tread,
         )
