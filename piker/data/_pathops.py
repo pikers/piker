@@ -313,7 +313,7 @@ def slice_from_time(
 
     index = arr['index']
     i_first = index[0]
-    i_last = index[-1]
+    # i_last = index[-1]
     read_i_max = arr.shape[0]
 
     if (
@@ -396,12 +396,10 @@ def slice_from_time(
             # )
             read_i_start = new_read_i_start - 1
 
-    i_iv_stop = index[read_i_stop - 1]
+    # i_iv_stop = index[read_i_stop - 1]
     t_iv_stop = times[read_i_stop - 1]
     if (
-        i_iv_stop < i_last
-        # i_stop_t <= t_last
-        and t_iv_stop > i_stop_t
+        t_iv_stop > i_stop_t
     ):
         # t_diff = stop_t - t_iv_stop
         # print(
