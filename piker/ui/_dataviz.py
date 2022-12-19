@@ -305,9 +305,8 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # https://stackoverflow.com/a/29980872
         rkey = (round(lbar), round(rbar))
         cached_result = self._mxmns.get(rkey)
-        do_print = False
+        do_print = False  # (self.index_step() == 60)
         if cached_result:
-
             if do_print:
                 print(
                     f'{self.name} CACHED maxmin\n'
@@ -327,6 +326,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 arr,
                 start_t=lbar,
                 stop_t=rbar,
+                step=self.index_step(),
             )
             slice_view = arr[read_slc]
 
@@ -717,12 +717,14 @@ class Viz(msgspec.Struct):  # , frozen=True):
             log.warning(f'{self.name} failed to render!?')
             return graphics
 
-        path, reset = out
+        path, reset_cache = out
 
         # XXX: SUPER UGGGHHH... without this we get stale cache
         # graphics that "smear" across the view horizontally
         # when panning and the first datum is out of view..
-        if reset:
+        if (
+            reset_cache
+        ):
             # assign output paths to graphicis obj but
             # after a coords-cache reset.
             with graphics.reset_cache():
@@ -736,7 +738,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
         graphics.draw_last_datum(
             path,
             src_array,
-            reset,
+            reset_cache,
             array_key,
             index_field=self.index_field,
         )
