@@ -181,7 +181,7 @@ class Client:
         params = {}
 
         if sym is not None:
-            sym = sym.upper()
+            sym = sym.lower()
             params = {'symbol': sym}
 
         resp = await self._api(
@@ -465,7 +465,7 @@ async def stream_quotes(
             si = sym_infos[sym] = syminfo.to_dict()
             filters = {}
             for entry in syminfo.filters:
-                ftype = entry.pop('filterType')
+                ftype = entry['filterType']
                 filters[ftype] = entry
 
             # XXX: after manually inspecting the response format we
