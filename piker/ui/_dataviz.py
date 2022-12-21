@@ -285,7 +285,10 @@ class Viz(msgspec.Struct):  # , frozen=True):
     ) -> float:
         if self._index_step is None:
             index = self.shm.array[self.index_field]
-            self._index_step = index[-1] - index[-2]
+            self._index_step = max(
+                np.diff(index[-16:]).max(),
+                1,
+            )
 
         return self._index_step
 
