@@ -137,6 +137,14 @@ async def increment_ohlc_buffer(
                         'close',
                     ]]
 
+                    next_t = t + this_delay_s
+                    i_epoch = round(time.time())
+
+                    if this_delay_s <= 1:
+                        next_t = i_epoch
+
+                    # print(f'epoch {shm.token["shm_name"]}: {next_t}')
+
                     # this copies non-std fields (eg. vwap) from the last datum
                     last[[
                         'time',
@@ -149,7 +157,7 @@ async def increment_ohlc_buffer(
                         'volume',
                     ]][0] = (
                         # epoch timestamp
-                        t + this_delay_s,
+                        next_t,
 
                         # OHLC
                         close,
