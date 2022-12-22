@@ -329,6 +329,9 @@ class IncrementalFormatter(msgspec.Struct):
                 )
                 self.xy_nd_stop += append_len
                 profiler('appened xy history: {append_length}')
+                # sanity
+                # slice_ln = post_slice.stop - post_slice.start
+                # assert append_len == slice_ln
 
         view_changed: bool = False
         view_range: tuple[int, int] = (ivl, ivr)
