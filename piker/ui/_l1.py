@@ -30,19 +30,20 @@ from ._pg_overrides import PlotItem
 
 
 class LevelLabel(YAxisLabel):
-    """Y-axis (vertically) oriented, horizontal label that sticks to
+    '''
+    Y-axis (vertically) oriented, horizontal label that sticks to
     where it's placed despite chart resizing and supports displaying
     multiple fields.
 
 
     TODO: replace the rectangle-text part with our new ``Label`` type.
 
-    """
-    _x_margin = 0
-    _y_margin = 0
+    '''
+    _x_br_offset: float = -16
+    _x_txt_h_scaling: float = 2
 
     # adjustment "further away from" anchor point
-    _x_offset = 9
+    _x_offset = 0
     _y_offset = 0
 
     # fields to be displayed in the label string
@@ -58,12 +59,12 @@ class LevelLabel(YAxisLabel):
         chart,
         parent,
 
-        color: str = 'bracket',
+        color: str = 'default_light',
 
         orient_v: str = 'bottom',
-        orient_h: str = 'left',
+        orient_h: str = 'right',
 
-        opacity: float = 0,
+        opacity: float = 1,
 
         # makes order line labels offset from their parent axis
         # such that they don't collide with the L1/L2 lines/prices
@@ -99,12 +100,14 @@ class LevelLabel(YAxisLabel):
 
         self._h_shift = {
             'left': -1.,
-            'right': 0.
+            'right': 0.,
         }[orient_h]
 
         self.fields = self._fields.copy()
         # ensure default format fields are in correct
         self.set_fmt_str(self._fmt_str, self.fields)
+
+        self.setZValue(10)
 
     @property
     def color(self):
@@ -113,7 +116,10 @@ class LevelLabel(YAxisLabel):
     @color.setter
     def color(self, color: str) -> None:
         self._hcolor = color
-        self._pen = self.pen = pg.mkPen(hcolor(color))
+        self._pen = self.pen = pg.mkPen(
+            hcolor(color),
+            width=3,
+        )
 
     def update_on_resize(self, vr, r):
         """Tiis is a ``.sigRangeChanged()`` handler.
@@ -125,10 +131,11 @@ class LevelLabel(YAxisLabel):
         self,
         fields: dict = None,
     ) -> None:
-        """Update the label's text contents **and** position from
+        '''
+        Update the label's text contents **and** position from
         a view box coordinate datum.
 
-        """
+        '''
         self.fields.update(fields)
         level = self.fields['level']
 
@@ -175,7 +182,8 @@ class LevelLabel(YAxisLabel):
         fields: dict,
     ):
         # use space as e3 delim
-        self.label_str = self._fmt_str.format(**fields).replace(',', ' ')
+        self.label_str = self._fmt_str.format(
+            **fields).replace(',', ' ')
 
         br = self.boundingRect()
         h, w = br.height(), br.width()
@@ -188,14 +196,14 @@ class LevelLabel(YAxisLabel):
         self,
         p: QtGui.QPainter,
         rect: QtCore.QRectF
-    ) -> None:
-        p.setPen(self._pen)
 
+    ) -> None:
+
+        p.setPen(self._pen)
         rect = self.rect
 
         if self._orient_v == 'bottom':
             lp, rp = rect.topLeft(), rect.topRight()
-            # p.drawLine(rect.topLeft(), rect.topRight())
 
         elif self._orient_v == 'top':
             lp, rp = rect.bottomLeft(), rect.bottomRight()
@@ -207,6 +215,11 @@ class LevelLabel(YAxisLabel):
                 rp.x(),
                 rp.y(),
             ])
+        )
+
+        p.fillRect(
+            self.rect,
+            self.bg_color,
         )
 
     def highlight(self, pen) -> None:
@@ -247,9 +260,10 @@ class L1Label(LevelLabel):
 
 
 class L1Labels:
-    """Level 1 bid ask labels for dynamic update on price-axis.
+    '''
+    Level 1 bid ask labels for dynamic update on price-axis.
 
-    """
+    '''
     def __init__(
         self,
         plotitem: PlotItem,
@@ -265,15 +279,17 @@ class L1Labels:
             'chart': plotitem,
             'parent': raxis,
 
-            'opacity': 1,
+            'opacity': .9,
             'font_size': font_size,
-            'fg_color': chart.pen_color,
-            'bg_color': chart.view_color,
+            'fg_color': 'default_light',
+            'bg_color': chart.view_color,  # normally 'papas_special'
         }
 
+        # TODO: add humanized source-asset
+        # info format.
         fmt_str = (
-            ' {size:.{size_digits}f} x '
-            '{level:,.{level_digits}f} '
+            ' {size:.{size_digits}f} u'
+            # '{level:,.{level_digits}f} '
         )
         fields = {
             'level': 0,
@@ -286,12 +302,17 @@ class L1Labels:
             orient_v='bottom',
             **kwargs,
         )
-        bid.set_fmt_str(fmt_str=fmt_str, fields=fields)
+        bid.set_fmt_str(
+            fmt_str='\n' + fmt_str,
+            fields=fields,
+        )
         bid.show()
 
         ask = self.ask_label = L1Label(
             orient_v='top',
             **kwargs,
         )
-        ask.set_fmt_str(fmt_str=fmt_str, fields=fields)
+        ask.set_fmt_str(
+            fmt_str=fmt_str,
+            fields=fields)
         ask.show()
