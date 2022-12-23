@@ -49,7 +49,7 @@ class Axis(pg.AxisItem):
     def __init__(
         self,
         plotitem: pgo.PlotItem,
-        typical_max_str: str = '100 000.000',
+        typical_max_str: str = '100 000.000  ',
         text_color: str = 'bracket',
         lru_cache_tick_strings: bool = True,
         **kwargs
@@ -95,9 +95,10 @@ class Axis(pg.AxisItem):
         self.setPen(_axis_pen)
 
         # this is the text color
-        # self.setTextPen(pg.mkPen(hcolor(text_color)))
         self.text_color = text_color
 
+        # generate a bounding rect based on sizing to a "typical"
+        # maximum length-ed string defined as init default.
         self.typical_br = _font._qfm.boundingRect(typical_max_str)
 
         # size the pertinent axis dimension to a "typical value"
@@ -154,8 +155,8 @@ class Axis(pg.AxisItem):
         pi: pgo.PlotItem,
         name: None | str = None,
         digits: None | int = 2,
-        # axis_name: str = 'right',
-        bg_color='bracket',
+        bg_color='default',
+        fg_color='black',
 
     ) -> YAxisLabel:
 
@@ -165,22 +166,20 @@ class Axis(pg.AxisItem):
         digits = digits or 2
 
         # TODO: ``._ysticks`` should really be an attr on each
-        # ``PlotItem`` no instead of the (containing because of
-        # overlays) widget?
+        # ``PlotItem`` now instead of the containing widget (because of
+        # overlays) ?
 
         # add y-axis "last" value label
         sticky = self._stickies[name] = YAxisLabel(
             pi=pi,
             parent=self,
-            # TODO: pass this from symbol data
-            digits=digits,
-            opacity=1,
+            digits=digits,  # TODO: pass this from symbol data
+            opacity=0.9,  # slight see-through
             bg_color=bg_color,
+            fg_color=fg_color,
         )
 
         pi.sigRangeChanged.connect(sticky.update_on_resize)
-        # pi.addItem(sticky)
-        # pi.addItem(last)
         return sticky
 
 
@@ -244,7 +243,6 @@ class PriceAxis(Axis):
         self._min_tick = size
 
     def size_to_values(self) -> None:
-        # self.typical_br = _font._qfm.boundingRect(typical_max_str)
         self.setWidth(self.typical_br.width())
 
     # XXX: drop for now since it just eats up h space
@@ -302,27 +300,44 @@ class DynamicDateAxis(Axis):
         # XX: ARGGGGG AG:LKSKDJF:LKJSDFD
         chart = self.pi.chart_widget
 
-        flow = chart._vizs[chart.name]
-        shm = flow.shm
-        bars = shm.array
-        first = shm._first.value
+        viz = chart._vizs[chart.name]
+        shm = viz.shm
+        array = shm.array
+        times = array['time']
+        i_0, i_l = times[0], times[-1]
 
-        bars_len = len(bars)
-        times = bars['time']
+        if (
+            (indexes[0] < i_0
+             and indexes[-1] < i_l)
+            or
+            (indexes[0] > i_0
+             and indexes[-1] > i_l)
+        ):
+            return []
 
-        epochs = times[list(
-            map(
-                int,
-                filter(
-                    lambda i: i > 0 and i < bars_len,
-                    (i-first for i in indexes)
+        if viz.index_field == 'index':
+            arr_len = times.shape[0]
+            first = shm._first.value
+            epochs = times[
+                list(
+                    map(
+                        int,
+                        filter(
+                            lambda i: i > 0 and i < arr_len,
+                            (i - first for i in indexes)
+                        )
+                    )
                 )
-            )
-        )]
+            ]
+        else:
+            epochs = list(map(int, indexes))
 
         # TODO: **don't** have this hard coded shift to EST
         # delay = times[-1] - times[-2]
-        dts = np.array(epochs, dtype='datetime64[s]')
+        dts = np.array(
+            epochs,
+            dtype='datetime64[s]',
+        )
 
         # see units listing:
         # https://numpy.org/devdocs/reference/arrays.datetime.html#datetime-units
@@ -340,24 +355,39 @@ class DynamicDateAxis(Axis):
         spacing: float,
 
     ) -> list[str]:
+
+        return self._indexes_to_timestrs(values)
+
+        # NOTE: handy for debugging the lru cache
         # info = self.tickStrings.cache_info()
         # print(info)
-        return self._indexes_to_timestrs(values)
 
 
 class AxisLabel(pg.GraphicsObject):
 
-    _x_margin = 0
-    _y_margin = 0
+    # relative offsets *OF* the bounding rect relative
+    # to parent graphics object.
+    # eg.  <parent>| => <_x_br_offset> => | <text> |
+    _x_br_offset: float = 0
+    _y_br_offset: float = 0
+
+    # relative offsets of text *within* bounding rect
+    # eg. | <_x_margin> => <text> |
+    _x_margin: float = 0
+    _y_margin: float = 0
+
+    # multiplier of the text content's height in order
+    # to force a larger (y-dimension) bounding rect.
+    _y_txt_h_scaling: float = 1
 
     def __init__(
         self,
         parent: pg.GraphicsItem,
         digits: int = 2,
 
-        bg_color: str = 'bracket',
+        bg_color: str = 'default',
         fg_color: str = 'black',
-        opacity: int = 1,  # XXX: seriously don't set this to 0
+        opacity: int = .8,  # XXX: seriously don't set this to 0
         font_size: str = 'default',
 
         use_arrow: bool = True,
@@ -368,6 +398,7 @@ class AxisLabel(pg.GraphicsObject):
         self.setParentItem(parent)
 
         self.setFlag(self.ItemIgnoresTransformations)
+        self.setZValue(100)
 
         # XXX: pretty sure this is faster
         self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
@@ -399,14 +430,14 @@ class AxisLabel(pg.GraphicsObject):
         p: QtGui.QPainter,
         opt: QtWidgets.QStyleOptionGraphicsItem,
         w: QtWidgets.QWidget
+
     ) -> None:
-        """Draw a filled rectangle based on the size of ``.label_str`` text.
+        '''
+        Draw a filled rectangle based on the size of ``.label_str`` text.
 
         Subtypes can customize further by overloading ``.draw()``.
 
-        """
-        # p.setCompositionMode(QtWidgets.QPainter.CompositionMode_SourceOver)
-
+        '''
         if self.label_str:
 
             # if not self.rect:
@@ -417,13 +448,19 @@ class AxisLabel(pg.GraphicsObject):
 
             p.setFont(self._dpifont.font)
             p.setPen(self.fg_color)
-            p.drawText(self.rect, self.text_flags, self.label_str)
+            p.drawText(
+                self.rect,
+                self.text_flags,
+                self.label_str,
+            )
 
     def draw(
         self,
         p: QtGui.QPainter,
         rect: QtCore.QRectF
     ) -> None:
+
+        p.setOpacity(self.opacity)
 
         if self._use_arrow:
             if not self.path:
@@ -432,15 +469,13 @@ class AxisLabel(pg.GraphicsObject):
             p.drawPath(self.path)
             p.fillPath(self.path, pg.mkBrush(self.bg_color))
 
-        # this adds a nice black outline around the label for some odd
-        # reason; ok by us
-        p.setOpacity(self.opacity)
-
         # this cause the L1 labels to glitch out if used in the subtype
         # and it will leave a small black strip with the arrow path if
         # done before the above
-        p.fillRect(self.rect, self.bg_color)
-
+        p.fillRect(
+            self.rect,
+            self.bg_color,
+        )
 
     def boundingRect(self):  # noqa
         '''
@@ -484,15 +519,18 @@ class AxisLabel(pg.GraphicsObject):
         txt_h, txt_w = txt_br.height(), txt_br.width()
         # print(f'wsw: {self._dpifont.boundingRect(" ")}')
 
-        # allow subtypes to specify a static width and height
+        # allow subtypes to override width and height
         h, w = self.size_hint()
-        # print(f'axis size: {self._parent.size()}')
-        # print(f'axis geo: {self._parent.geometry()}')
 
         self.rect = QtCore.QRectF(
-            0, 0,
+
+            # relative bounds offsets
+            self._x_br_offset,
+            self._y_br_offset,
+
             (w or txt_w) + self._x_margin / 2,
-            (h or txt_h) + self._y_margin / 2,
+
+            (h or txt_h) * self._y_txt_h_scaling + (self._y_margin / 2),
         )
         # print(self.rect)
         # hb = self.path.controlPointRect()
