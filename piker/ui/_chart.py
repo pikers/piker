@@ -1231,7 +1231,8 @@ class ChartPlotWidget(pg.PlotWidget):
                 # (we need something that avoids clutter on x-axis).
                 axis.add_sticky(
                     pi=pi,
-                    bg_color=color,
+                    fg_color='black',
+                    # bg_color=color,
                     digits=digits,
                 )
 
