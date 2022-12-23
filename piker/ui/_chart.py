@@ -829,8 +829,6 @@ class ChartPlotWidget(pg.PlotWidget):
     sig_mouse_leave = QtCore.pyqtSignal(object)
     sig_mouse_enter = QtCore.pyqtSignal(object)
 
-    _l1_labels: L1Labels = None
-
     mode_name: str = 'view'
 
     # TODO: can take a ``background`` color setting - maybe there's
