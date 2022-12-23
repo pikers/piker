@@ -71,7 +71,7 @@ class LineDot(pg.CurvePoint):
 
         plot: ChartPlotWidget,  # type: ingore # noqa
         pos=None,
-        color: str = 'default_light',
+        color: str = 'bracket',
 
     ) -> None:
         # scale from dpi aware font size
@@ -349,7 +349,7 @@ class Cursor(pg.GraphicsObject):
         # XXX: not sure why these are instance variables?
         # It's not like we can change them on the fly..?
         self.pen = pg.mkPen(
-            color=hcolor('default'),
+            color=hcolor('bracket'),
             style=QtCore.Qt.DashLine,
         )
         self.lines_pen = pg.mkPen(
@@ -365,7 +365,7 @@ class Cursor(pg.GraphicsObject):
         self._lw = self.pixelWidth() * self.lines_pen.width()
 
         # xhair label's color name
-        self.label_color: str = 'default'
+        self.label_color: str = 'bracket'
 
         self._y_label_update: bool = True
 
