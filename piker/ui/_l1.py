@@ -40,7 +40,7 @@ class LevelLabel(YAxisLabel):
 
     '''
     _x_br_offset: float = -16
-    _x_txt_h_scaling: float = 2
+    _y_txt_h_scaling: float = 2
 
     # adjustment "further away from" anchor point
     _x_offset = 0
