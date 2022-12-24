@@ -213,6 +213,7 @@ def render_baritems(
         graphics,
         r,
         should_redraw,
+        should_line,
     )
 
 
@@ -547,6 +548,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
             # BUT the ``in_view`` slice DOES..
             read_slc = slice(lbar_i, rbar_i)
             in_view = array[lbar_i: rbar_i + 1]
+            # in_view = array[lbar_i-1: rbar_i+1]
 
             # XXX: same as ^
             # to_draw = array[lbar - ifirst:(rbar - ifirst) + 1]
@@ -570,7 +572,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
     def update_graphics(
         self,
-        use_vr: bool = True,
         render: bool = True,
         array_key: str | None = None,
 
@@ -609,6 +610,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
             return graphics
 
         should_redraw: bool = False
+        ds_allowed: bool = True
 
         # TODO: probably specialize ``Renderer`` types instead of
         # these logic checks?
@@ -622,6 +624,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 graphics,
                 r,
                 should_redraw,
+                in_line,
             ) = render_baritems(
                 self,
                 graphics,
@@ -629,6 +632,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 profiler,
                 **kwargs,
             )
+            ds_allowed = in_line
 
         elif not r:
             if isinstance(graphics, StepCurve):
@@ -655,7 +659,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         # ``Curve`` derivative case(s):
         array_key = array_key or self.name
-        # print(array_key)
 
         # ds update config
         new_sample_rate: bool = False
@@ -670,6 +673,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
         if (
             uppx > 1
             and abs(uppx_diff) >= 1
+            and ds_allowed
         ):
             log.debug(
                 f'{array_key} sampler change: {self._last_uppx} -> {uppx}'
@@ -681,6 +685,10 @@ class Viz(msgspec.Struct):  # , frozen=True):
             should_ds = True
             should_redraw = True
 
+        # "back to source" case:
+        # this more or less skips use of the m4 downsampler
+        # inside ``Renderer.render()`` which results in a path
+        # drawn verbatim to match the xy source data.
         elif (
             uppx <= 2
             and self._in_ds
@@ -703,7 +711,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
             array_key,
             profiler,
             uppx=uppx,
-            # use_vr=True,
 
             # TODO: better way to detect and pass this?
             # if we want to eventually cache renderers for a given uppx
@@ -838,7 +845,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
     def default_view(
         self,
         bars_from_y: int = int(616 * 3/8),
-        y_offset: int = 0,
+        y_offset: int = 0,  # in datums
         do_ds: bool = True,
 
     ) -> None:
@@ -898,17 +905,8 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # orient by offset from the y-axis including
         # space to compensate for the L1 labels.
         if not y_offset:
+            _, offset = chartw.pre_l1_xs()
 
-            # we get the L1 spread label "length" in view coords and
-            # make sure it doesn't colide with the right-most datum in
-            # view.
-            _, l1_len = chartw.pre_l1_xs()
-            offset = l1_len/(uppx*step)
-
-            # if no L1 label is present just offset by a few datums
-            # from the y-axis.
-            if chartw._max_l1_line_len == 0:
-                offset += 3*step
         else:
             offset = (y_offset * step) + uppx*step
 
@@ -973,9 +971,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
         i_step = lasts['index']  # last index-specific step.
         i_step_t = lasts['time']  # last time step.
 
-        fqsn = self.flume.symbol.fqsn
-        if is_1m:
-            print(f'{fqsn} 1Min index: {i_step}, t: {i_step_t}')
+        # fqsn = self.flume.symbol.fqsn
 
         # check if "last (is) in view" -> is a real-time update necessary?
         if self.index_field == 'index':
