@@ -36,6 +36,7 @@ from PyQt5.QtCore import (
 
 from PyQt5.QtGui import QPainterPath
 
+from ._curve import FlowGraphic
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._style import hcolor
 from ..log import get_logger
@@ -94,7 +95,7 @@ def bar_from_ohlc_row(
     return [hl, o, c]
 
 
-class BarItems(pg.GraphicsObject):
+class BarItems(FlowGraphic):
     '''
     "Price range" bars graphics rendered from a OHLC sampled sequence.
 
@@ -125,9 +126,9 @@ class BarItems(pg.GraphicsObject):
         self.path = QPainterPath()
         self._last_bar_lines: tuple[QLineF, ...] | None = None
 
-    def x_uppx(self) -> int:
-        # we expect the downsample curve report this.
-        return 0
+    # def x_uppx(self) -> int:
+    #     # we expect the downsample curve report this.
+    #     return 0
 
     def x_last(self) -> float:
         '''
