@@ -51,7 +51,59 @@ _line_styles: dict[str, int] = {
 }
 
 
-class Curve(pg.GraphicsObject):
+class FlowGraphic(pg.GraphicsObject):
+    '''
+    Base class with minimal interface for `QPainterPath` implemented,
+    real-time updated "data flow" graphics.
+
+    See subtypes below.
+
+    '''
+    # sub-type customization methods
+    declare_paintables: Optional[Callable] = None
+    sub_paint: Optional[Callable] = None
+
+    # TODO: can we remove this?
+    # sub_br: Optional[Callable] = None
+
+    def x_uppx(self) -> int:
+
+        px_vecs = self.pixelVectors()[0]
+        if px_vecs:
+            xs_in_px = px_vecs.x()
+            return round(xs_in_px)
+        else:
+            return 0
+
+    def x_last(self) -> float:
+        '''
+        Return the last most x value of the last line segment.
+
+        '''
+        return self._last_line.x1()
+
+    def px_width(self) -> float:
+        '''
+        Return the width of the view box containing
+        this graphic in pixel units.
+
+        '''
+        vb = self.getViewBox()
+        if not vb:
+            return 0
+
+        vr = self.viewRect()
+        vl, vr = int(vr.left()), int(vr.right())
+
+        return vb.mapViewToDevice(
+            QLineF(
+                vl, 0,
+                vr, 0,
+            )
+        ).length()
+
+
+class Curve(FlowGraphic):
     '''
     A faster, simpler, append friendly version of
     ``pyqtgraph.PlotCurveItem`` built for highly customizable real-time
@@ -81,11 +133,6 @@ class Curve(pg.GraphicsObject):
 
     '''
 
-    # sub-type customization methods
-    declare_paintables: Optional[Callable] = None
-    sub_paint: Optional[Callable] = None
-    # sub_br: Optional[Callable] = None
-
     def __init__(
         self,
         *args,
@@ -95,7 +142,6 @@ class Curve(pg.GraphicsObject):
         fill_color: Optional[str] = None,
         style: str = 'solid',
         name: Optional[str] = None,
-        use_fpath: bool = True,
 
         **kwargs
 
@@ -110,11 +156,11 @@ class Curve(pg.GraphicsObject):
         # self._last_cap: int = 0
         self.path: Optional[QPainterPath] = None
 
-        # additional path used for appends which tries to avoid
-        # triggering an update/redraw of the presumably larger
-        # historical ``.path`` above.
-        self.use_fpath = use_fpath
-        self.fast_path: Optional[QPainterPath] = None
+        # additional path that can be optionally used for appends which
+        # tries to avoid triggering an update/redraw of the presumably
+        # larger historical ``.path`` above. the flag to enable
+        # this behaviour is found in `Renderer.render()`.
+        self.fast_path: QPainterPath | None = None
 
         # TODO: we can probably just dispense with the parent since
         # we're basically only using the pen setting now...
@@ -154,57 +200,18 @@ class Curve(pg.GraphicsObject):
         # endpoint (something we saw on trade rate curves)
         self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
-        # XXX: see explanation for different caching modes:
-        # https://stackoverflow.com/a/39410081
-        # seems to only be useful if we don't re-generate the entire
-        # QPainterPath every time
-        # curve.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
-
+        # XXX-NOTE-XXX: graphics caching.
+        # see explanation for different caching modes:
+        # https://stackoverflow.com/a/39410081 seems to only be useful
+        # if we don't re-generate the entire QPainterPath every time
         # don't ever use this - it's a colossal nightmare of artefacts
         # and is disastrous for performance.
-        # curve.setCacheMode(QtWidgets.QGraphicsItem.ItemCoordinateCache)
+        # self.setCacheMode(QtWidgets.QGraphicsItem.ItemCoordinateCache)
 
         # allow sub-type customization
         declare = self.declare_paintables
         if declare:
             declare()
-
-    # TODO: probably stick this in a new parent
-    # type which will contain our own version of
-    # what ``PlotCurveItem`` had in terms of base
-    # functionality? A `FlowGraphic` maybe?
-    def x_uppx(self) -> int:
-
-        px_vecs = self.pixelVectors()[0]
-        if px_vecs:
-            xs_in_px = px_vecs.x()
-            return round(xs_in_px)
-        else:
-            return 0
-
-    def x_last(self) -> float:
-        '''
-        Return the last most x value of the last line segment.
-
-        '''
-        return self._last_line.x2()
-
-    def px_width(self) -> float:
-
-        vb = self.getViewBox()
-        if not vb:
-            return 0
-
-        vr = self.viewRect()
-        l, r = int(vr.left()), int(vr.right())
-
-        start, stop = self._xrange
-        lbar = max(l, start)
-        rbar = min(r, stop)
-
-        return vb.mapViewToDevice(
-            QLineF(lbar, 0, rbar, 0)
-        ).length()
 
     # XXX: lol brutal, the internals of `CurvePoint` (inherited by
     # our `LineDot`) required ``.getData()`` to work..
@@ -370,6 +377,9 @@ class Curve(pg.GraphicsObject):
         x = src_data[index_field]
         y = src_data[array_key]
 
+        x_last = x[-1]
+        x_2last = x[-2]
+
         # draw the "current" step graphic segment so it
         # lines up with the "middle" of the current
         # (OHLC) sample.
@@ -379,8 +389,8 @@ class Curve(pg.GraphicsObject):
             # from last datum to current such that
             # the end of line touches the "beginning"
             # of the current datum step span.
-            x[-2], y[-2],
-            x[-1], y[-1],
+            x_2last , y[-2],
+            x_last, y[-1],
         )
 
         return x, y
