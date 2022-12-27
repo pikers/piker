@@ -411,7 +411,7 @@ def slice_from_time(
         new_read_i_stop = np.searchsorted(
             times[read_i_start:],
             i_stop_t,
-            side='right',
+            side='left',
         )
 
         if (
