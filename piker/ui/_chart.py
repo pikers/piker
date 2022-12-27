@@ -984,7 +984,8 @@ class ChartPlotWidget(pg.PlotWidget):
         '''
         # TODO: compute some sensible maximum value here
         # and use a humanized scheme to limit to that length.
-        l1_len = self._max_l1_line_len
+        from ._l1 import L1Label
+        l1_len = abs(L1Label._x_br_offset)
         ryaxis = self.getAxis('right')
 
         r_axis_x = ryaxis.pos().x()
