@@ -70,37 +70,17 @@ class FlowGraphic(pg.GraphicsObject):
 
         px_vecs = self.pixelVectors()[0]
         if px_vecs:
-            xs_in_px = px_vecs.x()
-            return round(xs_in_px)
+            return px_vecs.x()
         else:
             return 0
 
-    def x_last(self) -> float:
+    def x_last(self) -> float | None:
         '''
-        Return the last most x value of the last line segment.
-
-        '''
-        return self._last_line.x1()
-
-    def px_width(self) -> float:
-        '''
-        Return the width of the view box containing
-        this graphic in pixel units.
+        Return the last most x value of the last line segment or if not
+        drawn yet, ``None``.
 
         '''
-        vb = self.getViewBox()
-        if not vb:
-            return 0
-
-        vr = self.viewRect()
-        vl, vr = int(vr.left()), int(vr.right())
-
-        return vb.mapViewToDevice(
-            QLineF(
-                vl, 0,
-                vr, 0,
-            )
-        ).length()
+        return self._last_line.x1() if self._last_line else None
 
 
 class Curve(FlowGraphic):

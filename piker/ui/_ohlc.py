@@ -126,16 +126,17 @@ class BarItems(FlowGraphic):
         self.path = QPainterPath()
         self._last_bar_lines: tuple[QLineF, ...] | None = None
 
-    # def x_uppx(self) -> int:
-    #     # we expect the downsample curve report this.
-    #     return 0
-
-    def x_last(self) -> float:
+    def x_last(self) -> None | float:
         '''
-        Return the last most x value of the close line segment.
+        Return the last most x value of the close line segment
+        or if not drawn yet, ``None``.
 
         '''
-        return self._last_bar_lines[-1].x2()
+        if self._last_bar_lines:
+            close_arm_line = self._last_bar_lines[-1]
+            return close_arm_line.x2() if close_arm_line else None
+        else:
+            return None
 
     # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
     def boundingRect(self):
