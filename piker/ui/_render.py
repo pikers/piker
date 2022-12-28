@@ -58,8 +58,8 @@ class Renderer(msgspec.Struct):
 
     # output graphics rendering, the main object
     # processed in ``QGraphicsObject.paint()``
-    path: Optional[QPainterPath] = None
-    fast_path: Optional[QPainterPath] = None
+    path: QPainterPath | None = None
+    fast_path: QPainterPath | None = None
 
     # XXX: just ideas..
     # called on the final data (transform) output to convert
@@ -81,7 +81,7 @@ class Renderer(msgspec.Struct):
         x: np.ndarray,
         y: np.ndarray,
         connect: str | np.ndarray = 'all',
-        path: Optional[QPainterPath] = None,
+        path: QPainterPath | None = None,
         redraw: bool = False,
 
     ) -> QPainterPath:
@@ -105,7 +105,7 @@ class Renderer(msgspec.Struct):
             # - https://doc.qt.io/qt-5/qpainterpath.html#reserve
             # - https://doc.qt.io/qt-5/qpainterpath.html#capacity
             # - https://doc.qt.io/qt-5/qpainterpath.html#clear
-            # XXX: right now this is based on had hoc checks on a
+            # XXX: right now this is based on ad-hoc checks on a
             # hidpi 3840x2160 4k monitor but we should optimize for
             # the target display(s) on the sys.
             # if no_path_yet:
