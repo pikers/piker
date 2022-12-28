@@ -309,24 +309,8 @@ def slice_from_time(
 
     times = arr['time']
     t_first = round(times[0])
-    t_last = round(times[-1])
 
-    index = arr['index']
-    i_first = index[0]
-    # i_last = index[-1]
     read_i_max = arr.shape[0]
-
-    if (
-        start_t < t_first
-        and stop_t > t_last
-    ):
-        read_i_start = 0
-        read_i_stop = read_i_max
-        read_slc = slice(
-            0,
-            read_i_max,
-        )
-        return read_slc
 
     if step is None:
         step = round(times[-1] - times[-2])
@@ -359,11 +343,9 @@ def slice_from_time(
     # NOTE: this is usually the result of a time series with time gaps
     # where it is expected that each index step maps to a uniform step
     # in the time stamp series.
-    i_iv_start = index[read_i_start]
     t_iv_start = times[read_i_start]
     if (
-        i_iv_start >= i_first
-        and t_iv_start > i_start_t
+        t_iv_start > i_start_t
     ):
         # do a binary search for the best index mapping to ``start_t``
         # given we measured an overshoot using the uniform-time-step
@@ -396,7 +378,6 @@ def slice_from_time(
             # )
             read_i_start = new_read_i_start - 1
 
-    # i_iv_stop = index[read_i_stop - 1]
     t_iv_stop = times[read_i_stop - 1]
     if (
         t_iv_stop > i_stop_t
@@ -441,6 +422,7 @@ def slice_from_time(
 
     # NOTE: if caller needs absolute buffer indices they can
     # slice the buffer abs index like so:
+    # index = arr['index']
     # abs_indx = index[read_slc]
     # abs_slc = slice(
     #     int(abs_indx[0]),
