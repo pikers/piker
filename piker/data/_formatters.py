@@ -99,15 +99,13 @@ class IncrementalFormatter(msgspec.Struct):
     _last_vr: tuple[float, float] | None = None
     _last_ivdr: tuple[float, float] | None = None
 
-    _index_step_size: float = None
-
     @property
     def index_step_size(self) -> float:
         '''
         Readonly value computed on first ``.diff()`` call.
 
         '''
-        return self._index_step_size
+        return self.viz.index_step()
 
     def __repr__(self) -> str:
         msg = (
@@ -183,11 +181,6 @@ class IncrementalFormatter(msgspec.Struct):
             nd_stop = self.xy_nd_stop = src_stop
 
             align_index = array[self.index_field]
-            self._index_step_size = (
-                align_index[-1]
-                -
-                align_index[-2]
-            )
 
         # compute the length diffs between the first/last index entry in
         # the input data and the last indexes we have on record from the
