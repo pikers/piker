@@ -286,10 +286,14 @@ class Viz(msgspec.Struct):  # , frozen=True):
     ) -> float:
         if self._index_step is None:
             index = self.shm.array[self.index_field]
-            self._index_step = max(
-                np.diff(index[-16:]).max(),
-                1,
-            )
+            isample = index[:16]
+            mxdiff = np.diff(isample).max()
+            self._index_step = max(mxdiff, 1)
+            if (
+                mxdiff < 1
+                or 1 < mxdiff < 60
+            ):
+                breakpoint()
 
         return self._index_step
 
@@ -297,6 +301,8 @@ class Viz(msgspec.Struct):  # , frozen=True):
         self,
         lbar: int,
         rbar: int,
+
+        use_caching: bool = True,
 
     ) -> Optional[tuple[float, float]]:
         '''
@@ -308,15 +314,17 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # TODO: hash the slice instead maybe?
         # https://stackoverflow.com/a/29980872
         rkey = (round(lbar), round(rbar))
-        cached_result = self._mxmns.get(rkey)
-        do_print = False  # (self.index_step() == 60)
-        if cached_result:
-            if do_print:
-                print(
-                    f'{self.name} CACHED maxmin\n'
-                    f'{rkey} -> {cached_result}'
-                )
-            return cached_result
+
+        do_print: bool = False
+        if use_caching:
+            cached_result = self._mxmns.get(rkey)
+            if cached_result:
+                if do_print:
+                    print(
+                        f'{self.name} CACHED maxmin\n'
+                        f'{rkey} -> {cached_result}'
+                    )
+                return cached_result
 
         shm = self.shm
         if shm is None:
@@ -332,14 +340,15 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 stop_t=rbar,
                 step=self.index_step(),
             )
-            slice_view = arr[read_slc]
 
         else:
             ifirst = arr[0]['index']
-            slice_view = arr[
-                lbar - ifirst:
+            read_slc = slice(
+                lbar - ifirst,
                 (rbar - ifirst) + 1
-            ]
+            )
+
+        slice_view = arr[read_slc]
 
         if not slice_view.size:
             log.warning(f'{self.name} no maxmin in view?')
@@ -366,14 +375,13 @@ class Viz(msgspec.Struct):  # , frozen=True):
             mxmn = ylow, yhigh
             if (
                 do_print
-                # and self.index_step() > 1
             ):
                 s = 3
                 print(
                     f'{self.name} MANUAL ohlc={self.is_ohlc} maxmin:\n'
                     f'{rkey} -> {mxmn}\n'
                     f'read_slc: {read_slc}\n'
-                    f'abs_slc: {slice_view["index"]}\n'
+                    # f'abs_slc: {slice_view["index"]}\n'
                     f'first {s}:\n{slice_view[:s]}\n'
                     f'last {s}:\n{slice_view[-s:]}\n'
                 )
@@ -610,7 +618,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
             return graphics
 
         should_redraw: bool = False
-        ds_allowed: bool = True
+        ds_allowed: bool = True  # guard for m4 activation
 
         # TODO: probably specialize ``Renderer`` types instead of
         # these logic checks?
@@ -624,7 +632,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 graphics,
                 r,
                 should_redraw,
-                in_line,
+                ds_allowed,  # in line mode?
             ) = render_baritems(
                 self,
                 graphics,
@@ -632,7 +640,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 profiler,
                 **kwargs,
             )
-            ds_allowed = in_line
 
         elif not r:
             if isinstance(graphics, StepCurve):
@@ -807,7 +814,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
             # XXX: pretty sure we don't need this?
             # if isinstance(g, Curve):
             #     with dsg.reset_cache():
-            uppx = self._last_uppx
+            uppx = round(self._last_uppx)
             y = y[-uppx:]
             ymn, ymx = y.min(), y.max()
             # print(f'drawing uppx={uppx} mxmn line: {ymn}, {ymx}')
@@ -828,19 +835,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
         else:
             # print(f'updating NOT DS curve {self.name}')
             g.update()
-
-    def curve_width_pxs(self) -> float:
-        '''
-        Return the width of the current datums in view in pixel units.
-
-        '''
-        _, lbar, rbar, _ = self.bars_range()
-        return self.view.mapViewToDevice(
-            QLineF(
-                lbar, 0,
-                rbar, 0
-            )
-        ).length()
 
     def default_view(
         self,
@@ -900,19 +894,33 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         # l->r distance in scene units, no larger then data span
         data_diff = last_datum - first_datum
-        rl_diff = min(vr - vl, data_diff)
+        rl_diff = vr - vl
+        rescale_to_data: bool = False
+        # new_uppx: float = 1
+
+        if rl_diff > data_diff:
+            rescale_to_data = True
+            rl_diff = data_diff
+            new_uppx: float = data_diff / self.px_width()
 
         # orient by offset from the y-axis including
         # space to compensate for the L1 labels.
         if not y_offset:
-            _, offset = chartw.pre_l1_xs()
+            _, l1_offset = chartw.pre_l1_xs()
+
+            offset = l1_offset
+
+            if (
+                rescale_to_data
+            ):
+                offset = (offset / uppx) * new_uppx
 
         else:
             offset = (y_offset * step) + uppx*step
 
         # align right side of view to the rightmost datum + the selected
         # offset from above.
-        r_reset = last_datum + offset
+        r_reset = (self.graphics.x_last() or last_datum) + offset
 
         # no data is in view so check for the only 2 sane cases:
         # - entire view is LEFT of data
@@ -1054,3 +1062,22 @@ class Viz(msgspec.Struct):  # , frozen=True):
             do_rt_update,
             should_tread,
         )
+
+    def px_width(self) -> float:
+        '''
+        Return the width of the view box containing
+        this graphic in pixel units.
+
+        '''
+        vb = self.plot.vb
+        if not vb:
+            return 0
+
+        vl, vr = self.view_range()
+
+        return vb.mapViewToDevice(
+            QLineF(
+                vl, 0,
+                vr, 0,
+            )
+        ).length()
