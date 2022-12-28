@@ -35,7 +35,7 @@ import trio
 from ..log import get_logger
 from .._profile import Profiler
 from .._profile import pg_profile_enabled, ms_slower_then
-from ._style import _min_points_to_show
+# from ._style import _min_points_to_show
 from ._editors import SelectRect
 from . import _event
 
@@ -494,13 +494,12 @@ class ChartView(ViewBox):
         # don't zoom more then the min points setting
         viz = chart.get_viz(chart.name)
         vl, lbar, rbar, vr = viz.bars_range()
-        rl = vr - vl
 
         # TODO: max/min zoom limits incorporating time step size.
+        # rl = vr - vl
         # if ev.delta() > 0 and rl <= _min_points_to_show:
         #     log.warning("Max zoom bruh...")
         #     return
-
         # if (
         #     ev.delta() < 0
         #     and rl >= len(chart._vizs[chart.name].shm.array) + 666
@@ -536,48 +535,17 @@ class ChartView(ViewBox):
             self.scaleBy(s, center)
 
         else:
-
-            # center = pg.Point(
-            #     fn.invertQTransform(self.childGroup.transform()).map(ev.pos())
-            # )
-
-            # XXX: scroll "around" the right most element in the view
-            # which stays "pinned" in place.
-
-            # furthest_right_coord = self.boundingRect().topRight()
-
-            # yaxis = pg.Point(
-            #     fn.invertQTransform(
-            #         self.childGroup.transform()
-            #     ).map(furthest_right_coord)
-            # )
-
-            # This seems like the most "intuitive option, a hybrid of
-            # tws and tv styles
-            # last_bar = pg.Point(int(rbar)) + 1
-            ryaxis = chart.getAxis('right')
-            r_axis_x = ryaxis.pos().x()
-
-            end_of_l1 = pg.Point(
-                round(
-                    chart.cv.mapToView(
-                        pg.Point(r_axis_x - chart._max_l1_line_len)
-                    ).x()
-                )
-            ).x()
-
-            # self.state['viewRange'][0][1] = end_of_l1
-            # focal = pg.Point((last_bar.x() + end_of_l1)/2)
-            # focal = pg.Point(last_bar.x() + end_of_l1)
-
             # use right-most point of current curve graphic
             xl = viz.graphics.x_last()
             focal = min(
                 xl,
-                end_of_l1,
+                vr,
             )
 
             self._resetTarget()
+
+            # NOTE: scroll "around" the right most datum-element in view
+            # gives the feeling of staying "pinned" in place.
             self.scaleBy(s, focal)
 
             # XXX: the order of the next 2 lines i'm pretty sure
@@ -674,9 +642,6 @@ class ChartView(ViewBox):
 
             # PANNING MODE
             else:
-                # XXX: WHY
-                ev.accept()
-
                 try:
                     self.start_ic()
                 except RuntimeError:
@@ -707,6 +672,9 @@ class ChartView(ViewBox):
                     # self._ic.set()
                     # self._ic = None
                     # self.chart.resume_all_feeds()
+
+                # XXX: WHY
+                ev.accept()
 
         # WEIRD "RIGHT-CLICK CENTER ZOOM" MODE
         elif button & QtCore.Qt.RightButton:
@@ -753,7 +721,11 @@ class ChartView(ViewBox):
         *,
 
         yrange: Optional[tuple[float, float]] = None,
-        range_margin: float = 0.06,
+
+        # NOTE: this value pairs (more or less) with L1 label text
+        # height offset from from the bid/ask lines.
+        range_margin: float = 0.09,
+
         bars_range: Optional[tuple[int, int, int, int]] = None,
 
         # flag to prevent triggering sibling charts from the same linked
@@ -910,7 +882,7 @@ class ChartView(ViewBox):
 
     def maybe_downsample_graphics(
         self,
-        autoscale_overlays: bool = True,
+        autoscale_overlays: bool = False,
     ):
         profiler = Profiler(
             msg=f'ChartView.maybe_downsample_graphics() for {self.name}',
@@ -946,10 +918,7 @@ class ChartView(ViewBox):
 
                 # pass in no array which will read and render from the last
                 # passed array (normally provided by the display loop.)
-                chart.update_graphics_from_flow(
-                    name,
-                    use_vr=True,
-                )
+                chart.update_graphics_from_flow(name)
 
                 # for each overlay on this chart auto-scale the
                 # y-range to max-min values.
