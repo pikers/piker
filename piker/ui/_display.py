@@ -328,10 +328,6 @@ async def graphics_update_loop(
             digits=symbol.tick_size_digits,
             size_digits=symbol.lot_size_digits,
         )
-        # TODO: this is just wrong now since we can have multiple L1-label
-        # sets, so instead we should have the l1 associated with the
-        # plotitem or y-axis likely?
-        # fast_chart._l1_labels = l1
 
         # TODO:
         # - in theory we should be able to read buffer data faster
@@ -416,11 +412,11 @@ async def graphics_update_loop(
 
             last_quote_s = time.time()
 
-            for sym, quote in quotes.items():
-                ds = dss[sym]
+            for fqsn, quote in quotes.items():
+                ds = dss[fqsn]
                 ds.quotes = quote
 
-                rt_pi, hist_pi = pis[sym]
+                rt_pi, hist_pi = pis[fqsn]
 
                 # chart isn't active/shown so skip render cycle and
                 # pause feed(s)
@@ -449,16 +445,21 @@ async def graphics_update_loop(
 def graphics_update_cycle(
     ds: DisplayState,
     quote: dict,
+
     wap_in_history: bool = False,
     trigger_all: bool = False,  # flag used by prepend history updates
     prepend_update_index: Optional[int] = None,
 
 ) -> None:
-    # TODO: eventually optimize this whole graphics stack with ``numba``
-    # hopefully XD
+
+    # TODO: SPEEDing this all up..
+    # - optimize this whole graphics stack with ``numba`` hopefully
+    #   or at least a little `mypyc` B)
+    # - pass more direct refs as input to avoid so many attr accesses?
+    # - use a streaming minmax algo and drop the use of the
+    #   state-tracking ``chart_maxmin()`` routine from above?
 
     chart = ds.chart
-    # TODO: just pass this as a direct ref to avoid so many attr accesses?
     hist_chart = ds.godwidget.hist_linked.chart
 
     flume = ds.flume
@@ -471,10 +472,7 @@ def graphics_update_cycle(
         msg=f'Graphics loop cycle for: `{chart.name}`',
         delayed=True,
         disabled=not pg_profile_enabled(),
-        # disabled=True,
         ms_threshold=ms_slower_then,
-
-        # ms_threshold=1/12 * 1e3,
     )
 
     # unpack multi-referenced components
@@ -554,48 +552,34 @@ def graphics_update_cycle(
 
         profiler('view incremented')
 
-    # from pprint import pformat
-    # frame_counts = {
-    #     typ: len(frame) for typ, frame in frames_by_type.items()
-    # }
-    # print(
-    #     f'{pformat(frame_counts)}\n'
-    #     f'framed: {pformat(frames_by_type)}\n'
-    #     f'lasts: {pformat(lasts)}\n'
-    # )
-    # for typ, tick in lasts.items():
-    # ticks_frame = quote.get('ticks', ())
+    # iterate frames of ticks-by-type such that we only update graphics
+    # using the last update per type where possible.
     ticks_by_type = quote.get('tbt', {})
-
-    # for tick in ticks_frame:
     for typ, ticks in ticks_by_type.items():
 
         # NOTE: ticks are `.append()`-ed to the `ticks_by_type: dict` by the
         # `._sampling.uniform_rate_send()` loop
-        tick = ticks[-1]
-        # typ = tick.get('type')
+        tick = ticks[-1]  # get most recent value
+
         price = tick.get('price')
         size = tick.get('size')
 
         # compute max and min prices (including bid/ask) from
         # tick frames to determine the y-range for chart
         # auto-scaling.
-        # TODO: we need a streaming minmax algo here, see def above.
-        if liv:
+        if (
+            liv
+
+            # TODO: make sure IB doesn't send ``-1``!
+            and price > 0
+        ):
             mx = max(price + tick_margin, mx)
             mn = min(price - tick_margin, mn)
 
+        # clearing price update:
+        # generally, we only want to update grahpics from the *last*
+        # tick event once - thus showing the most recent state.
         if typ in clear_types:
-            # XXX: if we only wanted to update graphics from the
-            # "current"/"latest received" clearing price tick
-            # once (see alt iteration order above).
-            # if last_clear_updated:
-            #     continue
-
-            # last_clear_updated = True
-            # we only want to update grahpics from the *last*
-            # tick event that falls under the "clearing price"
-            # set.
 
             # update price sticky(s)
             end_ic = array[-1][[
@@ -610,10 +594,7 @@ def graphics_update_cycle(
                 chart.update_graphics_from_flow('bar_wap')
 
         # L1 book label-line updates
-        # XXX: is this correct for ib?
-        # if ticktype in ('trade', 'last'):
-        # if ticktype in ('last',):  # 'size'):
-        if typ in ('last',):  # 'size'):
+        if typ in ('last',):
 
             label = {
                 l1.ask_label.fields['level']: l1.ask_label,
@@ -629,40 +610,64 @@ def graphics_update_cycle(
                 )
 
                 # TODO: on trades should we be knocking down
-                # the relevant L1 queue?
+                # the relevant L1 queue manually ourselves?
                 # label.size -= size
 
+        # NOTE: right now we always update the y-axis labels
+        # despite the last datum not being in view. Ideally
+        # we have a guard for this when we detect that the range
+        # of those values is not in view and then we disable these
+        # blocks.
         elif (
             typ in _tick_groups['asks']
-            # TODO: instead we could check if the price is in the
-            # y-view-range?
-            and liv
         ):
             l1.ask_label.update_fields({'level': price, 'size': size})
 
         elif (
             typ in _tick_groups['bids']
-            # TODO: instead we could check if the price is in the
-            # y-view-range?
-            and liv
         ):
             l1.bid_label.update_fields({'level': price, 'size': size})
 
-    # check for y-range re-size
-    if (mx > varz['last_mx']) or (mn < varz['last_mn']):
+    # check for y-autorange re-size
+    lmx = varz['last_mx']
+    lmn = varz['last_mn']
+    mx_diff = mx - lmx
+    mn_diff = mn - lmn
 
-        # fast chart resize case
+    if (
+        mx_diff
+        or mn_diff
+    ):
         if (
+            abs(mx_diff) > .25 * lmx
+            or
+            abs(mn_diff) > .25 * lmn
+        ):
+            log.error(
+                f'WTF MN/MX IS WAY OFF:\n'
+                f'lmn: {lmn}\n'
+                f'mn: {mn}\n'
+                f'lmx: {lmx}\n'
+                f'mx: {mx}\n'
+                f'mx_diff: {mx_diff}\n'
+                f'mn_diff: {mn_diff}\n'
+            )
+        # fast chart resize case
+        elif (
             liv
             and not chart._static_yrange == 'axis'
         ):
-            # main_vb = chart.view
             main_vb = chart._vizs[fqsn].plot.vb
             if (
                 main_vb._ic is None
                 or not main_vb._ic.is_set()
             ):
-                # print(f'updating range due to mxmn')
+                yr = (mn, mx)
+                # print(
+                #     f'updating y-range due to mxmn\n'
+                #     f'{fqsn}: {yr}'
+                # )
+
                 main_vb._set_yrange(
                     # TODO: we should probably scale
                     # the view margin based on the size
@@ -670,11 +675,10 @@ def graphics_update_cycle(
                     # slap in orders outside the current
                     # L1 (only) book range.
                     # range_margin=0.1,
-                    # yrange=(mn, mx),
+                    yrange=yr
                 )
 
         # check if slow chart needs a resize
-
         hist_viz = hist_chart._vizs[fqsn]
         (
             _,
@@ -691,7 +695,7 @@ def graphics_update_cycle(
         if hist_liv:
             hist_viz.plot.vb._set_yrange()
 
-    # XXX: update this every draw cycle to make L1-always-in-view work.
+    # XXX: update this every draw cycle to make
     varz['last_mx'], varz['last_mn'] = mx, mn
 
     # run synchronous update on all linked viz
@@ -767,10 +771,8 @@ def graphics_update_cycle(
             if (
                 mx_vlm_in_view != varz['last_mx_vlm']
             ):
-                yrange = (0, mx_vlm_in_view * 1.375)
-                vlm_chart.view._set_yrange(
-                    yrange=yrange,
-                )
+                vlm_yr = (0, mx_vlm_in_view * 1.375)
+                vlm_chart.view._set_yrange(yrange=vlm_yr)
                 profiler('`vlm_chart.view._set_yrange()`')
                 # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
                 varz['last_mx_vlm'] = mx_vlm_in_view
