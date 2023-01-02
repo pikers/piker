@@ -661,6 +661,12 @@ async def open_vlm_displays(
         #     str(period_param.default)
         # )
 
+        # use slightly less light (then bracket) gray
+        # for volume from "main exchange" and a more "bluey"
+        # gray for "dark" vlm.
+        vlm_color = 'i3'
+        dark_vlm_color = 'charcoal'
+
         # built-in vlm which we plot ASAP since it's
         # usually data provided directly with OHLC history.
         shm = ohlcv
@@ -796,6 +802,7 @@ async def open_vlm_displays(
                         humanize,
                         digits=2,
                     ),
+                    'text_color': vlm_color,
                 },
             )
 
@@ -826,12 +833,6 @@ async def open_vlm_displays(
 
             # add custom auto range handler
             dvlm_pi.vb._maxmin = group_mxmn
-
-            # use slightly less light (then bracket) gray
-            # for volume from "main exchange" and a more "bluey"
-            # gray for "dark" vlm.
-            vlm_color = 'i3'
-            dark_vlm_color = 'charcoal'
 
             # add dvlm (step) curves to common view
             def chart_curves(
