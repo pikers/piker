@@ -217,6 +217,9 @@ def render_baritems(
     )
 
 
+_sample_rates: set[float] = {1, 60}
+
+
 class Viz(msgspec.Struct):  # , frozen=True):
     '''
     (Data) "Visualization" compound type which wraps a real-time
@@ -284,15 +287,33 @@ class Viz(msgspec.Struct):  # , frozen=True):
         reset: bool = False,
 
     ) -> float:
+
+        # attempt to dectect the best step size by scanning a sample of
+        # the source data.
         if self._index_step is None:
+
             index = self.shm.array[self.index_field]
             isample = index[:16]
-            mxdiff = np.diff(isample).max()
+
+            mxdiff: None | float = None
+            for step in np.diff(isample):
+                if step in _sample_rates:
+                    if (
+                        mxdiff is not None
+                        and step != mxdiff
+                    ):
+                        raise ValueError(
+                            f'Multiple step sizes detected? {mxdiff}, {step}'
+                        )
+                    mxdiff = step
+
             self._index_step = max(mxdiff, 1)
             if (
                 mxdiff < 1
                 or 1 < mxdiff < 60
             ):
+                # TODO: remove this once we're sure the above scan loop
+                # is rock solid.
                 breakpoint()
 
         return self._index_step
