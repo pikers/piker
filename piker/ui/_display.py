@@ -1049,6 +1049,10 @@ async def display_symbol_data(
             group_key=True
         )
 
+    # (TODO: make this not so shit XD)
+    # close group status once a symbol feed fully loads to view.
+    # sbar._status_groups[loading_sym_key][1]()
+
     # TODO: ctl over update loop's maximum frequency.
     # - load this from a config.toml!
     # - allow dyanmic configuration from chart UI?
@@ -1131,6 +1135,8 @@ async def display_symbol_data(
         # and sub-charts for FSPs
         fqsn, flume = fitems[0]
 
+        # TODO NOTE: THIS CONTROLS WHAT SYMBOL IS USED FOR ORDER MODE
+        # SUBMISSIONS, we need to make this switch based on selection.
         rt_linked._symbol = flume.symbol
         hist_linked._symbol = flume.symbol
 
@@ -1221,9 +1227,6 @@ async def display_symbol_data(
                 # get a new color from the palette
                 bg_chart_color, bg_last_bar_color = next(palette)
 
-                rt_linked._symbol = flume.symbol
-                hist_linked._symbol = flume.symbol
-
                 ohlcv: ShmArray = flume.rt_shm
                 hist_ohlcv: ShmArray = flume.hist_shm
 
@@ -1234,8 +1237,13 @@ async def display_symbol_data(
                     name=fqsn,
                     axis_title=fqsn,
                 )
-                hist_pi.hideAxis('left')
+                # only show a singleton bottom-bottom axis by default.
                 hist_pi.hideAxis('bottom')
+
+                # XXX: TODO: THIS WILL CAUSE A GAP ON OVERLAYS,
+                # i think it needs to be "removed" instead when there
+                # are none?
+                hist_pi.hideAxis('left')
 
                 viz = hist_chart.draw_curve(
                     fqsn,
@@ -1313,36 +1321,14 @@ async def display_symbol_data(
 
             # XXX: if we wanted it at the bottom?
             # rt_linked.splitter.addWidget(hist_linked)
-            rt_linked.focus()
 
-            godwidget.resize_all()
-
-            # add all additional symbols as overlays
+            # greedily do a view range default and pane resizing
+            # on startup  before loading the order-mode machinery.
             for fqsn, flume in feed.flumes.items():
 
                 # size view to data prior to order mode init
                 rt_chart.default_view()
                 rt_linked.graphics_cycle()
-                await trio.sleep(0)
-
-                hist_chart.default_view(
-                    bars_from_y=int(len(hist_ohlcv.array)),  # size to data
-                    y_offset=6116*2,  # push it a little away from the y-axis
-                )
-                hist_linked.graphics_cycle()
-                await trio.sleep(0)
-
-                godwidget.resize_all()
-
-                # trigger another view reset if no sub-chart
-                hist_chart.default_view()
-                rt_chart.default_view()
-                # let qt run to render all widgets and make sure the
-                # sidepanes line up vertically.
-                await trio.sleep(0)
-
-                # dynamic resize steps
-                godwidget.resize_all()
 
                 # TODO: look into this because not sure why it was
                 # commented out / we ever needed it XD
@@ -1352,21 +1338,11 @@ async def display_symbol_data(
                 # determine if auto-range adjustements should be made.
                 # rt_linked.subplots.pop('volume', None)
 
-                # TODO: make this not so shit XD
-                # close group status
-                # sbar._status_groups[loading_sym_key][1]()
-
+                hist_chart.default_view()
                 hist_linked.graphics_cycle()
-                rt_chart.default_view()
-                await trio.sleep(0)
 
-                bars_in_mem = int(len(hist_ohlcv.array))
-                hist_chart.default_view(
-                    bars_from_y=bars_in_mem,  # size to data
-                    # push it 1/16th away from the y-axis
-                    y_offset=round(bars_in_mem / 16),
-                )
                 godwidget.resize_all()
+                await trio.sleep(0)
 
             await link_views_with_region(
                 rt_chart,
@@ -1374,7 +1350,7 @@ async def display_symbol_data(
                 flume,
             )
 
-            # start graphics update loop after receiving first live quote
+            # start update loop task
             ln.start_soon(
                 graphics_update_loop,
                 ln,
@@ -1385,20 +1361,31 @@ async def display_symbol_data(
                 vlm_charts,
             )
 
+            # boot order-mode
+            order_ctl_symbol: str = fqsns[0]
             mode: OrderMode
             async with (
                 open_order_mode(
                     feed,
                     godwidget,
-                    fqsns[-1],
+                    fqsns[0],
                     order_mode_started
                 ) as mode
             ):
+
                 rt_linked.mode = mode
 
+                viz = rt_chart.get_viz(order_ctl_symbol)
+                viz.plot.setFocus()
+
+                # default view adjuments and sidepane alignment
+                # as final default UX touch.
                 rt_chart.default_view()
                 rt_chart.view.enable_auto_yrange()
+
                 hist_chart.default_view()
                 hist_chart.view.enable_auto_yrange()
+
+                godwidget.resize_all()
 
                 await trio.sleep_forever()  # let the app run.. bby
