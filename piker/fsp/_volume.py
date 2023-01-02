@@ -234,7 +234,7 @@ async def flow_rates(
     # FSPs, user input, and possibly any general event stream in
     # real-time. Hint: ideally implemented with caching until mutated
     # ;)
-    period: 'Param[int]' = 6,  # noqa
+    period: 'Param[int]' = 1,  # noqa
 
     # TODO: support other means by providing a map
     # to weights `partial()`-ed with `wma()`?
