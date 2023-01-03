@@ -1223,6 +1223,9 @@ async def display_symbol_data(
             #         add_label=False,
             #     )
 
+            godwidget.resize_all()
+            await trio.sleep(0)
+
             for fqsn, flume in fitems[1:]:
                 # get a new color from the palette
                 bg_chart_color, bg_last_bar_color = next(palette)
@@ -1382,9 +1385,11 @@ async def display_symbol_data(
                 # as final default UX touch.
                 rt_chart.default_view()
                 rt_chart.view.enable_auto_yrange()
+                await trio.sleep(0)
 
                 hist_chart.default_view()
                 hist_chart.view.enable_auto_yrange()
+                await trio.sleep(0)
 
                 godwidget.resize_all()
 
