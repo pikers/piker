@@ -74,9 +74,7 @@ from ._source import (
 )
 from ..ui import _search
 from ._sampling import (
-    sampler,
-    broadcast,
-    increment_ohlc_buffer,
+    Sampler,
     sample_and_broadcast,
     uniform_rate_send,
     _default_delay_s,
@@ -327,8 +325,7 @@ async def start_backfill(
         # TODO: *** THIS IS A BUG ***
         # we need to only broadcast to subscribers for this fqsn..
         # otherwise all fsps get reset on every chart..
-        for delay_s in sampler.subscribers:
-            await broadcast(delay_s)
+        await Sampler.broadcast_all()
 
         # signal that backfilling to tsdb's end datum is complete
         bf_done = trio.Event()
@@ -496,8 +493,7 @@ async def start_backfill(
         # in the block above to avoid entering new ``frames``
         # values while we're pipelining the current ones to
         # memory...
-        for delay_s in sampler.subscribers:
-            await broadcast(delay_s)
+        await Sampler.broadcast_all()
 
         # short-circuit (for now)
         bf_done.set()
@@ -738,8 +734,7 @@ async def tsdb_backfill(
                 #   (usually a chart showing graphics for said fsp)
                 #   which tells the chart to conduct a manual full
                 #   graphics loop cycle.
-                for delay_s in sampler.subscribers:
-                    await broadcast(delay_s)
+                await Sampler.broadcast_all()
 
                 # TODO: write new data to tsdb to be ready to for next read.
 
@@ -1037,7 +1032,7 @@ async def allocate_persistent_feed(
 
     # insert 1s ohlc into the increment buffer set
     # to update and shift every second
-    sampler.ohlcv_shms.setdefault(
+    Sampler.ohlcv_shms.setdefault(
         1,
         []
     ).append(rt_shm)
@@ -1053,13 +1048,13 @@ async def allocate_persistent_feed(
 
     # insert 1m ohlc into the increment buffer set
     # to shift every 60s.
-    sampler.ohlcv_shms.setdefault(60, []).append(hist_shm)
+    Sampler.ohlcv_shms.setdefault(60, []).append(hist_shm)
 
     # create buffer a single incrementer task broker backend
     # (aka `brokerd`) using the lowest sampler period.
-    if sampler.incrementers.get(_default_delay_s) is None:
+    if Sampler.incrementers.get(_default_delay_s) is None:
         await bus.start_task(
-            increment_ohlc_buffer,
+            Sampler.increment_ohlc_buffer,
             _default_delay_s,
         )
 
