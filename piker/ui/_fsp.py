@@ -761,7 +761,7 @@ async def open_vlm_displays(
 
                 {  # fsp engine conf
                     'func_name': 'dolla_vlm',
-                    'zero_on_step': False,
+                    'zero_on_step': True,
                     'params': {
                         'price_func': {
                             'default_value': 'chl3',
