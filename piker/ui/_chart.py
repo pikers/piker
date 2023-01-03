@@ -991,7 +991,8 @@ class ChartPlotWidget(pg.PlotWidget):
         r_axis_x = ryaxis.pos().x()
         up_to_l1_sc = r_axis_x - l1_len
         marker_right = up_to_l1_sc - (1.375 * 2 * marker_size)
-        line_end = marker_right - (6/16 * marker_size)
+        # line_end = marker_right - (6/16 * marker_size)
+        line_end = marker_right - marker_size
 
         # print(
         #     f'r_axis_x: {r_axis_x}\n'
