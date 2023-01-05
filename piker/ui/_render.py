@@ -24,7 +24,6 @@ for fast incremental update.
 '''
 from __future__ import annotations
 from typing import (
-    Optional,
     TYPE_CHECKING,
 )
 
@@ -60,17 +59,6 @@ class Renderer(msgspec.Struct):
     # processed in ``QGraphicsObject.paint()``
     path: QPainterPath | None = None
     fast_path: QPainterPath | None = None
-
-    # XXX: just ideas..
-    # called on the final data (transform) output to convert
-    # to "graphical data form" a format that can be passed to
-    # the ``.draw()`` implementation.
-    # graphics_t: Optional[Callable[ShmArray, np.ndarray]] = None
-    # graphics_t_shm: Optional[ShmArray] = None
-
-    # path graphics update implementation methods
-    # prepend_fn: Optional[Callable[QPainterPath, QPainterPath]] = None
-    # append_fn: Optional[Callable[QPainterPath, QPainterPath]] = None
 
     # downsampling state
     _last_uppx: float = 0
@@ -218,7 +206,7 @@ class Renderer(msgspec.Struct):
         ):
             # print(f"{self.viz.name} -> REDRAWING BRUH")
             if new_sample_rate and showing_src_data:
-                log.info(f'DEDOWN -> {array_key}')
+                log.info(f'DE-downsampling -> {array_key}')
                 self._in_ds = False
 
             elif should_ds and uppx > 1:
@@ -269,10 +257,7 @@ class Renderer(msgspec.Struct):
             append_length > 0
             and do_append
         ):
-            print(f'{array_key} append len: {append_length}')
-            # new_x = x_1d[-append_length - 2:]  # slice_to_head]
-            # new_y = y_1d[-append_length - 2:]  # slice_to_head]
-            profiler('sliced append path')
+            profiler(f'sliced append path {append_length}')
             # (
             #     x_1d,
             #     y_1d,
@@ -300,22 +285,23 @@ class Renderer(msgspec.Struct):
             profiler('generated append qpath')
 
             if use_fpath:
-                # print(f'{self.viz.name}: FAST PATH')
                 # an attempt at trying to make append-updates faster..
                 if fast_path is None:
                     fast_path = append_path
                     # fast_path.reserve(int(6e3))
                 else:
+                    # print(
+                    #     f'{self.viz.name}: FAST PATH\n'
+                    #     f"append_path br: {append_path.boundingRect()}\n"
+                    #     f"path size: {size}\n"
+                    #     f"append_path len: {append_path.length()}\n"
+                    #     f"fast_path len: {fast_path.length()}\n"
+                    # )
+
                     fast_path.connectPath(append_path)
                     size = fast_path.capacity()
                     profiler(f'connected fast path w size: {size}')
 
-                    print(
-                        f"append_path br: {append_path.boundingRect()}\n"
-                        f"path size: {size}\n"
-                        f"append_path len: {append_path.length()}\n"
-                        f"fast_path len: {fast_path.length()}\n"
-                    )
                     # graphics.path.moveTo(new_x[0], new_y[0])
                     # path.connectPath(append_path)
 
