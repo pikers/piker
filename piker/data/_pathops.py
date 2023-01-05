@@ -17,6 +17,11 @@
 Super fast ``QPainterPath`` generation related operator routines.
 
 """
+from math import (
+    ceil,
+    floor,
+)
+
 import numpy as np
 from numpy.lib import recfunctions as rfn
 from numba import (
@@ -308,22 +313,32 @@ def slice_from_time(
     )
 
     times = arr['time']
-    t_first = round(times[0])
+    t_first = floor(times[0])
+    t_last = ceil(times[-1])
 
+    # the greatest index we can return which slices to the
+    # end of the input array.
     read_i_max = arr.shape[0]
 
+    # TODO: require this is always passed in?
     if step is None:
-        step = round(times[-1] - times[-2])
+        step = round(t_last - times[-2])
         if step == 0:
-            # XXX: HOW TF is this happening?
             step = 1
 
     # compute (presumed) uniform-time-step index offsets
-    i_start_t = round(start_t)
-    read_i_start = round(((i_start_t - t_first) // step)) - 1
+    i_start_t = floor(start_t)
+    read_i_start = floor(((i_start_t - t_first) // step)) - 1
 
-    i_stop_t = round(stop_t)
-    read_i_stop = round((i_stop_t - t_first) // step) + 1
+    i_stop_t = ceil(stop_t)
+
+    # XXX: edge case -> always set stop index to last in array whenever
+    # the input stop time is detected to be greater then the equiv time
+    # stamp at that last entry.
+    if i_stop_t >= t_last:
+        read_i_stop = read_i_max
+    else:
+        read_i_stop = ceil((i_stop_t - t_first) // step) + 1
 
     # always clip outputs to array support
     # for read start:
@@ -367,7 +382,7 @@ def slice_from_time(
         #   up_to_arith_start = index[:read_i_start]
 
         if (
-            new_read_i_start < read_i_start
+            new_read_i_start <= read_i_start
         ):
             # t_diff = t_iv_start - start_t
             # print(
@@ -391,14 +406,15 @@ def slice_from_time(
         # )
         new_read_i_stop = np.searchsorted(
             times[read_i_start:],
+            # times,
             i_stop_t,
             side='left',
         )
 
         if (
-            new_read_i_stop < read_i_stop
+            new_read_i_stop <= read_i_stop
         ):
-            read_i_stop = read_i_start + new_read_i_stop
+            read_i_stop = read_i_start + new_read_i_stop + 1
 
     # sanity checks for range size
     # samples = (i_stop_t - i_start_t) // step
