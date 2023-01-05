@@ -198,12 +198,11 @@ class ContentsLabel(pg.LabelItem):
         self,
 
         name: str,
-        index: int,
+        ix: int,
         array: np.ndarray,
 
     ) -> None:
         # this being "html" is the dumbest shit :eyeroll:
-        first = array[0]['index']
 
         self.setText(
             "<b>i</b>:{index}<br/>"
@@ -216,7 +215,7 @@ class ContentsLabel(pg.LabelItem):
             "<b>C</b>:{}<br/>"
             "<b>V</b>:{}<br/>"
             "<b>wap</b>:{}".format(
-                *array[index - first][
+                *array[ix][
                     [
                         'time',
                         'open',
@@ -228,7 +227,7 @@ class ContentsLabel(pg.LabelItem):
                     ]
                 ],
                 name=name,
-                index=index,
+                index=ix,
             )
         )
 
@@ -236,15 +235,12 @@ class ContentsLabel(pg.LabelItem):
         self,
 
         name: str,
-        index: int,
+        ix: int,
         array: np.ndarray,
 
     ) -> None:
-
-        first = array[0]['index']
-        if index < array[-1]['index'] and index > first:
-            data = array[index - first][name]
-            self.setText(f"{name}: {data:.2f}")
+        data = array[ix][name]
+        self.setText(f"{name}: {data:.2f}")
 
 
 class ContentsLabels:
@@ -269,17 +265,20 @@ class ContentsLabels:
 
     def update_labels(
         self,
-        index: int,
+        x_in: int,
 
     ) -> None:
         for chart, name, label, update in self._labels:
 
             viz = chart.get_viz(name)
             array = viz.shm.array
+            index = array[viz.index_field]
+            start = index[0]
+            stop = index[-1]
 
             if not (
-                index >= 0
-                and index < array[-1]['index']
+                x_in >= start
+                and x_in <= stop
             ):
                 # out of range
                 print('WTF out of range?')
@@ -288,7 +287,10 @@ class ContentsLabels:
             # call provided update func with data point
             try:
                 label.show()
-                update(index, array)
+                ix = np.searchsorted(index, x_in)
+                if ix > len(array):
+                    breakpoint()
+                update(ix, array)
 
             except IndexError:
                 log.exception(f"Failed to update label: {name}")
