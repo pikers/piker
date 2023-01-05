@@ -94,21 +94,6 @@ async def open_history_client(
         yield get_ohlc, {'erlangs': 3, 'rate': 3}
 
 
-async def backfill_bars(
-    symbol: str,
-    shm: ShmArray,  # type: ignore # noqa
-    task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
-) -> None:
-    """Fill historical bars into shared mem / storage afap.
-    """
-    instrument = symbol
-    with trio.CancelScope() as cs:
-        async with open_cached_client('deribit') as client:
-            bars = await client.bars(instrument)
-            shm.push(bars)
-            task_status.started(cs)
-
-
 async def stream_quotes(
 
     send_chan: trio.abc.SendChannel,
