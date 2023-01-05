@@ -179,8 +179,6 @@ class IncrementalFormatter(msgspec.Struct):
             # set us in a zero-to-append state
             nd_stop = self.xy_nd_stop = src_stop
 
-            align_index = array[self.index_field]
-
         # compute the length diffs between the first/last index entry in
         # the input data and the last indexes we have on record from the
         # last time we updated the curve index.
@@ -375,11 +373,6 @@ class IncrementalFormatter(msgspec.Struct):
         # update the last "in view data range"
         if len(x_1d):
             self._last_ivdr = x_1d[0], x_1d[-1]
-            if (
-                self.index_field == 'time'
-                and (x_1d[-1] == 0.5).any()
-            ):
-                breakpoint()
 
         profiler('.format_to_1d()')
 
@@ -502,14 +495,22 @@ class IncrementalFormatter(msgspec.Struct):
         # NOTE: we don't include the very last datum which is filled in
         # normally by another graphics object.
         x_1d = array[self.index_field][:-1]
-        if (
-            self.index_field == 'time'
-            and x_1d.any()
-            and (x_1d[-1] == 0.5).any()
-        ):
-            breakpoint()
-
         y_1d = array[array_key][:-1]
+
+        # name = self.viz.name
+        # if 'trade_rate' == name:
+        #     s = 4
+        #     x_nd = list(self.x_nd[self.xy_slice][-s:-1])
+        #     y_nd = list(self.y_nd[self.xy_slice][-s:-1])
+        #     print(
+        #         f'{name}:\n'
+        #         f'XY data:\n'
+        #         f'x: {x_nd}\n'
+        #         f'y: {y_nd}\n\n'
+        #         f'x_1d: {list(x_1d[-s:])}\n'
+        #         f'y_1d: {list(y_1d[-s:])}\n\n'
+
+        #     )
         return (
             x_1d,
             y_1d,
@@ -822,13 +823,6 @@ class StepCurveFmtr(IncrementalFormatter):
         # flatten to 1d
         x_1d = x_step_iv.reshape(x_step_iv.size)
         y_1d = y_step_iv.reshape(y_step_iv.size)
-
-        if (
-            self.index_field == 'time'
-            and x_1d.any()
-            and (x_1d == 0.5).any()
-        ):
-            breakpoint()
 
         # debugging
         # if y_1d.any():
