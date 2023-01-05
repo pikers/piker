@@ -414,7 +414,9 @@ async def start_backfill(
                 and starts[next_start_dt] <= 6
             ):
                 start_dt = min(starts)
-                print(f"SKIPPING DUPLICATE FRAME @ {next_start_dt}")
+                log.warning(
+                    f"{bfqsn}: skipping duplicate frame @ {next_start_dt}"
+                )
                 starts[start_dt] += 1
                 continue
 
@@ -616,10 +618,7 @@ async def tsdb_backfill(
 
     # unblock the feed bus management task
     # assert len(shms[1].array)
-    task_status.started((
-        shms[60],
-        shms[1],
-    ))
+    task_status.started()
 
     async def back_load_from_tsdb(
         timeframe: int,
@@ -868,10 +867,7 @@ async def manage_history(
                 marketstore.open_storage_client(fqsn)as storage,
             ):
                 # TODO: drop returning the output that we pass in?
-                (
-                    hist_shm,
-                    rt_shm,
-                ) = await bus.nursery.start(
+                await bus.nursery.start(
                     tsdb_backfill,
                     mod,
                     marketstore,
