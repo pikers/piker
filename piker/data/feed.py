@@ -126,7 +126,7 @@ class _FeedsBus(Struct):
         target: Awaitable,
         *args,
 
-    ) -> None:
+    ) -> trio.CancelScope:
 
         async def start_with_cs(
             task_status: TaskStatus[
@@ -307,6 +307,11 @@ async def start_backfill(
             pendulum.from_timestamp(times[-1])
             - pendulum.from_timestamp(times[-2])
         ).seconds
+
+        if step_size_s == 60:
+            inow = round(time.time())
+            if (inow - times[-1]) > 60:
+                await tractor.breakpoint()
 
         # frame's worth of sample-period-steps, in seconds
         frame_size_s = len(array) * step_size_s
