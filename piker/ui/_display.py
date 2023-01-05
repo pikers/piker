@@ -41,7 +41,10 @@ from ..data.types import Struct
 from ..data._sharedmem import (
     ShmArray,
 )
-from ..data._sampling import _tick_groups
+from ..data._sampling import (
+    _tick_groups,
+    open_sample_stream,
+)
 from ._axes import YAxisLabel
 from ._chart import (
     ChartPlotWidget,
@@ -188,7 +191,7 @@ async def increment_history_view(
     #   wakeups/ctx switches verus logic checks (as normal)
     # - we need increment logic that only does the view shift
     #   call when the uppx permits/needs it
-    async with hist_viz.flume.index_stream(int(1)) as istream:
+    async with open_sample_stream(1.) as istream:
         async for msg in istream:
 
             # l3 = ds.viz.shm.array[-3:]
