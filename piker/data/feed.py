@@ -829,13 +829,19 @@ async def manage_history(
 
     # register 1s and 1m buffers with the global incrementer task
     async with open_sample_stream(
-        period_s=1,
-        cache_key=fqsn,
+        period_s=1.,
         shms_by_period={
             1.: rt_shm.token,
             60.: hist_shm.token,
         },
+
+        # NOTE: we want to only open a stream for doing broadcasts on
+        # backfill operations, not receive the sample index-stream
+        # (since there's no code in this data feed layer that needs to
+        # consume it).
         open_index_stream=True,
+        sub_for_broadcasts=False,
+
     ) as sample_stream:
 
         log.info('Scanning for existing `marketstored`')
