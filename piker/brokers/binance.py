@@ -41,10 +41,15 @@ from ._util import (
     SymbolNotFound,
     DataUnavailable,
 )
-from ..log import get_logger, get_console_log
-from ..data import ShmArray
+from ..log import (
+    get_logger,
+    get_console_log,
+)
 from ..data.types import Struct
-from ..data._web_bs import open_autorecon_ws, NoBsWs
+from ..data._web_bs import (
+    open_autorecon_ws,
+    NoBsWs,
+)
 
 log = get_logger(__name__)
 
@@ -142,7 +147,9 @@ class OHLC(Struct):
 
 
 # convert datetime obj timestamp to unixtime in milliseconds
-def binance_timestamp(when):
+def binance_timestamp(
+    when: datetime
+) -> int:
     return int((when.timestamp() * 1000) + (when.microsecond / 1000))
 
 
@@ -238,7 +245,7 @@ class Client:
     ) -> dict:
 
         if end_dt is None:
-            end_dt = pendulum.now('UTC')
+            end_dt = pendulum.now('UTC').add(minutes=1)
 
         if start_dt is None:
             start_dt = end_dt.start_of(
@@ -396,8 +403,8 @@ async def open_history_client(
 
         async def get_ohlc(
             timeframe: float,
-            end_dt: Optional[datetime] = None,
-            start_dt: Optional[datetime] = None,
+            end_dt: datetime | None = None,
+            start_dt: datetime | None = None,
 
         ) -> tuple[
             np.ndarray,
@@ -412,25 +419,20 @@ async def open_history_client(
                 start_dt=start_dt,
                 end_dt=end_dt,
             )
-            start_dt = pendulum.from_timestamp(array[0]['time'])
-            end_dt = pendulum.from_timestamp(array[-1]['time'])
+            times = array['time']
+            if (
+                end_dt is None
+            ):
+                inow = round(time.time())
+                if (inow - times[-1]) > 60:
+                    await tractor.breakpoint()
+
+            start_dt = pendulum.from_timestamp(times[0])
+            end_dt = pendulum.from_timestamp(times[-1])
+
             return array, start_dt, end_dt
 
         yield get_ohlc, {'erlangs': 3, 'rate': 3}
-
-
-async def backfill_bars(
-    sym: str,
-    shm: ShmArray,  # type: ignore # noqa
-    task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
-) -> None:
-    """Fill historical bars into shared mem / storage afap.
-    """
-    with trio.CancelScope() as cs:
-        async with open_cached_client('binance') as client:
-            bars = await client.bars(symbol=sym)
-            shm.push(bars)
-            task_status.started(cs)
 
 
 async def stream_quotes(
