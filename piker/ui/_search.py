@@ -624,10 +624,10 @@ class SearchWidget(QtWidgets.QWidget):
         godw = self.godwidget
 
         # first entry in the cache is the current symbol(s)
-        fqsns = []
-
+        fqsns = set()
         for multi_fqsns in list(godw._chart_cache):
-            fqsns.extend(list(multi_fqsns))
+            for fqsn in set(multi_fqsns):
+                fqsns.add(fqsn)
 
         self.view.set_section_entries(
             'cache',
