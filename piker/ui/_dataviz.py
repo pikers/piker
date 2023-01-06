@@ -19,6 +19,10 @@ Data vizualization APIs
 
 '''
 from __future__ import annotations
+from math import (
+    ceil,
+    floor,
+)
 from typing import (
     Optional,
     Literal,
@@ -456,13 +460,13 @@ class Viz(msgspec.Struct):  # , frozen=True):
             array = self.shm.array
 
         index = array[index_field]
-        first = round(index[0])
-        last = round(index[-1])
+        first = floor(index[0])
+        last = ceil(index[-1])
 
         # first and last datums in view determined by
         # l / r view range.
-        leftmost = round(l)
-        rightmost = round(r)
+        leftmost = floor(l)
+        rightmost = ceil(r)
 
         # invalid view state
         if (
