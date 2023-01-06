@@ -127,7 +127,10 @@ class GodWidget(QWidget):
         # self.init_strategy_ui()
         # self.vbox.addLayout(self.hbox)
 
-        self._chart_cache: dict[str, LinkedSplits] = {}
+        self._chart_cache: dict[
+            str,
+            tuple[LinkedSplits, LinkedSplits],
+        ] = {}
 
         self.hist_linked: Optional[LinkedSplits] = None
         self.rt_linked: Optional[LinkedSplits] = None
@@ -146,23 +149,6 @@ class GodWidget(QWidget):
     @property
     def linkedsplits(self) -> LinkedSplits:
         return self.rt_linked
-
-    # def init_timeframes_ui(self):
-    #     self.tf_layout = QHBoxLayout()
-    #     self.tf_layout.setSpacing(0)
-    #     self.tf_layout.setContentsMargins(0, 12, 0, 0)
-    #     time_frames = ('1M', '5M', '15M', '30M', '1H', '1D', '1W', 'MN')
-    #     btn_prefix = 'TF'
-
-    #     for tf in time_frames:
-    #         btn_name = ''.join([btn_prefix, tf])
-    #         btn = QtWidgets.QPushButton(tf)
-    #         # TODO:
-    #         btn.setEnabled(False)
-    #         setattr(self, btn_name, btn)
-    #         self.tf_layout.addWidget(btn)
-
-    #     self.toolbar_layout.addLayout(self.tf_layout)
 
     # XXX: strat loader/saver that we don't need yet.
     # def init_strategy_ui(self):
