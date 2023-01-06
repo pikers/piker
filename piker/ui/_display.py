@@ -463,7 +463,7 @@ def graphics_update_cycle(
     #   state-tracking ``chart_maxmin()`` routine from above?
 
     chart = ds.chart
-    hist_chart = ds.godwidget.hist_linked.chart
+    hist_chart = ds.hist_chart
 
     flume = ds.flume
     sym = flume.symbol
