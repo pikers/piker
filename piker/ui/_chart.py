@@ -916,7 +916,7 @@ class ChartPlotWidget(pg.PlotWidget):
         try:
             for feed in self._feeds.values():
                 for flume in feed.flumes.values():
-                    self.linked.godwidget._root_n.start_soon(flume.resume)
+                    self.linked.godwidget._root_n.start_soon(feed.resume)
         except RuntimeError:
             # TODO: cancel the qtractor runtime here?
             raise
@@ -924,7 +924,7 @@ class ChartPlotWidget(pg.PlotWidget):
     def pause_all_feeds(self):
         for feed in self._feeds.values():
             for flume in feed.flumes.values():
-                self.linked.godwidget._root_n.start_soon(flume.pause)
+                self.linked.godwidget._root_n.start_soon(feed.pause)
 
     @property
     def view(self) -> ChartView:
