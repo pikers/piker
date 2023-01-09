@@ -29,8 +29,8 @@ from ..log import get_console_log, get_logger, colorize_json
 from ..brokers import get_brokermod
 from .._daemon import (
     _tractor_kwargs,
-    _registry_host,
-    _registry_port,
+    _default_registry_host,
+    _default_registry_port,
 )
 from .. import config
 
@@ -76,8 +76,8 @@ def pikerd(
     reg_addr: None | tuple[str, int] = None
     if host or port:
         reg_addr = (
-            host or _registry_host,
-            int(port) or _registry_port,
+            host or _default_registry_host,
+            int(port) or _default_registry_port,
         )
 
     async def main():
@@ -154,8 +154,8 @@ def cli(
     reg_addr: None | tuple[str, int] = None
     if host or port:
         reg_addr = (
-            host or _registry_host,
-            int(port) or _registry_port,
+            host or _default_registry_host,
+            int(port) or _default_registry_port,
         )
 
     ctx.obj.update({
