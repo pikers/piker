@@ -4,15 +4,15 @@ Data feed layer APIs, performance, msg throttling.
 '''
 from collections import Counter
 from pprint import pprint
+from typing import AsyncContextManager
 
 import pytest
 # import tractor
 import trio
-from piker import (
-    open_piker_runtime,
+from piker.data import (
+    ShmArray,
     open_feed,
 )
-from piker.data import ShmArray
 from piker.data._source import (
     unpack_fqsn,
 )
@@ -22,25 +22,33 @@ from piker.data._source import (
     'fqsns',
     [
         # binance
-        (100, {'btcusdt.binance', 'ethusdt.binance'}),
+        (100, {'btcusdt.binance', 'ethusdt.binance'}, False),
 
         # kraken
-        (20, {'ethusdt.kraken', 'xbtusd.kraken'}),
+        (20, {'ethusdt.kraken', 'xbtusd.kraken'}, True),
 
         # binance + kraken
-        (100, {'btcusdt.binance', 'xbtusd.kraken'}),
+        (100, {'btcusdt.binance', 'xbtusd.kraken'}, False),
     ],
     ids=lambda param: f'quotes={param[0]}@fqsns={param[1]}',
 )
 def test_multi_fqsn_feed(
+    open_test_pikerd: AsyncContextManager,
     fqsns: set[str],
+    ci_env: bool
 ):
     '''
     Start a real-time data feed for provided fqsn and pull
     a few quotes then simply shut down.
 
     '''
-    max_quotes, fqsns = fqsns
+    max_quotes, fqsns, run_in_ci = fqsns
+
+    if (
+        ci_env
+        and not run_in_ci
+    ):
+        pytest.skip('Skipping CI disabled test due to feed restrictions')
 
     brokers = set()
     for fqsn in fqsns:
@@ -49,15 +57,7 @@ def test_multi_fqsn_feed(
 
     async def main():
         async with (
-            open_piker_runtime(
-                'test_basic_rt_feed',
-
-                # XXX tractor BUG: this doesn't translate through to the
-                # ``tractor._state._runtimevars``...
-                # registry_addr=('127.0.0.1', 6666),
-
-                debug_mode=True,
-            ),
+            open_test_pikerd(),
             open_feed(
                 fqsns,
                 loglevel='info',
