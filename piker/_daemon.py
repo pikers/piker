@@ -35,11 +35,11 @@ log = get_logger(__name__)
 
 _root_dname = 'pikerd'
 
-_registry_host: str = '127.0.0.1'
-_registry_port: int = 6116
+_default_registry_host: str = '127.0.0.1'
+_default_registry_port: int = 6116
 _default_reg_addr: tuple[str, int] = (
-    _registry_host,
-    _registry_port,
+    _default_registry_host,
+    _default_registry_port,
 )
 
 # NOTE: this value is set as an actor-global once the first endpoint
@@ -159,7 +159,10 @@ async def open_pikerd(
     global _services
     global _registry_addr
 
-    if _registry_addr is None:
+    if (
+        _registry_addr is None
+        or registry_addr
+    ):
         _registry_addr = registry_addr or _default_reg_addr
 
     # XXX: this may open a root actor as well
@@ -217,7 +220,10 @@ async def open_piker_runtime(
     global _services
     global _registry_addr
 
-    if _registry_addr is None:
+    if (
+        _registry_addr is None
+        or registry_addr
+    ):
         _registry_addr = registry_addr or _default_reg_addr
 
     # XXX: this may open a root actor as well
