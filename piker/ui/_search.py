@@ -144,14 +144,28 @@ class CompleterView(QTreeView):
         self._font_size: int = 0  # pixels
         self._init: bool = False
 
-    async def on_pressed(self, idx: QModelIndex) -> None:
+    async def on_pressed(
+        self,
+        idx: QModelIndex,
+    ) -> None:
         '''
         Mouse pressed on view handler.
 
         '''
         search = self.parent()
-        await search.chart_current_item()
+
+        await search.chart_current_item(
+            clear_to_cache=True,
+        )
+
+        # XXX: this causes Qt to hang and segfault..lovely
+        # self.show_cache_entries(
+        #     only=True,
+        #     keep_current_item_selected=True,
+        # )
+
         search.focus()
+
 
     def set_font_size(self, size: int = 18):
         # print(size)
@@ -288,7 +302,7 @@ class CompleterView(QTreeView):
     def select_first(self) -> QStandardItem:
         '''
         Select the first depth >= 2 entry from the completer tree and
-        return it's item.
+        return its item.
 
         '''
         # ensure we're **not** selecting the first level parent node and
@@ -615,6 +629,8 @@ class SearchWidget(QtWidgets.QWidget):
     def show_cache_entries(
         self,
         only: bool = False,
+        keep_current_item_selected: bool = False,
+
     ) -> None:
         '''
         Clear the search results view and show only cached (aka recently
@@ -629,6 +645,10 @@ class SearchWidget(QtWidgets.QWidget):
             for fqsn in set(multi_fqsns):
                 fqsns.add(fqsn)
 
+        if keep_current_item_selected:
+            sel = self.view.selectionModel()
+            cidx = sel.currentIndex()
+
         self.view.set_section_entries(
             'cache',
             list(fqsns),
@@ -637,7 +657,17 @@ class SearchWidget(QtWidgets.QWidget):
             reverse=True,
         )
 
-    def get_current_item(self) -> Optional[tuple[str, str]]:
+        if (
+            keep_current_item_selected
+            and cidx.isValid()
+        ):
+            # set current selection back to what it was before filling out
+            # the view results.
+            self.view.select_from_idx(cidx)
+        else:
+            self.view.select_first()
+
+    def get_current_item(self) -> tuple[QModelIndex, str, str] | None:
         '''
         Return the current completer tree selection as
         a tuple ``(parent: str, child: str)`` if valid, else ``None``.
@@ -665,7 +695,11 @@ class SearchWidget(QtWidgets.QWidget):
             if provider == 'cache':
                 symbol, _, provider = symbol.rpartition('.')
 
-            return provider, symbol
+            return (
+                cidx,
+                provider,
+                symbol,
+            )
 
         else:
             return None
@@ -686,7 +720,7 @@ class SearchWidget(QtWidgets.QWidget):
         if value is None:
             return None
 
-        provider, symbol = value
+        cidx, provider, symbol = value
         godw = self.godwidget
 
         fqsn = f'{symbol}.{provider}'
@@ -715,7 +749,9 @@ class SearchWidget(QtWidgets.QWidget):
                     godw.rt_linked,
                 )
             )
-            self.show_cache_entries(only=True)
+            self.show_cache_entries(
+                only=True,
+            )
 
         self.bar.focus()
         return fqsn
@@ -956,11 +992,10 @@ async def handle_keyboard_input(
     global _search_active, _search_enabled
 
     # startup
-    bar = searchbar
-    search = searchbar.parent()
-    godwidget = search.godwidget
-    view = bar.view
-    view.set_font_size(bar.dpi_font.px_size)
+    searchw = searchbar.parent()
+    godwidget = searchw.godwidget
+    view = searchbar.view
+    view.set_font_size(searchbar.dpi_font.px_size)
     send, recv = trio.open_memory_channel(616)
 
     async with trio.open_nursery() as n:
@@ -971,13 +1006,13 @@ async def handle_keyboard_input(
         n.start_soon(
             partial(
                 fill_results,
-                search,
+                searchw,
                 recv,
             )
         )
 
-        bar.focus()
-        search.show_cache_entries()
+        searchbar.focus()
+        searchw.show_cache_entries()
         await trio.sleep(0)
 
         async for kbmsg in recv_chan:
@@ -994,16 +1029,24 @@ async def handle_keyboard_input(
                 Qt.Key_Return
             ):
                 _search_enabled = False
-                await search.chart_current_item(clear_to_cache=True)
-                search.show_cache_entries(only=True)
+                await searchw.chart_current_item(clear_to_cache=True)
+
+                # XXX: causes hang and segfault..
+                # searchw.show_cache_entries(
+                #     only=True,
+                #     keep_current_item_selected=True,
+                # )
+
                 view.show_matches()
-                search.focus()
+                searchw.focus()
 
-            elif not ctl and not bar.text():
-
+            elif (
+                not ctl
+                and not searchbar.text()
+            ):
                 # TODO: really should factor this somewhere..bc
                 # we're doin it in another spot as well..
-                search.show_cache_entries(only=True)
+                searchw.show_cache_entries(only=True)
                 continue
 
             # cancel and close
@@ -1012,7 +1055,7 @@ async def handle_keyboard_input(
                 Qt.Key_Space,   # i feel like this is the "native" one
                 Qt.Key_Alt,
             }:
-                bar.unfocus()
+                searchbar.unfocus()
 
                 # kill the search and focus back on main chart
                 if godwidget:
@@ -1020,41 +1063,54 @@ async def handle_keyboard_input(
 
                 continue
 
-            if ctl and key in {
-                Qt.Key_L,
-            }:
+            if (
+                ctl
+                and key in {Qt.Key_L}
+            ):
                 # like url (link) highlight in a web browser
-                bar.focus()
+                searchbar.focus()
 
             # selection navigation controls
-            elif ctl and key in {
-                Qt.Key_D,
-            }:
+            elif (
+                ctl
+                and key in {Qt.Key_D}
+            ):
                 view.next_section(direction='down')
                 _search_enabled = False
 
-            elif ctl and key in {
-                Qt.Key_U,
-            }:
+            elif (
+                ctl
+                and key in {Qt.Key_U}
+            ):
                 view.next_section(direction='up')
                 _search_enabled = False
 
             # selection navigation controls
-            elif (ctl and key in {
+            elif (
+                ctl and (
+                    key in {
+                        Qt.Key_K,
+                        Qt.Key_J,
+                    }
 
-                Qt.Key_K,
-                Qt.Key_J,
-
-            }) or key in {
-
-                Qt.Key_Up,
-                Qt.Key_Down,
-            }:
+                    or key in {
+                        Qt.Key_Up,
+                        Qt.Key_Down,
+                    }
+                )
+            ):
                 _search_enabled = False
-                if key in {Qt.Key_K, Qt.Key_Up}:
+
+                if key in {
+                    Qt.Key_K,
+                    Qt.Key_Up
+                }:
                     item = view.select_previous()
 
-                elif key in {Qt.Key_J, Qt.Key_Down}:
+                elif key in {
+                    Qt.Key_J,
+                    Qt.Key_Down,
+                }:
                     item = view.select_next()
 
                 if item:
@@ -1063,15 +1119,18 @@ async def handle_keyboard_input(
                     # if we're in the cache section and thus the next
                     # selection is a cache item, switch and show it
                     # immediately since it should be very fast.
-                    if parent_item and parent_item.text() == 'cache':
-                        await search.chart_current_item(clear_to_cache=False)
+                    if (
+                        parent_item
+                        and parent_item.text() == 'cache'
+                    ):
+                        await searchw.chart_current_item(clear_to_cache=False)
 
             # ACTUAL SEARCH BLOCK #
             # where we fuzzy complete and fill out sections.
             elif not ctl:
                 # relay to completer task
                 _search_enabled = True
-                send.send_nowait(search.bar.text())
+                send.send_nowait(searchw.bar.text())
                 _search_active.set()
 
 
