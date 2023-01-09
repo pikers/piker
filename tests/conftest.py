@@ -83,6 +83,15 @@ def travis(confdir):
         trio.run(ensure_config)
 
 
+_ci_env: bool = os.environ.get('CI', False)
+
+
+@pytest.fixture(scope='session')
+def ci_env() -> bool:
+    """Detect CI envoirment.
+    """
+    return _ci_env
+
 @pytest.fixture
 def us_symbols():
     return ['TSLA', 'AAPL', 'CGC', 'CRON']
@@ -96,3 +105,4 @@ def tmx_symbols():
 @pytest.fixture
 def cse_symbols():
     return ['TRUL.CN', 'CWEB.CN', 'SNN.CN']
+
