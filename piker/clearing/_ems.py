@@ -172,6 +172,7 @@ async def clear_dark_triggers(
     # TODO:
     # - numba all this!
     # - this stream may eventually contain multiple symbols
+    quote_stream._raise_on_lag = False
     async for quotes in quote_stream:
         # start = time.time()
         for sym, quote in quotes.items():
