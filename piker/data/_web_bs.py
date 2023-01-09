@@ -165,8 +165,8 @@ over a NoBsWs.
 
 
 class JSONRPCResult(Struct):
-    jsonrpc: str = '2.0'
     id: int
+    jsonrpc: str = '2.0'
     result: Optional[dict] = None
     error: Optional[dict] = None
 
