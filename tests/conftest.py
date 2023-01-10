@@ -137,12 +137,16 @@ async def _open_test_pikerd(
         port = random.randint(6e3, 7e3)
         reg_addr = ('127.0.0.1', port)
 
+    # try:
     async with (
         maybe_open_pikerd(
             registry_addr=reg_addr,
             **kwargs,
-        ),
+        ) as pikerd_portal,
     ):
+        # this proc/actor is the pikerd
+        assert pikerd_portal is None
+
         async with tractor.wait_for_actor(
             'pikerd',
             arbiter_sockaddr=reg_addr,
