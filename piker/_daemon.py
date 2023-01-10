@@ -193,7 +193,7 @@ async def open_pikerd(
     debug_mode: bool = False,
     registry_addr: None | tuple[str, int] = None,
 
-) -> None:
+) -> Services:
     '''
     Start a root piker daemon who's lifetime extends indefinitely until
     cancelled.
@@ -229,7 +229,7 @@ async def open_pikerd(
                 Services.service_n = service_nursery
                 Services.debug_mode = debug_mode
                 try:
-                    yield
+                    yield Services
                 finally:
                     # if 'samplerd' in Services.service_tasks:
                     #     await Services.cancel_service('samplerd')
@@ -338,10 +338,11 @@ async def maybe_open_pikerd(
         debug_mode=kwargs.get('debug_mode', False),
         registry_addr=registry_addr,
 
-    ) as _:
+    ) as service_manager:
         # in the case where we're starting up the
         # tractor-piker runtime stack in **this** process
         # we return no portal to self.
+        assert service_manager
         yield None
 
 
@@ -362,16 +363,11 @@ async def find_service(
     service_name: str,
 ) -> Optional[tractor.Portal]:
 
-    global _registry_addr
-    if not _registry_addr:
-        yield None
-        return
-
     log.info(f'Scanning for service `{service_name}`')
     # attach to existing daemon by name if possible
     async with tractor.find_actor(
         service_name,
-        arbiter_sockaddr=_registry_addr,
+        arbiter_sockaddr=_registry_addr or _default_reg_addr,
     ) as maybe_portal:
         yield maybe_portal
 
@@ -384,13 +380,9 @@ async def check_for_service(
     Service daemon "liveness" predicate.
 
     '''
-    global _registry_addr
-    if not _registry_addr:
-        return None
-
     async with tractor.query_actor(
         service_name,
-        arbiter_sockaddr=_registry_addr,
+        arbiter_sockaddr=_registry_addr or _default_reg_addr,
     ) as sockaddr:
         return sockaddr
 
