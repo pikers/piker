@@ -105,6 +105,9 @@ class Pair(Struct, frozen=True):
     isSpotTradingAllowed: bool
     isMarginTradingAllowed: bool
 
+    defaultSelfTradePreventionMode: str
+    allowedSelfTradePreventionModes: list[str]
+
     filters: list[dict[str, Union[str, int, float]]]
     permissions: list[str]
 
