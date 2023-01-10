@@ -28,7 +28,6 @@ import tractor
 from ..log import get_console_log, get_logger, colorize_json
 from ..brokers import get_brokermod
 from .._daemon import (
-    _tractor_kwargs,
     _default_registry_host,
     _default_registry_port,
 )
@@ -176,20 +175,30 @@ def cli(
 
 @cli.command()
 @click.option('--tl', is_flag=True, help='Enable tractor logging')
-@click.argument('names', nargs=-1, required=False)
+@click.argument('ports', nargs=-1, required=False)
 @click.pass_obj
-def services(config, tl, names):
+def services(config, tl, ports):
 
-    from .._daemon import open_piker_runtime
+    from .._daemon import (
+        open_piker_runtime,
+        _default_registry_port,
+        _default_registry_host,
+    )
+
+    host = _default_registry_host
+    if not ports:
+        ports = [_default_registry_port]
 
     async def list_services():
+        nonlocal host
         async with (
             open_piker_runtime(
                 name='service_query',
                 loglevel=config['loglevel'] if tl else None,
             ),
             tractor.get_arbiter(
-                *_tractor_kwargs['arbiter_addr']
+                host=host,
+                port=ports[0]
             ) as portal
         ):
             registry = await portal.run_from_ns('self', 'get_registry')
