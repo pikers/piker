@@ -43,6 +43,14 @@ SizeUnit = Enum(
 class Allocator(Struct):
 
     symbol: Symbol
+
+    # TODO: if we ever want ot support non-uniform entry-slot-proportion
+    # "sizes"
+    # disti_weight: str = 'uniform'
+
+    units_limit: float
+    currency_limit: float
+    slots: int
     account: Optional[str] = 'paper'
 
     _size_units: bidict[str, Optional[str]] = _size_units
@@ -65,14 +73,6 @@ class Allocator(Struct):
         assert v in _size_units
         self._size_unit = v
         return v
-
-    # TODO: if we ever want ot support non-uniform entry-slot-proportion
-    # "sizes"
-    # disti_weight: str = 'uniform'
-
-    units_limit: float
-    currency_limit: float
-    slots: int
 
     def step_sizes(
         self,

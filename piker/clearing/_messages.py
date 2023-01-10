@@ -107,9 +107,9 @@ class Cancel(Struct):
     broker-submitted (live) trigger/order.
 
     '''
-    action: str = 'cancel'
     oid: str  # uuid4
     symbol: str
+    action: str = 'cancel'
 
 
 # --------------
@@ -120,7 +120,6 @@ class Cancel(Struct):
 
 class Status(Struct):
 
-    name: str = 'status'
     time_ns: int
     oid: str  # uuid4 ems-order dialog id
 
@@ -134,6 +133,8 @@ class Status(Struct):
       'canceled',
       'error',
     ]
+
+    name: str = 'status'
 
     # this maps normally to the ``BrokerdOrder.reqid`` below, an id
     # normally allocated internally by the backend broker routing system
@@ -168,7 +169,6 @@ class Status(Struct):
 
 class BrokerdCancel(Struct):
 
-    action: str = 'cancel'
     oid: str  # piker emsd order id
     time_ns: int
 
@@ -180,6 +180,7 @@ class BrokerdCancel(Struct):
     # on the emsd order request stream as the ``BrokerdOrderAck.reqid``
     # field
     reqid: Optional[int | str] = None
+    action: str = 'cancel'
 
 
 class BrokerdOrder(Struct):
@@ -187,6 +188,10 @@ class BrokerdOrder(Struct):
     oid: str
     account: str
     time_ns: int
+
+    symbol: str  # fqsn
+    price: float
+    size: float
 
     # TODO: if we instead rely on a +ve/-ve size to determine
     # the action we more or less don't need this field right?
@@ -199,10 +204,6 @@ class BrokerdOrder(Struct):
     # on the emsd order request stream as the ``BrokerdOrderAck.reqid``
     # field
     reqid: Optional[int | str] = None
-
-    symbol: str  # fqsn
-    price: float
-    size: float
 
 
 # ---------------
@@ -218,7 +219,6 @@ class BrokerdOrderAck(Struct):
     ``.oid`` (which is a uuid4).
 
     '''
-    name: str = 'ack'
 
     # defined and provided by backend
     reqid: int | str
@@ -226,11 +226,11 @@ class BrokerdOrderAck(Struct):
     # emsd id originally sent in matching request msg
     oid: str
     account: str = ''
+    name: str = 'ack'
 
 
 class BrokerdStatus(Struct):
 
-    name: str = 'status'
     reqid: int | str
     time_ns: int
     status: Literal[
@@ -242,6 +242,7 @@ class BrokerdStatus(Struct):
     ]
 
     account: str
+    name: str = 'status'
     filled: float = 0.0
     reason: str = ''
     remaining: float = 0.0
@@ -260,7 +261,11 @@ class BrokerdFill(Struct):
     if avaiable.
 
     '''
-    name: str = 'fill'
+    # brokerd timestamp required for order mode arrow placement on x-axis
+    # TODO: maybe int if we force ns?
+    # we need to normalize this somehow since backends will use their
+    # own format and likely across many disparate epoch clocks...
+    broker_time: float
     reqid: int | str
     time_ns: int
 
@@ -268,15 +273,9 @@ class BrokerdFill(Struct):
     size: float
     price: float
 
+    name: str = 'fill'
     action: Optional[str] = None
     broker_details: dict = {}  # meta-data (eg. commisions etc.)
-
-    # brokerd timestamp required for order mode arrow placement on x-axis
-
-    # TODO: maybe int if we force ns?
-    # we need to normalize this somehow since backends will use their
-    # own format and likely across many disparate epoch clocks...
-    broker_time: float
 
 
 class BrokerdError(Struct):
@@ -286,15 +285,15 @@ class BrokerdError(Struct):
     This is still a TODO thing since we're not sure how to employ it yet.
 
     '''
-    name: str = 'error'
     oid: str
+    symbol: str
+    reason: str
 
     # if no brokerd order request was actually submitted (eg. we errored
     # at the ``pikerd`` layer) then there will be ``reqid`` allocated.
     reqid: Optional[int | str] = None
 
-    symbol: str
-    reason: str
+    name: str = 'error'
     broker_details: dict = {}
 
 
@@ -302,7 +301,6 @@ class BrokerdPosition(Struct):
     '''Position update event from brokerd.
 
     '''
-    name: str = 'position'
 
     broker: str
     account: str
@@ -310,3 +308,4 @@ class BrokerdPosition(Struct):
     size: float
     avg_price: float
     currency: str = ''
+    name: str = 'position'

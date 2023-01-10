@@ -338,6 +338,7 @@ class Flow(msgspec.Struct):  # , frozen=True):
     name: str
     plot: pg.PlotItem
     graphics: Union[Curve, BarItems]
+    _shm: ShmArray
     yrange: tuple[float, float] = None
 
     # in some cases a flow may want to change its
@@ -345,7 +346,6 @@ class Flow(msgspec.Struct):  # , frozen=True):
     # normally this is just a plain line.
     ds_graphics: Optional[Curve] = None
 
-    _shm: ShmArray
 
     is_ohlc: bool = False
     render: bool = True  # toggle for display loop
