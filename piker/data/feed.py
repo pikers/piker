@@ -786,11 +786,14 @@ async def manage_history(
     # from tractor._state import _runtime_vars
     # port = _runtime_vars['_root_mailbox'][1]
 
+    uid = tractor.current_actor().uid
+    suffix = '.'.join(uid)
+
     # (maybe) allocate shm array for this broker/symbol which will
     # be used for fast near-term history capture and processing.
     hist_shm, opened = maybe_open_shm_array(
         # key=f'{fqsn}_hist_p{port}',
-        key=f'{fqsn}_hist',
+        key=f'{fqsn}_hist.{suffix}',
 
         # use any broker defined ohlc dtype:
         dtype=getattr(mod, '_ohlc_dtype', base_iohlc_dtype),
@@ -808,7 +811,7 @@ async def manage_history(
 
     rt_shm, opened = maybe_open_shm_array(
         # key=f'{fqsn}_rt_p{port}',
-        key=f'{fqsn}_rt',
+        key=f'{fqsn}_rt.{suffix}',
 
         # use any broker defined ohlc dtype:
         dtype=getattr(mod, '_ohlc_dtype', base_iohlc_dtype),
