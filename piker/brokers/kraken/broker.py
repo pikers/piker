@@ -534,6 +534,21 @@ async def trades_dialogue(
                         ):
                             return pp
 
+                        elif (
+                            size == 0
+                            and pp.size
+                        ):
+                            log.warning(
+                                f'`kraken` account says you have  a ZERO '
+                                f'balance for {bsuid}:{pair}\n'
+                                f'but piker seems to think `{pp.size}`\n'
+                                'This is likely a discrepancy in piker '
+                                'accounting if the above number is'
+                                "large,' though it's likely to due lack"
+                                "f tracking xfers fees.."
+                            )
+                            return pp
+
                     return False
 
                 pos = has_pp(dst, size)
@@ -590,7 +605,7 @@ async def trades_dialogue(
                                         f'{pformat(updated)}'
                                     )
 
-                        if not has_pp(dst, size):
+                        if has_pp(dst, size):
                             raise ValueError(
                                 'Could not reproduce balance:\n'
                                 f'dst: {dst}, {size}\n'
