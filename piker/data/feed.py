@@ -54,7 +54,10 @@ import numpy as np
 
 from ..brokers import get_brokermod
 from ..calc import humanize
-from ..log import get_logger, get_console_log
+from ..log import (
+    get_logger,
+    get_console_log,
+)
 from .._daemon import (
     maybe_spawn_brokerd,
     check_for_service,
@@ -222,36 +225,6 @@ def get_feed_bus(
 
     assert _bus.brokername == brokername, "Uhhh wtf"
     return _bus
-
-
-@tractor.context
-async def _setup_persistent_brokerd(
-    ctx: tractor.Context,
-    brokername: str,
-
-) -> None:
-    '''
-    Allocate a actor-wide service nursery in ``brokerd``
-    such that feeds can be run in the background persistently by
-    the broker backend as needed.
-
-    '''
-    get_console_log(tractor.current_actor().loglevel)
-
-    global _bus
-    assert not _bus
-
-    async with trio.open_nursery() as service_nursery:
-        # assign a nursery to the feeds bus for spawning
-        # background tasks from clients
-        get_feed_bus(brokername, service_nursery)
-
-        # unblock caller
-        await ctx.started()
-
-        # we pin this task to keep the feeds manager active until the
-        # parent actor decides to tear it down
-        await trio.sleep_forever()
 
 
 def diff_history(
