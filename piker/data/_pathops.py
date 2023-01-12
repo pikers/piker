@@ -63,20 +63,27 @@ def xy_downsample(
     # downsample whenever more then 1 pixels per datum can be shown.
     # always refresh data bounds until we get diffing
     # working properly, see above..
-    bins, x, y, ymn, ymx = ds_m4(
+    m4_out = ds_m4(
         x,
         y,
         uppx,
     )
 
-    # flatten output to 1d arrays suitable for path-graphics generation.
-    x = np.broadcast_to(x[:, None], y.shape)
-    x = (x + np.array(
-        [-x_spacer, 0, 0, x_spacer]
-    )).flatten()
-    y = y.flatten()
+    if m4_out is not None:
+        bins, x, y, ymn, ymx = m4_out
+        # flatten output to 1d arrays suitable for path-graphics generation.
+        x = np.broadcast_to(x[:, None], y.shape)
+        x = (x + np.array(
+            [-x_spacer, 0, 0, x_spacer]
+        )).flatten()
+        y = y.flatten()
 
-    return x, y, ymn, ymx
+        return x, y, ymn, ymx
+
+    # XXX: we accept a None output for the case where the input range
+    # to ``ds_m4()`` is bad (-ve) and we want to catch and debug
+    # that (seemingly super rare) circumstance..
+    return None
 
 
 @njit(
