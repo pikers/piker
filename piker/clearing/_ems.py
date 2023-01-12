@@ -46,6 +46,7 @@ from ..data._normalize import iterticks
 from ..data._source import (
     unpack_fqsn,
     mk_fqsn,
+    float_digits,
 )
 from ..data.feed import (
     Feed,
@@ -1249,6 +1250,7 @@ async def process_client_order_cmds(
 
                 spread_slap: float = 5
                 min_tick = flume.symbol.tick_size
+                min_tick_digits = float_digits(min_tick)
 
                 if action == 'buy':
                     tickfilter = ('ask', 'last', 'trade')
@@ -1257,12 +1259,18 @@ async def process_client_order_cmds(
                     # TODO: we probably need to scale this based
                     # on some near term historical spread
                     # measure?
-                    abs_diff_away = spread_slap * min_tick
+                    abs_diff_away = round(
+                        spread_slap * min_tick,
+                        ndigits=min_tick_digits,
+                    )
 
                 elif action == 'sell':
                     tickfilter = ('bid', 'last', 'trade')
                     percent_away = -0.005
-                    abs_diff_away = -spread_slap * min_tick
+                    abs_diff_away = round(
+                        -spread_slap * min_tick,
+                        ndigits=min_tick_digits,
+                    )
 
                 else:  # alert
                     tickfilter = ('trade', 'utrade', 'last')
