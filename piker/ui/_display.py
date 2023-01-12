@@ -1064,17 +1064,28 @@ async def display_symbol_data(
     display_rate = main_window().current_screen().refreshRate()
     _quote_throttle_rate = floor(display_rate) - 6
 
+    # TODO: we should be able to increase this if we use some
+    # `mypyc` speedups elsewhere? 22ish seems to be the sweet
+    # spot for single-feed chart.
+    num_of_feeds = len(fqsns)
+    mx: int = 22
+    if num_of_feeds > 1:
+        # there will be more ctx switches with more than 1 feed so we
+        # max throttle down a bit more.
+        mx = 16
+
+    # limit to at least display's FPS
+    # avoiding needless Qt-in-guest-mode context switches
+    cycles_per_feed = min(
+        round(_quote_throttle_rate/num_of_feeds),
+        mx,
+    )
+
     feed: Feed
     async with open_feed(
         fqsns,
         loglevel=loglevel,
-
-        # limit to at least display's FPS
-        # avoiding needless Qt-in-guest-mode context switches
-        tick_throttle=min(
-            round(_quote_throttle_rate/len(fqsns)),
-            22,  # aka 6 + 16
-        ),
+        tick_throttle=cycles_per_feed,
 
     ) as feed:
 
