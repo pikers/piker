@@ -91,6 +91,14 @@ def ds_m4(
         x_end = x[-1]  # x end value/highest in domain
         xrange = (x_end - x_start)
 
+    if xrange < 0:
+        log.error(f'-VE M4 X-RANGE: {x_start} -> {x_end}')
+        # XXX: broken x-range calc-case, likely the x-end points
+        # are wrong and have some default value set (such as
+        # x_end -> <some epoch float> while x_start -> 0.5).
+        breakpoint()
+        return None
+
     # XXX: always round up on the input pixels
     # lnx = len(x)
     # uppx *= max(4 / (1 + math.log(uppx, 2)), 1)

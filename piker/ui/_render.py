@@ -211,17 +211,19 @@ class Renderer(msgspec.Struct):
 
             elif should_ds and uppx > 1:
 
-                x_1d, y_1d, ymn, ymx = xy_downsample(
+                ds_out = xy_downsample(
                     x_1d,
                     y_1d,
                     uppx,
                 )
-                self.viz.yrange = ymn, ymx
-                # print(f'{self.viz.name} post ds: ymn, ymx: {ymn},{ymx}')
+                if ds_out is not None:
+                    x_1d, y_1d, ymn, ymx = ds_out
+                    self.viz.yrange = ymn, ymx
+                    # print(f'{self.viz.name} post ds: ymn, ymx: {ymn},{ymx}')
 
-                reset = True
-                profiler(f'FULL PATH downsample redraw={should_ds}')
-                self._in_ds = True
+                    reset = True
+                    profiler(f'FULL PATH downsample redraw={should_ds}')
+                    self._in_ds = True
 
             path = self.draw_path(
                 x=x_1d,
