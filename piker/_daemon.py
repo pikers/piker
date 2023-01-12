@@ -69,7 +69,6 @@ class Registry:
     ] = {}
 
 
-# _registry_addr: None | tuple[str, int] = None
 _tractor_kwargs: dict[str, Any] = {}
 
 
@@ -357,6 +356,7 @@ async def open_pikerd(
         try:
             yield Services
         finally:
+            # TODO: is this more clever/efficient?
             # if 'samplerd' in Services.service_tasks:
             #     await Services.cancel_service('samplerd')
             service_nursery.cancel_scope.cancel()
@@ -368,13 +368,10 @@ async def maybe_open_runtime(
     **kwargs,
 
 ) -> None:
-    """
+    '''
     Start the ``tractor`` runtime (a root actor) if none exists.
 
-    """
-    # settings = get_tractor_runtime_kwargs()
-    # settings.update(kwargs)
-
+    '''
     name = kwargs.pop('name')
 
     if not tractor.current_actor(err_on_no_runtime=False):
@@ -382,8 +379,6 @@ async def maybe_open_runtime(
             name,
             loglevel=loglevel,
             **kwargs,
-            # registry
-            # tractor_kwargs=kwargs,
         ) as (_, addr):
             yield addr,
     else:
@@ -707,25 +702,3 @@ async def maybe_open_emsd(
 
     ) as portal:
         yield portal
-
-
-# TODO: ideally we can start the tsdb "on demand" but it's
-# probably going to require "rootless" docker, at least if we don't
-# want to expect the user to start ``pikerd`` with root perms all the
-# time.
-# async def maybe_open_marketstored(
-#     loglevel: Optional[str] = None,
-#     **kwargs,
-
-# ) -> tractor._portal.Portal:  # noqa
-
-#     async with maybe_spawn_daemon(
-
-#         'marketstored',
-#         service_task_target=spawn_emsd,
-#         spawn_args={'loglevel': loglevel},
-#         loglevel=loglevel,
-#         **kwargs,
-
-#     ) as portal:
-#         yield portal
