@@ -186,10 +186,10 @@ class GodWidget(QWidget):
     ) -> tuple[LinkedSplits, LinkedSplits]:  # type: ignore
         return self._chart_cache.get(symbol_key)
 
-    async def load_symbol(
+    async def load_symbols(
         self,
         providername: str,
-        symbol_key: str,
+        symbol_keys: list[str],
         loglevel: str,
         reset: bool = False,
 
@@ -200,12 +200,20 @@ class GodWidget(QWidget):
         Expects a ``numpy`` structured array containing all the ohlcv fields.
 
         '''
-        # our symbol key style is always lower case
-        symbol_key = symbol_key.lower()
+        fqsns: list[str] = []
 
-        # fully qualified symbol name (SNS i guess is what we're making?)
-        fqsn = '.'.join([symbol_key, providername])
-        all_linked = self.get_chart_symbol(fqsn)
+        # our symbol key style is always lower case
+        for key in list(map(str.lower, symbol_keys)):
+
+            # fully qualified symbol name (SNS i guess is what we're making?)
+            fqsn = '.'.join([key, providername])
+            fqsns.append(fqsn)
+
+        # NOTE: for now we use the first symbol in the set as the "key"
+        # for the overlay of feeds on the chart.
+        group_key = fqsns[0]
+
+        all_linked = self.get_chart_symbol(group_key)
         order_mode_started = trio.Event()
 
         if not self.vbox.isEmpty():
@@ -238,7 +246,7 @@ class GodWidget(QWidget):
                 display_symbol_data,
                 self,
                 providername,
-                symbol_key,
+                fqsns,
                 loglevel,
                 order_mode_started,
             )
@@ -907,14 +915,16 @@ class ChartPlotWidget(pg.PlotWidget):
     def resume_all_feeds(self):
         try:
             for feed in self._feeds.values():
-                self.linked.godwidget._root_n.start_soon(feed.resume)
+                for flume in feed.flumes.values():
+                    self.linked.godwidget._root_n.start_soon(feed.resume)
         except RuntimeError:
             # TODO: cancel the qtractor runtime here?
             raise
 
     def pause_all_feeds(self):
         for feed in self._feeds.values():
-            self.linked.godwidget._root_n.start_soon(feed.pause)
+            for flume in feed.flumes.values():
+                self.linked.godwidget._root_n.start_soon(feed.pause)
 
     @property
     def view(self) -> ChartView:

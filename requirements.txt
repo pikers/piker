@@ -1,7 +1,7 @@
 # we require a pinned dev branch to get some edge features that
 # are often untested in tractor's CI and/or being tested by us
 # first before committing as core features in tractor's base.
--e git+https://github.com/goodboy/tractor.git@master#egg=tractor
+-e git+https://github.com/goodboy/tractor.git@piker_pin#egg=tractor
 
 # `pyqtgraph` peeps keep breaking, fixing, improving so might as well
 # pin this to a dev branch that we have more control over especially

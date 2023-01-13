@@ -33,6 +33,7 @@ import pyqtgraph as pg
 from ..data.feed import (
     open_feed,
     Feed,
+    Flume,
 )
 from ..data.types import Struct
 from ._axes import YAxisLabel
@@ -228,7 +229,7 @@ async def graphics_update_loop(
 
     nurse: trio.Nursery,
     godwidget: GodWidget,
-    feed: Feed,
+    flume: Flume,
     wap_in_history: bool = False,
     vlm_chart: Optional[ChartPlotWidget] = None,
 
@@ -255,8 +256,8 @@ async def graphics_update_loop(
     fast_chart = linked.chart
     hist_chart = godwidget.hist_linked.chart
 
-    ohlcv = feed.rt_shm
-    hist_ohlcv = feed.hist_shm
+    ohlcv = flume.rt_shm
+    hist_ohlcv = flume.hist_shm
 
     # update last price sticky
     last_price_sticky = fast_chart._ysticks[fast_chart.name]
@@ -347,9 +348,9 @@ async def graphics_update_loop(
             'i_last_append': i_last,
             'i_last': i_last,
         }
-        _, hist_step_size_s, _ = feed.get_ds_info()
+        _, hist_step_size_s, _ = flume.get_ds_info()
 
-        async with feed.index_stream(
+        async with flume.index_stream(
             # int(hist_step_size_s)
             # TODO: seems this is more reliable at keeping the slow
             # chart incremented in view more correctly?
@@ -393,7 +394,7 @@ async def graphics_update_loop(
     nurse.start_soon(increment_history_view)
 
     # main real-time quotes update loop
-    stream: tractor.MsgStream = feed.stream
+    stream: tractor.MsgStream = flume.stream
     async for quotes in stream:
 
         ds.quotes = quotes
@@ -813,13 +814,13 @@ def graphics_update_cycle(
 async def link_views_with_region(
     rt_chart: ChartPlotWidget,
     hist_chart: ChartPlotWidget,
-    feed: Feed,
+    flume: Flume,
 
 ) -> None:
 
     # these value are be only pulled once during shm init/startup
-    izero_hist = feed.izero_hist
-    izero_rt = feed.izero_rt
+    izero_hist = flume.izero_hist
+    izero_rt = flume.izero_rt
 
     # Add the LinearRegionItem to the ViewBox, but tell the ViewBox
     # to exclude this item when doing auto-range calculations.
@@ -846,7 +847,7 @@ async def link_views_with_region(
     # poll for datums load and timestep detection
     for _ in range(100):
         try:
-            _, _, ratio = feed.get_ds_info()
+            _, _, ratio = flume.get_ds_info()
             break
         except IndexError:
             await trio.sleep(0.01)
@@ -947,7 +948,7 @@ async def link_views_with_region(
 async def display_symbol_data(
     godwidget: GodWidget,
     provider: str,
-    sym: str,
+    fqsns: list[str],
     loglevel: str,
     order_mode_started: trio.Event,
 
@@ -961,11 +962,6 @@ async def display_symbol_data(
 
     '''
     sbar = godwidget.window.status_bar
-    loading_sym_key = sbar.open_status(
-        f'loading {sym}.{provider} ->',
-        group_key=True
-    )
-
     # historical data fetch
     # brokermod = brokers.get_brokermod(provider)
 
@@ -974,10 +970,17 @@ async def display_symbol_data(
     #     clear_on_next=True,
     #     group_key=loading_sym_key,
     # )
-    fqsn = '.'.join((sym, provider))
 
+    for fqsn in fqsns:
+
+        loading_sym_key = sbar.open_status(
+            f'loading {fqsn} ->',
+            group_key=True
+        )
+
+    feed: Feed
     async with open_feed(
-        [fqsn],
+        fqsns,
         loglevel=loglevel,
 
         # limit to at least display's FPS
@@ -985,11 +988,17 @@ async def display_symbol_data(
         tick_throttle=_quote_throttle_rate,
 
     ) as feed:
-        ohlcv: ShmArray = feed.rt_shm
-        hist_ohlcv: ShmArray = feed.hist_shm
 
-        symbol = feed.symbols[sym]
-        fqsn = symbol.front_fqsn()
+        # TODO: right now we only show one symbol on charts, but
+        # overlays are coming muy pronto guey..
+        assert len(feed.flumes) == 1
+        flume = list(feed.flumes.values())[0]
+
+        ohlcv: ShmArray = flume.rt_shm
+        hist_ohlcv: ShmArray = flume.hist_shm
+
+        symbol = flume.symbol
+        fqsn = symbol.fqsn
 
         step_size_s = 1
         tf_key = tf_in_1s[step_size_s]
@@ -1009,7 +1018,7 @@ async def display_symbol_data(
         hist_linked._symbol = symbol
         hist_chart = hist_linked.plot_ohlc_main(
             symbol,
-            feed.hist_shm,
+            hist_ohlcv,
             # in the case of history chart we explicitly set `False`
             # to avoid internal pane creation.
             # sidepane=False,
@@ -1025,7 +1034,7 @@ async def display_symbol_data(
         godwidget.pp_pane = pp_pane
 
         # create main OHLC chart
-        chart = rt_linked.plot_ohlc_main(
+        ohlc_chart = rt_linked.plot_ohlc_main(
             symbol,
             ohlcv,
             # in the case of history chart we explicitly set `False`
@@ -1033,8 +1042,8 @@ async def display_symbol_data(
             sidepane=pp_pane,
         )
 
-        chart._feeds[symbol.key] = feed
-        chart.setFocus()
+        ohlc_chart._feeds[symbol.key] = feed
+        ohlc_chart.setFocus()
 
         # XXX: FOR SOME REASON THIS IS CAUSING HANGZ!?!
         # plot historical vwap if available
@@ -1044,7 +1053,7 @@ async def display_symbol_data(
         #     and 'bar_wap' in bars.dtype.fields
         # ):
         #     wap_in_history = True
-        #     chart.draw_curve(
+        #     ohlc_chart.draw_curve(
         #         name='bar_wap',
         #         shm=ohlcv,
         #         color='default_light',
@@ -1097,7 +1106,7 @@ async def display_symbol_data(
                 graphics_update_loop,
                 ln,
                 godwidget,
-                feed,
+                flume,
                 wap_in_history,
                 vlm_chart,
             )
@@ -1105,7 +1114,7 @@ async def display_symbol_data(
             await trio.sleep(0)
 
             # size view to data prior to order mode init
-            chart.default_view()
+            ohlc_chart.default_view()
             rt_linked.graphics_cycle()
             await trio.sleep(0)
 
@@ -1119,9 +1128,9 @@ async def display_symbol_data(
             godwidget.resize_all()
 
             await link_views_with_region(
-                chart,
+                ohlc_chart,
                 hist_chart,
-                feed,
+                flume,
             )
 
             mode: OrderMode
@@ -1135,7 +1144,7 @@ async def display_symbol_data(
             ):
                 if not vlm_chart:
                     # trigger another view reset if no sub-chart
-                    chart.default_view()
+                    ohlc_chart.default_view()
 
                 rt_linked.mode = mode
 

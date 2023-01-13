@@ -45,7 +45,10 @@ from ..calc import humanize, pnl, puterize
 from ..clearing._allocate import Allocator
 from ..pp import Position
 from ..data._normalize import iterticks
-from ..data.feed import Feed
+from ..data.feed import (
+    Feed,
+    Flume,
+)
 from ..data.types import Struct
 from ._label import Label
 from ._lines import LevelLine, order_line
@@ -64,7 +67,7 @@ _pnl_tasks: dict[str, bool] = {}
 
 async def update_pnl_from_feed(
 
-    feed: Feed,
+    flume: Flume,
     order_mode: OrderMode,  # noqa
     tracker: PositionTracker,
 
@@ -95,7 +98,7 @@ async def update_pnl_from_feed(
 
     # real-time update pnl on the status pane
     try:
-        async with feed.stream.subscribe() as bstream:
+        async with flume.stream.subscribe() as bstream:
             # last_tick = time.time()
             async for quotes in bstream:
 
@@ -390,12 +393,12 @@ class SettingsPane:
         mode = self.order_mode
         sym = mode.chart.linked.symbol
         size = tracker.live_pp.size
-        feed = mode.quote_feed
+        flume: Feed = mode.feed.flumes[sym.fqsn]
         pnl_value = 0
 
         if size:
             # last historical close price
-            last = feed.rt_shm.array[-1][['close']][0]
+            last = flume.rt_shm.array[-1][['close']][0]
             pnl_value = copysign(1, size) * pnl(
                 tracker.live_pp.ppu,
                 last,
@@ -408,7 +411,7 @@ class SettingsPane:
                 _pnl_tasks[fqsn] = True
                 self.order_mode.nursery.start_soon(
                     update_pnl_from_feed,
-                    feed,
+                    flume,
                     mode,
                     tracker,
                 )

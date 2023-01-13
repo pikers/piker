@@ -19,15 +19,16 @@ Main app startup and run.
 
 '''
 from functools import partial
+from types import ModuleType
 
 from PyQt5.QtCore import QEvent
 import trio
 
 from .._daemon import maybe_spawn_brokerd
-from ..brokers import get_brokermod
 from . import _event
 from ._exec import run_qtractor
 from ..data.feed import install_brokerd_search
+from ..data._source import unpack_fqsn
 from . import _search
 from ._chart import GodWidget
 from ..log import get_logger
@@ -36,27 +37,26 @@ log = get_logger(__name__)
 
 
 async def load_provider_search(
-
-    broker: str,
+    brokermod: str,
     loglevel: str,
 
 ) -> None:
 
-    log.info(f'loading brokerd for {broker}..')
+    name = brokermod.name
+    log.info(f'loading brokerd for {name}..')
 
     async with (
 
         maybe_spawn_brokerd(
-            broker,
+            name,
             loglevel=loglevel
         ) as portal,
 
         install_brokerd_search(
             portal,
-            get_brokermod(broker),
+            brokermod,
         ),
     ):
-
         # keep search engine stream up until cancelled
         await trio.sleep_forever()
 
@@ -66,8 +66,8 @@ async def _async_main(
     # implicit required argument provided by ``qtractor_run()``
     main_widget: GodWidget,
 
-    sym: str,
-    brokernames: str,
+    syms: list[str],
+    brokers: dict[str, ModuleType],
     loglevel: str,
 
 ) -> None:
@@ -99,6 +99,11 @@ async def _async_main(
     sbar = godwidget.window.status_bar
     starting_done = sbar.open_status('starting ze sexy chartz')
 
+    needed_brokermods: dict[str, ModuleType] = {}
+    for fqsn in syms:
+        brokername, *_ = unpack_fqsn(fqsn)
+        needed_brokermods[brokername] = brokers[brokername]
+
     async with (
         trio.open_nursery() as root_n,
     ):
@@ -113,12 +118,16 @@ async def _async_main(
         # godwidget.hbox.addWidget(search)
         godwidget.search = search
 
-        symbol, _, provider = sym.rpartition('.')
+        symbols: list[str] = []
+
+        for sym in syms:
+            symbol, _, provider = sym.rpartition('.')
+            symbols.append(symbol)
 
         # this internally starts a ``display_symbol_data()`` task above
-        order_mode_ready = await godwidget.load_symbol(
+        order_mode_ready = await godwidget.load_symbols(
             provider,
-            symbol,
+            symbols,
             loglevel
         )
 
@@ -136,8 +145,12 @@ async def _async_main(
         ):
             # load other providers into search **after**
             # the chart's select cache
-            for broker in brokernames:
-                root_n.start_soon(load_provider_search, broker, loglevel)
+            for brokername, mod in needed_brokermods.items():
+                root_n.start_soon(
+                    load_provider_search,
+                    mod,
+                    loglevel,
+                )
 
             await order_mode_ready.wait()
 
@@ -166,8 +179,8 @@ async def _async_main(
 
 
 def _main(
-    sym: str,
-    brokernames: [str],
+    syms: list[str],
+    brokermods: list[ModuleType],
     piker_loglevel: str,
     tractor_kwargs,
 ) -> None:
@@ -178,7 +191,11 @@ def _main(
     '''
     run_qtractor(
         func=_async_main,
-        args=(sym, brokernames, piker_loglevel),
+        args=(
+            syms,
+            {mod.name: mod for mod in brokermods},
+            piker_loglevel,
+        ),
         main_widget_type=GodWidget,
         tractor_kwargs=tractor_kwargs,
     )

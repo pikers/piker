@@ -44,7 +44,10 @@ from ..clearing._allocate import (
 )
 from ._style import _font
 from ..data._source import Symbol
-from ..data.feed import Feed
+from ..data.feed import (
+    Feed,
+    Flume,
+)
 from ..data.types import Struct
 from ..log import get_logger
 from ._editors import LineEditor, ArrowEditor
@@ -118,7 +121,6 @@ class OrderMode:
     chart: ChartPlotWidget  #  type: ignore # noqa
     hist_chart: ChartPlotWidget  #  type: ignore # noqa
     nursery: trio.Nursery  # used by ``ui._position`` code?
-    quote_feed: Feed
     book: OrderBook
     lines: LineEditor
     arrows: ArrowEditor
@@ -514,12 +516,13 @@ class OrderMode:
         # XXX: seems to fail on certain types of races?
         # assert len(lines) == 2
         if lines:
-            _, _, ratio = self.feed.get_ds_info()
+            flume: Flume = self.feed.flumes[self.chart.linked.symbol.fqsn]
+            _, _, ratio = flume.get_ds_info()
             for i, chart in [
                 (arrow_index, self.chart),
-                (self.feed.izero_hist
+                (flume.izero_hist
                  +
-                 round((arrow_index - self.feed.izero_rt)/ratio),
+                 round((arrow_index - flume.izero_rt)/ratio),
                  self.hist_chart)
             ]:
                 self.arrows.add(
@@ -801,7 +804,6 @@ async def open_order_mode(
             chart,
             hist_chart,
             tn,
-            feed,
             book,
             lines,
             arrows,

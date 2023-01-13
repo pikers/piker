@@ -26,7 +26,6 @@ from typing import (
 )
 
 import numpy as np
-import pyqtgraph as pg
 import trio
 from trio_typing import TaskStatus
 import tractor
@@ -35,7 +34,9 @@ from tractor.msg import NamespacePath
 from ..log import get_logger, get_console_log
 from .. import data
 from ..data import attach_shm_array
-from ..data.feed import Feed
+from ..data.feed import (
+    Flume,
+)
 from ..data._sharedmem import ShmArray
 from ..data._sampling import _default_delay_s
 from ..data._source import Symbol
@@ -79,7 +80,7 @@ async def filter_quotes_by_sym(
 async def fsp_compute(
 
     symbol: Symbol,
-    feed: Feed,
+    flume: Flume,
     quote_stream: trio.abc.ReceiveChannel,
 
     src: ShmArray,
@@ -107,7 +108,7 @@ async def fsp_compute(
         filter_quotes_by_sym(fqsn, quote_stream),
 
         # XXX: currently the ``ohlcv`` arg
-        feed.rt_shm,
+        flume.rt_shm,
     )
 
     # Conduct a single iteration of fsp with historical bars input
@@ -310,12 +311,12 @@ async def cascade(
         # needs to get throttled the ticks we generate.
         # tick_throttle=60,
 
-    ) as (feed, quote_stream):
-        symbol = feed.symbols[fqsn]
+    ) as feed:
 
+        flume = feed.flumes[fqsn]
+        symbol = flume.symbol
+        assert src.token == flume.rt_shm.token
         profiler(f'{func}: feed up')
-
-        assert src.token == feed.rt_shm.token
         # last_len = new_len = len(src.array)
 
         func_name = func.__name__
@@ -327,8 +328,8 @@ async def cascade(
 
                 fsp_compute,
                 symbol=symbol,
-                feed=feed,
-                quote_stream=quote_stream,
+                flume=flume,
+                quote_stream=flume.stream,
 
                 # shm
                 src=src,
@@ -430,7 +431,7 @@ async def cascade(
 
                 # Increment the underlying shared memory buffer on every
                 # "increment" msg received from the underlying data feed.
-                async with feed.index_stream(
+                async with flume.index_stream(
                     int(delay_s)
                 ) as istream:
 

@@ -35,12 +35,17 @@ log = get_logger(__name__)
 
 _root_dname = 'pikerd'
 
-_registry_host: str = '127.0.0.1'
-_registry_port: int = 6116
-_registry_addr = (
-    _registry_host,
-    _registry_port,
+_default_registry_host: str = '127.0.0.1'
+_default_registry_port: int = 6116
+_default_reg_addr: tuple[str, int] = (
+    _default_registry_host,
+    _default_registry_port,
 )
+
+# NOTE: this value is set as an actor-global once the first endpoint
+# who is capable, spawns a `pikerd` service tree.
+_registry_addr: tuple[str, int] | None = None
+
 _tractor_kwargs: dict[str, Any] = {
     # use a different registry addr then tractor's default
     'arbiter_addr': _registry_addr
@@ -152,13 +157,20 @@ async def open_pikerd(
 
     '''
     global _services
+    global _registry_addr
+
+    if (
+        _registry_addr is None
+        or registry_addr
+    ):
+        _registry_addr = registry_addr or _default_reg_addr
 
     # XXX: this may open a root actor as well
     async with (
         tractor.open_root_actor(
 
             # passed through to ``open_root_actor``
-            arbiter_addr=registry_addr or _registry_addr,
+            arbiter_addr=_registry_addr,
             name=_root_dname,
             loglevel=loglevel,
             debug_mode=debug_mode,
@@ -197,7 +209,7 @@ async def open_piker_runtime(
     # XXX: you should pretty much never want debug mode
     # for data daemons when running in production.
     debug_mode: bool = False,
-    registry_addr: None | tuple[str, int] = _registry_addr,
+    registry_addr: None | tuple[str, int] = None,
 
 ) -> tractor.Actor:
     '''
@@ -206,13 +218,20 @@ async def open_piker_runtime(
 
     '''
     global _services
+    global _registry_addr
+
+    if (
+        _registry_addr is None
+        or registry_addr
+    ):
+        _registry_addr = registry_addr or _default_reg_addr
 
     # XXX: this may open a root actor as well
     async with (
         tractor.open_root_actor(
 
             # passed through to ``open_root_actor``
-            arbiter_addr=registry_addr,
+            arbiter_addr=_registry_addr,
             name=name,
             loglevel=loglevel,
             debug_mode=debug_mode,

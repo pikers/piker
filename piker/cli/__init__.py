@@ -29,14 +29,13 @@ from ..log import get_console_log, get_logger, colorize_json
 from ..brokers import get_brokermod
 from .._daemon import (
     _tractor_kwargs,
-    _registry_host,
-    _registry_port,
+    _default_registry_host,
+    _default_registry_port,
 )
 from .. import config
 
 
 log = get_logger('cli')
-DEFAULT_BROKER = 'questrade'
 
 
 @click.command()
@@ -77,8 +76,8 @@ def pikerd(
     reg_addr: None | tuple[str, int] = None
     if host or port:
         reg_addr = (
-            host or _registry_host,
-            int(port) or _registry_port,
+            host or _default_registry_host,
+            int(port) or _default_registry_port,
         )
 
     async def main():
@@ -118,7 +117,7 @@ def pikerd(
 @click.group(context_settings=config._context_defaults)
 @click.option(
     '--brokers', '-b',
-    default=[DEFAULT_BROKER],
+    default=None,
     multiple=True,
     help='Broker backend to use'
 )
@@ -144,16 +143,19 @@ def cli(
 
     ctx.ensure_object(dict)
 
-    if len(brokers) == 1:
-        brokermods = [get_brokermod(brokers[0])]
-    else:
-        brokermods = [get_brokermod(broker) for broker in brokers]
+    if not brokers:
+        # (try to) load all (supposedly) supported data/broker backends
+        from piker.brokers import __brokers__
+        brokers = __brokers__
+
+    brokermods = [get_brokermod(broker) for broker in brokers]
+    assert brokermods
 
     reg_addr: None | tuple[str, int] = None
     if host or port:
         reg_addr = (
-            host or _registry_host,
-            int(port) or _registry_port,
+            host or _default_registry_host,
+            int(port) or _default_registry_port,
         )
 
     ctx.obj.update({

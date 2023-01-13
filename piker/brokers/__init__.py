@@ -26,10 +26,21 @@ asks.init('trio')
 
 __brokers__ = [
     'binance',
-    'questrade',
-    'robinhood',
     'ib',
     'kraken',
+
+    # broken but used to work
+    # 'questrade',
+    # 'robinhood',
+
+    # TODO: we should get on these stat!
+    # alpaca
+    # wstrade
+    # iex
+
+    # deribit
+    # kucoin
+    # bitso
 ]
 
 

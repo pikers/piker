@@ -371,8 +371,8 @@ async def update_and_audit_msgs(
                     else:
                         entry = f'split_ratio = 1/{int(reverse_split_ratio)}'
 
-                    raise ValueError(
-                    # log.error(
+                    # raise ValueError(
+                    log.error(
                         f'POSITION MISMATCH ib <-> piker ledger:\n'
                         f'ib: {ibppmsg}\n'
                         f'piker: {msg}\n'
@@ -575,17 +575,18 @@ async def trades_dialogue(
                         # if new trades are detected from the API, prepare
                         # them for the ledger file and update the pptable.
                         if api_to_ledger_entries:
-                            trade_entries = api_to_ledger_entries[acctid]
+                            trade_entries = api_to_ledger_entries.get(acctid)
 
-                            # write ledger with all new trades **AFTER**
-                            # we've updated the `pps.toml` from the
-                            # original ledger state! (i.e. this is
-                            # currently done on exit)
-                            ledger.update(trade_entries)
+                            if trade_entries:
+                                # write ledger with all new trades **AFTER**
+                                # we've updated the `pps.toml` from the
+                                # original ledger state! (i.e. this is
+                                # currently done on exit)
+                                ledger.update(trade_entries)
 
-                            trans = trans_by_acct.get(acctid)
-                            if trans:
-                                table.update_from_trans(trans)
+                                trans = trans_by_acct.get(acctid)
+                                if trans:
+                                    table.update_from_trans(trans)
 
                         # XXX: not sure exactly why it wouldn't be in
                         # the updated output (maybe this is a bug?) but
@@ -883,7 +884,7 @@ async def deliver_trade_events(
                     # execdict.pop('acctNumber')
 
                     fill_msg = BrokerdFill(
-                        # should match the value returned from
+                        # NOTE: should match the value returned from
                         # `.submit_limit()`
                         reqid=execu.orderId,
                         time_ns=time.time_ns(),  # cuz why not

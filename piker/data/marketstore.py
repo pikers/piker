@@ -38,7 +38,7 @@ from math import isnan
 
 from bidict import bidict
 from msgspec.msgpack import encode, decode
-import pyqtgraph as pg
+# import pyqtgraph as pg
 import numpy as np
 import tractor
 from trio_websocket import open_websocket_url
@@ -429,10 +429,7 @@ class Storage:
         end: Optional[int] = None,
         limit: int = int(800e3),
 
-    ) -> dict[
-        int,
-        Union[dict, np.ndarray],
-    ]:
+    ) -> np.ndarray:
 
         client = self.client
         syms = await client.list_symbols()
@@ -661,7 +658,7 @@ async def tsdb_history_update(
             [fqsn],
             start_stream=False,
 
-        ) as (feed, stream),
+        ) as feed,
     ):
         profiler(f'opened feed for {fqsn}')
 
@@ -669,12 +666,13 @@ async def tsdb_history_update(
         # to_prepend = None
 
         if fqsn:
-            symbol = feed.symbols.get(fqsn)
+            flume = feed.flumes[fqsn]
+            symbol = flume.symbol
             if symbol:
-                fqsn = symbol.front_fqsn()
+                fqsn = symbol.fqsn
 
             # diff db history with shm and only write the missing portions
-            # ohlcv = feed.hist_shm.array
+            # ohlcv = flume.hist_shm.array
 
             # TODO: use pg profiler
             # for secs in (1, 60):

@@ -27,6 +27,7 @@ from contextlib import asynccontextmanager as acm
 from math import isnan
 from pprint import pformat
 import time
+from types import ModuleType
 from typing import (
     AsyncIterator,
     Any,
@@ -48,6 +49,7 @@ from ..data._source import (
 )
 from ..data.feed import (
     Feed,
+    Flume,
     maybe_open_feed,
 )
 from ..ui._notify import notify_from_ems_status_msg
@@ -380,14 +382,15 @@ class Router(Struct):
     @acm
     async def maybe_open_brokerd_dialog(
         self,
-        feed: Feed,
+        brokermod: ModuleType,
+        portal: tractor.Portal,
         exec_mode: str,
         symbol: str,
         loglevel: str,
 
     ) -> None:
-        brokermod = feed.mod
         broker = brokermod.name
+
         relay: TradesRelay = self.relays.get(broker)
         if (
             relay
@@ -426,7 +429,7 @@ class Router(Struct):
 
         else:
             # open live brokerd trades endpoint
-            open_trades_endpoint = feed.portal.open_context(
+            open_trades_endpoint = portal.open_context(
                 trades_endpoint,
                 loglevel=loglevel,
             )
@@ -523,18 +526,22 @@ class Router(Struct):
             maybe_open_feed(
                 [fqsn],
                 loglevel=loglevel,
-            ) as (feed, quote_stream),
+            ) as feed,
         ):
-            brokermod = feed.mod
+            brokername, _, _ = unpack_fqsn(fqsn)
+            brokermod = feed.mods[brokername]
             broker = brokermod.name
+            portal = feed.portals[brokermod]
 
             # XXX: this should be initial price quote from target provider
-            first_quote: dict = feed.first_quotes[fqsn]
+            flume = feed.flumes[fqsn]
+            first_quote: dict = flume.first_quote
             book: DarkBook = self.get_dark_book(broker)
             book.lasts[fqsn]: float = first_quote['last']
 
             async with self.maybe_open_brokerd_dialog(
-                feed=feed,
+                brokermod=brokermod,
+                portal=portal,
                 exec_mode=exec_mode,
                 symbol=symbol,
                 loglevel=loglevel,
@@ -547,14 +554,16 @@ class Router(Struct):
                     clear_dark_triggers,
                     self,
                     relay.brokerd_stream,
-                    quote_stream,
+                    flume.stream,
                     broker,
                     fqsn,  # form: <name>.<venue>.<suffix>.<broker>
                     book
                 )
 
                 client_ready = trio.Event()
-                task_status.started((relay, feed, client_ready))
+                task_status.started(
+                    (relay, feed, client_ready)
+                )
 
                 # sync to the client side by waiting for the stream
                 # connection setup before relaying any existing live
@@ -1014,7 +1023,7 @@ async def process_client_order_cmds(
     brokerd_order_stream: tractor.MsgStream,
 
     fqsn: str,
-    feed: Feed,
+    flume: Flume,
     dark_book: DarkBook,
     router: Router,
 
@@ -1212,7 +1221,7 @@ async def process_client_order_cmds(
                 'size': size,
                 'exec_mode': exec_mode,
                 'action': action,
-                'brokers': brokers,  # list
+                'brokers': _,  # list
             } if (
                     # "DARK" triggers
                     # submit order to local EMS book and scan loop,
@@ -1234,13 +1243,12 @@ async def process_client_order_cmds(
                 # sometimes the real-time feed hasn't come up
                 # so just pull from the latest history.
                 if isnan(last):
-                    last = feed.rt_shm.array[-1]['close']
+                    last = flume.rt_shm.array[-1]['close']
 
                 pred = mk_check(trigger_price, last, action)
 
                 spread_slap: float = 5
-                sym = fqsn.replace(f'.{brokers[0]}', '')
-                min_tick = feed.symbols[sym].tick_size
+                min_tick = flume.symbol.tick_size
 
                 if action == 'buy':
                     tickfilter = ('ask', 'last', 'trade')
@@ -1453,11 +1461,12 @@ async def _emsd_main(
             # start inbound (from attached client) order request processing
             # main entrypoint, run here until cancelled.
             try:
+                flume = feed.flumes[fqsn]
                 await process_client_order_cmds(
                     client_stream,
                     brokerd_stream,
                     fqsn,
-                    feed,
+                    flume,
                     dark_book,
                     _router,
                 )

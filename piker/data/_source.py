@@ -23,7 +23,8 @@ import decimal
 
 from bidict import bidict
 import numpy as np
-from msgspec import Struct
+
+from .types import Struct
 # from numba import from_dtype
 
 
@@ -216,6 +217,10 @@ class Symbol(Struct):
             return (key, self.suffix, broker)
         else:
             return (key, broker)
+
+    @property
+    def fqsn(self) -> str:
+        return '.'.join(self.tokens()).lower()
 
     def front_fqsn(self) -> str:
         '''

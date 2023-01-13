@@ -62,39 +62,39 @@ services:
       # - "127.0.0.1:4002:4002"
       # - "127.0.0.1:5900:5900"
 
-  ib_gw_live:
-    image: waytrade/ib-gateway:1012.2i
-    restart: always
-    network_mode: 'host'
+  # ib_gw_live:
+  #   image: waytrade/ib-gateway:1012.2i
+  #   restart: always
+  #   network_mode: 'host'
 
-    volumes:
-      - type: bind
-        source: ./jts_live.ini
-        target: /root/jts/jts.ini
-        # don't let ibc clobber this file for
-        # the main reason of not having a stupid
-        # timezone set..
-        read_only: true
+  #   volumes:
+  #     - type: bind
+  #       source: ./jts_live.ini
+  #       target: /root/jts/jts.ini
+  #       # don't let ibc clobber this file for
+  #       # the main reason of not having a stupid
+  #       # timezone set..
+  #       read_only: true
 
-      # force our own ibc config
-      - type: bind
-        source: ./ibc.ini
-        target: /root/ibc/config.ini
+  #     # force our own ibc config
+  #     - type: bind
+  #       source: ./ibc.ini
+  #       target: /root/ibc/config.ini
 
-      # force our noop script - socat isn't needed in host mode.
-      - type: bind
-        source: ./fork_ports_delayed.sh
-        target: /root/scripts/fork_ports_delayed.sh
+  #     # force our noop script - socat isn't needed in host mode.
+  #     - type: bind
+  #       source: ./fork_ports_delayed.sh
+  #       target: /root/scripts/fork_ports_delayed.sh
 
-      # force our noop script - socat isn't needed in host mode.
-      - type: bind
-        source: ./run_x11_vnc.sh
-        target: /root/scripts/run_x11_vnc.sh
-        read_only: true
+  #     # force our noop script - socat isn't needed in host mode.
+  #     - type: bind
+  #       source: ./run_x11_vnc.sh
+  #       target: /root/scripts/run_x11_vnc.sh
+  #       read_only: true
 
-    # NOTE: to fill these out, define an `.env` file in the same dir as
-    # this compose file which looks something like:
-    environment:
-      TRADING_MODE: 'live'
-      VNC_SERVER_PASSWORD: 'doggy'
-      VNC_SERVER_PORT: '3004'
+  #   # NOTE: to fill these out, define an `.env` file in the same dir as
+  #   # this compose file which looks something like:
+  #   environment:
+  #     TRADING_MODE: 'live'
+  #     VNC_SERVER_PASSWORD: 'doggy'
+  #     VNC_SERVER_PORT: '3004'
