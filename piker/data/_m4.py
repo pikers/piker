@@ -96,7 +96,7 @@ def ds_m4(
         # XXX: broken x-range calc-case, likely the x-end points
         # are wrong and have some default value set (such as
         # x_end -> <some epoch float> while x_start -> 0.5).
-        breakpoint()
+        # breakpoint()
         return None
 
     # XXX: always round up on the input pixels
