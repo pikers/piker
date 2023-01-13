@@ -115,6 +115,7 @@ _conf_names: set[str] = {
     'pps',
     'trades',
     'watchlists',
+    'paper_trades'
 }
 
 _watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
@@ -212,6 +213,10 @@ def load(
         # if one exists.
         if os.path.isfile(template):
             shutil.copyfile(template, path)
+        else:
+            # create an empty file
+            with open(path, 'x'):
+                pass
     else:
         with open(path, 'r'):
             pass  # touch it
