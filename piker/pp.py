@@ -54,7 +54,7 @@ def open_trade_ledger(
     broker: str,
     account: str,
 
-) -> str:
+) -> dict:
     '''
     Indempotently create and read in a trade log file from the
     ``<configuration_dir>/ledgers/`` directory.
