@@ -30,11 +30,12 @@ from typing import (
     Callable,
 )
 import uuid
-
+import os.path
 from bidict import bidict
 import pendulum
 import trio
 import tractor
+import logging
 
 from .. import data
 from ..data._source import Symbol
@@ -56,6 +57,7 @@ from ._messages import (
     BrokerdError,
 )
 
+from ..config import load
 
 log = get_logger(__name__)
 
@@ -83,6 +85,17 @@ class PaperBoi(Struct):
     # init edge case L1 spread
     last_ask: tuple[float, float] = (float('inf'), 0)  # price, size
     last_bid: tuple[float, float] = (0, 0)
+
+
+    def record_paper_trade(self):
+        try:
+            #create paper trades record
+            
+            print('RECORDING PAPER TRADE') 
+            config, path = load('paper_trades') 
+        except Exception as Arguement: 
+            logging.exception('ERROR RECORDING PAPER TRADE')
+            pass
 
     async def submit_limit(
         self,
@@ -271,6 +284,7 @@ class PaperBoi(Struct):
             dt=pendulum.from_timestamp(fill_time_s),
             bsuid=key,
         )
+        self.record_paper_trade()
         pp.add_clear(t)
 
         pp_msg = BrokerdPosition(
