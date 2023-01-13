@@ -257,7 +257,7 @@ async def open_piker_runtime(
     # and spawn the service tree distributed per that.
     start_method: str = 'trio',
 
-    tractor_kwargs: dict = {},
+    **tractor_kwargs,
 
 ) -> tuple[
     tractor.Actor,
