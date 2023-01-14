@@ -21,7 +21,11 @@ Chart view box primitives
 from __future__ import annotations
 from contextlib import asynccontextmanager
 import time
-from typing import Optional, Callable
+from typing import (
+    Optional,
+    Callable,
+    TYPE_CHECKING,
+)
 
 import pyqtgraph as pg
 # from pyqtgraph.GraphicsScene import mouseEvents
@@ -38,6 +42,9 @@ from .._profile import pg_profile_enabled, ms_slower_then
 # from ._style import _min_points_to_show
 from ._editors import SelectRect
 from . import _event
+
+if TYPE_CHECKING:
+    from ._chart import ChartPlotWidget
 
 
 log = get_logger(__name__)
@@ -374,7 +381,7 @@ class ChartView(ViewBox):
         )
 
         self.linked = None
-        self._chart: 'ChartPlotWidget' = None  # noqa
+        self._chart: ChartPlotWidget | None = None  # noqa
 
         # add our selection box annotator
         self.select_box = SelectRect(self)
@@ -445,11 +452,11 @@ class ChartView(ViewBox):
             yield self
 
     @property
-    def chart(self) -> 'ChartPlotWidget':  # type: ignore # noqa
+    def chart(self) -> ChartPlotWidget:  # type: ignore # noqa
         return self._chart
 
     @chart.setter
-    def chart(self, chart: 'ChartPlotWidget') -> None:  # type: ignore # noqa
+    def chart(self, chart: ChartPlotWidget) -> None:  # type: ignore # noqa
         self._chart = chart
         self.select_box.chart = chart
         if self._maxmin is None:
@@ -783,11 +790,9 @@ class ChartView(ViewBox):
 
                 if yrange is None:
                     log.warning(f'No yrange provided for {name}!?')
-                    print(f"WTF NO YRANGE {name}")
                     return
 
             ylow, yhigh = yrange
-
             profiler(f'callback ._maxmin(): {yrange}')
 
             # view margins: stay within a % of the "true range"
