@@ -60,6 +60,7 @@ from ..log import get_logger
 from .._profile import (
     Profiler,
     pg_profile_enabled,
+    ms_slower_then,
 )
 
 
@@ -276,7 +277,10 @@ class Viz(msgspec.Struct):  # , frozen=True):
     ] = (None, None)
 
     # cache of y-range values per x-range input.
-    _mxmns: dict[tuple[int, int], tuple[float, float]] = {}
+    _mxmns: dict[
+        tuple[int, int],
+        tuple[float, float],
+    ] = {}
 
     @property
     def shm(self) -> ShmArray:
@@ -324,38 +328,70 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
     def maxmin(
         self,
-        lbar: int,
-        rbar: int,
 
+        # TODO: drop this right?
+        bars_range: Optional[tuple[
+            int, int, int, int, int, int
+        ]] = None,
+
+        x_range: slice | tuple[int, int] | None = None,
         use_caching: bool = True,
 
-    ) -> Optional[tuple[float, float]]:
+    ) -> tuple[float, float] | None:
         '''
         Compute the cached max and min y-range values for a given
         x-range determined by ``lbar`` and ``rbar`` or ``None``
         if no range can be determined (yet).
 
         '''
-        # TODO: hash the slice instead maybe?
-        # https://stackoverflow.com/a/29980872
-        rkey = (round(lbar), round(rbar))
-
-        do_print: bool = False
-        if use_caching:
-            cached_result = self._mxmns.get(rkey)
-            if cached_result:
-                if do_print:
-                    print(
-                        f'{self.name} CACHED maxmin\n'
-                        f'{rkey} -> {cached_result}'
-                    )
-                return cached_result
+        name = self.name
+        profiler = Profiler(
+            msg=f'{name} -> `{str(self)}.maxmin()`',
+            disabled=not pg_profile_enabled(),
+            ms_threshold=ms_slower_then,
+            delayed=True,
+        )
 
         shm = self.shm
         if shm is None:
             return None
 
         arr = shm.array
+
+        if x_range is None:
+            (
+                l,
+                _,
+                lbar,
+                rbar,
+                _,
+                r,
+            ) = (
+                # TODO: drop this yah?
+                bars_range
+                or self.datums_range()
+            )
+
+            profiler(f'{self.name} got bars range')
+            x_range = lbar, rbar
+
+        # TODO: hash the slice instead maybe?
+        # https://stackoverflow.com/a/29980872
+        ixrng = (round(lbar), round(rbar))
+
+        do_print: bool = False
+        if use_caching:
+            cached_result = self._mxmns.get(ixrng)
+            if cached_result:
+                if do_print:
+                    print(
+                        f'{self.name} CACHED maxmin\n'
+                        f'{ixrng} -> {cached_result}'
+                    )
+                return (
+                    ixrng,
+                    cached_result,
+                )
 
         # get relative slice indexes into array
         if self.index_field == 'time':
@@ -376,7 +412,10 @@ class Viz(msgspec.Struct):  # , frozen=True):
         slice_view = arr[read_slc]
 
         if not slice_view.size:
-            log.warning(f'{self.name} no maxmin in view?')
+            log.warning(
+                f'{self.name} no maxmin in view?\n'
+                f"{name} no mxmn for bars_range => {ixrng} !?"
+            )
             return None
 
         elif self.yrange:
@@ -384,9 +423,8 @@ class Viz(msgspec.Struct):  # , frozen=True):
             if do_print:
                 print(
                     f'{self.name} M4 maxmin:\n'
-                    f'{rkey} -> {mxmn}'
+                    f'{ixrng} -> {mxmn}'
                 )
-
         else:
             if self.is_ohlc:
                 ylow = np.min(slice_view['low'])
@@ -404,7 +442,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 s = 3
                 print(
                     f'{self.name} MANUAL ohlc={self.is_ohlc} maxmin:\n'
-                    f'{rkey} -> {mxmn}\n'
+                    f'{ixrng} -> {mxmn}\n'
                     f'read_slc: {read_slc}\n'
                     # f'abs_slc: {slice_view["index"]}\n'
                     f'first {s}:\n{slice_view[:s]}\n'
@@ -413,9 +451,12 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         # cache result for input range
         assert mxmn
-        self._mxmns[rkey] = mxmn
-
-        return mxmn
+        self._mxmns[ixrng] = mxmn
+        profiler(f'yrange mxmn cacheing: {x_range} -> {mxmn}')
+        return (
+            ixrng,
+            mxmn,
+        )
 
     def view_range(self) -> tuple[int, int]:
         '''
