@@ -986,32 +986,6 @@ async def link_views_with_region(
     # region.sigRegionChangeFinished.connect(update_pi_from_region)
 
 
-# force 0 to always be in view
-def multi_maxmin(
-    chart: ChartPlotWidget,
-    names: list[str],
-
-) -> tuple[float, float]:
-    '''
-    Viz "group" maxmin loop; assumes all named vizs
-    are in the same co-domain and thus can be sorted
-    as one set.
-
-    Iterates all the named vizs and calls the chart
-    api to find their range values and return.
-
-    TODO: really we should probably have a more built-in API
-    for this?
-
-    '''
-    mx = 0
-    for name in names:
-        ymn, ymx = chart.maxmin(name=name)
-        mx = max(mx, ymx)
-
-        return 0, mx
-
-
 _quote_throttle_rate: int = 60 - 6
 
 
