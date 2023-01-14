@@ -50,7 +50,6 @@ from ._cursor import (
     ContentsLabel,
 )
 from ..data._sharedmem import ShmArray
-from ._l1 import L1Labels
 from ._ohlc import BarItems
 from ._curve import (
     Curve,
@@ -70,12 +69,10 @@ from ..data._source import Symbol
 from ..log import get_logger
 from ._interaction import ChartView
 from ._forms import FieldsForm
-from .._profile import pg_profile_enabled, ms_slower_then
 from ._overlay import PlotItemOverlay
 from ._dataviz import Viz
 from ._search import SearchWidget
 from . import _pg_overrides as pgo
-from .._profile import Profiler
 
 if TYPE_CHECKING:
     from ._display import DisplayState
@@ -857,17 +854,17 @@ class ChartPlotWidget(pg.PlotWidget):
         self.sidepane: Optional[FieldsForm] = None
 
         # source of our custom interactions
-        self.cv = cv = self.mk_vb(name)
+        self.cv = self.mk_vb(name)
 
         pi = pgo.PlotItem(
-            viewBox=cv,
+            viewBox=self.cv,
             name=name,
             **kwargs,
         )
         pi.chart_widget = self
         super().__init__(
             background=hcolor(view_color),
-            viewBox=cv,
+            viewBox=self.cv,
             # parent=None,
             # plotItem=None,
             # antialias=True,
@@ -878,7 +875,9 @@ class ChartPlotWidget(pg.PlotWidget):
         # give viewbox as reference to chart
         # allowing for kb controls and interactions on **this** widget
         # (see our custom view mode in `._interactions.py`)
-        cv.chart = self
+        self.cv.chart = self
+
+        self.pi_overlay: PlotItemOverlay = PlotItemOverlay(self.plotItem)
 
         # ensure internal pi matches
         assert self.cv is self.plotItem.vb
@@ -906,8 +905,6 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # show background grid
         self.showGrid(x=False, y=True, alpha=0.3)
-
-        self.pi_overlay: PlotItemOverlay = PlotItemOverlay(self.plotItem)
 
         # indempotent startup flag for auto-yrange subsys
         # to detect the "first time" y-domain graphics begin
@@ -1302,13 +1299,6 @@ class ChartPlotWidget(pg.PlotWidget):
         If ``bars_range`` is provided use that range.
 
         '''
-        profiler = Profiler(
-            msg=f'`{str(self)}.maxmin(name={name})`: `{self.name}`',
-            disabled=not pg_profile_enabled(),
-            ms_threshold=ms_slower_then,
-            delayed=True,
-        )
-
         # TODO: here we should instead look up the ``Viz.shm.array``
         # and read directly from shm to avoid copying to memory first
         # and then reading it again here.
@@ -1316,36 +1306,21 @@ class ChartPlotWidget(pg.PlotWidget):
         viz = self._vizs.get(viz_key)
         if viz is None:
             log.error(f"viz {viz_key} doesn't exist in chart {self.name} !?")
-            key = res = 0, 0
+            return 0, 0
 
+        res = viz.maxmin()
+
+        if (
+            res is None
+        ):
+            mxmn = 0, 0
+            if not self._on_screen:
+                self.default_view(do_ds=False)
+                self._on_screen = True
         else:
-            (
-                l,
-                _,
-                lbar,
-                rbar,
-                _,
-                r,
-            ) = bars_range or viz.datums_range()
+            x_range, mxmn = res
 
-            profiler(f'{self.name} got bars range')
-            key = lbar, rbar
-            res = viz.maxmin(*key)
-
-            if (
-                res is None
-            ):
-                log.warning(
-                    f"{viz_key} no mxmn for bars_range => {key} !?"
-                )
-                res = 0, 0
-                if not self._on_screen:
-                    self.default_view(do_ds=False)
-                    self._on_screen = True
-
-        profiler(f'yrange mxmn: {key} -> {res}')
-        # print(f'{viz_key} yrange mxmn: {key} -> {res}')
-        return res
+        return mxmn
 
     def get_viz(
         self,
