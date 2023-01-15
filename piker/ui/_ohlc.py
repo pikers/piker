@@ -121,7 +121,7 @@ class BarItems(FlowGraphic):
 
         # XXX: causes this weird jitter bug when click-drag panning
         # where the path curve will awkwardly flicker back and forth?
-        # self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
+        self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
         self.path = QPainterPath()
         self._last_bar_lines: tuple[QLineF, ...] | None = None
