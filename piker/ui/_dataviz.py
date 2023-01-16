@@ -388,9 +388,11 @@ class Viz(msgspec.Struct):  # , frozen=True):
                         f'{self.name} CACHED maxmin\n'
                         f'{ixrng} -> {cached_result}'
                     )
+                read_slc, mxmn = cached_result
                 return (
                     ixrng,
-                    cached_result,
+                    read_slc,
+                    mxmn,
                 )
 
         # get relative slice indexes into array
@@ -451,10 +453,11 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         # cache result for input range
         assert mxmn
-        self._mxmns[ixrng] = mxmn
+        self._mxmns[ixrng] = (read_slc, mxmn)
         profiler(f'yrange mxmn cacheing: {x_range} -> {mxmn}')
         return (
             ixrng,
+            read_slc,
             mxmn,
         )
 
@@ -1026,11 +1029,9 @@ class Viz(msgspec.Struct):  # , frozen=True):
         )
 
         if do_ds:
+            # view.interaction_graphics_update_cycle()
             view.maybe_downsample_graphics()
             view._set_yrange()
-
-            # caller should do this!
-            # self.linked.graphics_cycle()
 
     def incr_info(
         self,
