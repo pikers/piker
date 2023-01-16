@@ -45,6 +45,7 @@ from . import _event
 
 if TYPE_CHECKING:
     from ._chart import ChartPlotWidget
+    from ._dataviz import Viz
 
 
 log = get_logger(__name__)
@@ -728,6 +729,7 @@ class ChartView(ViewBox):
         *,
 
         yrange: Optional[tuple[float, float]] = None,
+        viz: Viz | None = None,
 
         # NOTE: this value pairs (more or less) with L1 label text
         # height offset from from the bid/ask lines.
