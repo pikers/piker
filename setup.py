@@ -61,7 +61,7 @@ setup(
         # 'cryptofeed',
 
         # brokers
-        'asks==2.4.8',
+        'asks',
         'ib_insync',
 
         # numerics
