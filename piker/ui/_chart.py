@@ -629,11 +629,13 @@ class LinkedSplits(QWidget):
         for axis in axes.values():
             axis.pi = cpw.plotItem
 
+
         cpw.hideAxis('left')
         cpw.hideAxis('bottom')
 
         if (
-            _xaxis_at == 'bottom' and (
+            _xaxis_at == 'bottom'
+            and (
                 self.xaxis_chart
                 or (
                     not self.subplots
@@ -641,6 +643,8 @@ class LinkedSplits(QWidget):
                 )
             )
         ):
+            # hide the previous x-axis chart's bottom axis since we're
+            # presumably being appended to the bottom subplot.
             if self.xaxis_chart:
                 self.xaxis_chart.hideAxis('bottom')
 
@@ -685,7 +689,12 @@ class LinkedSplits(QWidget):
         # link chart x-axis to main chart
         # this is 1/2 of where the `Link` in ``LinkedSplit``
         # comes from ;)
-        cpw.setXLink(self.chart)
+        cpw.cv.setXLink(self.chart)
+
+        # NOTE: above is the same as the following,
+        # link this subchart's axes to the main top level chart.
+        # if self.chart:
+        #     cpw.cv.linkView(0, self.chart.cv)
 
         add_label = False
         anchor_at = ('top', 'left')
@@ -797,7 +806,9 @@ class LinkedSplits(QWidget):
 # write our own wrapper around `PlotItem`..
 class ChartPlotWidget(pg.PlotWidget):
     '''
-    ``GraphicsView`` subtype containing a single ``PlotItem``.
+    ``GraphicsView`` subtype containing a ``.plotItem: PlotItem`` as well
+    as a `.pi_overlay: PlotItemOverlay`` which helps manage and overlay flow
+    graphics view multiple compose view boxes.
 
     - The added methods allow for plotting OHLC sequences from
       ``np.ndarray``s with appropriate field names.
@@ -1098,6 +1109,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # view **to** this parent and likewise *from* the
         # main/parent chart back *to* the created overlay.
         cv.enable_auto_yrange(src_vb=self.view)
+
         # makes it so that interaction on the new overlay will reflect
         # back on the main chart (which overlay was added to).
         self.view.enable_auto_yrange(src_vb=cv)
@@ -1172,6 +1184,7 @@ class ChartPlotWidget(pg.PlotWidget):
             # register curve graphics with this viz
             graphics=graphics,
         )
+        pi.viz = viz
         assert isinstance(viz.shm, ShmArray)
 
         # TODO: this probably needs its own method?
@@ -1318,7 +1331,7 @@ class ChartPlotWidget(pg.PlotWidget):
                 self.default_view(do_ds=False)
                 self._on_screen = True
         else:
-            x_range, mxmn = res
+            x_range, read_slc, mxmn = res
 
         return mxmn
 
