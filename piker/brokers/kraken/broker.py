@@ -509,7 +509,9 @@ async def trades_dialogue(
                     for bsuid in table.pps:
                         try:
                             dst_name_start = bsuid.rindex(src_fiat)
-                        except IndexError:
+                        except (
+                            ValueError,   # substr not found
+                        ):
                             # TODO: handle nested positions..(i.e.
                             # positions where the src fiat was used to
                             # buy some other dst which was furhter used
