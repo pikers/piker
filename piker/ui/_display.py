@@ -88,7 +88,6 @@ log = get_logger(__name__)
 def chart_maxmin(
     chart: ChartPlotWidget,
     fqsn: str,
-    # ohlcv_shm: ShmArray,
     vlm_chart: ChartPlotWidget | None = None,
 
 ) -> tuple[
@@ -104,13 +103,18 @@ def chart_maxmin(
 
     '''
     main_viz = chart.get_viz(chart.name)
-    last_bars_range = main_viz.bars_range()
-    out = chart.maxmin(name=fqsn)
+    out = main_viz.maxmin()
 
     if out is None:
-        return (last_bars_range, 0, 0, 0)
+        return (0, 0, 0)
 
-    mn, mx = out
+    (
+        ixrng,
+        read_slc,
+        mxmn,
+    ) = out
+
+    mn, mx = mxmn
 
     mx_vlm_in_view = 0
 
@@ -123,10 +127,9 @@ def chart_maxmin(
             _, mx_vlm_in_view = out
 
     return (
-        last_bars_range,
         mx,
         max(mn, 0),  # presuming price can't be negative?
-        mx_vlm_in_view,
+        mx_vlm_in_view,  # vlm max
     )
 
 
@@ -220,7 +223,7 @@ async def increment_history_view(
                 do_append
                 and liv
             ):
-                hist_viz.plot.vb._set_yrange()
+                hist_viz.plot.vb._set_yrange(viz=hist_viz)
 
             # check if tread-in-place x-shift is needed
             if should_tread:
@@ -307,9 +310,7 @@ async def graphics_update_loop(
             fqsn,
             vlm_chart,
         )
-        last_bars_range: tuple[float, float]
         (
-            last_bars_range,
             last_mx,
             last_mn,
             last_mx_vlm,
@@ -496,12 +497,11 @@ def graphics_update_cycle(
     # TODO: we should only run mxmn when we know
     # an update is due via ``do_append`` above.
     (
-        brange,
         mx_in_view,
         mn_in_view,
         mx_vlm_in_view,
     ) = ds.maxmin()
-    l, lbar, rbar, r = brange
+
     mx = mx_in_view + tick_margin
     mn = mn_in_view - tick_margin
     profiler('`ds.maxmin()` call')
@@ -518,14 +518,12 @@ def graphics_update_cycle(
     ):
         chart.update_graphics_from_flow(
             fqsn,
-            # chart.name,
             # do_append=do_append,
         )
         main_viz.draw_last(array_key=fqsn)
 
         hist_chart.update_graphics_from_flow(
             fqsn,
-            # chart.name,
             # do_append=do_append,
         )
 
@@ -540,7 +538,7 @@ def graphics_update_cycle(
         or trigger_all
     ):
         chart.increment_view(datums=append_diff)
-        main_viz.plot.vb._set_yrange()
+        main_viz.plot.vb._set_yrange(viz=main_viz)
 
         # NOTE: since vlm and ohlc charts are axis linked now we don't
         # need the double increment request?
@@ -690,7 +688,7 @@ def graphics_update_cycle(
             is_1m=True,
         )
         if hist_liv:
-            hist_viz.plot.vb._set_yrange()
+            hist_viz.plot.vb._set_yrange(viz=hist_viz)
 
     # XXX: update this every draw cycle to make
     varz['last_mx'], varz['last_mn'] = mx, mn
@@ -705,7 +703,6 @@ def graphics_update_cycle(
             and not viz.is_ohlc
         ):
             update_fsp_chart(
-                chart,
                 viz,
                 curve_name,
                 array_key=curve_name,
@@ -788,7 +785,6 @@ def graphics_update_cycle(
                 # and curve_name != fqsn
             ):
                 update_fsp_chart(
-                    vlm_chart,
                     viz,
                     curve_name,
                     array_key=curve_name,
@@ -800,7 +796,7 @@ def graphics_update_cycle(
                 # resizing from last quote?)
                 fvb = viz.plot.vb
                 fvb._set_yrange(
-                    name=curve_name,
+                    viz=viz,
                 )
 
             elif (

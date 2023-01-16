@@ -78,7 +78,6 @@ def has_vlm(ohlcv: ShmArray) -> bool:
 
 
 def update_fsp_chart(
-    chart: ChartPlotWidget,
     viz,
     graphics_name: str,
     array_key: Optional[str],
@@ -101,18 +100,14 @@ def update_fsp_chart(
     # update graphics
     # NOTE: this does a length check internally which allows it
     # staying above the last row check below..
-    chart.update_graphics_from_flow(
-        graphics_name,
-        array_key=array_key or graphics_name,
-        **kwargs,
-    )
+    viz.update_graphics()
 
     # XXX: re: ``array_key``: fsp func names must be unique meaning we
     # can't have duplicates of the underlying data even if multiple
     # sub-charts reference it under different 'named charts'.
 
     # read from last calculated value and update any label
-    last_val_sticky = chart.plotItem.getAxis(
+    last_val_sticky = viz.plot.getAxis(
         'right')._stickies.get(graphics_name)
     if last_val_sticky:
         last = last_row[array_key]
