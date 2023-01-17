@@ -88,9 +88,9 @@ log = get_logger(__name__)
 # https://arxiv.org/abs/cs/0610046
 # https://github.com/lemire/pythonmaxmin
 def chart_maxmin(
-    chart: ChartPlotWidget,
+    fast_viz: Viz,
     fqsn: str,
-    vlm_chart: ChartPlotWidget | None = None,
+    vlm_viz: Viz | None = None,
 
 ) -> tuple[
 
@@ -104,8 +104,7 @@ def chart_maxmin(
     Compute max and min datums "in view" for range limits.
 
     '''
-    main_viz = chart.get_viz(chart.name)
-    out = main_viz.maxmin()
+    out = fast_viz.maxmin()
 
     if out is None:
         return (0, 0, 0)
@@ -123,10 +122,15 @@ def chart_maxmin(
     # TODO: we need to NOT call this to avoid a manual
     # np.max/min trigger and especially on the vlm_chart
     # vizs which aren't shown.. like vlm?
-    if vlm_chart:
-        out = vlm_chart.maxmin()
+    if vlm_viz:
+        out = vlm_viz.maxmin()
         if out:
-            _, mx_vlm_in_view = out
+            (
+                ixrng,
+                read_slc,
+                mxmn,
+            ) = out
+            mx_vlm_in_view = mxmn[1]
 
     return (
         mx,
@@ -314,11 +318,13 @@ async def graphics_update_loop(
         )
 
         vlm_chart = vlm_charts[fqsn]
+        vlm_viz = vlm_chart._vizs.get('volume') if vlm_chart else None
+
         maxmin = partial(
             chart_maxmin,
-            fast_chart,
+            fast_viz,
             fqsn,
-            vlm_chart,
+            vlm_viz,
         )
         (
             last_mx,
@@ -381,7 +387,7 @@ async def graphics_update_loop(
         })
 
         if vlm_chart:
-            vlm_pi = vlm_chart._vizs['volume'].plot
+            vlm_pi = vlm_viz.plot
             vlm_sticky = vlm_pi.getAxis('right')._stickies['volume']
             ds.vlm_chart = vlm_chart
             ds.vlm_sticky = vlm_sticky
@@ -523,38 +529,28 @@ def graphics_update_cycle(
 
     # update ohlc sampled price bars
     if (
-        do_rt_update
-        or do_px_step
+        # do_rt_update
+        # or do_px_step
+        (liv and do_px_step)
         or trigger_all
     ):
         main_viz.update_graphics(array_key=fqsn)
-        hist_viz.draw_last(array_key=fqsn)
 
-    else:
-        main_viz.draw_last(
-            array_key=fqsn,
-            # only_last_uppx=True,
-        )
-
-    # don't real-time "shift" the curve to the
-    # left unless we get one of the following:
-    if (
-        (
+        # don't real-time "shift" the curve to the
+        # left unless we get one of the following:
+        if (
             should_tread
-            and do_px_step
-            and liv
-        )
-        or trigger_all
-    ):
-        chart.increment_view(datums=append_diff)
-        main_viz.plot.vb._set_yrange(viz=main_viz)
+            or trigger_all
+        ):
+            chart.increment_view(datums=append_diff)
+            # main_viz.plot.vb._set_yrange(viz=main_viz)
 
-        # NOTE: since vlm and ohlc charts are axis linked now we don't
-        # need the double increment request?
-        # if vlm_chart:
-        #     vlm_chart.increment_view(datums=append_diff)
+            # NOTE: since vlm and ohlc charts are axis linked now we don't
+            # need the double increment request?
+            # if vlm_chart:
+            #     vlm_chart.increment_view(datums=append_diff)
 
-        profiler('view incremented')
+            profiler('view incremented')
 
     # iterate frames of ticks-by-type such that we only update graphics
     # using the last update per type where possible.
@@ -593,9 +589,14 @@ def graphics_update_cycle(
             ds.last_price_sticky.update_from_data(*end_ic)
             ds.hist_last_price_sticky.update_from_data(*end_ic)
 
-            if wap_in_history:
-                # update vwap overlay line
-                chart.get_viz('bar_wap').update_graphics()
+            # update vwap overlay line
+            # if wap_in_history:
+            #     chart.get_viz('bar_wap').update_graphics()
+
+            # update OHLC chart last bars
+            # TODO: fix the only last uppx stuff....
+            main_viz.draw_last() # only_last_uppx=True)
+            hist_viz.draw_last() # only_last_uppx=True)
 
         # L1 book label-line updates
         if typ in ('last',):
@@ -665,7 +666,8 @@ def graphics_update_cycle(
             liv
             and not chart._static_yrange == 'axis'
         ):
-            main_vb = chart._vizs[fqsn].plot.vb
+            main_vb = main_viz.plot.vb
+
             if (
                 main_vb._ic is None
                 or not main_vb._ic.is_set()
@@ -699,13 +701,22 @@ def graphics_update_cycle(
             ds=ds,
             is_1m=True,
         )
-        if hist_liv:
-            hist_viz.plot.vb._set_yrange(viz=hist_viz)
+        if (
+            hist_liv
+            and not hist_chart._static_yrange == 'axis'
+        ):
+            hist_viz.plot.vb._set_yrange(
+                viz=hist_viz,
+                # yrange=yr,  # this is the rt range, not hist.. XD
+            )
 
     # XXX: update this every draw cycle to ensure y-axis auto-ranging
     # only adjusts when the in-view data co-domain actually expands or
     # contracts.
     varz['last_mx'], varz['last_mn'] = mx, mn
+
+    # TODO: a similar, only-update-full-path-on-px-step approach for all
+    # fsp overlays and vlm stuff..
 
     # run synchronous update on all `Viz` overlays
     for curve_name, viz in chart._vizs.items():
