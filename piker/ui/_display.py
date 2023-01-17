@@ -138,6 +138,7 @@ class DisplayState(Struct):
     Chart-local real-time graphics state container.
 
     '''
+    fqsn: str
     godwidget: GodWidget
     quotes: dict[str, Any]
 
@@ -219,15 +220,18 @@ async def increment_history_view(
                 is_1m=True,
             )
 
+            # check if tread-in-place view x-shift is needed
+            if should_tread:
+                # ensure path graphics append is shown on treads since
+                # the main rt loop does not call this.
+                hist_viz.update_graphics()
+                hist_chart.increment_view(datums=append_diff)
+
             if (
                 do_px_step
                 and liv
             ):
                 hist_viz.plot.vb._set_yrange(viz=hist_viz)
-
-            # check if tread-in-place x-shift is needed
-            if should_tread:
-                hist_chart.increment_view(datums=append_diff)
 
 
 async def graphics_update_loop(
@@ -342,6 +346,7 @@ async def graphics_update_loop(
         last_quote_s = time.time()
 
         dss[fqsn] = ds = linked.display_state = DisplayState(**{
+            'fqsn': fqsn,
             'godwidget': godwidget,
             'quotes': {},
             'maxmin': maxmin,
@@ -450,6 +455,13 @@ def graphics_update_cycle(
 
 ) -> None:
 
+    profiler = Profiler(
+        msg=f'Graphics loop cycle for: `{ds.fqsn}`',
+        delayed=True,
+        disabled=not pg_profile_enabled(),
+        ms_threshold=ms_slower_then,
+    )
+
     # TODO: SPEEDing this all up..
     # - optimize this whole graphics stack with ``numba`` hopefully
     #   or at least a little `mypyc` B)
@@ -462,16 +474,9 @@ def graphics_update_cycle(
     flume = ds.flume
     sym = flume.symbol
     fqsn = sym.fqsn
-    main_viz = chart._vizs[fqsn]
-    hist_viz = hist_chart._vizs[fqsn]
+    main_viz = ds.viz
+    hist_viz = ds.hist_viz
     index_field = main_viz.index_field
-
-    profiler = Profiler(
-        msg=f'Graphics loop cycle for: `{chart.name}`',
-        delayed=True,
-        disabled=not pg_profile_enabled(),
-        ms_threshold=ms_slower_then,
-    )
 
     # unpack multi-referenced components
     vlm_chart = ds.vlm_chart
@@ -522,7 +527,7 @@ def graphics_update_cycle(
     else:
         main_viz.draw_last(
             array_key=fqsn,
-            only_last_uppx=True,
+            # only_last_uppx=True,
         )
 
     # don't real-time "shift" the curve to the
@@ -822,6 +827,8 @@ def graphics_update_cycle(
                 # always update the last datum-element
                 # graphic for all vizs
                 viz.draw_last(array_key=curve_name)
+
+    profiler.finish()
 
 
 async def link_views_with_region(
@@ -1249,9 +1256,7 @@ async def display_symbol_data(
 
                 # ensure the last datum graphic is generated
                 # for zoom-interaction purposes.
-                viz.draw_last(
-                    array_key=fqsn,
-                )
+                viz.draw_last(array_key=fqsn)
 
                 hist_pi.vb.maxmin = partial(
                     hist_chart.maxmin,
