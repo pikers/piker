@@ -332,6 +332,9 @@ class IncrementalFormatter(msgspec.Struct):
             array = in_view
             profiler(f'{self.viz.name} view range slice {view_range}')
 
+        # TODO: we need to check if the last-datum-in-view is true and
+        # if so only slice to the 2nd last datumonly slice to the 2nd
+        # last datum.
         # hist = array[:slice_to_head]
 
         # XXX: WOA WTF TRACTOR DEBUGGING BUGGG
@@ -628,7 +631,7 @@ class OHLCBarsFmtr(IncrementalFormatter):
 
         '''
         x, y, c = path_arrays_from_ohlc(
-            array,
+            array[:-1],
             start,
             bar_w=self.index_step_size,
             bar_gap=w * self.index_step_size,
