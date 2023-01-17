@@ -132,9 +132,9 @@ def render_baritems(
 
         # baseline "line" downsampled OHLC curve that should
         # kick on only when we reach a certain uppx threshold.
-        self._render_table = (ds_curve_r, curve)
+        self._alt_r = (ds_curve_r, curve)
 
-    ds_r, curve = self._render_table
+    ds_r, curve = self._alt_r
 
     # print(
     #     f'r: {r.fmtr.xy_slice}\n'
@@ -270,11 +270,11 @@ class Viz(msgspec.Struct):  # , frozen=True):
     _index_step: float | None = None
 
     # map from uppx -> (downsampled data, incremental graphics)
-    _src_r: Optional[Renderer] = None
-    _render_table: dict[
-        Optional[int],
-        tuple[Renderer, pg.GraphicsItem],
-    ] = (None, None)
+    _src_r: Renderer | None = None
+    _alt_r: tuple[
+        Renderer,
+        pg.GraphicsItem
+    ] | None = None
 
     # cache of y-range values per x-range input.
     _mxmns: dict[
@@ -329,11 +329,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
     def maxmin(
         self,
 
-        # TODO: drop this right?
-        bars_range: Optional[tuple[
-            int, int, int, int, int, int
-        ]] = None,
-
         x_range: slice | tuple[int, int] | None = None,
         use_caching: bool = True,
 
@@ -366,11 +361,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 rbar,
                 _,
                 r,
-            ) = (
-                # TODO: drop this yah?
-                bars_range
-                or self.datums_range()
-            )
+            ) = self.datums_range()
 
             profiler(f'{self.name} got bars range')
             x_range = lbar, rbar
@@ -816,18 +807,29 @@ class Viz(msgspec.Struct):  # , frozen=True):
             with graphics.reset_cache():
                 graphics.path = r.path
                 graphics.fast_path = r.fast_path
+
+                self.draw_last(
+                    array_key=array_key,
+                    last_read=read,
+                    reset_cache=reset_cache,
+                )
         else:
             # assign output paths to graphicis obj
             graphics.path = r.path
             graphics.fast_path = r.fast_path
 
-        graphics.draw_last_datum(
-            path,
-            src_array,
-            reset_cache,
-            array_key,
-            index_field=self.index_field,
-        )
+            self.draw_last(
+                array_key=array_key,
+                last_read=read,
+                reset_cache=reset_cache,
+            )
+        # graphics.draw_last_datum(
+        #     path,
+        #     src_array,
+        #     reset_cache,
+        #     array_key,
+        #     index_field=self.index_field,
+        # )
         graphics.update()
         profiler('.update()')
 
@@ -845,7 +847,9 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
     def draw_last(
         self,
-        array_key: Optional[str] = None,
+        array_key: str | None = None,
+        last_read: tuple | None = None,
+        reset_cache: bool = False,
         only_last_uppx: bool = False,
 
     ) -> None:
@@ -854,17 +858,11 @@ class Viz(msgspec.Struct):  # , frozen=True):
         (
             xfirst, xlast, src_array,
             ivl, ivr, in_view,
-        ) = self.read()
+        ) = last_read or self.read()
 
-        g = self.graphics
         array_key = array_key or self.name
-        x, y = g.draw_last_datum(
-            g.path,
-            src_array,
-            False,  # never reset path
-            array_key,
-            self.index_field,
-        )
+
+        gfx = self.graphics
 
         # the renderer is downsampling we choose
         # to always try and update a single (interpolating)
@@ -874,19 +872,28 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # worth of data since that's all the screen
         # can represent on the last column where
         # the most recent datum is being drawn.
+        uppx = ceil(self._last_uppx)
         if (
-            self._in_ds
-            or only_last_uppx
+            (self._in_ds or only_last_uppx)
+            and uppx > 0
         ):
-            dsg = self.ds_graphics or self.graphics
+            alt_renderer = self._alt_r
+            if alt_renderer:
+                renderer, gfx = alt_renderer
+                fmtr = renderer.fmtr
+                x = fmtr.x_1d
+                y = fmtr.y_1d
+            else:
+                renderer = self._src_r
+                fmtr = renderer.fmtr
+                x = fmtr.x_1d
+                y = fmtr.y_1d
 
-            # XXX: pretty sure we don't need this?
-            # if isinstance(g, Curve):
-            #     with dsg.reset_cache():
-            uppx = round(self._last_uppx)
+            if alt_renderer:
+                uppx *= fmtr.flat_index_ratio
+
             y = y[-uppx:]
             ymn, ymx = y.min(), y.max()
-            # print(f'drawing uppx={uppx} mxmn line: {ymn}, {ymx}')
             try:
                 iuppx = x[-uppx]
             except IndexError:
@@ -894,16 +901,32 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 # datum index.
                 iuppx = x[0]
 
-            dsg._last_line = QLineF(
+            gfx._last_line = QLineF(
                 iuppx, ymn,
                 x[-1], ymx,
             )
-            # print(f'updating DS curve {self.name}')
-            dsg.update()
+            # if self.is_ohlc:
+            #     times = self.shm.array['time']
+            #     time_step = times[-1] - times[-2]
+            #     # if 'hist' in self.shm.token['shm_name']
+            #     # if self.index_step() == 1:
+            #     #     breakpoint()
+            #     print(
+            #         f'updating DS curve {self.name}@{time_step}s\n'
+            #         f'drawing uppx={uppx} mxmn line: {ymn}, {ymx}'
+            #     )
 
         else:
+            x, y = gfx.draw_last_datum(
+                gfx.path,
+                src_array,
+                reset_cache,  # never reset path
+                array_key,
+                self.index_field,
+            )
             # print(f'updating NOT DS curve {self.name}')
-            g.update()
+
+        gfx.update()
 
     def default_view(
         self,
@@ -1029,7 +1052,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
         )
 
         if do_ds:
-            # view.interaction_graphics_update_cycle()
+            # view.interaction_graphics_cycle()
             view.maybe_downsample_graphics()
             view._set_yrange()
 
