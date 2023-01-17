@@ -208,6 +208,14 @@ async def increment_history_view(
     async with open_sample_stream(1.) as istream:
         async for msg in istream:
 
+            profiler = Profiler(
+                msg=f'History chart cycle for: `{ds.fqsn}`',
+                delayed=True,
+                disabled=not pg_profile_enabled(),
+                ms_threshold=ms_slower_then,
+                # ms_threshold=4,
+            )
+
             # l3 = ds.viz.shm.array[-3:]
             # print(
             #     f'fast step for {ds.flume.symbol.fqsn}:\n'
@@ -235,7 +243,10 @@ async def increment_history_view(
                 # ensure path graphics append is shown on treads since
                 # the main rt loop does not call this.
                 hist_viz.update_graphics()
+                profiler('`hist Viz.update_graphics()` call')
+
                 hist_chart.increment_view(datums=append_diff)
+                profiler('hist tread view')
 
             if (
                 do_px_step
@@ -472,6 +483,7 @@ def graphics_update_cycle(
         delayed=True,
         disabled=not pg_profile_enabled(),
         ms_threshold=ms_slower_then,
+        # ms_threshold=4,
     )
 
     # TODO: SPEEDing this all up..
@@ -481,24 +493,21 @@ def graphics_update_cycle(
     # - use a streaming minmax algo and drop the use of the
     #   state-tracking ``chart_maxmin()`` routine from above?
 
+    fqsn = ds.fqsn
     chart = ds.chart
     hist_chart = ds.hist_chart
-    flume = ds.flume
-    sym = flume.symbol
-    fqsn = sym.fqsn
-    main_viz = ds.viz
-    hist_viz = ds.hist_viz
-    index_field = main_viz.index_field
-
-    # unpack multi-referenced components
     vlm_chart = ds.vlm_chart
 
-    # rt "HFT" chart
+    varz = ds.vars
     l1 = ds.l1
+    flume = ds.flume
     ohlcv = flume.rt_shm
     array = ohlcv.array
 
-    varz = ds.vars
+    hist_viz = ds.hist_viz
+    main_viz = ds.viz
+    index_field = main_viz.index_field
+
     tick_margin = varz['tick_margin']
 
     (
@@ -510,6 +519,8 @@ def graphics_update_cycle(
         do_rt_update,
         should_tread,
     ) = main_viz.incr_info(ds=ds)
+
+    profiler('`.incr_info()`')
 
     # TODO: we should only run mxmn when we know
     # an update is due via ``do_px_step`` above.
@@ -535,6 +546,7 @@ def graphics_update_cycle(
         or trigger_all
     ):
         main_viz.update_graphics(array_key=fqsn)
+        profiler('`Viz.update_graphics()` call')
 
         # don't real-time "shift" the curve to the
         # left unless we get one of the following:
@@ -595,8 +607,8 @@ def graphics_update_cycle(
 
             # update OHLC chart last bars
             # TODO: fix the only last uppx stuff....
-            main_viz.draw_last() # only_last_uppx=True)
-            hist_viz.draw_last() # only_last_uppx=True)
+            main_viz.draw_last()  # only_last_uppx=True)
+            hist_viz.draw_last()  # only_last_uppx=True)
 
         # L1 book label-line updates
         if typ in ('last',):
@@ -632,6 +644,8 @@ def graphics_update_cycle(
             typ in _tick_groups['bids']
         ):
             l1.bid_label.update_fields({'level': price, 'size': size})
+
+    profiler('L1 labels updates')
 
     # Y-autoranging: adjust y-axis limits based on state tracking
     # of previous "last" L1 values which are in view.
@@ -687,6 +701,7 @@ def graphics_update_cycle(
                     # range_margin=0.1,
                     yrange=yr
                 )
+                profiler('main vb y-autorange')
 
         # SLOW CHART resize case
         (
@@ -701,6 +716,7 @@ def graphics_update_cycle(
             ds=ds,
             is_1m=True,
         )
+        profiler('hist `Viz.incr_info()`')
         if (
             hist_liv
             and not hist_chart._static_yrange == 'axis'
@@ -709,6 +725,7 @@ def graphics_update_cycle(
                 viz=hist_viz,
                 # yrange=yr,  # this is the rt range, not hist.. XD
             )
+            profiler('hist vb y-autorange')
 
     # XXX: update this every draw cycle to ensure y-axis auto-ranging
     # only adjusts when the in-view data co-domain actually expands or
@@ -751,6 +768,8 @@ def graphics_update_cycle(
                 # `draw_last_datum()` ..
                 only_last_uppx=True,
             )
+
+    profiler('overlays updates')
 
     # volume chart logic..
     # TODO: can we unify this with the above loop?
@@ -814,13 +833,15 @@ def graphics_update_cycle(
                     liv and do_rt_update
                     or do_px_step
                 )
-                and curve_name not in {fqsn,}
+                and curve_name not in {fqsn}
             ):
                 update_fsp_chart(
                     viz,
                     curve_name,
                     array_key=curve_name,
                 )
+                profiler(f'vlm `Viz[{viz.name}].update_graphics()`')
+
                 # is this even doing anything?
                 # (pretty sure it's the real-time
                 # resizing from last quote?)
@@ -831,6 +852,7 @@ def graphics_update_cycle(
                 fvb._set_yrange(
                     viz=viz,
                 )
+                profiler(f'vlm `Viz[{viz.name}].plot.vb._set_yrange()`')
 
             # even if we're downsampled bigly
             # draw the last datum in the final
@@ -844,6 +866,9 @@ def graphics_update_cycle(
                 # always update the last datum-element
                 # graphic for all vizs
                 viz.draw_last(array_key=curve_name)
+                profiler(f'vlm `Viz[{viz.name}].draw_last()`')
+
+        profiler('vlm Viz all updates complete')
 
     profiler.finish()
 
