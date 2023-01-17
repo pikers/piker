@@ -54,6 +54,10 @@ class IncrementalFormatter(msgspec.Struct):
     shm: ShmArray
     viz: Viz
 
+    # the value to be multiplied any any index into the x/y_1d arrays
+    # given the input index is based on the original source data array.
+    flat_index_ratio: float = 1
+
     @property
     def index_field(self) -> 'str':
         '''
@@ -91,8 +95,8 @@ class IncrementalFormatter(msgspec.Struct):
     xy_nd_stop: int | None = None
 
     # TODO: eventually incrementally update 1d-pre-graphics path data?
-    # x_1d: Optional[np.ndarray] = None
-    # y_1d: Optional[np.ndarray] = None
+    x_1d: np.ndarray | None = None
+    y_1d: np.ndarray | None = None
 
     # incremental view-change state(s) tracking
     _last_vr: tuple[float, float] | None = None
@@ -105,32 +109,6 @@ class IncrementalFormatter(msgspec.Struct):
 
         '''
         return self.viz.index_step()
-
-    def __repr__(self) -> str:
-        msg = (
-            f'{type(self)}: ->\n\n'
-            f'fqsn={self.viz.name}\n'
-            f'shm_name={self.shm.token["shm_name"]}\n\n'
-
-            f'last_vr={self._last_vr}\n'
-            f'last_ivdr={self._last_ivdr}\n\n'
-
-            f'xy_slice={self.xy_slice}\n'
-            # f'xy_nd_stop={self.xy_nd_stop}\n\n'
-        )
-
-        x_nd_len = 0
-        y_nd_len = 0
-        if self.x_nd is not None:
-            x_nd_len = len(self.x_nd)
-            y_nd_len = len(self.y_nd)
-
-        msg += (
-            f'x_nd_len={x_nd_len}\n'
-            f'y_nd_len={y_nd_len}\n'
-        )
-
-        return msg
 
     def diff(
         self,
@@ -353,6 +331,11 @@ class IncrementalFormatter(msgspec.Struct):
             array_key,
             view_range,
         )
+        # cache/save last 1d outputs for use by other
+        # readers (eg. `Viz.draw_last_datum()` in the
+        # only-draw-last-uppx case).
+        self.x_1d = x_1d
+        self.y_1d = y_1d
 
         # app_tres = None
         # if append_len:
@@ -533,6 +516,7 @@ class OHLCBarsFmtr(IncrementalFormatter):
     ])
 
     fields: list[str] = ['open', 'high', 'low', 'close']
+    flat_index_ratio: float = 4
 
     def allocate_xy_nd(
         self,
