@@ -330,6 +330,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
         self,
 
         x_range: slice | tuple[int, int] | None = None,
+        i_read_range: tuple[int, int] | None = None,
         use_caching: bool = True,
 
     ) -> tuple[float, float] | None:
@@ -343,7 +344,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
         profiler = Profiler(
             msg=f'{name} -> `{str(self)}.maxmin()`',
             disabled=not pg_profile_enabled(),
-            ms_threshold=ms_slower_then,
+            ms_threshold=4,
             delayed=True,
         )
 
@@ -351,26 +352,34 @@ class Viz(msgspec.Struct):  # , frozen=True):
         if shm is None:
             return None
 
+        do_print: bool = False
         arr = shm.array
 
-        if x_range is None:
-            (
-                l,
-                _,
-                lbar,
-                rbar,
-                _,
-                r,
-            ) = self.datums_range()
+        if i_read_range is not None:
+            read_slc = slice(*i_read_range)
+            index = arr[read_slc][self.index_field]
+            if not index.size:
+                return None
+            ixrng = (index[0], index[-1])
 
-            profiler(f'{self.name} got bars range')
-            x_range = lbar, rbar
+        else:
+            if x_range is None:
+                (
+                    l,
+                    _,
+                    lbar,
+                    rbar,
+                    _,
+                    r,
+                ) = self.datums_range()
 
-        # TODO: hash the slice instead maybe?
-        # https://stackoverflow.com/a/29980872
-        ixrng = (round(lbar), round(rbar))
+                profiler(f'{self.name} got bars range')
+                x_range = lbar, rbar
 
-        do_print: bool = False
+            # TODO: hash the slice instead maybe?
+            # https://stackoverflow.com/a/29980872
+            lbar, rbar = ixrng = round(x_range[0]), round(x_range[1])
+
         if use_caching:
             cached_result = self._mxmns.get(ixrng)
             if cached_result:
@@ -386,21 +395,22 @@ class Viz(msgspec.Struct):  # , frozen=True):
                     mxmn,
                 )
 
-        # get relative slice indexes into array
-        if self.index_field == 'time':
-            read_slc = slice_from_time(
-                arr,
-                start_t=lbar,
-                stop_t=rbar,
-                step=self.index_step(),
-            )
+        if i_read_range is None:
+            # get relative slice indexes into array
+            if self.index_field == 'time':
+                read_slc = slice_from_time(
+                    arr,
+                    start_t=lbar,
+                    stop_t=rbar,
+                    step=self.index_step(),
+                )
 
-        else:
-            ifirst = arr[0]['index']
-            read_slc = slice(
-                lbar - ifirst,
-                (rbar - ifirst) + 1
-            )
+            else:
+                ifirst = arr[0]['index']
+                read_slc = slice(
+                    lbar - ifirst,
+                    (rbar - ifirst) + 1
+                )
 
         slice_view = arr[read_slc]
 
@@ -657,13 +667,17 @@ class Viz(msgspec.Struct):  # , frozen=True):
         profiler = Profiler(
             msg=f'Viz.update_graphics() for {self.name}',
             disabled=not pg_profile_enabled(),
-            ms_threshold=4,
-            # ms_threshold=ms_slower_then,
+            ms_threshold=ms_slower_then,
+            # ms_threshold=4,
         )
         # shm read and slice to view
         read = (
-            xfirst, xlast, src_array,
-            ivl, ivr, in_view,
+            xfirst,
+            xlast,
+            src_array,
+            ivl,
+            ivr,
+            in_view,
         ) = self.read(profiler=profiler)
 
         profiler('read src shm data')
@@ -675,7 +689,10 @@ class Viz(msgspec.Struct):  # , frozen=True):
             or not render
         ):
             # print('exiting early')
-            return graphics
+            return (
+                (ivl, ivr),
+                graphics,
+            )
 
         should_redraw: bool = False
         ds_allowed: bool = True  # guard for m4 activation
@@ -792,7 +809,10 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         if not out:
             log.warning(f'{self.name} failed to render!?')
-            return graphics
+            return (
+                (ivl, ivr),
+                graphics,
+            )
 
         path, reset_cache = out
 
@@ -843,7 +863,10 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # track downsampled state
         self._in_ds = r._in_ds
 
-        return graphics
+        return (
+            (ivl, ivr),
+            graphics,
+        )
 
     def draw_last(
         self,
@@ -1054,7 +1077,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
         if do_ds:
             # view.interaction_graphics_cycle()
             view.maybe_downsample_graphics()
-            view._set_yrange()
+            view._set_yrange(viz=self)
 
     def incr_info(
         self,
