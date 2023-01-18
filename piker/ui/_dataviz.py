@@ -1086,8 +1086,46 @@ class Viz(msgspec.Struct):  # , frozen=True):
         is_1m: bool = False,
 
     ) -> tuple:
+        '''
+        Return a slew of graphics related data-flow metrics to do with
+        incrementally updating a data view.
 
-        _, _, _, r = self.bars_range()  # most recent right datum index in-view
+        Output  info includes,
+        ----------------------
+
+        uppx: float
+            x-domain units-per-pixel.
+
+        liv: bool
+            telling if the "last datum" is in vie"last datum" is in
+            view.
+
+        do_px_step: bool
+            recent data append(s) are enough that the next physical
+            pixel-column should be used for drawing.
+
+        i_diff_t: float
+            the difference between the last globally recorded time stamp
+            aand the current one.
+
+        append_diff: int
+           diff between last recorded "append index" (the index at whic
+           `do_px_step` was last returned `True`) and the current index.
+
+        do_rt_update: bool
+            `True` only when the uppx is less then some threshold
+            defined by `update_uppx`.
+
+        should_tread: bool
+            determines the first step, globally across all callers, that
+            the a set of data views should be "treaded", shifted in the
+            x-domain such that the last datum in view is always in the
+            same spot in non-view/scene (aka GUI coord) terms.
+
+
+        '''
+        # get most recent right datum index in-view
+        l, start, datum_start, datum_stop, stop, r = self.datums_range()
         lasts = self.shm.array[-1]
         i_step = lasts['index']  # last index-specific step.
         i_step_t = lasts['time']  # last time step.
@@ -1136,7 +1174,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # is such that a datum(s) update to graphics wouldn't span
         # to a new pixel, we don't update yet.
         i_last_append = varz['i_last_append']
-        append_diff = i_step - i_last_append
+        append_diff: int = i_step - i_last_append
 
         do_px_step = append_diff >= uppx
         do_rt_update = (uppx < update_uppx)
