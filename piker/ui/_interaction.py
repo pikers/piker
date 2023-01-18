@@ -395,6 +395,10 @@ class ChartView(ViewBox):
         self._ic = None
         self._yranger: Callable | None = None
 
+        # TODO: probably just assign this whenever a new `PlotItem` is
+        # allocated since they're 1to1 with views..
+        self._viz: Viz | None = None
+
     def start_ic(
         self,
     ) -> None:
@@ -533,6 +537,7 @@ class ChartView(ViewBox):
             # scale_y = 1.3 ** (center.y() * -1 / 20)
             self.scaleBy(s, center)
 
+        # zoom in view-box area
         else:
             # use right-most point of current curve graphic
             xl = viz.graphics.x_last()
@@ -552,7 +557,7 @@ class ChartView(ViewBox):
             # update, but i gotta feelin that because this one is signal
             # based (and thus not necessarily sync invoked right away)
             # that calling the resize method manually might work better.
-            self.sigRangeChangedManually.emit(mask)
+            # self.sigRangeChangedManually.emit(mask)
 
             # XXX: without this is seems as though sometimes
             # when zooming in from far out (and maybe vice versa?)
@@ -581,7 +586,10 @@ class ChartView(ViewBox):
         button = ev.button()
 
         # Ignore axes if mouse is disabled
-        mouseEnabled = np.array(self.state['mouseEnabled'], dtype=np.float)
+        mouseEnabled = np.array(
+            self.state['mouseEnabled'],
+            dtype=np.float,
+        )
         mask = mouseEnabled.copy()
         if axis is not None:
             mask[1-axis] = 0.0
@@ -664,7 +672,10 @@ class ChartView(ViewBox):
                 if x is not None or y is not None:
                     self.translateBy(x=x, y=y)
 
-                self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
+                # self.sigRangeChangedManually.emit(mask)
+                    # self.state['mouseEnabled']
+                # )
+                self.maybe_downsample_graphics()
 
                 if ev.isFinish():
                     self.signal_ic()
@@ -672,8 +683,8 @@ class ChartView(ViewBox):
                     # self._ic = None
                     # self.chart.resume_all_feeds()
 
-                # XXX: WHY
-                ev.accept()
+                # # XXX: WHY
+                # ev.accept()
 
         # WEIRD "RIGHT-CLICK CENTER ZOOM" MODE
         elif button & QtCore.Qt.RightButton:
@@ -695,10 +706,12 @@ class ChartView(ViewBox):
             center = Point(tr.map(ev.buttonDownPos(QtCore.Qt.RightButton)))
             self._resetTarget()
             self.scaleBy(x=x, y=y, center=center)
-            self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
 
-            # XXX: WHY
-            ev.accept()
+            # self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
+            self.maybe_downsample_graphics()
+
+        # XXX: WHY
+        ev.accept()
 
     # def mouseClickEvent(self, event: QtCore.QEvent) -> None:
     #      '''This routine is rerouted to an async handler.
@@ -837,12 +850,6 @@ class ChartView(ViewBox):
                 viz=viz,
             )
 
-        # widget-UIs/splitter(s) resizing
-        src_vb.sigResized.connect(self._yranger)
-
-        # mouse wheel doesn't emit XRangeChanged
-        src_vb.sigRangeChangedManually.connect(self._yranger)
-
         # re-sampling trigger:
         # TODO: a smarter way to avoid calling this needlessly?
         # 2 things i can think of:
@@ -850,24 +857,33 @@ class ChartView(ViewBox):
         #   iterate those.
         # - only register this when certain downsample-able graphics are
         #   "added to scene".
-        src_vb.sigRangeChangedManually.connect(
+        # src_vb.sigRangeChangedManually.connect(
+        #     self.maybe_downsample_graphics
+        # )
+
+        # widget-UIs/splitter(s) resizing
+        src_vb.sigResized.connect(
             self.maybe_downsample_graphics
         )
+
+        # mouse wheel doesn't emit XRangeChanged
+        # src_vb.sigRangeChangedManually.connect(self._yranger)
 
     def disable_auto_yrange(self) -> None:
 
         # XXX: not entirely sure why we can't de-reg this..
         self.sigResized.disconnect(
-            self._yranger,
-        )
-
-        self.sigRangeChangedManually.disconnect(
-            self._yranger,
-        )
-
-        self.sigRangeChangedManually.disconnect(
+            # self._yranger,
             self.maybe_downsample_graphics
         )
+
+        # self.sigRangeChangedManually.disconnect(
+        #     self._yranger,
+        # )
+
+        # self.sigRangeChangedManually.disconnect(
+        #     self.maybe_downsample_graphics
+        # )
 
     def x_uppx(self) -> float:
         '''
@@ -889,7 +905,6 @@ class ChartView(ViewBox):
 
     def maybe_downsample_graphics(
         self,
-        autoscale_overlays: bool = False,
     ):
         profiler = Profiler(
             msg=f'ChartView.maybe_downsample_graphics() for {self.name}',
@@ -912,10 +927,10 @@ class ChartView(ViewBox):
             plots |= linked.subplots
 
         for chart_name, chart in plots.items():
-            for name, flow in chart._vizs.items():
+            for name, viz in chart._vizs.items():
 
                 if (
-                    not flow.render
+                    not viz.render
 
                     # XXX: super important to be aware of this.
                     # or not flow.graphics.isVisible()
@@ -925,19 +940,24 @@ class ChartView(ViewBox):
 
                 # pass in no array which will read and render from the last
                 # passed array (normally provided by the display loop.)
-                chart.update_graphics_from_flow(name)
+                i_read_range, _ = viz.update_graphics()
+                out = viz.maxmin(i_read_range=i_read_range)
+                if out is None:
+                    log.warning(f'No yrange provided for {name}!?')
+                    return
+                (
+                    ixrng,
+                    _,
+                    yrange
+                ) = out
 
-                # for each overlay on this chart auto-scale the
-                # y-range to max-min values.
-                # if autoscale_overlays:
-                #     overlay = chart.pi_overlay
-                #     if overlay:
-                #         for pi in overlay.overlays:
-                #             pi.vb._set_yrange(
-                #                 # TODO: get the range once up front...
-                #                 # bars_range=br,
-                #                 viz=pi.viz,
-                #             )
-                #     profiler('autoscaled linked plots')
+                # print(
+                #     f'i_read_range: {i_read_range}\n'
+                #     f'ixrng: {ixrng}\n'
+                #     f'yrange: {yrange}\n'
+                # )
+                viz.plot.vb._set_yrange(yrange=yrange)
+
+            profiler(f'autoscaled overlays {chart_name}')
 
         profiler(f'<{chart_name}>.update_graphics_from_flow({name})')
