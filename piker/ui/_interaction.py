@@ -20,6 +20,7 @@ Chart view box primitives
 """
 from __future__ import annotations
 from contextlib import asynccontextmanager
+from functools import partial
 import time
 from typing import (
     Optional,
@@ -373,7 +374,6 @@ class ChartView(ViewBox):
         )
         # for "known y-range style"
         self._static_yrange = static_yrange
-        self._maxmin = None
 
         # disable vertical scrolling
         self.setMouseEnabled(
@@ -393,6 +393,7 @@ class ChartView(ViewBox):
 
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self._ic = None
+        self._yranger: Callable | None = None
 
     def start_ic(
         self,
@@ -460,16 +461,6 @@ class ChartView(ViewBox):
     def chart(self, chart: ChartPlotWidget) -> None:  # type: ignore # noqa
         self._chart = chart
         self.select_box.chart = chart
-        if self._maxmin is None:
-            self._maxmin = chart.maxmin
-
-    @property
-    def maxmin(self) -> Callable:
-        return self._maxmin
-
-    @maxmin.setter
-    def maxmin(self, callback: Callable) -> None:
-        self._maxmin = callback
 
     def wheelEvent(
         self,
@@ -787,15 +778,27 @@ class ChartView(ViewBox):
             # XXX: only compute the mxmn range
             # if none is provided as input!
             if not yrange:
-                # flow = chart._vizs[name]
-                yrange = self._maxmin()
+
+                if not viz:
+                    breakpoint()
+
+                out = viz.maxmin()
+                if out is None:
+                    log.warning(f'No yrange provided for {name}!?')
+                    return
+                (
+                    ixrng,
+                    _,
+                    yrange
+                ) = out
+
+                profiler(f'`{self.name}:Viz.maxmin()` -> {ixrng}=>{yrange}')
 
                 if yrange is None:
                     log.warning(f'No yrange provided for {name}!?')
                     return
 
             ylow, yhigh = yrange
-            profiler(f'callback ._maxmin(): {yrange}')
 
             # view margins: stay within a % of the "true range"
             diff = yhigh - ylow
@@ -816,6 +819,7 @@ class ChartView(ViewBox):
 
     def enable_auto_yrange(
         self,
+        viz: Viz,
         src_vb: Optional[ChartView] = None,
 
     ) -> None:
@@ -827,8 +831,17 @@ class ChartView(ViewBox):
         if src_vb is None:
             src_vb = self
 
+        if self._yranger is None:
+            self._yranger = partial(
+                self._set_yrange,
+                viz=viz,
+            )
+
         # widget-UIs/splitter(s) resizing
-        src_vb.sigResized.connect(self._set_yrange)
+        src_vb.sigResized.connect(self._yranger)
+
+        # mouse wheel doesn't emit XRangeChanged
+        src_vb.sigRangeChangedManually.connect(self._yranger)
 
         # re-sampling trigger:
         # TODO: a smarter way to avoid calling this needlessly?
@@ -840,34 +853,21 @@ class ChartView(ViewBox):
         src_vb.sigRangeChangedManually.connect(
             self.maybe_downsample_graphics
         )
-        # mouse wheel doesn't emit XRangeChanged
-        src_vb.sigRangeChangedManually.connect(self._set_yrange)
-
-        # XXX: enabling these will cause "jittery"-ness
-        # on zoom where sharp diffs in the y-range will
-        # not re-size right away until a new sample update?
-        # if src_vb is not self:
-        #     src_vb.sigXRangeChanged.connect(self._set_yrange)
-        #     src_vb.sigXRangeChanged.connect(
-        #         self.maybe_downsample_graphics
-        #     )
 
     def disable_auto_yrange(self) -> None:
 
+        # XXX: not entirely sure why we can't de-reg this..
         self.sigResized.disconnect(
-            self._set_yrange,
+            self._yranger,
         )
+
+        self.sigRangeChangedManually.disconnect(
+            self._yranger,
+        )
+
         self.sigRangeChangedManually.disconnect(
             self.maybe_downsample_graphics
         )
-        self.sigRangeChangedManually.disconnect(
-            self._set_yrange,
-        )
-
-        # self.sigXRangeChanged.disconnect(self._set_yrange)
-        # self.sigXRangeChanged.disconnect(
-        #     self.maybe_downsample_graphics
-        # )
 
     def x_uppx(self) -> float:
         '''
@@ -929,14 +929,15 @@ class ChartView(ViewBox):
 
                 # for each overlay on this chart auto-scale the
                 # y-range to max-min values.
-                if autoscale_overlays:
-                    overlay = chart.pi_overlay
-                    if overlay:
-                        for pi in overlay.overlays:
-                            pi.vb._set_yrange(
-                                # TODO: get the range once up front...
-                                # bars_range=br,
-                            )
-                    profiler('autoscaled linked plots')
+                # if autoscale_overlays:
+                #     overlay = chart.pi_overlay
+                #     if overlay:
+                #         for pi in overlay.overlays:
+                #             pi.vb._set_yrange(
+                #                 # TODO: get the range once up front...
+                #                 # bars_range=br,
+                #                 viz=pi.viz,
+                #             )
+                #     profiler('autoscaled linked plots')
 
-                profiler(f'<{chart_name}>.update_graphics_from_flow({name})')
+        profiler(f'<{chart_name}>.update_graphics_from_flow({name})')
