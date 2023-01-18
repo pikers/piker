@@ -629,7 +629,6 @@ class LinkedSplits(QWidget):
         for axis in axes.values():
             axis.pi = cpw.plotItem
 
-
         cpw.hideAxis('left')
         cpw.hideAxis('bottom')
 
@@ -742,6 +741,15 @@ class LinkedSplits(QWidget):
 
         else:
             raise ValueError(f"Chart style {style} is currently unsupported")
+
+        # NOTE: back-link the new sub-chart to trigger y-autoranging in
+        # the (ohlc parent) main chart for this linked set.
+        if self.chart:
+            main_viz = self.chart.get_viz(self.chart.name)
+            self.chart.view.enable_auto_yrange(
+                src_vb=cpw.view,
+                viz=main_viz,
+            )
 
         graphics = viz.graphics
         data_key = viz.name
@@ -1105,15 +1113,6 @@ class ChartPlotWidget(pg.PlotWidget):
             link_axes=(0,),
         )
 
-        # connect auto-yrange callbacks *from* this new
-        # view **to** this parent and likewise *from* the
-        # main/parent chart back *to* the created overlay.
-        cv.enable_auto_yrange(src_vb=self.view)
-
-        # makes it so that interaction on the new overlay will reflect
-        # back on the main chart (which overlay was added to).
-        self.view.enable_auto_yrange(src_vb=cv)
-
         # add axis title
         # TODO: do we want this API to still work?
         # raxis = pi.getAxis('right')
@@ -1184,6 +1183,15 @@ class ChartPlotWidget(pg.PlotWidget):
             # register curve graphics with this viz
             graphics=graphics,
         )
+
+        # connect auto-yrange callbacks *from* this new
+        # view **to** this parent and likewise *from* the
+        # main/parent chart back *to* the created overlay.
+        pi.vb.enable_auto_yrange(
+            src_vb=self.view,
+            viz=viz,
+        )
+
         pi.viz = viz
         assert isinstance(viz.shm, ShmArray)
 
