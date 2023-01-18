@@ -282,9 +282,10 @@ async def run_fsp_ui(
         # profiler(f'fsp:{name} chart created')
 
         # first UI update, usually from shm pushed history
+        viz = chart.get_viz(array_key)
         update_fsp_chart(
             chart,
-            chart.get_viz(array_key),
+            viz,
             name,
             array_key=array_key,
         )
@@ -311,7 +312,7 @@ async def run_fsp_ui(
         #     level_line(chart, 70, orient_v='bottom')
         #     level_line(chart, 80, orient_v='top')
 
-        chart.view._set_yrange()
+        chart.view._set_yrange(viz=viz)
         # done()  # status updates
 
         # profiler(f'fsp:{func_name} starting update loop')
@@ -665,7 +666,7 @@ async def open_vlm_displays(
         # built-in vlm which we plot ASAP since it's
         # usually data provided directly with OHLC history.
         shm = ohlcv
-        ohlc_chart = linked.chart
+        # ohlc_chart = linked.chart
 
         vlm_chart = linked.add_plot(
             name='volume',
@@ -683,13 +684,10 @@ async def open_vlm_displays(
             # the curve item internals are pretty convoluted.
             style='step',
         )
-        vlm_chart.view.enable_auto_yrange()
-
-        # back-link the volume chart to trigger y-autoranging
-        # in the ohlc (parent) chart.
-        ohlc_chart.view.enable_auto_yrange(
-            src_vb=vlm_chart.view,
-        )
+        vlm_viz = vlm_chart._vizs['volume']
+        # vlm_chart.view.enable_auto_yrange(
+        #     viz=vlm_viz,
+        # )
 
         # force 0 to always be in view
         def multi_maxmin(
@@ -741,7 +739,9 @@ async def open_vlm_displays(
         )
 
         # size view to data once at outset
-        vlm_chart.view._set_yrange()
+        vlm_chart.view._set_yrange(
+            viz=vlm_viz
+        )
 
         # add axis title
         axis = vlm_chart.getAxis('right')
@@ -827,7 +827,7 @@ async def open_vlm_displays(
             )
 
             # add custom auto range handler
-            dvlm_pi.vb._maxmin = group_mxmn
+            # dvlm_pi.vb._maxmin = group_mxmn
 
             # add dvlm (step) curves to common view
             def chart_curves(
@@ -926,11 +926,11 @@ async def open_vlm_displays(
 
             )
             # add custom auto range handler
-            tr_pi.vb.maxmin = partial(
-                multi_maxmin,
-                # keep both regular and dark vlm in view
-                names=trade_rate_fields,
-            )
+            # tr_pi.vb.maxmin = partial(
+            #     multi_maxmin,
+            #     # keep both regular and dark vlm in view
+            #     names=trade_rate_fields,
+            # )
             tr_pi.hideAxis('bottom')
 
             chart_curves(
