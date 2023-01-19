@@ -120,7 +120,7 @@ def multi_maxmin(
     ) = out
 
     if profiler:
-        profiler('fast_viz.maxmin({read_slice})')
+        profiler(f'fast_viz.maxmin({read_slc})')
 
     mn, mx = yrange
 
@@ -141,7 +141,7 @@ def multi_maxmin(
             mx_vlm_in_view = mxmn[1]
 
         if profiler:
-            profiler('vlm_viz.maxmin({read_slc})')
+            profiler(f'vlm_viz.maxmin({read_slc})')
 
     return (
         mx,
