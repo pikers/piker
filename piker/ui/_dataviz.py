@@ -819,6 +819,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # XXX: SUPER UGGGHHH... without this we get stale cache
         # graphics that "smear" across the view horizontally
         # when panning and the first datum is out of view..
+        reset_cache = False
         if (
             reset_cache
         ):
@@ -895,7 +896,8 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # worth of data since that's all the screen
         # can represent on the last column where
         # the most recent datum is being drawn.
-        uppx = ceil(self._last_uppx)
+        uppx = ceil(gfx.x_uppx())
+
         if (
             (self._in_ds or only_last_uppx)
             and uppx > 0
@@ -903,41 +905,34 @@ class Viz(msgspec.Struct):  # , frozen=True):
             alt_renderer = self._alt_r
             if alt_renderer:
                 renderer, gfx = alt_renderer
-                fmtr = renderer.fmtr
-                x = fmtr.x_1d
-                y = fmtr.y_1d
             else:
                 renderer = self._src_r
-                fmtr = renderer.fmtr
-                x = fmtr.x_1d
-                y = fmtr.y_1d
 
+            fmtr = renderer.fmtr
+            x = fmtr.x_1d
+            y = fmtr.y_1d
+
+            iuppx = ceil(uppx)
             if alt_renderer:
-                uppx *= fmtr.flat_index_ratio
+                iuppx = ceil(uppx / fmtr.flat_index_ratio)
 
-            y = y[-uppx:]
+            y = y[-iuppx:]
             ymn, ymx = y.min(), y.max()
             try:
-                iuppx = x[-uppx]
+                x_start = x[-iuppx]
             except IndexError:
                 # we're less then an x-px wide so just grab the start
                 # datum index.
-                iuppx = x[0]
+                x_start = x[0]
 
             gfx._last_line = QLineF(
-                iuppx, ymn,
+                x_start, ymn,
                 x[-1], ymx,
             )
-            # if self.is_ohlc:
-            #     times = self.shm.array['time']
-            #     time_step = times[-1] - times[-2]
-            #     # if 'hist' in self.shm.token['shm_name']
-            #     # if self.index_step() == 1:
-            #     #     breakpoint()
-            #     print(
-            #         f'updating DS curve {self.name}@{time_step}s\n'
-            #         f'drawing uppx={uppx} mxmn line: {ymn}, {ymx}'
-            #     )
+            # print(
+            #     f'updating DS curve {self.name}@{time_step}s\n'
+            #     f'drawing uppx={uppx} mxmn line: {ymn}, {ymx}'
+            # )
 
         else:
             x, y = gfx.draw_last_datum(
