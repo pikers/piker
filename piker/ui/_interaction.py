@@ -20,7 +20,6 @@ Chart view box primitives
 """
 from __future__ import annotations
 from contextlib import asynccontextmanager
-from functools import partial
 import time
 from typing import (
     Optional,
@@ -393,7 +392,6 @@ class ChartView(ViewBox):
 
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self._ic = None
-        self._yranger: Callable | None = None
 
         # TODO: probably just assign this whenever a new `PlotItem` is
         # allocated since they're 1to1 with views..
@@ -567,6 +565,7 @@ class ChartView(ViewBox):
             # that never seems to happen? Only question is how much this
             # "double work" is causing latency when these missing event
             # fires don't happen?
+            self.maybe_downsample_graphics()
             self.maybe_downsample_graphics()
 
             ev.accept()
@@ -763,7 +762,6 @@ class ChartView(ViewBox):
             ms_threshold=ms_slower_then,
             delayed=True,
         )
-        set_range = True
         chart = self._chart
 
         # view has been set in 'axis' mode
@@ -772,8 +770,8 @@ class ChartView(ViewBox):
         # - disable autoranging
         # - remove any y range limits
         if chart._static_yrange == 'axis':
-            set_range = False
             self.setLimits(yMin=None, yMax=None)
+            return
 
         # static y-range has been set likely by
         # a specialized FSP configuration.
@@ -786,48 +784,63 @@ class ChartView(ViewBox):
         elif yrange is not None:
             ylow, yhigh = yrange
 
-        if set_range:
+        # XXX: only compute the mxmn range
+        # if none is provided as input!
+        if not yrange:
 
-            # XXX: only compute the mxmn range
-            # if none is provided as input!
-            if not yrange:
+            if not viz:
+                breakpoint()
 
-                if not viz:
-                    breakpoint()
+            out = viz.maxmin()
+            if out is None:
+                log.warning(f'No yrange provided for {name}!?')
+                return
+            (
+                ixrng,
+                _,
+                yrange
+            ) = out
 
-                out = viz.maxmin()
-                if out is None:
-                    log.warning(f'No yrange provided for {name}!?')
-                    return
-                (
-                    ixrng,
-                    _,
-                    yrange
-                ) = out
+            profiler(f'`{self.name}:Viz.maxmin()` -> {ixrng}=>{yrange}')
 
-                profiler(f'`{self.name}:Viz.maxmin()` -> {ixrng}=>{yrange}')
-
-                if yrange is None:
-                    log.warning(f'No yrange provided for {name}!?')
-                    return
+            if yrange is None:
+                log.warning(f'No yrange provided for {name}!?')
+                return
 
             ylow, yhigh = yrange
 
-            # view margins: stay within a % of the "true range"
-            diff = yhigh - ylow
-            ylow = ylow - (diff * range_margin)
-            yhigh = yhigh + (diff * range_margin)
+        # view margins: stay within a % of the "true range"
+        diff = yhigh - ylow
+        ylow = max(
+            ylow - (diff * range_margin),
+            0,
+        )
+        yhigh = min(
+            yhigh + (diff * range_margin),
+            yhigh * (1 + range_margin),
+        )
 
-            # XXX: this often needs to be unset
-            # to get different view modes to operate
-            # correctly!
-            self.setLimits(
-                yMin=ylow,
-                yMax=yhigh,
-            )
-            self.setYRange(ylow, yhigh)
-            profiler(f'set limits: {(ylow, yhigh)}')
+        # XXX: this often needs to be unset
+        # to get different view modes to operate
+        # correctly!
 
+        profiler(
+            f'set limits {self.name}:\n'
+            f'ylow: {ylow}\n'
+            f'yhigh: {yhigh}\n'
+        )
+        self.setYRange(
+            ylow,
+            yhigh,
+            padding=0,
+        )
+        self.setLimits(
+            yMin=ylow,
+            yMax=yhigh,
+        )
+
+        # LOL: yet anothercucking pg buggg..
+        # can't use `msg=f'setYRange({ylow}, {yhigh}')`
         profiler.finish()
 
     def enable_auto_yrange(
@@ -843,12 +856,6 @@ class ChartView(ViewBox):
         '''
         if src_vb is None:
             src_vb = self
-
-        if self._yranger is None:
-            self._yranger = partial(
-                self._set_yrange,
-                viz=viz,
-            )
 
         # re-sampling trigger:
         # TODO: a smarter way to avoid calling this needlessly?
@@ -866,24 +873,12 @@ class ChartView(ViewBox):
             self.maybe_downsample_graphics
         )
 
-        # mouse wheel doesn't emit XRangeChanged
-        # src_vb.sigRangeChangedManually.connect(self._yranger)
-
     def disable_auto_yrange(self) -> None:
 
         # XXX: not entirely sure why we can't de-reg this..
         self.sigResized.disconnect(
-            # self._yranger,
             self.maybe_downsample_graphics
         )
-
-        # self.sigRangeChangedManually.disconnect(
-        #     self._yranger,
-        # )
-
-        # self.sigRangeChangedManually.disconnect(
-        #     self.maybe_downsample_graphics
-        # )
 
     def x_uppx(self) -> float:
         '''
@@ -908,14 +903,18 @@ class ChartView(ViewBox):
     ):
         profiler = Profiler(
             msg=f'ChartView.maybe_downsample_graphics() for {self.name}',
-            disabled=not pg_profile_enabled(),
+            # disabled=not pg_profile_enabled(),
+
+            # ms_threshold=ms_slower_then,
+
+            disabled=True,
+            ms_threshold=4,
 
             # XXX: important to avoid not seeing underlying
             # ``.update_graphics_from_flow()`` nested profiling likely
             # due to the way delaying works and garbage collection of
             # the profiler in the delegated method calls.
-            ms_threshold=6,
-            # ms_threshold=ms_slower_then,
+            delayed=True,
         )
 
         # TODO: a faster single-loop-iterator way of doing this XD
@@ -927,20 +926,22 @@ class ChartView(ViewBox):
             plots |= linked.subplots
 
         for chart_name, chart in plots.items():
+
+            mxmns: dict[
+                pg.PlotItem,
+                tuple[float, float],
+            ] = {}
+
             for name, viz in chart._vizs.items():
-
-                if (
-                    not viz.render
-
-                    # XXX: super important to be aware of this.
-                    # or not flow.graphics.isVisible()
-                ):
+                if not viz.render:
                     # print(f'skipping {flow.name}')
                     continue
 
                 # pass in no array which will read and render from the last
                 # passed array (normally provided by the display loop.)
                 i_read_range, _ = viz.update_graphics()
+                profiler(f'{viz.name}@{chart_name} `Viz.update_graphics()`')
+
                 out = viz.maxmin(i_read_range=i_read_range)
                 if out is None:
                     log.warning(f'No yrange provided for {name}!?')
@@ -951,13 +952,40 @@ class ChartView(ViewBox):
                     yrange
                 ) = out
 
-                # print(
-                #     f'i_read_range: {i_read_range}\n'
-                #     f'ixrng: {ixrng}\n'
-                #     f'yrange: {yrange}\n'
-                # )
-                viz.plot.vb._set_yrange(yrange=yrange)
+                pi = viz.plot
+                mxmn = mxmns.get(pi)
+                if mxmn:
+                    yrange = mxmns[pi] = (
+                        min(yrange[0], mxmn[0]),
+                        max(yrange[1], mxmn[1]),
+                    )
+
+                else:
+                    mxmns[viz.plot] = yrange
+
+                pi.vb._set_yrange(yrange=yrange)
+                profiler(
+                    f'{viz.name}@{chart_name} `Viz.plot.vb._set_yrange()`'
+                )
+
+                # if 'dolla_vlm' in viz.name:
+                #     print(
+                #         f'AUTO-Y-RANGING: {viz.name}\n'
+                #         f'i_read_range: {i_read_range}\n'
+                #         f'ixrng: {ixrng}\n'
+                #         f'yrange: {yrange}\n'
+                #     )
+                #     (
+                #         view_xrange,
+                #         view_yrange,
+                #     ) = viz.plot.vb.viewRange()
+                #     print(
+                #         f'{viz.name}@{chart_name}\n'
+                #         f'  xRange -> {view_xrange}\n'
+                #         f'  yRange -> {view_yrange}\n'
+                #     )
 
             profiler(f'autoscaled overlays {chart_name}')
 
         profiler(f'<{chart_name}>.update_graphics_from_flow({name})')
+        profiler.finish()
