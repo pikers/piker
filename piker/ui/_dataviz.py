@@ -1070,9 +1070,8 @@ class Viz(msgspec.Struct):  # , frozen=True):
         )
 
         if do_ds:
-            # view.interaction_graphics_cycle()
-            view.maybe_downsample_graphics()
-            view._set_yrange(viz=self)
+            view.interact_graphics_cycle()
+            # view._set_yrange(viz=self)
 
     def incr_info(
         self,
