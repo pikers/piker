@@ -112,6 +112,7 @@ class Curve(FlowGraphic):
       updates don't trigger a full path redraw.
 
     '''
+    cache_mode: int = QGraphicsItem.DeviceCoordinateCache
 
     def __init__(
         self,
@@ -178,7 +179,7 @@ class Curve(FlowGraphic):
         # only thing drawn is the "last" line segment which can
         # have a weird artifact where it won't be fully drawn to its
         # endpoint (something we saw on trade rate curves)
-        self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
+        self.setCacheMode(self.cache_mode)
 
         # XXX-NOTE-XXX: graphics caching.
         # see explanation for different caching modes:
@@ -381,6 +382,9 @@ class Curve(FlowGraphic):
 # element such that the current datum in view can be shown
 # (via it's max / min) even when highly zoomed out.
 class FlattenedOHLC(Curve):
+
+    # avoids strange dragging/smearing artifacts when panning..
+    cache_mode: int = QGraphicsItem.NoCache
 
     def draw_last_datum(
         self,
