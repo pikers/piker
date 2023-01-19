@@ -685,33 +685,6 @@ async def open_vlm_displays(
             style='step',
         )
         vlm_viz = vlm_chart._vizs['volume']
-        # vlm_chart.view.enable_auto_yrange(
-        #     viz=vlm_viz,
-        # )
-
-        # force 0 to always be in view
-        def multi_maxmin(
-            names: list[str],
-
-        ) -> tuple[float, float]:
-            '''
-            Viz "group" maxmin loop; assumes all named flows
-            are in the same co-domain and thus can be sorted
-            as one set.
-
-            Iterates all the named flows and calls the chart
-            api to find their range values and return.
-
-            TODO: really we should probably have a more built-in API
-            for this?
-
-            '''
-            mx = 0
-            for name in names:
-                ymn, ymx = vlm_chart.maxmin(name=name)
-                mx = max(mx, ymx)
-
-            return 0, mx
 
         # TODO: fix the x-axis label issue where if you put
         # the axis on the left it's totally not lined up...
@@ -806,7 +779,7 @@ async def open_vlm_displays(
             dvlm_pi.hideAxis('bottom')
 
             # all to be overlayed curve names
-            fields = [
+            dvlm_fields = [
                'dolla_vlm',
                'dark_vlm',
             ]
@@ -818,16 +791,6 @@ async def open_vlm_displays(
                 'trade_rate',
                 'dark_trade_rate',
             ]
-
-            group_mxmn = partial(
-                multi_maxmin,
-                # keep both regular and dark vlm in view
-                names=fields,
-                # names=fields + dvlm_rate_fields,
-            )
-
-            # add custom auto range handler
-            # dvlm_pi.vb._maxmin = group_mxmn
 
             # add dvlm (step) curves to common view
             def chart_curves(
@@ -865,7 +828,7 @@ async def open_vlm_displays(
                     assert viz.plot is pi
 
             chart_curves(
-                fields,
+                dvlm_fields,
                 dvlm_pi,
                 dvlm_flume.rt_shm,
                 dvlm_flume,
@@ -925,12 +888,6 @@ async def open_vlm_displays(
                 },
 
             )
-            # add custom auto range handler
-            # tr_pi.vb.maxmin = partial(
-            #     multi_maxmin,
-            #     # keep both regular and dark vlm in view
-            #     names=trade_rate_fields,
-            # )
             tr_pi.hideAxis('bottom')
 
             chart_curves(
