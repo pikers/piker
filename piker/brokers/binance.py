@@ -519,14 +519,15 @@ async def stream_quotes(
                 subs.append("{sym}@bookTicker")
 
             # unsub from all pairs on teardown
-            await ws.send_msg({
-                "method": "UNSUBSCRIBE",
-                "params": subs,
-                "id": uid,
-            })
+            if ws.connected():
+                await ws.send_msg({
+                    "method": "UNSUBSCRIBE",
+                    "params": subs,
+                    "id": uid,
+                })
 
-            # XXX: do we need to ack the unsub?
-            # await ws.recv_msg()
+                # XXX: do we need to ack the unsub?
+                # await ws.recv_msg()
 
         async with open_autorecon_ws(
             'wss://stream.binance.com/ws',
