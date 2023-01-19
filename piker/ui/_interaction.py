@@ -509,7 +509,7 @@ class ChartView(ViewBox):
         #     return
 
         # actual scaling factor
-        s = 1.015 ** (ev.delta() * -1 / 20)  # self.state['wheelScaleFactor'])
+        s = 1.016 ** (ev.delta() * -1 / 20)  # self.state['wheelScaleFactor'])
         s = [(None if m is False else s) for m in mask]
 
         if (
@@ -565,8 +565,8 @@ class ChartView(ViewBox):
             # that never seems to happen? Only question is how much this
             # "double work" is causing latency when these missing event
             # fires don't happen?
-            self.maybe_downsample_graphics()
-            self.maybe_downsample_graphics()
+            self.interact_graphics_cycle()
+            self.interact_graphics_cycle()
 
             ev.accept()
 
@@ -674,7 +674,7 @@ class ChartView(ViewBox):
                 # self.sigRangeChangedManually.emit(mask)
                     # self.state['mouseEnabled']
                 # )
-                self.maybe_downsample_graphics()
+                self.interact_graphics_cycle()
 
                 if ev.isFinish():
                     self.signal_ic()
@@ -707,7 +707,7 @@ class ChartView(ViewBox):
             self.scaleBy(x=x, y=y, center=center)
 
             # self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
-            self.maybe_downsample_graphics()
+            self.interact_graphics_cycle()
 
         # XXX: WHY
         ev.accept()
@@ -865,19 +865,19 @@ class ChartView(ViewBox):
         # - only register this when certain downsample-able graphics are
         #   "added to scene".
         # src_vb.sigRangeChangedManually.connect(
-        #     self.maybe_downsample_graphics
+        #     self.interact_graphics_cycle
         # )
 
         # widget-UIs/splitter(s) resizing
         src_vb.sigResized.connect(
-            self.maybe_downsample_graphics
+            self.interact_graphics_cycle
         )
 
     def disable_auto_yrange(self) -> None:
 
         # XXX: not entirely sure why we can't de-reg this..
         self.sigResized.disconnect(
-            self.maybe_downsample_graphics
+            self.interact_graphics_cycle
         )
 
     def x_uppx(self) -> float:
@@ -898,11 +898,11 @@ class ChartView(ViewBox):
         else:
             return 0
 
-    def maybe_downsample_graphics(
+    def interact_graphics_cycle(
         self,
     ):
         profiler = Profiler(
-            msg=f'ChartView.maybe_downsample_graphics() for {self.name}',
+            msg=f'ChartView.interact_graphics_cycle() for {self.name}',
             # disabled=not pg_profile_enabled(),
 
             # ms_threshold=ms_slower_then,
@@ -927,6 +927,10 @@ class ChartView(ViewBox):
 
         for chart_name, chart in plots.items():
 
+            # Viz "group" maxmins table; presumes that some path
+            # graphics (and thus their backing data sets)
+            # are in the same co-domain and thus can be sorted
+            # as one set per plot.
             mxmns: dict[
                 pg.PlotItem,
                 tuple[float, float],
