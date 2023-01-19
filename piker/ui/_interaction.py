@@ -46,6 +46,7 @@ from . import _event
 if TYPE_CHECKING:
     from ._chart import ChartPlotWidget
     from ._dataviz import Viz
+    # from ._overlay import PlotItemOverlay
 
 
 log = get_logger(__name__)
@@ -931,9 +932,16 @@ class ChartView(ViewBox):
             # graphics (and thus their backing data sets)
             # are in the same co-domain and thus can be sorted
             # as one set per plot.
-            mxmns: dict[
+            mxmns_by_pi: dict[
                 pg.PlotItem,
                 tuple[float, float],
+            ] = {}
+
+            # collect certain flows into groups and do a common calc to
+            # determine auto-ranging input for `._set_yrange()`.
+            mxmn_groups: dict[
+                set[Viz],
+                set[Viz, tuple[float, float]],
             ] = {}
 
             for name, viz in chart._vizs.items():
@@ -957,15 +965,19 @@ class ChartView(ViewBox):
                 ) = out
 
                 pi = viz.plot
-                mxmn = mxmns.get(pi)
+                mxmn = mxmns_by_pi.get(pi)
                 if mxmn:
-                    yrange = mxmns[pi] = (
+                    yrange = mxmns_by_pi[pi] = (
                         min(yrange[0], mxmn[0]),
                         max(yrange[1], mxmn[1]),
                     )
 
                 else:
-                    mxmns[viz.plot] = yrange
+                    mxmns_by_pi[pi] = yrange
+
+                if viz.is_ohlc:
+                    # print(f'adding {viz.name} to overlay')
+                    mxmn_groups[viz.name] = out
 
                 pi.vb._set_yrange(yrange=yrange)
                 profiler(
@@ -991,5 +1003,68 @@ class ChartView(ViewBox):
 
             profiler(f'autoscaled overlays {chart_name}')
 
-        profiler(f'<{chart_name}>.update_graphics_from_flow({name})')
+            profiler(f'<{chart_name}>.interact_graphics_cycle({name})')
+
+            # proportional group auto-scaling per overlay set.
+            # -> loop through overlays on each multi-chart widget
+            #    and scale all y-ranges based on autoscale config.
+            group_mx: float = 0
+            group_mn: float = 0
+            mx_up_rng: float = 0
+            mn_down_rng: float = 0
+            start_datums: dict[ViewBox, float] = {}
+
+            for viz_name, out in mxmn_groups.items():
+                (
+                    ixrng,
+                    read_slc,
+                    (ymn, ymx),
+                ) = out
+
+                # determine start datum in view
+                viz = chart._vizs[viz_name]
+                arr = viz.shm.array
+                row_start = arr[read_slc.start - 1]
+                # row_stop = arr[read_slc.stop - 1]
+                if viz.is_ohlc:
+                    y_start = row_start['open']
+                    # y_stop = row_stop['close']
+                else:
+                    y_start = row_start[viz.name]
+                    # y_stop = row_stop[viz.name]
+
+                start_datums[viz.plot.vb] = (viz, y_start)
+
+                # update max for group
+                up_rng = (ymx - y_start) / y_start
+                down_rng = (ymn - y_start) / y_start
+
+                # compute directional (up/down) y-range % swing/dispersion
+                mx_up_rng = max(mx_up_rng, up_rng)
+                mn_down_rng = min(mn_down_rng, down_rng)
+
+                # pis2ranges[pi] = (ymn, ymx)
+
+                group_mx = max(group_mx, ymx)
+                group_mn = min(group_mn, ymn)
+
+                print(
+                    f'{viz.name}@{chart_name} group mxmn calc\n'
+                    f'ymn: {ymn}\n'
+                    f'ymx: {ymx}\n'
+                    f'down %: {mx_up_rng * 100}\n'
+                    f'up %: {mn_down_rng * 100}\n'
+                )
+
+            for view, (viz, ystart) in start_datums.items():
+                ymn = ystart * (1 + mn_down_rng)
+                ymx = ystart * (1 + mx_up_rng)
+                print(
+                    f'{view.name} APPLY group mxmn\n'
+                    f'ystart: {ystart}\n'
+                    f'ymn: {ymn}\n'
+                    f'ymx: {ymx}\n'
+                )
+                view._set_yrange(yrange=(ymn, ymx))
+
         profiler.finish()
