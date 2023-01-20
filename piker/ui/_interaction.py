@@ -737,7 +737,7 @@ class ChartView(ViewBox):
 
         # NOTE: this value pairs (more or less) with L1 label text
         # height offset from from the bid/ask lines.
-        range_margin: float = 0.09,
+        range_margin: float | None = 0.09,
 
         bars_range: Optional[tuple[int, int, int, int]] = None,
 
@@ -811,15 +811,16 @@ class ChartView(ViewBox):
             ylow, yhigh = yrange
 
         # view margins: stay within a % of the "true range"
-        diff = yhigh - ylow
-        ylow = max(
-            ylow - (diff * range_margin),
-            0,
-        )
-        yhigh = min(
-            yhigh + (diff * range_margin),
-            yhigh * (1 + range_margin),
-        )
+        if range_margin is not None:
+            diff = yhigh - ylow
+            ylow = max(
+                ylow - (diff * range_margin),
+                0,
+            )
+            yhigh = min(
+                yhigh + (diff * range_margin),
+                yhigh * (1 + range_margin),
+            )
 
         # XXX: this often needs to be unset
         # to get different view modes to operate
@@ -979,12 +980,194 @@ class ChartView(ViewBox):
                     # print(f'adding {viz.name} to overlay')
                     mxmn_groups[viz.name] = out
 
-                pi.vb._set_yrange(yrange=yrange)
-                profiler(
-                    f'{viz.name}@{chart_name} `Viz.plot.vb._set_yrange()`'
+                else:
+                    pi.vb._set_yrange(yrange=yrange)
+                    profiler(
+                        f'{viz.name}@{chart_name} `Viz.plot.vb._set_yrange()`'
+                    )
+
+            profiler(f'<{chart_name}>.interact_graphics_cycle({name})')
+
+            # proportional group auto-scaling per overlay set.
+            # -> loop through overlays on each multi-chart widget
+            #    and scale all y-ranges based on autoscale config.
+            # -> for any "group" overlay we want to dispersion normalize
+            #    and scale minor charts onto the major chart: the chart
+            #    with the most dispersion in the set.
+            major_mx: float = 0
+            major_mn: float = float('inf')
+            mx_up_rng: float = 0
+            mn_down_rng: float = 0
+            mx_disp: float = 0
+            start_datums: dict[
+                ViewBox,
+                tuple[
+                    Viz,
+                    float,  # y start
+                    float,  # y min
+                    float,  # y max
+                    float,  # y median
+                    slice,  # in-view array slice
+                ],
+            ] = {}
+            max_start: float = 0
+            major_viz: Viz = None
+
+            for viz_name, out in mxmn_groups.items():
+                (
+                    ixrng,
+                    read_slc,
+                    (ymn, ymx),
+                ) = out
+
+
+                x_start = ixrng[0]
+                max_start = max(x_start, max_start)
+
+                # determine start datum in view
+                viz = chart._vizs[viz_name]
+                arr = viz.shm.array
+                in_view = arr[read_slc]
+                row_start = arr[read_slc.start - 1]
+                # row_stop = arr[read_slc.stop - 1]
+
+                if viz.is_ohlc:
+                    y_median = np.median(in_view['close'])
+                    y_start = row_start['open']
+                else:
+                    y_median = np.median(in_view[viz.name])
+                    y_start = row_start[viz.name]
+                    # y_stop = row_stop[viz.name]
+
+                start_datums[viz.plot.vb] = (
+                    viz,
+                    y_start,
+                    ymn,
+                    ymx,
+                    y_median,
+                    read_slc,
                 )
 
-                # if 'dolla_vlm' in viz.name:
+                # compute directional (up/down) y-range % swing/dispersion
+                y_ref = y_median
+                up_rng = (ymx - y_ref) / y_ref
+                down_rng = (ymn - y_ref) / y_ref
+                disp = abs(ymx - ymn) / y_ref
+
+                # track the "major" curve as the curve with most
+                # dispersion.
+                if disp > mx_disp:
+                    major_viz = viz
+                    mx_disp = disp
+                    major_mn = ymn
+                    major_mx = ymx
+
+                mx_up_rng = max(mx_up_rng, up_rng)
+                mn_down_rng = min(mn_down_rng, down_rng)
+
+                print(
+                    f'{viz.name}@{chart_name} group mxmn calc\n'
+                    f'y_start: {y_start}\n'
+                    f'ymn: {ymn}\n'
+                    f'ymx: {ymx}\n'
+                    f'mx_disp: {mx_disp}\n'
+                    f'up %: {up_rng * 100}\n'
+                    f'down %: {down_rng * 100}\n'
+                    f'mx up %: {mx_up_rng * 100}\n'
+                    f'mn down %: {mn_down_rng * 100}\n'
+                )
+
+            for (
+                view,
+                (
+                    viz,
+                    y_start,
+                    y_min,
+                    y_max,
+                    y_median,
+                    read_slc,
+                )
+            ) in start_datums.items():
+
+                # TODO: just use y_min / y_max directly for the major
+                # `Viz` instead of the below calc since it should be the
+                # same output..
+                symn = y_median * (1 + mn_down_rng)
+                symx = y_median * (1 + mx_up_rng)
+
+                if not (viz is major_viz):
+
+                    # compute dispersion normed offsets at the start
+                    # index of the smaller dispersion curve.
+                    maj_viz_arr = major_viz.shm.array
+
+                    key = 'open' if viz.is_ohlc else viz.name
+
+                    # handle case where major (dispersion) curve has
+                    # a smaller domain then minor one(s).
+                    istart = read_slc.start
+                    if read_slc.start > maj_viz_arr.size:
+                        istart = 0
+
+                    maj_start_y = maj_viz_arr[istart][key]
+
+                    maj_start_offset = maj_start_y / major_mn
+                    maj_max_offset = major_mx / major_mn
+
+                    # XXX: or this?
+                    # maj_start_offset = (maj_start_y - major_mn) / major_mn
+                    # maj_max_offset = (major_mx - maj_start_y) / major_mn
+
+                    # XXX: or this?
+                    # major_disp_offset = (
+                    #     (maj_viz_arr[istart][key] - major_mn)
+                    #     /
+                    #     major_mn
+                    # )
+                    # minor_disp_offset_mn = (
+                    #     (y_start - y_min)
+                    #     /
+                    #     y_min
+                    # )
+                    # minor_disp_offset_mx = (
+                    #     (ymx - y_start)
+                    #     /
+                    #     y_min
+
+                    # normed_disp_ratio = minor_disp_offset - major_disp_offset
+
+
+                    # adjust mxmn range to align curve start point in
+                    # the minor overlay with the major one.
+
+                    # symn = symn * (1 + normed_disp_ratio)
+                    # symx = symx * (1 + normed_disp_ratio)
+
+                    # symn = symn - (symn * normed_disp_ratio)
+                    # symx = symx - (symn * normed_disp_ratio)
+
+                    # symn = y_min * maj_start_offset
+                    # symx = y_min * maj_max_offset
+
+                    print(
+                        f'{view.name} APPLY group mxmn\n'
+                        # f'disp offset ratio diff %: {normed_disp_ratio}\n'
+                        # f'major disp offset %: {major_disp_offset}\n'
+                        # f'minor disp offset %: {minor_disp_offset}\n'
+                        f'y_start: {y_start}\n'
+                        f'mn_down_rng: {mn_down_rng * 100}\n'
+                        f'mx_up_rng: {mx_up_rng * 100}\n'
+                        f'scaled ymn: {symn}\n'
+                        f'scaled ymx: {symx}\n'
+                        f'scaled mx_disp: {mx_disp}\n'
+                    )
+
+                view._set_yrange(
+                    yrange=(symn, symx),
+                    # range_margin=None,
+                )
+
+                # if 'mnq' in viz.name:
                 #     print(
                 #         f'AUTO-Y-RANGING: {viz.name}\n'
                 #         f'i_read_range: {i_read_range}\n'
@@ -995,76 +1178,15 @@ class ChartView(ViewBox):
                 #         view_xrange,
                 #         view_yrange,
                 #     ) = viz.plot.vb.viewRange()
+                #     view_ymx = view_yrange[1]
                 #     print(
                 #         f'{viz.name}@{chart_name}\n'
                 #         f'  xRange -> {view_xrange}\n'
                 #         f'  yRange -> {view_yrange}\n'
+                #         f'  view y-max -> {view_ymx}\n'
                 #     )
 
-            profiler(f'autoscaled overlays {chart_name}')
-
-            profiler(f'<{chart_name}>.interact_graphics_cycle({name})')
-
-            # proportional group auto-scaling per overlay set.
-            # -> loop through overlays on each multi-chart widget
-            #    and scale all y-ranges based on autoscale config.
-            group_mx: float = 0
-            group_mn: float = 0
-            mx_up_rng: float = 0
-            mn_down_rng: float = 0
-            start_datums: dict[ViewBox, float] = {}
-
-            for viz_name, out in mxmn_groups.items():
-                (
-                    ixrng,
-                    read_slc,
-                    (ymn, ymx),
-                ) = out
-
-                # determine start datum in view
-                viz = chart._vizs[viz_name]
-                arr = viz.shm.array
-                row_start = arr[read_slc.start - 1]
-                # row_stop = arr[read_slc.stop - 1]
-                if viz.is_ohlc:
-                    y_start = row_start['open']
-                    # y_stop = row_stop['close']
-                else:
-                    y_start = row_start[viz.name]
-                    # y_stop = row_stop[viz.name]
-
-                start_datums[viz.plot.vb] = (viz, y_start)
-
-                # update max for group
-                up_rng = (ymx - y_start) / y_start
-                down_rng = (ymn - y_start) / y_start
-
-                # compute directional (up/down) y-range % swing/dispersion
-                mx_up_rng = max(mx_up_rng, up_rng)
-                mn_down_rng = min(mn_down_rng, down_rng)
-
-                # pis2ranges[pi] = (ymn, ymx)
-
-                group_mx = max(group_mx, ymx)
-                group_mn = min(group_mn, ymn)
-
-                print(
-                    f'{viz.name}@{chart_name} group mxmn calc\n'
-                    f'ymn: {ymn}\n'
-                    f'ymx: {ymx}\n'
-                    f'down %: {mx_up_rng * 100}\n'
-                    f'up %: {mn_down_rng * 100}\n'
-                )
-
-            for view, (viz, ystart) in start_datums.items():
-                ymn = ystart * (1 + mn_down_rng)
-                ymx = ystart * (1 + mx_up_rng)
-                print(
-                    f'{view.name} APPLY group mxmn\n'
-                    f'ystart: {ystart}\n'
-                    f'ymn: {ymn}\n'
-                    f'ymx: {ymx}\n'
-                )
-                view._set_yrange(yrange=(ymn, ymx))
+                #     if view_ymx != symx:
+                #         breakpoint()
 
         profiler.finish()
