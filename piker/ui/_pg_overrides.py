@@ -91,7 +91,7 @@ class PlotItem(pg.PlotItem):
         title=None,
         viewBox=None,
         axisItems=None,
-        default_axes=['left', 'bottom'],
+        default_axes=['right', 'bottom'],
         enableMenu=True,
         **kargs
     ):
@@ -130,7 +130,7 @@ class PlotItem(pg.PlotItem):
 
         If the ``unlink: bool`` is set to ``False`` then the axis will
         stay linked to its view and will only be removed from the
-        layoutonly be removed from the layout.
+        layout.
 
         If no axis with ``name: str`` is found then this is a noop.
 
@@ -144,7 +144,10 @@ class PlotItem(pg.PlotItem):
 
         axis = entry['item']
         self.layout.removeItem(axis)
-        axis.scene().removeItem(axis)
+        scn = axis.scene()
+        if scn:
+            scn.removeItem(axis)
+
         if unlink:
             axis.unlinkFromView()
 
