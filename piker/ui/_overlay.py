@@ -115,6 +115,7 @@ class ComposedGridLayout:
 
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(0)
+            layout.setMinimumWidth(0)
 
             if name in ('top', 'bottom'):
                 orient = Qt.Vertical
@@ -124,7 +125,11 @@ class ComposedGridLayout:
 
             layout.setOrientation(orient)
 
-        self.insert_plotitem(0, pi)
+        self.insert_plotitem(
+            0,
+            pi,
+            remove_axes=False,
+        )
 
         # insert surrounding linear layouts into the parent pi's layout
         # such that additional axes can be appended arbitrarily without
@@ -139,7 +144,9 @@ class ComposedGridLayout:
                 assert linlayout.itemAt(0) is axis
 
             # XXX: see comment in ``.insert_plotitem()``...
+            # our `PlotItem.removeAxis()` does this internally.
             # pi.layout.removeItem(axis)
+
             pi.layout.addItem(linlayout, *index)
             layout = pi.layout.itemAt(*index)
             assert layout is linlayout
@@ -163,6 +170,8 @@ class ComposedGridLayout:
         self,
         index: int,
         plotitem: PlotItem,
+
+        remove_axes: bool = False,
 
     ) -> tuple[int, list[AxisItem]]:
         '''
@@ -205,13 +214,6 @@ class ComposedGridLayout:
             ):
                 continue
 
-            # XXX: Remove old axis?
-            # No, turns out we don't need this?
-            # DON'T UNLINK IT since we need the original ``ViewBox`` to
-            # still drive it with events/handlers B)
-            # popped = plotitem.removeAxis(name, unlink=False)
-            # assert axis is popped
-
             # invert insert index for layouts which are
             # not-left-to-right, top-to-bottom insert oriented
             insert_index = index
@@ -223,6 +225,16 @@ class ComposedGridLayout:
             axes.insert(index, axis)
 
         self._register_item(index, plotitem)
+
+        if remove_axes:
+            for name, axis_info in plotitem.axes.copy().items():
+                axis = axis_info['item']
+                # XXX: Remove old axis?
+                # No, turns out we don't need this?
+                # DON'T UNLINK IT since we need the original ``ViewBox`` to
+                # still drive it with events/handlers B)
+                popped = plotitem.removeAxis(name, unlink=False)
+                assert axis is popped
 
         return (index, inserted_axes)
 
@@ -577,93 +589,3 @@ class PlotItemOverlay:
 
     #     '''
     #     ...
-
-    def group_maxmin(
-        self,
-        focus_around: str | None = None,
-        force_min: float | None = None,
-
-    ) -> tuple[
-        float,  # mn
-        float,  # mx
-        float,  # max range in % terms of highest sigma plot's y-range
-        PlotItem,  # front/selected plot
-    ]:
-        '''
-        Overlay "group" maxmin sorting.
-
-        Assumes all named flows are in the same co-domain and thus can
-        be sorted as one set.
-
-        Iterates all the named flows and calls the chart api to find
-        their range values and return.
-
-        TODO: really we should probably have a more built-in API for
-        this?
-
-        '''
-        # TODO:
-        # - use this in the ``.ui._fsp`` mutli-maxmin stuff
-        # -
-
-        # force 0 to always be in view
-        group_mx: float = 0
-        group_mn: float = 0
-        mx_up_rng: float = 0
-        mn_down_rng: float = 0
-        pis2ranges: dict[
-            PlotItem,
-            tuple[float, float],
-        ] = {}
-
-        for pi in self.overlays:
-
-            # TODO: can we remove this from the widget
-            # and place somewhere more related to UX/Viz?
-            # name = pi.name
-            # chartw = pi.chart_widget
-            viz = pi.viz
-            # viz = chartw._vizs[name]
-
-            out = viz.maxmin()
-            if out is None:
-                return None
-
-            (
-                (x_start, x_stop),
-                read_slc,
-                (ymn, ymx),
-            ) = out
-
-            arr = viz.shm.array
-
-            y_start = arr[read_slc.start - 1]
-            y_stop = arr[read_slc.stop - 1]
-            if viz.is_ohlc:
-                y_start = y_start['open']
-                y_stop = y_stop['close']
-            else:
-                y_start = y_start[viz.name]
-                y_stop = y_stop[viz.name]
-
-            # update max for group
-            up_rng = (ymx - y_start) / y_start
-            down_rng = (y_stop - ymn) / y_stop
-
-            # compute directional (up/down) y-range % swing/dispersion
-            mx_up_rng = max(mx_up_rng, up_rng)
-            mn_down_rng = min(mn_down_rng, down_rng)
-
-            pis2ranges[pi] = (ymn, ymx)
-
-            group_mx = max(group_mx, ymx)
-            if force_min is None:
-                group_mn = min(group_mn, ymn)
-
-        return (
-           group_mn if force_min is None else force_min,
-           group_mx,
-           mn_down_rng,
-           mx_up_rng,
-           pis2ranges,
-        )
