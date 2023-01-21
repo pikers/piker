@@ -1301,13 +1301,6 @@ async def display_symbol_data(
                     name=fqsn,
                     axis_title=fqsn,
                 )
-                # only show a singleton bottom-bottom axis by default.
-                hist_pi.hideAxis('bottom')
-
-                # XXX: TODO: THIS WILL CAUSE A GAP ON OVERLAYS,
-                # i think it needs to be "removed" instead when there
-                # are none?
-                hist_pi.hideAxis('left')
 
                 hist_viz = hist_chart.draw_curve(
                     fqsn,
@@ -1342,9 +1335,6 @@ async def display_symbol_data(
                     name=fqsn,
                     axis_title=fqsn,
                 )
-
-                rt_pi.hideAxis('left')
-                rt_pi.hideAxis('bottom')
 
                 rt_viz = rt_chart.draw_curve(
                     fqsn,
