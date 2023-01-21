@@ -691,7 +691,7 @@ async def open_vlm_displays(
         # the axis on the left it's totally not lined up...
         # show volume units value on LHS (for dinkus)
         # vlm_chart.hideAxis('right')
-        # vlm_chart.showAxis('left')
+        vlm_chart.hideAxis('left')
 
         # send back new chart to caller
         task_status.started(vlm_chart)
@@ -758,10 +758,6 @@ async def open_vlm_displays(
                     'text_color': vlm_color,
                 },
             )
-
-            # TODO: should this maybe be implicit based on input args to
-            # `.overlay_plotitem()` above?
-            dvlm_pi.hideAxis('bottom')
 
             # all to be overlayed curve names
             dvlm_fields = [
@@ -845,6 +841,8 @@ async def open_vlm_displays(
             # liquidity events (well at least on low OHLC periods - 1s).
             vlm_curve.hide()
             vlm_chart.removeItem(vlm_curve)
+            # vlm_chart.plotItem.layout.setMinimumWidth(0)
+            # vlm_chart.removeAxis('left')
             vlm_viz = vlm_chart._vizs['volume']
             vlm_viz.render = False
 
@@ -872,7 +870,6 @@ async def open_vlm_displays(
                 },
 
             )
-            tr_pi.hideAxis('bottom')
 
             await started.wait()
             chart_curves(

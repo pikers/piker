@@ -634,6 +634,7 @@ class LinkedSplits(QWidget):
             axis.pi = cpw.plotItem
 
         cpw.hideAxis('left')
+        # cpw.removeAxis('left')
         cpw.hideAxis('bottom')
 
         if (
@@ -750,12 +751,12 @@ class LinkedSplits(QWidget):
 
         # NOTE: back-link the new sub-chart to trigger y-autoranging in
         # the (ohlc parent) main chart for this linked set.
-        if self.chart:
-            main_viz = self.chart.get_viz(self.chart.name)
-            self.chart.view.enable_auto_yrange(
-                src_vb=cpw.view,
-                viz=main_viz,
-            )
+        # if self.chart:
+        #     main_viz = self.chart.get_viz(self.chart.name)
+        #     self.chart.view.enable_auto_yrange(
+        #         src_vb=cpw.view,
+        #         viz=main_viz,
+        #     )
 
         graphics = viz.graphics
         data_key = viz.name
@@ -1106,6 +1107,12 @@ class ChartPlotWidget(pg.PlotWidget):
         pi.chart_widget = self
         pi.hideButtons()
 
+        # hide all axes not named by ``axis_side``
+        for axname in (
+            ({'bottom'} | allowed_sides) - {axis_side}
+        ):
+            pi.hideAxis(axname)
+
         # compose this new plot's graphics with the current chart's
         # existing one but with separate axes as neede and specified.
         self.pi_overlay.add_plotitem(
@@ -1209,17 +1216,21 @@ class ChartPlotWidget(pg.PlotWidget):
                 pi = overlay
 
         if add_sticky:
-            axis = pi.getAxis(add_sticky)
-            if pi.name not in axis._stickies:
 
-                if pi is not self.plotItem:
-                    overlay = self.pi_overlay
-                    assert pi in overlay.overlays
-                    overlay_axis = overlay.get_axis(
-                        pi,
-                        add_sticky,
-                    )
-                    assert overlay_axis is axis
+            if pi is not self.plotItem:
+                # overlay = self.pi_overlay
+                # assert pi in overlay.overlays
+                overlay = self.pi_overlay
+                assert pi in overlay.overlays
+                axis = overlay.get_axis(
+                    pi,
+                    add_sticky,
+                )
+
+            else:
+                axis = pi.getAxis(add_sticky)
+
+            if pi.name not in axis._stickies:
 
                 # TODO: UGH! just make this not here! we should
                 # be making the sticky from code which has access
