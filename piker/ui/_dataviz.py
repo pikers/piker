@@ -1061,7 +1061,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
             else:
                 log.warning(f'Unknown view state {vl} -> {vr}')
-                return
+                # return
                 # raise RuntimeError(f'Unknown view state {vl} -> {vr}')
 
         else:
