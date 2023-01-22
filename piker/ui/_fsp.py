@@ -707,7 +707,7 @@ async def open_vlm_displays(
 
         last_val_sticky.update_from_data(-1, value)
 
-        _, vlm_curve = vlm_chart.update_graphics_from_flow(
+        _, _, vlm_curve = vlm_chart.update_graphics_from_flow(
             'volume',
         )
 
