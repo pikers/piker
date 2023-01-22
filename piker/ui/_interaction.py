@@ -908,7 +908,6 @@ class ChartView(ViewBox):
         profiler = Profiler(
             msg=f'ChartView.interact_graphics_cycle() for {self.name}',
             # disabled=not pg_profile_enabled(),
-
             # ms_threshold=ms_slower_then,
 
             disabled=True,
@@ -941,94 +940,24 @@ class ChartView(ViewBox):
                 tuple[float, float],
             ] = {}
 
-            # collect certain flows have grapics objects **in seperate
-            # plots/viewboxes** into groups and do a common calc to
-            # determine auto-ranging input for `._set_yrange()`.
-            # this is primarly used for our so called "log-linearized
-            mxmn_groups: dict[
-                set[Viz],
-                set[Viz, tuple[float, float]],
-            ] = {}
-
-            for name, viz in chart._vizs.items():
-                if not viz.render:
-                    # print(f'skipping {flow.name}')
-                    continue
-
-                # pass in no array which will read and render from the last
-                # passed array (normally provided by the display loop.)
-                in_view, i_read_range, _ = viz.update_graphics()
-                if not in_view:
-                    continue
-                profiler(f'{viz.name}@{chart_name} `Viz.update_graphics()`')
-
-                out = viz.maxmin(i_read_range=i_read_range)
-                if out is None:
-                    log.warning(f'No yrange provided for {name}!?')
-                    return
-                (
-                    ixrng,
-                    _,
-                    yrange
-                ) = out
-
-                pi = viz.plot
-                mxmn = mxmns_by_common_pi.get(pi)
-                if mxmn:
-                    yrange = mxmns_by_common_pi[pi] = (
-                        min(yrange[0], mxmn[0]),
-                        max(yrange[1], mxmn[1]),
-                    )
-
-                else:
-                    mxmns_by_common_pi[pi] = yrange
-
-                # TODO: a better predicate here, likely something
-                # to do with overlays and their settings..
-                if (
-                    viz.is_ohlc
-                ):
-                    # print(f'adding {viz.name} to overlay')
-                    mxmn_groups[viz.name] = out
-
-                else:
-                    pi.vb._set_yrange(yrange=yrange)
-                    profiler(
-                        f'{viz.name}@{chart_name} `Viz.plot.vb._set_yrange()`'
-                    )
-
-            profiler(f'<{chart_name}>.interact_graphics_cycle({name})')
-
-            # if no overlays, set lone chart's yrange and short circuit
-            if (
-                len(mxmn_groups) < 2
-            ):
-                print(f'ONLY ranging major: {viz.name}')
-                for viz_name, out in mxmn_groups.items():
-                    (
-                        ixrng,
-                        read_slc,
-                        yrange,
-                    ) = out
-
-                    # determine start datum in view
-                    viz = chart._vizs[viz_name]
-                    viz.plot.vb._set_yrange(
-                        yrange=yrange,
-                    )
-                return
-
             # proportional group auto-scaling per overlay set.
             # -> loop through overlays on each multi-chart widget
             #    and scale all y-ranges based on autoscale config.
             # -> for any "group" overlay we want to dispersion normalize
             #    and scale minor charts onto the major chart: the chart
             #    with the most dispersion in the set.
+            major_viz: Viz = None
             major_mx: float = 0
             major_mn: float = float('inf')
             mx_up_rng: float = 0
             mn_down_rng: float = 0
             mx_disp: float = 0
+
+            # collect certain flows have grapics objects **in seperate
+            # plots/viewboxes** into groups and do a common calc to
+            # determine auto-ranging input for `._set_yrange()`.
+            # this is primarly used for our so called "log-linearized
+            # multi-plot" overlay technique.
             start_datums: dict[
                 ViewBox,
                 tuple[
@@ -1042,79 +971,141 @@ class ChartView(ViewBox):
                 ],
             ] = {}
             max_istart: float = 0
-            major_viz: Viz = None
             # major_in_view: np.ndarray = None
 
-            for viz_name, out in mxmn_groups.items():
+            for name, viz in chart._vizs.items():
+
+                if not viz.render:
+                    # print(f'skipping {flow.name}')
+                    continue
+
+                # pass in no array which will read and render from the last
+                # passed array (normally provided by the display loop.)
+                in_view, i_read_range, _ = viz.update_graphics()
+
+                if not in_view:
+                    continue
+
+                profiler(f'{viz.name}@{chart_name} `Viz.update_graphics()`')
+
+                out = viz.maxmin(i_read_range=i_read_range)
+                if out is None:
+                    log.warning(f'No yrange provided for {name}!?')
+                    return
                 (
                     ixrng,
                     read_slc,
-                    (ymn, ymx),
+                    yrange
                 ) = out
 
-                # determine start datum in view
-                viz = chart._vizs[viz_name]
-                arr = viz.shm.array
-                in_view = arr[read_slc]
-                row_start = arr[read_slc.start - 1]
+                pi = viz.plot
 
-                max_istart = max(in_view[0]['index'], max_istart)
+                # handle multiple graphics-objs per viewbox cases
+                mxmn = mxmns_by_common_pi.get(pi)
+                if mxmn:
+                    yrange = mxmns_by_common_pi[pi] = (
+                        min(yrange[0], mxmn[0]),
+                        max(yrange[1], mxmn[1]),
+                    )
 
-                if viz.is_ohlc:
-                    y_med = np.median(in_view['close'])
-                    y_start = row_start['open']
                 else:
-                    y_med = np.median(in_view[viz.name])
-                    y_start = row_start[viz.name]
+                    mxmns_by_common_pi[pi] = yrange
 
-                # x_start = ixrng[0]
-                # print(
-                #     f'{viz.name} ->\n'
-                #     f'(x_start: {x_start}, y_start: {y_start}\n'
-                # )
-                start_datums[viz.plot.vb] = (
-                    viz,
-                    y_start,
-                    ymn,
-                    ymx,
-                    y_med,
-                    read_slc,
-                    in_view,
+                # handle overlay log-linearized group scaling cases
+                # TODO: a better predicate here, likely something
+                # to do with overlays and their settings..
+                if (
+                    viz.is_ohlc
+                ):
+                    ymn, ymx = yrange
+                    # print(f'adding {viz.name} to overlay')
+                    # mxmn_groups[viz.name] = out
+                    # viz = chart._vizs[viz_name]
+
+                    # determine start datum in view
+                    arr = viz.shm.array
+                    in_view = arr[read_slc]
+                    row_start = arr[read_slc.start - 1]
+
+                    max_istart = max(in_view[0]['index'], max_istart)
+
+                    if viz.is_ohlc:
+                        y_med = np.median(in_view['close'])
+                        y_start = row_start['open']
+                    else:
+                        y_med = np.median(in_view[viz.name])
+                        y_start = row_start[viz.name]
+
+                    # x_start = ixrng[0]
+                    # print(
+                    #     f'{viz.name} ->\n'
+                    #     f'(x_start: {x_start}, y_start: {y_start}\n'
+                    # )
+                    start_datums[viz.plot.vb] = (
+                        viz,
+                        y_start,
+                        ymn,
+                        ymx,
+                        y_med,
+                        read_slc,
+                        in_view,
+                    )
+
+                    # find curve with max dispersion
+                    disp = abs(ymx - ymn) / y_med
+
+                    # track the "major" curve as the curve with most
+                    # dispersion.
+                    if disp > mx_disp:
+                        major_viz = viz
+                        mx_disp = disp
+                        major_mn = ymn
+                        major_mx = ymx
+                        # major_in_view = in_view
+
+                    # compute directional (up/down) y-range % swing/dispersion
+                    y_ref = y_med
+                    up_rng = (ymx - y_ref) / y_ref
+                    down_rng = (ymn - y_ref) / y_ref
+
+                    mx_up_rng = max(mx_up_rng, up_rng)
+                    mn_down_rng = min(mn_down_rng, down_rng)
+
+                    # print(
+                    #     f'{viz.name}@{chart_name} group mxmn calc\n'
+                    #     '--------------------\n'
+                    #     f'y_start: {y_start}\n'
+                    #     f'ymn: {ymn}\n'
+                    #     f'ymx: {ymx}\n'
+                    #     f'mx_disp: {mx_disp}\n'
+                    #     f'up %: {up_rng * 100}\n'
+                    #     f'down %: {down_rng * 100}\n'
+                    #     f'mx up %: {mx_up_rng * 100}\n'
+                    #     f'mn down %: {mn_down_rng * 100}\n'
+                    # )
+
+                # non-overlay group case
+                else:
+                    pi.vb._set_yrange(yrange=yrange)
+                    profiler(
+                        f'{viz.name}@{chart_name} `Viz.plot.vb._set_yrange()`'
+                    )
+
+            profiler(f'<{chart_name}>.interact_graphics_cycle({name})')
+            if not start_datums:
+                return
+
+            # if no overlays, set lone chart's yrange and short circuit
+            if (
+                len(start_datums) < 2
+            ):
+                # print(f'ONLY ranging major: {viz.name}')
+                major_viz.plot.vb._set_yrange(
+                    yrange=yrange,
                 )
+                return
 
-                # find curve with max dispersion
-                disp = abs(ymx - ymn) / y_med
-
-                # track the "major" curve as the curve with most
-                # dispersion.
-                if disp > mx_disp:
-                    major_viz = viz
-                    mx_disp = disp
-                    major_mn = ymn
-                    major_mx = ymx
-                    # major_in_view = in_view
-
-                # compute directional (up/down) y-range % swing/dispersion
-                y_ref = y_med
-                up_rng = (ymx - y_ref) / y_ref
-                down_rng = (ymn - y_ref) / y_ref
-
-                mx_up_rng = max(mx_up_rng, up_rng)
-                mn_down_rng = min(mn_down_rng, down_rng)
-
-                # print(
-                #     f'{viz.name}@{chart_name} group mxmn calc\n'
-                #     '--------------------\n'
-                #     f'y_start: {y_start}\n'
-                #     f'ymn: {ymn}\n'
-                #     f'ymx: {ymx}\n'
-                #     f'mx_disp: {mx_disp}\n'
-                #     f'up %: {up_rng * 100}\n'
-                #     f'down %: {down_rng * 100}\n'
-                #     f'mx up %: {mx_up_rng * 100}\n'
-                #     f'mn down %: {mn_down_rng * 100}\n'
-                # )
-
+            # conduct "log-linearized multi-plot" scalings for all groups
             for (
                 view,
                 (
