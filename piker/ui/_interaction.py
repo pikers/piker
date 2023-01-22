@@ -915,7 +915,7 @@ class ChartView(ViewBox):
             ms_threshold=4,
 
             # XXX: important to avoid not seeing underlying
-            # ``.update_graphics_from_flow()`` nested profiling likely
+            # ``Viz.update_graphics()`` nested profiling likely
             # due to the way delaying works and garbage collection of
             # the profiler in the delegated method calls.
             delayed=True,
@@ -957,7 +957,9 @@ class ChartView(ViewBox):
 
                 # pass in no array which will read and render from the last
                 # passed array (normally provided by the display loop.)
-                i_read_range, _ = viz.update_graphics()
+                in_view, i_read_range, _ = viz.update_graphics()
+                if not in_view:
+                    continue
                 profiler(f'{viz.name}@{chart_name} `Viz.update_graphics()`')
 
                 out = viz.maxmin(i_read_range=i_read_range)
@@ -981,7 +983,11 @@ class ChartView(ViewBox):
                 else:
                     mxmns_by_common_pi[pi] = yrange
 
-                if viz.is_ohlc:
+                # TODO: a better predicate here, likely something
+                # to do with overlays and their settings..
+                if (
+                    viz.is_ohlc
+                ):
                     # print(f'adding {viz.name} to overlay')
                     mxmn_groups[viz.name] = out
 
@@ -997,9 +1003,19 @@ class ChartView(ViewBox):
             if (
                 len(mxmn_groups) < 2
             ):
-                viz.plot.vb._set_yrange(
-                    yrange=yrange,
-                )
+                print(f'ONLY ranging major: {viz.name}')
+                for viz_name, out in mxmn_groups.items():
+                    (
+                        ixrng,
+                        read_slc,
+                        yrange,
+                    ) = out
+
+                    # determine start datum in view
+                    viz = chart._vizs[viz_name]
+                    viz.plot.vb._set_yrange(
+                        yrange=yrange,
+                    )
                 return
 
             # proportional group auto-scaling per overlay set.
