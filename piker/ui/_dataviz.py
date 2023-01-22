@@ -658,7 +658,11 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         **kwargs,
 
-    ) -> pg.GraphicsObject:
+    ) -> tuple[
+        bool,
+        tuple[int, int],
+        pg.GraphicsObject,
+    ]:
         '''
         Read latest datums from shm and render to (incrementally)
         render to graphics.
@@ -688,8 +692,9 @@ class Viz(msgspec.Struct):  # , frozen=True):
             not in_view.size
             or not render
         ):
-            # print('exiting early')
+            # print(f'{self.name} not in view (exiting early)')
             return (
+                False,
                 (ivl, ivr),
                 graphics,
             )
@@ -810,6 +815,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
         if not out:
             log.warning(f'{self.name} failed to render!?')
             return (
+                False,
                 (ivl, ivr),
                 graphics,
             )
@@ -865,6 +871,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
         self._in_ds = r._in_ds
 
         return (
+            True,
             (ivl, ivr),
             graphics,
         )
@@ -1053,7 +1060,9 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 l_reset = r_reset - rl_diff
 
             else:
-                raise RuntimeError(f'Unknown view state {vl} -> {vr}')
+                log.warning(f'Unknown view state {vl} -> {vr}')
+                # return
+                # raise RuntimeError(f'Unknown view state {vl} -> {vr}')
 
         else:
             # maintain the l->r view distance

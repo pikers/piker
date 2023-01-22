@@ -551,7 +551,7 @@ def graphics_update_cycle(
         (liv and do_px_step)
         or trigger_all
     ):
-        i_read_range, _ = main_viz.update_graphics()
+        _, i_read_range, _ = main_viz.update_graphics()
         profiler('`Viz.update_graphics()` call')
 
         (
