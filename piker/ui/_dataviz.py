@@ -1062,7 +1062,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
             else:
                 log.warning(f'Unknown view state {vl} -> {vr}')
                 return
-                # raise RuntimeError(f'Unknown view state {vl} -> {vr}')
 
         else:
             # maintain the l->r view distance
