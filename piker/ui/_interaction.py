@@ -827,11 +827,11 @@ class ChartView(ViewBox):
         # to get different view modes to operate
         # correctly!
 
-        profiler(
-            f'set limits {self.name}:\n'
-            f'ylow: {ylow}\n'
-            f'yhigh: {yhigh}\n'
-        )
+        # print(
+        #     f'set limits {self.name}:\n'
+        #     f'ylow: {ylow}\n'
+        #     f'yhigh: {yhigh}\n'
+        # )
         self.setYRange(
             ylow,
             yhigh,
@@ -841,6 +841,7 @@ class ChartView(ViewBox):
             yMin=ylow,
             yMax=yhigh,
         )
+        self.update()
 
         # LOL: yet anothercucking pg buggg..
         # can't use `msg=f'setYRange({ylow}, {yhigh}')`
@@ -993,7 +994,9 @@ class ChartView(ViewBox):
             profiler(f'<{chart_name}>.interact_graphics_cycle({name})')
 
             # if no overlays, set lone chart's yrange and short circuit
-            if len(mxmn_groups) < 2:
+            if (
+                len(mxmn_groups) < 2
+            ):
                 viz.plot.vb._set_yrange(
                     yrange=yrange,
                 )
@@ -1024,6 +1027,7 @@ class ChartView(ViewBox):
             ] = {}
             max_istart: float = 0
             major_viz: Viz = None
+            # major_in_view: np.ndarray = None
 
             for viz_name, out in mxmn_groups.items():
                 (
@@ -1072,6 +1076,7 @@ class ChartView(ViewBox):
                     mx_disp = disp
                     major_mn = ymn
                     major_mx = ymx
+                    # major_in_view = in_view
 
                 # compute directional (up/down) y-range % swing/dispersion
                 y_ref = y_med
@@ -1081,18 +1086,18 @@ class ChartView(ViewBox):
                 mx_up_rng = max(mx_up_rng, up_rng)
                 mn_down_rng = min(mn_down_rng, down_rng)
 
-                print(
-                    f'{viz.name}@{chart_name} group mxmn calc\n'
-                    '--------------------\n'
-                    f'y_start: {y_start}\n'
-                    f'ymn: {ymn}\n'
-                    f'ymx: {ymx}\n'
-                    f'mx_disp: {mx_disp}\n'
-                    f'up %: {up_rng * 100}\n'
-                    f'down %: {down_rng * 100}\n'
-                    f'mx up %: {mx_up_rng * 100}\n'
-                    f'mn down %: {mn_down_rng * 100}\n'
-                )
+                # print(
+                #     f'{viz.name}@{chart_name} group mxmn calc\n'
+                #     '--------------------\n'
+                #     f'y_start: {y_start}\n'
+                #     f'ymn: {ymn}\n'
+                #     f'ymx: {ymx}\n'
+                #     f'mx_disp: {mx_disp}\n'
+                #     f'up %: {up_rng * 100}\n'
+                #     f'down %: {down_rng * 100}\n'
+                #     f'mx up %: {mx_up_rng * 100}\n'
+                #     f'mn down %: {mn_down_rng * 100}\n'
+                # )
 
             for (
                 view,
@@ -1113,6 +1118,14 @@ class ChartView(ViewBox):
                 if viz is major_viz:
                     ymn = y_min
                     ymx = y_max
+                    # print(
+                    #     f'{view.name} MAJOR mxmn\n'
+                    #     '--------------------\n'
+                    #     f'scaled ymn: {ymn}\n'
+                    #     f'scaled ymx: {ymx}\n'
+                    #     f'scaled mx_disp: {mx_disp}\n'
+                    # )
+                    continue
 
                 else:
                     key = 'open' if viz.is_ohlc else viz.name
@@ -1129,11 +1142,11 @@ class ChartView(ViewBox):
                     #   y-range based on the major curves y-range.
 
                     # get intersection point y-values for both curves
-                    # abs_i_start = max_istart
-
                     mshm = major_viz.shm
+
                     minor_i_start = minor_in_view[0]['index']
-                    major_i_start = mshm.array['index'][0],
+                    major_i_start = mshm.array['index'][0]
+
                     abs_i_start = max(
                         minor_i_start,
                         major_i_start,
@@ -1169,53 +1182,75 @@ class ChartView(ViewBox):
                     # is side (up/down) specific.
                     new_maj_mxmn: None | tuple[float, float] = None
                     if y_max > ymx:
+
                         y_ref = y_minor_intersect
                         r_up_minor = (y_max - y_ref) / y_ref
-                        new_maj_ymx = y_maj_intersect * (1 + r_up_minor)
+
+                        # y_maj_ref = max(
+                        #     major_in_view[0][key],
+                        #     y_maj_intersect,
+                        # )
+                        y_maj_ref = y_maj_intersect
+                        new_maj_ymx = y_maj_ref * (1 + r_up_minor)
                         new_maj_mxmn = (major_mn, new_maj_ymx)
-                        print(
-                            f'{view.name} OUT OF RANGE:\n'
-                            '--------------------\n'
-                            f'y_max:{y_max} > ymx:{ymx}\n'
-                            f'RESCALE MAJOR {major_viz.name}:\n'
-                            f'{new_maj_mxmn}\n'
-                        )
+                        # print(
+                        #     f'{view.name} OUT OF RANGE:\n'
+                        #     '--------------------\n'
+                        #     f'y_max:{y_max} > ymx:{ymx}\n'
+                        # )
                         ymx = y_max
 
                     if y_min < ymn:
+
                         y_ref = y_minor_intersect
                         r_down_minor = (y_min - y_ref) / y_ref
-                        new_maj_ymn = y_maj_intersect * (1 + r_down_minor)
+
+                        # y_maj_ref = min(
+                        #     major_in_view[0][key],
+                        #     y_maj_intersect,
+                        # )
+                        y_maj_ref = y_maj_intersect
+                        new_maj_ymn = y_maj_ref * (1 + r_down_minor)
                         new_maj_mxmn = (
                             new_maj_ymn,
                             new_maj_mxmn[1] if new_maj_mxmn else major_mx
                         )
-                        print(
-                            f'{view.name} OUT OF RANGE:\n'
-                            '--------------------\n'
-                            f'y_min:{y_min} < ymn:{ymn}\n'
-                            f'RESCALE MAJOR {major_viz.name}:\n'
-                            f'{new_maj_mxmn}\n'
-                        )
+                        # print(
+                        #     f'{view.name} OUT OF RANGE:\n'
+                        #     '--------------------\n'
+                        #     f'y_min:{y_min} < ymn:{ymn}\n'
+                        # )
                         ymn = y_min
 
-                    if new_maj_mxmn:
-                        major_mx, major_mn = new_maj_mxmn
-                        major_viz.plot.vb._set_yrange(
-                            yrange=new_maj_mxmn,
-                            # range_margin=None,
-                        )
+                        # now scale opposite side to compensate
+                        # y_ref = y_major_intersect
+                        # r_down_minor = (major_ - y_ref) / y_ref
 
-                    print(
-                        f'{view.name} APPLY group mxmn\n'
-                        '--------------------\n'
-                        f'minor_y_start: {minor_y_start}\n'
-                        f'mn_down_rng: {mn_down_rng * 100}\n'
-                        f'mx_up_rng: {mx_up_rng * 100}\n'
-                        f'scaled ymn: {ymn}\n'
-                        f'scaled ymx: {ymx}\n'
-                        f'scaled mx_disp: {mx_disp}\n'
-                    )
+                    if new_maj_mxmn:
+                        # print(
+                        #     f'RESCALE MAJOR {major_viz.name}:\n'
+                        #     f'previous: {(major_mn, major_mx)}\n'
+                        #     f'new: {new_maj_mxmn}\n'
+                        # )
+                        # major_viz.plot.vb._set_yrange(
+                        #     yrange=new_maj_mxmn,
+                        #     # range_margin=None,
+                        # )
+                        major_mn, major_mx = new_maj_mxmn
+                        # vrs = major_viz.plot.vb.viewRange()
+                        # if vrs[1][0] > new_maj_mxmn[0]:
+                        #     breakpoint()
+
+                    # print(
+                    #     f'{view.name} APPLY group mxmn\n'
+                    #     '--------------------\n'
+                    #     f'minor_y_start: {minor_y_start}\n'
+                    #     f'mn_down_rng: {mn_down_rng * 100}\n'
+                    #     f'mx_up_rng: {mx_up_rng * 100}\n'
+                    #     f'scaled ymn: {ymn}\n'
+                    #     f'scaled ymx: {ymx}\n'
+                    #     f'scaled mx_disp: {mx_disp}\n'
+                    # )
 
                 if (
                     math.isinf(ymx)
@@ -1226,5 +1261,23 @@ class ChartView(ViewBox):
                 view._set_yrange(
                     yrange=(ymn, ymx),
                 )
+
+            # NOTE XXX: we have to set the major curve's range once (and
+            # only once) here since we're doing this entire routine
+            # inside of a single render cycle (and apparently calling
+            # `ViewBox.setYRange()` multiple times within one only takes
+            # the first call as serious...) XD
+            # print(
+            #     f'Scale MAJOR {major_viz.name}:\n'
+            #     f'previous: {(major_mn, major_mx)}\n'
+            #     f'new: {new_maj_mxmn}\n'
+            # )
+            major_viz.plot.vb._set_yrange(
+                yrange=(major_mn, major_mx),
+            )
+            # major_mx, major_mn = new_maj_mxmn
+            # vrs = major_viz.plot.vb.viewRange()
+            # if vrs[1][0] > major_mn:
+            #     breakpoint()
 
         profiler.finish()
