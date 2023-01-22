@@ -1280,24 +1280,6 @@ class ChartPlotWidget(pg.PlotWidget):
             **draw_curve_kwargs,
         )
 
-    def update_graphics_from_flow(
-        self,
-        graphics_name: str,
-        array_key: Optional[str] = None,
-
-        **kwargs,
-
-    ) -> pg.GraphicsObject:
-        '''
-        Update the named internal graphics from ``array``.
-
-        '''
-        viz = self._vizs[array_key or graphics_name]
-        return viz.update_graphics(
-            array_key=array_key,
-            **kwargs,
-        )
-
     # TODO: pretty sure we can just call the cursor
     # directly not? i don't wee why we need special "signal proxies"
     # for this lul..
