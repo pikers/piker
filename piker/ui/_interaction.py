@@ -1165,7 +1165,10 @@ class ChartView(ViewBox):
                     # determined by the above indexing arithmetic.
                     y_ref = y_maj_intersect
                     if not y_ref:
-                        breakpoint()
+                        log.warning(
+                            f'BAD y_maj_intersect?!: {y_maj_intersect}'
+                        )
+                        # breakpoint()
 
                     r_up = (major_mx - y_ref) / y_ref
                     r_down = (major_mn - y_ref) / y_ref
@@ -1256,7 +1259,11 @@ class ChartView(ViewBox):
                     math.isinf(ymx)
                     or math.isinf(ymn)
                 ):
-                    breakpoint()
+                    # breakpoint()
+                    log.warning(
+                        f'BAD ymx/ymn: {(ymn, ymx)}'
+                    )
+                    continue
 
                 view._set_yrange(
                     yrange=(ymn, ymx),
