@@ -8,7 +8,7 @@ services:
     # https://github.com/waytrade/ib-gateway-docker#supported-tags
     # image: waytrade/ib-gateway:981.3j
     image: waytrade/ib-gateway:1012.2i
-    restart: always  # restart whenev there's a crash or user clicsk
+    restart: 'no'  # restart on boot whenev there's a crash or user clicsk
     network_mode: 'host'
 
     volumes:
@@ -64,7 +64,7 @@ services:
 
   # ib_gw_live:
   #   image: waytrade/ib-gateway:1012.2i
-  #   restart: always
+  #   restart: no
   #   network_mode: 'host'
 
   #   volumes:

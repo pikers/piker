@@ -439,7 +439,7 @@ async def cascade(
                     profiler.finish()
 
                     async for i in istream:
-                        # log.runtime(f'FSP incrementing {i}')
+                        # print(f'FSP incrementing {i}')
 
                         # respawn the compute task if the source
                         # array has been updated such that we compute

@@ -510,10 +510,6 @@ class Client:
 
         '''
         ticker = cls._ntable[ticker]
-        symlen = len(ticker)
-        if symlen != 6:
-            raise ValueError(f'Unhandled symbol: {ticker}')
-
         return ticker.lower()
 
 

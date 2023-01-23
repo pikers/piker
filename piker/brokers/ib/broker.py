@@ -611,7 +611,7 @@ async def trades_dialogue(
                         pp = table.pps[bsuid]
                         if msg.size != pp.size:
                             log.error(
-                                'Position mismatch {pp.symbol.front_fqsn()}:\n'
+                                f'Position mismatch {pp.symbol.front_fqsn()}:\n'
                                 f'ib: {msg.size}\n'
                                 f'piker: {pp.size}\n'
                             )

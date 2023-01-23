@@ -162,6 +162,7 @@ _futes_venues = (
     'CMECRYPTO',
     'COMEX',
     'CMDTY',  # special name case..
+    'CBOT',  # (treasury) yield futures
 )
 
 _adhoc_futes_set = {
@@ -197,6 +198,21 @@ _adhoc_futes_set = {
     'xagusd.cmdty',  # silver spot
     'ni.comex',  # silver futes
     'qi.comex',  # mini-silver futes
+
+    # treasury yields
+    # etfs by duration:
+    # SHY -> IEI -> IEF -> TLT
+    'zt.cbot',  # 2y
+    'z3n.cbot',  # 3y
+    'zf.cbot',  # 5y
+    'zn.cbot',  # 10y
+    'zb.cbot',  # 30y
+
+    # (micros of above)
+    '2yy.cbot',
+    '5yy.cbot',
+    '10y.cbot',
+    '30y.cbot',
 }
 
 
