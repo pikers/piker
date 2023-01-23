@@ -1152,8 +1152,6 @@ class ChartPlotWidget(pg.PlotWidget):
 
         if is_ohlc:
             graphics = BarItems(
-                linked=self.linked,
-                plotitem=pi,
                 color=color,
                 name=name,
                 **graphics_kwargs,
