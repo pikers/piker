@@ -447,7 +447,8 @@ async def graphics_update_loop(
                 # and quote_rate >= _quote_throttle_rate * 2
                 and quote_rate >= display_rate
             ):
-                log.warning(f'High quote rate {symbol.key}: {quote_rate}')
+                pass
+                # log.warning(f'High quote rate {symbol.key}: {quote_rate}')
 
             last_quote_s = time.time()
 
@@ -493,9 +494,9 @@ def graphics_update_cycle(
 
     profiler = Profiler(
         msg=f'Graphics loop cycle for: `{ds.fqsn}`',
-        delayed=True,
         disabled=not pg_profile_enabled(),
         ms_threshold=ms_slower_then,
+        delayed=True,
         # ms_threshold=4,
     )
 
@@ -1319,7 +1320,7 @@ async def display_symbol_data(
                     is_ohlc=True,
 
                     color=bg_chart_color,
-                    last_bar_color=bg_last_bar_color,
+                    last_step_color=bg_last_bar_color,
                 )
 
                 # ensure the last datum graphic is generated
@@ -1356,7 +1357,7 @@ async def display_symbol_data(
                     is_ohlc=True,
 
                     color=bg_chart_color,
-                    last_bar_color=bg_last_bar_color,
+                    last_step_color=bg_last_bar_color,
                 )
                 rt_pi.vb.maxmin = partial(
                     rt_chart.maxmin,
