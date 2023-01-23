@@ -18,13 +18,8 @@ Super fast OHLC sampling graphics types.
 
 """
 from __future__ import annotations
-from typing import (
-    Optional,
-    TYPE_CHECKING,
-)
 
 import numpy as np
-import pyqtgraph as pg
 from PyQt5 import (
     QtGui,
     QtWidgets,
@@ -33,17 +28,13 @@ from PyQt5.QtCore import (
     QLineF,
     QRectF,
 )
-
+from PyQt5.QtWidgets import QGraphicsItem
 from PyQt5.QtGui import QPainterPath
 
 from ._curve import FlowGraphic
 from .._profile import pg_profile_enabled, ms_slower_then
-from ._style import hcolor
 from ..log import get_logger
 from .._profile import Profiler
-
-if TYPE_CHECKING:
-    from ._chart import LinkedSplits
 
 
 log = get_logger(__name__)
@@ -100,30 +91,18 @@ class BarItems(FlowGraphic):
     "Price range" bars graphics rendered from a OHLC sampled sequence.
 
     '''
+    # XXX: causes this weird jitter bug when click-drag panning
+    # where the path curve will awkwardly flicker back and forth?
+    cache_mode: int = QGraphicsItem.NoCache
+
     def __init__(
         self,
-        linked: LinkedSplits,
-        plotitem: 'pg.PlotItem',  # noqa
-        color: str = 'bracket',
-        last_bar_color: str = 'original',
-
-        name: Optional[str] = None,
+        *args,
+        **kwargs,
 
     ) -> None:
-        super().__init__()
-        self.linked = linked
-        # XXX: for the mega-lulz increasing width here increases draw
-        # latency...  so probably don't do it until we figure that out.
-        self._color = color
-        self.bars_pen = pg.mkPen(hcolor(color), width=1)
-        self.last_bar_pen = pg.mkPen(hcolor(last_bar_color), width=2)
-        self._name = name
 
-        # XXX: causes this weird jitter bug when click-drag panning
-        # where the path curve will awkwardly flicker back and forth?
-        self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
-
-        self.path = QPainterPath()
+        super().__init__(*args, **kwargs)
         self._last_bar_lines: tuple[QLineF, ...] | None = None
 
     def x_last(self) -> None | float:
@@ -218,12 +197,12 @@ class BarItems(FlowGraphic):
         # as is necesarry for what's in "view". Not sure if this will
         # lead to any perf gains other then when zoomed in to less bars
         # in view.
-        p.setPen(self.last_bar_pen)
+        p.setPen(self.last_step_pen)
         if self._last_bar_lines:
             p.drawLines(*tuple(filter(bool, self._last_bar_lines)))
             profiler('draw last bar')
 
-        p.setPen(self.bars_pen)
+        p.setPen(self._pen)
         p.drawPath(self.path)
         profiler(f'draw history path: {self.path.capacity()}')
 
@@ -299,5 +278,4 @@ class BarItems(FlowGraphic):
             # date / from some previous sample. It's weird though
             # because i've seen it do this to bars i - 3 back?
 
-        # return ohlc['time'], ohlc['close']
         return ohlc[index_field], ohlc['close']
