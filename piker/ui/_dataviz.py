@@ -342,7 +342,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
         '''
         name = self.name
         profiler = Profiler(
-            msg=f'{name} -> `{str(self)}.maxmin()`',
+            msg=f'`Viz[{name}].maxmin()`',
             disabled=not pg_profile_enabled(),
             ms_threshold=4,
             delayed=True,
@@ -857,15 +857,15 @@ class Viz(msgspec.Struct):  # , frozen=True):
         #     array_key,
         #     index_field=self.index_field,
         # )
-        graphics.update()
-        profiler('.update()')
-
         # TODO: does this actuallly help us in any way (prolly should
         # look at the source / ask ogi). I think it avoid artifacts on
         # wheel-scroll downsampling curve updates?
         # TODO: is this ever better?
-        # graphics.prepareGeometryChange()
-        # profiler('.prepareGeometryChange()')
+        graphics.prepareGeometryChange()
+        profiler('.prepareGeometryChange()')
+
+        graphics.update()
+        profiler('.update()')
 
         # track downsampled state
         self._in_ds = r._in_ds
