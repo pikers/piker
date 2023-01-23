@@ -20,7 +20,9 @@ Chart view box primitives
 """
 from __future__ import annotations
 from contextlib import asynccontextmanager
-import math
+from math import (
+    isinf,
+)
 import time
 from typing import (
     Optional,
@@ -904,6 +906,8 @@ class ChartView(ViewBox):
 
     def interact_graphics_cycle(
         self,
+        *args,
+        debug_print: bool = False,
     ):
         profiler = Profiler(
             msg=f'ChartView.interact_graphics_cycle() for {self.name}',
@@ -971,7 +975,7 @@ class ChartView(ViewBox):
                 ],
             ] = {}
             max_istart: float = 0
-            # major_in_view: np.ndarray = None
+            major_in_view: np.ndarray = None
 
             for name, viz in chart._vizs.items():
 
@@ -1061,7 +1065,7 @@ class ChartView(ViewBox):
                         mx_disp = disp
                         major_mn = ymn
                         major_mx = ymx
-                        # major_in_view = in_view
+                        major_in_view = in_view
 
                     # compute directional (up/down) y-range % swing/dispersion
                     y_ref = y_med
@@ -1099,6 +1103,9 @@ class ChartView(ViewBox):
             if (
                 len(start_datums) < 2
             ):
+                if not major_viz:
+                    major_viz = viz
+
                 # print(f'ONLY ranging major: {viz.name}')
                 major_viz.plot.vb._set_yrange(
                     yrange=yrange,
@@ -1125,13 +1132,6 @@ class ChartView(ViewBox):
                 if viz is major_viz:
                     ymn = y_min
                     ymx = y_max
-                    # print(
-                    #     f'{view.name} MAJOR mxmn\n'
-                    #     '--------------------\n'
-                    #     f'scaled ymn: {ymn}\n'
-                    #     f'scaled ymx: {ymx}\n'
-                    #     f'scaled mx_disp: {mx_disp}\n'
-                    # )
                     continue
 
                 else:
@@ -1149,31 +1149,61 @@ class ChartView(ViewBox):
                     #   y-range based on the major curves y-range.
 
                     # get intersection point y-values for both curves
-                    mshm = major_viz.shm
+                    minor_in_view_start = minor_in_view[0]
+                    minor_i_start = minor_in_view_start['index']
+                    minor_i_start_t = minor_in_view_start['time']
 
-                    minor_i_start = minor_in_view[0]['index']
-                    major_i_start = mshm.array['index'][0]
+                    major_in_view_start = major_in_view[0]
+                    major_i_start = major_in_view_start['index']
+                    major_i_start_t = major_in_view_start['time']
 
-                    abs_i_start = max(
-                        minor_i_start,
-                        major_i_start,
-                    )
+                    y_major_intersect = major_in_view_start[key]
+                    y_minor_intersect = minor_in_view_start[key]
 
-                    y_maj_intersect = mshm._array[abs_i_start][key]
-                    y_minor_intersect = viz.shm._array[abs_i_start][key]
+                    tdiff = (major_i_start_t - minor_i_start_t)
+                    if debug_print:
+                        print(
+                            f'{major_viz.name} time diff with minor:\n'
+                            f'maj:{major_i_start_t}\n'
+                            '-\n'
+                            f'min:{minor_i_start_t}\n'
+                            f'=> {tdiff}\n'
+                        )
+
+                    # major has later timestamp adjust minor
+                    if tdiff > 0:
+                        y_minor_i = np.searchsorted(
+                            minor_in_view['time'],
+                            major_i_start_t,
+                        )
+                        y_minor_intersect = minor_in_view[y_minor_i][key]
+
+                    # minor has later timestamp adjust major
+                    elif tdiff < 0:
+                        y_major_i = np.searchsorted(
+                            major_in_view['time'],
+                            minor_i_start_t,
+                        )
+                        y_major_intersect = major_in_view[y_major_i][key]
+
+                    if debug_print:
+                        print(
+                            f'major_i_start: {major_i_start}\n'
+                            f'major_i_start_t: {major_i_start_t}\n'
+                            f'minor_i_start: {minor_i_start}\n'
+                            f'minor_i_start_t: {minor_i_start_t}\n'
+                        )
 
                     # TODO: probably write this as a compile cpython or
                     # numba func.
 
-                    # if abs_i_start > major_i_start:
-
                     # compute directional (up/down) y-range
                     # % swing/dispersion starting at the reference index
                     # determined by the above indexing arithmetic.
-                    y_ref = y_maj_intersect
+                    y_ref = y_major_intersect
                     if not y_ref:
                         log.warning(
-                            f'BAD y_maj_intersect?!: {y_maj_intersect}'
+                            f'BAD y_major_intersect?!: {y_major_intersect}'
                         )
                         # breakpoint()
 
@@ -1196,18 +1226,15 @@ class ChartView(ViewBox):
                         y_ref = y_minor_intersect
                         r_up_minor = (y_max - y_ref) / y_ref
 
-                        # y_maj_ref = max(
-                        #     major_in_view[0][key],
-                        #     y_maj_intersect,
-                        # )
-                        y_maj_ref = y_maj_intersect
+                        y_maj_ref = y_major_intersect
                         new_maj_ymx = y_maj_ref * (1 + r_up_minor)
                         new_maj_mxmn = (major_mn, new_maj_ymx)
-                        # print(
-                        #     f'{view.name} OUT OF RANGE:\n'
-                        #     '--------------------\n'
-                        #     f'y_max:{y_max} > ymx:{ymx}\n'
-                        # )
+                        if debug_print:
+                            print(
+                                f'{view.name} OUT OF RANGE:\n'
+                                '--------------------\n'
+                                f'y_max:{y_max} > ymx:{ymx}\n'
+                            )
                         ymx = y_max
 
                     if y_min < ymn:
@@ -1215,58 +1242,46 @@ class ChartView(ViewBox):
                         y_ref = y_minor_intersect
                         r_down_minor = (y_min - y_ref) / y_ref
 
-                        # y_maj_ref = min(
-                        #     major_in_view[0][key],
-                        #     y_maj_intersect,
-                        # )
-                        y_maj_ref = y_maj_intersect
+                        y_maj_ref = y_major_intersect
                         new_maj_ymn = y_maj_ref * (1 + r_down_minor)
                         new_maj_mxmn = (
                             new_maj_ymn,
                             new_maj_mxmn[1] if new_maj_mxmn else major_mx
                         )
-                        # print(
-                        #     f'{view.name} OUT OF RANGE:\n'
-                        #     '--------------------\n'
-                        #     f'y_min:{y_min} < ymn:{ymn}\n'
-                        # )
+                        if debug_print:
+                            print(
+                                f'{view.name} OUT OF RANGE:\n'
+                                '--------------------\n'
+                                f'y_min:{y_min} < ymn:{ymn}\n'
+                            )
                         ymn = y_min
 
-                        # now scale opposite side to compensate
-                        # y_ref = y_major_intersect
-                        # r_down_minor = (major_ - y_ref) / y_ref
-
                     if new_maj_mxmn:
-                        # print(
-                        #     f'RESCALE MAJOR {major_viz.name}:\n'
-                        #     f'previous: {(major_mn, major_mx)}\n'
-                        #     f'new: {new_maj_mxmn}\n'
-                        # )
-                        # major_viz.plot.vb._set_yrange(
-                        #     yrange=new_maj_mxmn,
-                        #     # range_margin=None,
-                        # )
+                        if debug_print:
+                            print(
+                                f'RESCALE MAJOR {major_viz.name}:\n'
+                                f'previous: {(major_mn, major_mx)}\n'
+                                f'new: {new_maj_mxmn}\n'
+                            )
                         major_mn, major_mx = new_maj_mxmn
-                        # vrs = major_viz.plot.vb.viewRange()
-                        # if vrs[1][0] > new_maj_mxmn[0]:
-                        #     breakpoint()
 
-                    # print(
-                    #     f'{view.name} APPLY group mxmn\n'
-                    #     '--------------------\n'
-                    #     f'minor_y_start: {minor_y_start}\n'
-                    #     f'mn_down_rng: {mn_down_rng * 100}\n'
-                    #     f'mx_up_rng: {mx_up_rng * 100}\n'
-                    #     f'scaled ymn: {ymn}\n'
-                    #     f'scaled ymx: {ymx}\n'
-                    #     f'scaled mx_disp: {mx_disp}\n'
-                    # )
+                    if debug_print:
+                        print(
+                            f'{view.name} APPLY group mxmn\n'
+                            '--------------------\n'
+                            f'y_minor_intersect: {y_minor_intersect}\n'
+                            f'y_major_intersect: {y_major_intersect}\n'
+                            f'mn_down_rng: {mn_down_rng * 100}\n'
+                            f'mx_up_rng: {mx_up_rng * 100}\n'
+                            f'scaled ymn: {ymn}\n'
+                            f'scaled ymx: {ymx}\n'
+                            f'scaled mx_disp: {mx_disp}\n'
+                        )
 
                 if (
-                    math.isinf(ymx)
-                    or math.isinf(ymn)
+                    isinf(ymx)
+                    or isinf(ymn)
                 ):
-                    # breakpoint()
                     log.warning(
                         f'BAD ymx/ymn: {(ymn, ymx)}'
                     )
@@ -1281,11 +1296,13 @@ class ChartView(ViewBox):
             # inside of a single render cycle (and apparently calling
             # `ViewBox.setYRange()` multiple times within one only takes
             # the first call as serious...) XD
-            # print(
-            #     f'Scale MAJOR {major_viz.name}:\n'
-            #     f'previous: {(major_mn, major_mx)}\n'
-            #     f'new: {new_maj_mxmn}\n'
-            # )
+            if debug_print:
+                print(
+                    f'Scale MAJOR {major_viz.name}:\n'
+                    f'scaled mx_disp: {mx_disp}\n'
+                    f'previous: {(major_mn, major_mx)}\n'
+                    f'new: {new_maj_mxmn}\n'
+                )
             major_viz.plot.vb._set_yrange(
                 yrange=(major_mn, major_mx),
             )
