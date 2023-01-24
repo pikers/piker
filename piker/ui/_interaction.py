@@ -908,13 +908,14 @@ class ChartView(ViewBox):
         self,
         *args,
         debug_print: bool = False,
+        do_overlay_scaling: bool = True,
     ):
         profiler = Profiler(
             msg=f'ChartView.interact_graphics_cycle() for {self.name}',
             # disabled=not pg_profile_enabled(),
             # ms_threshold=ms_slower_then,
 
-            disabled=True,
+            disabled=False,
             ms_threshold=4,
 
             # XXX: important to avoid not seeing underlying
@@ -974,7 +975,6 @@ class ChartView(ViewBox):
                     np.ndarray,  # in-view array
                 ],
             ] = {}
-            max_istart: float = 0
             major_in_view: np.ndarray = None
 
             for name, viz in chart._vizs.items():
@@ -1015,6 +1015,8 @@ class ChartView(ViewBox):
                 else:
                     mxmns_by_common_pi[pi] = yrange
 
+                profiler(f'{viz.name}@{chart_name} common pi sort')
+
                 # handle overlay log-linearized group scaling cases
                 # TODO: a better predicate here, likely something
                 # to do with overlays and their settings..
@@ -1031,14 +1033,14 @@ class ChartView(ViewBox):
                     in_view = arr[read_slc]
                     row_start = arr[read_slc.start - 1]
 
-                    max_istart = max(in_view[0]['index'], max_istart)
-
                     if viz.is_ohlc:
                         y_med = np.median(in_view['close'])
                         y_start = row_start['open']
                     else:
                         y_med = np.median(in_view[viz.name])
                         y_start = row_start[viz.name]
+
+                    profiler(f'{viz.name}@{chart_name} MINOR curve median')
 
                     # x_start = ixrng[0]
                     # print(
@@ -1066,6 +1068,7 @@ class ChartView(ViewBox):
                         major_mn = ymn
                         major_mx = ymx
                         major_in_view = in_view
+                        profiler(f'{viz.name}@{chart_name} set new major')
 
                     # compute directional (up/down) y-range % swing/dispersion
                     y_ref = y_med
@@ -1087,12 +1090,13 @@ class ChartView(ViewBox):
                     #     f'mx up %: {mx_up_rng * 100}\n'
                     #     f'mn down %: {mn_down_rng * 100}\n'
                     # )
+                    profiler(f'{viz.name}@{chart_name} MINOR curve scale')
 
                 # non-overlay group case
                 else:
                     pi.vb._set_yrange(yrange=yrange)
                     profiler(
-                        f'{viz.name}@{chart_name} `Viz.plot.vb._set_yrange()`'
+                        f'{viz.name}@{chart_name} simple std `._set_yrange()`'
                     )
 
             profiler(f'<{chart_name}>.interact_graphics_cycle({name})')
@@ -1102,6 +1106,7 @@ class ChartView(ViewBox):
             # if no overlays, set lone chart's yrange and short circuit
             if (
                 len(start_datums) < 2
+                or not do_overlay_scaling
             ):
                 if not major_viz:
                     major_viz = viz
@@ -1110,6 +1115,7 @@ class ChartView(ViewBox):
                 major_viz.plot.vb._set_yrange(
                     yrange=yrange,
                 )
+                profiler(f'{viz.name}@{chart_name} single curve yrange')
                 return
 
             # conduct "log-linearized multi-plot" scalings for all groups
@@ -1160,6 +1166,8 @@ class ChartView(ViewBox):
                     y_major_intersect = major_in_view_start[key]
                     y_minor_intersect = minor_in_view_start[key]
 
+                    profiler(f'{viz.name}@{chart_name} intersect detection')
+
                     tdiff = (major_i_start_t - minor_i_start_t)
                     if debug_print:
                         print(
@@ -1177,6 +1185,7 @@ class ChartView(ViewBox):
                             major_i_start_t,
                         )
                         y_minor_intersect = minor_in_view[y_minor_i][key]
+                        profiler(f'{viz.name}@{chart_name} intersect by t')
 
                     # minor has later timestamp adjust major
                     elif tdiff < 0:
@@ -1185,6 +1194,8 @@ class ChartView(ViewBox):
                             minor_i_start_t,
                         )
                         y_major_intersect = major_in_view[y_major_i][key]
+
+                        profiler(f'{viz.name}@{chart_name} intersect by t')
 
                     if debug_print:
                         print(
@@ -1214,6 +1225,8 @@ class ChartView(ViewBox):
                     ymn = minor_y_start * (1 + r_down)
                     ymx = minor_y_start * (1 + r_up)
 
+                    profiler(f'{viz.name}@{chart_name} SCALE minor')
+
                     # XXX: handle out of view cases where minor curve
                     # now is outside the range of the major curve. in
                     # this case we then re-scale the major curve to
@@ -1236,6 +1249,7 @@ class ChartView(ViewBox):
                                 f'y_max:{y_max} > ymx:{ymx}\n'
                             )
                         ymx = y_max
+                        profiler(f'{viz.name}@{chart_name} re-SCALE major UP')
 
                     if y_min < ymn:
 
@@ -1255,6 +1269,10 @@ class ChartView(ViewBox):
                                 f'y_min:{y_min} < ymn:{ymn}\n'
                             )
                         ymn = y_min
+
+                        profiler(
+                            f'{viz.name}@{chart_name} re-SCALE major DOWN'
+                        )
 
                     if new_maj_mxmn:
                         if debug_print:
@@ -1290,6 +1308,7 @@ class ChartView(ViewBox):
                 view._set_yrange(
                     yrange=(ymn, ymx),
                 )
+                profiler(f'{viz.name}@{chart_name} log-SCALE minor')
 
             # NOTE XXX: we have to set the major curve's range once (and
             # only once) here since we're doing this entire routine
@@ -1306,6 +1325,7 @@ class ChartView(ViewBox):
             major_viz.plot.vb._set_yrange(
                 yrange=(major_mn, major_mx),
             )
+            profiler(f'{viz.name}@{chart_name} log-SCALE major')
             # major_mx, major_mn = new_maj_mxmn
             # vrs = major_viz.plot.vb.viewRange()
             # if vrs[1][0] > major_mn:
