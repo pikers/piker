@@ -803,7 +803,7 @@ class ChartView(ViewBox):
 
         '''
         name = self.name
-        # print(f'YRANGE ON {name}')
+        # print(f'YRANGE ON {name} -> yrange{yrange}')
         profiler = Profiler(
             msg=f'`ChartView._set_yrange()`: `{name}`',
             disabled=not pg_profile_enabled(),
@@ -950,9 +950,11 @@ class ChartView(ViewBox):
 
     def interact_graphics_cycle(
         self,
-        *args,
+        *args,  # capture signal-handler related shit
+
         debug_print: bool = False,
         do_overlay_scaling: bool = True,
+        do_linked_charts: bool = True,
     ):
         profiler = Profiler(
             msg=f'ChartView.interact_graphics_cycle() for {self.name}',
@@ -974,7 +976,10 @@ class ChartView(ViewBox):
         plots = {chart.name: chart}
 
         linked = self.linked
-        if linked:
+        if (
+            do_linked_charts
+            and linked
+        ):
             plots |= linked.subplots
 
         for chart_name, chart in plots.items():
