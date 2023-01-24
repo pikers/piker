@@ -418,7 +418,7 @@ class Router(Struct):
 
             # load the paper trading engine
             exec_mode = 'paper'
-            log.warning(f'Entering paper trading mode for {broker}')
+            log.info(f'{broker}: Entering `paper` trading mode')
 
             # load the paper trading engine as a subactor of this emsd
             # actor to simulate the real IPC load it'll have when also
@@ -1367,7 +1367,15 @@ async def _emsd_main(
     exec_mode: str,  # ('paper', 'live')
     loglevel: str = 'info',
 
-) -> None:
+) -> tuple[
+    dict[
+        # brokername, acctid
+        tuple[str, str],
+        list[BrokerdPosition],
+    ],
+    list[str],
+    dict[str, Status],
+]:
     '''
     EMS (sub)actor entrypoint providing the execution management
     (micro)service which conducts broker order clearing control on
