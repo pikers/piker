@@ -85,7 +85,7 @@ class FlowGraphic(pg.GraphicsObject):
 
         # line styling
         color: str = 'bracket',
-        last_step_color: str = 'original',
+        last_step_color: str | None = None,
         fill_color: Optional[str] = None,
         style: str = 'solid',
 
@@ -126,10 +126,17 @@ class FlowGraphic(pg.GraphicsObject):
         )
 
         # last segment is drawn in 2px thickness for emphasis
-        self.last_step_pen = pg.mkPen(
-            hcolor(last_step_color),
-            width=2,
-        )
+        if last_step_color:
+            self.last_step_pen = pg.mkPen(
+                hcolor(last_step_color),
+                width=2,
+            )
+        else:
+            self.last_step_pen = pg.mkPen(
+                self._pen,
+                width=2,
+            )
+
         self._last_line: QLineF = QLineF()
 
         super().__init__(*args, **kwargs)
