@@ -261,8 +261,8 @@ async def increment_history_view(
                 profiler('`hist Viz.update_graphics()` call')
 
                 if liv:
-                    # hist_viz.plot.vb._set_yrange(viz=hist_viz)
                     hist_viz.plot.vb.interact_graphics_cycle(
+                        do_linked_charts=False,
                         # do_overlay_scaling=False,
                     )
                     profiler('hist chart yrange view')
@@ -586,7 +586,6 @@ def graphics_update_cycle(
             or trigger_all
         ):
             chart.increment_view(datums=append_diff)
-            # main_viz.plot.vb._set_yrange(viz=main_viz)
 
             # NOTE: since vlm and ohlc charts are axis linked now we don't
             # need the double increment request?
@@ -722,16 +721,14 @@ def graphics_update_cycle(
                 # yr = (mn, mx)
                 main_vb.interact_graphics_cycle(
                     # do_overlay_scaling=False,
+                    do_linked_charts=False,
                 )
                 # TODO: we should probably scale
                 # the view margin based on the size
                 # of the true range? This way you can
                 # slap in orders outside the current
                 # L1 (only) book range.
-                # main_vb._set_yrange(
-                #     yrange=yr
-                #     # range_margin=0.1,
-                # )
+
                 profiler('main vb y-autorange')
 
         # SLOW CHART resize case
@@ -854,9 +851,15 @@ def graphics_update_cycle(
                 mx_vlm_in_view != varz['last_mx_vlm']
             ):
                 varz['last_mx_vlm'] = mx_vlm_in_view
+
+                # TODO: incr maxmin update as pass into below..
                 # vlm_yr = (0, mx_vlm_in_view * 1.375)
-                # vlm_chart.view._set_yrange(yrange=vlm_yr)
-                # profiler('`vlm_chart.view._set_yrange()`')
+
+                main_vlm_viz.plot.vb.interact_graphics_cycle(
+                    # do_overlay_scaling=False,
+                    do_linked_charts=False,
+                )
+                profiler('`vlm_chart.view.interact_graphics_cycle()`')
 
         # update all downstream FSPs
         for curve_name, viz in vlm_vizs.items():
@@ -884,10 +887,10 @@ def graphics_update_cycle(
                 # resizing from last quote?)
                 # XXX: without this we get completely
                 # mangled/empty vlm display subchart..
-                # fvb = viz.plot.vb
-                # fvb._set_yrange(
-                #     viz=viz,
-                # )
+                fvb = viz.plot.vb
+                fvb.interact_graphics_cycle(
+                    do_linked_charts=False,
+                )
                 profiler(f'vlm `Viz[{viz.name}].plot.vb._set_yrange()`')
 
             # even if we're downsampled bigly
