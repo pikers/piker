@@ -973,7 +973,6 @@ class ChartView(ViewBox):
             # ms_threshold=4,
         )
 
-        # TODO: a faster single-loop-iterator way of doing this XD
         chart = self._chart
         linked = self.linked
         if (
@@ -985,6 +984,7 @@ class ChartView(ViewBox):
         else:
             plots = {chart.name: chart}
 
+        # TODO: a faster single-loop-iterator way of doing this?
         for chart_name, chart in plots.items():
 
             # Common `PlotItem` maxmin table; presumes that some path
@@ -1006,8 +1006,8 @@ class ChartView(ViewBox):
             major_viz: Viz = None
             major_mx: float = 0
             major_mn: float = float('inf')
-            mx_up_rng: float = 0
-            mn_down_rng: float = 0
+            # mx_up_rng: float = 0
+            # mn_down_rng: float = 0
             mx_disp: float = 0
 
             # collect certain flows have grapics objects **in seperate
@@ -1085,19 +1085,14 @@ class ChartView(ViewBox):
                     in_view = arr[read_slc]
                     row_start = arr[read_slc.start - 1]
 
-                    y_med = (ymx - ymn) / 2
+                    # y_med = (ymx - ymn) / 2
+                    # y_med = viz.median_from_range(
+                    #     read_slc.start,
+                    #     read_slc.stop,
+                    # )
                     if viz.is_ohlc:
-                        # y_med = (ymx - ymin) / 2
-                        # y_med = viz.median_from_range(
-                        #     read_slc.start,
-                        #     read_slc.stop,
-                        # )
                         y_start = row_start['open']
                     else:
-                        # y_med = viz.median_from_range(
-                        #     read_slc.start,
-                        #     read_slc.stop,
-                        # )
                         y_start = row_start[viz.name]
 
                     profiler(f'{viz.name}@{chart_name} MINOR curve median')
@@ -1107,13 +1102,13 @@ class ChartView(ViewBox):
                         y_start,
                         ymn,
                         ymx,
-                        y_med,
+                        # y_med,
                         read_slc,
                         in_view,
                     )
 
                     # find curve with max dispersion
-                    disp = abs(ymx - ymn) / y_med
+                    disp = abs(ymx - ymn) / y_start
 
                     # track the "major" curve as the curve with most
                     # dispersion.
@@ -1126,12 +1121,12 @@ class ChartView(ViewBox):
                         profiler(f'{viz.name}@{chart_name} set new major')
 
                     # compute directional (up/down) y-range % swing/dispersion
-                    y_ref = y_med
-                    up_rng = (ymx - y_ref) / y_ref
-                    down_rng = (ymn - y_ref) / y_ref
+                    # y_ref = y_med
+                    # up_rng = (ymx - y_ref) / y_ref
+                    # down_rng = (ymn - y_ref) / y_ref
 
-                    mx_up_rng = max(mx_up_rng, up_rng)
-                    mn_down_rng = min(mn_down_rng, down_rng)
+                    # mx_up_rng = max(mx_up_rng, up_rng)
+                    # mn_down_rng = min(mn_down_rng, down_rng)
 
                     # print(
                     #     f'{viz.name}@{chart_name} group mxmn calc\n'
@@ -1181,7 +1176,7 @@ class ChartView(ViewBox):
                     y_start,
                     y_min,
                     y_max,
-                    y_med,
+                    # y_med,
                     read_slc,
                     minor_in_view,
                 )
@@ -1346,8 +1341,8 @@ class ChartView(ViewBox):
                             '--------------------\n'
                             f'y_minor_intersect: {y_minor_intersect}\n'
                             f'y_major_intersect: {y_major_intersect}\n'
-                            f'mn_down_rng: {mn_down_rng * 100}\n'
-                            f'mx_up_rng: {mx_up_rng * 100}\n'
+                            # f'mn_down_rng: {mn_down_rng * 100}\n'
+                            # f'mx_up_rng: {mx_up_rng * 100}\n'
                             f'scaled ymn: {ymn}\n'
                             f'scaled ymx: {ymx}\n'
                             f'scaled mx_disp: {mx_disp}\n'
