@@ -1180,7 +1180,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
         i_last_append = varz['i_last_append']
         append_diff: int = i_step - i_last_append
 
-        do_px_step = append_diff >= uppx
+        do_px_step = (append_diff * self.index_step()) >= uppx
         do_rt_update = (uppx < update_uppx)
 
         if (
