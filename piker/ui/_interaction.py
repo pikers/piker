@@ -43,6 +43,7 @@ from ..log import get_logger
 from .._profile import Profiler
 from .._profile import pg_profile_enabled, ms_slower_then
 from ..data.types import Struct
+from ..data._pathops import slice_from_time
 # from ._style import _min_points_to_show
 from ._editors import SelectRect
 from . import _event
@@ -1230,20 +1231,22 @@ class ChartView(ViewBox):
 
                     # major has later timestamp adjust minor
                     if tdiff > 0:
-                        y_minor_i = np.searchsorted(
-                            minor_in_view['time'],
-                            major_i_start_t,
+                        slc = slice_from_time(
+                            arr=minor_in_view,
+                            start_t=major_i_start_t,
+                            stop_t=major_i_start_t,
                         )
-                        y_minor_intersect = minor_in_view[y_minor_i][key]
+                        y_minor_intersect = minor_in_view[slc.start][key]
                         profiler(f'{viz.name}@{chart_name} intersect by t')
 
                     # minor has later timestamp adjust major
                     elif tdiff < 0:
-                        y_major_i = np.searchsorted(
-                            major_in_view['time'],
-                            minor_i_start_t,
+                        slc = slice_from_time(
+                            arr=major_in_view,
+                            start_t=minor_i_start_t,
+                            stop_t=minor_i_start_t,
                         )
-                        y_major_intersect = major_in_view[y_major_i][key]
+                        y_major_intersect = major_in_view[slc.start][key]
 
                         profiler(f'{viz.name}@{chart_name} intersect by t')
 
