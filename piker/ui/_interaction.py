@@ -42,6 +42,7 @@ import trio
 from ..log import get_logger
 from .._profile import Profiler
 from .._profile import pg_profile_enabled, ms_slower_then
+from ..data.types import Struct
 # from ._style import _min_points_to_show
 from ._editors import SelectRect
 from . import _event
@@ -341,6 +342,49 @@ async def handle_viewmode_mouse(
             # when in order mode, submit execution
             # msg.event.accept()
             view.order_mode.submit_order()
+
+
+class OverlayT(Struct):
+    '''
+    An overlay co-domain range transformer.
+
+    Used to translate and apply a range from one y-range
+    to another based on a returns logarithm:
+
+    R(ymn, ymx, yref) = (ymx - yref)/yref
+
+    which gives the log-scale multiplier, and
+
+    ymx_t = yref * (1 + R)
+
+    which gives the inverse to translate to the same value
+    in the target co-domain.
+
+    '''
+    viz: Viz  # viz with largest measured dispersion
+
+    mx: float = 0
+    mn: float = float('inf')
+
+    up_swing: float = 0
+    down_swing: float = 0
+    disp: float = 0
+
+    def loglin_from_range(
+        self,
+
+        y_ref: float,  # reference value for dispersion metric
+        mn: float,  # min y in target log-lin range
+        mx: float,  # max y in target log-lin range
+        offset: float,  # y-offset to start log-scaling from
+
+    ) -> tuple[float, float]:
+        r_up = (mx - y_ref) / y_ref
+        r_down = (mn - y_ref) / y_ref
+        ymn = offset * (1 + r_down)
+        ymx = offset * (1 + r_up)
+
+        return ymn, ymx
 
 
 class ChartView(ViewBox):
@@ -1034,19 +1078,20 @@ class ChartView(ViewBox):
                     row_start = arr[read_slc.start - 1]
 
                     if viz.is_ohlc:
-                        y_med = np.median(in_view['close'])
+                        y_med = viz.median_from_range(
+                            read_slc.start,
+                            read_slc.stop,
+                        )
                         y_start = row_start['open']
                     else:
-                        y_med = np.median(in_view[viz.name])
+                        y_med = viz.median_from_range(
+                            read_slc.start,
+                            read_slc.stop,
+                        )
                         y_start = row_start[viz.name]
 
                     profiler(f'{viz.name}@{chart_name} MINOR curve median')
 
-                    # x_start = ixrng[0]
-                    # print(
-                    #     f'{viz.name} ->\n'
-                    #     f'(x_start: {x_start}, y_start: {y_start}\n'
-                    # )
                     start_datums[viz.plot.vb] = (
                         viz,
                         y_start,
