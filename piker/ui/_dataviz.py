@@ -19,6 +19,7 @@ Data vizualization APIs
 
 '''
 from __future__ import annotations
+from functools import lru_cache
 from math import (
     ceil,
     floor,
@@ -282,6 +283,21 @@ class Viz(msgspec.Struct):  # , frozen=True):
         tuple[float, float],
     ] = {}
 
+    # cache of median calcs from input read slice hashes
+    # see `.median()`
+    _meds: dict[
+        int,
+        float,
+    ] = {}
+
+    # to make lru_cache-ing work, see
+    # https://docs.python.org/3/faq/programming.html#how-do-i-cache-method-calls
+    def __eq__(self, other):
+        return self._shm._token == other._shm._token
+
+    def __hash__(self):
+        return hash(self._shm._token)
+
     @property
     def shm(self) -> ShmArray:
         return self._shm
@@ -461,6 +477,19 @@ class Viz(msgspec.Struct):  # , frozen=True):
             read_slc,
             mxmn,
         )
+
+    @lru_cache(maxsize=6116)
+    def median_from_range(
+        self,
+        start: int,
+        stop: int,
+
+    ) -> float:
+        in_view = self.shm.array[start:stop]
+        if self.is_ohlc:
+            return np.median(in_view['close'])
+        else:
+            return np.median(in_view[self.name])
 
     def view_range(self) -> tuple[int, int]:
         '''
