@@ -528,6 +528,8 @@ class LinkedSplits(QWidget):
 
         style: str = 'ohlc_bar',
 
+        **add_plot_kwargs,
+
     ) -> ChartPlotWidget:
         '''
         Start up and show main (price) chart and all linked subcharts.
@@ -552,6 +554,7 @@ class LinkedSplits(QWidget):
             style=style,
             _is_main=True,
             sidepane=sidepane,
+            **add_plot_kwargs,
         )
         # add crosshair graphic
         self.chart.addItem(self.cursor)
@@ -576,6 +579,7 @@ class LinkedSplits(QWidget):
         _is_main: bool = False,
 
         sidepane: Optional[QWidget] = None,
+        draw_kwargs: dict = {},
 
         **cpw_kwargs,
 
@@ -701,12 +705,12 @@ class LinkedSplits(QWidget):
         # draw curve graphics
         if style == 'ohlc_bar':
 
-            # graphics, data_key = cpw.draw_ohlc(
             viz = cpw.draw_ohlc(
                 name,
                 shm,
                 flume=flume,
-                array_key=array_key
+                array_key=array_key,
+                **draw_kwargs,
             )
             self.cursor.contents_labels.add_label(
                 cpw,
@@ -724,6 +728,7 @@ class LinkedSplits(QWidget):
                 flume,
                 array_key=array_key,
                 color='default_light',
+                **draw_kwargs,
             )
 
         elif style == 'step':
@@ -737,6 +742,7 @@ class LinkedSplits(QWidget):
                 step_mode=True,
                 color='davies',
                 fill_color='davies',
+                **draw_kwargs,
             )
 
         else:
