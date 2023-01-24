@@ -297,10 +297,7 @@ def slice_from_time(
     stop_t: float,
     step: int | None = None,
 
-) -> tuple[
-    slice,
-    slice,
-]:
+) -> slice:
     '''
     Calculate array indices mapped from a time range and return them in
     a slice.
