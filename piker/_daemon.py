@@ -22,9 +22,9 @@ from __future__ import annotations
 import os
 from typing import (
     Optional,
-    Union,
     Callable,
     Any,
+    ClassVar,
 )
 from contextlib import (
     asynccontextmanager as acm,
@@ -393,7 +393,7 @@ async def maybe_open_pikerd(
 
     **kwargs,
 
-) -> Union[tractor._portal.Portal, Services]:
+) -> tractor._portal.Portal | ClassVar[Services]:
     '''
     If no ``pikerd`` daemon-root-actor can be found start it and
     yield up (we should probably figure out returning a portal to self
@@ -445,7 +445,7 @@ async def maybe_open_pikerd(
         # tractor-piker runtime stack in **this** process
         # we return no portal to self.
         assert service_manager
-        yield None
+        yield service_manager
 
 
 # `brokerd` enabled modules
