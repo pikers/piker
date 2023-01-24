@@ -959,29 +959,31 @@ class ChartView(ViewBox):
     ):
         profiler = Profiler(
             msg=f'ChartView.interact_graphics_cycle() for {self.name}',
-            # disabled=not pg_profile_enabled(),
-            # ms_threshold=ms_slower_then,
-
-            disabled=False,
-            ms_threshold=4,
+            disabled=not pg_profile_enabled(),
+            ms_threshold=ms_slower_then,
 
             # XXX: important to avoid not seeing underlying
             # ``Viz.update_graphics()`` nested profiling likely
             # due to the way delaying works and garbage collection of
             # the profiler in the delegated method calls.
             delayed=True,
+
+            # for hardcore latency checking, comment these flags above.
+            # disabled=False,
+            # ms_threshold=4,
         )
 
         # TODO: a faster single-loop-iterator way of doing this XD
         chart = self._chart
-        plots = {chart.name: chart}
-
         linked = self.linked
         if (
             do_linked_charts
             and linked
         ):
+            plots = {linked.chart.name: linked.chart}
             plots |= linked.subplots
+        else:
+            plots = {chart.name: chart}
 
         for chart_name, chart in plots.items():
 
@@ -1083,17 +1085,19 @@ class ChartView(ViewBox):
                     in_view = arr[read_slc]
                     row_start = arr[read_slc.start - 1]
 
+                    y_med = (ymx - ymn) / 2
                     if viz.is_ohlc:
-                        y_med = viz.median_from_range(
-                            read_slc.start,
-                            read_slc.stop,
-                        )
+                        # y_med = (ymx - ymin) / 2
+                        # y_med = viz.median_from_range(
+                        #     read_slc.start,
+                        #     read_slc.stop,
+                        # )
                         y_start = row_start['open']
                     else:
-                        y_med = viz.median_from_range(
-                            read_slc.start,
-                            read_slc.stop,
-                        )
+                        # y_med = viz.median_from_range(
+                        #     read_slc.start,
+                        #     read_slc.stop,
+                        # )
                         y_start = row_start[viz.name]
 
                     profiler(f'{viz.name}@{chart_name} MINOR curve median')
