@@ -18,8 +18,10 @@
 Orders and execution client API.
 
 """
+from __future__ import annotations
 from contextlib import asynccontextmanager as acm
 from pprint import pformat
+from typing import TYPE_CHECKING
 
 import trio
 import tractor
@@ -27,10 +29,15 @@ from tractor.trionics import broadcast_receiver
 
 from ..log import get_logger
 from ..data.types import Struct
-from ._ems import _emsd_main
 from .._daemon import maybe_open_emsd
 from ._messages import Order, Cancel
 from ..brokers import get_brokermod
+
+if TYPE_CHECKING:
+    from ._messages import (
+        BrokerdPosition,
+        Status,
+    )
 
 
 log = get_logger(__name__)
@@ -167,12 +174,19 @@ async def relay_order_cmds_from_sync_code(
 @acm
 async def open_ems(
     fqsn: str,
+    mode: str = 'live',
 
-) -> (
+) -> tuple[
     OrderBook,
     tractor.MsgStream,
-    dict,
-):
+    dict[
+        # brokername, acctid
+        tuple[str, str],
+        list[BrokerdPosition],
+    ],
+    list[str],
+    dict[str, Status],
+]:
     '''
     Spawn an EMS daemon and begin sending orders and receiving
     alerts.
@@ -213,14 +227,16 @@ async def open_ems(
     from ..data._source import unpack_fqsn
     broker, symbol, suffix = unpack_fqsn(fqsn)
 
-    mode: str = 'live'
-
     async with maybe_open_emsd(broker) as portal:
 
         mod = get_brokermod(broker)
-        if not getattr(mod, 'trades_dialogue', None):
+        if (
+            not getattr(mod, 'trades_dialogue', None)
+            or mode == 'paper'
+        ):
             mode = 'paper'
 
+        from ._ems import _emsd_main
         async with (
             # connect to emsd
             portal.open_context(
