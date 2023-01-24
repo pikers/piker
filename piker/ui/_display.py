@@ -261,7 +261,10 @@ async def increment_history_view(
                 profiler('`hist Viz.update_graphics()` call')
 
                 if liv:
-                    hist_viz.plot.vb._set_yrange(viz=hist_viz)
+                    # hist_viz.plot.vb._set_yrange(viz=hist_viz)
+                    hist_viz.plot.vb.interact_graphics_cycle(
+                        do_overlay_scaling=False,
+                    )
                     profiler('hist chart yrange view')
 
             # check if tread-in-place view x-shift is needed
@@ -715,20 +718,18 @@ def graphics_update_cycle(
                 or not main_vb._ic.is_set()
             ):
                 yr = (mn, mx)
-                # print(
-                #     f'MAIN VIZ yrange update\n'
-                #     f'{fqsn}: {yr}'
-                # )
-
-                main_vb._set_yrange(
-                    # TODO: we should probably scale
-                    # the view margin based on the size
-                    # of the true range? This way you can
-                    # slap in orders outside the current
-                    # L1 (only) book range.
-                    # range_margin=0.1,
-                    yrange=yr
+                main_vb.interact_graphics_cycle(
+                    do_overlay_scaling=False,
                 )
+                # TODO: we should probably scale
+                # the view margin based on the size
+                # of the true range? This way you can
+                # slap in orders outside the current
+                # L1 (only) book range.
+                # main_vb._set_yrange(
+                #     yrange=yr
+                #     # range_margin=0.1,
+                # )
                 profiler('main vb y-autorange')
 
         # SLOW CHART resize case
@@ -1224,6 +1225,9 @@ async def display_symbol_data(
             # to avoid internal pane creation.
             # sidepane=False,
             sidepane=godwidget.search,
+            draw_kwargs={
+                'last_step_color': 'original',
+            },
         )
 
         # ensure the last datum graphic is generated
@@ -1242,6 +1246,9 @@ async def display_symbol_data(
             # in the case of history chart we explicitly set `False`
             # to avoid internal pane creation.
             sidepane=pp_pane,
+            draw_kwargs={
+                'last_step_color': 'original',
+            },
         )
         rt_viz = rt_chart.get_viz(fqsn)
         pis.setdefault(fqsn, [None, None])[0] = rt_chart.plotItem
