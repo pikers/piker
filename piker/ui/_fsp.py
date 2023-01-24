@@ -608,6 +608,7 @@ async def open_vlm_displays(
     linked: LinkedSplits,
     flume: Flume,
     dvlm: bool = True,
+    loglevel: str = 'info',
 
     task_status: TaskStatus[ChartPlotWidget] = trio.TASK_STATUS_IGNORED,
 
@@ -710,9 +711,9 @@ async def open_vlm_displays(
         _, _, vlm_curve = vlm_viz.update_graphics()
 
         # size view to data once at outset
-        vlm_chart.view._set_yrange(
-            viz=vlm_viz
-        )
+        # vlm_chart.view._set_yrange(
+        #     viz=vlm_viz
+        # )
 
         # add axis title
         axis = vlm_chart.getAxis('right')
@@ -734,22 +735,8 @@ async def open_vlm_displays(
                         },
                     },
                 },
-                # loglevel,
+                loglevel,
             )
-            tasks_ready.append(started)
-
-            # FIXME: we should error on starting the same fsp right
-            # since it might collide with existing shm.. or wait we
-            # had this before??
-            # dolla_vlm
-
-            tasks_ready.append(started)
-            # profiler(f'created shm for fsp actor: {display_name}')
-
-            # wait for all engine tasks to startup
-            async with trio.open_nursery() as n:
-                for event in tasks_ready:
-                    n.start_soon(event.wait)
 
             # dolla vlm overlay
             # XXX: the main chart already contains a vlm "units" axis
@@ -821,6 +808,7 @@ async def open_vlm_displays(
                     )
                     assert viz.plot is pi
 
+            await started.wait()
             chart_curves(
                 dvlm_fields,
                 dvlm_pi,
@@ -829,19 +817,17 @@ async def open_vlm_displays(
                 step_mode=True,
             )
 
-            # spawn flow rates fsp **ONLY AFTER** the 'dolla_vlm' fsp is
-            # up since this one depends on it.
-
+            # NOTE: spawn flow rates fsp **ONLY AFTER** the 'dolla_vlm' fsp is
+            # up since calculating vlm "rates" obvs first requires the
+            # underlying vlm event feed ;)
             fr_flume, started = await admin.start_engine_task(
                 flow_rates,
                 {  # fsp engine conf
                     'func_name': 'flow_rates',
                     'zero_on_step': True,
                 },
-                # loglevel,
+                loglevel,
             )
-            await started.wait()
-
             # chart_curves(
             #     dvlm_rate_fields,
             #     dvlm_pi,
@@ -885,6 +871,7 @@ async def open_vlm_displays(
 
             )
 
+            await started.wait()
             chart_curves(
                 trade_rate_fields,
                 tr_pi,
