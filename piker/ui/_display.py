@@ -257,7 +257,7 @@ async def increment_history_view(
                 if liv:
                     # hist_viz.plot.vb._set_yrange(viz=hist_viz)
                     hist_viz.plot.vb.interact_graphics_cycle(
-                        do_overlay_scaling=False,
+                        # do_overlay_scaling=False,
                     )
                     profiler('hist chart yrange view')
 
@@ -711,9 +711,11 @@ def graphics_update_cycle(
                 main_vb._ic is None
                 or not main_vb._ic.is_set()
             ):
-                yr = (mn, mx)
+                # TODO: incremenal update of the median
+                # and maxmin driving the y-autoranging.
+                # yr = (mn, mx)
                 main_vb.interact_graphics_cycle(
-                    do_overlay_scaling=False,
+                    # do_overlay_scaling=False,
                 )
                 # TODO: we should probably scale
                 # the view margin based on the size
