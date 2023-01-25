@@ -1589,6 +1589,9 @@ async def open_feed(
                 (brokermod, bfqsns),
             ) in zip(ctxs, providers.items()):
 
+                # NOTE: do it asap to avoid overruns during multi-feed setup?
+                ctx._backpressure = backpressure
+
                 for fqsn, flume_msg in flumes_msg_dict.items():
                     flume = Flume.from_msg(flume_msg)
                     assert flume.symbol.fqsn == fqsn
