@@ -161,9 +161,16 @@ _futes_venues = (
     'CME',
     'CMECRYPTO',
     'COMEX',
-    'CMDTY',  # special name case..
+    # 'CMDTY',  # special name case..
     'CBOT',  # (treasury) yield futures
 )
+
+_adhoc_cmdty_set = {
+    # metals
+    # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
+    'xauusd.cmdty',  # london gold spot ^
+    'xagusd.cmdty',  # silver spot
+}
 
 _adhoc_futes_set = {
 
@@ -186,16 +193,12 @@ _adhoc_futes_set = {
     # raw
     'lb.comex',  # random len lumber
 
-    # metals
-    # https://misc.interactivebrokers.com/cstools/contract_info/v3.10/index.php?action=Conid%20Info&wlId=IB&conid=69067924
-    'xauusd.cmdty',  # london gold spot ^
     'gc.comex',
     'mgc.comex',  # micro
 
     # oil & gas
     'cl.comex',
 
-    'xagusd.cmdty',  # silver spot
     'ni.comex',  # silver futes
     'qi.comex',  # mini-silver futes
 
@@ -259,6 +262,7 @@ _exch_skip_list = {
     'FUNDSERV',
     'SWB2',
     'PSE',
+    'PHLX',
 }
 
 _enters = 0
@@ -514,15 +518,18 @@ class Client:
         except ConnectionError:
             return {}
 
+        dict_results: dict[str, dict] = {}
         for key, deats in results.copy().items():
 
             tract = deats.contract
             sym = tract.symbol
             sectype = tract.secType
+            deats_dict = asdict(deats)
 
             if sectype == 'IND':
-                results[f'{sym}.IND'] = tract
                 results.pop(key)
+                key = f'{sym}.IND'
+                results[key] = tract
                 # exch = tract.exchange
 
                 # XXX: add back one of these to get the weird deadlock
@@ -559,20 +566,25 @@ class Client:
                     # if cons:
                     all_deats = await self.con_deats([con])
                     results |= all_deats
+                    for key in all_deats:
+                        dict_results[key] = asdict(all_deats[key])
 
             # forex pairs
             elif sectype == 'CASH':
+                results.pop(key)
                 dst, src = tract.localSymbol.split('.')
                 pair_key = "/".join([dst, src])
                 exch = tract.exchange.lower()
-                results[f'{pair_key}.{exch}'] = tract
-                results.pop(key)
+                key = f'{pair_key}.{exch}'
+                results[key] = tract
 
                 # XXX: again seems to trigger the weird tractor
                 # bug with the debugger..
                 # assert 0
 
-        return results
+            dict_results[key] = deats_dict
+
+        return dict_results
 
     async def get_fute(
         self,
@@ -1036,7 +1048,11 @@ def con2fqsn(
             # TODO: option symbol parsing and sane display:
             symbol = con.localSymbol.replace(' ', '')
 
-        case ibis.Commodity():
+        case (
+            ibis.Commodity()
+            # search API endpoint returns std con box..
+            | ibis.Contract(secType='CMDTY')
+        ):
             # commodities and forex don't have an exchange name and
             # no real volume so we have to calculate the price
             suffix = con.secType
