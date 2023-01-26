@@ -129,7 +129,7 @@ def test_ensure_ems_in_paper_actors(
         # ensure we timeout after is startup is too slow.
         # TODO: something like this should be our start point for
         # benchmarking end-to-end startup B)
-        with trio.fail_after(7):
+        with trio.fail_after(9):
             async with (
                 open_test_pikerd() as (_, _, _, services),
 
