@@ -20,6 +20,7 @@ that doesn't try to cuk most humans who prefer to not lose their moneys..
 (looking at you `ib` and dirt-bird friends)
 
 '''
+from __future__ import annotations
 from contextlib import contextmanager as cm
 from pprint import pformat
 import os
@@ -34,11 +35,13 @@ from typing import (
     Union,
     Generator
 )
+from typing import Generator
 
 import pendulum
 from pendulum import datetime, now
 import tomli
 import toml
+
 from . import config
 from .brokers import get_brokermod
 from .clearing._messages import BrokerdPosition, Status
@@ -56,7 +59,7 @@ def open_trade_ledger(
     trades: dict[str, Any] 
 ) -> Generator[dict, None, None]:
     '''
-    Indempotently create and read in a trade log file from the
+    Indempotently creat0616cbd1e and read in a trade log file from the
     ``<configuration_dir>/ledgers/`` directory.
 
     Files are named per broker account of the form
@@ -82,8 +85,6 @@ def open_trade_ledger(
         ledger = tomli.load(cf)
         print(f'Ledger load took {time.time() - start}s')
         cpy = ledger.copy()
-        if trades:
-            cpy.update(trades)
     try:
         yield cpy
     finally:
@@ -93,8 +94,6 @@ def open_trade_ledger(
             print(f'Updating ledger for {tradesfile}:\n')
             ledger.update(cpy)
             
-            print("updated ledger") 
-            print(ledger)
             # we write on close the mutated ledger data
             with open(tradesfile, 'w') as cf:
                 toml.dump(ledger, cf)
@@ -543,15 +542,16 @@ class PpTable(Struct):
         self,
         trans: dict[str, Transaction],
         cost_scalar: float = 2,
-
+        write_now: bool = False,
     ) -> dict[str, Position]:
 
         pps = self.pps
         updated: dict[str, Position] = {}
-
+        print('TRANSACTIONS')
+        print(trans.items)
         # lifo update all pps from records
         for tid, t in trans.items():
-
+            print(t)
             pp = pps.setdefault(
                 t.bsuid,
 
@@ -587,6 +587,7 @@ class PpTable(Struct):
             # update clearing table
             pp.add_clear(t)
             updated[t.bsuid] = pp
+            
 
         # minimize clears tables and update sizing.
         for bsuid, pp in updated.items():
@@ -885,7 +886,7 @@ def open_pps(
     acctid: str,
     write_on_exit: bool = True,
 
-) -> PpTable:
+) -> Generator[PpTable, None, None]:
     '''
     Read out broker-specific position entries from
     incremental update file: ``pps.toml``.

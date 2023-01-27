@@ -30,12 +30,10 @@ from typing import (
     Callable,
 )
 import uuid
-import os.path
 from bidict import bidict
 import pendulum
 import trio
 import tractor
-import logging
 
 from .. import data
 from ..data._source import Symbol
@@ -43,7 +41,8 @@ from ..data.types import Struct
 from ..pp import (
     Position,
     Transaction,
-    open_trade_ledger
+    open_trade_ledger,
+    open_pps
 )
 from ..data._normalize import iterticks
 from ..data._source import unpack_fqsn
@@ -82,11 +81,12 @@ class PaperBoi(Struct):
     _reqids: bidict
     _positions: dict[str, Position]
     _trade_ledger: dict[str, Any]
+    _txn_dict: dict[str, Transaction] = {}
 
     # init edge case L1 spread
     last_ask: tuple[float, float] = (float('inf'), 0)  # price, size
     last_bid: tuple[float, float] = (0, 0)
-
+        
     async def submit_limit(
         self,
         oid: str,  # XXX: see return value
@@ -273,13 +273,21 @@ class PaperBoi(Struct):
             bsuid=key,
         )
 
-        # Transacupdate ledger per trade
+        # Update in memory ledger per trade
         ledger_entry = {}
         ledger_entry[oid] = t.to_dict() 
+        
+        # Store txn in state for PP update
+        self._txn_dict[oid] = t
         self._trade_ledger.update(ledger_entry)
-        with open_trade_ledger('paper', 'paper', self._trade_ledger) as ledger:
-            log.info(ledger)
+        
+        # Write to ledger toml  
+        with open_trade_ledger(self.broker, 'paper') as ledger:
+            ledger.update(self._trade_ledger)   
 
+        # Write to pps toml
+        with open_pps(self.broker, 'paper-id') as table: 
+            table.update_from_trans(self._txn_dict)
 
         pp.add_clear(t)
 
