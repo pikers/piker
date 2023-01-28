@@ -97,7 +97,6 @@ def open_trade_ledger(
             # we write on close the mutated ledger data
             with open(tradesfile, 'w') as cf:
                 toml.dump(ledger, cf)
-                return
 
 
 class Transaction(Struct, frozen=True):
