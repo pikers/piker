@@ -557,7 +557,6 @@ async def trades_dialogue(
             # save pps in local state
             _positions.update(table.pps)
 
-
         pp_msgs: list[BrokerdPosition] = []
         pos: Position
         token: str  # f'{symbol}.{self.broker}'
