@@ -541,12 +541,15 @@ class PpTable(Struct):
         self,
         trans: dict[str, Transaction],
         cost_scalar: float = 2,
+
     ) -> dict[str, Position]:
 
         pps = self.pps
         updated: dict[str, Position] = {}
+        
         # lifo update all pps from records
         for tid, t in trans.items():
+
             pp = pps.setdefault(
                 t.bsuid,
 
