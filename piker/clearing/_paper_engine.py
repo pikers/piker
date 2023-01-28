@@ -288,6 +288,8 @@ class PaperBoi(Struct):
         # Write to pps toml
         with open_pps(self.broker, 'paper-id') as table: 
             table.update_from_trans(self._txn_dict)
+            # save pps in local state
+            self._positions.update(table.pps)
 
         pp.add_clear(t)
 
@@ -551,9 +553,16 @@ async def trades_dialogue(
         ) as feed,
 
     ):
+        with open_pps(broker, 'paper-id') as table: 
+            # save pps in local state
+            _positions.update(table.pps)
+
+
         pp_msgs: list[BrokerdPosition] = []
         pos: Position
         token: str  # f'{symbol}.{self.broker}'
+        print("POSITIONS::")
+        print(_positions.items())
         for token, pos in _positions.items():
             pp_msgs.append(BrokerdPosition(
                 broker=broker,
