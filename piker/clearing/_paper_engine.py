@@ -561,8 +561,7 @@ async def trades_dialogue(
         pp_msgs: list[BrokerdPosition] = []
         pos: Position
         token: str  # f'{symbol}.{self.broker}'
-        print("POSITIONS::")
-        print(_positions.items())
+
         for token, pos in _positions.items():
             pp_msgs.append(BrokerdPosition(
                 broker=broker,
