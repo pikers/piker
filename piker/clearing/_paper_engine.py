@@ -286,7 +286,7 @@ class PaperBoi(Struct):
             ledger.update(self._trade_ledger)   
 
         # Write to pps toml
-        with open_pps(self.broker, 'paper-id') as table: 
+        with open_pps(self.broker, 'piker-paper') as table: 
             table.update_from_trans(self._txn_dict)
             # save pps in local state
             self._positions.update(table.pps)
