@@ -510,7 +510,6 @@ class Storage:
 
         client = self.client
         syms = await client.list_symbols()
-        print(syms)
         if key not in syms:
             raise KeyError(f'`{key}` table key not found in\n{syms}?')
 
@@ -627,10 +626,10 @@ async def open_storage_client(
         yield Storage(client)
 
 
-async def tsdb_history_update(
-    fqsn: Optional[str] = None,
-
-) -> list[str]:
+@acm
+async def open_tsdb_client(
+    fqsn: str,
+) -> Storage:
 
     # TODO: real-time dedicated task for ensuring
     # history consistency between the tsdb, shm and real-time feed..
@@ -659,7 +658,7 @@ async def tsdb_history_update(
     #     - https://github.com/pikers/piker/issues/98
     #
     profiler = Profiler(
-        disabled=False,  # not pg_profile_enabled(),
+        disabled=True,  # not pg_profile_enabled(),
         delayed=False,
     )
 
@@ -700,14 +699,10 @@ async def tsdb_history_update(
 
             # profiler('Finished db arrays diffs')
 
-        syms = await storage.client.list_symbols()
-        log.info(f'Existing tsdb symbol set:\n{pformat(syms)}')
-        profiler(f'listed symbols {syms}')
-
-        # TODO: ask if user wants to write history for detected
-        # available shm buffers?
-        from tractor.trionics import ipython_embed
-        await ipython_embed()
+            syms = await storage.client.list_symbols()
+            # log.info(f'Existing tsdb symbol set:\n{pformat(syms)}')
+            # profiler(f'listed symbols {syms}')
+            yield storage
 
         # for array in [to_append, to_prepend]:
         #     if array is None:
