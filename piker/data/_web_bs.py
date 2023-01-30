@@ -92,7 +92,7 @@ class NoBsWs:
         while True:
             try:
                 await self._stack.aclose()
-            except (DisconnectionTimeout, RuntimeError):
+            except self.recon_errors:
                 await trio.sleep(0.5)
             else:
                 break

@@ -454,8 +454,12 @@ class Storage:
 
         try:
             result = await client.query(params)
-        except purerpc.grpclib.exceptions.UnknownError:
+        except purerpc.grpclib.exceptions.UnknownError as err:
             # indicate there is no history for this timeframe
+            log.exception(
+                f'Unknown mkts QUERY error: {params}\n'
+                f'{err.args}'
+            )
             return {}
 
         # TODO: it turns out column access on recarrays is actually slower:

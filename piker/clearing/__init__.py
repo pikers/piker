@@ -18,3 +18,9 @@
 Market machinery for order executions, book, management.
 
 """
+from ._client import open_ems
+
+
+__all__ = [
+    'open_ems',
+]

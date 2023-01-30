@@ -49,7 +49,10 @@ from qdarkstyle import DarkPalette
 import trio
 from outcome import Error
 
-from .._daemon import maybe_open_pikerd, _tractor_kwargs
+from .._daemon import (
+    maybe_open_pikerd,
+    get_tractor_runtime_kwargs,
+)
 from ..log import get_logger
 from ._pg_overrides import _do_overrides
 from . import _style
@@ -170,7 +173,7 @@ def run_qtractor(
     instance.window = window
 
     # override tractor's defaults
-    tractor_kwargs.update(_tractor_kwargs)
+    tractor_kwargs.update(get_tractor_runtime_kwargs())
 
     # define tractor entrypoint
     async def main():

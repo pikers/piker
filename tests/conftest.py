@@ -7,6 +7,9 @@ from piker import (
     # log,
     config,
 )
+from piker._daemon import (
+    Services,
+)
 
 
 def pytest_addoption(parser):
@@ -137,12 +140,16 @@ async def _open_test_pikerd(
         port = random.randint(6e3, 7e3)
         reg_addr = ('127.0.0.1', port)
 
+    # try:
     async with (
         maybe_open_pikerd(
             registry_addr=reg_addr,
             **kwargs,
-        ),
+        ) as service_manager,
     ):
+        # this proc/actor is the pikerd
+        assert service_manager is Services
+
         async with tractor.wait_for_actor(
             'pikerd',
             arbiter_sockaddr=reg_addr,
@@ -153,6 +160,7 @@ async def _open_test_pikerd(
                 raddr[0],
                 raddr[1],
                 portal,
+                service_manager,
             )
 
 

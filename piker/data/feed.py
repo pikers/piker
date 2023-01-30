@@ -21,14 +21,17 @@ This module is enabled for ``brokerd`` daemons.
 
 """
 from __future__ import annotations
-from collections import defaultdict
+from collections import (
+    defaultdict,
+    Counter,
+)
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
 from functools import partial
+import time
 from types import ModuleType
 from typing import (
     Any,
-    AsyncIterator,
     AsyncContextManager,
     Callable,
     Optional,
@@ -51,16 +54,18 @@ import numpy as np
 
 from ..brokers import get_brokermod
 from ..calc import humanize
-from ..log import get_logger, get_console_log
+from ..log import (
+    get_logger,
+    get_console_log,
+)
 from .._daemon import (
     maybe_spawn_brokerd,
     check_for_service,
 )
+from .flows import Flume
 from ._sharedmem import (
     maybe_open_shm_array,
-    attach_shm_array,
     ShmArray,
-    _Token,
     _secs_in_day,
 )
 from .ingest import get_ingestormod
@@ -72,13 +77,9 @@ from ._source import (
 )
 from ..ui import _search
 from ._sampling import (
-    sampler,
-    broadcast,
-    increment_ohlc_buffer,
-    iter_ohlc_periods,
+    open_sample_stream,
     sample_and_broadcast,
     uniform_rate_send,
-    _default_delay_s,
 )
 from ..brokers._util import (
     DataUnavailable,
@@ -128,7 +129,7 @@ class _FeedsBus(Struct):
         target: Awaitable,
         *args,
 
-    ) -> None:
+    ) -> trio.CancelScope:
 
         async def start_with_cs(
             task_status: TaskStatus[
@@ -226,36 +227,6 @@ def get_feed_bus(
     return _bus
 
 
-@tractor.context
-async def _setup_persistent_brokerd(
-    ctx: tractor.Context,
-    brokername: str,
-
-) -> None:
-    '''
-    Allocate a actor-wide service nursery in ``brokerd``
-    such that feeds can be run in the background persistently by
-    the broker backend as needed.
-
-    '''
-    get_console_log(tractor.current_actor().loglevel)
-
-    global _bus
-    assert not _bus
-
-    async with trio.open_nursery() as service_nursery:
-        # assign a nursery to the feeds bus for spawning
-        # background tasks from clients
-        get_feed_bus(brokername, service_nursery)
-
-        # unblock caller
-        await ctx.started()
-
-        # we pin this task to keep the feeds manager active until the
-        # parent actor decides to tear it down
-        await trio.sleep_forever()
-
-
 def diff_history(
     array: np.ndarray,
     timeframe: int,
@@ -278,6 +249,7 @@ async def start_backfill(
     bfqsn: str,
     shm: ShmArray,
     timeframe: float,
+    sampler_stream: tractor.MsgStream,
 
     last_tsdb_dt: Optional[datetime] = None,
     storage: Optional[Storage] = None,
@@ -309,6 +281,25 @@ async def start_backfill(
             - pendulum.from_timestamp(times[-2])
         ).seconds
 
+        if step_size_s == 60:
+            inow = round(time.time())
+            diff = inow - times[-1]
+            if abs(diff) > 60:
+                surr = array[-6:]
+                diff_in_mins = round(diff/60., ndigits=2)
+                log.warning(
+                    f'STEP ERROR `{bfqsn}` for period {step_size_s}s:\n'
+                    f'Off by `{diff}` seconds (or `{diff_in_mins}` mins)\n'
+                    'Surrounding 6 time stamps:\n'
+                    f'{list(surr["time"])}\n'
+                    'Here is surrounding 6 samples:\n'
+                    f'{surr}\nn'
+                )
+
+                # uncomment this for a hacker who wants to investigate
+                # this case manually..
+                # await tractor.breakpoint()
+
         # frame's worth of sample-period-steps, in seconds
         frame_size_s = len(array) * step_size_s
 
@@ -326,8 +317,7 @@ async def start_backfill(
         # TODO: *** THIS IS A BUG ***
         # we need to only broadcast to subscribers for this fqsn..
         # otherwise all fsps get reset on every chart..
-        for delay_s in sampler.subscribers:
-            await broadcast(delay_s)
+        await sampler_stream.send('broadcast_all')
 
         # signal that backfilling to tsdb's end datum is complete
         bf_done = trio.Event()
@@ -376,8 +366,9 @@ async def start_backfill(
         # erlangs = config.get('erlangs', 1)
 
         # avoid duplicate history frames with a set of datetime frame
-        # starts.
-        starts: set[datetime] = set()
+        # starts and associated counts of how many duplicates we see
+        # per time stamp.
+        starts: Counter[datetime] = Counter()
 
         # inline sequential loop where we simply pass the
         # last retrieved start dt to the next request as
@@ -405,14 +396,26 @@ async def start_backfill(
                 # request loop until the condition is resolved?
                 return
 
-            if next_start_dt in starts:
+            if (
+                next_start_dt in starts
+                and starts[next_start_dt] <= 6
+            ):
                 start_dt = min(starts)
-                print("SKIPPING DUPLICATE FRAME @ {next_start_dt}")
+                log.warning(
+                    f"{bfqsn}: skipping duplicate frame @ {next_start_dt}"
+                )
+                starts[start_dt] += 1
                 continue
+
+            elif starts[next_start_dt] > 6:
+                log.warning(
+                    f'NO-MORE-DATA: backend {mod.name} before {next_start_dt}?'
+                )
+                return
 
             # only update new start point if not-yet-seen
             start_dt = next_start_dt
-            starts.add(start_dt)
+            starts[start_dt] += 1
 
             assert array['time'][0] == start_dt.timestamp()
 
@@ -484,8 +487,7 @@ async def start_backfill(
         # in the block above to avoid entering new ``frames``
         # values while we're pipelining the current ones to
         # memory...
-        for delay_s in sampler.subscribers:
-            await broadcast(delay_s)
+        await sampler_stream.send('broadcast_all')
 
         # short-circuit (for now)
         bf_done.set()
@@ -496,6 +498,7 @@ async def basic_backfill(
     mod: ModuleType,
     bfqsn: str,
     shms: dict[int, ShmArray],
+    sampler_stream: tractor.MsgStream,
 
 ) -> None:
 
@@ -513,7 +516,8 @@ async def basic_backfill(
                     mod,
                     bfqsn,
                     shm,
-                    timeframe=timeframe,
+                    timeframe,
+                    sampler_stream,
                 )
             )
         except DataUnavailable:
@@ -529,6 +533,7 @@ async def tsdb_backfill(
     fqsn: str,
     bfqsn: str,
     shms: dict[int, ShmArray],
+    sampler_stream: tractor.MsgStream,
 
     task_status: TaskStatus[
         tuple[ShmArray, ShmArray]
@@ -561,7 +566,8 @@ async def tsdb_backfill(
                     mod,
                     bfqsn,
                     shm,
-                    timeframe=timeframe,
+                    timeframe,
+                    sampler_stream,
                     last_tsdb_dt=last_tsdb_dt,
                     tsdb_is_up=True,
                     storage=storage,
@@ -599,10 +605,7 @@ async def tsdb_backfill(
 
     # unblock the feed bus management task
     # assert len(shms[1].array)
-    task_status.started((
-        shms[60],
-        shms[1],
-    ))
+    task_status.started()
 
     async def back_load_from_tsdb(
         timeframe: int,
@@ -658,10 +661,10 @@ async def tsdb_backfill(
 
         # Load TSDB history into shm buffer (for display) if there is
         # remaining buffer space.
+
         if (
             len(tsdb_history)
         ):
-
             # load the first (smaller) bit of history originally loaded
             # above from ``Storage.load()``.
             to_push = tsdb_history[-prepend_start:]
@@ -678,26 +681,27 @@ async def tsdb_backfill(
 
             tsdb_last_frame_start = tsdb_history['Epoch'][0]
 
+            if timeframe == 1:
+                times = shm.array['time']
+                assert (times[1] - times[0]) == 1
+
             # load as much from storage into shm possible (depends on
             # user's shm size settings).
-            while (
-                shm._first.value > 0
-            ):
+            while shm._first.value > 0:
 
                 tsdb_history = await storage.read_ohlcv(
                     fqsn,
-                    end=tsdb_last_frame_start,
                     timeframe=timeframe,
+                    end=tsdb_last_frame_start,
                 )
 
+                # empty query
+                if not len(tsdb_history):
+                    break
+
                 next_start = tsdb_history['Epoch'][0]
-                if (
-                    not len(tsdb_history)  # empty query
-
+                if next_start >= tsdb_last_frame_start:
                     # no earlier data detected
-                    or next_start >= tsdb_last_frame_start
-
-                ):
                     break
                 else:
                     tsdb_last_frame_start = next_start
@@ -725,8 +729,7 @@ async def tsdb_backfill(
                 #   (usually a chart showing graphics for said fsp)
                 #   which tells the chart to conduct a manual full
                 #   graphics loop cycle.
-                for delay_s in sampler.subscribers:
-                    await broadcast(delay_s)
+                await sampler_stream.send('broadcast_all')
 
                 # TODO: write new data to tsdb to be ready to for next read.
 
@@ -770,11 +773,14 @@ async def manage_history(
     # from tractor._state import _runtime_vars
     # port = _runtime_vars['_root_mailbox'][1]
 
+    uid = tractor.current_actor().uid
+    suffix = '.'.join(uid)
+
     # (maybe) allocate shm array for this broker/symbol which will
     # be used for fast near-term history capture and processing.
     hist_shm, opened = maybe_open_shm_array(
         # key=f'{fqsn}_hist_p{port}',
-        key=f'{fqsn}_hist',
+        key=f'{fqsn}_hist.{suffix}',
 
         # use any broker defined ohlc dtype:
         dtype=getattr(mod, '_ohlc_dtype', base_iohlc_dtype),
@@ -792,7 +798,7 @@ async def manage_history(
 
     rt_shm, opened = maybe_open_shm_array(
         # key=f'{fqsn}_rt_p{port}',
-        key=f'{fqsn}_rt',
+        key=f'{fqsn}_rt.{suffix}',
 
         # use any broker defined ohlc dtype:
         dtype=getattr(mod, '_ohlc_dtype', base_iohlc_dtype),
@@ -815,223 +821,98 @@ async def manage_history(
             "Persistent shm for sym was already open?!"
         )
 
-    log.info('Scanning for existing `marketstored`')
-    tsdb_is_up = await check_for_service('marketstored')
+    # register 1s and 1m buffers with the global incrementer task
+    async with open_sample_stream(
+        period_s=1.,
+        shms_by_period={
+            1.: rt_shm.token,
+            60.: hist_shm.token,
+        },
 
-    bfqsn = fqsn.replace('.' + mod.name, '')
-    open_history_client = getattr(mod, 'open_history_client', None)
-    assert open_history_client
+        # NOTE: we want to only open a stream for doing broadcasts on
+        # backfill operations, not receive the sample index-stream
+        # (since there's no code in this data feed layer that needs to
+        # consume it).
+        open_index_stream=True,
+        sub_for_broadcasts=False,
 
-    if (
-        tsdb_is_up
-        and opened
-        and open_history_client
-    ):
-        log.info('Found existing `marketstored`')
+    ) as sample_stream:
 
-        from . import marketstore
-        async with (
-            marketstore.open_storage_client(fqsn)as storage,
+        log.info('Scanning for existing `marketstored`')
+        tsdb_is_up = await check_for_service('marketstored')
+
+        bfqsn = fqsn.replace('.' + mod.name, '')
+        open_history_client = getattr(mod, 'open_history_client', None)
+        assert open_history_client
+
+        if (
+            tsdb_is_up
+            and opened
+            and open_history_client
         ):
-            hist_shm, rt_shm = await bus.nursery.start(
-                tsdb_backfill,
-                mod,
-                marketstore,
+            log.info('Found existing `marketstored`')
+
+            from . import marketstore
+            async with (
+                marketstore.open_storage_client(fqsn)as storage,
+            ):
+                # TODO: drop returning the output that we pass in?
+                await bus.nursery.start(
+                    tsdb_backfill,
+                    mod,
+                    marketstore,
+                    bus,
+                    storage,
+                    fqsn,
+                    bfqsn,
+                    {
+                        1: rt_shm,
+                        60: hist_shm,
+                    },
+                    sample_stream,
+                )
+
+                # yield back after client connect with filled shm
+                task_status.started((
+                    hist_zero_index,
+                    hist_shm,
+                    rt_zero_index,
+                    rt_shm,
+                ))
+
+                # indicate to caller that feed can be delivered to
+                # remote requesting client since we've loaded history
+                # data that can be used.
+                some_data_ready.set()
+
+                # history retreival loop depending on user interaction
+                # and thus a small RPC-prot for remotely controllinlg
+                # what data is loaded for viewing.
+                await trio.sleep_forever()
+
+        # load less history if no tsdb can be found
+        elif (
+            not tsdb_is_up
+            and opened
+        ):
+            await basic_backfill(
                 bus,
-                storage,
-                fqsn,
+                mod,
                 bfqsn,
                 {
                     1: rt_shm,
                     60: hist_shm,
                 },
+                sample_stream,
             )
-
-            # yield back after client connect with filled shm
             task_status.started((
                 hist_zero_index,
                 hist_shm,
                 rt_zero_index,
                 rt_shm,
             ))
-
-            # indicate to caller that feed can be delivered to
-            # remote requesting client since we've loaded history
-            # data that can be used.
             some_data_ready.set()
-
-            # history retreival loop depending on user interaction and thus
-            # a small RPC-prot for remotely controllinlg what data is loaded
-            # for viewing.
             await trio.sleep_forever()
-
-    # load less history if no tsdb can be found
-    elif (
-        not tsdb_is_up
-        and opened
-    ):
-        await basic_backfill(
-            bus,
-            mod,
-            bfqsn,
-            shms={
-                1: rt_shm,
-                60: hist_shm,
-            },
-        )
-        task_status.started((
-            hist_zero_index,
-            hist_shm,
-            rt_zero_index,
-            rt_shm,
-        ))
-        some_data_ready.set()
-        await trio.sleep_forever()
-
-
-class Flume(Struct):
-    '''
-    Composite reference type which points to all the addressing handles
-    and other meta-data necessary for the read, measure and management
-    of a set of real-time updated data flows.
-
-    Can be thought of as a "flow descriptor" or "flow frame" which
-    describes the high level properties of a set of data flows that can
-    be used seamlessly across process-memory boundaries.
-
-    Each instance's sub-components normally includes:
-     - a msg oriented quote stream provided via an IPC transport
-     - history and real-time shm buffers which are both real-time
-       updated and backfilled.
-     - associated startup indexing information related to both buffer
-       real-time-append and historical prepend addresses.
-     - low level APIs to read and measure the updated data and manage
-       queuing properties.
-
-    '''
-    symbol: Symbol
-    first_quote: dict
-    _hist_shm_token: _Token
-    _rt_shm_token: _Token
-
-    # private shm refs loaded dynamically from tokens
-    _hist_shm: ShmArray | None = None
-    _rt_shm: ShmArray | None = None
-
-    stream: tractor.MsgStream | None = None
-    izero_hist: int = 0
-    izero_rt: int = 0
-    throttle_rate: int | None = None
-
-    # TODO: do we need this really if we can pull the `Portal` from
-    # ``tractor``'s internals?
-    feed: Feed | None = None
-
-    @property
-    def rt_shm(self) -> ShmArray:
-
-        if self._rt_shm is None:
-            self._rt_shm = attach_shm_array(
-                token=self._rt_shm_token,
-                readonly=True,
-            )
-
-        return self._rt_shm
-
-    @property
-    def hist_shm(self) -> ShmArray:
-
-        if self._hist_shm is None:
-            self._hist_shm = attach_shm_array(
-                token=self._hist_shm_token,
-                readonly=True,
-            )
-
-        return self._hist_shm
-
-    async def receive(self) -> dict:
-        return await self.stream.receive()
-
-    @acm
-    async def index_stream(
-        self,
-        delay_s: int = 1,
-
-    ) -> AsyncIterator[int]:
-
-        if not self.feed:
-            raise RuntimeError('This flume is not part of any ``Feed``?')
-
-        # TODO: maybe a public (property) API for this in ``tractor``?
-        portal = self.stream._ctx._portal
-        assert portal
-
-        # XXX: this should be singleton on a host,
-        # a lone broker-daemon per provider should be
-        # created for all practical purposes
-        async with maybe_open_context(
-            acm_func=partial(
-                portal.open_context,
-                iter_ohlc_periods,
-            ),
-            kwargs={'delay_s': delay_s},
-        ) as (cache_hit, (ctx, first)):
-            async with ctx.open_stream() as istream:
-                if cache_hit:
-                    # add a new broadcast subscription for the quote stream
-                    # if this feed is likely already in use
-                    async with istream.subscribe() as bistream:
-                        yield bistream
-                else:
-                    yield istream
-
-    def get_ds_info(
-        self,
-    ) -> tuple[float, float, float]:
-        '''
-        Compute the "downsampling" ratio info between the historical shm
-        buffer and the real-time (HFT) one.
-
-        Return a tuple of the fast sample period, historical sample
-        period and ratio between them.
-
-        '''
-        times = self.hist_shm.array['time']
-        end = pendulum.from_timestamp(times[-1])
-        start = pendulum.from_timestamp(times[times != times[-1]][-1])
-        hist_step_size_s = (end - start).seconds
-
-        times = self.rt_shm.array['time']
-        end = pendulum.from_timestamp(times[-1])
-        start = pendulum.from_timestamp(times[times != times[-1]][-1])
-        rt_step_size_s = (end - start).seconds
-
-        ratio = hist_step_size_s / rt_step_size_s
-        return (
-            rt_step_size_s,
-            hist_step_size_s,
-            ratio,
-        )
-
-    # TODO: get native msgspec decoding for these workinn
-    def to_msg(self) -> dict:
-        msg = self.to_dict()
-        msg['symbol'] = msg['symbol'].to_dict()
-
-        # can't serialize the stream or feed objects, it's expected
-        # you'll have a ref to it since this msg should be rxed on
-        # a stream on whatever far end IPC..
-        msg.pop('stream')
-        msg.pop('feed')
-        return msg
-
-    @classmethod
-    def from_msg(cls, msg: dict) -> dict:
-        symbol = Symbol(**msg.pop('symbol'))
-        return cls(
-            symbol=symbol,
-            **msg,
-        )
 
 
 async def allocate_persistent_feed(
@@ -1073,6 +954,8 @@ async def allocate_persistent_feed(
     # data sync signals for both history loading and market quotes
     some_data_ready = trio.Event()
     feed_is_live = trio.Event()
+
+    symstr = symstr.lower()
 
     # establish broker backend quote stream by calling
     # ``stream_quotes()``, which is a required broker backend endpoint.
@@ -1132,6 +1015,7 @@ async def allocate_persistent_feed(
     # https://github.com/python-trio/trio/issues/2258
     # bus.nursery.start_soon(
     # await bus.start_task(
+
     (
         izero_hist,
         hist_shm,
@@ -1165,13 +1049,6 @@ async def allocate_persistent_feed(
     # feed to that name (for now).
     bus.feeds[symstr] = bus.feeds[bfqsn] = flume
 
-    # insert 1s ohlc into the increment buffer set
-    # to update and shift every second
-    sampler.ohlcv_shms.setdefault(
-        1,
-        []
-    ).append(rt_shm)
-
     task_status.started()
 
     if not start_stream:
@@ -1180,18 +1057,6 @@ async def allocate_persistent_feed(
     # begin real-time updates of shm and tsb once the feed goes live and
     # the backend will indicate when real-time quotes have begun.
     await feed_is_live.wait()
-
-    # insert 1m ohlc into the increment buffer set
-    # to shift every 60s.
-    sampler.ohlcv_shms.setdefault(60, []).append(hist_shm)
-
-    # create buffer a single incrementer task broker backend
-    # (aka `brokerd`) using the lowest sampler period.
-    if sampler.incrementers.get(_default_delay_s) is None:
-        await bus.start_task(
-            increment_ohlc_buffer,
-            _default_delay_s,
-        )
 
     sum_tick_vlm: bool = init_msg.get(
         'shm_write_opts', {}
@@ -1205,7 +1070,12 @@ async def allocate_persistent_feed(
         rt_shm.push(hist_shm.array[-3:-1])
         ohlckeys = ['open', 'high', 'low', 'close']
         rt_shm.array[ohlckeys][-2:] = hist_shm.array['close'][-1]
-        rt_shm.array['volume'][-2] = 0
+        rt_shm.array['volume'][-2:] = 0
+
+        # set fast buffer time step to 1s
+        ts = round(time.time())
+        rt_shm.array['time'][0] = ts
+        rt_shm.array['time'][1] = ts + 1
 
     # wait the spawning parent task to register its subscriber
     # send-stream entry before we start the sample loop.
@@ -1248,6 +1118,10 @@ async def open_feed_bus(
     symbol.
 
     '''
+    # ensure that a quote feed stream which is pushing too fast doesn't
+    # cause and overrun in the client.
+    ctx._backpressure = True
+
     if loglevel is None:
         loglevel = tractor.current_actor().loglevel
 
@@ -1261,10 +1135,6 @@ async def open_feed_bus(
     servicename = tractor.current_actor().name
     assert 'brokerd' in servicename
 
-    # XXX: figure this not crashing into debug!
-    # await tractor.breakpoint()
-    # assert 0
-
     assert brokername in servicename
 
     bus = get_feed_bus(brokername)
@@ -1273,6 +1143,10 @@ async def open_feed_bus(
     flumes: dict[str, Flume] = {}
 
     for symbol in symbols:
+
+        # we always use lower case keys internally
+        symbol = symbol.lower()
+
         # if no cached feed for this symbol has been created for this
         # brokerd yet, start persistent stream and shm writer task in
         # service nursery
@@ -1359,6 +1233,7 @@ async def open_feed_bus(
                 # a max ``tick_throttle`` instantaneous rate.
                 send, recv = trio.open_memory_channel(2**10)
 
+                ctx._backpressure = False
                 cs = await bus.start_task(
                     uniform_rate_send,
                     tick_throttle,

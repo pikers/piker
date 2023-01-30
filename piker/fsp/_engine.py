@@ -21,7 +21,9 @@ core task logic for processing chains
 from dataclasses import dataclass
 from functools import partial
 from typing import (
-    AsyncIterator, Callable, Optional,
+    AsyncIterator,
+    Callable,
+    Optional,
     Union,
 )
 
@@ -36,9 +38,13 @@ from .. import data
 from ..data import attach_shm_array
 from ..data.feed import (
     Flume,
+    Feed,
 )
 from ..data._sharedmem import ShmArray
-from ..data._sampling import _default_delay_s
+from ..data._sampling import (
+    _default_delay_s,
+    open_sample_stream,
+)
 from ..data._source import Symbol
 from ._api import (
     Fsp,
@@ -111,8 +117,9 @@ async def fsp_compute(
         flume.rt_shm,
     )
 
-    # Conduct a single iteration of fsp with historical bars input
-    # and get historical output
+    # HISTORY COMPUTE PHASE
+    # conduct a single iteration of fsp with historical bars input
+    # and get historical output.
     history_output: Union[
         dict[str, np.ndarray],  # multi-output case
         np.ndarray,  # single output case
@@ -129,9 +136,13 @@ async def fsp_compute(
     # each respective field.
     fields = getattr(dst.array.dtype, 'fields', None).copy()
     fields.pop('index')
-    history: Optional[np.ndarray] = None  # TODO: nptyping here!
+    history_by_field: Optional[np.ndarray] = None
+    src_time = src.array['time']
 
-    if fields and len(fields) > 1 and fields:
+    if (
+        fields and
+        len(fields) > 1
+    ):
         if not isinstance(history_output, dict):
             raise ValueError(
                 f'`{func_name}` is a multi-output FSP and should yield a '
@@ -142,7 +153,7 @@ async def fsp_compute(
             if key in history_output:
                 output = history_output[key]
 
-                if history is None:
+                if history_by_field is None:
 
                     if output is None:
                         length = len(src.array)
@@ -152,7 +163,7 @@ async def fsp_compute(
                     # using the first output, determine
                     # the length of the struct-array that
                     # will be pushed to shm.
-                    history = np.zeros(
+                    history_by_field = np.zeros(
                         length,
                         dtype=dst.array.dtype
                     )
@@ -160,7 +171,7 @@ async def fsp_compute(
                 if output is None:
                     continue
 
-                history[key] = output
+                history_by_field[key] = output
 
     # single-key output stream
     else:
@@ -169,11 +180,13 @@ async def fsp_compute(
                 f'`{func_name}` is a single output FSP and should yield an '
                 '`np.ndarray` for history'
             )
-        history = np.zeros(
+        history_by_field = np.zeros(
             len(history_output),
             dtype=dst.array.dtype
         )
-        history[func_name] = history_output
+        history_by_field[func_name] = history_output
+
+    history_by_field['time'] = src_time[-len(history_by_field):]
 
     # TODO: XXX:
     # THERE'S A BIG BUG HERE WITH THE `index` field since we're
@@ -190,7 +203,10 @@ async def fsp_compute(
 
     # TODO: can we use this `start` flag instead of the manual
     # setting above?
-    index = dst.push(history, start=first)
+    index = dst.push(
+        history_by_field,
+        start=first,
+    )
 
     profiler(f'{func_name} pushed history')
     profiler.finish()
@@ -216,8 +232,14 @@ async def fsp_compute(
 
                 log.debug(f"{func_name}: {processed}")
                 key, output = processed
-                index = src.index
-                dst.array[-1][key] = output
+                # dst.array[-1][key] = output
+                dst.array[[key, 'time']][-1] = (
+                    output,
+                    # TODO: what about pushing ``time.time_ns()``
+                    # in which case we'll need to round at the graphics
+                    # processing / sampling layer?
+                    src.array[-1]['time']
+                )
 
                 # NOTE: for now we aren't streaming this to the consumer
                 # stream latest array index entry which basically just acts
@@ -228,6 +250,7 @@ async def fsp_compute(
                 # N-consumers who subscribe for the real-time output,
                 # which we'll likely want to implement using local-mem
                 # chans for the fan out?
+                # index = src.index
                 # if attach_stream:
                 #     await client_stream.send(index)
 
@@ -302,6 +325,7 @@ async def cascade(
         raise ValueError(f'Unknown fsp target: {ns_path}')
 
     # open a data feed stream with requested broker
+    feed: Feed
     async with data.feed.maybe_open_feed(
         [fqsn],
 
@@ -317,7 +341,6 @@ async def cascade(
         symbol = flume.symbol
         assert src.token == flume.rt_shm.token
         profiler(f'{func}: feed up')
-        # last_len = new_len = len(src.array)
 
         func_name = func.__name__
         async with (
@@ -365,7 +388,7 @@ async def cascade(
                 ) -> tuple[TaskTracker, int]:
                     # TODO: adopt an incremental update engine/approach
                     # where possible here eventually!
-                    log.debug(f're-syncing fsp {func_name} to source')
+                    log.info(f're-syncing fsp {func_name} to source')
                     tracker.cs.cancel()
                     await tracker.complete.wait()
                     tracker, index = await n.start(fsp_target)
@@ -386,7 +409,8 @@ async def cascade(
                     src: ShmArray,
                     dst: ShmArray
                 ) -> tuple[bool, int, int]:
-                    '''Predicate to dertmine if a destination FSP
+                    '''
+                    Predicate to dertmine if a destination FSP
                     output array is aligned to its source array.
 
                     '''
@@ -395,16 +419,15 @@ async def cascade(
                     return not (
                         # the source is likely backfilling and we must
                         # sync history calculations
-                        len_diff > 2 or
+                        len_diff > 2
 
                         # we aren't step synced to the source and may be
                         # leading/lagging by a step
-                        step_diff > 1 or
-                        step_diff < 0
+                        or step_diff > 1
+                        or step_diff < 0
                     ), step_diff, len_diff
 
                 async def poll_and_sync_to_step(
-
                     tracker: TaskTracker,
                     src: ShmArray,
                     dst: ShmArray,
@@ -424,16 +447,16 @@ async def cascade(
                 # signal
                 times = src.array['time']
                 if len(times) > 1:
-                    delay_s = times[-1] - times[times != times[-1]][-1]
+                    last_ts = times[-1]
+                    delay_s = float(last_ts - times[times != last_ts][-1])
                 else:
                     # our default "HFT" sample rate.
                     delay_s = _default_delay_s
 
-                # Increment the underlying shared memory buffer on every
-                # "increment" msg received from the underlying data feed.
-                async with flume.index_stream(
-                    int(delay_s)
-                ) as istream:
+                # sub and increment the underlying shared memory buffer
+                # on every step msg received from the global `samplerd`
+                # service.
+                async with open_sample_stream(float(delay_s)) as istream:
 
                     profiler(f'{func_name}: sample stream up')
                     profiler.finish()
@@ -468,3 +491,23 @@ async def cascade(
                             last = array[-1:].copy()
 
                         dst.push(last)
+
+                        # sync with source buffer's time step
+                        src_l2 = src.array[-2:]
+                        src_li, src_lt = src_l2[-1][['index', 'time']]
+                        src_2li, src_2lt = src_l2[-2][['index', 'time']]
+                        dst._array['time'][src_li] = src_lt
+                        dst._array['time'][src_2li] = src_2lt
+
+                        # last2 = dst.array[-2:]
+                        # if (
+                        #     last2[-1]['index'] != src_li
+                        #     or last2[-2]['index'] != src_2li
+                        # ):
+                        #     dstl2 = list(last2)
+                        #     srcl2 = list(src_l2)
+                        #     print(
+                        #         # f'{dst.token}\n'
+                        #         f'src: {srcl2}\n'
+                        #         f'dst: {dstl2}\n'
+                        #     )
