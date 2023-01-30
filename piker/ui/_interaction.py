@@ -1053,6 +1053,7 @@ class ChartView(ViewBox):
                     read_slc,
                     yrange
                 ) = out
+                profiler(f'{viz.name}@{chart_name} `Viz.maxmin()`')
 
                 pi = viz.plot
 
