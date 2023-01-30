@@ -283,8 +283,22 @@ async def start_backfill(
 
         if step_size_s == 60:
             inow = round(time.time())
-            if (inow - times[-1]) > 60:
-                await tractor.breakpoint()
+            diff = inow - times[-1]
+            if abs(diff) > 60:
+                surr = array[-6:]
+                diff_in_mins = round(diff/60., ndigits=2)
+                log.warning(
+                    f'STEP ERROR `{bfqsn}` for period {step_size_s}s:\n'
+                    f'Off by `{diff}` seconds (or `{diff_in_mins}` mins)\n'
+                    'Surrounding 6 time stamps:\n'
+                    f'{list(surr["time"])}\n'
+                    'Here is surrounding 6 samples:\n'
+                    f'{surr}\nn'
+                )
+
+                # uncomment this for a hacker who wants to investigate
+                # this case manually..
+                # await tractor.breakpoint()
 
         # frame's worth of sample-period-steps, in seconds
         frame_size_s = len(array) * step_size_s
@@ -1104,6 +1118,10 @@ async def open_feed_bus(
     symbol.
 
     '''
+    # ensure that a quote feed stream which is pushing too fast doesn't
+    # cause and overrun in the client.
+    ctx._backpressure = True
+
     if loglevel is None:
         loglevel = tractor.current_actor().loglevel
 
@@ -1215,6 +1233,7 @@ async def open_feed_bus(
                 # a max ``tick_throttle`` instantaneous rate.
                 send, recv = trio.open_memory_channel(2**10)
 
+                ctx._backpressure = False
                 cs = await bus.start_task(
                     uniform_rate_send,
                     tick_throttle,

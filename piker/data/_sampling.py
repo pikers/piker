@@ -751,6 +751,9 @@ async def uniform_rate_send(
 
 ) -> None:
 
+    # try not to error-out on overruns of the subscribed (chart) client
+    stream._ctx._backpressure = True
+
     # TODO: compute the approx overhead latency per cycle
     left_to_sleep = throttle_period = 1/rate - 0.000616
 
