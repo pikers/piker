@@ -885,7 +885,7 @@ def graphics_update_cycle(
                 fvb.interact_graphics_cycle(
                     do_linked_charts=False,
                 )
-                profiler(f'vlm `Viz[{viz.name}].plot.vb._set_yrange()`')
+                profiler(f'vlm `Viz[{viz.name}].plot.vb.interact_graphics_cycle()`')
 
             # even if we're downsampled bigly
             # draw the last datum in the final
