@@ -28,10 +28,7 @@ from PyQt5.QtWidgets import QGraphicsItem
 from PyQt5.QtCore import (
     Qt,
     QLineF,
-    QSizeF,
     QRectF,
-    # QRect,
-    QPointF,
 )
 from PyQt5.QtGui import (
     QPainter,
@@ -89,9 +86,9 @@ class Curve(pg.GraphicsObject):
     '''
 
     # sub-type customization methods
-    sub_br: Optional[Callable] = None
-    sub_paint: Optional[Callable] = None
     declare_paintables: Optional[Callable] = None
+    sub_paint: Optional[Callable] = None
+    # sub_br: Optional[Callable] = None
 
     def __init__(
         self,
@@ -140,9 +137,7 @@ class Curve(pg.GraphicsObject):
         # self.last_step_pen = pg.mkPen(hcolor(color), width=2)
         self.last_step_pen = pg.mkPen(pen, width=2)
 
-        # self._last_line: Optional[QLineF] = None
         self._last_line = QLineF()
-        self._last_w: float = 1
 
         # flat-top style histogram-like discrete curve
         # self._step_mode: bool = step_mode
@@ -231,8 +226,8 @@ class Curve(pg.GraphicsObject):
             self.path.clear()
 
             if self.fast_path:
-                # self.fast_path.clear()
-                self.fast_path = None
+                self.fast_path.clear()
+                # self.fast_path = None
 
     @cm
     def reset_cache(self) -> None:
@@ -252,77 +247,65 @@ class Curve(pg.GraphicsObject):
             self.boundingRect = self._path_br
             return self._path_br()
 
+    # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
     def _path_br(self):
         '''
         Post init ``.boundingRect()```.
 
         '''
-        # hb = self.path.boundingRect()
-        hb = self.path.controlPointRect()
-        hb_size = hb.size()
-
-        fp = self.fast_path
-        if fp:
-            fhb = fp.controlPointRect()
-            hb_size = fhb.size() + hb_size
-
-        # print(f'hb_size: {hb_size}')
-
-        # if self._last_step_rect:
-        #     hb_size += self._last_step_rect.size()
-
-        # if self._line:
-        #     br = self._last_step_rect.bottomRight()
-
-        # tl = QPointF(
-        #     # self._vr[0],
-        #     # hb.topLeft().y(),
-        #     # 0,
-        #     # hb_size.height() + 1
+        # profiler = Profiler(
+        #     msg=f'Curve.boundingRect(): `{self._name}`',
+        #     disabled=not pg_profile_enabled(),
+        #     ms_threshold=ms_slower_then,
         # )
-
-        #     br = self._last_step_rect.bottomRight()
-
-        w = hb_size.width()
-        h = hb_size.height()
-
-        sbr = self.sub_br
-        if sbr:
-            w, h = self.sub_br(w, h)
-        else:
-            # assume plain line graphic and use
-            # default unit step in each direction.
-
-            # only on a plane line do we include
-            # and extra index step's worth of width
-            # since in the step case the end of the curve
-            # actually terminates earlier so we don't need
-            # this for the last step.
-            w += self._last_w
-            # ll = self._last_line
-            h += 1  # ll.y2() - ll.y1()
-
-        # br = QPointF(
-        #     self._vr[-1],
-        #     # tl.x() + w,
-        #     tl.y() + h,
-        # )
-
-        br = QRectF(
-
-            # top left
-            # hb.topLeft()
-            # tl,
-            QPointF(hb.topLeft()),
-
-            # br,
-            # total size
-            # QSizeF(hb_size)
-            # hb_size,
-            QSizeF(w, h)
+        pr = self.path.controlPointRect()
+        hb_tl, hb_br = (
+            pr.topLeft(),
+            pr.bottomRight(),
         )
-        # print(f'bounding rect: {br}')
-        return br
+        mn_y = hb_tl.y()
+        mx_y = hb_br.y()
+        most_left = hb_tl.x()
+        most_right = hb_br.x()
+        # profiler('calc path vertices')
+
+        # TODO: if/when we get fast path appends working in the
+        # `Renderer`, then we might need to actually use this..
+        # fp = self.fast_path
+        # if fp:
+        #     fhb = fp.controlPointRect()
+        #     # hb_size = fhb.size() + hb_size
+        #     br = pr.united(fhb)
+
+        # XXX: *was* a way to allow sub-types to extend the
+        # boundingrect calc, but in the one use case for a step curve
+        # doesn't seem like we need it as long as the last line segment
+        # is drawn as it is?
+
+        # sbr = self.sub_br
+        # if sbr:
+        #     # w, h = self.sub_br(w, h)
+        #     sub_br = sbr()
+        #     br = br.united(sub_br)
+
+        # assume plain line graphic and use
+        # default unit step in each direction.
+        ll = self._last_line
+        y1, y2 = ll.y1(), ll.y2()
+        x1, x2 = ll.x1(), ll.x2()
+
+        ymn = min(y1, y2, mn_y)
+        ymx = max(y1, y2, mx_y)
+        most_left = min(x1, x2, most_left)
+        most_right = max(x1, x2, most_right)
+        # profiler('calc last line vertices')
+
+        return QRectF(
+            most_left,
+            ymn,
+            most_right - most_left + 1,
+            ymx,
+        )
 
     def paint(
         self,
@@ -340,7 +323,7 @@ class Curve(pg.GraphicsObject):
 
         sub_paint = self.sub_paint
         if sub_paint:
-            sub_paint(p, profiler)
+            sub_paint(p)
 
         p.setPen(self.last_step_pen)
         p.drawLine(self._last_line)
@@ -450,36 +433,34 @@ class StepCurve(Curve):
         y = src_data[array_key]
 
         x_last = x[-1]
+        x_2last = x[-2]
         y_last = y[-1]
+        step_size = x_last - x_2last
+        half_step = step_size / 2
 
         # lol, commenting this makes step curves
         # all "black" for me :eyeroll:..
         self._last_line = QLineF(
-            x_last - w, 0,
-            x_last + w, 0,
+            x_2last, 0,
+            x_last, 0,
         )
         self._last_step_rect = QRectF(
-            x_last - w, 0,
-            x_last + w, y_last,
+            x_last - half_step, 0,
+            step_size, y_last,
         )
         return x, y
 
     def sub_paint(
         self,
         p: QPainter,
-        profiler: Profiler,
 
     ) -> None:
         # p.drawLines(*tuple(filter(bool, self._last_step_lines)))
         # p.drawRect(self._last_step_rect)
         p.fillRect(self._last_step_rect, self._brush)
-        profiler('.fillRect()')
 
-    def sub_br(
-        self,
-        path_w: float,
-        path_h: float,
-
-    ) -> (float, float):
-        # passthrough
-        return path_w, path_h
+    # def sub_br(
+    #     self,
+    #     parent_br: QRectF | None = None,
+    # ) -> QRectF:
+    #     return self._last_step_rect
