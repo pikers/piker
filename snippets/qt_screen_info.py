@@ -16,11 +16,15 @@ DPI and info helper script for display metrics.
 
 from pyqtgraph import (
     QtGui,
-    QtWidgets,
 )
 from PyQt5.QtCore import (
-     Qt,
-     QCoreApplication,
+    Qt,
+    QCoreApplication,
+)
+from PyQt5.QtWidgets import (
+    QWidget,
+    QMainWindow,
+    QApplication,
 )
 
 # Proper high DPI scaling is available in Qt >= 5.6.0. This attibute
@@ -32,9 +36,9 @@ if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
     QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
 
-app = QtWidgets.QApplication([])
-window = QtWidgets.QMainWindow()
-main_widget = QtWidgets.QWidget()
+app = QApplication([])
+window = QMainWindow()
+main_widget = QWidget()
 window.setCentralWidget(main_widget)
 window.show()
 
@@ -46,7 +50,7 @@ pxr = main_widget.devicePixelRatioF()
 # screen = app.screens()[screen_num]
 
 
-def ppscreeninfo(screen: 'QScreen') -> None:
+def ppscreeninfo(screen: QtGui.QScreen) -> None:
     # screen_num = app.desktop().screenNumber()
     name = screen.name()
     size = screen.size()
@@ -67,6 +71,7 @@ def ppscreeninfo(screen: 'QScreen') -> None:
     )
 
     print('-'*50 + '\n')
+
 
 screen = app.screenAt(main_widget.geometry().center())
 ppscreeninfo(screen)
