@@ -577,7 +577,7 @@ def graphics_update_cycle(
 
         mx = mx_in_view + tick_margin
         mn = mn_in_view - tick_margin
-        profiler('{fqsdn} `multi_maxmin()` call')
+        profiler(f'{fqsn} `multi_maxmin()` call')
 
         # don't real-time "shift" the curve to the
         # left unless we get one of the following:
@@ -891,7 +891,9 @@ def graphics_update_cycle(
                 fvb.interact_graphics_cycle(
                     do_linked_charts=False,
                 )
-                profiler(f'vlm `Viz[{viz.name}].plot.vb.interact_graphics_cycle()`')
+                profiler(
+                    f'Viz[{viz.name}].plot.vb.interact_graphics_cycle()`'
+                )
 
             # even if we're downsampled bigly
             # draw the last datum in the final
