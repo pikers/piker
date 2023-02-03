@@ -783,25 +783,25 @@ def graphics_update_cycle(
                 array_key=curve_name,
             )
 
-        # even if we're downsampled bigly
-        # draw the last datum in the final
-        # px column to give the user the mx/mn
-        # range of that set.
-        if (
-            curve_name != fqsn
-            and liv
-            # and not do_px_step
-            # and not do_rt_update
-        ):
-            viz.draw_last(
-                array_key=curve_name,
+            # even if we're downsampled bigly
+            # draw the last datum in the final
+            # px column to give the user the mx/mn
+            # range of that set.
+            if (
+                curve_name != fqsn
+                and liv
+                # and not do_px_step
+                # and not do_rt_update
+            ):
+                viz.draw_last(
+                    array_key=curve_name,
 
-                # TODO: XXX this is currently broken for the
-                # `FlattenedOHLC` case since we aren't returning the
-                # full x/y uppx's worth of src-data from
-                # `draw_last_datum()` ..
-                only_last_uppx=True,
-            )
+                    # TODO: XXX this is currently broken for the
+                    # `FlattenedOHLC` case since we aren't returning the
+                    # full x/y uppx's worth of src-data from
+                    # `draw_last_datum()` ..
+                    only_last_uppx=True,
+                )
 
     profiler('overlays updates')
 
