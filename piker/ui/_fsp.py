@@ -844,9 +844,12 @@ async def open_vlm_displays(
             # vlm_chart.plotItem.layout.setMinimumWidth(0)
             # vlm_chart.removeAxis('left')
             vlm_viz = vlm_chart._vizs['volume']
-            vlm_viz.render = False
 
-            # avoid range sorting on volume once disabled
+            # NOTE: DON'T DO THIS.
+            # WHY: we want range sorting on volume for the RHS label!
+            #  -> if you don't want that then use this but likely you
+            #     only will if we decide to drop unit vlm..
+            # vlm_viz.render = False
             vlm_chart.view.disable_auto_yrange()
 
             # Trade rate overlay
