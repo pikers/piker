@@ -146,12 +146,11 @@ def multi_maxmin(
             profiler(f'vlm_viz.maxmin({read_slc})')
 
     return (
-        mx,
-
         # enforcing price can't be negative?
         # TODO: do we even need this?
         max(mn, 0),
 
+        mx,
         mx_vlm_in_view,  # vlm max
     )
 
@@ -354,8 +353,8 @@ async def graphics_update_loop(
         vlm_viz = vlm_chart._vizs.get('volume') if vlm_chart else None
 
         (
-            last_mx,
             last_mn,
+            last_mx,
             last_mx_vlm,
         ) = multi_maxmin(
             None,
@@ -383,7 +382,7 @@ async def graphics_update_loop(
         #   present differently -> likely dark vlm
 
         tick_size = symbol.tick_size
-        tick_margin = 3 * tick_size
+        tick_margin = 4 * tick_size
 
         fast_chart.show()
         last_quote_s = time.time()
@@ -550,8 +549,14 @@ def graphics_update_cycle(
     # them as an additional graphic.
     clear_types = _tick_groups['clears']
 
-    mx = varz['last_mx']
-    mn = varz['last_mn']
+    # TODO: fancier y-range sorting..
+    # https://github.com/pikers/piker/issues/325
+    # - a proper streaming mxmn algo as per above issue.
+    # - we should probably scale the view margin based on the size of
+    #   the true range? This way you can slap in orders outside the
+    #   current L1 (only) book range.
+    mx = lmx = varz['last_mx']
+    mn = lmn = varz['last_mn']
     mx_vlm_in_view = varz['last_mx_vlm']
 
     # update ohlc sampled price bars
@@ -561,23 +566,11 @@ def graphics_update_cycle(
         (liv and do_px_step)
         or trigger_all
     ):
+        # TODO: i think we're double calling this right now
+        # since .interact_graphics_cycle() also calls it?
+        # I guess we can add a guard in there?
         _, i_read_range, _ = main_viz.update_graphics()
         profiler('`Viz.update_graphics()` call')
-
-        (
-            mx_in_view,
-            mn_in_view,
-            mx_vlm_in_view,
-        ) = multi_maxmin(
-            i_read_range,
-            main_viz,
-            ds.vlm_viz,
-            profiler,
-        )
-
-        mx = mx_in_view + tick_margin
-        mn = mn_in_view - tick_margin
-        profiler(f'{fqsn} `multi_maxmin()` call')
 
         # don't real-time "shift" the curve to the
         # left unless we get one of the following:
@@ -593,6 +586,23 @@ def graphics_update_cycle(
             #     vlm_chart.increment_view(datums=append_diff)
 
             profiler('view incremented')
+
+        # NOTE: do this **after** the tread to ensure we take the yrange
+        # from the most current view x-domain.
+        (
+            mn_in_view,
+            mx_in_view,
+            mx_vlm_in_view,
+        ) = multi_maxmin(
+            i_read_range,
+            main_viz,
+            ds.vlm_viz,
+            profiler,
+        )
+
+        mx = mx_in_view + tick_margin
+        mn = mn_in_view - tick_margin
+        profiler(f'{fqsn} `multi_maxmin()` call')
 
     # iterate frames of ticks-by-type such that we only update graphics
     # using the last update per type where possible.
@@ -679,14 +689,10 @@ def graphics_update_cycle(
 
     # Y-autoranging: adjust y-axis limits based on state tracking
     # of previous "last" L1 values which are in view.
-    lmx = varz['last_mx']
-    lmn = varz['last_mn']
-    mx_diff = mx - lmx
     mn_diff = mn - lmn
-
+    mx_diff = mx - lmx
     if (
-        mx_diff
-        or mn_diff
+        mx_diff or mn_diff
     ):
         # complain about out-of-range outliers which can show up
         # in certain annoying feeds (like ib)..
@@ -705,7 +711,12 @@ def graphics_update_cycle(
                 f'mn_diff: {mn_diff}\n'
             )
 
-        # FAST CHART resize case
+        # TODO: track local liv maxmin without doing a recompute all the
+        # time..plus, just generally the user is more likely to be
+        # zoomed out enough on the slow chart that this is never an
+        # issue (the last datum going out of y-range).
+
+        # FAST CHART y-auto-range resize case
         elif (
             liv
             and not chart._static_yrange == 'axis'
@@ -716,22 +727,15 @@ def graphics_update_cycle(
                 main_vb._ic is None
                 or not main_vb._ic.is_set()
             ):
-                # TODO: incremenal update of the median
-                # and maxmin driving the y-autoranging.
-                # yr = (mn, mx)
+                # print(f'SETTING Y-mxmx -> {main_viz.name}: {(mn, mx)}')
                 main_vb.interact_graphics_cycle(
                     # do_overlay_scaling=False,
                     do_linked_charts=False,
+                    yranges={main_viz: (mn, mx)},
                 )
-                # TODO: we should probably scale
-                # the view margin based on the size
-                # of the true range? This way you can
-                # slap in orders outside the current
-                # L1 (only) book range.
-
                 profiler('main vb y-autorange')
 
-        # SLOW CHART resize case
+        # SLOW CHART y-auto-range resize case
         (
             _,
             hist_liv,
@@ -746,10 +750,6 @@ def graphics_update_cycle(
         )
         profiler('hist `Viz.incr_info()`')
 
-        # TODO: track local liv maxmin without doing a recompute all the
-        # time..plut, just generally the user is more likely to be
-        # zoomed out enough on the slow chart that this is never an
-        # issue (the last datum going out of y-range).
         # hist_chart = ds.hist_chart
         # if (
         #     hist_liv
@@ -764,7 +764,8 @@ def graphics_update_cycle(
     # XXX: update this every draw cycle to ensure y-axis auto-ranging
     # only adjusts when the in-view data co-domain actually expands or
     # contracts.
-    varz['last_mx'], varz['last_mn'] = mx, mn
+    varz['last_mn'] = mn
+    varz['last_mx'] = mx
 
     # TODO: a similar, only-update-full-path-on-px-step approach for all
     # fsp overlays and vlm stuff..
@@ -772,10 +773,12 @@ def graphics_update_cycle(
     # run synchronous update on all `Viz` overlays
     for curve_name, viz in chart._vizs.items():
 
+        if viz.is_ohlc:
+            continue
+
         # update any overlayed fsp flows
         if (
             curve_name != fqsn
-            and not viz.is_ohlc
         ):
             update_fsp_chart(
                 viz,
@@ -788,8 +791,7 @@ def graphics_update_cycle(
             # px column to give the user the mx/mn
             # range of that set.
             if (
-                curve_name != fqsn
-                and liv
+                liv
                 # and not do_px_step
                 # and not do_rt_update
             ):
