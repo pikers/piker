@@ -956,6 +956,8 @@ class ChartView(ViewBox):
         debug_print: bool = False,
         do_overlay_scaling: bool = True,
         do_linked_charts: bool = True,
+
+        yranges: tuple[float, float] | None = None,
     ):
         profiler = Profiler(
             msg=f'ChartView.interact_graphics_cycle() for {self.name}',
@@ -1044,16 +1046,22 @@ class ChartView(ViewBox):
 
                 profiler(f'{viz.name}@{chart_name} `Viz.update_graphics()`')
 
-                out = viz.maxmin(i_read_range=i_read_range)
-                if out is None:
-                    log.warning(f'No yrange provided for {name}!?')
-                    return
-                (
-                    ixrng,
-                    read_slc,
-                    yrange
-                ) = out
-                profiler(f'{viz.name}@{chart_name} `Viz.maxmin()`')
+                yrange = yranges.get(viz) if yranges else None
+                if yrange is not None:
+                    # print(f'INPUT {viz.name} yrange: {yrange}')
+                    read_slc = slice(*i_read_range)
+
+                else:
+                    out = viz.maxmin(i_read_range=i_read_range)
+                    if out is None:
+                        log.warning(f'No yrange provided for {name}!?')
+                        return
+                    (
+                        _,  # ixrng,
+                        read_slc,
+                        yrange
+                    ) = out
+                    profiler(f'{viz.name}@{chart_name} `Viz.maxmin()`')
 
                 pi = viz.plot
 
@@ -1078,19 +1086,16 @@ class ChartView(ViewBox):
                 ):
                     ymn, ymx = yrange
                     # print(f'adding {viz.name} to overlay')
-                    # mxmn_groups[viz.name] = out
-                    # viz = chart._vizs[viz_name]
 
                     # determine start datum in view
                     arr = viz.shm.array
                     in_view = arr[read_slc]
+                    if not in_view.size:
+                        log.warning(f'{viz.name} not in view?')
+                        return
+
                     row_start = arr[read_slc.start - 1]
 
-                    # y_med = (ymx - ymn) / 2
-                    # y_med = viz.median_from_range(
-                    #     read_slc.start,
-                    #     read_slc.stop,
-                    # )
                     if viz.is_ohlc:
                         y_start = row_start['open']
                     else:
@@ -1103,7 +1108,6 @@ class ChartView(ViewBox):
                         y_start,
                         ymn,
                         ymx,
-                        # y_med,
                         read_slc,
                         in_view,
                     )
@@ -1125,10 +1129,8 @@ class ChartView(ViewBox):
                     # y_ref = y_med
                     # up_rng = (ymx - y_ref) / y_ref
                     # down_rng = (ymn - y_ref) / y_ref
-
                     # mx_up_rng = max(mx_up_rng, up_rng)
                     # mn_down_rng = min(mn_down_rng, down_rng)
-
                     # print(
                     #     f'{viz.name}@{chart_name} group mxmn calc\n'
                     #     '--------------------\n'
@@ -1159,10 +1161,10 @@ class ChartView(ViewBox):
                 len(start_datums) < 2
                 or not do_overlay_scaling
             ):
+                # print(f'ONLY ranging major: {viz.name}')
                 if not major_viz:
                     major_viz = viz
 
-                # print(f'ONLY ranging major: {viz.name}')
                 major_viz.plot.vb._set_yrange(
                     yrange=yrange,
                 )
