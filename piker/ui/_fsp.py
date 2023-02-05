@@ -110,7 +110,8 @@ def update_fsp_chart(
     # sub-charts reference it under different 'named charts'.
 
     # read from last calculated value and update any label
-    last_val_sticky = chart._ysticks.get(graphics_name)
+    last_val_sticky = chart.plotItem.getAxis(
+        'right')._stickies.get(chart.name)
     if last_val_sticky:
         last = last_row[array_key]
         last_val_sticky.update_from_data(-1, last)
@@ -685,7 +686,8 @@ async def open_vlm_displays(
         assert chart.name != linked.chart.name
 
         # sticky only on sub-charts atm
-        last_val_sticky = chart._ysticks[chart.name]
+        last_val_sticky = chart.plotItem.getAxis(
+            'right')._stickies.get(chart.name)
 
         # read from last calculated value
         value = shm.array['volume'][-1]

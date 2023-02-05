@@ -260,12 +260,14 @@ async def graphics_update_loop(
     hist_ohlcv = flume.hist_shm
 
     # update last price sticky
-    last_price_sticky = fast_chart._ysticks[fast_chart.name]
+    last_price_sticky = fast_chart.plotItem.getAxis(
+        'right')._stickies.get(fast_chart.name)
     last_price_sticky.update_from_data(
         *ohlcv.array[-1][['index', 'close']]
     )
 
-    hist_last_price_sticky = hist_chart._ysticks[hist_chart.name]
+    hist_last_price_sticky = hist_chart.plotItem.getAxis(
+        'right')._stickies.get(hist_chart.name)
     hist_last_price_sticky.update_from_data(
         *hist_ohlcv.array[-1][['index', 'close']]
     )
@@ -289,7 +291,7 @@ async def graphics_update_loop(
     symbol = fast_chart.linked.symbol
 
     l1 = L1Labels(
-        fast_chart,
+        fast_chart.plotItem,
         # determine precision/decimal lengths
         digits=symbol.tick_size_digits,
         size_digits=symbol.lot_size_digits,
@@ -333,7 +335,8 @@ async def graphics_update_loop(
     })
 
     if vlm_chart:
-        vlm_sticky = vlm_chart._ysticks['volume']
+        vlm_sticky = vlm_chart.plotItem.getAxis(
+            'right')._stickies.get('volume')
         ds.vlm_chart = vlm_chart
         ds.vlm_sticky = vlm_sticky
 
@@ -947,7 +950,6 @@ async def link_views_with_region(
 
 async def display_symbol_data(
     godwidget: GodWidget,
-    provider: str,
     fqsns: list[str],
     loglevel: str,
     order_mode_started: trio.Event,
@@ -999,6 +1001,7 @@ async def display_symbol_data(
 
         symbol = flume.symbol
         fqsn = symbol.fqsn
+        brokername = symbol.brokers[0]
 
         step_size_s = 1
         tf_key = tf_in_1s[step_size_s]
@@ -1082,7 +1085,7 @@ async def display_symbol_data(
 
             # if available load volume related built-in display(s)
             if (
-                not symbol.broker_info[provider].get('no_vlm', False)
+                not symbol.broker_info[brokername].get('no_vlm', False)
                 and has_vlm(ohlcv)
             ):
                 vlm_chart = await ln.start(

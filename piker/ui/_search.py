@@ -416,12 +416,26 @@ class CompleterView(QTreeView):
         section: str,
         values: Sequence[str],
         clear_all: bool = False,
+        reverse: bool = False,
 
     ) -> None:
         '''
         Set result-rows for depth = 1 tree section ``section``.
 
         '''
+        if (
+            values
+            and not isinstance(values[0], str)
+        ):
+            flattened: list[str] = []
+            for val in values:
+                flattened.extend(val)
+
+            values = flattened
+
+        if reverse:
+            values = reversed(values)
+
         model = self.model()
         if clear_all:
             # XXX: rewrite the model from scratch if caller requests it
@@ -598,22 +612,34 @@ class SearchWidget(QtWidgets.QWidget):
         self.show()
         self.bar.focus()
 
-    def show_only_cache_entries(self) -> None:
+    def show_cache_entries(
+        self,
+        only: bool = False,
+    ) -> None:
         '''
         Clear the search results view and show only cached (aka recently
         loaded with active data) feeds in the results section.
 
         '''
         godw = self.godwidget
+
+        # first entry in the cache is the current symbol(s)
+        fqsns = []
+
+        for multi_fqsns in list(godw._chart_cache):
+            fqsns.extend(list(multi_fqsns))
+
         self.view.set_section_entries(
             'cache',
-            list(reversed(godw._chart_cache)),
+            list(fqsns),
             # remove all other completion results except for cache
-            clear_all=True,
+            clear_all=only,
+            reverse=True,
         )
 
     def get_current_item(self) -> Optional[tuple[str, str]]:
-        '''Return the current completer tree selection as
+        '''
+        Return the current completer tree selection as
         a tuple ``(parent: str, child: str)`` if valid, else ``None``.
 
         '''
@@ -663,12 +689,13 @@ class SearchWidget(QtWidgets.QWidget):
         provider, symbol = value
         godw = self.godwidget
 
-        log.info(f'Requesting symbol: {symbol}.{provider}')
+        fqsn = f'{symbol}.{provider}'
+        log.info(f'Requesting symbol: {fqsn}')
 
+        # assert provider in symbol
         await godw.load_symbols(
-            provider,
-            [symbol],
-            'info',
+            fqsns=[fqsn],
+            loglevel='info',
         )
 
         # fully qualified symbol name (SNS i guess is what we're
@@ -682,13 +709,13 @@ class SearchWidget(QtWidgets.QWidget):
             # Re-order the symbol cache on the chart to display in
             # LIFO order. this is normally only done internally by
             # the chart on new symbols being loaded into memory
-            godw.set_chart_symbol(
-                fqsn, (
+            godw.set_chart_symbols(
+                (fqsn,), (
                     godw.hist_linked,
                     godw.rt_linked,
                 )
             )
-            self.show_only_cache_entries()
+            self.show_cache_entries(only=True)
 
         self.bar.focus()
         return fqsn
@@ -757,9 +784,10 @@ async def pack_matches(
     with trio.CancelScope() as cs:
         task_status.started(cs)
         # ensure ^ status is updated
-        results = await search(pattern)
+        results = list(await search(pattern))
 
-    if provider != 'cache':  # XXX: don't cache the cache results xD
+    # XXX: don't cache the cache results xD
+    if provider != 'cache':
         matches[(provider, pattern)] = results
 
         # print(f'results from {provider}: {results}')
@@ -806,7 +834,7 @@ async def fill_results(
     has_results: defaultdict[str, set[str]] = defaultdict(set)
 
     # show cached feed list at startup
-    search.show_only_cache_entries()
+    search.show_cache_entries()
     search.on_resize()
 
     while True:
@@ -860,8 +888,9 @@ async def fill_results(
                     # it hasn't already been searched with the current
                     # input pattern (in which case just look up the old
                     # results).
-                    if (period >= pause) and (
-                        provider not in already_has_results
+                    if (
+                        period >= pause
+                        and provider not in already_has_results
                     ):
 
                         # TODO: it may make more sense TO NOT search the
@@ -869,7 +898,9 @@ async def fill_results(
                         # cpu-bound.
                         if provider != 'cache':
                             view.clear_section(
-                                provider, status_field='-> searchin..')
+                                provider,
+                                status_field='-> searchin..',
+                            )
 
                         await n.start(
                             pack_matches,
@@ -890,11 +921,20 @@ async def fill_results(
                         # re-searching it's ``dict`` since it's easier
                         # but it also causes it to be slower then cached
                         # results from other providers on occasion.
-                        if results and provider != 'cache':
-                            view.set_section_entries(
-                                section=provider,
-                                values=results,
-                            )
+                        if (
+                            results
+                        ):
+                            if provider != 'cache':
+                                view.set_section_entries(
+                                    section=provider,
+                                    values=results,
+                                )
+                            else:
+                                # if provider == 'cache':
+                                # for the cache just show what we got
+                                # that matches
+                                search.show_cache_entries()
+
                         else:
                             view.clear_section(provider)
 
@@ -937,7 +977,7 @@ async def handle_keyboard_input(
         )
 
         bar.focus()
-        search.show_only_cache_entries()
+        search.show_cache_entries()
         await trio.sleep(0)
 
         async for kbmsg in recv_chan:
@@ -949,20 +989,21 @@ async def handle_keyboard_input(
             if mods == Qt.ControlModifier:
                 ctl = True
 
-            if key in (Qt.Key_Enter, Qt.Key_Return):
+            if key in (
+                Qt.Key_Enter,
+                Qt.Key_Return
+            ):
                 _search_enabled = False
                 await search.chart_current_item(clear_to_cache=True)
-                search.show_only_cache_entries()
+                search.show_cache_entries(only=True)
                 view.show_matches()
                 search.focus()
 
             elif not ctl and not bar.text():
-                # if nothing in search text show the cache
-                view.set_section_entries(
-                    'cache',
-                    list(reversed(godwidget._chart_cache)),
-                    clear_all=True,
-                )
+
+                # TODO: really should factor this somewhere..bc
+                # we're doin it in another spot as well..
+                search.show_cache_entries(only=True)
                 continue
 
             # cancel and close
@@ -1025,6 +1066,8 @@ async def handle_keyboard_input(
                     if parent_item and parent_item.text() == 'cache':
                         await search.chart_current_item(clear_to_cache=False)
 
+            # ACTUAL SEARCH BLOCK #
+            # where we fuzzy complete and fill out sections.
             elif not ctl:
                 # relay to completer task
                 _search_enabled = True
@@ -1035,13 +1078,21 @@ async def handle_keyboard_input(
 async def search_simple_dict(
     text: str,
     source: dict,
+
 ) -> dict[str, Any]:
+
+    tokens = []
+    for key in source:
+        if not isinstance(key, str):
+            tokens.extend(key)
+        else:
+            tokens.append(key)
 
     # search routine can be specified as a function such
     # as in the case of the current app's local symbol cache
     matches = fuzzy.extractBests(
         text,
-        source.keys(),
+        tokens,
         score_cutoff=90,
     )
 

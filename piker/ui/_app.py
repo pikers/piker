@@ -118,17 +118,10 @@ async def _async_main(
         # godwidget.hbox.addWidget(search)
         godwidget.search = search
 
-        symbols: list[str] = []
-
-        for sym in syms:
-            symbol, _, provider = sym.rpartition('.')
-            symbols.append(symbol)
-
         # this internally starts a ``display_symbol_data()`` task above
         order_mode_ready = await godwidget.load_symbols(
-            provider,
-            symbols,
-            loglevel
+            fqsns=syms,
+            loglevel=loglevel,
         )
 
         # spin up a search engine for the local cached symbol set

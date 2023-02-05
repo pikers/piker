@@ -45,7 +45,6 @@ import trio
 from ._axes import (
     DynamicDateAxis,
     PriceAxis,
-    YAxisLabel,
 )
 from ._cursor import (
     Cursor,
@@ -168,18 +167,18 @@ class GodWidget(QWidget):
     #     self.strategy_box = StrategyBoxWidget(self)
     #     self.toolbar_layout.addWidget(self.strategy_box)
 
-    def set_chart_symbol(
+    def set_chart_symbols(
         self,
-        symbol_key: str,  # of form <fqsn>.<providername>
+        group_key: tuple[str],  # of form <fqsn>.<providername>
         all_linked: tuple[LinkedSplits, LinkedSplits],  # type: ignore
 
     ) -> None:
         # re-sort org cache symbol list in LIFO order
         cache = self._chart_cache
-        cache.pop(symbol_key, None)
-        cache[symbol_key] = all_linked
+        cache.pop(group_key, None)
+        cache[group_key] = all_linked
 
-    def get_chart_symbol(
+    def get_chart_symbols(
         self,
         symbol_key: str,
 
@@ -188,8 +187,7 @@ class GodWidget(QWidget):
 
     async def load_symbols(
         self,
-        providername: str,
-        symbol_keys: list[str],
+        fqsns: list[str],
         loglevel: str,
         reset: bool = False,
 
@@ -200,20 +198,11 @@ class GodWidget(QWidget):
         Expects a ``numpy`` structured array containing all the ohlcv fields.
 
         '''
-        fqsns: list[str] = []
-
-        # our symbol key style is always lower case
-        for key in list(map(str.lower, symbol_keys)):
-
-            # fully qualified symbol name (SNS i guess is what we're making?)
-            fqsn = '.'.join([key, providername])
-            fqsns.append(fqsn)
-
         # NOTE: for now we use the first symbol in the set as the "key"
         # for the overlay of feeds on the chart.
-        group_key = fqsns[0]
+        group_key: tuple[str] = tuple(fqsns)
 
-        all_linked = self.get_chart_symbol(group_key)
+        all_linked = self.get_chart_symbols(group_key)
         order_mode_started = trio.Event()
 
         if not self.vbox.isEmpty():
@@ -245,7 +234,6 @@ class GodWidget(QWidget):
             self._root_n.start_soon(
                 display_symbol_data,
                 self,
-                providername,
                 fqsns,
                 loglevel,
                 order_mode_started,
@@ -253,8 +241,8 @@ class GodWidget(QWidget):
 
             # self.vbox.addWidget(hist_charts)
             self.vbox.addWidget(rt_charts)
-            self.set_chart_symbol(
-                fqsn,
+            self.set_chart_symbols(
+                group_key,
                 (hist_charts, rt_charts),
             )
 
@@ -495,7 +483,10 @@ class LinkedSplits(QWidget):
         from . import _display
         ds = self.display_state
         if ds:
-            return _display.graphics_update_cycle(ds, **kwargs)
+            return _display.graphics_update_cycle(
+                ds,
+                **kwargs,
+            )
 
     @property
     def symbol(self) -> Symbol:
@@ -548,7 +539,7 @@ class LinkedSplits(QWidget):
         shm: ShmArray,
         sidepane: FieldsForm,
 
-        style: str = 'bar',
+        style: str = 'ohlc_bar',
 
     ) -> ChartPlotWidget:
         '''
@@ -568,12 +559,10 @@ class LinkedSplits(QWidget):
         # be no distinction since we will have multiple symbols per
         # view as part of "aggregate feeds".
         self.chart = self.add_plot(
-
-            name=symbol.key,
+            name=symbol.fqsn,
             shm=shm,
             style=style,
             _is_main=True,
-
             sidepane=sidepane,
         )
         # add crosshair graphic
@@ -615,12 +604,13 @@ class LinkedSplits(QWidget):
         # TODO: we gotta possibly assign this back
         # to the last subplot on removal of some last subplot
         xaxis = DynamicDateAxis(
+            None,
             orientation='bottom',
             linkedsplits=self
         )
         axes = {
-            'right': PriceAxis(linkedsplits=self, orientation='right'),
-            'left': PriceAxis(linkedsplits=self, orientation='left'),
+            'right': PriceAxis(None, orientation='right'),
+            'left': PriceAxis(None, orientation='left'),
             'bottom': xaxis,
         }
 
@@ -645,6 +635,11 @@ class LinkedSplits(QWidget):
             axisItems=axes,
             **cpw_kwargs,
         )
+        # TODO: wow i can't believe how confusing garbage all this axes
+        # stuff iss..
+        for axis in axes.values():
+            axis.pi = cpw.plotItem
+
         cpw.hideAxis('left')
         cpw.hideAxis('bottom')
 
@@ -707,7 +702,7 @@ class LinkedSplits(QWidget):
         anchor_at = ('top', 'left')
 
         # draw curve graphics
-        if style == 'bar':
+        if style == 'ohlc_bar':
 
             graphics, data_key = cpw.draw_ohlc(
                 name,
@@ -744,30 +739,33 @@ class LinkedSplits(QWidget):
         else:
             raise ValueError(f"Chart style {style} is currently unsupported")
 
-        if not _is_main:
+        if _is_main:
+            assert style == 'ohlc_bar', 'main chart must be OHLC'
+        else:
             # track by name
             self.subplots[name] = cpw
             if qframe is not None:
                 self.splitter.addWidget(qframe)
 
-        else:
-            assert style == 'bar', 'main chart must be OHLC'
-
         # add to cross-hair's known plots
         # NOTE: add **AFTER** creating the underlying ``PlotItem``s
         # since we require that global (linked charts wide) axes have
         # been created!
-        self.cursor.add_plot(cpw)
+        if self.cursor:
+            if (
+                _is_main
+                or style != 'ohlc_bar'
+            ):
+                self.cursor.add_plot(cpw)
+                if style != 'ohlc_bar':
+                    self.cursor.add_curve_cursor(cpw, graphics)
 
-        if self.cursor and style != 'bar':
-            self.cursor.add_curve_cursor(cpw, graphics)
-
-            if add_label:
-                self.cursor.contents_labels.add_label(
-                    cpw,
-                    data_key,
-                    anchor_at=anchor_at,
-                )
+                if add_label:
+                    self.cursor.contents_labels.add_label(
+                        cpw,
+                        data_key,
+                        anchor_at=anchor_at,
+                    )
 
         self.resize_sidepanes()
         return cpw
@@ -860,7 +858,12 @@ class ChartPlotWidget(pg.PlotWidget):
         # source of our custom interactions
         self.cv = cv = self.mk_vb(name)
 
-        pi = pgo.PlotItem(viewBox=cv, **kwargs)
+        pi = pgo.PlotItem(
+            viewBox=cv,
+            name=name,
+            **kwargs,
+        )
+        pi.chart_widget = self
         super().__init__(
             background=hcolor(view_color),
             viewBox=cv,
@@ -913,18 +916,20 @@ class ChartPlotWidget(pg.PlotWidget):
         self._on_screen: bool = False
 
     def resume_all_feeds(self):
-        try:
-            for feed in self._feeds.values():
-                for flume in feed.flumes.values():
-                    self.linked.godwidget._root_n.start_soon(feed.resume)
-        except RuntimeError:
-            # TODO: cancel the qtractor runtime here?
-            raise
+        ...
+        # try:
+        #     for feed in self._feeds.values():
+        #         for flume in feed.flumes.values():
+        #             self.linked.godwidget._root_n.start_soon(flume.resume)
+        # except RuntimeError:
+        #     # TODO: cancel the qtractor runtime here?
+        #     raise
 
     def pause_all_feeds(self):
-        for feed in self._feeds.values():
-            for flume in feed.flumes.values():
-                self.linked.godwidget._root_n.start_soon(feed.pause)
+        ...
+        # for feed in self._feeds.values():
+        #     for flume in feed.flumes.values():
+        #         self.linked.godwidget._root_n.start_soon(flume.pause)
 
     @property
     def view(self) -> ChartView:
@@ -1116,43 +1121,6 @@ class ChartPlotWidget(pg.PlotWidget):
             padding=0,
         )
 
-    def draw_ohlc(
-        self,
-        name: str,
-        shm: ShmArray,
-
-        array_key: Optional[str] = None,
-
-    ) -> (pg.GraphicsObject, str):
-        '''
-        Draw OHLC datums to chart.
-
-        '''
-        graphics = BarItems(
-            self.linked,
-            self.plotItem,
-            pen_color=self.pen_color,
-            name=name,
-        )
-
-        # adds all bar/candle graphics objects for each data point in
-        # the np array buffer to be drawn on next render cycle
-        self.plotItem.addItem(graphics)
-
-        data_key = array_key or name
-
-        self._flows[data_key] = Flow(
-            name=name,
-            plot=self.plotItem,
-            _shm=shm,
-            is_ohlc=True,
-            graphics=graphics,
-        )
-
-        self._add_sticky(name, bg_color='davies')
-
-        return graphics, data_key
-
     def overlay_plotitem(
         self,
         name: str,
@@ -1172,8 +1140,8 @@ class ChartPlotWidget(pg.PlotWidget):
             raise ValueError(f'``axis_side``` must be in {allowed_sides}')
 
         yaxis = PriceAxis(
+            plotitem=None,
             orientation=axis_side,
-            linkedsplits=self.linked,
             **axis_kwargs,
         )
 
@@ -1188,6 +1156,9 @@ class ChartPlotWidget(pg.PlotWidget):
             },
             default_axes=[],
         )
+        # pi.vb.background.setOpacity(0)
+        yaxis.pi = pi
+        pi.chart_widget = self
         pi.hideButtons()
 
         # compose this new plot's graphics with the current chart's
@@ -1231,43 +1202,56 @@ class ChartPlotWidget(pg.PlotWidget):
         add_label: bool = True,
         pi: Optional[pg.PlotItem] = None,
         step_mode: bool = False,
+        is_ohlc: bool = False,
+        add_sticky: None | str = 'right',
 
-        **pdi_kwargs,
+        **graphics_kwargs,
 
-    ) -> (pg.PlotDataItem, str):
+    ) -> tuple[
+        pg.GraphicsObject,
+        str,
+    ]:
         '''
         Draw a "curve" (line plot graphics) for the provided data in
         the input shm array ``shm``.
 
         '''
         color = color or self.pen_color or 'default_light'
-        pdi_kwargs.update({
-            'color': color
-        })
-
         data_key = array_key or name
 
-        curve_type = {
-            None: Curve,
-            'step': StepCurve,
-            # TODO:
-            # 'bars': BarsItems
-        }['step' if step_mode else None]
-
-        curve = curve_type(
-            name=name,
-            **pdi_kwargs,
-        )
-
         pi = pi or self.plotItem
+
+        if is_ohlc:
+            graphics = BarItems(
+                linked=self.linked,
+                plotitem=pi,
+                # pen_color=self.pen_color,
+                color=color,
+                name=name,
+                **graphics_kwargs,
+            )
+
+        else:
+            curve_type = {
+                None: Curve,
+                'step': StepCurve,
+                # TODO:
+                # 'bars': BarsItems
+            }['step' if step_mode else None]
+
+            graphics = curve_type(
+                name=name,
+                color=color,
+                **graphics_kwargs,
+            )
 
         self._flows[data_key] = Flow(
             name=name,
             plot=pi,
             _shm=shm,
-            is_ohlc=False,
+            is_ohlc=is_ohlc,
             # register curve graphics with this flow
-            graphics=curve,
+            graphics=graphics,
         )
 
         # TODO: this probably needs its own method?
@@ -1278,12 +1262,41 @@ class ChartPlotWidget(pg.PlotWidget):
                             f'{overlay} must be from `.plotitem_overlay()`'
                         )
                 pi = overlay
-        else:
-            # anchor_at = ('top', 'left')
 
-            # TODO: something instead of stickies for overlays
-            # (we need something that avoids clutter on x-axis).
-            self._add_sticky(name, bg_color=color)
+        if add_sticky:
+            axis = pi.getAxis(add_sticky)
+            if pi.name not in axis._stickies:
+
+                if pi is not self.plotItem:
+                    overlay = self.pi_overlay
+                    assert pi in overlay.overlays
+                    overlay_axis = overlay.get_axis(
+                        pi,
+                        add_sticky,
+                    )
+                    assert overlay_axis is axis
+
+                # TODO: UGH! just make this not here! we should
+                # be making the sticky from code which has access
+                # to the ``Symbol`` instance..
+
+                # if the sticky is for our symbol
+                # use the tick size precision for display
+                name = name or pi.name
+                sym = self.linked.symbol
+                digits = None
+                if name == sym.key:
+                    digits = sym.tick_size_digits
+
+                # anchor_at = ('top', 'left')
+
+                # TODO: something instead of stickies for overlays
+                # (we need something that avoids clutter on x-axis).
+                axis.add_sticky(
+                    pi=pi,
+                    bg_color=color,
+                    digits=digits,
+                )
 
         # NOTE: this is more or less the RENDER call that tells Qt to
         # start showing the generated graphics-curves. This is kind of
@@ -1294,38 +1307,30 @@ class ChartPlotWidget(pg.PlotWidget):
         # the next render cycle; just note a lot of the real-time
         # updates are implicit and require a bit of digging to
         # understand.
-        pi.addItem(curve)
+        pi.addItem(graphics)
 
-        return curve, data_key
+        return graphics, data_key
 
-    # TODO: make this a ctx mngr
-    def _add_sticky(
+    def draw_ohlc(
         self,
-
         name: str,
-        bg_color='bracket',
+        shm: ShmArray,
 
-    ) -> YAxisLabel:
+        array_key: Optional[str] = None,
+        **draw_curve_kwargs,
 
-        # if the sticky is for our symbol
-        # use the tick size precision for display
-        sym = self.linked.symbol
-        if name == sym.key:
-            digits = sym.tick_size_digits
-        else:
-            digits = 2
+    ) -> (pg.GraphicsObject, str):
+        '''
+        Draw OHLC datums to chart.
 
-        # add y-axis "last" value label
-        last = self._ysticks[name] = YAxisLabel(
-            chart=self,
-            # parent=self.getAxis('right'),
-            parent=self.pi_overlay.get_axis(self.plotItem, 'right'),
-            # TODO: pass this from symbol data
-            digits=digits,
-            opacity=1,
-            bg_color=bg_color,
+        '''
+        return self.draw_curve(
+            name=name,
+            shm=shm,
+            array_key=array_key,
+            is_ohlc=True,
+            **draw_curve_kwargs,
         )
-        return last
 
     def update_graphics_from_flow(
         self,

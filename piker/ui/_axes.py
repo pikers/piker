@@ -18,6 +18,7 @@
 Chart axes graphics and behavior.
 
 """
+from __future__ import annotations
 from functools import lru_cache
 from typing import Optional, Callable
 from math import floor
@@ -27,6 +28,7 @@ import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
 
+from . import _pg_overrides as pgo
 from ..data._source import float_digits
 from ._label import Label
 from ._style import DpiAwareFont, hcolor, _font
@@ -46,7 +48,7 @@ class Axis(pg.AxisItem):
     '''
     def __init__(
         self,
-        linkedsplits,
+        plotitem: pgo.PlotItem,
         typical_max_str: str = '100 000.000',
         text_color: str = 'bracket',
         lru_cache_tick_strings: bool = True,
@@ -61,27 +63,32 @@ class Axis(pg.AxisItem):
         # XXX: pretty sure this makes things slower
         # self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
-        self.linkedsplits = linkedsplits
+        self.pi = plotitem
         self._dpi_font = _font
 
         self.setTickFont(_font.font)
         font_size = self._dpi_font.font.pixelSize()
 
+        style_conf = {
+            'textFillLimits': [(0, 0.5)],
+            'tickFont': self._dpi_font.font,
+
+        }
+        text_offset = None
         if self.orientation in ('bottom',):
             text_offset = floor(0.25 * font_size)
 
         elif self.orientation in ('left', 'right'):
             text_offset = floor(font_size / 2)
 
-        self.setStyle(**{
-            'textFillLimits': [(0, 0.5)],
-            'tickFont': self._dpi_font.font,
+        if text_offset:
+            style_conf.update({
+                # offset of text *away from* axis line in px
+                # use approx. half the font pixel size (height)
+                'tickTextOffset': text_offset,
+            })
 
-            # offset of text *away from* axis line in px
-            # use approx. half the font pixel size (height)
-            'tickTextOffset': text_offset,
-        })
-
+        self.setStyle(**style_conf)
         self.setTickFont(_font.font)
 
         # NOTE: this is for surrounding "border"
@@ -101,6 +108,9 @@ class Axis(pg.AxisItem):
             self.tickStrings = lru_cache(
                 maxsize=2**20
             )(self.tickStrings)
+
+        # axis "sticky" labels
+        self._stickies: dict[str, YAxisLabel] = {}
 
     # NOTE: only overriden to cast tick values entries into tuples
     # for use with the lru caching.
@@ -138,6 +148,40 @@ class Axis(pg.AxisItem):
 
     def txt_offsets(self) -> tuple[int, int]:
         return tuple(self.style['tickTextOffset'])
+
+    def add_sticky(
+        self,
+        pi: pgo.PlotItem,
+        name: None | str = None,
+        digits: None | int = 2,
+        # axis_name: str = 'right',
+        bg_color='bracket',
+
+    ) -> YAxisLabel:
+
+        # if the sticky is for our symbol
+        # use the tick size precision for display
+        name = name or pi.name
+        digits = digits or 2
+
+        # TODO: ``._ysticks`` should really be an attr on each
+        # ``PlotItem`` no instead of the (containing because of
+        # overlays) widget?
+
+        # add y-axis "last" value label
+        sticky = self._stickies[name] = YAxisLabel(
+            pi=pi,
+            parent=self,
+            # TODO: pass this from symbol data
+            digits=digits,
+            opacity=1,
+            bg_color=bg_color,
+        )
+
+        pi.sigRangeChanged.connect(sticky.update_on_resize)
+        # pi.addItem(sticky)
+        # pi.addItem(last)
+        return sticky
 
 
 class PriceAxis(Axis):
@@ -255,7 +299,9 @@ class DynamicDateAxis(Axis):
 
     ) -> list[str]:
 
-        chart = self.linkedsplits.chart
+        # XX: ARGGGGG AG:LKSKDJF:LKJSDFD
+        chart = self.pi.chart_widget
+
         flow = chart._flows[chart.name]
         shm = flow.shm
         bars = shm.array
@@ -522,7 +568,7 @@ class XAxisLabel(AxisLabel):
 
 
 class YAxisLabel(AxisLabel):
-    _y_margin = 4
+    _y_margin: int = 4
 
     text_flags = (
         QtCore.Qt.AlignLeft
@@ -533,19 +579,19 @@ class YAxisLabel(AxisLabel):
 
     def __init__(
         self,
-        chart,
+        pi: pgo.PlotItem,
         *args,
         **kwargs
     ) -> None:
 
         super().__init__(*args, **kwargs)
 
-        self._chart = chart
-
-        chart.sigRangeChanged.connect(self.update_on_resize)
+        self._pi = pi
+        pi.sigRangeChanged.connect(self.update_on_resize)
 
         self._last_datum = (None, None)
 
+        self.x_offset = 0
         # pull text offset from axis from parent axis
         if getattr(self._parent, 'txt_offsets', False):
             self.x_offset, y_offset = self._parent.txt_offsets()
@@ -564,7 +610,8 @@ class YAxisLabel(AxisLabel):
         value: float,  # data for text
 
         # on odd dimension and/or adds nice black line
-        x_offset: Optional[int] = None
+        x_offset: int = 0,
+
     ) -> None:
 
         # this is read inside ``.paint()``
@@ -610,7 +657,7 @@ class YAxisLabel(AxisLabel):
             self._last_datum = (index, value)
 
         self.update_label(
-            self._chart.mapFromView(QPointF(index, value)),
+            self._pi.mapFromView(QPointF(index, value)),
             value
         )
 
