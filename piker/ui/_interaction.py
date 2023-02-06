@@ -951,7 +951,7 @@ class ChartView(ViewBox):
 
     def interact_graphics_cycle(
         self,
-        *args,  # capture signal-handler related shit
+        *args,  # capture Qt signal (slot) inputs
 
         debug_print: bool = False,
         do_overlay_scaling: bool = True,
@@ -1017,7 +1017,7 @@ class ChartView(ViewBox):
             # determine auto-ranging input for `._set_yrange()`.
             # this is primarly used for our so called "log-linearized
             # multi-plot" overlay technique.
-            start_datums: dict[
+            overlay_table: dict[
                 ViewBox,
                 tuple[
                     Viz,
@@ -1032,6 +1032,10 @@ class ChartView(ViewBox):
             major_in_view: np.ndarray = None
 
             for name, viz in chart._vizs.items():
+                if debug_print:
+                    print(
+                        f'UX GRAPHICS CYCLE: {viz.name}@{chart_name}'
+                    )
 
                 if not viz.render:
                     # print(f'skipping {flow.name}')
@@ -1087,12 +1091,15 @@ class ChartView(ViewBox):
                     ymn, ymx = yrange
                     # print(f'adding {viz.name} to overlay')
 
+                    if not do_overlay_scaling:
+                        continue
+
                     # determine start datum in view
                     arr = viz.shm.array
                     in_view = arr[read_slc]
                     if not in_view.size:
                         log.warning(f'{viz.name} not in view?')
-                        return
+                        continue
 
                     row_start = arr[read_slc.start - 1]
 
@@ -1103,7 +1110,7 @@ class ChartView(ViewBox):
 
                     profiler(f'{viz.name}@{chart_name} MINOR curve median')
 
-                    start_datums[viz.plot.vb] = (
+                    overlay_table[viz.plot.vb] = (
                         viz,
                         y_start,
                         ymn,
@@ -1152,16 +1159,20 @@ class ChartView(ViewBox):
                         f'{viz.name}@{chart_name} simple std `._set_yrange()`'
                     )
 
-            profiler(f'<{chart_name}>.interact_graphics_cycle({name})')
-            if not start_datums:
-                return
-
-            # if no overlays, set lone chart's yrange and short circuit
+            # NOTE: if no overlay group scaling is wanted by caller, or
+            # there were no overlay charts detected/collected, (could be
+            # either no group detected or chart with a single symbol,
+            # thus a single viz/overlay) then we ONLY set the lone
+            # chart's (viz) yrange and short circuit to the next chart
+            # in the linked charts sequence.
             if (
-                len(start_datums) < 2
-                or not do_overlay_scaling
+                not do_overlay_scaling
+                or len(overlay_table) < 2
+                or not overlay_table
             ):
-                # print(f'ONLY ranging major: {viz.name}')
+                if debug_print:
+                    print(f'ONLY ranging major: {viz.name}')
+
                 if not major_viz:
                     major_viz = viz
 
@@ -1169,7 +1180,9 @@ class ChartView(ViewBox):
                     yrange=yrange,
                 )
                 profiler(f'{viz.name}@{chart_name} single curve yrange')
-                return
+                continue
+
+            profiler(f'<{chart_name}>.interact_graphics_cycle({name})')
 
             # conduct "log-linearized multi-plot" scalings for all groups
             for (
@@ -1183,7 +1196,7 @@ class ChartView(ViewBox):
                     read_slc,
                     minor_in_view,
                 )
-            ) in start_datums.items():
+            ) in overlay_table.items():
 
                 # we use the ymn/mx verbatim from the major curve
                 # (i.e. the curve measured to have the highest
