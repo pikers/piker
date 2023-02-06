@@ -721,10 +721,10 @@ def graphics_update_cycle(
                 main_vb._ic is None
                 or not main_vb._ic.is_set()
             ):
-                # print(f'SETTING Y-mxmx -> {main_viz.name}: {(mn, mx)}')
+                print(f'SETTING Y-mxmx -> {main_viz.name}: {(mn, mx)}')
                 main_vb.interact_graphics_cycle(
-                    # do_overlay_scaling=False,
                     do_linked_charts=False,
+                    do_overlay_scaling=False,
                     yranges={main_viz: (mn, mx)},
                 )
                 profiler('main vb y-autorange')
@@ -852,14 +852,13 @@ def graphics_update_cycle(
                 # vlm_yr = (0, mx_vlm_in_view * 1.375)
 
                 main_vlm_viz.plot.vb.interact_graphics_cycle(
-                    # do_overlay_scaling=False,
+                    do_overlay_scaling=False,
                     do_linked_charts=False,
                 )
                 profiler('`vlm_chart.view.interact_graphics_cycle()`')
 
         # update all downstream FSPs
         for curve_name, viz in vlm_vizs.items():
-
             if curve_name == 'volume':
                 continue
 
@@ -884,9 +883,10 @@ def graphics_update_cycle(
                 # XXX: without this we get completely
                 # mangled/empty vlm display subchart..
                 fvb = viz.plot.vb
-                fvb.interact_graphics_cycle(
-                    do_linked_charts=False,
-                )
+                # fvb.interact_graphics_cycle(
+                #     do_linked_charts=False,
+                #     do_overlay_scaling=False,
+                # )
                 profiler(
                     f'Viz[{viz.name}].plot.vb.interact_graphics_cycle()`'
                 )
