@@ -28,6 +28,7 @@ import time
 from typing import (
     Optional,
     Any,
+    TYPE_CHECKING,
 )
 
 import tractor
@@ -79,6 +80,9 @@ from .._profile import (
 )
 from ..log import get_logger
 from .._profile import Profiler
+
+if TYPE_CHECKING:
+    from ._interaction import ChartView
 
 log = get_logger(__name__)
 
@@ -182,15 +186,15 @@ class DisplayState(Struct):
         'i_last': 0,
         'i_last_append': 0,
         'last_mx_vlm': 0,
-        'last_mx': 0,
-        'last_mn': 0,
+        # 'last_mx': 0,
+        # 'last_mn': 0,
     }
     hist_vars: dict[str, Any] = {
         'i_last': 0,
         'i_last_append': 0,
         'last_mx_vlm': 0,
-        'last_mx': 0,
-        'last_mn': 0,
+        # 'last_mx': 0,
+        # 'last_mn': 0,
     }
 
     globalz: None | dict[str, Any] = None
@@ -400,8 +404,8 @@ async def graphics_update_loop(
                 'i_last': 0,
                 'i_last_append': 0,
                 'last_mx_vlm': last_mx_vlm,
-                'last_mx': last_mx,
-                'last_mn': last_mn,
+                # 'last_mx': last_mx,
+                # 'last_mn': last_mn,
             },
             'globalz': globalz,
         })
@@ -507,7 +511,7 @@ def graphics_update_cycle(
     chart = ds.chart
     vlm_chart = ds.vlm_chart
 
-    varz = ds.vars
+    # varz = ds.vars
     l1 = ds.l1
     flume = ds.flume
     ohlcv = flume.rt_shm
@@ -541,13 +545,13 @@ def graphics_update_cycle(
     # - we should probably scale the view margin based on the size of
     #   the true range? This way you can slap in orders outside the
     #   current L1 (only) book range.
-    main_vb = main_viz.plot.vb
-    this_viz = chart._vizs[fqsn]
-    this_vb = this_viz.plot.vb
+    main_vb: ChartView = main_viz.plot.vb
+    this_viz: Viz = chart._vizs[fqsn]
+    this_vb: ChartView = this_viz.plot.vb
     lmn, lmx = this_vb._yrange
-    mx = lmx
-    mn = lmn
-    mx_vlm_in_view = varz['last_mx_vlm']
+    mx: float = lmx
+    mn: float = lmn
+    mx_vlm_in_view: float | None = None
 
     # update ohlc sampled price bars
     if (
@@ -767,8 +771,8 @@ def graphics_update_cycle(
     # XXX: update this every draw cycle to ensure y-axis auto-ranging
     # only adjusts when the in-view data co-domain actually expands or
     # contracts.
-    varz['last_mn'] = mn
-    varz['last_mx'] = mx
+    # varz['last_mn'] = mn
+    # varz['last_mx'] = mx
 
     # TODO: a similar, only-update-full-path-on-px-step approach for all
     # fsp overlays and vlm stuff..
@@ -814,8 +818,9 @@ def graphics_update_cycle(
     # TODO: can we unify this with the above loop?
     if vlm_chart:
         vlm_vizs = vlm_chart._vizs
-
         main_vlm_viz = vlm_vizs['volume']
+        main_vlm_vb = main_vlm_viz.plot.vb
+        (_, vlm_ymx) = vlm_yrange = main_vlm_vb._yrange
 
         # always update y-label
         ds.vlm_sticky.update_from_data(
@@ -853,16 +858,19 @@ def graphics_update_cycle(
             profiler('`main_vlm_viz.update_graphics()`')
 
             if (
-                mx_vlm_in_view != varz['last_mx_vlm']
+                mx_vlm_in_view
+                and mx_vlm_in_view != vlm_ymx
             ):
-                varz['last_mx_vlm'] = mx_vlm_in_view
-
-                # TODO: incr maxmin update as pass into below..
-                # vlm_yr = (0, mx_vlm_in_view * 1.375)
-
+                # in this case we want to scale all overlays in the
+                # sub-chart but only incrementally update the vlm since
+                # we already calculated the new range above.
+                # TODO: in theory we can incrementally update all
+                # overlays as well though it will require iteration of
+                # them here in the display loop right?
                 main_vlm_viz.plot.vb.interact_graphics_cycle(
-                    do_overlay_scaling=False,
+                    do_overlay_scaling=True,
                     do_linked_charts=False,
+                    yranges={main_vlm_viz: vlm_yrange},
                 )
                 profiler('`vlm_chart.view.interact_graphics_cycle()`')
 
