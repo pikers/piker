@@ -182,7 +182,6 @@ class DisplayState(Struct):
     # misc state tracking
     vars: dict[str, Any] = field(
         default_factory=lambda: {
-            'tick_margin': 0,
             'i_last': 0,
             'i_last_append': 0,
             'last_mx_vlm': 0,
@@ -192,7 +191,6 @@ class DisplayState(Struct):
     )
     hist_vars: dict[str, Any] = field(
         default_factory=lambda: {
-            'tick_margin': 0,
             'i_last': 0,
             'i_last_append': 0,
             'last_mx_vlm': 0,
@@ -262,7 +260,7 @@ async def increment_history_view(
                 if liv:
                     hist_viz.plot.vb.interact_graphics_cycle(
                         do_linked_charts=False,
-                        # do_overlay_scaling=False,
+                        do_overlay_scaling=False,
                     )
                     profiler('hist chart yrange view')
 
@@ -381,9 +379,6 @@ async def graphics_update_loop(
         #   levels this might be dark volume we need to
         #   present differently -> likely dark vlm
 
-        tick_size = symbol.tick_size
-        tick_margin = 4 * tick_size
-
         fast_chart.show()
         last_quote_s = time.time()
 
@@ -408,7 +403,6 @@ async def graphics_update_loop(
             'l1': l1,
 
             'vars': {
-                'tick_margin': tick_margin,
                 'i_last': 0,
                 'i_last_append': 0,
                 'last_mx_vlm': last_mx_vlm,
@@ -529,8 +523,6 @@ def graphics_update_cycle(
     main_viz = ds.viz
     index_field = main_viz.index_field
 
-    tick_margin = varz['tick_margin']
-
     (
         uppx,
         liv,
@@ -555,14 +547,16 @@ def graphics_update_cycle(
     # - we should probably scale the view margin based on the size of
     #   the true range? This way you can slap in orders outside the
     #   current L1 (only) book range.
-    mx = lmx = varz['last_mx']
-    mn = lmn = varz['last_mn']
+    main_vb = main_viz.plot.vb
+    this_viz = chart._vizs[fqsn]
+    this_vb = this_viz.plot.vb
+    lmn, lmx = this_vb._yrange
+    mx = lmx
+    mn = lmn
     mx_vlm_in_view = varz['last_mx_vlm']
 
     # update ohlc sampled price bars
     if (
-        # do_rt_update
-        # or do_px_step
         (liv and do_px_step)
         or trigger_all
     ):
@@ -590,8 +584,8 @@ def graphics_update_cycle(
         # NOTE: do this **after** the tread to ensure we take the yrange
         # from the most current view x-domain.
         (
-            mn_in_view,
-            mx_in_view,
+            mn,
+            mx,
             mx_vlm_in_view,
         ) = multi_maxmin(
             i_read_range,
@@ -600,8 +594,6 @@ def graphics_update_cycle(
             profiler,
         )
 
-        mx = mx_in_view + tick_margin
-        mn = mn_in_view - tick_margin
         profiler(f'{fqsn} `multi_maxmin()` call')
 
     # iterate frames of ticks-by-type such that we only update graphics
@@ -625,8 +617,20 @@ def graphics_update_cycle(
             # TODO: make sure IB doesn't send ``-1``!
             and price > 0
         ):
-            mx = max(price + tick_margin, mx)
-            mn = min(price - tick_margin, mn)
+            if (
+                price < mn
+            ):
+                mn = price
+                # print(f'{this_viz.name} new MN from TICK {mn}')
+
+            if (
+                price > mx
+            ):
+                mx = price
+                # print(f'{this_viz.name} new MX from TICK {mx}')
+
+            # mx = max(price, mx)
+            # mn = min(price, mn)
 
         # clearing price update:
         # generally, we only want to update grahpics from the *last*
@@ -691,8 +695,14 @@ def graphics_update_cycle(
     # of previous "last" L1 values which are in view.
     mn_diff = mn - lmn
     mx_diff = mx - lmx
+
     if (
-        mx_diff or mn_diff
+        mn_diff or mx_diff  # covers all cases below?
+        # (mx - lmx) > 0  # upward expansion
+        # or (mn - lmn) < 0  # downward expansion
+
+        # or (lmx - mx) > 0 # upward contraction
+        # or (lmn - mn) < 0 # downward contraction
     ):
         # complain about out-of-range outliers which can show up
         # in certain annoying feeds (like ib)..
@@ -721,17 +731,16 @@ def graphics_update_cycle(
             liv
             and not chart._static_yrange == 'axis'
         ):
-            main_vb = main_viz.plot.vb
 
             if (
                 main_vb._ic is None
                 or not main_vb._ic.is_set()
             ):
-                print(f'SETTING Y-mxmx -> {main_viz.name}: {(mn, mx)}')
-                main_vb.interact_graphics_cycle(
+                # print(f'SETTING Y-mnmx -> {main_viz.name}: {(mn, mx)}')
+                this_vb.interact_graphics_cycle(
                     do_linked_charts=False,
                     do_overlay_scaling=False,
-                    yranges={main_viz: (mn, mx)},
+                    yranges={this_viz: (mn, mx)},
                 )
                 profiler('main vb y-autorange')
 
@@ -888,7 +897,7 @@ def graphics_update_cycle(
                 # resizing from last quote?)
                 # XXX: without this we get completely
                 # mangled/empty vlm display subchart..
-                fvb = viz.plot.vb
+                # fvb = viz.plot.vb
                 # fvb.interact_graphics_cycle(
                 #     do_linked_charts=False,
                 #     do_overlay_scaling=False,
