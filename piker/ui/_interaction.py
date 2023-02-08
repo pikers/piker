@@ -1088,12 +1088,19 @@ class ChartView(ViewBox):
 
                 profiler(f'{viz.name}@{chart_name} common pi sort')
 
+                # non-overlay group case
+                if not viz.is_ohlc:
+                    pi.vb._set_yrange(yrange=yrange)
+                    profiler(
+                        f'{viz.name}@{chart_name} simple std `._set_yrange()`'
+                    )
+
                 # handle overlay log-linearized group scaling cases
                 # TODO: a better predicate here, likely something
                 # to do with overlays and their settings..
-                if (
-                    viz.is_ohlc
-                ):
+                # TODO: we probably eventually might want some other
+                # charts besides OHLC?
+                else:
                     ymn, ymx = yrange
                     # print(f'adding {viz.name} to overlay')
 
@@ -1137,45 +1144,44 @@ class ChartView(ViewBox):
 
                     profiler(f'{viz.name}@{chart_name} MINOR curve scale')
 
-                # non-overlay group case
-                else:
-                    pi.vb._set_yrange(yrange=yrange)
-                    profiler(
-                        f'{viz.name}@{chart_name} simple std `._set_yrange()`'
-                    )
-
-            # NOTE: if no overlay group scaling is wanted by caller, or
-            # there were no overlay charts detected/collected, (could be
-            # either no group detected or chart with a single symbol,
-            # thus a single viz/overlay) then we ONLY set the lone
-            # chart's (viz) yrange and short circuit to the next chart
-            # in the linked charts sequence.
-
+            # NOTE: if no there were no overlay charts
+            # detected/collected (could be either no group detected or
+            # chart with a single symbol, thus a single viz/overlay)
+            # then we ONLY set the lone chart's (viz) yrange and short
+            # circuit to the next chart in the linked charts loop. IOW
+            # there's no reason to go through the overlay dispersion
+            # scaling in the next loop below when only one curve is
+            # detected.
             if (
-                len(overlay_table) < 2
-                or not overlay_table
+                not mxmns_by_common_pi
+                and len(overlay_table) < 2
             ):
                 if debug_print:
                     print(f'ONLY ranging major: {viz.name}')
 
-                # we're either in `do_overlay_scaling=False` mode
-                # or there is only one curve so we need to pick
-                # that "only curve".
-                if not major_viz:
-                    major_viz = viz
-
-                if yranges is not None:
-                    yrange = yranges.get(major_viz) or yrange
-
-                assert yrange
-                print(f'ONLY ranging major: {viz.name}')
-                major_viz.plot.vb._set_yrange(
-                    yrange=yrange,
+                out = _maybe_calc_yrange(
+                    viz,
+                    yranges,
+                    profiler,
+                    chart_name,
                 )
-                profiler(f'{viz.name}@{chart_name} single curve yrange')
-                if not do_linked_charts:
-                    return
+                if out is None:
+                    continue
 
+                read_slc, yrange = out
+                viz.plot.vb._set_yrange(yrange=yrange)
+                profiler(f'{viz.name}@{chart_name} single curve yrange')
+
+                # move to next chart in linked set since
+                # no overlay transforming is needed.
+                continue
+
+            elif (
+                mxmns_by_common_pi
+                and not major_viz
+            ):
+                # move to next chart in linked set since
+                # no overlay transforming is needed.
                 continue
 
             profiler(f'<{chart_name}>.interact_graphics_cycle({name})')
@@ -1394,6 +1400,9 @@ class ChartView(ViewBox):
             # if vrs[1][0] > major_mn:
             #     breakpoint()
 
+            if not do_linked_charts:
+                return
+
         profiler.finish()
 
 
@@ -1407,8 +1416,6 @@ def _maybe_calc_yrange(
 
     if not viz.render:
         return
-        # # print(f'skipping {flow.name}')
-        # continue
 
     # pass in no array which will read and render from the last
     # passed array (normally provided by the display loop.)
@@ -1416,7 +1423,6 @@ def _maybe_calc_yrange(
 
     if not in_view:
         return
-        # continue
 
     profiler(f'{viz.name}@{chart_name} `Viz.update_graphics()`')
 
