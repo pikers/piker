@@ -1204,6 +1204,10 @@ class ChartPlotWidget(pg.PlotWidget):
         )
 
         pi.viz = viz
+        # so that viewboxes are associated 1-to-1 with
+        # their parent plotitem
+        pi.vb._viz = viz
+
         assert isinstance(viz.shm, ShmArray)
 
         # TODO: this probably needs its own method?
