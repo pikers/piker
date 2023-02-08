@@ -445,6 +445,7 @@ class ChartView(ViewBox):
         # TODO: probably just assign this whenever a new `PlotItem` is
         # allocated since they're 1to1 with views..
         self._viz: Viz | None = None
+        self._yrange: tuple[float, float] | None = None
 
     def start_ic(
         self,
@@ -483,7 +484,7 @@ class ChartView(ViewBox):
     async def open_async_input_handler(
         self,
 
-    ) -> 'ChartView':
+    ) -> ChartView:
 
         async with (
             _event.open_handlers(
@@ -785,7 +786,7 @@ class ChartView(ViewBox):
 
         # NOTE: this value pairs (more or less) with L1 label text
         # height offset from from the bid/ask lines.
-        range_margin: float | None = 0.09,
+        range_margin: float | None = 0.1,
 
         bars_range: Optional[tuple[int, int, int, int]] = None,
 
@@ -858,6 +859,11 @@ class ChartView(ViewBox):
 
             ylow, yhigh = yrange
 
+        # always stash last range for diffing by
+        # incremental update calculations BEFORE adding
+        # margin.
+        self._yrange = ylow, yhigh
+
         # view margins: stay within a % of the "true range"
         if range_margin is not None:
             diff = yhigh - ylow
@@ -869,10 +875,6 @@ class ChartView(ViewBox):
                 yhigh + (diff * range_margin),
                 yhigh * (1 + range_margin),
             )
-
-        # XXX: this often needs to be unset
-        # to get different view modes to operate
-        # correctly!
 
         # print(
         #     f'set limits {self.name}:\n'
@@ -975,7 +977,6 @@ class ChartView(ViewBox):
             # ms_threshold=4,
         )
 
-        chart = self._chart
         linked = self.linked
         if (
             do_linked_charts
@@ -983,7 +984,9 @@ class ChartView(ViewBox):
         ):
             plots = {linked.chart.name: linked.chart}
             plots |= linked.subplots
+
         else:
+            chart = self._chart
             plots = {chart.name: chart}
 
         # TODO: a faster single-loop-iterator way of doing this?
@@ -1031,42 +1034,45 @@ class ChartView(ViewBox):
             ] = {}
             major_in_view: np.ndarray = None
 
+            # ONLY auto-yrange the viz mapped to THIS view box
+            if not do_overlay_scaling:
+                viz = self._viz
+                if debug_print:
+                    print(f'ONLY ranging THIS viz: {viz.name}')
+
+                out = _maybe_calc_yrange(
+                    viz,
+                    yranges,
+                    profiler,
+                    chart_name,
+                )
+                if out is None:
+                    continue
+
+                read_slc, yrange = out
+                viz.plot.vb._set_yrange(yrange=yrange)
+                profiler(f'{viz.name}@{chart_name} single curve yrange')
+
+                # don't iterate overlays, just move to next chart
+                continue
+
             for name, viz in chart._vizs.items():
+
                 if debug_print:
                     print(
                         f'UX GRAPHICS CYCLE: {viz.name}@{chart_name}'
                     )
 
-                if not viz.render:
-                    # print(f'skipping {flow.name}')
+                out = _maybe_calc_yrange(
+                    viz,
+                    yranges,
+                    profiler,
+                    chart_name,
+                )
+                if out is None:
                     continue
 
-                # pass in no array which will read and render from the last
-                # passed array (normally provided by the display loop.)
-                in_view, i_read_range, _ = viz.update_graphics()
-
-                if not in_view:
-                    continue
-
-                profiler(f'{viz.name}@{chart_name} `Viz.update_graphics()`')
-
-                yrange = yranges.get(viz) if yranges else None
-                if yrange is not None:
-                    # print(f'INPUT {viz.name} yrange: {yrange}')
-                    read_slc = slice(*i_read_range)
-
-                else:
-                    out = viz.maxmin(i_read_range=i_read_range)
-                    if out is None:
-                        log.warning(f'No yrange provided for {name}!?')
-                        return
-                    (
-                        _,  # ixrng,
-                        read_slc,
-                        yrange
-                    ) = out
-                    profiler(f'{viz.name}@{chart_name} `Viz.maxmin()`')
-
+                read_slc, yrange = out
                 pi = viz.plot
 
                 # handle multiple graphics-objs per viewbox cases
@@ -1090,9 +1096,6 @@ class ChartView(ViewBox):
                 ):
                     ymn, ymx = yrange
                     # print(f'adding {viz.name} to overlay')
-
-                    if not do_overlay_scaling:
-                        continue
 
                     # determine start datum in view
                     arr = viz.shm.array
@@ -1132,24 +1135,6 @@ class ChartView(ViewBox):
                         major_in_view = in_view
                         profiler(f'{viz.name}@{chart_name} set new major')
 
-                    # compute directional (up/down) y-range % swing/dispersion
-                    # y_ref = y_med
-                    # up_rng = (ymx - y_ref) / y_ref
-                    # down_rng = (ymn - y_ref) / y_ref
-                    # mx_up_rng = max(mx_up_rng, up_rng)
-                    # mn_down_rng = min(mn_down_rng, down_rng)
-                    # print(
-                    #     f'{viz.name}@{chart_name} group mxmn calc\n'
-                    #     '--------------------\n'
-                    #     f'y_start: {y_start}\n'
-                    #     f'ymn: {ymn}\n'
-                    #     f'ymx: {ymx}\n'
-                    #     f'mx_disp: {mx_disp}\n'
-                    #     f'up %: {up_rng * 100}\n'
-                    #     f'down %: {down_rng * 100}\n'
-                    #     f'mx up %: {mx_up_rng * 100}\n'
-                    #     f'mn down %: {mn_down_rng * 100}\n'
-                    # )
                     profiler(f'{viz.name}@{chart_name} MINOR curve scale')
 
                 # non-overlay group case
@@ -1165,21 +1150,32 @@ class ChartView(ViewBox):
             # thus a single viz/overlay) then we ONLY set the lone
             # chart's (viz) yrange and short circuit to the next chart
             # in the linked charts sequence.
+
             if (
-                not do_overlay_scaling
-                or len(overlay_table) < 2
+                len(overlay_table) < 2
                 or not overlay_table
             ):
                 if debug_print:
                     print(f'ONLY ranging major: {viz.name}')
 
+                # we're either in `do_overlay_scaling=False` mode
+                # or there is only one curve so we need to pick
+                # that "only curve".
                 if not major_viz:
                     major_viz = viz
 
+                if yranges is not None:
+                    yrange = yranges.get(major_viz) or yrange
+
+                assert yrange
+                print(f'ONLY ranging major: {viz.name}')
                 major_viz.plot.vb._set_yrange(
                     yrange=yrange,
                 )
                 profiler(f'{viz.name}@{chart_name} single curve yrange')
+                if not do_linked_charts:
+                    return
+
                 continue
 
             profiler(f'<{chart_name}>.interact_graphics_cycle({name})')
@@ -1192,7 +1188,6 @@ class ChartView(ViewBox):
                     y_start,
                     y_min,
                     y_max,
-                    # y_med,
                     read_slc,
                     minor_in_view,
                 )
@@ -1400,3 +1395,49 @@ class ChartView(ViewBox):
             #     breakpoint()
 
         profiler.finish()
+
+
+def _maybe_calc_yrange(
+    viz: Viz,
+    yranges: dict[Viz, tuple[float, float]],
+    profiler: Profiler,
+    chart_name: str,
+
+) -> tuple[slice, tuple[float, float]] | None:
+
+    if not viz.render:
+        return
+        # # print(f'skipping {flow.name}')
+        # continue
+
+    # pass in no array which will read and render from the last
+    # passed array (normally provided by the display loop.)
+    in_view, i_read_range, _ = viz.update_graphics()
+
+    if not in_view:
+        return
+        # continue
+
+    profiler(f'{viz.name}@{chart_name} `Viz.update_graphics()`')
+
+    # check if explicit yranges were passed in by the caller
+    yrange = yranges.get(viz) if yranges else None
+    if yrange is not None:
+        read_slc = slice(*i_read_range)
+
+    else:
+        out = viz.maxmin(i_read_range=i_read_range)
+        if out is None:
+            log.warning(f'No yrange provided for {viz.name}!?')
+            return
+        (
+            _,  # ixrng,
+            read_slc,
+            yrange
+        ) = out
+        profiler(f'{viz.name}@{chart_name} `Viz.maxmin()`')
+
+    return (
+        read_slc,
+        yrange,
+    )
