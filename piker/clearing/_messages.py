@@ -100,7 +100,7 @@ class Order(Struct):
     price: float
     size: float  # -ve is "sell", +ve is "buy"
 
-    brokers: Optional[list[str]] = []
+    brokers: list[str] = []
 
 
 class Cancel(Struct):
