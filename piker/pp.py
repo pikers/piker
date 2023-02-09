@@ -56,7 +56,6 @@ log = get_logger(__name__)
 def open_trade_ledger(
     broker: str,
     account: str,
-    trades: dict[str, Any] 
 ) -> Generator[dict, None, None]:
     '''
     Indempotently creat0616cbd1e and read in a trade log file from the
