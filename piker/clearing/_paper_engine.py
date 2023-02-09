@@ -557,14 +557,15 @@ async def trades_dialogue(
 
     ):
 
-        with open_pps(broker, 'paper-id') as table: 
+        with open_pps(broker, 'piker-paper') as table: 
+            log.warning(f'pp table: {table}')
             # save pps in local state
             _positions.update(table.pps)
         
         pp_msgs: list[BrokerdPosition] = []
         pos: Position
         token: str  # f'{symbol}.{self.broker}'
-
+        log.warning(f'local _positions: {_positions}')
         for token, pos in _positions.items():
             pp_msgs.append(BrokerdPosition(
                 broker=broker,
@@ -573,7 +574,7 @@ async def trades_dialogue(
                 size=pos.size,
                 avg_price=pos.ppu,
             ))
-
+        log.warning(f'pp_msgs: {pp_msgs}')
         # TODO: load paper positions per broker from .toml config file
         # and pass as symbol to position data mapping: ``dict[str, dict]``
         await ctx.started((
