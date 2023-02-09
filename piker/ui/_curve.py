@@ -407,6 +407,11 @@ class Curve(FlowGraphic):
 # (via it's max / min) even when highly zoomed out.
 class FlattenedOHLC(Curve):
 
+    # avoids strange dragging/smearing artifacts when panning
+    # as well as mouse over artefacts when the vlm chart series
+    # is "shorter" then some overlay..
+    cache_mode: int = QGraphicsItem.NoCache
+
     def draw_last_datum(
         self,
         path: QPainterPath,
