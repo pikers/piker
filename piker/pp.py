@@ -32,13 +32,13 @@ from typing import (
     Iterator,
     Optional,
     Union,
+    Generator
 )
 
 import pendulum
 from pendulum import datetime, now
 import tomli
 import toml
-
 from . import config
 from .brokers import get_brokermod
 from .clearing._messages import BrokerdPosition, Status
@@ -53,8 +53,8 @@ log = get_logger(__name__)
 def open_trade_ledger(
     broker: str,
     account: str,
-
-) -> dict:
+    trades: dict[str, Any] 
+) -> Generator[dict, None, None]:
     '''
     Indempotently create and read in a trade log file from the
     ``<configuration_dir>/ledgers/`` directory.
@@ -82,7 +82,8 @@ def open_trade_ledger(
         ledger = tomli.load(cf)
         print(f'Ledger load took {time.time() - start}s')
         cpy = ledger.copy()
-
+        if trades:
+            cpy.update(trades)
     try:
         yield cpy
     finally:
@@ -91,10 +92,13 @@ def open_trade_ledger(
             # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
             print(f'Updating ledger for {tradesfile}:\n')
             ledger.update(cpy)
-
+            
+            print("updated ledger") 
+            print(ledger)
             # we write on close the mutated ledger data
             with open(tradesfile, 'w') as cf:
                 toml.dump(ledger, cf)
+                return
 
 
 class Transaction(Struct, frozen=True):
