@@ -43,6 +43,7 @@ from ..data.types import Struct
 from ..pp import (
     Position,
     Transaction,
+    open_trade_ledger
 )
 from ..data._normalize import iterticks
 from ..data._source import unpack_fqsn
@@ -85,17 +86,6 @@ class PaperBoi(Struct):
     # init edge case L1 spread
     last_ask: tuple[float, float] = (float('inf'), 0)  # price, size
     last_bid: tuple[float, float] = (0, 0)
-
-
-    def record_paper_trade(self):
-        try:
-            #create paper trades record
-            
-            print('RECORDING PAPER TRADE') 
-            config, path = load('paper_trades') 
-        except Exception as Arguement: 
-            logging.exception('ERROR RECORDING PAPER TRADE')
-            pass
 
     async def submit_limit(
         self,
@@ -246,9 +236,7 @@ class PaperBoi(Struct):
         )
         log.info(f'Fake filling order:\n{fill_msg}')
         await self.ems_trades_stream.send(fill_msg)
-
-        self._trade_ledger.update(fill_msg.to_dict())
-
+        
         if order_complete:
             msg = BrokerdStatus(
                 reqid=reqid,
@@ -284,7 +272,15 @@ class PaperBoi(Struct):
             dt=pendulum.from_timestamp(fill_time_s),
             bsuid=key,
         )
-        self.record_paper_trade()
+
+        # Transacupdate ledger per trade
+        ledger_entry = {}
+        ledger_entry[oid] = t.to_dict() 
+        self._trade_ledger.update(ledger_entry)
+        with open_trade_ledger('paper', 'paper', self._trade_ledger) as ledger:
+            log.info(ledger)
+
+
         pp.add_clear(t)
 
         pp_msg = BrokerdPosition(
