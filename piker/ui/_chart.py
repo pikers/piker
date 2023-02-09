@@ -487,6 +487,7 @@ class LinkedSplits(QWidget):
         if ds:
             return _display.graphics_update_cycle(
                 ds,
+                ds.quotes,
                 **kwargs,
             )
 
