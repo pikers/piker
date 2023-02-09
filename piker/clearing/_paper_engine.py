@@ -280,7 +280,7 @@ class PaperBoi(Struct):
         # Store txn in state for PP update
         self._txn_dict[oid] = t
         self._trade_ledger.update(ledger_entry)
-        
+
         # Write to ledger toml  
         with open_trade_ledger(self.broker, 'paper') as ledger:
             ledger.update(self._trade_ledger)   
@@ -330,6 +330,7 @@ async def simulate_fills(
     # https://github.com/quantopian/zipline/blob/master/zipline/finance/ledger.py
 
     # this stream may eventually contain multiple symbols
+
     async for quotes in quote_stream:
         for sym, quote in quotes.items():
             for tick in iterticks(
@@ -423,9 +424,9 @@ async def simulate_fills(
                     # simulated live orders prematurely.
                     case _:
                         continue
-
-                # iterate all potentially clearable book prices
-                # in FIFO order per side.
+                
+                # iterate alcl potentially clearable book prices
+                # in FIFO order per side.c
                 for order_info, pred in iter_entries:
                     (our_price, size, reqid, action) = order_info
 
@@ -438,6 +439,8 @@ async def simulate_fills(
                             'sell': sells
                         }[action].inverse.pop(order_info)
 
+                        log.warning(f'order_info: {order_info}')
+                           
                         # clearing price would have filled entirely
                         await client.fake_fill(
                             fqsn=sym,
@@ -553,10 +556,11 @@ async def trades_dialogue(
         ) as feed,
 
     ):
+
         with open_pps(broker, 'paper-id') as table: 
             # save pps in local state
             _positions.update(table.pps)
-
+        
         pp_msgs: list[BrokerdPosition] = []
         pos: Position
         token: str  # f'{symbol}.{self.broker}'
@@ -589,7 +593,6 @@ async def trades_dialogue(
 
                 _reqids=_reqids,
 
-                # TODO: load paper positions from ``positions.toml``
                 _positions=_positions,
 
                 # TODO: load postions from ledger file
@@ -628,7 +631,6 @@ async def open_paperboi(
         # (we likely don't need more then one proc for basic
         # simulated order clearing)
         if portal is None:
-            log.info('Starting new paper-engine actor')
             portal = await tn.start_actor(
                 service_name,
                 enable_modules=[__name__]
