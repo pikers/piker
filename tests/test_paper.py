@@ -138,6 +138,6 @@ def test_trades_persist(
                 dialogs,
             ),
         ):
-            print(f'pps: {pps}')
 
+            assert pps.len()
     trio.run(main)          
