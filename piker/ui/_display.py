@@ -548,7 +548,12 @@ def graphics_update_cycle(
     main_vb: ChartView = main_viz.plot.vb
     this_viz: Viz = chart._vizs[fqsn]
     this_vb: ChartView = this_viz.plot.vb
-    lmn, lmx = this_vb._yrange
+    this_yr = this_vb._yrange
+    if this_yr:
+        lmn, lmx = this_yr
+    else:
+        lmn = lmx = 0
+
     mx: float = lmx
     mn: float = lmn
     mx_vlm_in_view: float | None = None
