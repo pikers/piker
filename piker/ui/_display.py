@@ -264,7 +264,7 @@ async def increment_history_view(
                 if liv:
                     hist_viz.plot.vb.interact_graphics_cycle(
                         do_linked_charts=False,
-                        do_overlay_scaling=False,
+                        do_overlay_scaling=True,  # always overlayT slow chart
                     )
                     profiler('hist chart yrange view')
 
@@ -560,9 +560,10 @@ def graphics_update_cycle(
     else:
         lmn = lmx = 0
 
-    mx: float = lmx
     mn: float = lmn
+    mx: float = lmx
     mx_vlm_in_view: float | None = None
+    yrange_margin = 0.09
 
     # update ohlc sampled price bars
     if (
@@ -630,13 +631,15 @@ def graphics_update_cycle(
                 price < mn
             ):
                 mn = price
-                # print(f'{this_viz.name} new MN from TICK {mn}')
+                yrange_margin = 0.16
+            #     # print(f'{this_viz.name} new MN from TICK {mn}')
 
             if (
                 price > mx
             ):
                 mx = price
-                # print(f'{this_viz.name} new MX from TICK {mx}')
+                yrange_margin = 0.16
+            #     # print(f'{this_viz.name} new MX from TICK {mx}')
 
             # mx = max(price, mx)
             # mn = min(price, mn)
@@ -740,6 +743,18 @@ def graphics_update_cycle(
             liv
             and not chart._static_yrange == 'axis'
         ):
+            # NOTE: this auto-yranging approach is a sort of, hybrid,
+            # between always aligning overlays to the their common ref
+            # sample and not updating at all:
+            # - whenever an interaction happens the overlays are scaled
+            #   to one another and thus are ref-point aligned and
+            #   scaled.
+            # - on treads and range updates due to new mn/mx from last
+            #   datum, we don't scale to the overlayT instead only
+            #   adjusting when the latest datum is outside the previous
+            #   dispersion range.
+            mn = min(mn, lmn)
+            mx = max(mx, lmx)
 
             if (
                 main_vb._ic is None
@@ -748,8 +763,16 @@ def graphics_update_cycle(
                 # print(f'SETTING Y-mnmx -> {main_viz.name}: {(mn, mx)}')
                 this_vb.interact_graphics_cycle(
                     do_linked_charts=False,
+                    # TODO: we could optionally offer always doing this
+                    # on treads thus always keeping fast-chart overlays
+                    # aligned by their LHS datum?
                     do_overlay_scaling=False,
-                    yranges={this_viz: (mn, mx)},
+                    yrange_kwargs={
+                        this_viz: {
+                            'yrange': (mn, mx),
+                            'range_margin': yrange_margin,
+                        },
+                    }
                 )
                 profiler('main vb y-autorange')
 
@@ -881,7 +904,12 @@ def graphics_update_cycle(
                 main_vlm_viz.plot.vb.interact_graphics_cycle(
                     do_overlay_scaling=True,
                     do_linked_charts=False,
-                    yranges={main_vlm_viz: vlm_yrange},
+                    yrange_kwargs={
+                        main_vlm_viz: {
+                            'yrange': vlm_yrange,
+                            # 'range_margin': yrange_margin,
+                        },
+                    },
                 )
                 profiler('`vlm_chart.view.interact_graphics_cycle()`')
 
