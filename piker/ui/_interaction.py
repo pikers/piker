@@ -25,6 +25,7 @@ from math import (
 )
 import time
 from typing import (
+    Any,
     Optional,
     Callable,
     TYPE_CHECKING,
@@ -786,7 +787,7 @@ class ChartView(ViewBox):
 
         # NOTE: this value pairs (more or less) with L1 label text
         # height offset from from the bid/ask lines.
-        range_margin: float | None = 0.1,
+        range_margin: float | None = 0.09,
 
         bars_range: Optional[tuple[int, int, int, int]] = None,
 
@@ -959,7 +960,10 @@ class ChartView(ViewBox):
         do_overlay_scaling: bool = True,
         do_linked_charts: bool = True,
 
-        yranges: tuple[float, float] | None = None,
+        yrange_kwargs: dict[
+            str,
+            tuple[float, float],
+        ] | None = None,
     ):
         profiler = Profiler(
             msg=f'ChartView.interact_graphics_cycle() for {self.name}',
@@ -1011,8 +1015,6 @@ class ChartView(ViewBox):
             major_viz: Viz = None
             major_mx: float = 0
             major_mn: float = float('inf')
-            # mx_up_rng: float = 0
-            # mn_down_rng: float = 0
             mx_disp: float = 0
 
             # collect certain flows have grapics objects **in seperate
@@ -1042,15 +1044,15 @@ class ChartView(ViewBox):
 
                 out = _maybe_calc_yrange(
                     viz,
-                    yranges,
+                    yrange_kwargs,
                     profiler,
                     chart_name,
                 )
                 if out is None:
                     continue
 
-                read_slc, yrange = out
-                viz.plot.vb._set_yrange(yrange=yrange)
+                read_slc, yrange_kwargs = out
+                viz.plot.vb._set_yrange(**yrange_kwargs)
                 profiler(f'{viz.name}@{chart_name} single curve yrange')
 
                 # don't iterate overlays, just move to next chart
@@ -1065,14 +1067,15 @@ class ChartView(ViewBox):
 
                 out = _maybe_calc_yrange(
                     viz,
-                    yranges,
+                    yrange_kwargs,
                     profiler,
                     chart_name,
                 )
                 if out is None:
                     continue
 
-                read_slc, yrange = out
+                read_slc, yrange_kwargs = out
+                yrange = yrange_kwargs['yrange']
                 pi = viz.plot
 
                 # handle multiple graphics-objs per viewbox cases
@@ -1161,15 +1164,15 @@ class ChartView(ViewBox):
 
                 out = _maybe_calc_yrange(
                     viz,
-                    yranges,
+                    yrange_kwargs,
                     profiler,
                     chart_name,
                 )
                 if out is None:
                     continue
 
-                read_slc, yrange = out
-                viz.plot.vb._set_yrange(yrange=yrange)
+                read_slc, yrange_kwargs = out
+                viz.plot.vb._set_yrange(**yrange_kwargs)
                 profiler(f'{viz.name}@{chart_name} single curve yrange')
 
                 # move to next chart in linked set since
@@ -1358,8 +1361,6 @@ class ChartView(ViewBox):
                             '--------------------\n'
                             f'y_minor_intersect: {y_minor_intersect}\n'
                             f'y_major_intersect: {y_major_intersect}\n'
-                            # f'mn_down_rng: {mn_down_rng * 100}\n'
-                            # f'mx_up_rng: {mx_up_rng * 100}\n'
                             f'scaled ymn: {ymn}\n'
                             f'scaled ymx: {ymx}\n'
                             f'scaled mx_disp: {mx_disp}\n'
@@ -1408,11 +1409,14 @@ class ChartView(ViewBox):
 
 def _maybe_calc_yrange(
     viz: Viz,
-    yranges: dict[Viz, tuple[float, float]],
+    yrange_kwargs: dict[Viz, dict[str, Any]],
     profiler: Profiler,
     chart_name: str,
 
-) -> tuple[slice, tuple[float, float]] | None:
+) -> tuple[
+    slice,
+    dict,
+] | None:
 
     if not viz.render:
         return
@@ -1426,9 +1430,9 @@ def _maybe_calc_yrange(
 
     profiler(f'{viz.name}@{chart_name} `Viz.update_graphics()`')
 
-    # check if explicit yranges were passed in by the caller
-    yrange = yranges.get(viz) if yranges else None
-    if yrange is not None:
+    # check if explicit yrange (kwargs) was passed in by the caller
+    yrange_kwargs = yrange_kwargs.get(viz) if yrange_kwargs else None
+    if yrange_kwargs is not None:
         read_slc = slice(*i_read_range)
 
     else:
@@ -1442,8 +1446,9 @@ def _maybe_calc_yrange(
             yrange
         ) = out
         profiler(f'{viz.name}@{chart_name} `Viz.maxmin()`')
+        yrange_kwargs = {'yrange': yrange}
 
     return (
         read_slc,
-        yrange,
+        yrange_kwargs,
     )
