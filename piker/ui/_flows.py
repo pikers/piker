@@ -36,6 +36,7 @@ from PyQt5.QtCore import QLineF
 from ..data._sharedmem import (
     ShmArray,
 )
+from ..data.feed import Flume
 from .._profile import (
     pg_profile_enabled,
     # ms_slower_then,
@@ -208,13 +209,16 @@ class Flow(msgspec.Struct):  # , frozen=True):
     '''
     name: str
     plot: pg.PlotItem
-    graphics: Curve | BarItems
     _shm: ShmArray
+    flume: Flume
+    graphics: Curve | BarItems
+
+    # for tracking y-mn/mx for y-axis auto-ranging
     yrange: tuple[float, float] = None
 
     # in some cases a flow may want to change its
-    # graphical "type" or, "form" when downsampling,
-    # normally this is just a plain line.
+    # graphical "type" or, "form" when downsampling, to
+    # start this is only ever an interpolation line.
     ds_graphics: Optional[Curve] = None
 
     is_ohlc: bool = False
@@ -249,9 +253,9 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
     # TODO: remove this and only allow setting through
     # private ``._shm`` attr?
-    @shm.setter
-    def shm(self, shm: ShmArray) -> ShmArray:
-        self._shm = shm
+    # @shm.setter
+    # def shm(self, shm: ShmArray) -> ShmArray:
+    #     self._shm = shm
 
     def maxmin(
         self,
@@ -318,9 +322,15 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
         '''
         vr = self.plot.viewRect()
-        return int(vr.left()), int(vr.right())
+        return (
+            vr.left(),
+            vr.right(),
+        )
 
-    def datums_range(self) -> tuple[
+    def datums_range(
+        self,
+        index_field: str = 'index',
+    ) -> tuple[
         int, int, int, int, int, int
     ]:
         '''
@@ -328,6 +338,8 @@ class Flow(msgspec.Struct):  # , frozen=True):
 
         '''
         l, r = self.view_range()
+        l = round(l)
+        r = round(r)
 
         # TODO: avoid this and have shm passed
         # in earlier.
@@ -348,15 +360,23 @@ class Flow(msgspec.Struct):  # , frozen=True):
     def read(
         self,
         array_field: Optional[str] = None,
+        index_field: str = 'index',
 
     ) -> tuple[
             int, int, np.ndarray,
             int, int, np.ndarray,
     ]:
-        # read call
+        '''
+        Read the underlying shm array buffer and
+        return the data plus indexes for the first
+        and last
+        which has been written to.
+
+        '''
+        # readable data
         array = self.shm.array
 
-        indexes = array['index']
+        indexes = array[index_field]
         ifirst = indexes[0]
         ilast = indexes[-1]
 

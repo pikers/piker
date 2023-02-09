@@ -88,7 +88,7 @@ class Dialog(Struct):
     # TODO: use ``pydantic.UUID4`` field
     uuid: str
     order: Order
-    symbol: Symbol
+    symbol: str
     lines: list[LevelLine]
     last_status_close: Callable = lambda: None
     msgs: dict[str, dict] = {}
@@ -379,7 +379,7 @@ class OrderMode:
         dialog = Dialog(
             uuid=order.oid,
             order=order,
-            symbol=order.symbol,
+            symbol=order.symbol,  # XXX: always a str?
             lines=lines,
             last_status_close=self.multistatus.open_status(
                 f'submitting {order.exec_mode}-{order.action}',
@@ -930,7 +930,6 @@ async def process_trade_msg(
 
 ) -> tuple[Dialog, Status]:
 
-    get_index = mode.chart.get_index
     fmsg = pformat(msg)
     log.debug(f'Received order msg:\n{fmsg}')
     name = msg['name']
@@ -964,6 +963,10 @@ async def process_trade_msg(
     resp = msg.resp
     oid = msg.oid
     dialog: Dialog = mode.dialogs.get(oid)
+
+    if dialog:
+        fqsn = dialog.symbol
+        flume = mode.feed.flumes[fqsn]
 
     match msg:
         case Status(
@@ -1034,10 +1037,11 @@ async def process_trade_msg(
             # should only be one "fill" for an alert
             # add a triangle and remove the level line
             req = Order(**req)
+            index = flume.get_index(time.time())
             mode.on_fill(
                 oid,
                 price=req.price,
-                arrow_index=get_index(time.time()),
+                arrow_index=index,
             )
             mode.lines.remove_line(uuid=oid)
             msg.req = req
@@ -1065,26 +1069,27 @@ async def process_trade_msg(
             action = order.action
             details = msg.brokerd_msg
 
+            # TODO: put the actual exchange timestamp?
+            # NOTE: currently the ``kraken`` openOrders sub
+            # doesn't deliver their engine timestamp as part of
+            # it's schema, so this value is **not** from them
+            # (see our backend code). We should probably either
+            # include all provider-engine timestamps in the
+            # summary 'closed' status msg and/or figure out
+            # a way to indicate what is a `brokerd` stamp versus
+            # a true backend one? This will require finagling
+            # with how each backend tracks/summarizes time
+            # stamps for the downstream API.
+            index = flume.get_index(
+                details['broker_time']
+            )
+
             # TODO: some kinda progress system
             mode.on_fill(
                 oid,
                 price=details['price'],
+                arrow_index=index,
                 pointing='up' if action == 'buy' else 'down',
-
-                # TODO: put the actual exchange timestamp
-                arrow_index=get_index(
-                    # TODO: note currently the ``kraken`` openOrders sub
-                    # doesn't deliver their engine timestamp as part of
-                    # it's schema, so this value is **not** from them
-                    # (see our backend code). We should probably either
-                    # include all provider-engine timestamps in the
-                    # summary 'closed' status msg and/or figure out
-                    # a way to indicate what is a `brokerd` stamp versus
-                    # a true backend one? This will require finagling
-                    # with how each backend tracks/summarizes time
-                    # stamps for the downstream API.
-                    details['broker_time']
-                ),
             )
 
             # TODO: append these fill events to the position's clear
