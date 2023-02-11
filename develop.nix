@@ -22,5 +22,11 @@ stdenv.mkDerivation {
     export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${R}/lib/R/lib:${readline}/lib
 
     export QT_QPA_PLATFORM_PLUGIN_PATH="${qt5.qtbase.bin}/lib/qt-${qt5.qtbase.version}/plugins";
+
+    if [ ! -d "venv" ]; then
+        virtualenv venv
+    fi
+
+    source venv/bin/activate
   '';
 }
