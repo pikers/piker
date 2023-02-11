@@ -27,6 +27,7 @@ import msgspec
 import numpy as np
 from numpy.lib import recfunctions as rfn
 from numba import njit, float64, int64  # , optional
+from msgspec import field
 # import pyqtgraph as pg
 # from PyQt5 import QtGui
 # from PyQt5.QtCore import QLineF, QPointF
@@ -488,7 +489,7 @@ class IncrementalFormatter(msgspec.Struct):
 
 class OHLCBarsFmtr(IncrementalFormatter):
 
-    fields: list[str] = ['open', 'high', 'low', 'close']
+    fields: list[str] = field(default_factory=lambda: ['open', 'high', 'low', 'close'])
 
     def allocate_xy_nd(
         self,
