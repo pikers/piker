@@ -78,7 +78,7 @@ loaded with::
 
     nix-shell develop.nix
 
-this will setup the required python envoirment to run piker, make sure to
+this will setup the required python environment to run piker, make sure to
 run::
 
     pip install -r requirements.txt -e .
