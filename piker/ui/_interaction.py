@@ -79,7 +79,7 @@ ORDER_MODE = {
 
 async def handle_viewmode_kb_inputs(
 
-    view: 'ChartView',
+    view: ChartView,
     recv_chan: trio.abc.ReceiveChannel,
 
 ) -> None:
@@ -147,6 +147,20 @@ async def handle_viewmode_kb_inputs(
 
             if mods == Qt.ControlModifier:
                 ctrl = True
+
+            # UI REPL-shell
+            if (
+                ctrl and key in {
+                    Qt.Key_U,
+                }
+            ):
+                import tractor
+                god = order_mode.godw
+                feed = order_mode.feed
+                chart = order_mode.chart
+                vlm_chart = chart.linked.subplots['volume']
+                dvlm_pi = vlm_chart._vizs['dolla_vlm'].plot
+                await tractor.breakpoint()
 
             # SEARCH MODE #
             # ctlr-<space>/<l> for "lookup", "search" -> open search tree
@@ -319,7 +333,7 @@ async def handle_viewmode_kb_inputs(
 
 async def handle_viewmode_mouse(
 
-    view: 'ChartView',
+    view: ChartView,
     recv_chan: trio.abc.ReceiveChannel,
 
 ) -> None:
