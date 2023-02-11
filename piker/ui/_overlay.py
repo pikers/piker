@@ -201,18 +201,19 @@ class ComposedGridLayout:
             axis_view = axis.linkedView()
             assert axis_view is plotitem.vb
 
-            if (
-                not axis.isVisible()
+            # if (
+            #     not axis.isVisible()
 
-                # XXX: we never skip moving the axes for the *root*
-                # plotitem inserted (even if not shown) since we need to
-                # move all the hidden axes into linear sub-layouts for
-                # that "central" plot in the overlay. Also if we don't
-                # do it there's weird geomoetry calc offsets that make
-                # view coords slightly off somehow .. smh
-                and not len(self.pitems) == 0
-            ):
-                continue
+            #     # XXX: we never skip moving the axes for the *root*
+            #     # plotitem inserted (even if not shown) since we need to
+            #     # move all the hidden axes into linear sub-layouts for
+            #     # that "central" plot in the overlay. Also if we don't
+            #     # do it there's weird geomoetry calc offsets that make
+            #     # view coords slightly off somehow .. smh
+            #     and not len(self.pitems) == 0
+            # ):
+            #     print(f'SKIPPING MOVE: {plotitem.name}:{name} -> {axis}')
+            #     continue
 
             # invert insert index for layouts which are
             # not-left-to-right, top-to-bottom insert oriented
@@ -498,10 +499,10 @@ class PlotItemOverlay:
         else:
             insert_index, axes = self.layout.insert_plotitem(index, plotitem)
 
-        plotitem.setGeometry(root.vb.sceneBoundingRect())
+        plotitem.vb.setGeometry(root.vb.sceneBoundingRect())
 
         def size_to_viewbox(vb: 'ViewBox'):
-            plotitem.setGeometry(vb.sceneBoundingRect())
+            plotitem.vb.setGeometry(root.vb.sceneBoundingRect())
 
         root.vb.sigResized.connect(size_to_viewbox)
 
