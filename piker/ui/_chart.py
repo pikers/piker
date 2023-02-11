@@ -116,14 +116,6 @@ class GodWidget(QWidget):
 
         self.hbox.addLayout(self.vbox)
 
-        # self.toolbar_layout = QHBoxLayout()
-        # self.toolbar_layout.setContentsMargins(0, 0, 0, 0)
-        # self.vbox.addLayout(self.toolbar_layout)
-
-        # self.init_timeframes_ui()
-        # self.init_strategy_ui()
-        # self.vbox.addLayout(self.hbox)
-
         self._chart_cache: dict[
             str,
             tuple[LinkedSplits, LinkedSplits],
@@ -143,14 +135,17 @@ class GodWidget(QWidget):
         # and the window does not? Never right?!
         # self.reg_for_resize(self)
 
+    # TODO: strat loader/saver that we don't need yet.
+    # def init_strategy_ui(self):
+    #     self.toolbar_layout = QHBoxLayout()
+    #     self.toolbar_layout.setContentsMargins(0, 0, 0, 0)
+    #     self.vbox.addLayout(self.toolbar_layout)
+    #     self.strategy_box = StrategyBoxWidget(self)
+    #     self.toolbar_layout.addWidget(self.strategy_box)
+
     @property
     def linkedsplits(self) -> LinkedSplits:
         return self.rt_linked
-
-    # XXX: strat loader/saver that we don't need yet.
-    # def init_strategy_ui(self):
-    #     self.strategy_box = StrategyBoxWidget(self)
-    #     self.toolbar_layout.addWidget(self.strategy_box)
 
     def set_chart_symbols(
         self,
@@ -432,7 +427,7 @@ class LinkedSplits(QWidget):
 
         self.godwidget = godwidget
         self.chart: ChartPlotWidget = None  # main (ohlc) chart
-        self.subplots: dict[tuple[str, ...], ChartPlotWidget] = {}
+        self.subplots: dict[str, ChartPlotWidget] = {}
 
         self.godwidget = godwidget
         # placeholder for last appended ``PlotItem``'s bottom axis.
@@ -1058,6 +1053,7 @@ class ChartPlotWidget(pg.PlotWidget):
             # breakpoint()
             return
 
+        # should trigger broadcast on all overlays right?
         view.setXRange(
             min=l + x_shift,
             max=r + x_shift,
@@ -1107,12 +1103,6 @@ class ChartPlotWidget(pg.PlotWidget):
         pi.chart_widget = self
         pi.hideButtons()
 
-        # hide all axes not named by ``axis_side``
-        for axname in (
-            ({'bottom'} | allowed_sides) - {axis_side}
-        ):
-            pi.hideAxis(axname)
-
         # compose this new plot's graphics with the current chart's
         # existing one but with separate axes as neede and specified.
         self.pi_overlay.add_plotitem(
@@ -1125,6 +1115,15 @@ class ChartPlotWidget(pg.PlotWidget):
             # x-synced on interaction (at least for now).
             link_axes=(0,),
         )
+
+        # hide all axes not named by ``axis_side``
+        for axname in (
+            ({'bottom'} | allowed_sides) - {axis_side}
+        ):
+            try:
+                pi.hideAxis(axname)
+            except Exception:
+                pass
 
         # add axis title
         # TODO: do we want this API to still work?
