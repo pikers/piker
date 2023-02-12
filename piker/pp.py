@@ -978,6 +978,7 @@ def open_pps(
         pp.ensure_state()
 
     try:
+#        breakpoint()
         yield table
     finally:
         if write_on_exit:

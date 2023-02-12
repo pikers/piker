@@ -1351,7 +1351,7 @@ async def maybe_open_trade_relays(
             loglevel,
         )
         yield relay, feed, client_ready
-
+    print("ABOUT TO OPEN CACHED MNGR")
     async with tractor.trionics.maybe_open_context(
         acm_func=cached_mngr,
         kwargs={
@@ -1365,6 +1365,7 @@ async def maybe_open_trade_relays(
         cache_hit,
         (relay, feed, client_ready)
     ):
+        print("YIELDING RELAY")
         yield relay, feed, client_ready
 
 
@@ -1452,7 +1453,7 @@ async def _emsd_main(
 
         brokerd_stream = relay.brokerd_stream
         dark_book = _router.get_dark_book(broker)
-
+        
         # signal to client that we're started and deliver
         # all known pps and accounts for this ``brokerd``.
         await ems_ctx.started((
