@@ -48,6 +48,7 @@ setup(
         'pygments',
         'colorama',  # numba traceback coloring
         'msgspec',  # performant IPC messaging and structs
+        'protobuf',
 
         # async
         'trio',
