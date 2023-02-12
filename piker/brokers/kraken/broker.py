@@ -496,8 +496,45 @@ async def trades_dialogue(
             for dst, size in balances.items():
                 # we don't care about tracking positions
                 # in the user's source fiat currency.
-                if dst == src_fiat:
+                if (
+                    dst == src_fiat
+                    or not any(
+                        dst in bsuid for bsuid in table.pps
+                    )
+                ):
+                    log.warning(
+                        f'Skipping balance `{dst}`:{size} for position calcs!'
+                    )
                     continue
+
+                def get_likely_pair(
+                    dst: str,
+                    bsuid: str,
+                    src_fiat: str = src_fiat
+
+                ) -> str:
+                    '''
+                    Attempt to get the likely trading pair masting
+                    a given destination asset `dst: str`.
+
+                    '''
+                    try:
+                        src_name_start = bsuid.rindex(src_fiat)
+                    except (
+                        ValueError,   # substr not found
+                    ):
+                        # TODO: handle nested positions..(i.e.
+                        # positions where the src fiat was used to
+                        # buy some other dst which was furhter used
+                        # to buy another dst..)
+                        log.warning(
+                            f'No src fiat {src_fiat} found in {bsuid}?'
+                        )
+                        return
+
+                    likely_dst = bsuid[:src_name_start]
+                    if likely_dst == dst:
+                        return bsuid
 
                 def has_pp(
                     dst: str,
@@ -506,26 +543,11 @@ async def trades_dialogue(
                 ) -> Position | bool:
 
                     src2dst: dict[str, str] = {}
+
                     for bsuid in table.pps:
-                        try:
-                            dst_name_start = bsuid.rindex(src_fiat)
-                        except (
-                            ValueError,   # substr not found
-                        ):
-                            # TODO: handle nested positions..(i.e.
-                            # positions where the src fiat was used to
-                            # buy some other dst which was furhter used
-                            # to buy another dst..)
-                            log.warning(
-                                f'No src fiat {src_fiat} found in {bsuid}?'
-                            )
-                            continue
-
-                        _dst = bsuid[:dst_name_start]
-                        if _dst != dst:
-                            continue
-
-                        src2dst[src_fiat] = dst
+                        likely_pair = get_likely_pair(dst, bsuid)
+                        if likely_pair:
+                            src2dst[src_fiat] = dst
 
                     for src, dst in src2dst.items():
                         pair = f'{dst}{src_fiat}'
@@ -578,11 +600,11 @@ async def trades_dialogue(
                             # in the ``pps.toml`` for the necessary pair
                             # yet and thus this likely pair grabber will
                             # likely fail.
-                            likely_pair = {
-                                bsuid[:3]: bsuid
-                                for bsuid in table.pps
-                            }.get(dst)
-                            if not likely_pair:
+                            for bsuid in table.pps:
+                                likely_pair = get_likely_pair(dst, bsuid)
+                                if likely_pair:
+                                    break
+                            else:
                                 raise ValueError(
                                     'Could not find a position pair in '
                                     'ledger for likely widthdrawal '
@@ -595,6 +617,8 @@ async def trades_dialogue(
 
                                 xfer_trans = await client.get_xfers(
                                     dst,
+                                    # TODO: not all src assets are
+                                    # 3 chars long...
                                     src_asset=likely_pair[3:],
                                 )
                                 if xfer_trans:
