@@ -31,6 +31,8 @@ import tractor
 import trio
 import pyqtgraph as pg
 
+from msgspec import field
+
 # from .. import brokers
 from ..data.feed import (
     open_feed,
@@ -151,14 +153,14 @@ class DisplayState(Struct):
     hist_last_price_sticky: YAxisLabel
 
     # misc state tracking
-    vars: dict[str, Any] = {
+    vars: dict[str, Any] = field(default_factory=lambda: {
         'tick_margin': 0,
         'i_last': 0,
         'i_last_append': 0,
         'last_mx_vlm': 0,
         'last_mx': 0,
         'last_mn': 0,
-    }
+    })
 
     vlm_chart: Optional[ChartPlotWidget] = None
     vlm_sticky: Optional[YAxisLabel] = None

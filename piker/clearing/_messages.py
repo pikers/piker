@@ -27,6 +27,8 @@ from typing import (
     Literal,
 )
 
+from msgspec import field
+
 from ..data._source import Symbol
 from ..data.types import Struct
 
@@ -250,9 +252,9 @@ class BrokerdStatus(Struct):
     # external: bool = False
 
     # XXX: not required schema as of yet
-    broker_details: dict = {
+    broker_details: dict = field(default_factory=lambda: {
         'name': '',
-    }
+    })
 
 
 class BrokerdFill(Struct):
