@@ -1,5 +1,3 @@
-from datetime import datetime
-import time
 import trio
 import pytest
 import tractor
@@ -8,76 +6,72 @@ from piker.log import get_logger
 from piker.clearing._messages import ( 
     Order                                    
 )
+from uuid import uuid4
 from typing import (
     AsyncContextManager,
     Any,
+    Literal,
 )
 
 from functools import partial
 from piker.pp import (
-    Position,
-    Transaction,
     open_trade_ledger,
-    open_pps
+    open_pps,
+    PpTable
 )
 
-from piker._daemon import (
-    find_service,
-    check_for_service,
-    Services,
-)
-from piker.data import (
-    open_feed,
-)
 from piker.clearing import (
     open_ems,
 )
-from piker.clearing._messages import (
-    BrokerdPosition,
-    Status,
-)
+
 from piker.clearing._client import (
     OrderBook,
 )
 
+from piker.clearing._messages import (
+    BrokerdPosition
+)
+
+from exceptiongroup import BaseExceptionGroup
 log = get_logger(__name__)
-
-_clearing_price: float
-
 
 def test_paper_trade(
     open_test_pikerd: AsyncContextManager
 ):
-    _cleared_price: float
+
+    cleared_price: float
     test_exec_mode='live'
-    test_action = 'buy'
-    test_oid = '560beac8-b1b1-4dee-bd1e-6604a704c9ea'
     test_account = 'paper'
     test_size = 1 
-    test_price = 30000
     test_broker = 'kraken'
     test_brokers = [test_broker]
     test_symbol = 'xbtusdt' 
     test_fqsn = f'{test_symbol}.{test_broker}'
     test_pp_account = 'piker-paper'
+    positions: dict[
+        # brokername, acctid
+        tuple[str, str],
+        list[BrokerdPosition],
+    ]
 
-
-    async def open(
+    async def _async_main(
         open_pikerd: AsyncContextManager,
-        send_order: bool = False,
+        action: Literal['buy', 'sell'] | None = None,
+        price: int = 30000,
         assert_entries: bool = False,
-        teardown: bool = True,
     ) -> Any:
-        # type declares
-        book: OrderBook
-        global _cleared_price
 
+        oid: str = str(uuid4())
+        book: OrderBook
+        global cleared_price
+        global positions
+        
+        # Set up piker and EMS
         async with (
             open_pikerd() as (_, _, _, services),
-
             open_ems(
-                'xbtusdt.kraken',
-                mode='paper',
+                test_fqsn,
+                mode=test_account,
             ) as (
                 book,
                 trades_stream,
@@ -86,68 +80,74 @@ def test_paper_trade(
                 dialogs,
             ),
         ):
-            
 
-            if send_order: 
+            # Send order to EMS
+            if action: 
                 order = Order(
                     exec_mode=test_exec_mode,
-                    action=test_action,
-                    oid=test_oid,
+                    action=action,
+                    oid=oid,
                     account=test_account,
                     size=test_size,
                     symbol=test_fqsn,
-                    price=test_price,
+                    price=price,
                     brokers=test_brokers
                 )
 
                 book.send(order)
                 
-                await trio.sleep(1)
-            
-            if assert_entries:
+                await trio.sleep(2)
 
+            # Assert entries are made in both ledger and PPS
+            if assert_entries:
                 cleared_ledger_entry = {}
-                # check if trades have been updated in in ledge and pp 
                 with open_trade_ledger(test_broker, test_account) as ledger:
-                    cleared_ledger_entry = ledger[test_oid]
-                    _cleared_price = cleared_ledger_entry["price"]
-                    assert list(ledger.keys())[0] == test_oid
+                    cleared_ledger_entry = ledger[oid]
+                    cleared_price = cleared_ledger_entry["price"]
+
+                    assert list(ledger.keys())[-1] == oid
                     assert cleared_ledger_entry['size'] == test_size
                     assert cleared_ledger_entry['fqsn'] == test_fqsn
-
                      
                 with open_pps(test_broker, test_pp_account) as table: 
-                    # save pps in local state
-                    assert table.brokername == test_broker 
-                    assert table.acctid == test_pp_account 
-        #                assert cleared_ledger_entry['price'] == table.conf.clears[0].price
                     pp_price = table.conf[test_broker][test_pp_account][test_fqsn]["ppu"] 
                     assert math.isclose(pp_price, cleared_ledger_entry['size'], rel_tol=1)
-
-            if teardown:
-                raise KeyboardInterrupt
-            return pps
+                    assert table.brokername == test_broker 
+                    assert table.acctid == test_pp_account 
             
-    async def open_and_assert_pps(): 
-        pps = await open(open_test_pikerd)
-        assert pps(test_broker, test_account)[0] == _cleared_price
+            positions = pps
+
+            # Close piker like a user would
+            raise KeyboardInterrupt
+
+    # Open piker and ensure last pps price is the same as ledger entry 
+    async def _open_and_assert_pps(): 
+        await _async_main(open_test_pikerd)
+        assert positions(test_broker, test_account)[-1] == cleared_price
+   
+    # Close position and assert empty position in pps
+    async def _close_pp_and_assert():
+        await _async_main(open_test_pikerd, 'sell', 1)
+        with open_pps(test_broker, test_pp_account) as table: 
+            assert len(table.pps) == 0
+
+    # run initial time and send sent and assert trade
+    with pytest.raises(
+        BaseExceptionGroup
+    ) as exc_info:
+        trio.run(partial(_async_main, 
+                         open_pikerd=open_test_pikerd,
+                         action='buy',
+                        )
+                 )        
 
     with pytest.raises(
-        trio.MultiError
+        BaseExceptionGroup
     ) as exc_info:
-        # run initial time and send sent and assert trade
-        trio.run(partial(open, 
-                         open_pikerd=open_test_pikerd,
-                         send_order=True, 
-                         assert_entries=True, 
-                        )
-                 )
+        trio.run(_open_and_assert_pps)
 
-        # Run again just to boot piker
-        trio.run(partial(open, 
-                         open_pikerd=open_test_pikerd,
-                        )
-                ) 
-        trio.run(open_and_assert_pps)
-
+    with pytest.raises(
+        BaseExceptionGroup 
+    ) as exc_info: 
+        trio.run(_close_pp_and_assert)
 
