@@ -76,7 +76,6 @@ async def handle_viewmode_kb_inputs(
     pressed: set[str] = set()
 
     last = time.time()
-    trigger_mode: str
     action: str
 
     on_next_release: Optional[Callable] = None
@@ -495,7 +494,7 @@ class ChartView(ViewBox):
         chart = self.linked.chart
 
         # don't zoom more then the min points setting
-        l, lbar, rbar, r = chart.bars_range()
+        out = l, lbar, rbar, r = chart.get_viz(chart.name).bars_range()
         # vl = r - l
 
         # if ev.delta() > 0 and vl <= _min_points_to_show:
@@ -504,7 +503,7 @@ class ChartView(ViewBox):
 
         # if (
         #     ev.delta() < 0
-        #     and vl >= len(chart._flows[chart.name].shm.array) + 666
+        #     and vl >= len(chart._vizs[chart.name].shm.array) + 666
         # ):
         #     log.debug("Min zoom bruh...")
         #     return
@@ -821,7 +820,7 @@ class ChartView(ViewBox):
             # XXX: only compute the mxmn range
             # if none is provided as input!
             if not yrange:
-                # flow = chart._flows[name]
+                # flow = chart._vizs[name]
                 yrange = self._maxmin()
 
                 if yrange is None:
@@ -912,7 +911,7 @@ class ChartView(ViewBox):
         graphics items which are our children.
 
         '''
-        graphics = [f.graphics for f in self._chart._flows.values()]
+        graphics = [f.graphics for f in self._chart._vizs.values()]
         if not graphics:
             return 0
 
@@ -948,7 +947,7 @@ class ChartView(ViewBox):
             plots |= linked.subplots
 
         for chart_name, chart in plots.items():
-            for name, flow in chart._flows.items():
+            for name, flow in chart._vizs.items():
 
                 if (
                     not flow.render

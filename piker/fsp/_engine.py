@@ -188,6 +188,8 @@ async def fsp_compute(
 
     history_by_field['time'] = src_time[-len(history_by_field):]
 
+    history_output['time'] = src.array['time']
+
     # TODO: XXX:
     # THERE'S A BIG BUG HERE WITH THE `index` field since we're
     # prepending a copy of the first value a few times to make

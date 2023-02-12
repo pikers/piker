@@ -36,6 +36,7 @@ from PyQt5.QtCore import (
 
 from PyQt5.QtGui import QPainterPath
 
+from ._curve import FlowGraphic
 from .._profile import pg_profile_enabled, ms_slower_then
 from ._style import hcolor
 from ..log import get_logger
@@ -51,7 +52,8 @@ log = get_logger(__name__)
 def bar_from_ohlc_row(
     row: np.ndarray,
     # 0.5 is no overlap between arms, 1.0 is full overlap
-    w: float = 0.43
+    bar_w: float,
+    bar_gap: float = 0.16
 
 ) -> tuple[QLineF]:
     '''
@@ -59,8 +61,7 @@ def bar_from_ohlc_row(
     OHLC "bar" for use in the "last datum" of a series.
 
     '''
-    open, high, low, close, index = row[
-        ['open', 'high', 'low', 'close', 'index']]
+    open, high, low, close, index = row
 
     # TODO: maybe consider using `QGraphicsLineItem` ??
     # gives us a ``.boundingRect()`` on the objects which may make
@@ -68,9 +69,11 @@ def bar_from_ohlc_row(
     # history path faster since it's done in C++:
     # https://doc.qt.io/qt-5/qgraphicslineitem.html
 
+    mid: float = (bar_w / 2) + index
+
     # high -> low vertical (body) line
     if low != high:
-        hl = QLineF(index, low, index, high)
+        hl = QLineF(mid, low, mid, high)
     else:
         # XXX: if we don't do it renders a weird rectangle?
         # see below for filtering this later...
@@ -81,15 +84,18 @@ def bar_from_ohlc_row(
     # the index's range according to the view mapping coordinates.
 
     # open line
-    o = QLineF(index - w, open, index, open)
+    o = QLineF(index + bar_gap, open, mid, open)
 
     # close line
-    c = QLineF(index, close, index + w, close)
+    c = QLineF(
+        mid, close,
+        index + bar_w - bar_gap, close,
+    )
 
     return [hl, o, c]
 
 
-class BarItems(pg.GraphicsObject):
+class BarItems(FlowGraphic):
     '''
     "Price range" bars graphics rendered from a OHLC sampled sequence.
 
@@ -113,13 +119,24 @@ class BarItems(pg.GraphicsObject):
         self.last_bar_pen = pg.mkPen(hcolor(last_bar_color), width=2)
         self._name = name
 
-        self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
-        self.path = QPainterPath()
-        self._last_bar_lines: Optional[tuple[QLineF, ...]] = None
+        # XXX: causes this weird jitter bug when click-drag panning
+        # where the path curve will awkwardly flicker back and forth?
+        # self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
-    def x_uppx(self) -> int:
-        # we expect the downsample curve report this.
-        return 0
+        self.path = QPainterPath()
+        self._last_bar_lines: tuple[QLineF, ...] | None = None
+
+    def x_last(self) -> None | float:
+        '''
+        Return the last most x value of the close line segment
+        or if not drawn yet, ``None``.
+
+        '''
+        if self._last_bar_lines:
+            close_arm_line = self._last_bar_lines[-1]
+            return close_arm_line.x2() if close_arm_line else None
+        else:
+            return None
 
     # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
     def boundingRect(self):
@@ -214,33 +231,40 @@ class BarItems(pg.GraphicsObject):
         self,
         path: QPainterPath,
         src_data: np.ndarray,
-        render_data: np.ndarray,
         reset: bool,
         array_key: str,
-
-        fields: list[str] = [
-            'index',
-            'open',
-            'high',
-            'low',
-            'close',
-        ],
+        index_field: str,
 
     ) -> None:
 
         # relevant fields
+        fields: list[str] = [
+            'open',
+            'high',
+            'low',
+            'close',
+            index_field,
+        ]
         ohlc = src_data[fields]
         # last_row = ohlc[-1:]
 
         # individual values
-        last_row = i, o, h, l, last = ohlc[-1]
+        last_row = o, h, l, last, i = ohlc[-1]
 
         # times = src_data['time']
         # if times[-1] - times[-2]:
         #     breakpoint()
 
+        index = src_data[index_field]
+        step_size = index[-1] - index[-2]
+
         # generate new lines objects for updatable "current bar"
-        self._last_bar_lines = bar_from_ohlc_row(last_row)
+        bg: float = 0.16 * step_size
+        self._last_bar_lines = bar_from_ohlc_row(
+            last_row,
+            bar_w=step_size,
+            bar_gap=bg,
+        )
 
         # assert i == graphics.start_index - 1
         # assert i == last_index
@@ -255,10 +279,16 @@ class BarItems(pg.GraphicsObject):
         if l != h:  # noqa
 
             if body is None:
-                body = self._last_bar_lines[0] = QLineF(i, l, i, h)
+                body = self._last_bar_lines[0] = QLineF(
+                    i + bg, l,
+                    i + step_size - bg, h,
+                )
             else:
                 # update body
-                body.setLine(i, l, i, h)
+                body.setLine(
+                    body.x1(), l,
+                    body.x2(), h,
+                )
 
             # XXX: pretty sure this is causing an issue where the
             # bar has a large upward move right before the next
@@ -270,4 +300,4 @@ class BarItems(pg.GraphicsObject):
             # because i've seen it do this to bars i - 3 back?
 
         # return ohlc['time'], ohlc['close']
-        return ohlc['index'], ohlc['close']
+        return ohlc[index_field], ohlc['close']

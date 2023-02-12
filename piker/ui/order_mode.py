@@ -494,7 +494,7 @@ class OrderMode:
 
         uuid: str,
         price: float,
-        arrow_index: float,
+        time_s: float,
 
         pointing: Optional[str] = None,
 
@@ -513,22 +513,32 @@ class OrderMode:
         '''
         dialog = self.dialogs[uuid]
         lines = dialog.lines
+        chart = self.chart
+
         # XXX: seems to fail on certain types of races?
         # assert len(lines) == 2
         if lines:
-            flume: Flume = self.feed.flumes[self.chart.linked.symbol.fqsn]
+            flume: Flume = self.feed.flumes[chart.linked.symbol.fqsn]
             _, _, ratio = flume.get_ds_info()
-            for i, chart in [
-                (arrow_index, self.chart),
-                (flume.izero_hist
-                 +
-                 round((arrow_index - flume.izero_rt)/ratio),
-                 self.hist_chart)
+
+            for chart, shm in [
+                (self.chart, flume.rt_shm),
+                (self.hist_chart, flume.hist_shm),
             ]:
+                viz = chart.get_viz(chart.name)
+                index_field = viz.index_field
+                arr = shm.array
+
+                # TODO: borked for int index based..
+                index = flume.get_index(time_s, arr)
+
+                # get absolute index for arrow placement
+                arrow_index = arr[index_field][index]
+
                 self.arrows.add(
                     chart.plotItem,
                     uuid,
-                    i,
+                    arrow_index,
                     price,
                     pointing=pointing,
                     color=lines[0].color
@@ -966,7 +976,6 @@ async def process_trade_msg(
 
     if dialog:
         fqsn = dialog.symbol
-        flume = mode.feed.flumes[fqsn]
 
     match msg:
         case Status(
@@ -1037,11 +1046,11 @@ async def process_trade_msg(
             # should only be one "fill" for an alert
             # add a triangle and remove the level line
             req = Order(**req)
-            index = flume.get_index(time.time())
+            tm = time.time()
             mode.on_fill(
                 oid,
                 price=req.price,
-                arrow_index=index,
+                time_s=tm,
             )
             mode.lines.remove_line(uuid=oid)
             msg.req = req
@@ -1070,6 +1079,8 @@ async def process_trade_msg(
             details = msg.brokerd_msg
 
             # TODO: put the actual exchange timestamp?
+            # TODO: some kinda progress system?
+
             # NOTE: currently the ``kraken`` openOrders sub
             # doesn't deliver their engine timestamp as part of
             # it's schema, so this value is **not** from them
@@ -1080,15 +1091,11 @@ async def process_trade_msg(
             # a true backend one? This will require finagling
             # with how each backend tracks/summarizes time
             # stamps for the downstream API.
-            index = flume.get_index(
-                details['broker_time']
-            )
-
-            # TODO: some kinda progress system
+            tm = details['broker_time']
             mode.on_fill(
                 oid,
                 price=details['price'],
-                arrow_index=index,
+                time_s=tm,
                 pointing='up' if action == 'buy' else 'down',
             )
 

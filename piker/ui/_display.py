@@ -43,12 +43,14 @@ from ..data.types import Struct
 from ..data._sharedmem import (
     ShmArray,
 )
+from ..data._sampling import _tick_groups
 from ._axes import YAxisLabel
 from ._chart import (
     ChartPlotWidget,
     LinkedSplits,
     GodWidget,
 )
+from ._dataviz import Viz
 from ._l1 import L1Labels
 from ._style import hcolor
 from ._fsp import (
@@ -63,7 +65,6 @@ from ._forms import (
 )
 from . import _pg_overrides as pgo
 # from ..data._source import tf_in_1s
-from ..data._sampling import _tick_groups
 from .order_mode import (
     open_order_mode,
     OrderMode,
@@ -78,7 +79,7 @@ from .._profile import Profiler
 log = get_logger(__name__)
 
 
-# TODO: delegate this to each `Flow.maxmin()` which includes
+# TODO: delegate this to each `Viz.maxmin()` which includes
 # caching and further we should implement the following stream based
 # approach, likely with ``numba``:
 # https://arxiv.org/abs/cs/0610046
@@ -101,7 +102,8 @@ def chart_maxmin(
     Compute max and min datums "in view" for range limits.
 
     '''
-    last_bars_range = chart.bars_range()
+    main_viz = chart.get_viz(chart.name)
+    last_bars_range = main_viz.bars_range()
     out = chart.maxmin(name=fqsn)
 
     if out is None:
@@ -113,7 +115,7 @@ def chart_maxmin(
 
     # TODO: we need to NOT call this to avoid a manual
     # np.max/min trigger and especially on the vlm_chart
-    # flows which aren't shown.. like vlm?
+    # vizs which aren't shown.. like vlm?
     if vlm_chart:
         out = vlm_chart.maxmin()
         if out:
@@ -127,10 +129,6 @@ def chart_maxmin(
     )
 
 
-_i_last: int = 0
-_i_last_append: int = 0
-
-
 class DisplayState(Struct):
     '''
     Chart-local real-time graphics state container.
@@ -141,11 +139,12 @@ class DisplayState(Struct):
 
     maxmin: Callable
     flume: Flume
-    ohlcv: ShmArray
-    hist_ohlcv: ShmArray
 
-    # high level chart handles
+    # high level chart handles and underlying ``Viz``
     chart: ChartPlotWidget
+    viz: Viz
+    hist_chart: ChartPlotWidget
+    hist_viz: Viz
 
     # axis labels
     l1: L1Labels
@@ -153,111 +152,82 @@ class DisplayState(Struct):
     hist_last_price_sticky: YAxisLabel
 
     # misc state tracking
-    vars: dict[str, Any] = field(default_factory=lambda: {
-        'tick_margin': 0,
-        'i_last': 0,
-        'i_last_append': 0,
-        'last_mx_vlm': 0,
-        'last_mx': 0,
-        'last_mn': 0,
-    })
+    vars: dict[str, Any] = field(
+        default_factory=lambda: {
+            'tick_margin': 0,
+            'i_last': 0,
+            'i_last_append': 0,
+            'last_mx_vlm': 0,
+            'last_mx': 0,
+            'last_mn': 0,
+        }
+    )
+    hist_vars: dict[str, Any] = field(
+        default_factory=lambda: {
+            'tick_margin': 0,
+            'i_last': 0,
+            'i_last_append': 0,
+            'last_mx_vlm': 0,
+            'last_mx': 0,
+            'last_mn': 0,
+        }
+    )
+
+    globalz: None | dict[str, Any] = None
 
     vlm_chart: Optional[ChartPlotWidget] = None
     vlm_sticky: Optional[YAxisLabel] = None
     wap_in_history: bool = False
 
-    def incr_info(
-        self,
-        chart: Optional[ChartPlotWidget] = None,
-        shm: Optional[ShmArray] = None,
-        state: Optional[dict] = None,  # pass in a copy if you don't
 
-        update_state: bool = True,
-        update_uppx: float = 16,
-        is_1m: bool = False,
+async def increment_history_view(
+    ds: DisplayState,
+):
+    hist_chart = ds.hist_chart
+    hist_viz = ds.hist_viz
+    assert 'hist' in hist_viz.shm.token['shm_name']
 
-    ) -> tuple:
+    # TODO: seems this is more reliable at keeping the slow
+    # chart incremented in view more correctly?
+    # - It might make sense to just inline this logic with the
+    #   main display task? => it's a tradeoff of slower task
+    #   wakeups/ctx switches verus logic checks (as normal)
+    # - we need increment logic that only does the view shift
+    #   call when the uppx permits/needs it
+    async with hist_viz.flume.index_stream(int(1)) as istream:
+        async for msg in istream:
 
-        shm = shm or self.ohlcv
-        chart = chart or self.chart
-        # state = state or self.vars
-
-        if (
-            not update_state
-            and state
-        ):
-            state = state.copy()
-
-        # compute the first available graphic's x-units-per-pixel
-        uppx = chart.view.x_uppx()
-
-        # NOTE: this used to be implemented in a dedicated
-        # "increment task": ``check_for_new_bars()`` but it doesn't
-        # make sense to do a whole task switch when we can just do
-        # this simple index-diff and all the fsp sub-curve graphics
-        # are diffed on each draw cycle anyway; so updates to the
-        # "curve" length is already automatic.
-
-        # increment the view position by the sample offset.
-        # i_step = shm.index
-        i_step = shm.array[-1]['time']
-        # i_diff = i_step - state['i_last']
-        # state['i_last'] = i_step
-        global _i_last, _i_last_append
-        i_diff = i_step - _i_last
-        # update global state
-        if (
-            # state is None
-            not is_1m
-            and i_diff > 0
-        ):
-            _i_last = i_step
-
-        # append_diff = i_step - state['i_last_append']
-        append_diff = i_step - _i_last_append
-
-        # real-time update necessary?
-        _, _, _, r = chart.bars_range()
-        liv = r >= shm.index
-
-        # update the "last datum" (aka extending the flow graphic with
-        # new data) only if the number of unit steps is >= the number of
-        # such unit steps per pixel (aka uppx). Iow, if the zoom level
-        # is such that a datum(s) update to graphics wouldn't span
-        # to a new pixel, we don't update yet.
-        do_append = (
-            append_diff >= uppx
-            and i_diff
-        )
-        if (
-            do_append
-            and not is_1m
-        ):
-            _i_last_append = i_step
-            # fqsn = self.flume.symbol.fqsn
+            # l3 = ds.viz.shm.array[-3:]
             # print(
-            #     f'DOING APPEND => {fqsn}\n'
-            #     f'i_step:{i_step}\n'
-            #     f'i_diff:{i_diff}\n'
-            #     f'last:{_i_last}\n'
-            #     f'last_append:{_i_last_append}\n'
-            #     f'append_diff:{append_diff}\n'
-            #     f'r: {r}\n'
-            #     f'liv: {liv}\n'
-            #     f'uppx: {uppx}\n'
+            #     f'fast step for {ds.flume.symbol.fqsn}:\n'
+            #     f'{list(l3["time"])}\n'
+            #     f'{l3}\n'
             # )
+            # check if slow chart needs an x-domain shift and/or
+            # y-range resize.
+            (
+                uppx,
+                liv,
+                do_append,
+                i_diff_t,
+                append_diff,
+                do_rt_update,
+                should_tread,
 
-        do_rt_update = uppx < update_uppx
+            ) = hist_viz.incr_info(
+                ds=ds,
+                is_1m=True,
+            )
 
-        # TODO: pack this into a struct
-        return (
-            uppx,
-            liv,
-            do_append,
-            i_diff,
-            append_diff,
-            do_rt_update,
-        )
+            if (
+                do_append
+                and liv
+            ):
+                hist_viz.plot.vb._set_yrange()
+
+            # check if tread-in-place x-shift is needed
+            if should_tread:
+                hist_chart.increment_view(datums=append_diff)
 
 
 async def graphics_update_loop(
@@ -293,7 +263,17 @@ async def graphics_update_loop(
     hist_chart = godwidget.hist_linked.chart
     assert hist_chart
 
+    # per-viz-set global last index tracking for global chart
+    # view UX incrementing; these values are singleton
+    # per-multichart-set such that automatic x-domain shifts are only
+    # done once per time step update.
+    globalz = {
+        'i_last_t':  0,  # multiview-global fast (1s) step index
+        'i_last_slow_t':  0,  # multiview-global slow (1m) step index
+    }
+
     dss: dict[str, DisplayState] = {}
+
     for fqsn, flume in feed.flumes.items():
         ohlcv = flume.rt_shm
         hist_ohlcv = flume.hist_shm
@@ -301,17 +281,26 @@ async def graphics_update_loop(
         fqsn = symbol.fqsn
 
         # update last price sticky
-        fast_pi = fast_chart._flows[fqsn].plot
+        fast_viz = fast_chart._vizs[fqsn]
+        index_field = fast_viz.index_field
+        fast_pi = fast_viz.plot
         last_price_sticky = fast_pi.getAxis('right')._stickies[fqsn]
         last_price_sticky.update_from_data(
-            *ohlcv.array[-1][['index', 'close']]
+            *ohlcv.array[-1][[
+                index_field,
+                'close',
+            ]]
         )
         last_price_sticky.show()
 
-        slow_pi = hist_chart._flows[fqsn].plot
+        hist_viz = hist_chart._vizs[fqsn]
+        slow_pi = hist_viz.plot
         hist_last_price_sticky = slow_pi.getAxis('right')._stickies[fqsn]
         hist_last_price_sticky.update_from_data(
-            *hist_ohlcv.array[-1][['index', 'close']]
+            *hist_ohlcv.array[-1][[
+                index_field,
+                'close',
+            ]]
         )
 
         vlm_chart = vlm_charts[fqsn]
@@ -356,105 +345,63 @@ async def graphics_update_loop(
         tick_margin = 3 * tick_size
 
         fast_chart.show()
-        last_quote = time.time()
-        # global _i_last
-        i_last = ohlcv.index
+        last_quote_s = time.time()
 
         dss[fqsn] = ds = linked.display_state = DisplayState(**{
             'godwidget': godwidget,
             'quotes': {},
             'maxmin': maxmin,
+
             'flume': flume,
-            'ohlcv': ohlcv,
-            'hist_ohlcv': hist_ohlcv,
+
             'chart': fast_chart,
+            'viz': fast_viz,
             'last_price_sticky': last_price_sticky,
+
+            'hist_chart': hist_chart,
+            'hist_viz': hist_viz,
             'hist_last_price_sticky': hist_last_price_sticky,
+
             'l1': l1,
 
             'vars': {
                 'tick_margin': tick_margin,
-                'i_last': i_last,
-                'i_last_append': i_last,
+                'i_last': 0,
+                'i_last_append': 0,
                 'last_mx_vlm': last_mx_vlm,
                 'last_mx': last_mx,
                 'last_mn': last_mn,
-            }
+            },
+            'globalz': globalz,
         })
 
         if vlm_chart:
-            vlm_pi = vlm_chart._flows['volume'].plot
+            vlm_pi = vlm_chart._vizs['volume'].plot
             vlm_sticky = vlm_pi.getAxis('right')._stickies['volume']
             ds.vlm_chart = vlm_chart
             ds.vlm_sticky = vlm_sticky
 
         fast_chart.default_view()
 
-        # TODO: probably factor this into some kinda `DisplayState`
-        # API that can be reused at least in terms of pulling view
-        # params (eg ``.bars_range()``).
-        async def increment_history_view():
-            i_last = hist_ohlcv.index
-            state = ds.vars.copy() | {
-                'i_last_append': i_last,
-                'i_last': i_last,
-            }
-            _, hist_step_size_s, _ = flume.get_ds_info()
+        # ds.hist_vars.update({
+        #     'i_last_append': 0,
+        #     'i_last': 0,
+        # })
 
-            async with flume.index_stream(
-                # int(hist_step_size_s)
-                # TODO: seems this is more reliable at keeping the slow
-                # chart incremented in view more correctly?
-                # - It might make sense to just inline this logic with the
-                #   main display task? => it's a tradeoff of slower task
-                #   wakeups/ctx switches verus logic checks (as normal)
-                # - we need increment logic that only does the view shift
-                #   call when the uppx permits/needs it
-                int(1),
-            ) as istream:
-                async for msg in istream:
+        nurse.start_soon(
+            increment_history_view,
+            ds,
+        )
 
-                    # check if slow chart needs an x-domain shift and/or
-                    # y-range resize.
-                    (
-                        uppx,
-                        liv,
-                        do_append,
-                        i_diff,
-                        append_diff,
-                        do_rt_update,
-                    ) = ds.incr_info(
-                        chart=hist_chart,
-                        shm=ds.hist_ohlcv,
-                        state=state,
-                        is_1m=True,
-                        # update_state=False,
-                    )
-                    # print(
-                    #     f'liv: {liv}\n'
-                    #     f'do_append: {do_append}\n'
-                    #     f'append_diff: {append_diff}\n'
-                    # )
-
-                    if (
-                        do_append
-                        and liv
-                    ):
-                        # hist_chart.increment_view(steps=i_diff)
-                        flow = hist_chart._flows[fqsn]
-                        flow.plot.vb._set_yrange(
-                            # yrange=hist_chart.maxmin(name=fqsn)
-                        )
-                        # hist_chart.view._set_yrange(yrange=hist_chart.maxmin())
-
-        nurse.start_soon(increment_history_view)
+        if ds.hist_vars['i_last'] < ds.hist_vars['i_last_append']:
+            breakpoint()
 
     # main real-time quotes update loop
     stream: tractor.MsgStream
     async with feed.open_multi_stream() as stream:
         assert stream
         async for quotes in stream:
-            quote_period = time.time() - last_quote
+            quote_period = time.time() - last_quote_s
             quote_rate = round(
                 1/quote_period, 1) if quote_period > 0 else float('inf')
             if (
@@ -467,7 +414,7 @@ async def graphics_update_loop(
             ):
                 log.warning(f'High quote rate {symbol.key}: {quote_rate}')
 
-            last_quote = time.time()
+            last_quote_s = time.time()
 
             for sym, quote in quotes.items():
                 ds = dss[sym]
@@ -513,12 +460,12 @@ def graphics_update_cycle(
     chart = ds.chart
     # TODO: just pass this as a direct ref to avoid so many attr accesses?
     hist_chart = ds.godwidget.hist_linked.chart
-    assert hist_chart
 
     flume = ds.flume
     sym = flume.symbol
     fqsn = sym.fqsn
-    main_flow = chart._flows[fqsn]
+    main_viz = chart._vizs[fqsn]
+    index_field = main_viz.index_field
 
     profiler = Profiler(
         msg=f'Graphics loop cycle for: `{chart.name}`',
@@ -535,54 +482,21 @@ def graphics_update_cycle(
 
     # rt "HFT" chart
     l1 = ds.l1
-    # ohlcv = ds.ohlcv
     ohlcv = flume.rt_shm
     array = ohlcv.array
 
-    vars = ds.vars
-    tick_margin = vars['tick_margin']
+    varz = ds.vars
+    tick_margin = varz['tick_margin']
 
     (
         uppx,
         liv,
         do_append,
-        i_diff,
+        i_diff_t,
         append_diff,
         do_rt_update,
-    ) = ds.incr_info()
-
-    # don't real-time "shift" the curve to the
-    # left unless we get one of the following:
-    if (
-        (
-            do_append
-            and liv
-        )
-        or trigger_all
-    ):
-        # print(f'INCREMENTING {fqsn}')
-        chart.increment_view(steps=i_diff)
-        main_flow.plot.vb._set_yrange(
-            # yrange=(mn, mx),
-        )
-
-        # NOTE: since vlm and ohlc charts are axis linked now we don't
-        # need the double increment request?
-        # if vlm_chart:
-        #     vlm_chart.increment_view(steps=i_diff)
-
-        profiler('view incremented')
-
-    # frames_by_type: dict[str, dict] = {}
-    # lasts = {}
-
-    # build tick-type "frames" of tick sequences since
-    # likely the tick arrival rate is higher then our
-    # (throttled) quote stream rate.
-
-    # iterate in FIFO order per tick-frame
-    # if sym != fqsn:
-    #     continue
+        should_tread,
+    ) = main_viz.incr_info(ds=ds)
 
     # TODO: we should only run mxmn when we know
     # an update is due via ``do_append`` above.
@@ -597,26 +511,9 @@ def graphics_update_cycle(
     mn = mn_in_view - tick_margin
     profiler('`ds.maxmin()` call')
 
-    if (
-        prepend_update_index is not None
-        and lbar > prepend_update_index
-    ):
-        # on a history update (usually from the FSP subsys)
-        # if the segment of history that is being prepended
-        # isn't in view there is no reason to do a graphics
-        # update.
-        log.debug('Skipping prepend graphics cycle: frame not in view')
-        return
-
-    # TODO: eventually we want to separate out the utrade (aka
-    # dark vlm prices) here and show them as an additional
-    # graphic.
+    # TODO: eventually we want to separate out the dark vlm and show
+    # them as an additional graphic.
     clear_types = _tick_groups['clears']
-
-    # XXX: if we wanted to iterate in "latest" (i.e. most
-    # current) tick first order as an optimization where we only
-    # update from the last tick from each type class.
-    # last_clear_updated: bool = False
 
     # update ohlc sampled price bars
     if (
@@ -629,7 +526,7 @@ def graphics_update_cycle(
             # chart.name,
             # do_append=do_append,
         )
-        main_flow.draw_last(array_key=fqsn)
+        main_viz.draw_last(array_key=fqsn)
 
         hist_chart.update_graphics_from_flow(
             fqsn,
@@ -637,10 +534,25 @@ def graphics_update_cycle(
             # do_append=do_append,
         )
 
-    # NOTE: we always update the "last" datum
-    # since the current range should at least be updated
-    # to it's max/min on the last pixel.
-    typs: set[str] = set()
+    # don't real-time "shift" the curve to the
+    # left unless we get one of the following:
+    if (
+        (
+            should_tread
+            and do_append
+            and liv
+        )
+        or trigger_all
+    ):
+        chart.increment_view(datums=append_diff)
+        main_viz.plot.vb._set_yrange()
+
+        # NOTE: since vlm and ohlc charts are axis linked now we don't
+        # need the double increment request?
+        # if vlm_chart:
+        #     vlm_chart.increment_view(datums=append_diff)
+
+        profiler('view incremented')
 
     # from pprint import pformat
     # frame_counts = {
@@ -665,11 +577,6 @@ def graphics_update_cycle(
         price = tick.get('price')
         size = tick.get('size')
 
-        if typ in typs:
-            continue
-
-        typs.add(typ)
-
         # compute max and min prices (including bid/ask) from
         # tick frames to determine the y-range for chart
         # auto-scaling.
@@ -679,7 +586,6 @@ def graphics_update_cycle(
             mn = min(price - tick_margin, mn)
 
         if typ in clear_types:
-
             # XXX: if we only wanted to update graphics from the
             # "current"/"latest received" clearing price tick
             # once (see alt iteration order above).
@@ -692,7 +598,10 @@ def graphics_update_cycle(
             # set.
 
             # update price sticky(s)
-            end_ic = array[-1][['index', 'close']]
+            end_ic = array[-1][[
+                index_field,
+                'close',
+            ]]
             ds.last_price_sticky.update_from_data(*end_ic)
             ds.hist_last_price_sticky.update_from_data(*end_ic)
 
@@ -740,7 +649,7 @@ def graphics_update_cycle(
             l1.bid_label.update_fields({'level': price, 'size': size})
 
     # check for y-range re-size
-    if (mx > vars['last_mx']) or (mn < vars['last_mn']):
+    if (mx > varz['last_mx']) or (mn < varz['last_mn']):
 
         # fast chart resize case
         if (
@@ -748,7 +657,7 @@ def graphics_update_cycle(
             and not chart._static_yrange == 'axis'
         ):
             # main_vb = chart.view
-            main_vb = chart._flows[fqsn].plot.vb
+            main_vb = chart._vizs[fqsn].plot.vb
             if (
                 main_vb._ic is None
                 or not main_vb._ic.is_set()
@@ -765,6 +674,8 @@ def graphics_update_cycle(
                 )
 
         # check if slow chart needs a resize
+
+        hist_viz = hist_chart._vizs[fqsn]
         (
             _,
             hist_liv,
@@ -772,33 +683,29 @@ def graphics_update_cycle(
             _,
             _,
             _,
-        ) = ds.incr_info(
-            chart=hist_chart,
-            shm=ds.hist_ohlcv,
-            update_state=False,
+            _,
+        ) = hist_viz.incr_info(
+            ds=ds,
             is_1m=True,
         )
         if hist_liv:
-            flow = hist_chart._flows[fqsn]
-            flow.plot.vb._set_yrange(
-                # yrange=hist_chart.maxmin(name=fqsn),
-            )
+            hist_viz.plot.vb._set_yrange()
 
     # XXX: update this every draw cycle to make L1-always-in-view work.
-    vars['last_mx'], vars['last_mn'] = mx, mn
+    varz['last_mx'], varz['last_mn'] = mx, mn
 
-    # run synchronous update on all linked flows
-    # TODO: should the "main" (aka source) flow be special?
-    for curve_name, flow in chart._flows.items():
+    # run synchronous update on all linked viz
+    # TODO: should the "main" (aka source) viz be special?
+    for curve_name, viz in chart._vizs.items():
         # update any overlayed fsp flows
         if (
             # curve_name != chart.data_key
             curve_name != fqsn
-            and not flow.is_ohlc
+            and not viz.is_ohlc
         ):
             update_fsp_chart(
                 chart,
-                flow,
+                viz,
                 curve_name,
                 array_key=curve_name,
             )
@@ -812,7 +719,7 @@ def graphics_update_cycle(
             # and not do_append
             # and not do_rt_update
         ):
-            flow.draw_last(
+            viz.draw_last(
                 array_key=curve_name,
                 only_last_uppx=True,
             )
@@ -821,11 +728,14 @@ def graphics_update_cycle(
     # TODO: can we unify this with the above loop?
     if vlm_chart:
         # print(f"DOING VLM {fqsn}")
-        vlm_flows = vlm_chart._flows
+        vlm_vizs = vlm_chart._vizs
 
         # always update y-label
         ds.vlm_sticky.update_from_data(
-            *array[-1][['index', 'volume']]
+            *array[-1][[
+                index_field,
+                'volume',
+            ]]
         )
 
         if (
@@ -855,7 +765,7 @@ def graphics_update_cycle(
             profiler('`vlm_chart.update_graphics_from_flow()`')
 
             if (
-                mx_vlm_in_view != vars['last_mx_vlm']
+                mx_vlm_in_view != varz['last_mx_vlm']
             ):
                 yrange = (0, mx_vlm_in_view * 1.375)
                 vlm_chart.view._set_yrange(
@@ -863,24 +773,24 @@ def graphics_update_cycle(
                 )
                 profiler('`vlm_chart.view._set_yrange()`')
                 # print(f'mx vlm: {last_mx_vlm} -> {mx_vlm_in_view}')
-                vars['last_mx_vlm'] = mx_vlm_in_view
+                varz['last_mx_vlm'] = mx_vlm_in_view
 
         # update all downstream FSPs
-        for curve_name, flow in vlm_flows.items():
+        for curve_name, viz in vlm_vizs.items():
 
             if (
                 curve_name not in {'volume', fqsn}
-                and flow.render
+                and viz.render
                 and (
                     liv and do_rt_update
                     or do_append
                 )
-                # and not flow.is_ohlc
+                # and not viz.is_ohlc
                 # and curve_name != fqsn
             ):
                 update_fsp_chart(
                     vlm_chart,
-                    flow,
+                    viz,
                     curve_name,
                     array_key=curve_name,
                     # do_append=uppx < update_uppx,
@@ -889,7 +799,7 @@ def graphics_update_cycle(
                 # is this even doing anything?
                 # (pretty sure it's the real-time
                 # resizing from last quote?)
-                fvb = flow.plot.vb
+                fvb = viz.plot.vb
                 fvb._set_yrange(
                     name=curve_name,
                 )
@@ -905,9 +815,9 @@ def graphics_update_cycle(
                 # range of that set.
             ):
                 # always update the last datum-element
-                # graphic for all flows
-                # print(f'drawing last {flow.name}')
-                flow.draw_last(array_key=curve_name)
+                # graphic for all vizs
+                # print(f'drawing last {viz.name}')
+                viz.draw_last(array_key=curve_name)
 
 
 async def link_views_with_region(
@@ -937,92 +847,124 @@ async def link_views_with_region(
     hist_pi.addItem(region, ignoreBounds=True)
     region.setOpacity(6/16)
 
-    flow = rt_chart._flows[flume.symbol.fqsn]
-    assert flow
+    viz = rt_chart.get_viz(flume.symbol.fqsn)
+    assert viz
+    index_field = viz.index_field
 
     # XXX: no idea why this doesn't work but it's causing
     # a weird placement of the region on the way-far-left..
-    # region.setClipItem(flow.graphics)
+    # region.setClipItem(viz.graphics)
 
-    # poll for datums load and timestep detection
-    for _ in range(100):
-        try:
-            _, _, ratio = flume.get_ds_info()
-            break
-        except IndexError:
-            await trio.sleep(0.01)
-            continue
+    if index_field == 'time':
+
+        # in the (epoch) index case we can map directly
+        # from the fast chart's x-domain values since they are
+        # on the same index as the slow chart.
+
+        def update_region_from_pi(
+            window,
+            viewRange: tuple[tuple, tuple],
+            is_manual: bool = True,
+        ) -> None:
+            # put linear region "in front" in layer terms
+            region.setZValue(10)
+
+            # set the region on the history chart
+            # to the range currently viewed in the
+            # HFT/real-time chart.
+            rng = mn, mx = viewRange[0]
+
+            # hist_viz = hist_chart.get_viz(flume.symbol.fqsn)
+            # hist = hist_viz.shm.array[-3:]
+            # print(
+            #     f'mn: {mn}\n'
+            #     f'mx: {mx}\n'
+            #     f'slow last 3 epochs: {list(hist["time"])}\n'
+            #     f'slow last 3: {hist}\n'
+            # )
+
+            region.setRegion(rng)
+
     else:
-        raise RuntimeError(
-            'Failed to detect sampling periods from shm!?')
+        # poll for datums load and timestep detection
+        for _ in range(100):
+            try:
+                _, _, ratio = flume.get_ds_info()
+                break
+            except IndexError:
+                await trio.sleep(0.01)
+                continue
+        else:
+            raise RuntimeError(
+                'Failed to detect sampling periods from shm!?')
 
-    # sampling rate transform math:
-    # -----------------------------
-    # define the fast chart to slow chart as a linear mapping
-    # over the fast index domain `i` to the slow index domain
-    # `j` as:
-    #
-    # j = i - i_offset
-    #     ------------  + j_offset
-    #         j/i
-    #
-    # conversely the inverse function is:
-    #
-    # i = j/i * (j - j_offset) + i_offset
-    #
-    # Where `j_offset` is our ``izero_hist`` and `i_offset` is our
-    # `izero_rt`, the ``ShmArray`` offsets which correspond to the
-    # indexes in each array where the "current" time is indexed at init.
-    # AKA the index where new data is "appended to" and historical data
-    # if "prepended from".
-    #
-    # more practically (and by default) `i` is normally an index
-    # into 1s samples and `j` is an index into 60s samples (aka 1m).
-    # in the below handlers ``ratio`` is the `j/i` and ``mn``/``mx``
-    # are the low and high index input from the source index domain.
+        # sampling rate transform math:
+        # -----------------------------
+        # define the fast chart to slow chart as a linear mapping
+        # over the fast index domain `i` to the slow index domain
+        # `j` as:
+        #
+        # j = i - i_offset
+        #     ------------  + j_offset
+        #         j/i
+        #
+        # conversely the inverse function is:
+        #
+        # i = j/i * (j - j_offset) + i_offset
+        #
+        # Where `j_offset` is our ``izero_hist`` and `i_offset` is our
+        # `izero_rt`, the ``ShmArray`` offsets which correspond to the
+        # indexes in each array where the "current" time is indexed at init.
+        # AKA the index where new data is "appended to" and historical data
+        # if "prepended from".
+        #
+        # more practically (and by default) `i` is normally an index
+        # into 1s samples and `j` is an index into 60s samples (aka 1m).
+        # in the below handlers ``ratio`` is the `j/i` and ``mn``/``mx``
+        # are the low and high index input from the source index domain.
 
-    def update_region_from_pi(
-        window,
-        viewRange: tuple[tuple, tuple],
-        is_manual: bool = True,
+        def update_region_from_pi(
+            window,
+            viewRange: tuple[tuple, tuple],
+            is_manual: bool = True,
 
-    ) -> None:
-        # put linear region "in front" in layer terms
-        region.setZValue(10)
+        ) -> None:
+            # put linear region "in front" in layer terms
+            region.setZValue(10)
 
-        # set the region on the history chart
-        # to the range currently viewed in the
-        # HFT/real-time chart.
-        mn, mx = viewRange[0]
-        ds_mn = (mn - izero_rt)/ratio
-        ds_mx = (mx - izero_rt)/ratio
-        lhmn = ds_mn + izero_hist
-        lhmx = ds_mx + izero_hist
-        # print(
-        #     f'rt_view_range: {(mn, mx)}\n'
-        #     f'ds_mn, ds_mx: {(ds_mn, ds_mx)}\n'
-        #     f'lhmn, lhmx: {(lhmn, lhmx)}\n'
-        # )
-        region.setRegion((
-            lhmn,
-            lhmx,
-        ))
+            # set the region on the history chart
+            # to the range currently viewed in the
+            # HFT/real-time chart.
+            mn, mx = viewRange[0]
+            ds_mn = (mn - izero_rt)/ratio
+            ds_mx = (mx - izero_rt)/ratio
+            lhmn = ds_mn + izero_hist
+            lhmx = ds_mx + izero_hist
+            # print(
+            #     f'rt_view_range: {(mn, mx)}\n'
+            #     f'ds_mn, ds_mx: {(ds_mn, ds_mx)}\n'
+            #     f'lhmn, lhmx: {(lhmn, lhmx)}\n'
+            # )
+            region.setRegion((
+                lhmn,
+                lhmx,
+            ))
 
-        # TODO: if we want to have the slow chart adjust range to
-        # match the fast chart's selection -> results in the
-        # linear region expansion never can go "outside of view".
-        # hmn, hmx = hvr = hist_chart.view.state['viewRange'][0]
-        # print((hmn, hmx))
-        # if (
-        #     hvr
-        #     and (lhmn < hmn or lhmx > hmx)
-        # ):
-        #     hist_pi.setXRange(
-        #         lhmn,
-        #         lhmx,
-        #         padding=0,
-        #     )
-        #     hist_linked.graphics_cycle()
+            # TODO: if we want to have the slow chart adjust range to
+            # match the fast chart's selection -> results in the
+            # linear region expansion never can go "outside of view".
+            # hmn, hmx = hvr = hist_chart.view.state['viewRange'][0]
+            # print((hmn, hmx))
+            # if (
+            #     hvr
+            #     and (lhmn < hmn or lhmx > hmx)
+            # ):
+            #     hist_pi.setXRange(
+            #         lhmn,
+            #         lhmx,
+            #         padding=0,
+            #     )
+            #     hist_linked.graphics_cycle()
 
     # connect region to be updated on plotitem interaction.
     rt_pi.sigRangeChanged.connect(update_region_from_pi)
@@ -1052,11 +994,11 @@ def multi_maxmin(
 
 ) -> tuple[float, float]:
     '''
-    Flows "group" maxmin loop; assumes all named flows
+    Viz "group" maxmin loop; assumes all named vizs
     are in the same co-domain and thus can be sorted
     as one set.
 
-    Iterates all the named flows and calls the chart
+    Iterates all the named vizs and calls the chart
     api to find their range values and return.
 
     TODO: really we should probably have a more built-in API
@@ -1122,7 +1064,7 @@ async def display_symbol_data(
         # avoiding needless Qt-in-guest-mode context switches
         tick_throttle=min(
             round(_quote_throttle_rate/len(fqsns)),
-            22,
+            22,  # aka 6 + 16
         ),
 
     ) as feed:
@@ -1163,10 +1105,11 @@ async def display_symbol_data(
         # - gradient in "lightness" based on liquidity, or lifetime in derivs?
         palette = itertools.cycle([
             # curve color, last bar curve color
-            ['i3', 'gray'],
-            ['grayer', 'bracket'],
             ['grayest', 'i3'],
             ['default_dark', 'default'],
+
+            ['grayer', 'bracket'],
+            ['i3', 'gray'],
         ])
 
         pis: dict[str, list[pgo.PlotItem, pgo.PlotItem]] = {}
@@ -1175,6 +1118,12 @@ async def display_symbol_data(
         fitems: list[
             tuple[str, Flume]
         ] = list(feed.flumes.items())
+
+        # use array int-indexing when no aggregate feed overlays are
+        # loaded.
+        if len(fitems) == 1:
+            from ._dataviz import Viz
+            Viz._index_field = 'index'
 
         # for the "first"/selected symbol we create new chart widgets
         # and sub-charts for FSPs
@@ -1198,6 +1147,13 @@ async def display_symbol_data(
             # to avoid internal pane creation.
             # sidepane=False,
             sidepane=godwidget.search,
+        )
+
+        # ensure the last datum graphic is generated
+        # for zoom-interaction purposes.
+        hist_chart.get_viz(fqsn).draw_last(
+            array_key=fqsn,
+            # only_last_uppx=True,
         )
         pis.setdefault(fqsn, [None, None])[1] = hist_chart.plotItem
 
@@ -1279,7 +1235,7 @@ async def display_symbol_data(
                 hist_pi.hideAxis('left')
                 hist_pi.hideAxis('bottom')
 
-                flow = hist_chart.draw_curve(
+                viz = hist_chart.draw_curve(
                     fqsn,
                     hist_ohlcv,
                     flume,
@@ -1292,6 +1248,13 @@ async def display_symbol_data(
                     last_bar_color=bg_last_bar_color,
                 )
 
+                # ensure the last datum graphic is generated
+                # for zoom-interaction purposes.
+                viz.draw_last(
+                    array_key=fqsn,
+                    # only_last_uppx=True,
+                )
+
                 hist_pi.vb.maxmin = partial(
                     hist_chart.maxmin,
                     name=fqsn,
@@ -1300,8 +1263,8 @@ async def display_symbol_data(
                 # specially store ref to shm for lookup in display loop
                 # since only a placeholder of `None` is entered in
                 # ``.draw_curve()``.
-                flow = hist_chart._flows[fqsn]
-                assert flow.plot is hist_pi
+                viz = hist_chart._vizs[fqsn]
+                assert viz.plot is hist_pi
                 pis.setdefault(fqsn, [None, None])[1] = hist_pi
 
                 rt_pi = rt_chart.overlay_plotitem(
@@ -1312,7 +1275,7 @@ async def display_symbol_data(
                 rt_pi.hideAxis('left')
                 rt_pi.hideAxis('bottom')
 
-                flow = rt_chart.draw_curve(
+                viz = rt_chart.draw_curve(
                     fqsn,
                     ohlcv,
                     flume,
@@ -1333,8 +1296,8 @@ async def display_symbol_data(
                 # specially store ref to shm for lookup in display loop
                 # since only a placeholder of `None` is entered in
                 # ``.draw_curve()``.
-                flow = rt_chart._flows[fqsn]
-                assert flow.plot is rt_pi
+                viz = rt_chart._vizs[fqsn]
+                assert viz.plot is rt_pi
                 pis.setdefault(fqsn, [None, None])[0] = rt_pi
 
             rt_chart.setFocus()
@@ -1372,8 +1335,7 @@ async def display_symbol_data(
                 # trigger another view reset if no sub-chart
                 hist_chart.default_view()
                 rt_chart.default_view()
-
-                # let Qt run to render all widgets and make sure the
+                # let qt run to render all widgets and make sure the
                 # sidepanes line up vertically.
                 await trio.sleep(0)
 
@@ -1421,9 +1383,6 @@ async def display_symbol_data(
                 vlm_charts,
             )
 
-            rt_chart.default_view()
-            await trio.sleep(0)
-
             mode: OrderMode
             async with (
                 open_order_mode(
@@ -1436,5 +1395,8 @@ async def display_symbol_data(
                 rt_linked.mode = mode
 
                 rt_chart.default_view()
+                rt_chart.view.enable_auto_yrange()
                 hist_chart.default_view()
+                hist_chart.view.enable_auto_yrange()
+
                 await trio.sleep_forever()  # let the app run.. bby
