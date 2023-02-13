@@ -83,22 +83,26 @@ async def notify_from_ems_status_msg(
                 f'unix:path=/run/user/{_dbus_uid}/bus'
             )
 
-    result = await trio.run_process(
-        [
-            'notify-send',
-            '-u', 'normal',
-            '-t', f'{duration}',
-            'piker',
+    try:
+        result = await trio.run_process(
+            [
+                'notify-send',
+                '-u', 'normal',
+                '-t', f'{duration}',
+                'piker',
 
-            # TODO: add in standard fill/exec info that maybe we
-            # pack in a broker independent way?
-            f"'{msg.pformat()}'",
-        ],           
-        capture_stdout=True,
-        capture_stderr=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        log.warn(f'No notification daemon installed stderr: {result.stderr}')
-                      
-    log.runtime(result)        
+                # TODO: add in standard fill/exec info that maybe we
+                # pack in a broker independent way?
+                f"'{msg.pformat()}'",
+            ],           
+            capture_stdout=True,
+            capture_stderr=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            log.warn(f'Notification daemon crashed stderr: {result.stderr}')
+
+        log.runtime(result)
+
+    except FileNotFoundError:
+        log.warn('Tried to send a notification but \'notify-send\' not present')
