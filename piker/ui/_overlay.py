@@ -361,8 +361,8 @@ class PlotItemOverlay:
                 if not sub_handlers:
 
                     src_handler = getattr(
-                        root.vb,
-                        ev_name,
+                       root.vb,
+                       ev_name,
                     )
 
                     def broadcast(

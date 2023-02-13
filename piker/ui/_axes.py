@@ -306,7 +306,10 @@ class DynamicDateAxis(Axis):
         times = array['time']
         i_0, i_l = times[0], times[-1]
 
+        # edge cases
         if (
+            not indexes
+            or
             (indexes[0] < i_0
              and indexes[-1] < i_l)
             or

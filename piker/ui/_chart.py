@@ -829,8 +829,6 @@ class ChartPlotWidget(pg.PlotWidget):
     sig_mouse_leave = QtCore.pyqtSignal(object)
     sig_mouse_enter = QtCore.pyqtSignal(object)
 
-    _l1_labels: L1Labels = None
-
     mode_name: str = 'view'
 
     # TODO: can take a ``background`` color setting - maybe there's
@@ -986,13 +984,15 @@ class ChartPlotWidget(pg.PlotWidget):
         '''
         # TODO: compute some sensible maximum value here
         # and use a humanized scheme to limit to that length.
-        l1_len = self._max_l1_line_len
+        from ._l1 import L1Label
+        l1_len = abs(L1Label._x_br_offset)
         ryaxis = self.getAxis('right')
 
         r_axis_x = ryaxis.pos().x()
         up_to_l1_sc = r_axis_x - l1_len
         marker_right = up_to_l1_sc - (1.375 * 2 * marker_size)
-        line_end = marker_right - (6/16 * marker_size)
+        # line_end = marker_right - (6/16 * marker_size)
+        line_end = marker_right - marker_size
 
         # print(
         #     f'r_axis_x: {r_axis_x}\n'
@@ -1231,7 +1231,8 @@ class ChartPlotWidget(pg.PlotWidget):
                 # (we need something that avoids clutter on x-axis).
                 axis.add_sticky(
                     pi=pi,
-                    bg_color=color,
+                    fg_color='black',
+                    # bg_color=color,
                     digits=digits,
                 )
 

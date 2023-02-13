@@ -349,7 +349,7 @@ class OrderMode:
 
         '''
         if not order:
-            staged = self._staged_order
+            staged: Order = self._staged_order
             # apply order fields for ems
             oid = str(uuid.uuid4())
             order = staged.copy()
@@ -703,7 +703,6 @@ async def open_order_mode(
 
         # symbol id
         symbol = chart.linked.symbol
-        symkey = symbol.front_fqsn()
 
         # map of per-provider account keys to position tracker instances
         trackers: dict[str, PositionTracker] = {}
@@ -864,7 +863,7 @@ async def open_order_mode(
         # the expected symbol key in its positions msg.
         for (broker, acctid), msgs in position_msgs.items():
             for msg in msgs:
-                log.info(f'Loading pp for {symkey}:\n{pformat(msg)}')
+                log.info(f'Loading pp for {acctid}@{broker}:\n{pformat(msg)}')
                 await process_trade_msg(
                     mode,
                     book,

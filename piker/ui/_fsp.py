@@ -661,6 +661,12 @@ async def open_vlm_displays(
         #     str(period_param.default)
         # )
 
+        # use slightly less light (then bracket) gray
+        # for volume from "main exchange" and a more "bluey"
+        # gray for "dark" vlm.
+        vlm_color = 'i3'
+        dark_vlm_color = 'charcoal'
+
         # built-in vlm which we plot ASAP since it's
         # usually data provided directly with OHLC history.
         shm = ohlcv
@@ -755,7 +761,7 @@ async def open_vlm_displays(
 
                 {  # fsp engine conf
                     'func_name': 'dolla_vlm',
-                    'zero_on_step': True,
+                    'zero_on_step': False,
                     'params': {
                         'price_func': {
                             'default_value': 'chl3',
@@ -769,7 +775,7 @@ async def open_vlm_displays(
             # FIXME: we should error on starting the same fsp right
             # since it might collide with existing shm.. or wait we
             # had this before??
-            # dolla_vlm,
+            # dolla_vlm
 
             tasks_ready.append(started)
             # profiler(f'created shm for fsp actor: {display_name}')
@@ -786,19 +792,24 @@ async def open_vlm_displays(
             dvlm_pi = vlm_chart.overlay_plotitem(
                 'dolla_vlm',
                 index=0,  # place axis on inside (nearest to chart)
+
                 axis_title=' $vlm',
-                axis_side='right',
+                axis_side='left',
+
                 axis_kwargs={
                     'typical_max_str': ' 100.0 M ',
                     'formatter': partial(
                         humanize,
                         digits=2,
                     ),
+                    'text_color': vlm_color,
                 },
             )
 
-            dvlm_pi.hideAxis('left')
+            # TODO: should this maybe be implicit based on input args to
+            # `.overlay_plotitem()` above?
             dvlm_pi.hideAxis('bottom')
+
             # all to be overlayed curve names
             fields = [
                'dolla_vlm',
@@ -822,12 +833,6 @@ async def open_vlm_displays(
 
             # add custom auto range handler
             dvlm_pi.vb._maxmin = group_mxmn
-
-            # use slightly less light (then bracket) gray
-            # for volume from "main exchange" and a more "bluey"
-            # gray for "dark" vlm.
-            vlm_color = 'i3'
-            dark_vlm_color = 'charcoal'
 
             # add dvlm (step) curves to common view
             def chart_curves(
@@ -879,7 +884,7 @@ async def open_vlm_displays(
                 flow_rates,
                 {  # fsp engine conf
                     'func_name': 'flow_rates',
-                    'zero_on_step': False,
+                    'zero_on_step': True,
                 },
                 # loglevel,
             )
@@ -913,8 +918,8 @@ async def open_vlm_displays(
                 # TODO: dynamically update period (and thus this axis?)
                 # title from user input.
                 axis_title='clears',
-
                 axis_side='left',
+
                 axis_kwargs={
                     'typical_max_str': ' 10.0 M ',
                     'formatter': partial(
