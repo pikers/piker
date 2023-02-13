@@ -71,9 +71,11 @@ def get_app_dir(app_name, roaming=True, force_posix=False):
                         dot instead of the XDG config home or darwin's
                         application support folder.
     """
-
     def _posixify(name):
         return "-".join(name.split()).lower()
+
+    if "pytest" in sys.modules:
+        app_name += '/_testing'
 
     # if WIN:
     if platform.system() == 'Windows':
@@ -93,7 +95,6 @@ def get_app_dir(app_name, roaming=True, force_posix=False):
         os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
         _posixify(app_name),
     )
-
 
 _config_dir = _click_config_dir = get_app_dir('piker')
 _parent_user = os.environ.get('SUDO_USER')

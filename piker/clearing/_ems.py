@@ -1351,7 +1351,7 @@ async def maybe_open_trade_relays(
             loglevel,
         )
         yield relay, feed, client_ready
-    print("ABOUT TO OPEN CACHED MNGR")
+
     async with tractor.trionics.maybe_open_context(
         acm_func=cached_mngr,
         kwargs={
@@ -1365,7 +1365,6 @@ async def maybe_open_trade_relays(
         cache_hit,
         (relay, feed, client_ready)
     ):
-        print("YIELDING RELAY")
         yield relay, feed, client_ready
 
 
