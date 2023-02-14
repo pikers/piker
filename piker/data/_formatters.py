@@ -55,6 +55,10 @@ class IncrementalFormatter(msgspec.Struct):
     shm: ShmArray
     viz: Viz
 
+    # the value to be multiplied any any index into the x/y_1d arrays
+    # given the input index is based on the original source data array.
+    flat_index_ratio: float = 1
+
     @property
     def index_field(self) -> 'str':
         '''
@@ -92,8 +96,8 @@ class IncrementalFormatter(msgspec.Struct):
     xy_nd_stop: int | None = None
 
     # TODO: eventually incrementally update 1d-pre-graphics path data?
-    # x_1d: Optional[np.ndarray] = None
-    # y_1d: Optional[np.ndarray] = None
+    x_1d: np.ndarray | None = None
+    y_1d: np.ndarray | None = None
 
     # incremental view-change state(s) tracking
     _last_vr: tuple[float, float] | None = None
@@ -106,32 +110,6 @@ class IncrementalFormatter(msgspec.Struct):
 
         '''
         return self.viz.index_step()
-
-    def __repr__(self) -> str:
-        msg = (
-            f'{type(self)}: ->\n\n'
-            f'fqsn={self.viz.name}\n'
-            f'shm_name={self.shm.token["shm_name"]}\n\n'
-
-            f'last_vr={self._last_vr}\n'
-            f'last_ivdr={self._last_ivdr}\n\n'
-
-            f'xy_slice={self.xy_slice}\n'
-            # f'xy_nd_stop={self.xy_nd_stop}\n\n'
-        )
-
-        x_nd_len = 0
-        y_nd_len = 0
-        if self.x_nd is not None:
-            x_nd_len = len(self.x_nd)
-            y_nd_len = len(self.y_nd)
-
-        msg += (
-            f'x_nd_len={x_nd_len}\n'
-            f'y_nd_len={y_nd_len}\n'
-        )
-
-        return msg
 
     def diff(
         self,
@@ -179,8 +157,6 @@ class IncrementalFormatter(msgspec.Struct):
             nd_start = self.xy_nd_start = src_stop
             # set us in a zero-to-append state
             nd_stop = self.xy_nd_stop = src_stop
-
-            align_index = array[self.index_field]
 
         # compute the length diffs between the first/last index entry in
         # the input data and the last indexes we have on record from the
@@ -334,6 +310,9 @@ class IncrementalFormatter(msgspec.Struct):
             array = in_view
             profiler(f'{self.viz.name} view range slice {view_range}')
 
+        # TODO: we need to check if the last-datum-in-view is true and
+        # if so only slice to the 2nd last datumonly slice to the 2nd
+        # last datum.
         # hist = array[:slice_to_head]
 
         # XXX: WOA WTF TRACTOR DEBUGGING BUGGG
@@ -353,6 +332,11 @@ class IncrementalFormatter(msgspec.Struct):
             array_key,
             view_range,
         )
+        # cache/save last 1d outputs for use by other
+        # readers (eg. `Viz.draw_last_datum()` in the
+        # only-draw-last-uppx case).
+        self.x_1d = x_1d
+        self.y_1d = y_1d
 
         # app_tres = None
         # if append_len:
@@ -376,11 +360,6 @@ class IncrementalFormatter(msgspec.Struct):
         # update the last "in view data range"
         if len(x_1d):
             self._last_ivdr = x_1d[0], x_1d[-1]
-            if (
-                self.index_field == 'time'
-                and (x_1d[-1] == 0.5).any()
-            ):
-                breakpoint()
 
         profiler('.format_to_1d()')
 
@@ -503,14 +482,22 @@ class IncrementalFormatter(msgspec.Struct):
         # NOTE: we don't include the very last datum which is filled in
         # normally by another graphics object.
         x_1d = array[self.index_field][:-1]
-        if (
-            self.index_field == 'time'
-            and x_1d.any()
-            and (x_1d[-1] == 0.5).any()
-        ):
-            breakpoint()
-
         y_1d = array[array_key][:-1]
+
+        # name = self.viz.name
+        # if 'trade_rate' == name:
+        #     s = 4
+        #     x_nd = list(self.x_nd[self.xy_slice][-s:-1])
+        #     y_nd = list(self.y_nd[self.xy_slice][-s:-1])
+        #     print(
+        #         f'{name}:\n'
+        #         f'XY data:\n'
+        #         f'x: {x_nd}\n'
+        #         f'y: {y_nd}\n\n'
+        #         f'x_1d: {list(x_1d[-s:])}\n'
+        #         f'y_1d: {list(y_1d[-s:])}\n\n'
+
+        #     )
         return (
             x_1d,
             y_1d,
@@ -532,6 +519,7 @@ class OHLCBarsFmtr(IncrementalFormatter):
     fields: list[str] = field(
         default_factory=lambda: ['open', 'high', 'low', 'close']
     )
+    flat_index_ratio: float = 4
 
     def allocate_xy_nd(
         self,
@@ -627,7 +615,7 @@ class OHLCBarsFmtr(IncrementalFormatter):
 
         '''
         x, y, c = path_arrays_from_ohlc(
-            array,
+            array[:-1],
             start,
             bar_w=self.index_step_size,
             bar_gap=w * self.index_step_size,
@@ -825,13 +813,6 @@ class StepCurveFmtr(IncrementalFormatter):
         # flatten to 1d
         x_1d = x_step_iv.reshape(x_step_iv.size)
         y_1d = y_step_iv.reshape(y_step_iv.size)
-
-        if (
-            self.index_field == 'time'
-            and x_1d.any()
-            and (x_1d == 0.5).any()
-        ):
-            breakpoint()
 
         # debugging
         # if y_1d.any():

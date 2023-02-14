@@ -60,11 +60,89 @@ class FlowGraphic(pg.GraphicsObject):
 
     '''
     # sub-type customization methods
-    declare_paintables: Optional[Callable] = None
-    sub_paint: Optional[Callable] = None
+    declare_paintables: Callable | None = None
+    sub_paint: Callable | None = None
 
-    # TODO: can we remove this?
-    # sub_br: Optional[Callable] = None
+    # XXX-NOTE-XXX: graphics caching B)
+    # see explanation for different caching modes:
+    # https://stackoverflow.com/a/39410081
+    cache_mode: int = QGraphicsItem.DeviceCoordinateCache
+    # XXX: WARNING item caching seems to only be useful
+    # if we don't re-generate the entire QPainterPath every time
+    # don't ever use this - it's a colossal nightmare of artefacts
+    # and is disastrous for performance.
+    # QGraphicsItem.ItemCoordinateCache
+    # TODO: still questions todo with coord-cacheing that we should
+    # probably talk to a core dev about:
+    # - if this makes trasform interactions slower (such as zooming)
+    #   and if so maybe if/when we implement a "history" mode for the
+    #   view we disable this in that mode?
+
+    def __init__(
+        self,
+        *args,
+        name: str | None = None,
+
+        # line styling
+        color: str = 'bracket',
+        last_step_color: str | None = None,
+        fill_color: Optional[str] = None,
+        style: str = 'solid',
+
+        **kwargs
+
+    ) -> None:
+
+        self._name = name
+
+        # primary graphics item used for history
+        self.path: QPainterPath = QPainterPath()
+
+        # additional path that can be optionally used for appends which
+        # tries to avoid triggering an update/redraw of the presumably
+        # larger historical ``.path`` above. the flag to enable
+        # this behaviour is found in `Renderer.render()`.
+        self.fast_path: QPainterPath | None = None
+
+        # TODO: evaluating the path capacity stuff and see
+        # if it really makes much diff pre-allocating it.
+        # self._last_cap: int = 0
+        # cap = path.capacity()
+        # if cap != self._last_cap:
+        #     print(f'NEW CAPACITY: {self._last_cap} -> {cap}')
+        #     self._last_cap = cap
+
+        # all history of curve is drawn in single px thickness
+        self._color: str = color
+        pen = pg.mkPen(hcolor(color), width=1)
+        pen.setStyle(_line_styles[style])
+
+        if 'dash' in style:
+            pen.setDashPattern([8, 3])
+
+        self._pen = pen
+        self._brush = pg.functions.mkBrush(
+            hcolor(fill_color or color)
+        )
+
+        # last segment is drawn in 2px thickness for emphasis
+        if last_step_color:
+            self.last_step_pen = pg.mkPen(
+                hcolor(last_step_color),
+                width=2,
+            )
+        else:
+            self.last_step_pen = pg.mkPen(
+                self._pen,
+                width=2,
+            )
+
+        self._last_line: QLineF = QLineF()
+
+        super().__init__(*args, **kwargs)
+
+        # apply cache mode
+        self.setCacheMode(self.cache_mode)
 
     def x_uppx(self) -> int:
 
@@ -112,81 +190,32 @@ class Curve(FlowGraphic):
       updates don't trigger a full path redraw.
 
     '''
+    # TODO: can we remove this?
+    # sub_br: Optional[Callable] = None
 
     def __init__(
         self,
         *args,
 
-        step_mode: bool = False,
-        color: str = 'default_lightest',
-        fill_color: Optional[str] = None,
-        style: str = 'solid',
-        name: Optional[str] = None,
+        # color: str = 'default_lightest',
+        # fill_color: Optional[str] = None,
+        # style: str = 'solid',
 
         **kwargs
 
     ) -> None:
 
-        self._name = name
-
         # brutaaalll, see comments within..
         self.yData = None
         self.xData = None
-
-        # self._last_cap: int = 0
-        self.path: Optional[QPainterPath] = None
-
-        # additional path that can be optionally used for appends which
-        # tries to avoid triggering an update/redraw of the presumably
-        # larger historical ``.path`` above. the flag to enable
-        # this behaviour is found in `Renderer.render()`.
-        self.fast_path: QPainterPath | None = None
 
         # TODO: we can probably just dispense with the parent since
         # we're basically only using the pen setting now...
         super().__init__(*args, **kwargs)
 
-        # all history of curve is drawn in single px thickness
-        pen = pg.mkPen(hcolor(color))
-        pen.setStyle(_line_styles[style])
-
-        if 'dash' in style:
-            pen.setDashPattern([8, 3])
-
-        self._pen = pen
-
-        # last segment is drawn in 2px thickness for emphasis
-        # self.last_step_pen = pg.mkPen(hcolor(color), width=2)
-        self.last_step_pen = pg.mkPen(pen, width=2)
-
         self._last_line: QLineF = QLineF()
 
-        # flat-top style histogram-like discrete curve
-        # self._step_mode: bool = step_mode
-
         # self._fill = True
-        self._brush = pg.functions.mkBrush(hcolor(fill_color or color))
-
-        # NOTE: this setting seems to mostly prevent redraws on mouse
-        # interaction which is a huge boon for avg interaction latency.
-
-        # TODO: one question still remaining is if this makes trasform
-        # interactions slower (such as zooming) and if so maybe if/when
-        # we implement a "history" mode for the view we disable this in
-        # that mode?
-        # don't enable caching by default for the case where the
-        # only thing drawn is the "last" line segment which can
-        # have a weird artifact where it won't be fully drawn to its
-        # endpoint (something we saw on trade rate curves)
-        self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
-
-        # XXX-NOTE-XXX: graphics caching.
-        # see explanation for different caching modes:
-        # https://stackoverflow.com/a/39410081 seems to only be useful
-        # if we don't re-generate the entire QPainterPath every time
-        # don't ever use this - it's a colossal nightmare of artefacts
-        # and is disastrous for performance.
-        # self.setCacheMode(QtWidgets.QGraphicsItem.ItemCoordinateCache)
 
         # allow sub-type customization
         declare = self.declare_paintables
@@ -317,14 +346,10 @@ class Curve(FlowGraphic):
 
         p.setPen(self.last_step_pen)
         p.drawLine(self._last_line)
-        profiler('.drawLine()')
-        p.setPen(self._pen)
+        profiler('last datum `.drawLine()`')
 
+        p.setPen(self._pen)
         path = self.path
-        # cap = path.capacity()
-        # if cap != self._last_cap:
-        #     print(f'NEW CAPACITY: {self._last_cap} -> {cap}')
-        #     self._last_cap = cap
 
         if path:
             p.drawPath(path)
@@ -369,7 +394,7 @@ class Curve(FlowGraphic):
             # from last datum to current such that
             # the end of line touches the "beginning"
             # of the current datum step span.
-            x_2last , y[-2],
+            x_2last, y[-2],
             x_last, y[-1],
         )
 
@@ -381,6 +406,9 @@ class Curve(FlowGraphic):
 # element such that the current datum in view can be shown
 # (via it's max / min) even when highly zoomed out.
 class FlattenedOHLC(Curve):
+
+    # avoids strange dragging/smearing artifacts when panning..
+    cache_mode: int = QGraphicsItem.NoCache
 
     def draw_last_datum(
         self,

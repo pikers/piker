@@ -152,9 +152,14 @@ class Profiler(object):
             # don't do anything
             return cls._disabledProfiler
 
-        # create an actual profiling object
         cls._depth += 1
         obj = super(Profiler, cls).__new__(cls)
+        obj._msgs = []
+
+        # create an actual profiling object
+        if cls._depth < 1:
+            cls._msgs = []
+
         obj._name = msg or func_qualname
         obj._delayed = delayed
         obj._markCount = 0
@@ -174,8 +179,12 @@ class Profiler(object):
 
         self._markCount += 1
         newTime = perf_counter()
+        tot_ms = (newTime - self._firstTime) * 1000
         ms = (newTime - self._lastTime) * 1000
-        self._newMsg("  %s: %0.4f ms", msg, ms)
+        self._newMsg(
+            f"  {msg}: {ms:0.4f}, tot:{tot_ms:0.4f}"
+        )
+
         self._lastTime = newTime
 
     def mark(self, msg=None):

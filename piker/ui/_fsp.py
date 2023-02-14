@@ -78,7 +78,6 @@ def has_vlm(ohlcv: ShmArray) -> bool:
 
 
 def update_fsp_chart(
-    chart: ChartPlotWidget,
     viz,
     graphics_name: str,
     array_key: Optional[str],
@@ -101,18 +100,14 @@ def update_fsp_chart(
     # update graphics
     # NOTE: this does a length check internally which allows it
     # staying above the last row check below..
-    chart.update_graphics_from_flow(
-        graphics_name,
-        array_key=array_key or graphics_name,
-        **kwargs,
-    )
+    viz.update_graphics()
 
     # XXX: re: ``array_key``: fsp func names must be unique meaning we
     # can't have duplicates of the underlying data even if multiple
     # sub-charts reference it under different 'named charts'.
 
     # read from last calculated value and update any label
-    last_val_sticky = chart.plotItem.getAxis(
+    last_val_sticky = viz.plot.getAxis(
         'right')._stickies.get(graphics_name)
     if last_val_sticky:
         last = last_row[array_key]
@@ -287,9 +282,10 @@ async def run_fsp_ui(
         # profiler(f'fsp:{name} chart created')
 
         # first UI update, usually from shm pushed history
+        viz = chart.get_viz(array_key)
         update_fsp_chart(
             chart,
-            chart.get_viz(array_key),
+            viz,
             name,
             array_key=array_key,
         )
@@ -316,7 +312,7 @@ async def run_fsp_ui(
         #     level_line(chart, 70, orient_v='bottom')
         #     level_line(chart, 80, orient_v='top')
 
-        chart.view._set_yrange()
+        chart.view._set_yrange(viz=viz)
         # done()  # status updates
 
         # profiler(f'fsp:{func_name} starting update loop')
@@ -670,7 +666,7 @@ async def open_vlm_displays(
         # built-in vlm which we plot ASAP since it's
         # usually data provided directly with OHLC history.
         shm = ohlcv
-        ohlc_chart = linked.chart
+        # ohlc_chart = linked.chart
 
         vlm_chart = linked.add_plot(
             name='volume',
@@ -688,37 +684,7 @@ async def open_vlm_displays(
             # the curve item internals are pretty convoluted.
             style='step',
         )
-        vlm_chart.view.enable_auto_yrange()
-
-        # back-link the volume chart to trigger y-autoranging
-        # in the ohlc (parent) chart.
-        ohlc_chart.view.enable_auto_yrange(
-            src_vb=vlm_chart.view,
-        )
-
-        # force 0 to always be in view
-        def multi_maxmin(
-            names: list[str],
-
-        ) -> tuple[float, float]:
-            '''
-            Viz "group" maxmin loop; assumes all named flows
-            are in the same co-domain and thus can be sorted
-            as one set.
-
-            Iterates all the named flows and calls the chart
-            api to find their range values and return.
-
-            TODO: really we should probably have a more built-in API
-            for this?
-
-            '''
-            mx = 0
-            for name in names:
-                ymn, ymx = vlm_chart.maxmin(name=name)
-                mx = max(mx, ymx)
-
-            return 0, mx
+        vlm_viz = vlm_chart._vizs['volume']
 
         # TODO: fix the x-axis label issue where if you put
         # the axis on the left it's totally not lined up...
@@ -741,12 +707,14 @@ async def open_vlm_displays(
 
         last_val_sticky.update_from_data(-1, value)
 
-        vlm_curve = vlm_chart.update_graphics_from_flow(
+        _, _, vlm_curve = vlm_chart.update_graphics_from_flow(
             'volume',
         )
 
         # size view to data once at outset
-        vlm_chart.view._set_yrange()
+        vlm_chart.view._set_yrange(
+            viz=vlm_viz
+        )
 
         # add axis title
         axis = vlm_chart.getAxis('right')
@@ -761,7 +729,7 @@ async def open_vlm_displays(
 
                 {  # fsp engine conf
                     'func_name': 'dolla_vlm',
-                    'zero_on_step': False,
+                    'zero_on_step': True,
                     'params': {
                         'price_func': {
                             'default_value': 'chl3',
@@ -811,7 +779,7 @@ async def open_vlm_displays(
             dvlm_pi.hideAxis('bottom')
 
             # all to be overlayed curve names
-            fields = [
+            dvlm_fields = [
                'dolla_vlm',
                'dark_vlm',
             ]
@@ -823,16 +791,6 @@ async def open_vlm_displays(
                 'trade_rate',
                 'dark_trade_rate',
             ]
-
-            group_mxmn = partial(
-                multi_maxmin,
-                # keep both regular and dark vlm in view
-                names=fields,
-                # names=fields + dvlm_rate_fields,
-            )
-
-            # add custom auto range handler
-            dvlm_pi.vb._maxmin = group_mxmn
 
             # add dvlm (step) curves to common view
             def chart_curves(
@@ -870,7 +828,7 @@ async def open_vlm_displays(
                     assert viz.plot is pi
 
             chart_curves(
-                fields,
+                dvlm_fields,
                 dvlm_pi,
                 dvlm_flume.rt_shm,
                 dvlm_flume,
@@ -929,12 +887,6 @@ async def open_vlm_displays(
                     'text_color': vlm_color,
                 },
 
-            )
-            # add custom auto range handler
-            tr_pi.vb.maxmin = partial(
-                multi_maxmin,
-                # keep both regular and dark vlm in view
-                names=trade_rate_fields,
             )
             tr_pi.hideAxis('bottom')
 

@@ -19,6 +19,10 @@ Data vizualization APIs
 
 '''
 from __future__ import annotations
+from math import (
+    ceil,
+    floor,
+)
 from typing import (
     Optional,
     Literal,
@@ -56,6 +60,7 @@ from ..log import get_logger
 from .._profile import (
     Profiler,
     pg_profile_enabled,
+    ms_slower_then,
 )
 
 
@@ -127,9 +132,9 @@ def render_baritems(
 
         # baseline "line" downsampled OHLC curve that should
         # kick on only when we reach a certain uppx threshold.
-        self._render_table = (ds_curve_r, curve)
+        self._alt_r = (ds_curve_r, curve)
 
-    ds_r, curve = self._render_table
+    ds_r, curve = self._alt_r
 
     # print(
     #     f'r: {r.fmtr.xy_slice}\n'
@@ -265,14 +270,17 @@ class Viz(msgspec.Struct):  # , frozen=True):
     _index_step: float | None = None
 
     # map from uppx -> (downsampled data, incremental graphics)
-    _src_r: Optional[Renderer] = None
-    _render_table: dict[
-        Optional[int],
-        tuple[Renderer, pg.GraphicsItem],
-    ] = (None, None)
+    _src_r: Renderer | None = None
+    _alt_r: tuple[
+        Renderer,
+        pg.GraphicsItem
+    ] | None = None
 
     # cache of y-range values per x-range input.
-    _mxmns: dict[tuple[int, int], tuple[float, float]] = {}
+    _mxmns: dict[
+        tuple[int, int],
+        tuple[float, float],
+    ] = {}
 
     @property
     def shm(self) -> ShmArray:
@@ -320,59 +328,97 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
     def maxmin(
         self,
-        lbar: int,
-        rbar: int,
 
+        x_range: slice | tuple[int, int] | None = None,
+        i_read_range: tuple[int, int] | None = None,
         use_caching: bool = True,
 
-    ) -> Optional[tuple[float, float]]:
+    ) -> tuple[float, float] | None:
         '''
         Compute the cached max and min y-range values for a given
         x-range determined by ``lbar`` and ``rbar`` or ``None``
         if no range can be determined (yet).
 
         '''
-        # TODO: hash the slice instead maybe?
-        # https://stackoverflow.com/a/29980872
-        rkey = (round(lbar), round(rbar))
-
-        do_print: bool = False
-        if use_caching:
-            cached_result = self._mxmns.get(rkey)
-            if cached_result:
-                if do_print:
-                    print(
-                        f'{self.name} CACHED maxmin\n'
-                        f'{rkey} -> {cached_result}'
-                    )
-                return cached_result
+        name = self.name
+        profiler = Profiler(
+            msg=f'`Viz[{name}].maxmin()`',
+            disabled=not pg_profile_enabled(),
+            ms_threshold=4,
+            delayed=True,
+        )
 
         shm = self.shm
         if shm is None:
             return None
 
+        do_print: bool = False
         arr = shm.array
 
-        # get relative slice indexes into array
-        if self.index_field == 'time':
-            read_slc = slice_from_time(
-                arr,
-                start_t=lbar,
-                stop_t=rbar,
-                step=self.index_step(),
-            )
+        if i_read_range is not None:
+            read_slc = slice(*i_read_range)
+            index = arr[read_slc][self.index_field]
+            if not index.size:
+                return None
+            ixrng = (index[0], index[-1])
 
         else:
-            ifirst = arr[0]['index']
-            read_slc = slice(
-                lbar - ifirst,
-                (rbar - ifirst) + 1
-            )
+            if x_range is None:
+                (
+                    l,
+                    _,
+                    lbar,
+                    rbar,
+                    _,
+                    r,
+                ) = self.datums_range()
+
+                profiler(f'{self.name} got bars range')
+                x_range = lbar, rbar
+
+            # TODO: hash the slice instead maybe?
+            # https://stackoverflow.com/a/29980872
+            lbar, rbar = ixrng = round(x_range[0]), round(x_range[1])
+
+        if use_caching:
+            cached_result = self._mxmns.get(ixrng)
+            if cached_result:
+                if do_print:
+                    print(
+                        f'{self.name} CACHED maxmin\n'
+                        f'{ixrng} -> {cached_result}'
+                    )
+                read_slc, mxmn = cached_result
+                return (
+                    ixrng,
+                    read_slc,
+                    mxmn,
+                )
+
+        if i_read_range is None:
+            # get relative slice indexes into array
+            if self.index_field == 'time':
+                read_slc = slice_from_time(
+                    arr,
+                    start_t=lbar,
+                    stop_t=rbar,
+                    step=self.index_step(),
+                )
+
+            else:
+                ifirst = arr[0]['index']
+                read_slc = slice(
+                    lbar - ifirst,
+                    (rbar - ifirst) + 1
+                )
 
         slice_view = arr[read_slc]
 
         if not slice_view.size:
-            log.warning(f'{self.name} no maxmin in view?')
+            log.warning(
+                f'{self.name} no maxmin in view?\n'
+                f"{name} no mxmn for bars_range => {ixrng} !?"
+            )
             return None
 
         elif self.yrange:
@@ -380,9 +426,8 @@ class Viz(msgspec.Struct):  # , frozen=True):
             if do_print:
                 print(
                     f'{self.name} M4 maxmin:\n'
-                    f'{rkey} -> {mxmn}'
+                    f'{ixrng} -> {mxmn}'
                 )
-
         else:
             if self.is_ohlc:
                 ylow = np.min(slice_view['low'])
@@ -400,7 +445,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 s = 3
                 print(
                     f'{self.name} MANUAL ohlc={self.is_ohlc} maxmin:\n'
-                    f'{rkey} -> {mxmn}\n'
+                    f'{ixrng} -> {mxmn}\n'
                     f'read_slc: {read_slc}\n'
                     # f'abs_slc: {slice_view["index"]}\n'
                     f'first {s}:\n{slice_view[:s]}\n'
@@ -409,9 +454,13 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         # cache result for input range
         assert mxmn
-        self._mxmns[rkey] = mxmn
-
-        return mxmn
+        self._mxmns[ixrng] = (read_slc, mxmn)
+        profiler(f'yrange mxmn cacheing: {x_range} -> {mxmn}')
+        return (
+            ixrng,
+            read_slc,
+            mxmn,
+        )
 
     def view_range(self) -> tuple[int, int]:
         '''
@@ -456,13 +505,13 @@ class Viz(msgspec.Struct):  # , frozen=True):
             array = self.shm.array
 
         index = array[index_field]
-        first = round(index[0])
-        last = round(index[-1])
+        first = floor(index[0])
+        last = ceil(index[-1])
 
         # first and last datums in view determined by
         # l / r view range.
-        leftmost = round(l)
-        rightmost = round(r)
+        leftmost = floor(l)
+        rightmost = ceil(r)
 
         # invalid view state
         if (
@@ -609,7 +658,11 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         **kwargs,
 
-    ) -> pg.GraphicsObject:
+    ) -> tuple[
+        bool,
+        tuple[int, int],
+        pg.GraphicsObject,
+    ]:
         '''
         Read latest datums from shm and render to (incrementally)
         render to graphics.
@@ -618,13 +671,17 @@ class Viz(msgspec.Struct):  # , frozen=True):
         profiler = Profiler(
             msg=f'Viz.update_graphics() for {self.name}',
             disabled=not pg_profile_enabled(),
-            ms_threshold=4,
-            # ms_threshold=ms_slower_then,
+            ms_threshold=ms_slower_then,
+            # ms_threshold=4,
         )
         # shm read and slice to view
         read = (
-            xfirst, xlast, src_array,
-            ivl, ivr, in_view,
+            xfirst,
+            xlast,
+            src_array,
+            ivl,
+            ivr,
+            in_view,
         ) = self.read(profiler=profiler)
 
         profiler('read src shm data')
@@ -635,8 +692,12 @@ class Viz(msgspec.Struct):  # , frozen=True):
             not in_view.size
             or not render
         ):
-            # print('exiting early')
-            return graphics
+            # print(f'{self.name} not in view (exiting early)')
+            return (
+                False,
+                (ivl, ivr),
+                graphics,
+            )
 
         should_redraw: bool = False
         ds_allowed: bool = True  # guard for m4 activation
@@ -753,13 +814,18 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         if not out:
             log.warning(f'{self.name} failed to render!?')
-            return graphics
+            return (
+                False,
+                (ivl, ivr),
+                graphics,
+            )
 
         path, reset_cache = out
 
         # XXX: SUPER UGGGHHH... without this we get stale cache
         # graphics that "smear" across the view horizontally
         # when panning and the first datum is out of view..
+        reset_cache = False
         if (
             reset_cache
         ):
@@ -768,36 +834,53 @@ class Viz(msgspec.Struct):  # , frozen=True):
             with graphics.reset_cache():
                 graphics.path = r.path
                 graphics.fast_path = r.fast_path
+
+                self.draw_last(
+                    array_key=array_key,
+                    last_read=read,
+                    reset_cache=reset_cache,
+                )
         else:
             # assign output paths to graphicis obj
             graphics.path = r.path
             graphics.fast_path = r.fast_path
 
-        graphics.draw_last_datum(
-            path,
-            src_array,
-            reset_cache,
-            array_key,
-            index_field=self.index_field,
-        )
-        graphics.update()
-        profiler('.update()')
-
+            self.draw_last(
+                array_key=array_key,
+                last_read=read,
+                reset_cache=reset_cache,
+            )
+        # graphics.draw_last_datum(
+        #     path,
+        #     src_array,
+        #     reset_cache,
+        #     array_key,
+        #     index_field=self.index_field,
+        # )
         # TODO: does this actuallly help us in any way (prolly should
         # look at the source / ask ogi). I think it avoid artifacts on
         # wheel-scroll downsampling curve updates?
         # TODO: is this ever better?
-        # graphics.prepareGeometryChange()
-        # profiler('.prepareGeometryChange()')
+        graphics.prepareGeometryChange()
+        profiler('.prepareGeometryChange()')
+
+        graphics.update()
+        profiler('.update()')
 
         # track downsampled state
         self._in_ds = r._in_ds
 
-        return graphics
+        return (
+            True,
+            (ivl, ivr),
+            graphics,
+        )
 
     def draw_last(
         self,
-        array_key: Optional[str] = None,
+        array_key: str | None = None,
+        last_read: tuple | None = None,
+        reset_cache: bool = False,
         only_last_uppx: bool = False,
 
     ) -> None:
@@ -806,17 +889,11 @@ class Viz(msgspec.Struct):  # , frozen=True):
         (
             xfirst, xlast, src_array,
             ivl, ivr, in_view,
-        ) = self.read()
+        ) = last_read or self.read()
 
-        g = self.graphics
         array_key = array_key or self.name
-        x, y = g.draw_last_datum(
-            g.path,
-            src_array,
-            False,  # never reset path
-            array_key,
-            self.index_field,
-        )
+
+        gfx = self.graphics
 
         # the renderer is downsampling we choose
         # to always try and update a single (interpolating)
@@ -826,36 +903,55 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # worth of data since that's all the screen
         # can represent on the last column where
         # the most recent datum is being drawn.
-        if (
-            self._in_ds
-            or only_last_uppx
-        ):
-            dsg = self.ds_graphics or self.graphics
+        uppx = ceil(gfx.x_uppx())
 
-            # XXX: pretty sure we don't need this?
-            # if isinstance(g, Curve):
-            #     with dsg.reset_cache():
-            uppx = round(self._last_uppx)
-            y = y[-uppx:]
+        if (
+            (self._in_ds or only_last_uppx)
+            and uppx > 0
+        ):
+            alt_renderer = self._alt_r
+            if alt_renderer:
+                renderer, gfx = alt_renderer
+            else:
+                renderer = self._src_r
+
+            fmtr = renderer.fmtr
+            x = fmtr.x_1d
+            y = fmtr.y_1d
+
+            iuppx = ceil(uppx)
+            if alt_renderer:
+                iuppx = ceil(uppx / fmtr.flat_index_ratio)
+
+            y = y[-iuppx:]
             ymn, ymx = y.min(), y.max()
-            # print(f'drawing uppx={uppx} mxmn line: {ymn}, {ymx}')
             try:
-                iuppx = x[-uppx]
+                x_start = x[-iuppx]
             except IndexError:
                 # we're less then an x-px wide so just grab the start
                 # datum index.
-                iuppx = x[0]
+                x_start = x[0]
 
-            dsg._last_line = QLineF(
-                iuppx, ymn,
+            gfx._last_line = QLineF(
+                x_start, ymn,
                 x[-1], ymx,
             )
-            # print(f'updating DS curve {self.name}')
-            dsg.update()
+            # print(
+            #     f'updating DS curve {self.name}@{time_step}s\n'
+            #     f'drawing uppx={uppx} mxmn line: {ymn}, {ymx}'
+            # )
 
         else:
+            x, y = gfx.draw_last_datum(
+                gfx.path,
+                src_array,
+                reset_cache,  # never reset path
+                array_key,
+                self.index_field,
+            )
             # print(f'updating NOT DS curve {self.name}')
-            g.update()
+
+        gfx.update()
 
     def default_view(
         self,
@@ -964,7 +1060,9 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 l_reset = r_reset - rl_diff
 
             else:
-                raise RuntimeError(f'Unknown view state {vl} -> {vr}')
+                log.warning(f'Unknown view state {vl} -> {vr}')
+                return
+                # raise RuntimeError(f'Unknown view state {vl} -> {vr}')
 
         else:
             # maintain the l->r view distance
@@ -981,11 +1079,9 @@ class Viz(msgspec.Struct):  # , frozen=True):
         )
 
         if do_ds:
+            # view.interaction_graphics_cycle()
             view.maybe_downsample_graphics()
-            view._set_yrange()
-
-            # caller should do this!
-            # self.linked.graphics_cycle()
+            view._set_yrange(viz=self)
 
     def incr_info(
         self,
@@ -994,8 +1090,46 @@ class Viz(msgspec.Struct):  # , frozen=True):
         is_1m: bool = False,
 
     ) -> tuple:
+        '''
+        Return a slew of graphics related data-flow metrics to do with
+        incrementally updating a data view.
 
-        _, _, _, r = self.bars_range()  # most recent right datum index in-view
+        Output  info includes,
+        ----------------------
+
+        uppx: float
+            x-domain units-per-pixel.
+
+        liv: bool
+            telling if the "last datum" is in vie"last datum" is in
+            view.
+
+        do_px_step: bool
+            recent data append(s) are enough that the next physical
+            pixel-column should be used for drawing.
+
+        i_diff_t: float
+            the difference between the last globally recorded time stamp
+            aand the current one.
+
+        append_diff: int
+           diff between last recorded "append index" (the index at whic
+           `do_px_step` was last returned `True`) and the current index.
+
+        do_rt_update: bool
+            `True` only when the uppx is less then some threshold
+            defined by `update_uppx`.
+
+        should_tread: bool
+            determines the first step, globally across all callers, that
+            the a set of data views should be "treaded", shifted in the
+            x-domain such that the last datum in view is always in the
+            same spot in non-view/scene (aka GUI coord) terms.
+
+
+        '''
+        # get most recent right datum index in-view
+        l, start, datum_start, datum_stop, stop, r = self.datums_range()
         lasts = self.shm.array[-1]
         i_step = lasts['index']  # last index-specific step.
         i_step_t = lasts['time']  # last time step.
@@ -1044,9 +1178,9 @@ class Viz(msgspec.Struct):  # , frozen=True):
         # is such that a datum(s) update to graphics wouldn't span
         # to a new pixel, we don't update yet.
         i_last_append = varz['i_last_append']
-        append_diff = i_step - i_last_append
+        append_diff: int = i_step - i_last_append
 
-        do_px_step = append_diff >= uppx
+        do_px_step = (append_diff * self.index_step()) >= uppx
         do_rt_update = (uppx < update_uppx)
 
         if (

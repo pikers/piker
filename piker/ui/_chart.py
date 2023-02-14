@@ -50,7 +50,6 @@ from ._cursor import (
     ContentsLabel,
 )
 from ..data._sharedmem import ShmArray
-from ._l1 import L1Labels
 from ._ohlc import BarItems
 from ._curve import (
     Curve,
@@ -70,12 +69,10 @@ from ..data._source import Symbol
 from ..log import get_logger
 from ._interaction import ChartView
 from ._forms import FieldsForm
-from .._profile import pg_profile_enabled, ms_slower_then
 from ._overlay import PlotItemOverlay
 from ._dataviz import Viz
 from ._search import SearchWidget
 from . import _pg_overrides as pgo
-from .._profile import Profiler
 
 if TYPE_CHECKING:
     from ._display import DisplayState
@@ -127,7 +124,10 @@ class GodWidget(QWidget):
         # self.init_strategy_ui()
         # self.vbox.addLayout(self.hbox)
 
-        self._chart_cache: dict[str, LinkedSplits] = {}
+        self._chart_cache: dict[
+            str,
+            tuple[LinkedSplits, LinkedSplits],
+        ] = {}
 
         self.hist_linked: Optional[LinkedSplits] = None
         self.rt_linked: Optional[LinkedSplits] = None
@@ -146,23 +146,6 @@ class GodWidget(QWidget):
     @property
     def linkedsplits(self) -> LinkedSplits:
         return self.rt_linked
-
-    # def init_timeframes_ui(self):
-    #     self.tf_layout = QHBoxLayout()
-    #     self.tf_layout.setSpacing(0)
-    #     self.tf_layout.setContentsMargins(0, 12, 0, 0)
-    #     time_frames = ('1M', '5M', '15M', '30M', '1H', '1D', '1W', 'MN')
-    #     btn_prefix = 'TF'
-
-    #     for tf in time_frames:
-    #         btn_name = ''.join([btn_prefix, tf])
-    #         btn = QtWidgets.QPushButton(tf)
-    #         # TODO:
-    #         btn.setEnabled(False)
-    #         setattr(self, btn_name, btn)
-    #         self.tf_layout.addWidget(btn)
-
-    #     self.toolbar_layout.addLayout(self.tf_layout)
 
     # XXX: strat loader/saver that we don't need yet.
     # def init_strategy_ui(self):
@@ -545,6 +528,8 @@ class LinkedSplits(QWidget):
 
         style: str = 'ohlc_bar',
 
+        **add_plot_kwargs,
+
     ) -> ChartPlotWidget:
         '''
         Start up and show main (price) chart and all linked subcharts.
@@ -569,6 +554,7 @@ class LinkedSplits(QWidget):
             style=style,
             _is_main=True,
             sidepane=sidepane,
+            **add_plot_kwargs,
         )
         # add crosshair graphic
         self.chart.addItem(self.cursor)
@@ -593,6 +579,7 @@ class LinkedSplits(QWidget):
         _is_main: bool = False,
 
         sidepane: Optional[QWidget] = None,
+        draw_kwargs: dict = {},
 
         **cpw_kwargs,
 
@@ -650,7 +637,8 @@ class LinkedSplits(QWidget):
         cpw.hideAxis('bottom')
 
         if (
-            _xaxis_at == 'bottom' and (
+            _xaxis_at == 'bottom'
+            and (
                 self.xaxis_chart
                 or (
                     not self.subplots
@@ -658,6 +646,8 @@ class LinkedSplits(QWidget):
                 )
             )
         ):
+            # hide the previous x-axis chart's bottom axis since we're
+            # presumably being appended to the bottom subplot.
             if self.xaxis_chart:
                 self.xaxis_chart.hideAxis('bottom')
 
@@ -702,7 +692,12 @@ class LinkedSplits(QWidget):
         # link chart x-axis to main chart
         # this is 1/2 of where the `Link` in ``LinkedSplit``
         # comes from ;)
-        cpw.setXLink(self.chart)
+        cpw.cv.setXLink(self.chart)
+
+        # NOTE: above is the same as the following,
+        # link this subchart's axes to the main top level chart.
+        # if self.chart:
+        #     cpw.cv.linkView(0, self.chart.cv)
 
         add_label = False
         anchor_at = ('top', 'left')
@@ -710,12 +705,12 @@ class LinkedSplits(QWidget):
         # draw curve graphics
         if style == 'ohlc_bar':
 
-            # graphics, data_key = cpw.draw_ohlc(
             viz = cpw.draw_ohlc(
                 name,
                 shm,
                 flume=flume,
-                array_key=array_key
+                array_key=array_key,
+                **draw_kwargs,
             )
             self.cursor.contents_labels.add_label(
                 cpw,
@@ -733,6 +728,7 @@ class LinkedSplits(QWidget):
                 flume,
                 array_key=array_key,
                 color='default_light',
+                **draw_kwargs,
             )
 
         elif style == 'step':
@@ -746,10 +742,20 @@ class LinkedSplits(QWidget):
                 step_mode=True,
                 color='davies',
                 fill_color='davies',
+                **draw_kwargs,
             )
 
         else:
             raise ValueError(f"Chart style {style} is currently unsupported")
+
+        # NOTE: back-link the new sub-chart to trigger y-autoranging in
+        # the (ohlc parent) main chart for this linked set.
+        if self.chart:
+            main_viz = self.chart.get_viz(self.chart.name)
+            self.chart.view.enable_auto_yrange(
+                src_vb=cpw.view,
+                viz=main_viz,
+            )
 
         graphics = viz.graphics
         data_key = viz.name
@@ -814,7 +820,9 @@ class LinkedSplits(QWidget):
 # write our own wrapper around `PlotItem`..
 class ChartPlotWidget(pg.PlotWidget):
     '''
-    ``GraphicsView`` subtype containing a single ``PlotItem``.
+    ``GraphicsView`` subtype containing a ``.plotItem: PlotItem`` as well
+    as a `.pi_overlay: PlotItemOverlay`` which helps manage and overlay flow
+    graphics view multiple compose view boxes.
 
     - The added methods allow for plotting OHLC sequences from
       ``np.ndarray``s with appropriate field names.
@@ -871,17 +879,17 @@ class ChartPlotWidget(pg.PlotWidget):
         self.sidepane: Optional[FieldsForm] = None
 
         # source of our custom interactions
-        self.cv = cv = self.mk_vb(name)
+        self.cv = self.mk_vb(name)
 
         pi = pgo.PlotItem(
-            viewBox=cv,
+            viewBox=self.cv,
             name=name,
             **kwargs,
         )
         pi.chart_widget = self
         super().__init__(
             background=hcolor(view_color),
-            viewBox=cv,
+            viewBox=self.cv,
             # parent=None,
             # plotItem=None,
             # antialias=True,
@@ -892,7 +900,9 @@ class ChartPlotWidget(pg.PlotWidget):
         # give viewbox as reference to chart
         # allowing for kb controls and interactions on **this** widget
         # (see our custom view mode in `._interactions.py`)
-        cv.chart = self
+        self.cv.chart = self
+
+        self.pi_overlay: PlotItemOverlay = PlotItemOverlay(self.plotItem)
 
         # ensure internal pi matches
         assert self.cv is self.plotItem.vb
@@ -920,8 +930,6 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # show background grid
         self.showGrid(x=False, y=True, alpha=0.3)
-
-        self.pi_overlay: PlotItemOverlay = PlotItemOverlay(self.plotItem)
 
         # indempotent startup flag for auto-yrange subsys
         # to detect the "first time" y-domain graphics begin
@@ -1111,14 +1119,6 @@ class ChartPlotWidget(pg.PlotWidget):
             link_axes=(0,),
         )
 
-        # connect auto-yrange callbacks *from* this new
-        # view **to** this parent and likewise *from* the
-        # main/parent chart back *to* the created overlay.
-        cv.enable_auto_yrange(src_vb=self.view)
-        # makes it so that interaction on the new overlay will reflect
-        # back on the main chart (which overlay was added to).
-        self.view.enable_auto_yrange(src_vb=cv)
-
         # add axis title
         # TODO: do we want this API to still work?
         # raxis = pi.getAxis('right')
@@ -1158,8 +1158,6 @@ class ChartPlotWidget(pg.PlotWidget):
 
         if is_ohlc:
             graphics = BarItems(
-                linked=self.linked,
-                plotitem=pi,
                 color=color,
                 name=name,
                 **graphics_kwargs,
@@ -1189,6 +1187,16 @@ class ChartPlotWidget(pg.PlotWidget):
             # register curve graphics with this viz
             graphics=graphics,
         )
+
+        # connect auto-yrange callbacks *from* this new
+        # view **to** this parent and likewise *from* the
+        # main/parent chart back *to* the created overlay.
+        pi.vb.enable_auto_yrange(
+            src_vb=self.view,
+            viz=viz,
+        )
+
+        pi.viz = viz
         assert isinstance(viz.shm, ShmArray)
 
         # TODO: this probably needs its own method?
@@ -1316,13 +1324,6 @@ class ChartPlotWidget(pg.PlotWidget):
         If ``bars_range`` is provided use that range.
 
         '''
-        profiler = Profiler(
-            msg=f'`{str(self)}.maxmin(name={name})`: `{self.name}`',
-            disabled=not pg_profile_enabled(),
-            ms_threshold=ms_slower_then,
-            delayed=True,
-        )
-
         # TODO: here we should instead look up the ``Viz.shm.array``
         # and read directly from shm to avoid copying to memory first
         # and then reading it again here.
@@ -1330,36 +1331,21 @@ class ChartPlotWidget(pg.PlotWidget):
         viz = self._vizs.get(viz_key)
         if viz is None:
             log.error(f"viz {viz_key} doesn't exist in chart {self.name} !?")
-            key = res = 0, 0
+            return 0, 0
 
+        res = viz.maxmin()
+
+        if (
+            res is None
+        ):
+            mxmn = 0, 0
+            if not self._on_screen:
+                self.default_view(do_ds=False)
+                self._on_screen = True
         else:
-            (
-                l,
-                _,
-                lbar,
-                rbar,
-                _,
-                r,
-            ) = bars_range or viz.datums_range()
+            x_range, read_slc, mxmn = res
 
-            profiler(f'{self.name} got bars range')
-            key = lbar, rbar
-            res = viz.maxmin(*key)
-
-            if (
-                res is None
-            ):
-                log.warning(
-                    f"{viz_key} no mxmn for bars_range => {key} !?"
-                )
-                res = 0, 0
-                if not self._on_screen:
-                    self.default_view(do_ds=False)
-                    self._on_screen = True
-
-        profiler(f'yrange mxmn: {key} -> {res}')
-        # print(f'{viz_key} yrange mxmn: {key} -> {res}')
-        return res
+        return mxmn
 
     def get_viz(
         self,

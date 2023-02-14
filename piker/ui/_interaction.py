@@ -20,8 +20,13 @@ Chart view box primitives
 """
 from __future__ import annotations
 from contextlib import asynccontextmanager
+from functools import partial
 import time
-from typing import Optional, Callable
+from typing import (
+    Optional,
+    Callable,
+    TYPE_CHECKING,
+)
 
 import pyqtgraph as pg
 # from pyqtgraph.GraphicsScene import mouseEvents
@@ -38,6 +43,10 @@ from .._profile import pg_profile_enabled, ms_slower_then
 # from ._style import _min_points_to_show
 from ._editors import SelectRect
 from . import _event
+
+if TYPE_CHECKING:
+    from ._chart import ChartPlotWidget
+    from ._dataviz import Viz
 
 
 log = get_logger(__name__)
@@ -365,7 +374,6 @@ class ChartView(ViewBox):
         )
         # for "known y-range style"
         self._static_yrange = static_yrange
-        self._maxmin = None
 
         # disable vertical scrolling
         self.setMouseEnabled(
@@ -374,7 +382,7 @@ class ChartView(ViewBox):
         )
 
         self.linked = None
-        self._chart: 'ChartPlotWidget' = None  # noqa
+        self._chart: ChartPlotWidget | None = None  # noqa
 
         # add our selection box annotator
         self.select_box = SelectRect(self)
@@ -385,6 +393,7 @@ class ChartView(ViewBox):
 
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self._ic = None
+        self._yranger: Callable | None = None
 
     def start_ic(
         self,
@@ -445,29 +454,18 @@ class ChartView(ViewBox):
             yield self
 
     @property
-    def chart(self) -> 'ChartPlotWidget':  # type: ignore # noqa
+    def chart(self) -> ChartPlotWidget:  # type: ignore # noqa
         return self._chart
 
     @chart.setter
-    def chart(self, chart: 'ChartPlotWidget') -> None:  # type: ignore # noqa
+    def chart(self, chart: ChartPlotWidget) -> None:  # type: ignore # noqa
         self._chart = chart
         self.select_box.chart = chart
-        if self._maxmin is None:
-            self._maxmin = chart.maxmin
-
-    @property
-    def maxmin(self) -> Callable:
-        return self._maxmin
-
-    @maxmin.setter
-    def maxmin(self, callback: Callable) -> None:
-        self._maxmin = callback
 
     def wheelEvent(
         self,
         ev,
         axis=None,
-        # relayed_from: ChartView = None,
     ):
         '''
         Override "center-point" location for scrolling.
@@ -482,7 +480,6 @@ class ChartView(ViewBox):
         if (
             not linked
         ):
-            # print(f'{self.name} not linked but relay from {relayed_from.name}')
             return
 
         if axis in (0, 1):
@@ -494,18 +491,19 @@ class ChartView(ViewBox):
         chart = self.linked.chart
 
         # don't zoom more then the min points setting
-        out = l, lbar, rbar, r = chart.get_viz(chart.name).bars_range()
-        # vl = r - l
+        viz = chart.get_viz(chart.name)
+        vl, lbar, rbar, vr = viz.bars_range()
 
-        # if ev.delta() > 0 and vl <= _min_points_to_show:
-        #     log.debug("Max zoom bruh...")
+        # TODO: max/min zoom limits incorporating time step size.
+        # rl = vr - vl
+        # if ev.delta() > 0 and rl <= _min_points_to_show:
+        #     log.warning("Max zoom bruh...")
         #     return
-
         # if (
         #     ev.delta() < 0
-        #     and vl >= len(chart._vizs[chart.name].shm.array) + 666
+        #     and rl >= len(chart._vizs[chart.name].shm.array) + 666
         # ):
-        #     log.debug("Min zoom bruh...")
+        #     log.warning("Min zoom bruh...")
         #     return
 
         # actual scaling factor
@@ -536,49 +534,17 @@ class ChartView(ViewBox):
             self.scaleBy(s, center)
 
         else:
-
-            # center = pg.Point(
-            #     fn.invertQTransform(self.childGroup.transform()).map(ev.pos())
-            # )
-
-            # XXX: scroll "around" the right most element in the view
-            # which stays "pinned" in place.
-
-            # furthest_right_coord = self.boundingRect().topRight()
-
-            # yaxis = pg.Point(
-            #     fn.invertQTransform(
-            #         self.childGroup.transform()
-            #     ).map(furthest_right_coord)
-            # )
-
-            # This seems like the most "intuitive option, a hybrid of
-            # tws and tv styles
-            last_bar = pg.Point(int(rbar)) + 1
-
-            ryaxis = chart.getAxis('right')
-            r_axis_x = ryaxis.pos().x()
-
-            end_of_l1 = pg.Point(
-                round(
-                    chart.cv.mapToView(
-                        pg.Point(r_axis_x - chart._max_l1_line_len)
-                        # QPointF(chart._max_l1_line_len, 0)
-                    ).x()
-                )
-            )  # .x()
-
-            # self.state['viewRange'][0][1] = end_of_l1
-            # focal = pg.Point((last_bar.x() + end_of_l1)/2)
-
+            # use right-most point of current curve graphic
+            xl = viz.graphics.x_last()
             focal = min(
-                last_bar,
-                end_of_l1,
-                key=lambda p: p.x()
+                xl,
+                vr,
             )
-            # focal = pg.Point(last_bar.x() + end_of_l1)
 
             self._resetTarget()
+
+            # NOTE: scroll "around" the right most datum-element in view
+            # gives the feeling of staying "pinned" in place.
             self.scaleBy(s, focal)
 
             # XXX: the order of the next 2 lines i'm pretty sure
@@ -604,21 +570,8 @@ class ChartView(ViewBox):
         self,
         ev,
         axis: Optional[int] = None,
-        # relayed_from: ChartView = None,
 
     ) -> None:
-        # if relayed_from:
-        #     print(f'PAN: {self.name} -> RELAYED FROM: {relayed_from.name}')
-
-        # NOTE since in the overlay case axes are already
-        # "linked" any x-range change will already be mirrored
-        # in all overlaid ``PlotItems``, so we need to simply
-        # ignore the signal here since otherwise we get N-calls
-        # from N-overlays resulting in an "accelerated" feeling
-        # panning motion instead of the expect linear shift.
-        # if relayed_from:
-        #     return
-
         pos = ev.pos()
         lastPos = ev.lastPos()
         dif = pos - lastPos
@@ -688,9 +641,6 @@ class ChartView(ViewBox):
 
             # PANNING MODE
             else:
-                # XXX: WHY
-                ev.accept()
-
                 try:
                     self.start_ic()
                 except RuntimeError:
@@ -721,6 +671,9 @@ class ChartView(ViewBox):
                     # self._ic.set()
                     # self._ic = None
                     # self.chart.resume_all_feeds()
+
+                # XXX: WHY
+                ev.accept()
 
         # WEIRD "RIGHT-CLICK CENTER ZOOM" MODE
         elif button & QtCore.Qt.RightButton:
@@ -767,7 +720,12 @@ class ChartView(ViewBox):
         *,
 
         yrange: Optional[tuple[float, float]] = None,
-        range_margin: float = 0.06,
+        viz: Viz | None = None,
+
+        # NOTE: this value pairs (more or less) with L1 label text
+        # height offset from from the bid/ask lines.
+        range_margin: float = 0.09,
+
         bars_range: Optional[tuple[int, int, int, int]] = None,
 
         # flag to prevent triggering sibling charts from the same linked
@@ -820,17 +778,27 @@ class ChartView(ViewBox):
             # XXX: only compute the mxmn range
             # if none is provided as input!
             if not yrange:
-                # flow = chart._vizs[name]
-                yrange = self._maxmin()
+
+                if not viz:
+                    breakpoint()
+
+                out = viz.maxmin()
+                if out is None:
+                    log.warning(f'No yrange provided for {name}!?')
+                    return
+                (
+                    ixrng,
+                    _,
+                    yrange
+                ) = out
+
+                profiler(f'`{self.name}:Viz.maxmin()` -> {ixrng}=>{yrange}')
 
                 if yrange is None:
                     log.warning(f'No yrange provided for {name}!?')
-                    print(f"WTF NO YRANGE {name}")
                     return
 
             ylow, yhigh = yrange
-
-            profiler(f'callback ._maxmin(): {yrange}')
 
             # view margins: stay within a % of the "true range"
             diff = yhigh - ylow
@@ -851,6 +819,7 @@ class ChartView(ViewBox):
 
     def enable_auto_yrange(
         self,
+        viz: Viz,
         src_vb: Optional[ChartView] = None,
 
     ) -> None:
@@ -862,8 +831,17 @@ class ChartView(ViewBox):
         if src_vb is None:
             src_vb = self
 
+        if self._yranger is None:
+            self._yranger = partial(
+                self._set_yrange,
+                viz=viz,
+            )
+
         # widget-UIs/splitter(s) resizing
-        src_vb.sigResized.connect(self._set_yrange)
+        src_vb.sigResized.connect(self._yranger)
+
+        # mouse wheel doesn't emit XRangeChanged
+        src_vb.sigRangeChangedManually.connect(self._yranger)
 
         # re-sampling trigger:
         # TODO: a smarter way to avoid calling this needlessly?
@@ -875,34 +853,21 @@ class ChartView(ViewBox):
         src_vb.sigRangeChangedManually.connect(
             self.maybe_downsample_graphics
         )
-        # mouse wheel doesn't emit XRangeChanged
-        src_vb.sigRangeChangedManually.connect(self._set_yrange)
-
-        # XXX: enabling these will cause "jittery"-ness
-        # on zoom where sharp diffs in the y-range will
-        # not re-size right away until a new sample update?
-        # if src_vb is not self:
-        #     src_vb.sigXRangeChanged.connect(self._set_yrange)
-        #     src_vb.sigXRangeChanged.connect(
-        #         self.maybe_downsample_graphics
-        #     )
 
     def disable_auto_yrange(self) -> None:
 
+        # XXX: not entirely sure why we can't de-reg this..
         self.sigResized.disconnect(
-            self._set_yrange,
+            self._yranger,
         )
+
+        self.sigRangeChangedManually.disconnect(
+            self._yranger,
+        )
+
         self.sigRangeChangedManually.disconnect(
             self.maybe_downsample_graphics
         )
-        self.sigRangeChangedManually.disconnect(
-            self._set_yrange,
-        )
-
-        # self.sigXRangeChanged.disconnect(self._set_yrange)
-        # self.sigXRangeChanged.disconnect(
-        #     self.maybe_downsample_graphics
-        # )
 
     def x_uppx(self) -> float:
         '''
@@ -924,7 +889,7 @@ class ChartView(ViewBox):
 
     def maybe_downsample_graphics(
         self,
-        autoscale_overlays: bool = True,
+        autoscale_overlays: bool = False,
     ):
         profiler = Profiler(
             msg=f'ChartView.maybe_downsample_graphics() for {self.name}',
@@ -960,21 +925,19 @@ class ChartView(ViewBox):
 
                 # pass in no array which will read and render from the last
                 # passed array (normally provided by the display loop.)
-                chart.update_graphics_from_flow(
-                    name,
-                    use_vr=True,
-                )
+                chart.update_graphics_from_flow(name)
 
                 # for each overlay on this chart auto-scale the
                 # y-range to max-min values.
-                if autoscale_overlays:
-                    overlay = chart.pi_overlay
-                    if overlay:
-                        for pi in overlay.overlays:
-                            pi.vb._set_yrange(
-                                # TODO: get the range once up front...
-                                # bars_range=br,
-                            )
-                    profiler('autoscaled linked plots')
+                # if autoscale_overlays:
+                #     overlay = chart.pi_overlay
+                #     if overlay:
+                #         for pi in overlay.overlays:
+                #             pi.vb._set_yrange(
+                #                 # TODO: get the range once up front...
+                #                 # bars_range=br,
+                #                 viz=pi.viz,
+                #             )
+                #     profiler('autoscaled linked plots')
 
-                profiler(f'<{chart_name}>.update_graphics_from_flow({name})')
+        profiler(f'<{chart_name}>.update_graphics_from_flow({name})')
