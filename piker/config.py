@@ -33,7 +33,6 @@ from .log import get_logger
 
 log = get_logger('broker-config')
 
-
 # taken from ``click`` since apparently they have some
 # super weirdness with sigint and sudo..no clue
 def get_app_dir(app_name, roaming=True, force_posix=False):
@@ -73,7 +72,11 @@ def get_app_dir(app_name, roaming=True, force_posix=False):
     """
     def _posixify(name):
         return "-".join(name.split()).lower()
-
+    
+    # TODO: This is a hacky way to a) determine we're testing
+    # and b) creating a test dir. We should aim to set a variable
+    # within the tractor runtimes and store testing config data
+    # outside of the users filesystem 
     if "pytest" in sys.modules:
         app_name += '/_testing'
 
