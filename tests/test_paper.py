@@ -2,6 +2,9 @@ import trio
 import pytest
 import tractor
 import math
+import os
+from shutil import rmtree
+from piker.config import get_app_dir
 from piker.log import get_logger
 from piker.clearing._messages import ( 
     Order                                    
@@ -11,30 +14,34 @@ from typing import (
     AsyncContextManager,
     Literal,
 )
-
 from functools import partial
 from piker.pp import (
     open_trade_ledger,
     open_pps,
 )
-
 from piker.clearing import (
     open_ems,
 )
-
 from piker.clearing._client import (
     OrderBook,
 )
-
 from piker.clearing._messages import (
     BrokerdPosition
 )
-
 from exceptiongroup import BaseExceptionGroup
+
 log = get_logger(__name__)
 
+@pytest.fixture
+def paper_cleanup():
+    yield
+    app_dir = get_app_dir('piker')
+    rmtree(app_dir)
+    assert not os.path.isfile(app_dir)
+
 def test_paper_trade(
-    open_test_pikerd: AsyncContextManager
+    open_test_pikerd: AsyncContextManager,
+    paper_cleanup: None
 ):
 
     test_exec_mode='live'
