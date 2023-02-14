@@ -9,7 +9,6 @@ from piker.clearing._messages import (
 from uuid import uuid4
 from typing import (
     AsyncContextManager,
-    Any,
     Literal,
 )
 
@@ -17,7 +16,6 @@ from functools import partial
 from piker.pp import (
     open_trade_ledger,
     open_pps,
-    PpTable
 )
 
 from piker.clearing import (
@@ -39,7 +37,6 @@ def test_paper_trade(
     open_test_pikerd: AsyncContextManager
 ):
 
-    cleared_price: float
     test_exec_mode='live'
     test_account = 'paper'
     test_size = 1 
@@ -53,13 +50,20 @@ def test_paper_trade(
         tuple[str, str],
         list[BrokerdPosition],
     ]
+    cleared_price: float
+
 
     async def _async_main(
         open_pikerd: AsyncContextManager,
         action: Literal['buy', 'sell'] | None = None,
         price: int = 30000,
         assert_entries: bool = False,
-    ) -> Any:
+    ) -> None:
+        """Spawn a paper piper actor, place a trade and assert entries are present
+        in both trade ledger and pps tomls. Then restart piker and ensure 
+        that pps from previous trade exists in the ems pps. 
+        Finally close the position and ensure that the position in pps.toml is closed. 
+        """
 
         oid: str = str(uuid4())
         book: OrderBook
@@ -134,7 +138,7 @@ def test_paper_trade(
     # run initial time and send sent and assert trade
     with pytest.raises(
         BaseExceptionGroup
-    ) as exc_info:
+    ):
         trio.run(partial(_async_main, 
                          open_pikerd=open_test_pikerd,
                          action='buy',
@@ -143,11 +147,11 @@ def test_paper_trade(
 
     with pytest.raises(
         BaseExceptionGroup
-    ) as exc_info:
+    ):
         trio.run(_open_and_assert_pps)
 
     with pytest.raises(
         BaseExceptionGroup 
-    ) as exc_info: 
+    ): 
         trio.run(_close_pp_and_assert)
 
