@@ -48,6 +48,11 @@ log = get_logger('cli')
     is_flag=True,
     help='Enable local ``marketstore`` instance'
 )
+@click.option(
+    '--es',
+    is_flag=True,
+    help='Enable local ``elasticsearch`` instance'
+)
 def pikerd(
     loglevel: str,
     host: str,
@@ -55,11 +60,13 @@ def pikerd(
     tl: bool,
     pdb: bool,
     tsdb: bool,
+    es: bool,
 ):
     '''
     Spawn the piker broker-daemon.
 
     '''
+
     from .._daemon import open_pikerd
     log = get_console_log(loglevel)
 
@@ -80,7 +87,6 @@ def pikerd(
         )
 
     async def main():
-
         async with (
             open_pikerd(
                 loglevel=loglevel,
@@ -103,6 +109,24 @@ def pikerd(
                 )
                 log.info(
                     f'`marketstored` up!\n'
+                    f'pid: {pid}\n'
+                    f'container id: {cid[:12]}\n'
+                    f'config: {pformat(config)}'
+                )
+
+            if es:
+                from piker.data._ahab import start_ahab
+                from piker.data.elasticsearch import start_elasticsearch
+
+                log.info('Spawning `elasticsearch` supervisor')
+                ctn_ready, config, (cid, pid) = await n.start(
+                    start_ahab,
+                    'elasticsearch',
+                    start_elasticsearch,
+                )
+
+                log.info(
+                    f'`elasticsearch` up!\n'
                     f'pid: {pid}\n'
                     f'container id: {cid[:12]}\n'
                     f'config: {pformat(config)}'
@@ -213,6 +237,7 @@ def services(config, tl, ports):
 
 def _load_clis() -> None:
     from ..data import marketstore  # noqa
+    from ..data import elasticsearch
     from ..data import cli  # noqa
     from ..brokers import cli  # noqa
     from ..ui import cli  # noqa
