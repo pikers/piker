@@ -423,8 +423,7 @@ async def simulate_fills(
                     # below unecessarily and further don't want to pop
                     # simulated live orders prematurely.
                     case _:
-                        continue
-                
+                        continue 
                 # iterate all potentially clearable book prices
                 # in FIFO order per side.
                 for order_info, pred in iter_entries:
