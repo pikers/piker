@@ -32,7 +32,7 @@ from exceptiongroup import BaseExceptionGroup
 
 log = get_logger(__name__)
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def paper_cleanup():
     yield
     app_dir = get_app_dir('piker')
