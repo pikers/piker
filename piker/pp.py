@@ -58,7 +58,7 @@ def open_trade_ledger(
     account: str,
 ) -> Generator[dict, None, None]:
     '''
-    Indempotently creat0616cbd1e and read in a trade log file from the
+    Indempotently create and read in a trade log file from the
     ``<configuration_dir>/ledgers/`` directory.
 
     Files are named per broker account of the form
@@ -91,8 +91,7 @@ def open_trade_ledger(
             # TODO: show diff output?
             # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
             print(f'Updating ledger for {tradesfile}:\n')
-            ledger.update(cpy)
-            
+            ledger.update(cpy) 
             # we write on close the mutated ledger data
             with open(tradesfile, 'w') as cf:
                 toml.dump(ledger, cf)
@@ -544,8 +543,7 @@ class PpTable(Struct):
     ) -> dict[str, Position]:
 
         pps = self.pps
-        updated: dict[str, Position] = {}
-        
+        updated: dict[str, Position] = {} 
         # lifo update all pps from records
         for tid, t in trans.items():
 

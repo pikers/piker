@@ -9,12 +9,7 @@ import pytest
 import trio
 import tractor
 
-from datetime import datetime
-import time
 from piker.log import get_logger
-from piker.clearing._messages import ( 
-    BrokerdFill
-)
 
 from piker._daemon import (
     find_service,
@@ -33,8 +28,6 @@ from piker.clearing._messages import (
 from piker.clearing._client import (
     OrderBook,
 )
-
-log = get_logger(__name__)
 
 
 def test_runtime_boot(
@@ -185,6 +178,3 @@ def test_ensure_ems_in_paper_actors(
 
     cancel_msg: str = '_emsd_main was remotely cancelled by its caller'
     assert cancel_msg in exc_info.value.args[0]
-
-
-
