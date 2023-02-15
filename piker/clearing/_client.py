@@ -235,10 +235,8 @@ async def open_ems(
             not getattr(mod, 'trades_dialogue', None)
             or mode == 'paper'
         ):
-            mode = 'paper'
-        
+            mode = 'paper'        
         from ._ems import _emsd_main
-
         async with (
             # connect to emsd
             portal.open_context(
