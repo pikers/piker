@@ -1451,8 +1451,7 @@ async def _emsd_main(
     ) as (relay, feed, client_ready):
 
         brokerd_stream = relay.brokerd_stream
-        dark_book = _router.get_dark_book(broker)
-        
+        dark_book = _router.get_dark_book(broker) 
         # signal to client that we're started and deliver
         # all known pps and accounts for this ``brokerd``.
         await ems_ctx.started((
