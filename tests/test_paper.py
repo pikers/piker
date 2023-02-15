@@ -32,13 +32,13 @@ from exceptiongroup import BaseExceptionGroup
 
 log = get_logger(__name__)
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def paper_cleanup():
     yield
     app_dir = get_app_dir('piker')
-    if os.path.isfile(app_dir):       
-        rmtree(app_dir)
-        assert not os.path.isfile(app_dir)
+    # if os.path.isfile(app_dir):       
+    #     rmtree(app_dir)
+    #     assert not os.path.isfile(app_dir)
 
 def test_paper_trade(
     open_test_pikerd: AsyncContextManager,
