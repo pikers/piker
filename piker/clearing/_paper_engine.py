@@ -425,8 +425,8 @@ async def simulate_fills(
                     case _:
                         continue
                 
-                # iterate alcl potentially clearable book prices
-                # in FIFO order per side.c
+                # iterate all potentially clearable book prices
+                # in FIFO order per side.
                 for order_info, pred in iter_entries:
                     (our_price, size, reqid, action) = order_info
 
@@ -438,9 +438,7 @@ async def simulate_fills(
                             'buy': buys,
                             'sell': sells
                         }[action].inverse.pop(order_info)
-
-                        log.warning(f'order_info: {order_info}')
-                           
+ 
                         # clearing price would have filled entirely
                         await client.fake_fill(
                             fqsn=sym,
@@ -558,14 +556,12 @@ async def trades_dialogue(
     ):
 
         with open_pps(broker, 'piker-paper') as table: 
-            log.warning(f'pp table: {table}')
             # save pps in local state
             _positions.update(table.pps)
         
         pp_msgs: list[BrokerdPosition] = []
         pos: Position
         token: str  # f'{symbol}.{self.broker}'
-        log.warning(f'local _positions: {_positions}')
         for token, pos in _positions.items():
             pp_msgs.append(BrokerdPosition(
                 broker=broker,
@@ -574,7 +570,6 @@ async def trades_dialogue(
                 size=pos.size,
                 avg_price=pos.ppu,
             ))
-        log.warning(f'pp_msgs: {pp_msgs}')
         # TODO: load paper positions per broker from .toml config file
         # and pass as symbol to position data mapping: ``dict[str, dict]``
         await ctx.started((
@@ -632,6 +627,7 @@ async def open_paperboi(
         # (we likely don't need more then one proc for basic
         # simulated order clearing)
         if portal is None:
+            log.info('Starting new paper-engine actor')
             portal = await tn.start_actor(
                 service_name,
                 enable_modules=[__name__]

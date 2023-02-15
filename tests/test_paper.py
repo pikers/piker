@@ -44,6 +44,7 @@ def test_paper_trade(
     paper_cleanup: None
 ):
 
+    cleared_price: float
     test_exec_mode='live'
     test_account = 'paper'
     test_size = 1 
@@ -57,8 +58,6 @@ def test_paper_trade(
         tuple[str, str],
         list[BrokerdPosition],
     ]
-    cleared_price: float
-
 
     async def _async_main(
         open_pikerd: AsyncContextManager,
