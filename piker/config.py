@@ -28,7 +28,7 @@ from typing import Optional
 from pathlib import Path
 from bidict import bidict
 import toml
-
+from piker.testing import TEST_CONFIG_DIR_PATH
 from .log import get_logger
 
 log = get_logger('broker-config')
@@ -78,7 +78,7 @@ def get_app_dir(app_name, roaming=True, force_posix=False):
     # within the tractor runtimes and store testing config data
     # outside of the users filesystem 
     if "pytest" in sys.modules:
-        app_name += '/_testing'
+        app_name += TEST_CONFIG_DIR_PATH
 
     # if WIN:
     if platform.system() == 'Windows':
