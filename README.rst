@@ -71,6 +71,19 @@ for a development install::
     source ./env/bin/activate
     pip install -r requirements.txt -e .
 
+install for nixos
+*****************
+for users of `NixOS` we offer a development shell envoirment that can be
+loaded with::
+
+    nix-shell develop.nix
+
+this will setup the required python environment to run piker, make sure to
+run::
+
+    pip install -r requirements.txt -e .
+
+once after loading the shell
 
 install for tinas
 *****************
