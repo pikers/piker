@@ -155,11 +155,11 @@ async def handle_viewmode_kb_inputs(
                 }
             ):
                 import tractor
-                god = order_mode.godw
-                feed = order_mode.feed
-                chart = order_mode.chart
-                vlm_chart = chart.linked.subplots['volume']
-                dvlm_pi = vlm_chart._vizs['dolla_vlm'].plot
+                god = order_mode.godw  # noqa
+                feed = order_mode.feed  # noqa
+                chart = order_mode.chart  # noqa
+                vlm_chart = chart.linked.subplots['volume']  # noqa
+                dvlm_pi = vlm_chart._vizs['dolla_vlm'].plot  # noqa
                 await tractor.breakpoint()
 
             # SEARCH MODE #
@@ -358,49 +358,6 @@ async def handle_viewmode_mouse(
             # when in order mode, submit execution
             # msg.event.accept()
             view.order_mode.submit_order()
-
-
-class OverlayT(Struct):
-    '''
-    An overlay co-domain range transformer.
-
-    Used to translate and apply a range from one y-range
-    to another based on a returns logarithm:
-
-    R(ymn, ymx, yref) = (ymx - yref)/yref
-
-    which gives the log-scale multiplier, and
-
-    ymx_t = yref * (1 + R)
-
-    which gives the inverse to translate to the same value
-    in the target co-domain.
-
-    '''
-    viz: Viz  # viz with largest measured dispersion
-
-    mx: float = 0
-    mn: float = float('inf')
-
-    up_swing: float = 0
-    down_swing: float = 0
-    disp: float = 0
-
-    def loglin_from_range(
-        self,
-
-        y_ref: float,  # reference value for dispersion metric
-        mn: float,  # min y in target log-lin range
-        mx: float,  # max y in target log-lin range
-        offset: float,  # y-offset to start log-scaling from
-
-    ) -> tuple[float, float]:
-        r_up = (mx - y_ref) / y_ref
-        r_down = (mn - y_ref) / y_ref
-        ymn = offset * (1 + r_down)
-        ymx = offset * (1 + r_up)
-
-        return ymn, ymx
 
 
 class ChartView(ViewBox):
@@ -1048,7 +1005,6 @@ class ChartView(ViewBox):
                     np.ndarray,  # in-view array
                 ],
             ] = {}
-            major_in_view: np.ndarray = None
 
             # ONLY auto-yrange the viz mapped to THIS view box
             if not do_overlay_scaling:
@@ -1072,12 +1028,22 @@ class ChartView(ViewBox):
                 # don't iterate overlays, just move to next chart
                 continue
 
-            for name, viz in chart._vizs.items():
+            # create a group overlay log-linearized y-range transform to
+            # track and eventually inverse transform all overlay curves
+            # to a common target max dispersion range.
+            dnt = OverlayT()
+            upt = OverlayT()
 
-                if debug_print:
-                    print(
-                        f'UX GRAPHICS CYCLE: {viz.name}@{chart_name}'
-                    )
+            if debug_print:
+                print(
+                    f'BEGIN UX GRAPHICS CYCLE: @{chart_name}\n'
+                    +
+                    '#'*100
+                    +
+                    '\n'
+                )
+
+            for name, viz in chart._vizs.items():
 
                 out = _maybe_calc_yrange(
                     viz,
@@ -1119,7 +1085,6 @@ class ChartView(ViewBox):
                 # charts besides OHLC?
                 else:
                     ymn, ymx = yrange
-                    # print(f'adding {viz.name} to overlay')
 
                     # determine start datum in view
                     arr = viz.shm.array
@@ -1128,36 +1093,169 @@ class ChartView(ViewBox):
                         log.warning(f'{viz.name} not in view?')
                         continue
 
-                    row_start = arr[read_slc.start - 1]
+                    # row_start = arr[read_slc.start - 1]
+                    row_start = arr[read_slc.start]
 
                     if viz.is_ohlc:
-                        y_start = row_start['open']
+                        y_ref = row_start['open']
                     else:
-                        y_start = row_start[viz.name]
+                        y_ref = row_start[viz.name]
 
                     profiler(f'{viz.name}@{chart_name} MINOR curve median')
 
                     overlay_table[viz.plot.vb] = (
                         viz,
-                        y_start,
+                        y_ref,
                         ymn,
                         ymx,
                         read_slc,
                         in_view,
                     )
 
-                    # find curve with max dispersion
-                    disp = abs(ymx - ymn) / y_start
+                    key = 'open' if viz.is_ohlc else viz.name
+                    start_t = in_view[0]['time']
+                    r_down = (ymn - y_ref) / y_ref
+                    r_up = (ymx - y_ref) / y_ref
+
+                    msg = (
+                        f'### {viz.name}@{chart_name} ###\n'
+                        f'y_ref: {y_ref}\n'
+                        f'down disp: {r_down}\n'
+                        f'up disp: {r_up}\n'
+                    )
+                    profiler(msg)
+                    if debug_print:
+                        print(msg)
 
                     # track the "major" curve as the curve with most
                     # dispersion.
+                    if (
+                        dnt.rng is None
+                        or (
+                            r_down < dnt.rng
+                            and r_down < 0
+                        )
+                    ):
+                        dnt.viz = viz
+                        dnt.rng = r_down
+                        dnt.in_view = in_view
+                        dnt.start_t = in_view[0]['time']
+                        major_mn = ymn
+
+                        msg = f'NEW DOWN: {viz.name}@{chart_name} r:{r_down}\n'
+                        profiler(msg)
+                        if debug_print:
+                            print(msg)
+                    else:
+                        # minor in the down swing range so check that if
+                        # we apply the current rng to the minor that it
+                        # doesn't go outside the current range for the major
+                        # otherwise we recompute the minor's range (when
+                        # adjusted for it's intersect point to be the new
+                        # major's range.
+                        intersect = intersect_from_longer(
+                            dnt.start_t,
+                            dnt.in_view,
+                            start_t,
+                            in_view,
+                        )
+                        profiler(f'{viz.name}@{chart_name} intersect by t')
+
+                        if intersect:
+                            longer_in_view, _t, i = intersect
+
+                            scaled_mn = dnt.apply_rng(y_ref)
+                            if scaled_mn > ymn:
+                                # after major curve scaling we detected
+                                # the minor curve is still out of range
+                                # so we need to adjust the major's range
+                                # to include the new composed range.
+                                y_maj_ref = longer_in_view[key]
+                                new_major_ymn = (
+                                    y_maj_ref
+                                    *
+                                    (1 + r_down)
+                                )
+
+                                # rewrite the major range to the new
+                                # minor-pinned-to-major range and mark
+                                # the transform as "virtual".
+                                msg = (
+                                    f'EXPAND DOWN bc {viz.name}@{chart_name}\n'
+                                    f'y_start epoch time @ {_t}:\n'
+                                    f'y_maj_ref @ {_t}: {y_maj_ref}\n'
+                                    f'R: {dnt.rng} -> {r_down}\n'
+                                    f'MN: {major_mn} -> {new_major_ymn}\n'
+                                )
+                                dnt.rng = r_down
+                                major_mn = dnt.y_val = new_major_ymn
+                                profiler(msg)
+                                if debug_print:
+                                    print(msg)
+
+                    if (
+                        upt.rng is None
+                        or (
+                            r_up > upt.rng
+                            and r_up > 0
+                        )
+                    ):
+                        upt.rng = r_up
+                        upt.viz = viz
+                        upt.in_view = in_view
+                        upt.start_t = in_view[0]['time']
+                        major_mx = ymx
+                        msg = f'NEW UP: {viz.name}@{chart_name} r:{r_up}\n'
+                        profiler(msg)
+                        if debug_print:
+                            print(msg)
+
+                    else:
+                        intersect = intersect_from_longer(
+                            upt.start_t,
+                            upt.in_view,
+                            start_t,
+                            in_view,
+                        )
+                        profiler(f'{viz.name}@{chart_name} intersect by t')
+
+                        if intersect:
+                            longer_in_view, _t, i = intersect
+
+                            scaled_mx = upt.apply_rng(y_ref)
+                            if scaled_mx < ymx:
+                                # after major curve scaling we detected
+                                # the minor curve is still out of range
+                                # so we need to adjust the major's range
+                                # to include the new composed range.
+                                y_maj_ref = longer_in_view[key]
+                                new_major_ymx = (
+                                    y_maj_ref
+                                    *
+                                    (1 + r_up)
+                                )
+
+                                # rewrite the major range to the new
+                                # minor-pinned-to-major range and mark
+                                # the transform as "virtual".
+                                msg = (
+                                    f'EXPAND UP bc {viz.name}@{chart_name}:\n'
+                                    f'y_maj_ref @ {_t}: {y_maj_ref}\n'
+                                    f'R: {upt.rng} -> {r_up}\n'
+                                    f'MX: {major_mx} -> {new_major_ymx}\n'
+                                )
+                                upt.rng = r_up
+                                major_mx = upt.y_val = new_major_ymx
+                                profiler(msg)
+                                print(msg)
+
+                    # find curve with max dispersion
+                    disp = abs(ymx - ymn) / y_ref
                     if disp > mx_disp:
                         major_viz = viz
                         mx_disp = disp
                         major_mn = ymn
                         major_mx = ymx
-                        major_in_view = in_view
-                        profiler(f'{viz.name}@{chart_name} set new major')
 
                     profiler(f'{viz.name}@{chart_name} MINOR curve scale')
 
@@ -1203,6 +1301,15 @@ class ChartView(ViewBox):
 
             profiler(f'<{chart_name}>.interact_graphics_cycle({name})')
 
+            # if a minor curves scaling brings it "outside" the range of
+            # the major curve (in major curve co-domain terms) then we
+            # need to rescale the major to also include this range. The
+            # below placeholder denotes when this occurs.
+            # group_mxmn: None | tuple[float, float] = None
+
+            # TODO: probably re-write this loop as a compiled cpython or
+            # numba func.
+
             # conduct "log-linearized multi-plot" scalings for all groups
             for (
                 view,
@@ -1216,169 +1323,7 @@ class ChartView(ViewBox):
                 )
             ) in overlay_table.items():
 
-                # we use the ymn/mx verbatim from the major curve
-                # (i.e. the curve measured to have the highest
-                # dispersion in view).
-                if viz is major_viz:
-                    ymn = y_min
-                    ymx = y_max
-                    continue
-
-                else:
-                    key = 'open' if viz.is_ohlc else viz.name
-
-                    # handle case where major and minor curve(s) have
-                    # a disjoint x-domain (one curve is smaller in
-                    # length then the other):
-                    # - find the highest (time) index common to both
-                    #   curves.
-                    # - slice out the first "intersecting" y-value from
-                    #   both curves for use in log-linear scaling such
-                    #   that the intersecting y-value is used as the
-                    #   reference point for scaling minor curve's
-                    #   y-range based on the major curves y-range.
-
-                    # get intersection point y-values for both curves
-                    minor_in_view_start = minor_in_view[0]
-                    minor_i_start = minor_in_view_start['index']
-                    minor_i_start_t = minor_in_view_start['time']
-
-                    major_in_view_start = major_in_view[0]
-                    major_i_start = major_in_view_start['index']
-                    major_i_start_t = major_in_view_start['time']
-
-                    y_major_intersect = major_in_view_start[key]
-                    y_minor_intersect = minor_in_view_start[key]
-
-                    profiler(f'{viz.name}@{chart_name} intersect detection')
-
-                    tdiff = (major_i_start_t - minor_i_start_t)
-                    if debug_print:
-                        print(
-                            f'{major_viz.name} time diff with minor:\n'
-                            f'maj:{major_i_start_t}\n'
-                            '-\n'
-                            f'min:{minor_i_start_t}\n'
-                            f'=> {tdiff}\n'
-                        )
-
-                    # major has later timestamp adjust minor
-                    if tdiff > 0:
-                        slc = slice_from_time(
-                            arr=minor_in_view,
-                            start_t=major_i_start_t,
-                            stop_t=major_i_start_t,
-                        )
-                        y_minor_intersect = minor_in_view[slc.start][key]
-                        profiler(f'{viz.name}@{chart_name} intersect by t')
-
-                    # minor has later timestamp adjust major
-                    elif tdiff < 0:
-                        slc = slice_from_time(
-                            arr=major_in_view,
-                            start_t=minor_i_start_t,
-                            stop_t=minor_i_start_t,
-                        )
-                        y_major_intersect = major_in_view[slc.start][key]
-
-                        profiler(f'{viz.name}@{chart_name} intersect by t')
-
-                    if debug_print:
-                        print(
-                            f'major_i_start: {major_i_start}\n'
-                            f'major_i_start_t: {major_i_start_t}\n'
-                            f'minor_i_start: {minor_i_start}\n'
-                            f'minor_i_start_t: {minor_i_start_t}\n'
-                        )
-
-                    # TODO: probably write this as a compile cpython or
-                    # numba func.
-
-                    # compute directional (up/down) y-range
-                    # % swing/dispersion starting at the reference index
-                    # determined by the above indexing arithmetic.
-                    y_ref = y_major_intersect
-                    if not y_ref:
-                        log.warning(
-                            f'BAD y_major_intersect?!: {y_major_intersect}'
-                        )
-                        # breakpoint()
-
-                    r_up = (major_mx - y_ref) / y_ref
-                    r_down = (major_mn - y_ref) / y_ref
-
-                    minor_y_start = y_minor_intersect
-                    ymn = minor_y_start * (1 + r_down)
-                    ymx = minor_y_start * (1 + r_up)
-
-                    profiler(f'{viz.name}@{chart_name} SCALE minor')
-
-                    # XXX: handle out of view cases where minor curve
-                    # now is outside the range of the major curve. in
-                    # this case we then re-scale the major curve to
-                    # include the range missing now enforced by the
-                    # minor (now new major for this *side*). Note this
-                    # is side (up/down) specific.
-                    new_maj_mxmn: None | tuple[float, float] = None
-                    if y_max > ymx:
-
-                        y_ref = y_minor_intersect
-                        r_up_minor = (y_max - y_ref) / y_ref
-
-                        y_maj_ref = y_major_intersect
-                        new_maj_ymx = y_maj_ref * (1 + r_up_minor)
-                        new_maj_mxmn = (major_mn, new_maj_ymx)
-                        if debug_print:
-                            print(
-                                f'{view.name} OUT OF RANGE:\n'
-                                '--------------------\n'
-                                f'y_max:{y_max} > ymx:{ymx}\n'
-                            )
-                        ymx = y_max
-                        profiler(f'{viz.name}@{chart_name} re-SCALE major UP')
-
-                    if y_min < ymn:
-
-                        y_ref = y_minor_intersect
-                        r_down_minor = (y_min - y_ref) / y_ref
-
-                        y_maj_ref = y_major_intersect
-                        new_maj_ymn = y_maj_ref * (1 + r_down_minor)
-                        new_maj_mxmn = (
-                            new_maj_ymn,
-                            new_maj_mxmn[1] if new_maj_mxmn else major_mx
-                        )
-                        if debug_print:
-                            print(
-                                f'{view.name} OUT OF RANGE:\n'
-                                '--------------------\n'
-                                f'y_min:{y_min} < ymn:{ymn}\n'
-                            )
-                        ymn = y_min
-
-                        profiler(
-                            f'{viz.name}@{chart_name} re-SCALE major DOWN'
-                        )
-
-                    if new_maj_mxmn:
-                        if debug_print:
-                            print(
-                                f'RESCALE MAJOR {major_viz.name}:\n'
-                                f'previous: {(major_mn, major_mx)}\n'
-                                f'new: {new_maj_mxmn}\n'
-                            )
-                        major_mn, major_mx = new_maj_mxmn
-
-                    if debug_print:
-                        print(
-                            f'{view.name} APPLY group mxmn\n'
-                            '--------------------\n'
-                            f'y_minor_intersect: {y_minor_intersect}\n'
-                            f'y_major_intersect: {y_major_intersect}\n'
-                            f'scaled ymn: {ymn}\n'
-                            f'scaled ymx: {ymx}\n'
-                            f'scaled mx_disp: {mx_disp}\n'
-                        )
+                key = 'open' if viz.is_ohlc else viz.name
 
                 if (
                     isinf(ymx)
@@ -1389,32 +1334,47 @@ class ChartView(ViewBox):
                     )
                     continue
 
+                ymn = dnt.apply_rng(y_start)
+                ymx = upt.apply_rng(y_start)
+
+                # NOTE XXX: we have to set each curve's range once (and
+                # ONLY ONCE) here since we're doing this entire routine
+                # inside of a single render cycle (and apparently calling
+                # `ViewBox.setYRange()` multiple times within one only takes
+                # the first call as serious...) XD
                 view._set_yrange(
                     yrange=(ymn, ymx),
                 )
                 profiler(f'{viz.name}@{chart_name} log-SCALE minor')
 
-            # NOTE XXX: we have to set the major curve's range once (and
-            # only once) here since we're doing this entire routine
-            # inside of a single render cycle (and apparently calling
-            # `ViewBox.setYRange()` multiple times within one only takes
-            # the first call as serious...) XD
-            if debug_print:
-                print(
-                    f'Scale MAJOR {major_viz.name}:\n'
-                    f'scaled mx_disp: {mx_disp}\n'
-                    f'previous: {(major_mn, major_mx)}\n'
-                    f'new: {new_maj_mxmn}\n'
-                )
-            major_viz.plot.vb._set_yrange(
-                yrange=(major_mn, major_mx),
-            )
-            profiler(f'{viz.name}@{chart_name} log-SCALE major')
-            # major_mx, major_mn = new_maj_mxmn
+                if debug_print:
+                    print(
+                        '------------------------------\n'
+                        f'LOGLIN SCALE CYCLE: {viz.name}@{chart_name}\n'
+                        f'UP MAJOR C: {upt.viz.name} with disp: {upt.rng}\n'
+                        f'DOWN MAJOR C: {dnt.viz.name} with disp: {dnt.rng}\n'
+                        f'y_start: {y_start}\n'
+                        f'y min: {y_min}\n'
+                        f'y max: {y_max}\n'
+                        f'T scaled ymn: {ymn}\n'
+                        f'T scaled ymx: {ymx}\n'
+                        '------------------------------\n'
+                    )
+
+            # profiler(f'{viz.name}@{chart_name} log-SCALE major')
+            # major_mx, major_mn = group_mxmn
             # vrs = major_viz.plot.vb.viewRange()
             # if vrs[1][0] > major_mn:
             #     breakpoint()
 
+            if debug_print:
+                print(
+                    f'END UX GRAPHICS CYCLE: @{chart_name}\n'
+                    +
+                    '#'*100
+                    +
+                    '\n'
+                )
             if not do_linked_charts:
                 return
 
@@ -1465,4 +1425,99 @@ def _maybe_calc_yrange(
     return (
         read_slc,
         yrange_kwargs,
+    )
+
+
+class OverlayT(Struct):
+    '''
+    An overlay co-domain range transformer.
+
+    Used to translate and apply a range from one y-range
+    to another based on a returns logarithm:
+
+    R(ymn, ymx, yref) = (ymx - yref)/yref
+
+    which gives the log-scale multiplier, and
+
+    ymx_t = yref * (1 + R)
+
+    which gives the inverse to translate to the same value
+    in the target co-domain.
+
+    '''
+    start_t: float | None = None
+    viz: Viz = None
+
+    # % "range" computed from some ref value to the mn/mx
+    rng: float | None = None
+    in_view: np.ndarray | None = None
+
+    # pinned-minor curve modified mn and max for the major dispersion
+    # curve due to one series being shorter and the pin + scaling from
+    # that pin point causing the original range to have to increase.
+    y_val: float | None = None
+
+    def apply_rng(
+        self,
+        y_start: float,  # reference value for dispersion metric
+
+    ) -> float:
+        return y_start * (1 + self.rng)
+
+    # def loglin_from_range(
+    #     self,
+
+    #     y_ref: float,  # reference value for dispersion metric
+    #     mn: float,  # min y in target log-lin range
+    #     mx: float,  # max y in target log-lin range
+    #     offset: float,  # y-offset to start log-scaling from
+
+    # ) -> tuple[float, float]:
+    #     r_up = (mx - y_ref) / y_ref
+    #     r_down = (mn - y_ref) / y_ref
+    #     ymn = offset * (1 + r_down)
+    #     ymx = offset * (1 + r_up)
+
+    #     return ymn, ymx
+
+
+def intersect_from_longer(
+    start_t_first: float,
+    in_view_first: np.ndarray,
+
+    start_t_second: float,
+    in_view_second: np.ndarray,
+
+) -> np.ndarray:
+
+    tdiff = start_t_first - start_t_second
+
+    if tdiff == 0:
+        return False
+
+    i: int = 0
+
+    # first time series has an "earlier" first time stamp then the 2nd.
+    # aka 1st is "shorter" then the 2nd.
+    if tdiff > 0:
+        longer = in_view_second
+        find_t = start_t_first
+        i = 1
+
+    # second time series has an "earlier" first time stamp then the 1st.
+    # aka 2nd is "shorter" then the 1st.
+    elif tdiff < 0:
+        longer = in_view_first
+        find_t = start_t_second
+        i = 0
+
+    slc = slice_from_time(
+        arr=longer,
+        start_t=find_t,
+        stop_t=find_t,
+    )
+    return (
+        longer[slc.start],
+        find_t,
+        i,
     )
