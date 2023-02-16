@@ -30,7 +30,7 @@ from bidict import bidict
 import toml
 
 from .log import get_logger
-
+from tests.test_services import get_test_app_dir
 log = get_logger('broker-config')
 
 # taken from ``click`` since apparently they have some
@@ -78,7 +78,7 @@ def get_app_dir(app_name, roaming=True, force_posix=False):
     # within the tractor runtimes and store testing config data
     # outside of the users filesystem 
     if "pytest" in sys.modules:
-        app_name += '/_testing'
+        return get_test_app_dir()
 
     # if WIN:
     if platform.system() == 'Windows':
