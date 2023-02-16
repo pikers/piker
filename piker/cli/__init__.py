@@ -20,6 +20,7 @@ CLI commons.
 '''
 import os
 from pprint import pformat
+from functools import partial
 
 import click
 import trio
@@ -120,9 +121,12 @@ def pikerd(
 
                 log.info('Spawning `elasticsearch` supervisor')
                 ctn_ready, config, (cid, pid) = await n.start(
-                    start_ahab,
-                    'elasticsearch',
-                    start_elasticsearch,
+                    partial(
+                        start_ahab,
+                        'elasticsearch',
+                        start_elasticsearch,
+                        start_timeout=30.0
+                    )
                 )
 
                 log.info(

@@ -93,7 +93,7 @@ def start_elasticsearch(
     get_console_log('info', name=__name__)
 
     dcntr: DockerContainer = client.containers.run(
-        'elastic',
+        'piker:elastic',
         network='host',
         detach=True,
         remove=True,
@@ -103,6 +103,6 @@ def start_elasticsearch(
         dcntr,
         {},
         # expected startup and stop msgs
-        "launching listener for all services...",
-        "exiting...",
+        lambda msg: msg == "started",
+        lambda msg: msg == "closed",
     )

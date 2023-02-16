@@ -8,4 +8,4 @@ COPY elasticsearch.yml /usr/share/elasticsearch/config/
 
 RUN printf "password" | ./bin/elasticsearch-keystore add -f -x "bootstrap.password"
 
-EXPOSE 9200
+EXPOSE 19200
