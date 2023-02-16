@@ -25,7 +25,7 @@ from os import path
 from os.path import dirname
 import shutil
 from typing import Optional
-
+from pathlib import Path
 from bidict import bidict
 import toml
 
@@ -72,7 +72,7 @@ def get_app_dir(app_name, roaming=True, force_posix=False):
     """
     def _posixify(name):
         return "-".join(name.split()).lower()
-    
+
     # TODO: This is a hacky way to a) determine we're testing
     # and b) creating a test dir. We should aim to set a variable
     # within the tractor runtimes and store testing config data
@@ -92,7 +92,7 @@ def get_app_dir(app_name, roaming=True, force_posix=False):
             os.path.expanduser("~/.{}".format(_posixify(app_name))))
     if sys.platform == "darwin":
         return os.path.join(
-            os.path.expanduser("~/Library/Application Support"), app_name
+            os.path.expanduser("~/Los.mkdir(_config_dir)ibrary/Application Support"), app_name
         )
     return os.path.join(
         os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
@@ -203,7 +203,7 @@ def load(
     path = path or get_conf_path(conf_name)
 
     if not os.path.isdir(_config_dir):
-        os.mkdir(_config_dir)
+        Path(_config_dir).mkdir(parents=True, exist_ok=True)
 
     if not os.path.isfile(path):
         fn = _conf_fn_w_ext(conf_name)
