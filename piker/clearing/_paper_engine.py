@@ -30,6 +30,7 @@ from typing import (
     Callable,
 )
 import uuid
+
 from bidict import bidict
 import pendulum
 import trio
@@ -274,9 +275,8 @@ class PaperBoi(Struct):
         )
 
         # Update in memory ledger per trade
-        ledger_entry = {}
-        ledger_entry[oid] = t.to_dict() 
-        
+        ledger_entry = {oid: t.to_dict()}       
+
         # Store txn in state for PP update
         self._txn_dict[oid] = t
         self._trade_ledger.update(ledger_entry)
@@ -423,7 +423,7 @@ async def simulate_fills(
                     # below unecessarily and further don't want to pop
                     # simulated live orders prematurely.
                     case _:
-                        continue 
+                        continue
                 # iterate all potentially clearable book prices
                 # in FIFO order per side.
                 for order_info, pred in iter_entries:

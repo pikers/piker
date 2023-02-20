@@ -35,7 +35,6 @@ from typing import (
     Union,
     Generator
 )
-from typing import Generator
 
 import pendulum
 from pendulum import datetime, now
@@ -544,6 +543,7 @@ class PpTable(Struct):
 
         pps = self.pps
         updated: dict[str, Position] = {} 
+
         # lifo update all pps from records
         for tid, t in trans.items():
 
