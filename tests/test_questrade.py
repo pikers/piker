@@ -111,6 +111,21 @@ def match_packet(symbols, quotes, feed_type='stock'):
     assert not quotes
 
 
+@pytest.fixture
+def us_symbols():
+    return ['TSLA', 'AAPL', 'CGC', 'CRON']
+
+
+@pytest.fixture
+def tmx_symbols():
+    return ['APHA.TO', 'WEED.TO', 'ACB.TO']
+
+
+@pytest.fixture
+def cse_symbols():
+    return ['TRUL.CN', 'CWEB.CN', 'SNN.CN']
+
+
 # @tractor_test
 async def test_concurrent_tokens_refresh(us_symbols, loglevel):
     """Verify that concurrent requests from mulitple tasks work alongside
@@ -258,8 +273,8 @@ async def stream_option_chain(feed, symbols):
 
     # latency arithmetic
     loops = 8
-    period = 1/3.   # 3 rps
-    timeout = float('inf') #loops / period
+    # period = 1/3.   # 3 rps
+    timeout = float('inf')  # loops / period
 
     try:
         # it'd sure be nice to have an asyncitertools here...
@@ -307,8 +322,8 @@ async def stream_stocks(feed, symbols):
         symbols, 'stock', rate=3, diff_cached=False)
     # latency arithmetic
     loops = 8
-    period = 1/3.   # 3 rps
-    timeout = loops / period
+    # period = 1/3.   # 3 rps
+    # timeout = loops / period
 
     try:
         # it'd sure be nice to have an asyncitertools here...
