@@ -90,6 +90,8 @@ def pikerd(
     async def main():
         async with (
             open_pikerd(
+                tsdb=tsdb,
+                es=es,
                 loglevel=loglevel,
                 debug_mode=pdb,
                 registry_addr=reg_addr,
@@ -97,44 +99,6 @@ def pikerd(
             ),  # normally delivers a ``Services`` handle
             trio.open_nursery() as n,
         ):
-            if tsdb:
-                from piker.data._ahab import start_ahab
-                from piker.data.marketstore import start_marketstore
-
-                log.info('Spawning `marketstore` supervisor')
-                ctn_ready, config, (cid, pid) = await n.start(
-                    start_ahab,
-                    'marketstored',
-                    start_marketstore,
-
-                )
-                log.info(
-                    f'`marketstored` up!\n'
-                    f'pid: {pid}\n'
-                    f'container id: {cid[:12]}\n'
-                    f'config: {pformat(config)}'
-                )
-
-            if es:
-                from piker.data._ahab import start_ahab
-                from piker.data.elasticsearch import start_elasticsearch
-
-                log.info('Spawning `elasticsearch` supervisor')
-                ctn_ready, config, (cid, pid) = await n.start(
-                    partial(
-                        start_ahab,
-                        'elasticsearch',
-                        start_elasticsearch,
-                        start_timeout=30.0
-                    )
-                )
-
-                log.info(
-                    f'`elasticsearch` up!\n'
-                    f'pid: {pid}\n'
-                    f'container id: {cid[:12]}\n'
-                    f'config: {pformat(config)}'
-                )
 
             await trio.sleep_forever()
 
@@ -241,7 +205,7 @@ def services(config, tl, ports):
 
 def _load_clis() -> None:
     from ..data import marketstore  # noqa
-    from ..data import elasticsearch
+    from ..data import elastic
     from ..data import cli  # noqa
     from ..brokers import cli  # noqa
     from ..ui import cli  # noqa
