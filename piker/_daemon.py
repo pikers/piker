@@ -316,8 +316,6 @@ async def open_piker_runtime(
 
 @acm
 async def open_pikerd(
-    tsdb: bool,
-    es: bool,
 
     loglevel: str | None = None,
 
@@ -325,6 +323,10 @@ async def open_pikerd(
     # for data daemons when running in production.
     debug_mode: bool = False,
     registry_addr: None | tuple[str, int] = None,
+
+    # db init flags
+    tsdb: bool = False,
+    es: bool = False,
 
 ) -> Services:
     '''
@@ -383,7 +385,7 @@ async def open_pikerd(
                     start_ahab,
                     'elasticsearch',
                     start_elasticsearch,
-                    start_timeout=30.0
+                    start_timeout=240.0  # high cause ci
                 )
             )
 
@@ -436,10 +438,10 @@ async def maybe_open_runtime(
 
 @acm
 async def maybe_open_pikerd(
-    tsdb: bool = False,
-    es: bool = False,
     loglevel: Optional[str] = None,
     registry_addr: None | tuple = None,
+    tsdb: bool = False,
+    es: bool = False,
 
     **kwargs,
 
@@ -486,11 +488,11 @@ async def maybe_open_pikerd(
     # presume pikerd role since no daemon could be found at
     # configured address
     async with open_pikerd(
-        tsdb=tsdb,
-        es=es,
         loglevel=loglevel,
         debug_mode=kwargs.get('debug_mode', False),
         registry_addr=registry_addr,
+        tsdb=tsdb,
+        es=es,
 
     ) as service_manager:
         # in the case where we're starting up the

@@ -137,7 +137,13 @@ class Container:
         seen_so_far = self.seen_so_far
 
         while True:
-            logs = self.cntr.logs()
+            try:
+                logs = self.cntr.logs()
+            except docker.errors.NotFound:
+                return False
+            except docker.errors.APIError:
+                return False
+
             entries = logs.decode().split('\n')
             for entry in entries:
 
@@ -159,9 +165,6 @@ class Container:
                     level = record['level']
 
                 except json.JSONDecodeError:
-                    # if 'Error' in entry:
-                    #     raise RuntimeError(entry)
-                    # raise
                     msg = entry
                     level = 'error'
 
@@ -175,11 +178,11 @@ class Container:
                     if level == 'fatal':
                         raise ApplicationLogError(msg)
 
-                if patt_matcher(msg):
+                if await patt_matcher(msg):
                     return True
 
                 # do a checkpoint so we don't block if cancelled B)
-                await trio.sleep(0.01)
+                await trio.sleep(0.1)
 
         return False
 
@@ -321,10 +324,13 @@ async def open_ahabd(
         with trio.move_on_after(start_timeout):
             found = await cntr.process_logs_until(start_lambda)
 
-            if not found and cntr not in client.containers.list():
-                raise RuntimeError(
-                    'Failed to start `marketstore` check logs deats'
-                )
+        if not found and dcntr not in client.containers.list():
+            for entry in cntr.seen_so_far:
+                log.info(entry)
+
+            raise RuntimeError(
+                f'Failed to start {dcntr.id} check logs deats'
+            )
 
         await ctx.started((
             cntr.cntr.id,

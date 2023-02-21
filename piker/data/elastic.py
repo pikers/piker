@@ -47,7 +47,7 @@ from piker.log import (
     get_console_log
 )
 
-from elasticsearch import Elasticsearch
+import asks
 
 
 log = get_logger(__name__)
@@ -88,15 +88,33 @@ def start_elasticsearch(
 
     dcntr: DockerContainer = client.containers.run(
         'piker:elastic',
+        name='piker-elastic',
         network='host',
         detach=True,
-        remove=True,
+        remove=True
     )
+
+    async def start_matcher(msg: str):
+        try:
+            health = (await asks.get(
+                f'http://localhost:19200/_cat/health',
+                params={'format': 'json'}
+            )).json()
+
+        except OSError:
+            log.error('couldnt reach elastic container')
+            return False
+
+        log.info(health)
+        return health[0]['status'] == 'green'
+
+    async def stop_matcher(msg: str):
+        return msg == 'closed'
 
     return (
         dcntr,
         {},
         # expected startup and stop msgs
-        lambda start_msg: start_msg == "started",
-        lambda stop_msg: stop_msg == "closed",
+        start_matcher,
+        stop_matcher,
     )
