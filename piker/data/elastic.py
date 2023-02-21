@@ -25,43 +25,37 @@
 '''
 from __future__ import annotations
 from contextlib import asynccontextmanager as acm
-from datetime import datetime
 from pprint import pformat
 from typing import (
     Any,
-    Optional,
-    Union,
+    # Optional,
+    #Union,
     TYPE_CHECKING,
 )
-import time
-from math import isnan
 
-from bidict import bidict
-from msgspec.msgpack import encode, decode
 import pyqtgraph as pg
 import numpy as np
 import tractor
-from trio_websocket import open_websocket_url
-import pendulum
-import purerpc
+
 
 if TYPE_CHECKING:
     import docker
     from ._ahab import DockerContainer
 
-from .feed import maybe_open_feed
-from ..log import get_logger, get_console_log
-from .._profile import Profiler
+from piker.log import (
+    get_logger,
+    get_console_log
+)
 
 from elasticsearch import Elasticsearch
-from docker.types import LogConfig
+
 
 log = get_logger(__name__)
 
 
 # container level config
 _config = {
-    'port': 9200,
+    'port': 19200,
     'log_level': 'debug',
 }
 
@@ -103,6 +97,6 @@ def start_elasticsearch(
         dcntr,
         {},
         # expected startup and stop msgs
-        lambda msg: msg == "started",
-        lambda msg: msg == "closed",
+        lambda start_msg: start_msg == "started",
+        lambda stop_msg: stop_msg == "closed",
     )

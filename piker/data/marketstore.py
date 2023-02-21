@@ -194,8 +194,8 @@ def start_marketstore(
         _config,
 
         # expected startup and stop msgs
-        lambda msg: "launching tcp listener for all services..." in msg,
-        lambda msg: "exiting..." in msg,
+        lambda start_msg: "launching tcp listener for all services..." in start_msg,
+        lambda stop_msg: "exiting..." in stop_msg,
     )
 
 

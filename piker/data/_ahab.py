@@ -124,6 +124,8 @@ class Container:
 
     async def process_logs_until(
         self,
+        # this is a predicate func for matching log msgs emitted by the
+        # underlying containerized app
         patt_matcher: Callable[[str], bool],
         bp_on_msg: bool = False,
     ) -> bool:
@@ -152,7 +154,7 @@ class Container:
                     elif 'message' in record:
                         msg = record['message']
                     else:
-                        raise KeyError('Unexpected log format')
+                        raise KeyError(f'Unexpected log format\n{record}')
 
                     level = record['level']
 

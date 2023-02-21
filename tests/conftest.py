@@ -119,6 +119,8 @@ def cse_symbols():
 
 @acm
 async def _open_test_pikerd(
+    tsdb: bool = False,
+    es: bool = False,
     reg_addr: tuple[str, int] | None = None,
     **kwargs,
 
@@ -143,6 +145,8 @@ async def _open_test_pikerd(
     # try:
     async with (
         maybe_open_pikerd(
+            tsdb=tsdb,
+            es=es,
             registry_addr=reg_addr,
             **kwargs,
         ) as service_manager,
