@@ -612,7 +612,7 @@ async def open_vlm_displays(
 
     task_status: TaskStatus[ChartPlotWidget] = trio.TASK_STATUS_IGNORED,
 
-) -> ChartPlotWidget:
+) -> None:
     '''
     Volume subchart displays.
 
@@ -667,7 +667,6 @@ async def open_vlm_displays(
         # built-in vlm which we plot ASAP since it's
         # usually data provided directly with OHLC history.
         shm = ohlcv
-        # ohlc_chart = linked.chart
 
         vlm_chart = linked.add_plot(
             name='volume',
@@ -693,6 +692,13 @@ async def open_vlm_displays(
         # vlm_chart.hideAxis('right')
         vlm_chart.hideAxis('left')
 
+        # TODO: is it worth being able to remove axes (from i guess
+        # a perf perspective) enough that we can actually do this and
+        # other axis related calls (for eg. label upddates in the
+        # display loop) don't raise when a the axis can't be loaded and
+        # thus would normally cause many label related calls to crash?
+        # axis = vlm_chart.removeAxis('left')
+
         # send back new chart to caller
         task_status.started(vlm_chart)
 
@@ -705,15 +711,9 @@ async def open_vlm_displays(
 
         # read from last calculated value
         value = shm.array['volume'][-1]
-
         last_val_sticky.update_from_data(-1, value)
 
         _, _, vlm_curve = vlm_viz.update_graphics()
-
-        # size view to data once at outset
-        # vlm_chart.view._set_yrange(
-        #     viz=vlm_viz
-        # )
 
         # add axis title
         axis = vlm_chart.getAxis('right')
@@ -721,7 +721,6 @@ async def open_vlm_displays(
 
         if dvlm:
 
-            tasks_ready = []
             # spawn and overlay $ vlm on the same subchart
             dvlm_flume, started = await admin.start_engine_task(
                 dolla_vlm,
@@ -839,18 +838,15 @@ async def open_vlm_displays(
             # hide the original vlm curve since the $vlm one is now
             # displayed and the curves are effectively the same minus
             # liquidity events (well at least on low OHLC periods - 1s).
-            vlm_curve.hide()
+            # vlm_curve.hide()
             vlm_chart.removeItem(vlm_curve)
-            # vlm_chart.plotItem.layout.setMinimumWidth(0)
-            # vlm_chart.removeAxis('left')
             vlm_viz = vlm_chart._vizs['volume']
-
+            vlm_chart.view.disable_auto_yrange()
             # NOTE: DON'T DO THIS.
             # WHY: we want range sorting on volume for the RHS label!
             #  -> if you don't want that then use this but likely you
             #     only will if we decide to drop unit vlm..
             # vlm_viz.render = False
-            vlm_chart.view.disable_auto_yrange()
 
             # Trade rate overlay
             # XXX: requires an additional overlay for
