@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager as acm
+from functools import partial
 import os
 
 import pytest
@@ -20,6 +21,11 @@ def pytest_addoption(parser):
 
 
 @pytest.fixture(scope='session')
+def loglevel(request) -> str:
+    return request.config.option.loglevel
+
+
+@pytest.fixture(scope='session')
 def test_config():
     dirname = os.path.dirname
     dirpath = os.path.abspath(
@@ -32,7 +38,10 @@ def test_config():
 
 
 @pytest.fixture(scope='session', autouse=True)
-def confdir(request, test_config):
+def confdir(
+    request,
+    test_config: str,
+):
     '''
     If the `--confdir` flag is not passed use the
     broker config file found in that dir.
@@ -43,51 +52,6 @@ def confdir(request, test_config):
         config._override_config_dir(confdir)
 
     return confdir
-
-
-# @pytest.fixture(scope='session', autouse=True)
-# def travis(confdir):
-#     is_travis = os.environ.get('TRAVIS', False)
-#     if is_travis:
-#         # this directory is cached, see .travis.yaml
-#         conf_file = config.get_broker_conf_path()
-#         refresh_token = os.environ['QT_REFRESH_TOKEN']
-
-#         def write_with_token(token):
-#             # XXX don't pass the dir path here since may be
-#             # written behind the scenes in the `confdir fixture`
-#             if not os.path.isfile(conf_file):
-#                 open(conf_file, 'w').close()
-#             conf, path = config.load()
-#             conf.setdefault('questrade', {}).update(
-#                 {'refresh_token': token,
-#                  'is_practice': 'True'}
-#             )
-#             config.write(conf, path)
-
-#         async def ensure_config():
-#             # try to refresh current token using cached brokers config
-#             # if it fails fail try using the refresh token provided by the
-#             # env var and if that fails stop the test run here.
-#             try:
-#                 async with questrade.get_client(ask_user=False):
-#                     pass
-#             except (
-#                 FileNotFoundError, ValueError,
-#                 questrade.BrokerError, questrade.QuestradeError,
-#                 trio.MultiError,
-#             ):
-#                 # 3 cases:
-#                 # - config doesn't have a ``refresh_token`` k/v
-#                 # - cache dir does not exist yet
-#                 # - current token is expired; take it form env var
-#                 write_with_token(refresh_token)
-
-#                 async with questrade.get_client(ask_user=False):
-#                     pass
-
-#         # XXX ``pytest_trio`` doesn't support scope or autouse
-#         trio.run(ensure_config)
 
 
 _ci_env: bool = os.environ.get('CI', False)
@@ -102,24 +66,10 @@ def ci_env() -> bool:
     return _ci_env
 
 
-@pytest.fixture
-def us_symbols():
-    return ['TSLA', 'AAPL', 'CGC', 'CRON']
-
-
-@pytest.fixture
-def tmx_symbols():
-    return ['APHA.TO', 'WEED.TO', 'ACB.TO']
-
-
-@pytest.fixture
-def cse_symbols():
-    return ['TRUL.CN', 'CWEB.CN', 'SNN.CN']
-
-
 @acm
 async def _open_test_pikerd(
     reg_addr: tuple[str, int] | None = None,
+    loglevel: str = 'warning',
     **kwargs,
 
 ) -> tuple[
@@ -140,10 +90,10 @@ async def _open_test_pikerd(
         port = random.randint(6e3, 7e3)
         reg_addr = ('127.0.0.1', port)
 
-    # try:
     async with (
         maybe_open_pikerd(
             registry_addr=reg_addr,
+            loglevel=loglevel,
             **kwargs,
         ) as service_manager,
     ):
@@ -165,9 +115,18 @@ async def _open_test_pikerd(
 
 
 @pytest.fixture
-def open_test_pikerd():
+def open_test_pikerd(
+    request,
+    loglevel: str,
+):
 
-    yield _open_test_pikerd
+    yield partial(
+        _open_test_pikerd,
+
+        # bind in level from fixture, which is itself set by
+        # `--ll <value>` cli flag.
+        loglevel=loglevel,
+    )
 
     # TODO: teardown checks such as,
     # - no leaked subprocs or shm buffers

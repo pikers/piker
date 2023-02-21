@@ -11,7 +11,6 @@ import tractor
 
 from piker._daemon import (
     find_service,
-    check_for_service,
     Services,
 )
 from piker.data import (
@@ -75,7 +74,8 @@ async def ensure_service(
 
 
 def test_ensure_datafeed_actors(
-    open_test_pikerd: AsyncContextManager
+    open_test_pikerd: AsyncContextManager,
+    loglevel: str,
 
 ) -> None:
     '''
@@ -93,7 +93,7 @@ def test_ensure_datafeed_actors(
             open_test_pikerd(),
             open_feed(
                 ['xbtusdt.kraken'],
-                loglevel='info',
+                loglevel=loglevel,
             ) as feed
         ):
             # halt rt quote streams since we aren't testing them
@@ -109,7 +109,8 @@ def test_ensure_datafeed_actors(
 
 
 def test_ensure_ems_in_paper_actors(
-    open_test_pikerd: AsyncContextManager
+    open_test_pikerd: AsyncContextManager,
+    loglevel: str,
 
 ) -> None:
 
@@ -136,6 +137,7 @@ def test_ensure_ems_in_paper_actors(
                 open_ems(
                     'xbtusdt.kraken',
                     mode='paper',
+                    loglevel=loglevel,
                 ) as (
                     book,
                     trades_stream,

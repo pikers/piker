@@ -1498,10 +1498,10 @@ async def open_feed(
 
     fqsns: list[str],
 
-    loglevel: Optional[str] = None,
+    loglevel: str | None = None,
     backpressure: bool = True,
     start_stream: bool = True,
-    tick_throttle: Optional[float] = None,  # Hz
+    tick_throttle: float | None = None,  # Hz
 
 ) -> Feed:
     '''

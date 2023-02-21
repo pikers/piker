@@ -227,26 +227,28 @@ async def get_cached_feed(
 
 @tractor.stream
 async def start_quote_stream(
-    ctx: tractor.Context,  # marks this as a streaming func
+    stream: tractor.Context,  # marks this as a streaming func
     broker: str,
     symbols: List[Any],
     feed_type: str = 'stock',
     rate: int = 3,
 ) -> None:
-    """Handle per-broker quote stream subscriptions using a "lazy" pub-sub
+    '''
+    Handle per-broker quote stream subscriptions using a "lazy" pub-sub
     pattern.
 
     Spawns new quoter tasks for each broker backend on-demand.
     Since most brokers seems to support batch quote requests we
     limit to one task per process (for now).
-    """
+
+    '''
     # XXX: why do we need this again?
     get_console_log(tractor.current_actor().loglevel)
 
     # pull global vars from local actor
     symbols = list(symbols)
     log.info(
-        f"{ctx.chan.uid} subscribed to {broker} for symbols {symbols}")
+        f"{stream.chan.uid} subscribed to {broker} for symbols {symbols}")
     # another actor task may have already created it
     async with get_cached_feed(broker) as feed:
 
@@ -290,13 +292,13 @@ async def start_quote_stream(
             assert fquote['displayable']
             payload[sym] = fquote
 
-        await ctx.send_yield(payload)
+        await stream.send_yield(payload)
 
         await stream_poll_requests(
 
             # ``trionics.msgpub`` required kwargs
             task_name=feed_type,
-            ctx=ctx,
+            ctx=stream,
             topics=symbols,
             packetizer=feed.mod.packetizer,
 
@@ -319,9 +321,11 @@ async def call_client(
 
 
 class DataFeed:
-    """Data feed client for streaming symbol data from and making API client calls
-    to a (remote) ``brokerd`` daemon.
-    """
+    '''
+    Data feed client for streaming symbol data from and making API
+    client calls to a (remote) ``brokerd`` daemon.
+
+    '''
     _allowed = ('stock', 'option')
 
     def __init__(self, portal, brokermod):
