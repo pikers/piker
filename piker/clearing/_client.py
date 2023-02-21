@@ -175,6 +175,7 @@ async def relay_order_cmds_from_sync_code(
 async def open_ems(
     fqsn: str,
     mode: str = 'live',
+    loglevel: str = 'error',
 
 ) -> tuple[
     OrderBook,
@@ -244,6 +245,7 @@ async def open_ems(
                 _emsd_main,
                 fqsn=fqsn,
                 exec_mode=mode,
+                loglevel=loglevel,
 
             ) as (
                 ctx,
