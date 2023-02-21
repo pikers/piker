@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager as acm
+from functools import partial
 import os
 
 import pytest
@@ -20,6 +21,11 @@ def pytest_addoption(parser):
 
 
 @pytest.fixture(scope='session')
+def loglevel(request) -> str:
+    return request.config.option.loglevel
+
+
+@pytest.fixture(scope='session')
 def test_config():
     dirname = os.path.dirname
     dirpath = os.path.abspath(
@@ -32,7 +38,10 @@ def test_config():
 
 
 @pytest.fixture(scope='session', autouse=True)
-def confdir(request, test_config):
+def confdir(
+    request,
+    test_config: str,
+):
     '''
     If the `--confdir` flag is not passed use the
     broker config file found in that dir.
@@ -84,6 +93,7 @@ async def _open_test_pikerd(
     async with (
         maybe_open_pikerd(
             registry_addr=reg_addr,
+            loglevel=loglevel,
             **kwargs,
         ) as service_manager,
     ):
@@ -105,9 +115,18 @@ async def _open_test_pikerd(
 
 
 @pytest.fixture
-def open_test_pikerd(request):
+def open_test_pikerd(
+    request,
+    loglevel: str,
+):
 
-    yield _open_test_pikerd
+    yield partial(
+        _open_test_pikerd,
+
+        # bind in level from fixture, which is itself set by
+        # `--ll <value>` cli flag.
+        loglevel=loglevel,
+    )
 
     # TODO: teardown checks such as,
     # - no leaked subprocs or shm buffers

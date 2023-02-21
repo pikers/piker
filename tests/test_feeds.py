@@ -35,6 +35,7 @@ from piker.data._source import (
 def test_multi_fqsn_feed(
     open_test_pikerd: AsyncContextManager,
     fqsns: set[str],
+    loglevel: str,
     ci_env: bool
 ):
     '''
@@ -60,7 +61,7 @@ def test_multi_fqsn_feed(
             open_test_pikerd(),
             open_feed(
                 fqsns,
-                loglevel='info',
+                loglevel=loglevel,
 
                 # TODO: ensure throttle rate is applied
                 # limit to at least display's FPS
