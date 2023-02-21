@@ -21,7 +21,6 @@ High level chart-widget apis.
 from __future__ import annotations
 from typing import (
     Iterator,
-    Optional,
     TYPE_CHECKING,
 )
 
@@ -102,7 +101,7 @@ class GodWidget(QWidget):
 
         super().__init__(parent)
 
-        self.search: Optional[SearchWidget] = None
+        self.search: SearchWidget | None = None
 
         self.hbox = QHBoxLayout(self)
         self.hbox.setContentsMargins(0, 0, 0, 0)
@@ -121,9 +120,9 @@ class GodWidget(QWidget):
             tuple[LinkedSplits, LinkedSplits],
         ] = {}
 
-        self.hist_linked: Optional[LinkedSplits] = None
-        self.rt_linked: Optional[LinkedSplits] = None
-        self._active_cursor: Optional[Cursor] = None
+        self.hist_linked: LinkedSplits | None = None
+        self.rt_linked: LinkedSplits | None = None
+        self._active_cursor: Cursor | None = None
 
         # assigned in the startup func `_async_main()`
         self._root_n: trio.Nursery = None
@@ -367,7 +366,7 @@ class ChartnPane(QFrame):
     '''
     sidepane: FieldsForm | SearchWidget
     hbox: QHBoxLayout
-    chart: Optional[ChartPlotWidget] = None
+    chart: ChartPlotWidget | None = None
 
     def __init__(
         self,
@@ -445,7 +444,7 @@ class LinkedSplits(QWidget):
         # chart-local graphics state that can be passed to
         # a ``graphic_update_cycle()`` call by any task wishing to
         # update the UI for a given "chart instance".
-        self.display_state: Optional[DisplayState] = None
+        self.display_state: DisplayState | None = None
 
         self._symbol: Symbol = None
 
@@ -475,7 +474,7 @@ class LinkedSplits(QWidget):
 
     def set_split_sizes(
         self,
-        prop: Optional[float] = None,
+        prop: float | None = None,
 
     ) -> None:
         '''
@@ -569,11 +568,11 @@ class LinkedSplits(QWidget):
         shm: ShmArray,
         flume: Flume,
 
-        array_key: Optional[str] = None,
+        array_key: str | None = None,
         style: str = 'line',
         _is_main: bool = False,
 
-        sidepane: Optional[QWidget] = None,
+        sidepane: QWidget | None = None,
         draw_kwargs: dict = {},
 
         **cpw_kwargs,
@@ -789,7 +788,7 @@ class LinkedSplits(QWidget):
 
     def resize_sidepanes(
         self,
-        from_linked: Optional[LinkedSplits] = None,
+        from_linked: LinkedSplits | None = None,
 
     ) -> None:
         '''
@@ -857,7 +856,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # TODO: load from config
         use_open_gl: bool = False,
 
-        static_yrange: Optional[tuple[float, float]] = None,
+        static_yrange: tuple[float, float] | None = None,
 
         parent=None,
         **kwargs,
@@ -872,7 +871,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # NOTE: must be set bfore calling ``.mk_vb()``
         self.linked = linkedsplits
-        self.sidepane: Optional[FieldsForm] = None
+        self.sidepane: FieldsForm | None = None
 
         # source of our custom interactions
         self.cv = self.mk_vb(name)
@@ -1035,7 +1034,7 @@ class ChartPlotWidget(pg.PlotWidget):
     def increment_view(
         self,
         datums: int = 1,
-        vb: Optional[ChartView] = None,
+        vb: ChartView | None = None,
 
     ) -> None:
         '''
@@ -1066,8 +1065,8 @@ class ChartPlotWidget(pg.PlotWidget):
     def overlay_plotitem(
         self,
         name: str,
-        index: Optional[int] = None,
-        axis_title: Optional[str] = None,
+        index: int | None = None,
+        axis_title: str | None = None,
         axis_side: str = 'right',
         axis_kwargs: dict = {},
 
@@ -1140,11 +1139,11 @@ class ChartPlotWidget(pg.PlotWidget):
         shm: ShmArray,
         flume: Flume,
 
-        array_key: Optional[str] = None,
+        array_key: str | None = None,
         overlay: bool = False,
-        color: Optional[str] = None,
+        color: str | None = None,
         add_label: bool = True,
-        pi: Optional[pg.PlotItem] = None,
+        pi: pg.PlotItem | None = None,
         step_mode: bool = False,
         is_ohlc: bool = False,
         add_sticky: None | str = 'right',
@@ -1277,7 +1276,7 @@ class ChartPlotWidget(pg.PlotWidget):
         shm: ShmArray,
         flume: Flume,
 
-        array_key: Optional[str] = None,
+        array_key: str | None = None,
         **draw_curve_kwargs,
 
     ) -> Viz:
@@ -1308,10 +1307,10 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def maxmin(
         self,
-        name: Optional[str] = None,
-        bars_range: Optional[tuple[
+        name: str | None = None,
+        bars_range: tuple[
             int, int, int, int, int, int
-        ]] = None,
+        ] | None = None,
 
     ) -> tuple[float, float]:
         '''

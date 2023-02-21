@@ -24,7 +24,10 @@ from contextlib import asynccontextmanager as acm
 from functools import partial
 import inspect
 from itertools import cycle
-from typing import Optional, AsyncGenerator, Any
+from typing import (
+    AsyncGenerator,
+    Any,
+)
 
 import numpy as np
 import msgspec
@@ -80,7 +83,7 @@ def has_vlm(ohlcv: ShmArray) -> bool:
 def update_fsp_chart(
     viz,
     graphics_name: str,
-    array_key: Optional[str],
+    array_key: str | None,
     **kwargs,
 
 ) -> None:
@@ -476,7 +479,7 @@ class FspAdmin:
         target: Fsp,
         conf: dict[str, dict[str, Any]],
 
-        worker_name: Optional[str] = None,
+        worker_name: str | None = None,
         loglevel: str = 'info',
 
     ) -> (Flume, trio.Event):

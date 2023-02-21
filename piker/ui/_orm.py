@@ -20,8 +20,9 @@ micro-ORM for coupling ``pydantic`` models with Qt input/output widgets.
 """
 from __future__ import annotations
 from typing import (
-    Optional, Generic,
-    TypeVar, Callable,
+    Generic,
+    TypeVar,
+    Callable,
 )
 
 # from pydantic import BaseModel, validator
@@ -42,13 +43,11 @@ DataType = TypeVar('DataType')
 
 
 class Field(GenericModel, Generic[DataType]):
-    widget_factory: Optional[
-        Callable[
-            [QWidget, 'Field'],
-            QWidget
-        ]
-    ]
-    value: Optional[DataType] = None
+    widget_factory: Callable[
+        [QWidget, 'Field'],
+        QWidget
+    ] | None = None
+    value: DataType | None = None
 
 
 class Selection(Field[DataType], Generic[DataType]):

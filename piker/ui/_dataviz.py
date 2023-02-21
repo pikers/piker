@@ -25,7 +25,6 @@ from math import (
     floor,
 )
 from typing import (
-    Optional,
     Literal,
     TYPE_CHECKING,
 )
@@ -249,7 +248,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
     # in some cases a viz may want to change its
     # graphical "type" or, "form" when downsampling, to
     # start this is only ever an interpolation line.
-    ds_graphics: Optional[Curve] = None
+    ds_graphics: Curve | None = None
 
     is_ohlc: bool = False
     render: bool = True  # toggle for display loop
@@ -576,7 +575,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
     def read(
         self,
-        array_field: Optional[str] = None,
+        array_field: str | None = None,
         index_field: str | None = None,
         profiler: None | Profiler = None,
 

@@ -21,7 +21,6 @@ Higher level annotation editors.
 from __future__ import annotations
 from collections import defaultdict
 from typing import (
-    Optional,
     TYPE_CHECKING
 )
 
@@ -67,7 +66,7 @@ class ArrowEditor(Struct):
         x: float,
         y: float,
         color='default',
-        pointing: Optional[str] = None,
+        pointing: str | None = None,
 
     ) -> pg.ArrowItem:
         '''
@@ -221,7 +220,7 @@ class LineEditor(Struct):
         line: LevelLine = None,
         uuid: str = None,
 
-    ) -> Optional[LevelLine]:
+    ) -> LevelLine | None:
         '''Remove a line by refernce or uuid.
 
         If no lines or ids are provided remove all lines under the

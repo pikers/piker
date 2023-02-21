@@ -26,7 +26,6 @@ import itertools
 from math import floor
 import time
 from typing import (
-    Optional,
     Any,
     TYPE_CHECKING,
 )
@@ -205,8 +204,8 @@ class DisplayState(Struct):
 
     globalz: None | dict[str, Any] = None
 
-    vlm_chart: Optional[ChartPlotWidget] = None
-    vlm_sticky: Optional[YAxisLabel] = None
+    vlm_chart: ChartPlotWidget | None = None
+    vlm_sticky: YAxisLabel | None = None
     wap_in_history: bool = False
 
 
@@ -494,7 +493,7 @@ def graphics_update_cycle(
 
     wap_in_history: bool = False,
     trigger_all: bool = False,  # flag used by prepend history updates
-    prepend_update_index: Optional[int] = None,
+    prepend_update_index: int | None = None,
 
 ) -> None:
 

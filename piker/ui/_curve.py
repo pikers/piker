@@ -19,7 +19,7 @@ Fast, smooth, sexy curves.
 
 """
 from contextlib import contextmanager as cm
-from typing import Optional, Callable
+from typing import Callable
 
 import numpy as np
 import pyqtgraph as pg
@@ -86,7 +86,7 @@ class FlowGraphic(pg.GraphicsObject):
         # line styling
         color: str = 'bracket',
         last_step_color: str | None = None,
-        fill_color: Optional[str] = None,
+        fill_color: str | None = None,
         style: str = 'solid',
 
         **kwargs
@@ -191,14 +191,14 @@ class Curve(FlowGraphic):
 
     '''
     # TODO: can we remove this?
-    # sub_br: Optional[Callable] = None
+    # sub_br: Callable | None = None
 
     def __init__(
         self,
         *args,
 
         # color: str = 'default_lightest',
-        # fill_color: Optional[str] = None,
+        # fill_color: str | None = None,
         # style: str = 'solid',
 
         **kwargs

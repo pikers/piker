@@ -21,7 +21,6 @@ Mouse interaction graphics
 from __future__ import annotations
 from functools import partial
 from typing import (
-    Optional,
     Callable,
     TYPE_CHECKING,
 )
@@ -38,7 +37,10 @@ from ._style import (
     _font_small,
     _font,
 )
-from ._axes import YAxisLabel, XAxisLabel
+from ._axes import (
+    YAxisLabel,
+    XAxisLabel,
+)
 from ..log import get_logger
 
 if TYPE_CHECKING:
@@ -167,7 +169,7 @@ class ContentsLabel(pg.LabelItem):
 
         anchor_at: str = ('top', 'right'),
         justify_text: str = 'left',
-        font_size: Optional[int] = None,
+        font_size: int | None = None,
 
     ) -> None:
 
@@ -338,7 +340,7 @@ class Cursor(pg.GraphicsObject):
 
         self.linked = linkedsplits
         self.graphics: dict[str, pg.GraphicsObject] = {}
-        self.xaxis_label: Optional[XAxisLabel] = None
+        self.xaxis_label: XAxisLabel | None = None
         self.always_show_xlabel: bool = True
         self.plots: list['PlotChartWidget'] = []  # type: ignore # noqa
         self.active_plot = None

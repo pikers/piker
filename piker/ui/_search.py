@@ -35,7 +35,6 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from functools import partial
 from typing import (
-    Optional,
     Callable,
     Awaitable,
     Sequence,
@@ -178,8 +177,8 @@ class CompleterView(QTreeView):
 
     def resize_to_results(
         self,
-        w: Optional[float] = 0,
-        h: Optional[float] = None,
+        w: float | None = 0,
+        h: float | None = None,
 
     ) -> None:
         model = self.model()
@@ -380,7 +379,7 @@ class CompleterView(QTreeView):
         self,
         section: str,
 
-    ) -> Optional[QModelIndex]:
+    ) -> QModelIndex | None:
         '''
         Find the *first* depth = 1 section matching ``section`` in
         the tree and return its index.
@@ -504,7 +503,7 @@ class CompleterView(QTreeView):
 
     def show_matches(
         self,
-        wh: Optional[tuple[float, float]] = None,
+        wh: tuple[float, float] | None = None,
 
     ) -> None:
 
@@ -529,7 +528,7 @@ class SearchBar(Edit):
         self,
         parent: QWidget,
         godwidget: QWidget,
-        view: Optional[CompleterView] = None,
+        view: CompleterView | None = None,
         **kwargs,
 
     ) -> None:
@@ -708,7 +707,7 @@ class SearchWidget(QtWidgets.QWidget):
         self,
         clear_to_cache: bool = True,
 
-    ) -> Optional[str]:
+    ) -> str | None:
         '''
         Attempt to load and switch the current selected
         completion result to the affiliated chart app.
@@ -1167,7 +1166,7 @@ async def register_symbol_search(
 
     provider_name: str,
     search_routine: Callable,
-    pause_period: Optional[float] = None,
+    pause_period: float | None = None,
 
 ) -> AsyncIterator[dict]:
 

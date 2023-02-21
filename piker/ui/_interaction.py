@@ -26,7 +26,6 @@ from math import (
 import time
 from typing import (
     Any,
-    Optional,
     Callable,
     TYPE_CHECKING,
 )
@@ -93,7 +92,7 @@ async def handle_viewmode_kb_inputs(
     last = time.time()
     action: str
 
-    on_next_release: Optional[Callable] = None
+    on_next_release: Callable | None = None
 
     # for quick key sequence-combo pattern matching
     # we have a min_tap period and these should not
@@ -379,7 +378,7 @@ class ChartView(ViewBox):
         name: str,
 
         parent: pg.PlotItem = None,
-        static_yrange: Optional[tuple[float, float]] = None,
+        static_yrange: tuple[float, float] | None = None,
         **kwargs,
 
     ):
@@ -595,7 +594,7 @@ class ChartView(ViewBox):
     def mouseDragEvent(
         self,
         ev,
-        axis: Optional[int] = None,
+        axis: int | None = None,
 
     ) -> None:
         pos = ev.pos()
@@ -753,19 +752,19 @@ class ChartView(ViewBox):
         self,
         *,
 
-        yrange: Optional[tuple[float, float]] = None,
+        yrange: tuple[float, float] | None = None,
         viz: Viz | None = None,
 
         # NOTE: this value pairs (more or less) with L1 label text
         # height offset from from the bid/ask lines.
         range_margin: float | None = 0.09,
 
-        bars_range: Optional[tuple[int, int, int, int]] = None,
+        bars_range: tuple[int, int, int, int] | None = None,
 
         # flag to prevent triggering sibling charts from the same linked
         # set from recursion errors.
         autoscale_linked_plots: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
 
     ) -> None:
         '''
@@ -871,7 +870,7 @@ class ChartView(ViewBox):
     def enable_auto_yrange(
         self,
         viz: Viz,
-        src_vb: Optional[ChartView] = None,
+        src_vb: ChartView | None = None,
 
     ) -> None:
         '''

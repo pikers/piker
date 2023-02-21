@@ -23,7 +23,9 @@ from contextlib import asynccontextmanager
 from functools import partial
 from math import floor
 from typing import (
-    Optional, Any, Callable, Awaitable
+    Any,
+    Callable,
+    Awaitable,
 )
 
 import trio
@@ -263,7 +265,7 @@ class Selection(QComboBox):
     def set_icon(
         self,
         key: str,
-        icon_name: Optional[str],
+        icon_name: str | None,
 
     ) -> None:
         self.setItemIcon(
@@ -344,7 +346,7 @@ class FieldsForm(QWidget):
 
         name: str,
 
-        font_size: Optional[int] = None,
+        font_size: int | None = None,
         font_color: str = 'default_lightest',
 
     ) -> QtGui.QLabel:
@@ -469,7 +471,7 @@ def mk_form(
 
     parent: QWidget,
     fields_schema: dict,
-    font_size: Optional[int] = None,
+    font_size: int | None = None,
 
 ) -> FieldsForm:
 
@@ -628,7 +630,7 @@ def mk_fill_status_bar(
     parent_pane: QWidget,
     form: FieldsForm,
     pane_vbox: QVBoxLayout,
-    label_font_size: Optional[int] = None,
+    label_font_size: int | None = None,
 
 ) -> (
     # TODO: turn this into a composite?
@@ -738,7 +740,7 @@ def mk_fill_status_bar(
 def mk_order_pane_layout(
 
     parent: QWidget,
-    # accounts: dict[str, Optional[str]],
+    # accounts: dict[str, str | None],
 
 ) -> FieldsForm:
 

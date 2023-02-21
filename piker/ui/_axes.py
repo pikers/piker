@@ -20,7 +20,7 @@ Chart axes graphics and behavior.
 """
 from __future__ import annotations
 from functools import lru_cache
-from typing import Optional, Callable
+from typing import Callable
 from math import floor
 
 import numpy as np
@@ -60,7 +60,8 @@ class Axis(pg.AxisItem):
             **kwargs
         )
 
-        # XXX: pretty sure this makes things slower
+        # XXX: pretty sure this makes things slower!
+        # no idea why given we only move labels for the most part?
         # self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
         self.pi = plotitem
@@ -190,7 +191,7 @@ class PriceAxis(Axis):
         *args,
         min_tick: int = 2,
         title: str = '',
-        formatter: Optional[Callable[[float], str]] = None,
+        formatter: Callable[[float], str] | None = None,
         **kwargs
 
     ) -> None:
@@ -202,8 +203,8 @@ class PriceAxis(Axis):
     def set_title(
         self,
         title: str,
-        view: Optional[ChartView] = None,
-        color: Optional[str] = None,
+        view: ChartView | None = None,
+        color: str | None = None,
 
     ) -> Label:
         '''

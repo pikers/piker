@@ -23,7 +23,6 @@ import signal
 import time
 from typing import (
     Callable,
-    Optional,
     Union,
 )
 import uuid
@@ -64,9 +63,9 @@ class MultiStatus:
 
         self,
         msg: str,
-        final_msg: Optional[str] = None,
+        final_msg: str | None = None,
         clear_on_next: bool = False,
-        group_key: Optional[Union[bool, str]] = False,
+        group_key: Union[bool, str] | None = False,
 
     ) -> Union[Callable[..., None], str]:
         '''
@@ -178,11 +177,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(self.title)
 
         # set by runtime after `trio` is engaged.
-        self.godwidget: Optional[GodWidget] = None
+        self.godwidget: GodWidget | None = None
 
         self._status_bar: QStatusBar = None
         self._status_label: QLabel = None
-        self._size: Optional[tuple[int, int]] = None
+        self._size: tuple[int, int] | None = None
 
     @property
     def mode_label(self) -> QLabel:
@@ -289,7 +288,7 @@ class MainWindow(QMainWindow):
 
     def configure_to_desktop(
         self,
-        size: Optional[tuple[int, int]] = None,
+        size: tuple[int, int] | None = None,
 
     ) -> None:
         '''
