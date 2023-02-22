@@ -76,10 +76,10 @@ class OverlayT(Struct):
 
     def apply_rng(
         self,
-        y_start: float,  # reference value for dispersion metric
+        y_ref: float,  # reference value for dispersion metric
 
     ) -> float:
-        return y_start * (1 + self.rng)
+        return y_ref * (1 + self.rng)
 
     # def loglin_from_range(
     #     self,
@@ -207,7 +207,6 @@ def overlay_viewlists(
         'solo',
     ] = 'loglin_to_first',
 
-
     # internal instrumentation
     debug_print: bool = False,
 
@@ -238,8 +237,6 @@ def overlay_viewlists(
         #    and scale minor charts onto the major chart: the chart
         #    with the most dispersion in the set.
         major_sigma_viz: Viz = None
-        major_mx: float = 0
-        major_mn: float = float('inf')
         mx_disp: float = 0
 
         # collect certain flows have grapics objects **in seperate
@@ -357,15 +354,6 @@ def overlay_viewlists(
 
                 profiler(f'{viz.name}@{chart_name} MINOR curve median')
 
-                overlay_table[viz.plot.vb] = (
-                    viz,
-                    y_ref,
-                    ymn,
-                    ymx,
-                    read_slc,
-                    in_view,
-                )
-
                 key = 'open' if viz.is_ohlc else viz.name
                 start_t = in_view[0]['time']
                 r_down = (ymn - y_ref) / y_ref
@@ -394,7 +382,7 @@ def overlay_viewlists(
                     dnt.rng = r_down
                     dnt.in_view = in_view
                     dnt.start_t = in_view[0]['time']
-                    major_mn = ymn
+                    dnt.y_val = ymn
 
                     msg = f'NEW DOWN: {viz.name}@{chart_name} r:{r_down}\n'
                     profiler(msg)
@@ -425,11 +413,7 @@ def overlay_viewlists(
                             # so we need to adjust the major's range
                             # to include the new composed range.
                             y_maj_ref = longer_in_view[key]
-                            new_major_ymn = (
-                                y_maj_ref
-                                *
-                                (1 + r_down)
-                            )
+                            new_major_ymn = y_maj_ref * (1 + r_down)
 
                             # rewrite the major range to the new
                             # minor-pinned-to-major range and mark
@@ -439,10 +423,10 @@ def overlay_viewlists(
                                 f'y_start epoch time @ {_t}:\n'
                                 f'y_maj_ref @ {_t}: {y_maj_ref}\n'
                                 f'R: {dnt.rng} -> {r_down}\n'
-                                f'MN: {major_mn} -> {new_major_ymn}\n'
+                                f'MN: {dnt.y_val} -> {new_major_ymn}\n'
                             )
                             dnt.rng = r_down
-                            major_mn = dnt.y_val = new_major_ymn
+                            dnt.y_val = new_major_ymn
                             profiler(msg)
                             if debug_print:
                                 print(msg)
@@ -458,7 +442,7 @@ def overlay_viewlists(
                     upt.viz = viz
                     upt.in_view = in_view
                     upt.start_t = in_view[0]['time']
-                    major_mx = ymx
+                    upt.y_val = ymx
                     msg = f'NEW UP: {viz.name}@{chart_name} r:{r_up}\n'
                     profiler(msg)
                     if debug_print:
@@ -476,18 +460,14 @@ def overlay_viewlists(
                     if intersect:
                         longer_in_view, _t, i = intersect
 
+                        # after major curve scaling we detect if
+                        # the minor curve is still out of range
+                        # so we need to adjust the major's range
+                        # to include the new composed range.
                         scaled_mx = upt.apply_rng(y_ref)
                         if scaled_mx < ymx:
-                            # after major curve scaling we detected
-                            # the minor curve is still out of range
-                            # so we need to adjust the major's range
-                            # to include the new composed range.
                             y_maj_ref = longer_in_view[key]
-                            new_major_ymx = (
-                                y_maj_ref
-                                *
-                                (1 + r_up)
-                            )
+                            new_major_ymx = y_maj_ref * (1 + r_up)
 
                             # rewrite the major range to the new
                             # minor-pinned-to-major range and mark
@@ -496,10 +476,10 @@ def overlay_viewlists(
                                 f'EXPAND UP bc {viz.name}@{chart_name}:\n'
                                 f'y_maj_ref @ {_t}: {y_maj_ref}\n'
                                 f'R: {upt.rng} -> {r_up}\n'
-                                f'MX: {major_mx} -> {new_major_ymx}\n'
+                                f'MX: {upt.y_val} -> {new_major_ymx}\n'
                             )
                             upt.rng = r_up
-                            major_mx = upt.y_val = new_major_ymx
+                            upt.y_val = new_major_ymx
                             profiler(msg)
                             print(msg)
 
@@ -508,10 +488,17 @@ def overlay_viewlists(
                 if disp > mx_disp:
                     major_sigma_viz = viz
                     mx_disp = disp
-                    major_mn = ymn
-                    major_mx = ymx
 
-                profiler(f'{viz.name}@{chart_name} MINOR curve scale')
+                overlay_table[viz.plot.vb] = (
+                    viz,
+                    y_ref,
+                    ymn,
+                    ymx,
+                    read_slc,
+                    in_view,
+                )
+
+                profiler(f'{viz.name}@{chart_name} yrange scan complete')
 
         # NOTE: if no there were no overlay charts
         # detected/collected (could be either no group detected or
@@ -615,8 +602,6 @@ def overlay_viewlists(
                     '------------------------------\n'
                 )
 
-        # profiler(f'{viz.name}@{chart_name} log-SCALE major')
-        # major_mx, major_mn = group_mxmn
         # vrs = major_sigma_viz.plot.vb.viewRange()
         # if vrs[1][0] > major_mn:
         #     breakpoint()
