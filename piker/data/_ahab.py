@@ -324,13 +324,13 @@ async def open_ahabd(
         with trio.move_on_after(start_timeout):
             found = await cntr.process_logs_until(start_lambda)
 
-        if not found and dcntr not in client.containers.list():
-            for entry in cntr.seen_so_far:
-                log.info(entry)
+            if not found and dcntr not in client.containers.list():
+                for entry in cntr.seen_so_far:
+                    log.info(entry)
 
-            raise RuntimeError(
-                f'Failed to start {dcntr.id} check logs deats'
-            )
+                raise RuntimeError(
+                    f'Failed to start {dcntr.id} check logs deats'
+                )
 
         await ctx.started((
             cntr.cntr.id,
