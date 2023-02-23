@@ -10,7 +10,6 @@ import trio
 import tractor
 
 from piker.log import get_logger
-
 from piker._daemon import (
     find_service,
     Services,
@@ -177,4 +176,4 @@ def test_ensure_ems_in_paper_actors(
         trio.run(main)
 
     cancel_msg: str = '_emsd_main()` was remotely cancelled by its caller'
-    assert cancel_msg in exc_info.value.args[0]    
+    assert cancel_msg in exc_info.value.args[0]

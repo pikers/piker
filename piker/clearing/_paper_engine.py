@@ -36,7 +36,6 @@ import trio
 import tractor
 
 from .. import data
-from ..data._source import Symbol
 from ..data.types import Struct
 from ..pp import (
     Position,
@@ -86,7 +85,7 @@ class PaperBoi(Struct):
     # init edge case L1 spread
     last_ask: tuple[float, float] = (float('inf'), 0)  # price, size
     last_bid: tuple[float, float] = (0, 0)
-        
+
     async def submit_limit(
         self,
         oid: str,  # XXX: see return value
@@ -236,7 +235,7 @@ class PaperBoi(Struct):
         )
         log.info(f'Fake filling order:\n{fill_msg}')
         await self.ems_trades_stream.send(fill_msg)
-        
+
         if order_complete:
             msg = BrokerdStatus(
                 reqid=reqid,
@@ -251,18 +250,6 @@ class PaperBoi(Struct):
 
         # lookup any existing position
         key = fqsn.rstrip(f'.{self.broker}')
-        pp = self._positions.setdefault(
-            fqsn,
-            Position(
-                Symbol(
-                    key=key,
-                    broker_info={self.broker: {}},
-                ),
-                size=size,
-                ppu=price,
-                bsuid=key,
-            )
-        )
         t = Transaction(
             fqsn=fqsn,
             tid=oid,
@@ -274,24 +261,24 @@ class PaperBoi(Struct):
         )
 
         # Update in memory ledger per trade
-        ledger_entry = {}
-        ledger_entry[oid] = t.to_dict() 
-        
+        ledger_entry = {oid: t.to_dict()}
+
         # Store txn in state for PP update
         self._txn_dict[oid] = t
         self._trade_ledger.update(ledger_entry)
 
-        # Write to ledger toml  
+        # Write to ledger toml right now
         with open_trade_ledger(self.broker, 'paper') as ledger:
-            ledger.update(self._trade_ledger)   
+            ledger.update(self._trade_ledger)
 
-        # Write to pps toml
-        with open_pps(self.broker, 'piker-paper') as table: 
+        # Write to pps toml right now
+        with open_pps(self.broker, 'piker-paper') as table:
             table.update_from_trans(self._txn_dict)
             # save pps in local state
-            self._positions.update(table.pps)
+            self._positions = table.pps
 
-        pp.add_clear(t)
+        # Ensure we have the latest positioning data when sending pp_msg
+        pp = self._positions[key]
 
         pp_msg = BrokerdPosition(
             broker=self.broker,
@@ -300,7 +287,7 @@ class PaperBoi(Struct):
             # TODO: we need to look up the asset currency from
             # broker info. i guess for crypto this can be
             # inferred from the pair?
-            currency='',
+            currency=key,
             size=pp.size,
             avg_price=pp.ppu,
         )
@@ -330,7 +317,6 @@ async def simulate_fills(
     # https://github.com/quantopian/zipline/blob/master/zipline/finance/ledger.py
 
     # this stream may eventually contain multiple symbols
-
     async for quotes in quote_stream:
         for sym, quote in quotes.items():
             for tick in iterticks(
@@ -423,7 +409,8 @@ async def simulate_fills(
                     # below unecessarily and further don't want to pop
                     # simulated live orders prematurely.
                     case _:
-                        continue 
+                        continue
+
                 # iterate all potentially clearable book prices
                 # in FIFO order per side.
                 for order_info, pred in iter_entries:
@@ -437,7 +424,7 @@ async def simulate_fills(
                             'buy': buys,
                             'sell': sells
                         }[action].inverse.pop(order_info)
- 
+
                         # clearing price would have filled entirely
                         await client.fake_fill(
                             fqsn=sym,
@@ -554,10 +541,10 @@ async def trades_dialogue(
 
     ):
 
-        with open_pps(broker, 'piker-paper') as table: 
+        with open_pps(broker, 'piker-paper', False) as table:
             # save pps in local state
             _positions.update(table.pps)
-        
+
         pp_msgs: list[BrokerdPosition] = []
         pos: Position
         token: str  # f'{symbol}.{self.broker}'
@@ -569,8 +556,7 @@ async def trades_dialogue(
                 size=pos.size,
                 avg_price=pos.ppu,
             ))
-        # TODO: load paper positions per broker from .toml config file
-        # and pass as symbol to position data mapping: ``dict[str, dict]``
+
         await ctx.started((
             pp_msgs,
             ['paper'],
