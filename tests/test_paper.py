@@ -137,17 +137,34 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager):
 
             # Close piker like a user would
             raise KeyboardInterrupt
+    
+    # def _assert_entries():
+    #     cleared_ledger_entry = {}
+    #     with open_trade_ledger(broker, test_account) as ledger:
+    #         cleared_ledger_entry = ledger[oid]
+    #         assert list(ledger.keys())[-1] == oid
+    #         assert cleared_ledger_entry["size"] == test_size
+    #         assert cleared_ledger_entry["fqsn"] == fqsn
+    #
+    #     with open_pps(broker, test_pp_account, False) as table:
+    #         pp_price = table.conf[broker][test_pp_account][fqsn]["ppu"]
+    #         # Ensure the price-per-unit (breakeven) price is close to our clearing price
+    #         assert math.isclose(
+    #             pp_price, cleared_ledger_entry["size"], rel_tol=1
+    #         )
+    #         assert table.brokername == broker
+    #         assert table.acctid == test_pp_account
+    #
 
     # Open piker load pps locally
     # and ensure last pps price is the same as ledger entry
     def _assert_pps(ledger, table):
-        return (
-            positions[(broker, test_account)][-1]["avg_price"] == ledger[oid]["price"]
-        )
+        assert positions[(broker, test_account)][-1]["avg_price"] == ledger[oid]["price"]
+       
 
     def _assert_no_pps(ledger, table):
         print(f"positions: {positions}")
-        return not bool(table)
+        assert not bool(table)
         # return len(table.pps) == 0
 
     # Close position and assert empty position in pps
@@ -160,7 +177,7 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager):
             open_pps(broker, test_pp_account) as table,
         ):
             if assert_cb:
-                assert assert_cb(ledger, table)
+                assert_cb(ledger, table)
 
             for exception in exc_info.value.exceptions:
                 assert isinstance(exception, KeyboardInterrupt) or isinstance(
@@ -175,6 +192,7 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager):
             open_pikerd=open_test_pikerd,
             action="buy",
         ),
+        # _assert_entries
     )
 
     _run_test_and_check(
