@@ -1,6 +1,6 @@
-'''
+"""
 Paper-mode testing
-'''
+"""
 
 import trio
 import math
@@ -38,32 +38,32 @@ from piker.clearing._messages import BrokerdPosition
 log = get_logger(__name__)
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope="module")
 def delete_testing_dir():
-    '''This fixture removes the temp directory
+    """This fixture removes the temp directory
     used for storing all config/ledger/pp data
     created during testing sessions
-    '''
+    """
     yield
-    app_dir = Path(get_app_dir('piker')).resolve()
+    app_dir = Path(get_app_dir("piker")).resolve()
     if app_dir.is_dir():
         rmtree(str(app_dir))
         assert not app_dir.is_dir()
 
 
 def get_fqsn(broker, symbol):
-    fqsn = f'{symbol}.{broker}'
+    fqsn = f"{symbol}.{broker}"
     return (fqsn, symbol, broker)
 
 
 def test_paper_trade(open_test_pikerd: AsyncContextManager):
-    oid = ''
-    test_exec_mode = 'live'
-    test_account = 'paper'
+    oid = ""
+    test_exec_mode = "live"
+    test_account = "paper"
     test_size = 1
-    (fqsn, symbol, broker) = get_fqsn('kraken', 'xbtusdt')
+    (fqsn, symbol, broker) = get_fqsn("kraken", "xbtusdt")
     brokers = [broker]
-    test_pp_account = 'piker-paper'
+    test_pp_account = "piker-paper"
     positions: dict[
         # brokername, acctid
         tuple[str, str],
@@ -72,15 +72,15 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager):
 
     async def _async_main(
         open_pikerd: AsyncContextManager,
-        action: Literal['buy', 'sell'] | None = None,
+        action: Literal["buy", "sell"] | None = None,
         price: int = 30000,
         assert_entries: bool = False,
     ) -> None:
-        '''Spawn a paper piper actor, place a trade and assert entries are present
+        """Spawn a paper piper actor, place a trade and assert entries are present
         in both trade ledger and pps tomls. Then restart piker and ensure
         that pps from previous trade exists in the ems pps.
         Finally close the position and ensure that the position in pps.toml is closed.
-        '''
+        """
         nonlocal oid
         book: OrderBook
         nonlocal positions
@@ -88,7 +88,7 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager):
         # Set up piker and EMS
         async with (
             open_pikerd() as (_, _, _, services),
-            open_ems(fqsn, mode='paper') as (
+            open_ems(fqsn, mode="paper") as (
                 book,
                 trades_stream,
                 pps,
@@ -121,14 +121,14 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager):
                 with open_trade_ledger(broker, test_account) as ledger:
                     cleared_ledger_entry = ledger[oid]
                     assert list(ledger.keys())[-1] == oid
-                    assert cleared_ledger_entry['size'] == test_size
-                    assert cleared_ledger_entry['fqsn'] == fqsn
+                    assert cleared_ledger_entry["size"] == test_size
+                    assert cleared_ledger_entry["fqsn"] == fqsn
 
                 with open_pps(broker, test_pp_account) as table:
-                    pp_price = table.conf[broker][test_pp_account][fqsn]['ppu']
+                    pp_price = table.conf[broker][test_pp_account][fqsn]["ppu"]
                     # Ensure the price-per-unit (breakeven) price is close to our clearing price
                     assert math.isclose(
-                        pp_price, cleared_ledger_entry['size'], rel_tol=1
+                        pp_price, cleared_ledger_entry["size"], rel_tol=1
                     )
                     assert table.brokername == broker
                     assert table.acctid == test_pp_account
@@ -142,11 +142,13 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager):
     # and ensure last pps price is the same as ledger entry
     def _assert_pps(ledger, table):
         return (
-            positions[(broker, test_account)][-1]['avg_price'] == ledger[oid]['price']
+            positions[(broker, test_account)][-1]["avg_price"] == ledger[oid]["price"]
         )
 
     def _assert_no_pps(ledger, table):
-        return len(table.pps) == 0
+        print(f"positions: {positions}")
+        return not bool(table)
+        # return len(table.pps) == 0
 
     # Close position and assert empty position in pps
     def _run_test_and_check(exception, fn, assert_cb=None):
@@ -171,7 +173,7 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager):
         partial(
             _async_main,
             open_pikerd=open_test_pikerd,
-            action='buy',
+            action="buy",
         ),
     )
 
@@ -183,22 +185,19 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager):
 
     _run_test_and_check(
         BaseExceptionGroup,
-        partial(_async_main, open_pikerd=open_test_pikerd, action='sell', price=1),
+        partial(_async_main, open_pikerd=open_test_pikerd, action="sell", price=1),
         _assert_no_pps,
     )
 
 
-# def test_paper_client(
-#     open_test_pikerd: AsyncContextManager
-# ):
-#
+# def test_paper_client(open_test_pikerd: AsyncContextManager):
 #     async def _async_main(
 #         open_pikerd: AsyncContextManager,
 #     ):
-#         (fqsn, symbol, broker) = get_fqsn('kraken', 'xbtusdt')
+#         (fqsn, symbol, broker) = get_fqsn("kraken", "xbtusdt")
 #         async with (
 #             open_pikerd() as (_, _, _, services),
-#             open_ems(fqsn, mode='paper') as (
+#             open_ems(fqsn, mode="paper") as (
 #                 book,
 #                 trades_stream,
 #                 pps,
@@ -206,11 +205,14 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager):
 #                 dialogs,
 #             ),
 #         ):
-#             async with open_cached_client(broker) as client:
-#                 symbol_info = await client.symbol_info()
-#                 print(f'client: {symbol_info['XBTUSDT']}')
+#             # async with open_cached_client(broker) as client:
+#             #     symbol_info = await client.symbol_info()
+#             #     print(f'client: {symbol_info['XBTUSDT']}')
+#             with (open_pps(broker, "piker-paper") as table,):
+#                 print(f"table: {table}")
 #
-#     trio.run(partial(
+#     trio.run(
+#         partial(
 #             _async_main,
 #             open_pikerd=open_test_pikerd,
 #         ),

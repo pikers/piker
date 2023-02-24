@@ -680,7 +680,6 @@ class PpTable(Struct):
         # TODO: show diff output?
         # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
         print(f'Updating ``pps.toml`` for {path}:\n')
-
         # active, closed_pp_objs = table.dump_active()
         pp_entries = self.to_toml()
         self.conf[self.brokername][self.acctid] = pp_entries

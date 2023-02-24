@@ -41,7 +41,8 @@ from ..pp import (
     Position,
     Transaction,
     open_trade_ledger,
-    open_pps
+    open_pps,
+    load_pps_from_ledger
 )
 from ..data._normalize import iterticks
 from ..data._source import unpack_fqsn
@@ -260,7 +261,6 @@ class PaperBoi(Struct):
             bsuid=key,
         )
 
-        # Write to ledger toml right now
         with (
                 open_trade_ledger(self.broker, 'paper') as ledger,
                 open_pps(self.broker, 'piker-paper') as table
@@ -268,25 +268,22 @@ class PaperBoi(Struct):
                 ledger.update({oid: t.to_dict()})
                 # Write to pps toml right now
                 table.update_from_trans({oid: t})
-                # save pps in local state
-                self._positions.update(table.pps)
+                load_pps_from_ledger(self.broker, 'piker-paper')
 
-        # Ensure we have the latest positioning data when sending pp_msg
-        pp = self._positions[key]
+                pp = table.pps[key]
+                pp_msg = BrokerdPosition(
+                    broker=self.broker,
+                    account='paper',
+                    symbol=fqsn,
+                    # TODO: we need to look up the asset currency from
+                    # broker info. i guess for crypto this can be
+                    # inferred from the pair?
+                    currency=key,
+                    size=pp.size,
+                    avg_price=pp.ppu,
+                )
 
-        pp_msg = BrokerdPosition(
-            broker=self.broker,
-            account='paper',
-            symbol=fqsn,
-            # TODO: we need to look up the asset currency from
-            # broker info. i guess for crypto this can be
-            # inferred from the pair?
-            currency=key,
-            size=pp.size,
-            avg_price=pp.ppu,
-        )
-
-        await self.ems_trades_stream.send(pp_msg)
+                await self.ems_trades_stream.send(pp_msg)
 
 
 async def simulate_fills(
