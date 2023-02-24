@@ -29,7 +29,10 @@ from typing import (
     TYPE_CHECKING,
 )
 
-import msgspec
+from msgspec import (
+    Struct,
+    field,
+)
 import numpy as np
 import pyqtgraph as pg
 from PyQt5.QtCore import QLineF
@@ -225,15 +228,49 @@ def render_baritems(
 _sample_rates: set[float] = {1, 60}
 
 
-class Viz(msgspec.Struct):  # , frozen=True):
+class ViewState(Struct):
+    '''
+    Indexing objects representing the current view x-range -> y-range.
+
+    '''
+    # (xl, xr) "input" view range in x-domain
+    xrange: tuple[
+        float | int,
+        float | int
+    ] | None = None
+
+    # (ymn, ymx) "output" min and max in viewed y-codomain
+    yrange: tuple[
+        float | int,
+        float | int
+    ] | None = None
+
+    # last in view ``ShmArray.array[read_slc]`` data
+    in_view: np.ndarray | None = None
+
+
+class Viz(Struct):  # , frozen=True):
     '''
     (Data) "Visualization" compound type which wraps a real-time
     shm array stream with displayed graphics (curves, charts)
     for high level access and control as well as efficient incremental
-    update.
+    update, oriented around the idea of a "view state".
 
-    The intention is for this type to eventually be capable of shm-passing
-    of incrementally updated graphics stream data between actors.
+    The (backend) intention is for this interface and type is to
+    eventually be capable of shm-passing of incrementally updated
+    graphics stream data, thus providing a cross-actor solution to
+    sharing UI-related update state potentionally in a (compressed)
+    binary-interchange format.
+
+    Further, from an interaction-triggers-view-in-UI perspective, this type
+    operates as a transform:
+        (x_left, x_right) -> output metrics {ymn, ymx, uppx, ...}
+
+    wherein each x-domain range maps to some output set of (graphics
+    related) vizualization metrics. In further documentation we often
+    refer to this abstraction as a vizualization curve: Ci. Each Ci is
+    considered a function which maps an x-range (input view range) to
+    a multi-variate (metrics) output.
 
     '''
     name: str
@@ -242,8 +279,12 @@ class Viz(msgspec.Struct):  # , frozen=True):
     flume: Flume
     graphics: Curve | BarItems
 
-    # for tracking y-mn/mx for y-axis auto-ranging
-    yrange: tuple[float, float] = None
+    view_state: ViewState = field(default_factory=ViewState)
+
+    # last calculated y-mn/mx from m4 downsample code, this
+    # is updated in the body of `Renderer.render()`.
+    ds_yrange: tuple[float, float] | None = None
+    yrange: tuple[float, float] | None = None
 
     # in some cases a viz may want to change its
     # graphical "type" or, "form" when downsampling, to
@@ -264,7 +305,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
     ] = 'time'
 
-    # downsampling state
+    # TODO: maybe compound this into a downsampling state type?
     _last_uppx: float = 0
     _in_ds: bool = False
     _index_step: float | None = None
@@ -303,14 +344,23 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
     @property
     def index_field(self) -> str:
+        '''
+        The column name as ``str`` in the underlying ``._shm: ShmArray``
+        which will deliver the "index" array.
+
+        '''
         return self._index_field
 
     def index_step(
         self,
         reset: bool = False,
-
     ) -> float:
+        '''
+        Return the size between sample steps in the units of the
+        x-domain, normally either an ``int`` array index size or an
+        epoch time in seconds.
 
+        '''
         # attempt to dectect the best step size by scanning a sample of
         # the source data.
         if self._index_step is None:
@@ -393,7 +443,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
             # TODO: hash the slice instead maybe?
             # https://stackoverflow.com/a/29980872
-            lbar, rbar = ixrng = round(x_range[0]), round(x_range[1])
+            ixrng = lbar, rbar = round(x_range[0]), round(x_range[1])
 
         if use_caching:
             cached_result = self._mxmns.get(ixrng)
@@ -436,8 +486,8 @@ class Viz(msgspec.Struct):  # , frozen=True):
             )
             return None
 
-        elif self.yrange:
-            mxmn = self.yrange
+        elif self.ds_yrange:
+            mxmn = self.ds_yrange
             if do_print:
                 print(
                     f'{self.name} M4 maxmin:\n'
@@ -477,19 +527,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
             mxmn,
         )
 
-    @lru_cache(maxsize=6116)
-    def median_from_range(
-        self,
-        start: int,
-        stop: int,
-
-    ) -> float:
-        in_view = self.shm.array[start:stop]
-        if self.is_ohlc:
-            return np.median(in_view['close'])
-        else:
-            return np.median(in_view[self.name])
-
     def view_range(self) -> tuple[int, int]:
         '''
         Return the start and stop x-indexes for the managed ``ViewBox``.
@@ -514,7 +551,7 @@ class Viz(msgspec.Struct):  # , frozen=True):
         self,
         view_range: None | tuple[float, float] = None,
         index_field: str | None = None,
-        array: None | np.ndarray = None,
+        array: np.ndarray | None = None,
 
     ) -> tuple[
         int, int, int, int, int, int
@@ -527,29 +564,34 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         index_field: str = index_field or self.index_field
         if index_field == 'index':
-            l, r = round(l), round(r)
+            l: int = round(l)
+            r: int = round(r)
 
         if array is None:
             array = self.shm.array
 
         index = array[index_field]
-        first = floor(index[0])
-        last = ceil(index[-1])
+        first: int = floor(index[0])
+        last: int = ceil(index[-1])
 
         # first and last datums in view determined by
-        # l / r view range.
-        leftmost = floor(l)
-        rightmost = ceil(r)
+        # l -> r view range.
+        leftmost: int = floor(l)
+        rightmost: int = ceil(r)
 
         # invalid view state
         if (
             r < l
             or l < 0
             or r < 0
-            or (l > last and r > last)
+            or (
+                l > last
+                and r > last
+            )
         ):
-            leftmost = first
-            rightmost = last
+            leftmost: int = first
+            rightmost: int = last
+
         else:
             rightmost = max(
                 min(last, rightmost),
@@ -562,7 +604,10 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 rightmost - 1,
             )
 
-            assert leftmost < rightmost
+            # sanity
+            # assert leftmost < rightmost
+
+        self.view_state.xrange = leftmost, rightmost
 
         return (
             l,  # left x-in-view
@@ -591,11 +636,9 @@ class Viz(msgspec.Struct):  # , frozen=True):
 
         '''
         index_field: str = index_field or self.index_field
-        vr = l, r = self.view_range()
 
         # readable data
         array = self.shm.array
-
         if profiler:
             profiler('self.shm.array READ')
 
@@ -607,7 +650,6 @@ class Viz(msgspec.Struct):  # , frozen=True):
             ilast,
             r,
         ) = self.datums_range(
-            view_range=vr,
             index_field=index_field,
             array=array,
         )
@@ -629,11 +671,14 @@ class Viz(msgspec.Struct):  # , frozen=True):
             # above?
             in_view = array[read_slc]
             if in_view.size:
+                self.view_state.in_view = in_view
                 abs_indx = in_view['index']
                 abs_slc = slice(
                     int(abs_indx[0]),
                     int(abs_indx[-1]),
                 )
+            else:
+                self.view_state.in_view = None
 
             if profiler:
                 profiler(
@@ -654,10 +699,11 @@ class Viz(msgspec.Struct):  # , frozen=True):
             # BUT the ``in_view`` slice DOES..
             read_slc = slice(lbar_i, rbar_i)
             in_view = array[lbar_i: rbar_i + 1]
+            self.view_state.in_view = in_view
             # in_view = array[lbar_i-1: rbar_i+1]
-
             # XXX: same as ^
             # to_draw = array[lbar - ifirst:(rbar - ifirst) + 1]
+
             if profiler:
                 profiler('index arithmetic for slicing')
 
@@ -692,8 +738,8 @@ class Viz(msgspec.Struct):  # , frozen=True):
         pg.GraphicsObject,
     ]:
         '''
-        Read latest datums from shm and render to (incrementally)
-        render to graphics.
+        Read latest datums from shm and (incrementally) render to
+        graphics.
 
         '''
         profiler = Profiler(
@@ -1262,3 +1308,42 @@ class Viz(msgspec.Struct):  # , frozen=True):
                 vr, 0,
             )
         ).length()
+
+    @lru_cache(maxsize=6116)
+    def median_from_range(
+        self,
+        start: int,
+        stop: int,
+
+    ) -> float:
+        in_view = self.shm.array[start:stop]
+        if self.is_ohlc:
+            return np.median(in_view['close'])
+        else:
+            return np.median(in_view[self.name])
+
+    @lru_cache(maxsize=6116)
+    def dispersion(
+        start: int,
+        stop: int,
+
+    ) -> float:
+        pass
+
+    def scalars_from_index(
+        self,
+        xref: float,
+
+    ) -> tuple[float, float]:
+        arr = self.view_state.in_view
+        slc = slice_from_time(
+            arr=self.view_state.in_view,
+            start_t=xref,
+            stop_t=xref,
+        )
+        yref = arr[slc.start]
+        ymn, ymx = self.view_state.yrange
+        return (
+            (ymn - yref) / yref,
+            (ymx - yref) / yref,
+        )
