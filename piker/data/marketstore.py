@@ -189,13 +189,20 @@ def start_marketstore(
         init=True,
         # remove=True,
     )
+
+    async def start_matcher(msg: str):
+        return "launching tcp listener for all services..." in msg
+
+    async def stop_matcher(msg: str):
+        return "exiting..." in msg
+
     return (
         dcntr,
         _config,
 
         # expected startup and stop msgs
-        "launching tcp listener for all services...",
-        "exiting...",
+        start_matcher,
+        stop_matcher,
     )
 
 

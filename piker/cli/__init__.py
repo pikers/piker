@@ -20,6 +20,7 @@ CLI commons.
 '''
 import os
 from pprint import pformat
+from functools import partial
 
 import click
 import trio
@@ -48,6 +49,11 @@ log = get_logger('cli')
     is_flag=True,
     help='Enable local ``marketstore`` instance'
 )
+@click.option(
+    '--es',
+    is_flag=True,
+    help='Enable local ``elasticsearch`` instance'
+)
 def pikerd(
     loglevel: str,
     host: str,
@@ -55,11 +61,13 @@ def pikerd(
     tl: bool,
     pdb: bool,
     tsdb: bool,
+    es: bool,
 ):
     '''
     Spawn the piker broker-daemon.
 
     '''
+
     from .._daemon import open_pikerd
     log = get_console_log(loglevel)
 
@@ -80,9 +88,10 @@ def pikerd(
         )
 
     async def main():
-
         async with (
             open_pikerd(
+                tsdb=tsdb,
+                es=es,
                 loglevel=loglevel,
                 debug_mode=pdb,
                 registry_addr=reg_addr,
@@ -90,23 +99,6 @@ def pikerd(
             ),  # normally delivers a ``Services`` handle
             trio.open_nursery() as n,
         ):
-            if tsdb:
-                from piker.data._ahab import start_ahab
-                from piker.data.marketstore import start_marketstore
-
-                log.info('Spawning `marketstore` supervisor')
-                ctn_ready, config, (cid, pid) = await n.start(
-                    start_ahab,
-                    'marketstored',
-                    start_marketstore,
-
-                )
-                log.info(
-                    f'`marketstored` up!\n'
-                    f'pid: {pid}\n'
-                    f'container id: {cid[:12]}\n'
-                    f'config: {pformat(config)}'
-                )
 
             await trio.sleep_forever()
 
@@ -213,6 +205,7 @@ def services(config, tl, ports):
 
 def _load_clis() -> None:
     from ..data import marketstore  # noqa
+    from ..data import elastic
     from ..data import cli  # noqa
     from ..brokers import cli  # noqa
     from ..ui import cli  # noqa

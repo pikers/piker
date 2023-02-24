@@ -85,7 +85,10 @@ setup(
         'tsdb': [
             'docker',
         ],
-
+        'es': [
+            'docker',
+            'elasticsearch'
+        ]
     },
     tests_require=['pytest'],
     python_requires=">=3.10",

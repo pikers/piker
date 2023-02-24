@@ -41,6 +41,9 @@ from .log import (
 )
 from .brokers import get_brokermod
 
+from pprint import pformat
+from functools import partial
+
 
 log = get_logger(__name__)
 
@@ -313,12 +316,17 @@ async def open_piker_runtime(
 
 @acm
 async def open_pikerd(
+
     loglevel: str | None = None,
 
     # XXX: you should pretty much never want debug mode
     # for data daemons when running in production.
     debug_mode: bool = False,
     registry_addr: None | tuple[str, int] = None,
+
+    # db init flags
+    tsdb: bool = False,
+    es: bool = False,
 
 ) -> Services:
     '''
@@ -349,12 +357,54 @@ async def open_pikerd(
     ):
         assert root_actor.accept_addr == reg_addr
 
+        if tsdb:
+            from piker.data._ahab import start_ahab
+            from piker.data.marketstore import start_marketstore
+
+            log.info('Spawning `marketstore` supervisor')
+            ctn_ready, config, (cid, pid) = await service_nursery.start(
+                start_ahab,
+                'marketstored',
+                start_marketstore,
+
+            )
+            log.info(
+                f'`marketstored` up!\n'
+                f'pid: {pid}\n'
+                f'container id: {cid[:12]}\n'
+                f'config: {pformat(config)}'
+            )
+
+        if es:
+            from piker.data._ahab import start_ahab
+            from piker.data.elastic import start_elasticsearch
+
+            log.info('Spawning `elasticsearch` supervisor')
+            ctn_ready, config, (cid, pid) = await service_nursery.start(
+                partial(
+                    start_ahab,
+                    'elasticsearch',
+                    start_elasticsearch,
+                    start_timeout=240.0  # high cause ci
+                )
+            )
+
+            log.info(
+                f'`elasticsearch` up!\n'
+                f'pid: {pid}\n'
+                f'container id: {cid[:12]}\n'
+                f'config: {pformat(config)}'
+            )
+
         # assign globally for future daemon/task creation
         Services.actor_n = actor_nursery
         Services.service_n = service_nursery
         Services.debug_mode = debug_mode
+
+
         try:
             yield Services
+
         finally:
             # TODO: is this more clever/efficient?
             # if 'samplerd' in Services.service_tasks:
@@ -390,6 +440,8 @@ async def maybe_open_runtime(
 async def maybe_open_pikerd(
     loglevel: Optional[str] = None,
     registry_addr: None | tuple = None,
+    tsdb: bool = False,
+    es: bool = False,
 
     **kwargs,
 
@@ -439,6 +491,8 @@ async def maybe_open_pikerd(
         loglevel=loglevel,
         debug_mode=kwargs.get('debug_mode', False),
         registry_addr=registry_addr,
+        tsdb=tsdb,
+        es=es,
 
     ) as service_manager:
         # in the case where we're starting up the
