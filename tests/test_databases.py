@@ -9,8 +9,9 @@ from piker.log import get_logger
 from elasticsearch import Elasticsearch
 from piker.data import marketstore
 
-def test_marketstore(
+def test_marketstore_startup_and_version(
     open_test_pikerd: AsyncContextManager,
+    loglevel,
 ):
 
     '''
@@ -24,7 +25,7 @@ def test_marketstore(
 
         async with (
             open_test_pikerd(
-                loglevel='info',
+                loglevel=loglevel,
                 tsdb=True
             ) as (s, i, pikerd_portal, services),
             marketstore.get_client() as client
@@ -39,8 +40,9 @@ def test_marketstore(
     trio.run(main)
 
 
-def test_elasticsearch(
+def test_elasticsearch_startup_and_version(
     open_test_pikerd: AsyncContextManager,
+    loglevel,
 ):
     '''
     Verify elasticsearch starts correctly
@@ -53,7 +55,7 @@ def test_elasticsearch(
         port = 19200
 
         async with open_test_pikerd(
-            loglevel='info',
+            loglevel=loglevel,
             es=True
         ) as (s, i, pikerd_portal, services):
 

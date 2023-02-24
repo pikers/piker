@@ -139,9 +139,10 @@ class Container:
         while True:
             try:
                 logs = self.cntr.logs()
-            except docker.errors.NotFound:
-                return False
-            except docker.errors.APIError:
+            except (
+                docker.errors.NotFound,
+                docker.errors.APIError
+            ):
                 return False
 
             entries = logs.decode().split('\n')

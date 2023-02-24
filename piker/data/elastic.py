@@ -14,22 +14,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-'''
-``elasticsearch`` integration.
-
-- client management routines
-- ticK data ingest routines
-- websocket client for subscribing to write triggers
-- todo: tick sequence stream-cloning for testing
-
-'''
 from __future__ import annotations
 from contextlib import asynccontextmanager as acm
 from pprint import pformat
 from typing import (
     Any,
-    # Optional,
-    #Union,
     TYPE_CHECKING,
 )
 
