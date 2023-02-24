@@ -78,7 +78,8 @@ def get_app_dir(app_name, roaming=True, force_posix=False):
     # within the tractor runtimes and store testing config data
     # outside of the users filesystem 
     if "pytest" in sys.modules:
-        app_name += TEST_CONFIG_DIR_PATH
+        log.info("TESTING")
+        os.path.join(app_name, TEST_CONFIG_DIR_PATH)
 
     # if WIN:
     if platform.system() == 'Windows':

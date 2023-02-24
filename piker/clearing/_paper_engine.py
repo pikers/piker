@@ -260,22 +260,16 @@ class PaperBoi(Struct):
             bsuid=key,
         )
 
-        # Update in memory ledger per trade
-        ledger_entry = {oid: t.to_dict()}
-
-        # Store txn in state for PP update
-        self._txn_dict[oid] = t
-        self._trade_ledger.update(ledger_entry)
-
         # Write to ledger toml right now
-        with open_trade_ledger(self.broker, 'paper') as ledger:
-            ledger.update(self._trade_ledger)
-
-        # Write to pps toml right now
-        with open_pps(self.broker, 'piker-paper') as table:
-            table.update_from_trans(self._txn_dict)
-            # save pps in local state
-            self._positions = table.pps
+        with (
+                open_trade_ledger(self.broker, 'paper') as ledger,
+                open_pps(self.broker, 'piker-paper') as table
+             ):
+                ledger.update({oid: t.to_dict()})
+                # Write to pps toml right now
+                table.update_from_trans({oid: t})
+                # save pps in local state
+                self._positions.update(table.pps)
 
         # Ensure we have the latest positioning data when sending pp_msg
         pp = self._positions[key]
