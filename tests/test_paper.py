@@ -38,7 +38,7 @@ from piker.clearing._messages import BrokerdPosition
 log = get_logger(__name__)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def delete_testing_dir():
     """This fixture removes the temp directory
     used for storing all config/ledger/pp data
@@ -56,7 +56,7 @@ def get_fqsn(broker, symbol):
     return (fqsn, symbol, broker)
 
 
-def test_paper_trade(open_test_pikerd: AsyncContextManager):
+def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
     oid = ""
     test_exec_mode = "live"
     test_account = "paper"
@@ -71,7 +71,6 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager):
     ]
 
     async def _async_main(
-        open_pikerd: AsyncContextManager,
         action: Literal["buy", "sell"] | None = None,
         price: int = 30000,
         assert_entries: bool = False,
@@ -87,7 +86,7 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager):
 
         # Set up piker and EMS
         async with (
-            open_pikerd() as (_, _, _, services),
+            open_test_pikerd() as (_, _, _, services),
             open_ems(fqsn, mode="paper") as (
                 book,
                 trades_stream,
@@ -189,7 +188,6 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager):
         BaseExceptionGroup,
         partial(
             _async_main,
-            open_pikerd=open_test_pikerd,
             action="buy",
         ),
         # _assert_entries
@@ -197,13 +195,13 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager):
 
     _run_test_and_check(
         BaseExceptionGroup,
-        partial(_async_main, open_pikerd=open_test_pikerd),
+        partial(_async_main),
         _assert_pps,
     )
 
     _run_test_and_check(
         BaseExceptionGroup,
-        partial(_async_main, open_pikerd=open_test_pikerd, action="sell", price=1),
+        partial(_async_main, action="sell", price=1),
         _assert_no_pps,
     )
 
