@@ -1,5 +1,5 @@
 with (import <nixpkgs> {});
-with python310Packages;
+with python311Packages;
 stdenv.mkDerivation {
   name = "pip-env";
   buildInputs = [
@@ -7,7 +7,7 @@ stdenv.mkDerivation {
     readline
 
     # Python requirements (enough to get a virtualenv going).
-    python310Full
+    python311
     virtualenv
     setuptools
     pyqt5
