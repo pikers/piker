@@ -730,7 +730,7 @@ def load_pps_from_ledger(
             return {}
 
         mod = get_brokermod(brokername)
-        src_records: dict[str, Transaction] = mod.norm_trade_records(ledger)
+        src_records: dict[str, Transaction] = mod.norm_tr_records(ledger)
 
         if filter_by:
             records = {}

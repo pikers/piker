@@ -43,7 +43,6 @@ from ..pp import (
     Transaction,
     open_trade_ledger,
     open_pps,
-    load_pps_from_ledger
 )
 from ..data._normalize import iterticks
 from ..data._source import unpack_fqsn
@@ -250,6 +249,7 @@ class PaperBoi(Struct):
             )
             await self.ems_trades_stream.send(msg)
 
+        # lookup any existing position
         key = fqsn.rstrip(f'.{self.broker}')
         t = Transaction(
             fqsn=fqsn,
@@ -263,12 +263,11 @@ class PaperBoi(Struct):
 
         with (
                 open_trade_ledger(self.broker, 'paper') as ledger,
-                open_pps(self.broker, 'piker-paper') as table
+                open_pps(self.broker, 'paper') as table
              ):
                 ledger.update({oid: t.to_dict()})
                 # Write to pps toml right now
                 table.update_from_trans({oid: t})
-                load_pps_from_ledger(self.broker, 'piker-paper')
 
                 pp = table.pps[key]
                 pp_msg = BrokerdPosition(

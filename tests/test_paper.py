@@ -63,7 +63,7 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
     test_account = "paper"
     (fqsn, symbol, broker) = get_fqsn("kraken", "xbtusdt")
     brokers = [broker]
-    test_pp_account = "piker-paper"
+    account = "paper"
     positions: dict[
         # brokername, acctid
         tuple[str, str],
@@ -76,6 +76,7 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
         assert_entries: bool = False,
         assert_pps: bool = False,
         assert_zeroed_pps: bool = False,
+        assert_msg: bool = True,
         executions: int = 1,
         size: float = 0.01,
     ) -> None:
@@ -87,7 +88,7 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
         nonlocal oid
         nonlocal positions
         book: OrderBook
-        msg = ()
+        msg = {}
         # Set up piker and EMS
         async with (
             open_test_pikerd() as (_, _, _, services),
@@ -129,24 +130,26 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
 
             await trio.sleep(1)
             # Assert entries are made in both ledger and PPS
-            if assert_entries or assert_pps or assert_zeroed_pps:
+            if assert_entries or assert_pps or assert_zeroed_pps or assert_msg:
                 _assert(
                     assert_entries,
                     assert_pps,
                     assert_zeroed_pps,
+                    assert_msg,
                     pps,
                     msg,
+                    size,
                 )
 
             # Close piker like a user would
             raise KeyboardInterrupt
 
     def _assert(
-        assert_entries, assert_pps, assert_zerod_pps, pps, msg
+        assert_entries, assert_pps, assert_zerod_pps, assert_msg, pps, msg, size
     ):
         with (
             open_trade_ledger(broker, test_account) as ledger,
-            open_pps(broker, test_pp_account) as table,
+            open_pps(broker, test_account) as table,
         ):
             # TODO: Assert between msg and pp, ledger and pp, ledger and message
             # for proper values
@@ -155,7 +158,7 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
             if assert_entries:
                 latest_ledger_entry = ledger[oid]
                 latest_position = pps[(broker, test_account)][-1]
-                pp_price = table.conf[broker][test_pp_account][fqsn]["ppu"]
+                pp_price = table.conf[broker][account][fqsn]["ppu"]
                 # assert most
                 assert list(ledger.keys())[-1] == oid
                 assert latest_ledger_entry["size"] == test_size
@@ -164,7 +167,7 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
                 # Ensure the price-per-unit (breakeven) price is close to our clearing price
                 assert math.isclose(pp_price, latest_ledger_entry["size"], rel_tol=1)
                 assert table.brokername == broker
-                assert table.acctid == test_pp_account
+                assert table.acctid == account
 
             # assert that the last pps price is the same as the ledger price
             if assert_pps:
@@ -173,8 +176,16 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
                 assert latest_position["avg_price"] == latest_ledger_entry["price"]
 
             if assert_zerod_pps:
-                # assert that positions are present
+                # assert that positions are not present
                 assert not bool(table.pps)
+
+            if assert_msg and msg["name"] == "position":
+                latest_position = pps[(broker, test_account)][-1]
+                breakpoint()
+                assert msg["broker"] == broker
+                assert msg["account"]== test_account
+                assert msg["symbol"] == fqsn
+                assert msg["avg_price"]== latest_position["avg_price"]
 
     # Close position and assert empty position in pps
     def _run_test_and_check(exception, fn):
