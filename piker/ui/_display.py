@@ -1437,7 +1437,8 @@ async def display_symbol_data(
                     feed,
                     godwidget,
                     fqsns[0],
-                    order_mode_started
+                    order_mode_started,
+                    loglevel=loglevel
                 ) as mode
             ):
 

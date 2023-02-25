@@ -658,6 +658,7 @@ async def open_order_mode(
     godw: GodWidget,
     fqsn: str,
     started: trio.Event,
+    loglevel: str = 'info'
 
 ) -> None:
     '''Activate chart-trader order mode loop:
@@ -685,7 +686,7 @@ async def open_order_mode(
 
     # spawn EMS actor-service
     async with (
-        open_ems(fqsn) as (
+        open_ems(fqsn, loglevel=loglevel) as (
             book,
             trades_stream,
             position_msgs,
