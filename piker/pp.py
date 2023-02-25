@@ -35,7 +35,6 @@ from typing import (
     Union,
     Generator
 )
-from typing import Generator
 
 import pendulum
 from pendulum import datetime, now
@@ -56,6 +55,7 @@ log = get_logger(__name__)
 def open_trade_ledger(
     broker: str,
     account: str,
+
 ) -> Generator[dict, None, None]:
     '''
     Indempotently create and read in a trade log file from the
@@ -84,6 +84,7 @@ def open_trade_ledger(
         ledger = tomli.load(cf)
         print(f'Ledger load took {time.time() - start}s')
         cpy = ledger.copy()
+
     try:
         yield cpy
     finally:
@@ -544,6 +545,7 @@ class PpTable(Struct):
 
         pps = self.pps
         updated: dict[str, Position] = {} 
+
         # lifo update all pps from records
         for tid, t in trans.items():
 
@@ -680,6 +682,7 @@ class PpTable(Struct):
         # TODO: show diff output?
         # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
         print(f'Updating ``pps.toml`` for {path}:\n')
+
         # active, closed_pp_objs = table.dump_active()
         pp_entries = self.to_toml()
         self.conf[self.brokername][self.acctid] = pp_entries
@@ -975,7 +978,6 @@ def open_pps(
         pp.ensure_state()
 
     try:
-#        breakpoint()
         yield table
     finally:
         if write_on_exit:

@@ -33,6 +33,7 @@ from .log import get_logger
 
 log = get_logger('broker-config')
 
+
 # taken from ``click`` since apparently they have some
 # super weirdness with sigint and sudo..no clue
 def get_app_dir(app_name, roaming=True, force_posix=False):
@@ -92,7 +93,7 @@ def get_app_dir(app_name, roaming=True, force_posix=False):
             os.path.expanduser("~/.{}".format(_posixify(app_name))))
     if sys.platform == "darwin":
         return os.path.join(
-            os.path.expanduser("~/Los.mkdir(_config_dir)ibrary/Application Support"), app_name
+            os.path.expanduser("~/Library/Application Support"), app_name
         )
     return os.path.join(
         os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),

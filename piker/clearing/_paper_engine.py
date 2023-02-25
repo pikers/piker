@@ -30,6 +30,7 @@ from typing import (
     Callable,
 )
 import uuid
+
 from bidict import bidict
 import pendulum
 import trio
@@ -249,7 +250,6 @@ class PaperBoi(Struct):
             )
             await self.ems_trades_stream.send(msg)
 
-        # lookup any existing position
         key = fqsn.rstrip(f'.{self.broker}')
         t = Transaction(
             fqsn=fqsn,
