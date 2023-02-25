@@ -74,6 +74,8 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
         action: Literal["buy", "sell"] | None = None,
         price: int = 30000,
         assert_entries: bool = False,
+        assert_pps: bool = False,
+        assert_zeroed_pps: bool = False,
     ) -> None:
         """Spawn a paper piper actor, place a trade and assert entries are present
         in both trade ledger and pps tomls. Then restart piker and ensure
@@ -115,95 +117,74 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
                 await trio.sleep(2)
 
             # Assert entries are made in both ledger and PPS
-            if assert_entries:
-                cleared_ledger_entry = {}
-                with open_trade_ledger(broker, test_account) as ledger:
-                    cleared_ledger_entry = ledger[oid]
-                    assert list(ledger.keys())[-1] == oid
-                    assert cleared_ledger_entry["size"] == test_size
-                    assert cleared_ledger_entry["fqsn"] == fqsn
-
-                with open_pps(broker, test_pp_account) as table:
-                    pp_price = table.conf[broker][test_pp_account][fqsn]["ppu"]
-                    # Ensure the price-per-unit (breakeven) price is close to our clearing price
-                    assert math.isclose(
-                        pp_price, cleared_ledger_entry["size"], rel_tol=1
-                    )
-                    assert table.brokername == broker
-                    assert table.acctid == test_pp_account
-
-            positions = pps
+            if assert_entries or assert_pps or assert_zeroed_pps:
+                _assert(assert_entries, assert_pps, assert_zeroed_pps, pps)
 
             # Close piker like a user would
             raise KeyboardInterrupt
-    
-    # def _assert_entries():
-    #     cleared_ledger_entry = {}
-    #     with open_trade_ledger(broker, test_account) as ledger:
-    #         cleared_ledger_entry = ledger[oid]
-    #         assert list(ledger.keys())[-1] == oid
-    #         assert cleared_ledger_entry["size"] == test_size
-    #         assert cleared_ledger_entry["fqsn"] == fqsn
-    #
-    #     with open_pps(broker, test_pp_account, False) as table:
-    #         pp_price = table.conf[broker][test_pp_account][fqsn]["ppu"]
-    #         # Ensure the price-per-unit (breakeven) price is close to our clearing price
-    #         assert math.isclose(
-    #             pp_price, cleared_ledger_entry["size"], rel_tol=1
-    #         )
-    #         assert table.brokername == broker
-    #         assert table.acctid == test_pp_account
-    #
 
-    # Open piker load pps locally
-    # and ensure last pps price is the same as ledger entry
-    def _assert_pps(ledger, table):
-        assert positions[(broker, test_account)][-1]["avg_price"] == ledger[oid]["price"]
-       
-
-    def _assert_no_pps(ledger, table):
-        print(f"positions: {positions}")
-        assert not bool(table)
-        # return len(table.pps) == 0
-
-    # Close position and assert empty position in pps
-    def _run_test_and_check(exception, fn, assert_cb=None):
-        with pytest.raises(exception) as exc_info:
-            trio.run(fn)
-
+    def _assert(assert_entries: bool, assert_pps: bool, assert_zerod_pps, pps):
         with (
             open_trade_ledger(broker, test_account) as ledger,
             open_pps(broker, test_pp_account) as table,
         ):
-            if assert_cb:
-                assert_cb(ledger, table)
+            # assert that entires are have been written
+            if assert_entries:
+                cleared_ledger_entry = ledger[oid]
+                assert list(ledger.keys())[-1] == oid
+                assert cleared_ledger_entry["size"] == test_size
+                assert cleared_ledger_entry["fqsn"] == fqsn
+                pp_price = table.conf[broker][test_pp_account][fqsn]["ppu"]
+                # Ensure the price-per-unit (breakeven) price is close to our clearing price
+                assert math.isclose(pp_price, cleared_ledger_entry["size"], rel_tol=1)
+                assert table.brokername == broker
+                assert table.acctid == test_pp_account
 
-            for exception in exc_info.value.exceptions:
-                assert isinstance(exception, KeyboardInterrupt) or isinstance(
-                    exception, ContextCancelled
+            # assert that the last pps price is the same as the ledger price
+            if assert_pps:
+                assert (
+                    pps[(broker, test_account)][-1]["avg_price"] == ledger[oid]["price"]
                 )
+
+            if assert_zerod_pps:
+                # assert that positions are present
+                assert not bool(table)
+
+    # Close position and assert empty position in pps
+    def _run_test_and_check(exception, fn):
+        with pytest.raises(exception) as exc_info:
+            trio.run(fn)
+
+        for exception in exc_info.value.exceptions:
+            assert isinstance(exception, KeyboardInterrupt) or isinstance(
+                exception, ContextCancelled
+            )
 
     # Setablend and execute a trade and assert trade
     _run_test_and_check(
         BaseExceptionGroup,
+        partial(_async_main, action="buy", assert_entries=True),
+    )
+
+    _run_test_and_check(
+        BaseExceptionGroup,
+        partial(_async_main, assert_pps=True),
+    )
+
+    _run_test_and_check(
+        BaseExceptionGroup,
         partial(
-            _async_main,
-            action="buy",
+            _async_main, action="sell", price=1
         ),
-        # _assert_entries
     )
 
     _run_test_and_check(
         BaseExceptionGroup,
-        partial(_async_main),
-        _assert_pps,
+        partial(
+            _async_main, assert_zeroed_pps=True
+        ),
     )
 
-    _run_test_and_check(
-        BaseExceptionGroup,
-        partial(_async_main, action="sell", price=1),
-        _assert_no_pps,
-    )
 
 
 # def test_paper_client(open_test_pikerd: AsyncContextManager):
