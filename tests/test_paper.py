@@ -11,6 +11,7 @@ from typing import (
     Literal,
 )
 from pathlib import Path
+from operator import attrgetter
 
 import pytest
 import tractor
@@ -60,7 +61,6 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
     oid = ""
     test_exec_mode = "live"
     test_account = "paper"
-    test_size = 1
     (fqsn, symbol, broker) = get_fqsn("kraken", "xbtusdt")
     brokers = [broker]
     test_pp_account = "piker-paper"
@@ -76,16 +76,19 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
         assert_entries: bool = False,
         assert_pps: bool = False,
         assert_zeroed_pps: bool = False,
+        assert_precision: bool = False,
+        executions: int = 1,
+        size: float = 0.01,
     ) -> None:
-        """Spawn a paper piper actor, place a trade and assert entries are present
+        """Start piker, place a trade and assert entries are present
         in both trade ledger and pps tomls. Then restart piker and ensure
         that pps from previous trade exists in the ems pps.
         Finally close the position and ensure that the position in pps.toml is closed.
         """
         nonlocal oid
-        book: OrderBook
         nonlocal positions
-
+        book: OrderBook
+        msg = ()
         # Set up piker and EMS
         async with (
             open_test_pikerd() as (_, _, _, services),
@@ -99,56 +102,80 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
         ):
             # Send order to EMS
             if action:
-                oid = str(uuid4())
-                order = Order(
-                    exec_mode=test_exec_mode,
-                    action=action,
-                    oid=oid,
-                    account=test_account,
-                    size=test_size,
-                    symbol=fqsn,
-                    price=price,
-                    brokers=brokers,
-                )
-                # This is actually a syncronous call to push a message
-                # to the async ems clue - hence why we call trio.sleep afterwards
-                book.send(order)
+                for x in range(executions):
+                    print(f"Sending {action} order num {x}")
+                    oid = str(uuid4())
+                    order = Order(
+                        exec_mode=test_exec_mode,
+                        action=action,
+                        oid=oid,
+                        account=test_account,
+                        size=size,
+                        symbol=fqsn,
+                        price=price,
+                        brokers=brokers,
+                    )
+                    # This is actually a syncronous call to push a message
+                    # to the async ems clue - hence why we call trio.sleep afterwards
+                    book.send(order)
 
-                await trio.sleep(2)
-
+                    async for msg in trades_stream:
+                        msg = await trades_stream.receive()
+                        try:
+                            if msg["name"] == "position":
+                                break
+                        except (NameError, AttributeError):
+                            pass
+                            # Do nothing, message isn't a position
+            await trio.sleep(1)
             # Assert entries are made in both ledger and PPS
-            if assert_entries or assert_pps or assert_zeroed_pps:
-                _assert(assert_entries, assert_pps, assert_zeroed_pps, pps)
+            if assert_entries or assert_pps or assert_zeroed_pps or assert_precision:
+                _assert(
+                    assert_entries,
+                    assert_pps,
+                    assert_zeroed_pps,
+                    assert_precision,
+                    pps,
+                    msg,
+                )
 
             # Close piker like a user would
             raise KeyboardInterrupt
 
-    def _assert(assert_entries: bool, assert_pps: bool, assert_zerod_pps, pps):
+    def _assert(
+        assert_entries, assert_pps, assert_zerod_pps, assert_precision, pps, msg
+    ):
         with (
             open_trade_ledger(broker, test_account) as ledger,
             open_pps(broker, test_pp_account) as table,
         ):
+            # TODO: Assert between msg and pp, ledger and pp, ledger and message
+            # for proper values
+            print(f"assertion msg: {msg}")
             # assert that entires are have been written
             if assert_entries:
-                cleared_ledger_entry = ledger[oid]
-                assert list(ledger.keys())[-1] == oid
-                assert cleared_ledger_entry["size"] == test_size
-                assert cleared_ledger_entry["fqsn"] == fqsn
+                latest_ledger_entry = ledger[oid]
+                latest_position = pps[(broker, test_account)][-1]
                 pp_price = table.conf[broker][test_pp_account][fqsn]["ppu"]
+                # assert most
+                assert list(ledger.keys())[-1] == oid
+                assert latest_ledger_entry["size"] == test_size
+                assert latest_ledger_entry["fqsn"] == fqsn
+
                 # Ensure the price-per-unit (breakeven) price is close to our clearing price
-                assert math.isclose(pp_price, cleared_ledger_entry["size"], rel_tol=1)
+                assert math.isclose(pp_price, latest_ledger_entry["size"], rel_tol=1)
                 assert table.brokername == broker
                 assert table.acctid == test_pp_account
 
             # assert that the last pps price is the same as the ledger price
             if assert_pps:
-                assert (
-                    pps[(broker, test_account)][-1]["avg_price"] == ledger[oid]["price"]
-                )
+                latest_ledger_entry = ledger[oid]
+                latest_position = pps[(broker, test_account)][-1]
+                assert latest_position["avg_price"] == latest_ledger_entry["price"]
 
             if assert_zerod_pps:
                 # assert that positions are present
-                assert not bool(table)
+                assert not bool(table.pps)
 
     # Close position and assert empty position in pps
     def _run_test_and_check(exception, fn):
@@ -156,61 +183,45 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
             trio.run(fn)
 
         for exception in exc_info.value.exceptions:
-            assert isinstance(exception, KeyboardInterrupt) or isinstance(
-                exception, ContextCancelled
+            assert (
+                isinstance(exception, KeyboardInterrupt)
+                or isinstance(exception, ContextCancelled)
+                or isinstance(exception, KeyError)
             )
 
-    # Setablend and execute a trade and assert trade
+    # Enter a trade and assert entries are made in pps and ledger files
     _run_test_and_check(
         BaseExceptionGroup,
         partial(_async_main, action="buy", assert_entries=True),
     )
 
+    # Open ems and assert existence of pps entries
     _run_test_and_check(
         BaseExceptionGroup,
         partial(_async_main, assert_pps=True),
     )
 
+    # Sell position
+    _run_test_and_check(
+        BaseExceptionGroup,
+        partial(_async_main, action="sell", price=1),
+    )
+
+    # Ensure pps are zeroed
+    _run_test_and_check(
+        BaseExceptionGroup,
+        partial(_async_main, assert_zeroed_pps=True),
+    )
+
+    # Make 5 market limit buy orders
+    _run_test_and_check(
+        BaseExceptionGroup, partial(_async_main, action="buy", executions=5)
+    )
+
+    # Sell 5 slots at the same price, assert cleared positions
     _run_test_and_check(
         BaseExceptionGroup,
         partial(
-            _async_main, action="sell", price=1
+            _async_main, action="sell", executions=5, price=1, assert_zeroed_pps=True
         ),
     )
-
-    _run_test_and_check(
-        BaseExceptionGroup,
-        partial(
-            _async_main, assert_zeroed_pps=True
-        ),
-    )
-
-
-
-# def test_paper_client(open_test_pikerd: AsyncContextManager):
-#     async def _async_main(
-#         open_pikerd: AsyncContextManager,
-#     ):
-#         (fqsn, symbol, broker) = get_fqsn("kraken", "xbtusdt")
-#         async with (
-#             open_pikerd() as (_, _, _, services),
-#             open_ems(fqsn, mode="paper") as (
-#                 book,
-#                 trades_stream,
-#                 pps,
-#                 accounts,
-#                 dialogs,
-#             ),
-#         ):
-#             # async with open_cached_client(broker) as client:
-#             #     symbol_info = await client.symbol_info()
-#             #     print(f'client: {symbol_info['XBTUSDT']}')
-#             with (open_pps(broker, "piker-paper") as table,):
-#                 print(f"table: {table}")
-#
-#     trio.run(
-#         partial(
-#             _async_main,
-#             open_pikerd=open_test_pikerd,
-#         ),
-#     )
