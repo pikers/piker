@@ -76,7 +76,6 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
         assert_entries: bool = False,
         assert_pps: bool = False,
         assert_zeroed_pps: bool = False,
-        assert_precision: bool = False,
         executions: int = 1,
         size: float = 0.01,
     ) -> None:
@@ -129,12 +128,11 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
                             # Do nothing, message isn't a position
             await trio.sleep(1)
             # Assert entries are made in both ledger and PPS
-            if assert_entries or assert_pps or assert_zeroed_pps or assert_precision:
+            if assert_entries or assert_pps or assert_zeroed_pps:
                 _assert(
                     assert_entries,
                     assert_pps,
                     assert_zeroed_pps,
-                    assert_precision,
                     pps,
                     msg,
                 )
@@ -143,7 +141,7 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
             raise KeyboardInterrupt
 
     def _assert(
-        assert_entries, assert_pps, assert_zerod_pps, assert_precision, pps, msg
+        assert_entries, assert_pps, assert_zerod_pps, pps, msg
     ):
         with (
             open_trade_ledger(broker, test_account) as ledger,
