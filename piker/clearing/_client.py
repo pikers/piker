@@ -235,7 +235,8 @@ async def open_ems(
             not getattr(mod, 'trades_dialogue', None)
             or mode == 'paper'
         ):
-            mode = 'paper'        
+            mode = 'paper'
+
         from ._ems import _emsd_main
         async with (
             # connect to emsd
@@ -254,6 +255,7 @@ async def open_ems(
                     dialogs,
                 )
             ),
+
             # open 2-way trade command stream
             ctx.open_stream() as trades_stream,
         ):
@@ -263,7 +265,8 @@ async def open_ems(
                     relay_order_cmds_from_sync_code,
                     fqsn,
                     trades_stream
-                ) 
+                )
+
                 yield (
                     book,
                     trades_stream,

@@ -126,6 +126,7 @@ def test_paper_trade(open_test_pikerd: AsyncContextManager, delete_testing_dir):
                         except (NameError, AttributeError):
                             pass
                             # Do nothing, message isn't a position
+
             await trio.sleep(1)
             # Assert entries are made in both ledger and PPS
             if assert_entries or assert_pps or assert_zeroed_pps:
