@@ -81,7 +81,6 @@ class PaperBoi(Struct):
     _reqids: bidict
     _positions: dict[str, Position]
     _trade_ledger: dict[str, Any]
-    _txn_dict: dict[str, Transaction] = {}
 
     # init edge case L1 spread
     last_ask: tuple[float, float] = (float('inf'), 0)  # price, size

@@ -544,7 +544,7 @@ class PpTable(Struct):
     ) -> dict[str, Position]:
 
         pps = self.pps
-        updated: dict[str, Position] = {} 
+        updated: dict[str, Position] = {}
 
         # lifo update all pps from records
         for tid, t in trans.items():
@@ -583,8 +583,7 @@ class PpTable(Struct):
 
             # update clearing table
             pp.add_clear(t)
-            updated[t.bsuid] = pp
-            
+            updated[t.bsuid] = pp 
 
         # minimize clears tables and update sizing.
         for bsuid, pp in updated.items():
