@@ -583,7 +583,7 @@ class PpTable(Struct):
 
             # update clearing table
             pp.add_clear(t)
-            updated[t.bsuid] = pp 
+            updated[t.bsuid] = pp
 
         # minimize clears tables and update sizing.
         for bsuid, pp in updated.items():
@@ -729,7 +729,7 @@ def load_pps_from_ledger(
             return {}
 
         mod = get_brokermod(brokername)
-        src_records: dict[str, Transaction] = mod.norm_tr_records(ledger)
+        src_records: dict[str, Transaction] = mod.norm_trade_records(ledger)
 
         if filter_by:
             records = {}
