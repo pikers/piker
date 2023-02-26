@@ -1,6 +1,9 @@
 from contextlib import asynccontextmanager as acm
 from functools import partial
 import os
+from typing import AsyncContextManager
+from pathlib import Path
+from shutil import rmtree
 
 import pytest
 import tractor
@@ -11,6 +14,7 @@ from piker import (
 from piker._daemon import (
     Services,
 )
+from piker.clearing._client import open_ems
 
 
 def pytest_addoption(parser):
@@ -132,3 +136,49 @@ def open_test_pikerd(
     # - no leaked subprocs or shm buffers
     # - all requested container service are torn down
     # - certain ``tractor`` runtime state?
+
+
+@acm
+async def _open_test_pikerd_and_ems(
+    fqsn,
+    mode,
+    loglevel,
+    open_test_pikerd
+):
+    async with (
+        open_test_pikerd() as (_, _, _, services),
+        open_ems(
+            fqsn,
+            mode=mode,
+            loglevel=loglevel,
+        ) as ems_services):
+            yield (services, ems_services)
+
+
+
+@pytest.fixture
+def open_test_pikerd_and_ems(
+    open_test_pikerd,
+    fqsn: str = 'xbtusdt.kraken',
+    mode: str = 'paper',
+    loglevel: str = 'info',
+):
+    yield partial(
+        _open_test_pikerd_and_ems,
+        fqsn,
+        mode,
+        loglevel,
+        open_test_pikerd
+    ) 
+
+@pytest.fixture(scope='session') 
+def delete_testing_dir():
+    '''This fixture removes the temp directory
+    used for storing all config/ledger/pp data
+    created during testing sessions
+    '''
+    yield
+    app_dir = Path(config.get_app_dir('piker')).resolve()
+    if app_dir.is_dir():
+        rmtree(str(app_dir))
+        assert not app_dir.is_dir()

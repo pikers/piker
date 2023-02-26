@@ -531,7 +531,7 @@ async def trades_dialogue(
 
     ):
 
-        with open_pps(broker, 'piker-paper', False) as table:
+        with open_pps(broker, 'paper', False) as table:
             # save pps in local state
             _positions.update(table.pps)
 
