@@ -41,25 +41,26 @@ async def _async_main(
     open_test_pikerd_and_ems: AsyncContextManager,
     action: Literal['buy', 'sell'] | None = None,
     price: int = 30000,
+    executions: int = 1,
+    size: float = 0.01,
+    # Assert options
     assert_entries: bool = False,
     assert_pps: bool = False,
     assert_zeroed_pps: bool = False,
     assert_msg: bool = False,
-    executions: int = 1,
-    size: float = 0.01,
-) -> None:
-    '''Start piker, place a trade and assert data in pps stream, ledger and position table. Then restart piker and ensure
-    that pps from previous trade exists in the ems pps.
-    Finally close the position and ensure that the position in pps.toml is closed.
+   ) -> None:
     '''
+    Start piker, place a trade and assert data in 
+    pps stream, ledger and position table. 
+    '''
+
     oid: str = ''
     last_msg = {}
+
     async with open_test_pikerd_and_ems() as (
         services,
         (book, trades_stream, pps, accounts, dialogs),
     ):
-        # Set up piker and EMS
-        # Send order to EMS
         if action:
             for x in range(executions):
                 oid = str(uuid4())
@@ -80,6 +81,7 @@ async def _async_main(
                 async for msg in trades_stream:
                     last_msg = msg
                     match msg:
+                        # Wait for position message before moving on
                         case {'name': 'position'}:
                             break
 
@@ -183,7 +185,6 @@ def test_sell(open_test_pikerd_and_ems: AsyncContextManager, delete_testing_dir)
     )
 
 
-#
 def test_multi_sell(open_test_pikerd_and_ems: AsyncContextManager, delete_testing_dir):
     # Make 5 market limit buy orders
     _run_test_and_check(

@@ -1467,7 +1467,7 @@ async def maybe_open_feed(
             'tick_throttle': kwargs.get('tick_throttle'),
 
             # XXX: super critical to have bool defaults here XD
-            # 'backpressure': kwargs.get('backpressure', True),
+            'backpressure': kwargs.get('backpressure', True),
             'start_stream': kwargs.get('start_stream', True),
         },
         key=fqsn,
