@@ -3,14 +3,30 @@ provider "spec" (aka backends)
 ``piker`` abstracts and encapsulates real-time data feeds across a slew
 of providers covering many (pretty much any) instrument class.
 
-
-this is shoddy attempt as specifying what a backend must provide
-as a basic api, per functionality-feature set, in order to be
-supported in zee sytem.
+This doc is shoddy attempt as specifying what a backend must provide as
+a basic api, per functionality-feature set, in order to be supported for
+bny of real-time and historical data feeds and order control via the
+``emsd`` clearing system.
 
 "providers" must offer a top plevel namespace (normally exposed as
 a python module) which offers to a certain set of (async) functions
 to deliver info through a real-time, normalized data layer.
+
+Generally speaking we break each ``piker.brokers.<backend_name>`` into
+a python package containing 3 sub-modules:
+- ``.api`` containing lowest level client code used to interact
+  specifically with the APIs of the exchange, broker or data provider.
+- ``.feed`` which provides historical and real-time quote stream data
+  provider endpoints called by piker's data layer in
+  ``piker.data.feed``.
+- ``.broker`` which defines endpoints expected by
+  ``pikerd.clearing._ems`` and which are expected to adhere to the msg
+  protocol defined in ``piker.clrearing._messages``.
+
+
+Our current set of "production" grade backends includes:
+- ``kraken``
+- ``ib``
 
 
 data feeds
@@ -63,28 +79,69 @@ further streamed quote messages should be in this same format.
 
 historical OHLCV sampling
 -------------------------
+Example endpoint copyed from the ``binance`` backend:
 
 .. code:: python
 
-    async def backfill_bars(
-        sym: str,
-        shm: ShmArray,  # type: ignore # noqa
+   @acm
+    async def open_history_client(
+        symbol: str,
 
-        count: int = 10,  # NOTE: any more and we'll overrun the underlying buffer
+    ) -> tuple[Callable, int]:
 
-        # startup sync via ``trio``
-        task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
+        # TODO implement history getter for the new storage layer.
+        async with open_cached_client('binance') as client:
 
-    ) -> None:
+            async def get_ohlc(
+                timeframe: float,
+                end_dt: datetime | None = None,
+                start_dt: datetime | None = None,
 
-this routine is responsible for setting up historical data for both
-charting and any local storage requirements. it should retreive, normalize and
-push the data to shared memory. normally the format of this data is
-OHLCV sampled price and volume data but can be high reslolution
-tick/trades/book times series as well. currently charting can expects
-a max resolution of 1s (second) OHLCV sampled data (any more then this
-and you probably can't do much with it as a manual trader; this is
-obviously not true of automatic strats realized as code).
+            ) -> tuple[
+                np.ndarray,
+                datetime,  # start
+                datetime,  # end
+            ]:
+                if timeframe != 60:
+                    raise DataUnavailable('Only 1m bars are supported')
+
+                array = await client.bars(
+                    symbol,
+                    start_dt=start_dt,
+                    end_dt=end_dt,
+                )
+                times = array['time']
+                if (
+                    end_dt is None
+                ):
+                    inow = round(time.time())
+                    if (inow - times[-1]) > 60:
+                        await tractor.breakpoint()
+
+                start_dt = pendulum.from_timestamp(times[0])
+                end_dt = pendulum.from_timestamp(times[-1])
+
+                return array, start_dt, end_dt
+
+            yield get_ohlc, {'erlangs': 3, 'rate': 3}
+
+
+This `@acm` routine is responsible for setting up an async historical
+data query routine for both charting and any local storage requirements.
+
+The returned async func should retreive, normalize and deliver
+a ``tuple[np.ndarray, pendulum.dateime, pendulum.dateime]`` of the the
+``numpy``-ified data, the start and stop datetimes for the delivered
+history "frame". The history backloading routines inside
+``piker.data.feed`` expect this interface for both loading history into
+``ShmArrayt`` real-time buffers as well as any configured
+time-series-database (tsdb) and  normally the format of this data is
+OHLCV sampled price and volume data but in theory can be high
+reslolution tick/trades/book times series in the future.
+
+Currently sampling routines for charting and fsp processing expects
+a max resolution of 1s (second) OHLCV sampled data.
+
 
 OHLCV minmal schema
 ********************
