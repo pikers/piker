@@ -14,6 +14,7 @@ to deliver info through a real-time, normalized data layer.
 
 Generally speaking we break each ``piker.brokers.<backend_name>`` into
 a python package containing 3 sub-modules:
+
 - ``.api`` containing lowest level client code used to interact
   specifically with the APIs of the exchange, broker or data provider.
 - ``.feed`` which provides historical and real-time quote stream data
@@ -25,6 +26,7 @@ a python package containing 3 sub-modules:
 
 
 Our current set of "production" grade backends includes:
+
 - ``kraken``
 - ``ib``
 
@@ -53,6 +55,7 @@ real-time quotes and tick streaming:
 this routine must eventually deliver realt-time quote messages by sending them on
 the passed in ``send_chan``; these messages must have specific format.
 there is a very simple but required startup sequence:
+
 
 message starup sequence:
 ************************
