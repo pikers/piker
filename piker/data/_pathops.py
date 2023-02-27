@@ -395,7 +395,7 @@ def slice_from_time(
             #     f'diff: {t_diff}\n'
             #     f'REMAPPED START i: {read_i_start} -> {new_read_i_start}\n'
             # )
-            read_i_start = new_read_i_start - 1
+            read_i_start = new_read_i_start
 
     t_iv_stop = times[read_i_stop - 1]
     if (
