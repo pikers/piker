@@ -62,8 +62,8 @@ class OverlayT(Struct):
     in the target co-domain.
 
     '''
-    start_t: float | None = None
     viz: Viz | None = None
+    start_t: float | None = None
 
     # % "range" computed from some ref value to the mn/mx
     rng: float | None = None
@@ -201,13 +201,13 @@ def overlay_viewlists(
     ] | None = None,
 
     overlay_technique: Literal[
-        'loglin_to_first',
-        'loglin_to_sigma',
-        'mnmx',
+        'loglin_ref_to_curve',
+        'loglin_ref_to_first',
+        'mxmn',
         'solo',
-    ] = 'loglin_to_first',
+    ] = 'loglin_ref_to_curve',
 
-    # internal instrumentation
+    # internal debug
     debug_print: bool = False,
 
 ) -> None:
@@ -236,8 +236,6 @@ def overlay_viewlists(
         # -> for any "group" overlay we want to dispersion normalize
         #    and scale minor charts onto the major chart: the chart
         #    with the most dispersion in the set.
-        major_sigma_viz: Viz = None
-        mx_disp: float = 0
 
         # collect certain flows have grapics objects **in seperate
         # plots/viewboxes** into groups and do a common calc to
@@ -245,8 +243,9 @@ def overlay_viewlists(
         # this is primarly used for our so called "log-linearized
         # multi-plot" overlay technique.
         overlay_table: dict[
-            ChartView,
+            float,
             tuple[
+                ChartView,
                 Viz,
                 float,  # y start
                 float,  # y min
@@ -254,6 +253,8 @@ def overlay_viewlists(
                 float,  # y median
                 slice,  # in-view array slice
                 np.ndarray,  # in-view array
+                float,  # returns up scalar
+                float,  # return down scalar
             ],
         ] = {}
 
@@ -323,11 +324,15 @@ def overlay_viewlists(
             profiler(f'{viz.name}@{chart_name} common pi sort')
 
             # non-overlay group case
-            if not viz.is_ohlc:
+            if (
+                not viz.is_ohlc
+                or overlay_technique == 'solo'
+            ):
                 pi.vb._set_yrange(yrange=yrange)
                 profiler(
                     f'{viz.name}@{chart_name} simple std `._set_yrange()`'
                 )
+                continue
 
             # handle overlay log-linearized group scaling cases
             # TODO: a better predicate here, likely something
@@ -338,15 +343,12 @@ def overlay_viewlists(
                 ymn, ymx = yrange
 
                 # determine start datum in view
-                arr = viz.shm.array
-                in_view = arr[read_slc]
+                in_view = viz.vs.in_view
                 if not in_view.size:
                     log.warning(f'{viz.name} not in view?')
                     continue
 
-                # row_start = arr[read_slc.start - 1]
-                row_start = arr[read_slc.start]
-
+                row_start = in_view[0]
                 if viz.is_ohlc:
                     y_ref = row_start['open']
                 else:
@@ -355,9 +357,11 @@ def overlay_viewlists(
                 profiler(f'{viz.name}@{chart_name} MINOR curve median')
 
                 key = 'open' if viz.is_ohlc else viz.name
-                start_t = in_view[0]['time']
-                r_down = (ymn - y_ref) / y_ref
+                start_t = row_start['time']
+
+                # returns scalars
                 r_up = (ymx - y_ref) / y_ref
+                r_down = (ymn - y_ref) / y_ref
 
                 msg = (
                     f'### {viz.name}@{chart_name} ###\n'
@@ -431,6 +435,8 @@ def overlay_viewlists(
                             if debug_print:
                                 print(msg)
 
+                # is the current up `OverlayT` not yet defined or
+                # the current `r_up` greater then the previous max.
                 if (
                     upt.rng is None
                     or (
@@ -483,27 +489,37 @@ def overlay_viewlists(
                             profiler(msg)
                             print(msg)
 
-                # find curve with max dispersion
-                disp = abs(ymx - ymn) / y_ref
-                if disp > mx_disp:
-                    major_sigma_viz = viz
-                    mx_disp = disp
+                # disp = viz.disp_from_range(yref=y_ref)
+                # if disp is None:
+                #     print(f'{viz.name}: WTF NO DISP')
+                #     continue
 
-                overlay_table[viz.plot.vb] = (
+                # r_up, r_dn = disp
+                disp = r_up - r_down
+
+                # register curves by a "full" dispersion metric for
+                # later sort order in the overlay (technique
+                # ) application loop below.
+                overlay_table[disp] = (
+                    viz.plot.vb,
                     viz,
+
                     y_ref,
                     ymn,
                     ymx,
+
                     read_slc,
                     in_view,
-                )
 
+                    r_up,
+                    r_down,
+                )
                 profiler(f'{viz.name}@{chart_name} yrange scan complete')
 
         # NOTE: if no there were no overlay charts
         # detected/collected (could be either no group detected or
         # chart with a single symbol, thus a single viz/overlay)
-        # then we ONLY set the lone chart's (viz) yrange and short
+        # then we ONLY set the mone chart's (viz) yrange and short
         # circuit to the next chart in the linked charts loop. IOW
         # there's no reason to go through the overlay dispersion
         # scaling in the next loop below when only one curve is
@@ -534,13 +550,20 @@ def overlay_viewlists(
 
         elif (
             mxmns_by_common_pi
-            and not major_sigma_viz
+            # and not major_sigma_viz
+            and not overlay_table
         ):
             # move to next chart in linked set since
             # no overlay transforming is needed.
             continue
 
-        profiler(f'<{chart_name}>.interact_graphics_cycle({name})')
+        msg = (
+            f'`Viz` curve first pass complete\n'
+            f'overlay_table: {overlay_table.keys()}\n'
+        )
+        profiler(msg)
+        if debug_print:
+            print(msg)
 
         # if a minor curves scaling brings it "outside" the range of
         # the major curve (in major curve co-domain terms) then we
@@ -548,21 +571,39 @@ def overlay_viewlists(
         # below placeholder denotes when this occurs.
         # group_mxmn: None | tuple[float, float] = None
 
-        # TODO: probably re-write this loop as a compiled cpython or
-        # numba func.
+        r_up_mx: float
+        r_dn_mn: float
+        mx_disp = max(overlay_table)
+        mx_entry = overlay_table[mx_disp]
+        (
+            _,  # viewbox
+            mx_viz,  # viz
+            _,  # y_ref
+            mx_ymn,
+            mx_ymx,
+            _,  # read_slc
+            _,  # in_view array
+            r_up_mx,
+            r_dn_mn,
+        ) = mx_entry
+
+        scaled: dict[float, tuple[float, float, float]] = {}
 
         # conduct "log-linearized multi-plot" scalings for all groups
-        for (
-            view,
+        # -> iterate all curves Ci in dispersion-measure sorted order
+        # going from smallest swing to largest.
+        for full_disp in sorted(overlay_table):
             (
+                view,
                 viz,
                 y_start,
                 y_min,
                 y_max,
                 read_slc,
                 minor_in_view,
-            )
-        ) in overlay_table.items():
+                r_up,
+                r_dn,
+            ) = overlay_table[full_disp]
 
             key = 'open' if viz.is_ohlc else viz.name
 
@@ -575,8 +616,99 @@ def overlay_viewlists(
                 )
                 continue
 
-            ymn = dnt.apply_rng(y_start)
-            ymx = upt.apply_rng(y_start)
+            xref = minor_in_view[0]['time']
+            match overlay_technique:
+
+                # Pin this curve to the "major dispersion" (or other
+                # target) curve by finding the intersect datum and
+                # then scaling according to the returns log-lin transort
+                # 'at that intersect reference data'. If the pinning
+                # results in this (minor/pinned) curve being out of view
+                # adjust the returns scalars to match this curves min
+                # y-range to stay in view.
+                case 'loglin_ref_to_curve':
+
+                    # TODO: technically we only need to do this here if
+                    #
+                    if viz is not mx_viz:
+                        (
+                            i_start,
+                            y_ref_major,
+                            r_major_up_here,
+                            r_major_down_here,
+                        ) = mx_viz.scalars_from_index(xref)
+
+                        # transform y-range scaling to be the same as the
+                        # equivalent "intersect" datum on the major
+                        # dispersion curve (or other target "pin to"
+                        # equivalent).
+                        ymn = y_start * (1 + r_major_down_here)
+                        if ymn > y_min:
+                            ymn = y_min
+                            r_dn_minor = (ymn - y_start) / y_start
+
+                            mx_ymn = y_ref_major * (1 + r_dn_minor)
+
+                            # TODO: rescale all already scaled curves to
+                            # new increased range for this side.
+                            # for (
+                            #     view,
+                            #     (yref, ymn, ymx)
+                            # ) in scaled.items():
+                            #     pass
+
+                        ymx = y_start * (1 + r_major_up_here)
+                        if ymx < y_max:
+                            ymx = y_max
+                            r_up_minor = (ymx - y_start) / y_start
+                            mx_ymx = y_ref_major * (1 + r_up_minor)
+
+                        if debug_print:
+                            print(
+                                f'Minor SCALARS {viz.name}:\n'
+                                f'xref: {xref}\n'
+                                f'dn: {r_major_down_here}\n'
+                                f'up: {r_major_up_here}\n'
+                            )
+                    else:
+                        if debug_print:
+                            print(
+                                f'MAJOR SCALARS {viz.name}:\n'
+                                f'dn: {r_dn_mn}\n'
+                                f'up: {r_up_mx}\n'
+                            )
+                        # target/major curve's mxmn may have been
+                        # reset by minor overlay steps above.
+                        ymn = mx_ymn
+                        ymx = mx_ymx
+
+                # Pin all curves by their first datum in view to all
+                # others such that each curve's earliest datum provides the
+                # reference point for returns vs. every other curve in
+                # view.
+                case 'loglin_ref_to_first':
+                    ymn = dnt.apply_rng(y_start)
+                    ymx = upt.apply_rng(y_start)
+
+                # Do not pin curves by log-linearizing their y-ranges,
+                # instead allow each curve to fully scale to the
+                # time-series in view's min and max y-values.
+                case 'mxmn':
+                    ymn = y_min
+                    ymx = y_max
+
+                case _:
+                    raise RuntimeError(
+                        f'overlay_technique is invalid `{overlay_technique}'
+                    )
+
+            scaled[view] = (y_start, ymn, ymx)
+
+        for (
+            view,
+            (yref, ymn, ymx)
+
+        ) in scaled.items():
 
             # NOTE XXX: we have to set each curve's range once (and
             # ONLY ONCE) here since we're doing this entire routine
@@ -594,6 +726,8 @@ def overlay_viewlists(
                     f'LOGLIN SCALE CYCLE: {viz.name}@{chart_name}\n'
                     f'UP MAJOR C: {upt.viz.name} with disp: {upt.rng}\n'
                     f'DOWN MAJOR C: {dnt.viz.name} with disp: {dnt.rng}\n'
+                    f'disp: {disp}\n'
+                    f'xref for MINOR: {xref}\n'
                     f'y_start: {y_start}\n'
                     f'y min: {y_min}\n'
                     f'y max: {y_max}\n'
@@ -614,7 +748,10 @@ def overlay_viewlists(
                 +
                 '\n'
             )
+
+        profiler(f'<{chart_name}>.interact_graphics_cycle()')
+
         if not do_linked_charts:
-            return
+            break
 
     profiler.finish()
