@@ -206,8 +206,6 @@ def test_sell(
         ),
     )
 
-
-@pytest.mark.xfail(reason='Due to precision issues, this test will currently fail')
 def test_multi_sell(
     open_test_pikerd_and_ems: AsyncContextManager, 
     delete_testing_dir

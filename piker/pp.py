@@ -22,6 +22,7 @@ that doesn't try to cuk most humans who prefer to not lose their moneys..
 '''
 from __future__ import annotations
 from contextlib import contextmanager as cm
+from decimal import Decimal, ROUND_HALF_EVEN
 from pprint import pformat
 import os
 from os import path
@@ -466,7 +467,8 @@ class Position(Struct):
         if self.split_ratio is not None:
             size = round(size * self.split_ratio)
 
-        return size
+        return float(Decimal(size).quantize(
+            Decimal('1.0000'), rounding=ROUND_HALF_EVEN))
 
     def minimize_clears(
         self,
