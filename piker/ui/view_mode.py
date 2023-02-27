@@ -651,17 +651,33 @@ def overlay_viewlists(
 
                             # TODO: rescale all already scaled curves to
                             # new increased range for this side.
-                            # for (
-                            #     view,
-                            #     (yref, ymn, ymx)
-                            # ) in scaled.items():
-                            #     pass
+                            for _view in scaled:
+                                _yref, _ymn, _ymx = scaled[_view]
+                                new_ymn = _yref * (1 + r_dn_minor)
+
+                                # TODO: is there a faster way to do this
+                                # by mutating state on some object
+                                # instead?
+                                scaled[_view] = (_yref, new_ymn, _ymx)
 
                         ymx = y_start * (1 + r_major_up_here)
                         if ymx < y_max:
+                            # set the `scaled: dict` entry to ensure
+                            # that this minor curve will be entirely in
+                            # view.
                             ymx = y_max
                             r_up_minor = (ymx - y_start) / y_start
+
+                            # adjust the target-major curve's range to
+                            # (log-linearly) include this extra range by
+                            # applying the inverse transform of the
+                            # minor.
                             mx_ymx = y_ref_major * (1 + r_up_minor)
+
+                            for _view in scaled:
+                                _yref, _ymn, _ymx = scaled[_view]
+                                new_ymx = _yref * (1 + r_up_minor)
+                                scaled[_view] = (_yref, _ymn, new_ymx)
 
                         if debug_print:
                             print(
