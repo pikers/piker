@@ -30,7 +30,6 @@ from .feed import (
     open_history_client,
     open_symbol_search,
     stream_quotes,
-    backfill_bars
 )
 # from .broker import (
     # trades_dialogue,
