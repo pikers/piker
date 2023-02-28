@@ -18,8 +18,8 @@
 numpy data source coversion helpers.
 """
 from __future__ import annotations
+from decimal import Decimal, ROUND_HALF_EVEN
 from typing import Any
-import decimal
 
 from bidict import bidict
 import numpy as np
@@ -80,7 +80,7 @@ def float_digits(
     if value == 0:
         return 0
 
-    return int(-decimal.Decimal(str(value)).as_tuple().exponent)
+    return int(-Decimal(str(value)).as_tuple().exponent)
 
 
 def ohlc_zeros(length: int) -> np.ndarray:
@@ -156,14 +156,14 @@ class Symbol(Struct):
     ) -> Symbol:
 
         tick_size = info.get('price_tick_size', 0.01)
-        lot_tick_size = info.get('lot_tick_size', 0.0)
+        lot_size = info.get('lot_tick_size', 0.0)
 
         return Symbol(
             key=symbol,
             tick_size=tick_size,
-            lot_tick_size=lot_tick_size,
+            lot_tick_size=lot_size,
             tick_size_digits=float_digits(tick_size),
-            lot_size_digits=float_digits(lot_tick_size),
+            lot_size_digits=float_digits(lot_size),
             suffix=suffix,
             broker_info={broker: info},
         )
@@ -254,6 +254,12 @@ class Symbol(Struct):
 
         return keys
 
+    def decimal_quant(self, d: Decimal):
+        digits = self.lot_size_digits
+        return d.quantize(
+            Decimal(f'1.{"0".ljust(digits, "0")}'),
+            rounding=ROUND_HALF_EVEN
+        )
 
 def _nan_to_closest_num(array: np.ndarray):
     """Return interpolated values instead of NaN.

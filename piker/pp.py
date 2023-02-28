@@ -45,7 +45,7 @@ import toml
 from . import config
 from .brokers import get_brokermod
 from .clearing._messages import BrokerdPosition, Status
-from .data._source import Symbol
+from .data._source import Symbol, unpack_fqsn
 from .log import get_logger
 from .data.types import Struct
 
@@ -83,7 +83,7 @@ def open_trade_ledger(
     with open(tradesfile, 'rb') as cf:
         start = time.time()
         ledger = tomli.load(cf)
-        print(f'Ledger load took {time.time() - start}s')
+        log.info(f'Ledger load took {time.time() - start}s')
         cpy = ledger.copy()
 
     try:
@@ -92,7 +92,7 @@ def open_trade_ledger(
         if cpy != ledger:
             # TODO: show diff output?
             # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
-            print(f'Updating ledger for {tradesfile}:\n')
+            log.info(f'Updating ledger for {tradesfile}:\n')
             ledger.update(cpy) 
             # we write on close the mutated ledger data
             with open(tradesfile, 'w') as cf:
@@ -103,17 +103,18 @@ class Transaction(Struct, frozen=True):
     # TODO: should this be ``.to`` (see below)?
     fqsn: str
 
+    sym: Symbol
     tid: Union[str, int]  # unique transaction id
     size: float
     price: float
     cost: float  # commisions or other additional costs
     dt: datetime
-    expiry: Optional[datetime] = None
+    expiry: datetime | None = None
 
     # optional key normally derived from the broker
     # backend which ensures the instrument-symbol this record
     # is for is truly unique.
-    bsuid: Optional[Union[str, int]] = None
+    bsuid: Union[str, int] | None = None
 
     # optional fqsn for the source "asset"/money symbol?
     # from: Optional[str] = None
@@ -190,8 +191,19 @@ class Position(Struct):
         # listing venue here even when the backend isn't providing
         # it via the trades ledger..
         # drop symbol obj in serialized form
-        s = d.pop('symbol')
+        s = d.get('symbol')
         fqsn = s.front_fqsn()
+
+        broker, key, suffix = unpack_fqsn(fqsn)
+        sym_info = s.broker_info[broker]
+
+        d['symbol'] = {
+            'info': {
+                'asset_type': sym_info['asset_type'],
+                'price_tick_size': sym_info['price_tick_size'],
+                'lot_tick_size': sym_info['lot_tick_size']
+            }
+        }
 
         if self.expiry is None:
             d.pop('expiry', None)
@@ -467,8 +479,7 @@ class Position(Struct):
         if self.split_ratio is not None:
             size = round(size * self.split_ratio)
 
-        return float(Decimal(size).quantize(
-            Decimal('1.0000'), rounding=ROUND_HALF_EVEN))
+        return float(self.symbol.decimal_quant(Decimal(size)))
 
     def minimize_clears(
         self,
@@ -512,7 +523,7 @@ class Position(Struct):
             'cost': t.cost,
             'price': t.price,
             'size': t.size,
-            'dt': t.dt,
+            'dt': t.dt
         }
 
         # TODO: compute these incrementally instead
@@ -559,7 +570,7 @@ class PpTable(Struct):
                     Symbol.from_fqsn(
                         t.fqsn,
                         info={},
-                    ),
+                    ) if not t.sym else t.sym,
                     size=0.0,
                     ppu=0.0,
                     bsuid=t.bsuid,
@@ -620,7 +631,7 @@ class PpTable(Struct):
             # XXX: debug hook for size mismatches
             # qqqbsuid = 320227571
             # if bsuid == qqqbsuid:
-            #     breakpoint()
+            #     xbreakpoint()
 
             pp.ensure_state()
 
@@ -682,10 +693,10 @@ class PpTable(Struct):
         '''
         # TODO: show diff output?
         # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
-        print(f'Updating ``pps.toml`` for {path}:\n')
-
+        log.info(f'Updating ``pps.toml`` for {path}:\n')
         # active, closed_pp_objs = table.dump_active()
         pp_entries = self.to_toml()
+        log.info(pp_entries)
         self.conf[self.brokername][self.acctid] = pp_entries
 
         # TODO: why tf haven't they already done this for inline
@@ -883,7 +894,6 @@ def open_pps(
     brokername: str,
     acctid: str,
     write_on_exit: bool = False,
-
 ) -> Generator[PpTable, None, None]:
     '''
     Read out broker-specific position entries from
@@ -937,8 +947,11 @@ def open_pps(
             dtstr = clears_table['dt']
             dt = pendulum.parse(dtstr)
             clears_table['dt'] = dt
+
             trans.append(Transaction(
                 fqsn=bsuid,
+                sym=Symbol.from_fqsn(
+                    fqsn, entry['symbol']),
                 bsuid=bsuid,
                 tid=tid,
                 size=clears_table['size'],

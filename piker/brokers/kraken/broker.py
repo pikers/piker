@@ -469,8 +469,7 @@ async def trades_dialogue(
         with (
             open_pps(
                 'kraken',
-                acctid,
-                write_on_exit=True,
+                acctid
             ) as table,
 
             open_trade_ledger(
