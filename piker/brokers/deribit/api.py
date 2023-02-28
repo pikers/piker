@@ -89,19 +89,20 @@ _ohlc_dtype = [
 
 
 class JSONRPCResult(Struct):
-    jsonrpc: str = '2.0'
     id: int
-    result: Optional[dict] = None
-    error: Optional[dict] = None
-    usIn: int 
-    usOut: int 
+    usIn: int
+    usOut: int
     usDiff: int
     testnet: bool
+    jsonrpc: str = '2.0'
+    result: Optional[dict] = None
+    error: Optional[dict] = None
+
 
 class JSONRPCChannel(Struct):
-    jsonrpc: str = '2.0'
     method: str
     params: dict
+    jsonrpc: str = '2.0'
 
 
 class KLinesResult(Struct):
@@ -114,6 +115,7 @@ class KLinesResult(Struct):
     ticks: list[int]
     volume: list[float]
 
+
 class Trade(Struct):
     trade_seq: int
     trade_id: str
@@ -125,9 +127,10 @@ class Trade(Struct):
     instrument_name: str
     index_price: float
     direction: str
+    amount: float
     combo_trade_id: Optional[int] = 0,
     combo_id: Optional[str] = '',
-    amount: float
+
 
 class LastTradesResult(Struct):
     trades: list[Trade]
@@ -145,8 +148,8 @@ def str_to_cb_sym(name: str) -> Symbol:
     quote = base
 
     if option_type == 'put':
-        option_type = PUT 
-    elif option_type  == 'call':
+        option_type = PUT
+    elif option_type == 'call':
         option_type = CALL
     else:
         raise Exception("Couldn\'t parse option type")
@@ -167,8 +170,8 @@ def piker_sym_to_cb_sym(name: str) -> Symbol:
     quote = base
 
     if option_type == 'P':
-        option_type = PUT 
-    elif option_type  == 'C':
+        option_type = PUT
+    elif option_type == 'C':
         option_type = CALL
     else:
         raise Exception("Couldn\'t parse option type")
@@ -431,7 +434,9 @@ async def get_client(
     async with (
         trio.open_nursery() as n,
         open_jsonrpc_session(
-            _testnet_ws_url, dtype=JSONRPCResult) as json_rpc
+            _testnet_ws_url,
+            response_type=JSONRPCResult
+        ) as json_rpc
     ):
         client = Client(json_rpc)
 
