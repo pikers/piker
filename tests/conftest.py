@@ -155,7 +155,6 @@ async def _open_test_pikerd_and_ems(
             yield (services, ems_services)
 
 
-
 @pytest.fixture
 def open_test_pikerd_and_ems(
     open_test_pikerd,
@@ -170,6 +169,7 @@ def open_test_pikerd_and_ems(
         loglevel,
         open_test_pikerd
     ) 
+
 
 @pytest.fixture(scope='session')
 def delete_testing_dir():
