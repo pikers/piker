@@ -81,8 +81,11 @@ class OverlayT(Struct):
     ) -> float:
         return y_ref * (1 + self.rng)
 
-    # def loglin_from_range(
-    #     self,
+    def scalars_from_index(
+        self,
+        xref: float,
+    ) -> tuple[float, float]:
+        pass
 
     #     y_ref: float,  # reference value for dispersion metric
     #     mn: float,  # min y in target log-lin range
@@ -359,6 +362,12 @@ def overlay_viewlists(
                 key = 'open' if viz.is_ohlc else viz.name
                 start_t = row_start['time']
 
+                # TODO: call `Viz.disp_from_range()` here!
+                # disp = viz.disp_from_range(yref=y_ref)
+                # if disp is None:
+                #     print(f'{viz.name}: WTF NO DISP')
+                #     continue
+
                 # returns scalars
                 r_up = (ymx - y_ref) / y_ref
                 r_down = (ymn - y_ref) / y_ref
@@ -489,12 +498,6 @@ def overlay_viewlists(
                             profiler(msg)
                             print(msg)
 
-                # disp = viz.disp_from_range(yref=y_ref)
-                # if disp is None:
-                #     print(f'{viz.name}: WTF NO DISP')
-                #     continue
-
-                # r_up, r_dn = disp
                 disp = r_up - r_down
 
                 # register curves by a "full" dispersion metric for
@@ -576,7 +579,7 @@ def overlay_viewlists(
         mx_disp = max(overlay_table)
         mx_entry = overlay_table[mx_disp]
         (
-            _,  # viewbox
+            mx_view,  # viewbox
             mx_viz,  # viz
             _,  # y_ref
             mx_ymn,
@@ -586,13 +589,17 @@ def overlay_viewlists(
             r_up_mx,
             r_dn_mn,
         ) = mx_entry
+        mx_disp = r_up_mx - r_dn_mn
 
-        scaled: dict[float, tuple[float, float, float]] = {}
+        scaled: dict[
+            float,
+            tuple[Viz, float, float, float, float]
+        ] = {}
 
         # conduct "log-linearized multi-plot" scalings for all groups
         # -> iterate all curves Ci in dispersion-measure sorted order
         # going from smallest swing to largest.
-        for full_disp in sorted(overlay_table):
+        for full_disp in reversed(overlay_table):
             (
                 view,
                 viz,
@@ -620,17 +627,24 @@ def overlay_viewlists(
             match overlay_technique:
 
                 # Pin this curve to the "major dispersion" (or other
-                # target) curve by finding the intersect datum and
-                # then scaling according to the returns log-lin transort
-                # 'at that intersect reference data'. If the pinning
-                # results in this (minor/pinned) curve being out of view
-                # adjust the returns scalars to match this curves min
-                # y-range to stay in view.
+                # target) curve:
+                #
+                # - find the intersect datum and then scaling according
+                #   to the returns log-lin tranform 'at that intersect
+                #   reference data'.
+                # - if the pinning/log-returns-based transform scaling
+                #   results in this minor/pinned curve being out of
+                #   view, adjust the scalars to match **this** curve's
+                #   y-range to stay in view and then backpropagate that
+                #   scaling to all curves, including the major-target,
+                #   which were previously scaled before.
                 case 'loglin_ref_to_curve':
-
-                    # TODO: technically we only need to do this here if
-                    #
                     if viz is not mx_viz:
+
+                        # calculate y-range scalars from the earliest
+                        # "intersect" datum with the target-major
+                        # (dispersion) curve so as to "pin" the curves
+                        # in the y-domain at that spot.
                         (
                             i_start,
                             y_ref_major,
@@ -638,46 +652,83 @@ def overlay_viewlists(
                             r_major_down_here,
                         ) = mx_viz.scalars_from_index(xref)
 
-                        # transform y-range scaling to be the same as the
-                        # equivalent "intersect" datum on the major
-                        # dispersion curve (or other target "pin to"
-                        # equivalent).
                         ymn = y_start * (1 + r_major_down_here)
-                        if ymn > y_min:
+
+                        # if this curve's y-range is detected as **not
+                        # being in view** after applying the
+                        # target-major's transform, adjust the
+                        # target-major curve's range to (log-linearly)
+                        # include it (the extra missing range) by
+                        # adjusting the y-mxmn to this new y-range and
+                        # applying the inverse transform of the minor
+                        # back on the target-major (and possibly any
+                        # other previously-scaled-to-target/major, minor
+                        # curves).
+                        if ymn >= y_min:
                             ymn = y_min
                             r_dn_minor = (ymn - y_start) / y_start
 
+                            # rescale major curve's y-max to include new
+                            # range increase required by **this minor**.
                             mx_ymn = y_ref_major * (1 + r_dn_minor)
+                            mx_viz.vs.yrange = mx_ymn, mx_viz.vs.yrange[1]
 
-                            # TODO: rescale all already scaled curves to
-                            # new increased range for this side.
+                            # rescale all already scaled curves to new
+                            # increased range for this side as
+                            # determined by ``y_min`` staying in view;
+                            # re-set the `scaled: dict` entry to
+                            # ensure that this minor curve will be
+                            # entirely in view.
+                            # TODO: re updating already-scaled minor curves
+                            # - is there a faster way to do this by
+                            #   mutating state on some object instead?
                             for _view in scaled:
-                                _yref, _ymn, _ymx = scaled[_view]
-                                new_ymn = _yref * (1 + r_dn_minor)
+                                _viz, _yref, _ymn, _ymx, _xref = scaled[_view]
+                                (
+                                    _,
+                                    _,
+                                    _,
+                                    r_major_down_here,
+                                ) = mx_viz.scalars_from_index(_xref)
 
-                                # TODO: is there a faster way to do this
-                                # by mutating state on some object
-                                # instead?
-                                scaled[_view] = (_yref, new_ymn, _ymx)
+                                new_ymn = _yref * (1 + r_major_down_here)
+
+                                scaled[_view] = (
+                                    _viz, _yref, new_ymn, _ymx, _xref)
+
+                                if debug_print:
+                                    print(
+                                        f'RESCALE {_viz.name} ymn -> {new_ymn}'
+                                        f'RESCALE MAJ ymn -> {mx_ymn}'
+                                    )
 
                         ymx = y_start * (1 + r_major_up_here)
-                        if ymx < y_max:
-                            # set the `scaled: dict` entry to ensure
-                            # that this minor curve will be entirely in
-                            # view.
+
+                        # same as above but for minor being out-of-range
+                        # on the upside.
+                        if ymx <= y_max:
                             ymx = y_max
                             r_up_minor = (ymx - y_start) / y_start
-
-                            # adjust the target-major curve's range to
-                            # (log-linearly) include this extra range by
-                            # applying the inverse transform of the
-                            # minor.
                             mx_ymx = y_ref_major * (1 + r_up_minor)
+                            mx_viz.vs.yrange = mx_viz.vs.yrange[0], mx_ymx
 
                             for _view in scaled:
-                                _yref, _ymn, _ymx = scaled[_view]
-                                new_ymx = _yref * (1 + r_up_minor)
-                                scaled[_view] = (_yref, _ymn, new_ymx)
+                                _viz, _yref, _ymn, _ymx, _xref = scaled[_view]
+                                (
+                                    _,
+                                    _,
+                                    r_major_up_here,
+                                    _,
+                                ) = mx_viz.scalars_from_index(_xref)
+
+                                new_ymx = _yref * (1 + r_major_up_here)
+                                scaled[_view] = (
+                                    _viz, _yref, _ymn, new_ymx, _xref)
+
+                                if debug_print:
+                                    print(
+                                        f'RESCALE {_viz.name} ymn -> {new_ymx}'
+                                    )
 
                         if debug_print:
                             print(
@@ -686,6 +737,12 @@ def overlay_viewlists(
                                 f'dn: {r_major_down_here}\n'
                                 f'up: {r_major_up_here}\n'
                             )
+
+                        # register all overlays for a final pass where we
+                        # apply all pinned-curve y-range transform scalings.
+                        scaled[view] = (viz, y_start, ymn, ymx, xref)
+
+                    # target/dispersion MAJOR case
                     else:
                         if debug_print:
                             print(
@@ -693,6 +750,7 @@ def overlay_viewlists(
                                 f'dn: {r_dn_mn}\n'
                                 f'up: {r_up_mx}\n'
                             )
+
                         # target/major curve's mxmn may have been
                         # reset by minor overlay steps above.
                         ymn = mx_ymn
@@ -705,56 +763,53 @@ def overlay_viewlists(
                 case 'loglin_ref_to_first':
                     ymn = dnt.apply_rng(y_start)
                     ymx = upt.apply_rng(y_start)
+                    view._set_yrange(yrange=(ymn, ymx))
 
                 # Do not pin curves by log-linearizing their y-ranges,
                 # instead allow each curve to fully scale to the
                 # time-series in view's min and max y-values.
                 case 'mxmn':
-                    ymn = y_min
-                    ymx = y_max
+                    view._set_yrange(yrange=(y_min, y_max))
 
                 case _:
                     raise RuntimeError(
                         f'overlay_technique is invalid `{overlay_technique}'
                     )
 
-            scaled[view] = (y_start, ymn, ymx)
+        if scaled:
+            for (
+                view,
+                (viz, yref, ymn, ymx, xref)
+            ) in scaled.items():
 
-        for (
-            view,
-            (yref, ymn, ymx)
+                # NOTE XXX: we have to set each curve's range once (and
+                # ONLY ONCE) here since we're doing this entire routine
+                # inside of a single render cycle (and apparently calling
+                # `ViewBox.setYRange()` multiple times within one only takes
+                # the first call as serious...) XD
+                view._set_yrange(yrange=(ymn, ymx))
+                profiler(f'{viz.name}@{chart_name} log-SCALE minor')
 
-        ) in scaled.items():
+                if debug_print:
+                    print(
+                        '------------------------------\n'
+                        f'LOGLIN SCALE CYCLE: {viz.name}@{chart_name}\n'
+                        f'UP MAJOR C: {upt.viz.name} with disp: {upt.rng}\n'
+                        f'DOWN MAJOR C: {dnt.viz.name} with disp: {dnt.rng}\n'
+                        f'SIGMA MAJOR C: {mx_viz.name} -> {mx_disp}\n'
+                        # f'disp: {disp}\n'
+                        f'xref for MINOR: {xref}\n'
+                        f'y_start: {y_start}\n'
+                        f'y min: {y_min}\n'
+                        f'y max: {y_max}\n'
+                        f'T scaled ymn: {ymn}\n'
+                        f'T scaled ymx: {ymx}\n'
+                        '------------------------------\n'
+                    )
 
-            # NOTE XXX: we have to set each curve's range once (and
-            # ONLY ONCE) here since we're doing this entire routine
-            # inside of a single render cycle (and apparently calling
-            # `ViewBox.setYRange()` multiple times within one only takes
-            # the first call as serious...) XD
-            view._set_yrange(
-                yrange=(ymn, ymx),
-            )
-            profiler(f'{viz.name}@{chart_name} log-SCALE minor')
-
-            if debug_print:
-                print(
-                    '------------------------------\n'
-                    f'LOGLIN SCALE CYCLE: {viz.name}@{chart_name}\n'
-                    f'UP MAJOR C: {upt.viz.name} with disp: {upt.rng}\n'
-                    f'DOWN MAJOR C: {dnt.viz.name} with disp: {dnt.rng}\n'
-                    f'disp: {disp}\n'
-                    f'xref for MINOR: {xref}\n'
-                    f'y_start: {y_start}\n'
-                    f'y min: {y_min}\n'
-                    f'y max: {y_max}\n'
-                    f'T scaled ymn: {ymn}\n'
-                    f'T scaled ymx: {ymx}\n'
-                    '------------------------------\n'
-                )
-
-        # vrs = major_sigma_viz.plot.vb.viewRange()
-        # if vrs[1][0] > major_mn:
-        #     breakpoint()
+            # finally, scale major curve to possibly re-scaled/modified
+            # values
+            mx_view._set_yrange(yrange=(mx_ymn, mx_ymx))
 
         if debug_print:
             print(
