@@ -10,7 +10,6 @@ from typing import (
 )
 
 import pytest
-import tractor
 from tractor._exceptions import ContextCancelled
 from uuid import uuid4
 from functools import partial
@@ -52,6 +51,7 @@ async def _async_main(
     '''
     Start piker, place a trade and assert data in 
     pps stream, ledger and position table. 
+
     '''
 
     oid: str = ''
@@ -115,6 +115,7 @@ def _assert(
     ):
         '''
         Assert multiple cases including pps, ledger and final position message state
+
         '''
         if assert_entries:
             assert last_msg['broker'] == broker
