@@ -122,12 +122,15 @@ def _assert(
 
         '''
         if assert_entries:
-            assert last_msg['broker'] == broker
-            assert last_msg['account'] == account
-            assert last_msg['symbol'] == fqsn
-            assert last_msg['size'] == size * executions
-            assert last_msg['currency'] == symbol
-            assert last_msg['avg_price'] == table.pps[symbol].ppu
+            for key, val in [
+                ('broker', broker),
+                ('account', account),
+                ('symbol', fqsn),
+                ('size', size * executions),
+                ('currency', symbol),
+                ('avg_price', table.pps[symbol].ppu)
+            ]:
+                assert last_msg[key] == val
 
         if assert_pps:
             last_ppu = pps[(broker, account)][-1]
