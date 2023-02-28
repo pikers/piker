@@ -140,8 +140,11 @@ def _assert(
             assert not bool(table.pps)
 
 
-# Close position and assert empty position in pps
 def _run_test_and_check(fn):
+    '''        
+    Close position and assert empty position in pps
+
+    '''
     with pytest.raises(BaseExceptionGroup) as exc_info:
         trio.run(fn)
 
@@ -151,8 +154,14 @@ def _run_test_and_check(fn):
         )
 
 
-def test_buy(open_test_pikerd_and_ems: AsyncContextManager, delete_testing_dir):
-    # Enter a trade and assert entries are made in pps and ledger files
+def test_buy(
+    open_test_pikerd_and_ems: AsyncContextManager, 
+    delete_testing_dir
+):
+    '''
+    Enter a trade and assert entries are made in pps and ledger files.
+
+    '''
     _run_test_and_check(
         partial(
             _async_main,
@@ -172,8 +181,14 @@ def test_buy(open_test_pikerd_and_ems: AsyncContextManager, delete_testing_dir):
     )
 
 
-def test_sell(open_test_pikerd_and_ems: AsyncContextManager, delete_testing_dir):
-    # Sell position
+def test_sell(
+    open_test_pikerd_and_ems: AsyncContextManager, 
+    delete_testing_dir
+):
+    '''
+    Sell position ensure pps are zeroed.
+
+    '''
     _run_test_and_check(
         partial(
             _async_main,
@@ -183,7 +198,6 @@ def test_sell(open_test_pikerd_and_ems: AsyncContextManager, delete_testing_dir)
         ),
     )
 
-    # Ensure pps are zeroed
     _run_test_and_check(
         partial(
             _async_main,
@@ -194,8 +208,16 @@ def test_sell(open_test_pikerd_and_ems: AsyncContextManager, delete_testing_dir)
 
 
 @pytest.mark.skip(reason='Due to precision issues, this test will currently fail')
-def test_multi_sell(open_test_pikerd_and_ems: AsyncContextManager, delete_testing_dir):
-    # Make 5 market limit buy orders
+def test_multi_sell(
+    open_test_pikerd_and_ems: AsyncContextManager, 
+    delete_testing_dir
+):
+    '''
+    Make 5 market limit buy orders and 
+    then sell 5 slots at the same price. 
+    Finally, assert cleared positions.
+
+    '''
     _run_test_and_check(
         partial(
             _async_main,
@@ -205,7 +227,6 @@ def test_multi_sell(open_test_pikerd_and_ems: AsyncContextManager, delete_testin
         ),
     )
 
-    # Sell 5 slots at the same price, assert cleared positions
     _run_test_and_check(
         partial(
             _async_main,
