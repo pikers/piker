@@ -509,7 +509,7 @@ class ChartView(ViewBox):
 
         # don't zoom more then the min points setting
         viz = chart.get_viz(chart.name)
-        _, vl, lbar, rbar, vr, _ = viz.datums_range()
+        _, vl, lbar, rbar, vr, r = viz.datums_range()
 
         # TODO: max/min zoom limits incorporating time step size.
         # rl = vr - vl
@@ -556,7 +556,7 @@ class ChartView(ViewBox):
             xl = viz.graphics.x_last()
             focal = min(
                 xl,
-                vr,
+                r,
             )
 
             self._resetTarget()
