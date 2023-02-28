@@ -186,7 +186,7 @@ def test_sell(
     delete_testing_dir
 ):
     '''
-    Sell position ensure pps are zeroed.
+    Sell position and ensure pps are zeroed.
 
     '''
     _run_test_and_check(
