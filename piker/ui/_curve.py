@@ -163,6 +163,16 @@ class FlowGraphic(pg.GraphicsObject):
 
         return None
 
+    @cm
+    def reset_cache(self) -> None:
+        self.setCacheMode(QtWidgets.QGraphicsItem.NoCache)
+        try:
+            log.debug(f'{self._name} -> CACHE DISABLE')
+            yield
+        finally:
+            log.debug(f'{self._name} -> CACHE ENABLE')
+            self.setCacheMode(self.cache_mode)
+
 
 class Curve(FlowGraphic):
     '''
@@ -250,12 +260,6 @@ class Curve(FlowGraphic):
             if self.fast_path:
                 self.fast_path.clear()
                 # self.fast_path = None
-
-    @cm
-    def reset_cache(self) -> None:
-        self.setCacheMode(QtWidgets.QGraphicsItem.NoCache)
-        yield
-        self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
     def boundingRect(self):
         '''
