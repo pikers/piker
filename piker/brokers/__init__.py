@@ -24,6 +24,7 @@ __brokers__ = [
     'binance',
     'ib',
     'kraken',
+    'deribit',
 
     # broken but used to work
     # 'questrade',
