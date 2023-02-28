@@ -114,7 +114,7 @@ def _assert(
     executions,
 ):
     with (
-        open_pps(broker, account) as table,
+        open_pps(broker, account, write_on_exit=False) as table,
     ):
         '''
         Assert multiple cases including pps,

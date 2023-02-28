@@ -171,7 +171,7 @@ def open_test_pikerd_and_ems(
     ) 
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture(scope='module')
 def delete_testing_dir():
     '''
     This fixture removes the temp directory

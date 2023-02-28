@@ -880,7 +880,7 @@ class PpsEncoder(toml.TomlEncoder):
 def open_pps(
     brokername: str,
     acctid: str,
-    write_on_exit: bool = True,
+    write_on_exit: bool = False,
 
 ) -> Generator[PpTable, None, None]:
     '''

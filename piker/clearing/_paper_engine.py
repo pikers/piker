@@ -262,7 +262,7 @@ class PaperBoi(Struct):
 
         with (
                 open_trade_ledger(self.broker, 'paper') as ledger,
-                open_pps(self.broker, 'paper') as table
+                open_pps(self.broker, 'paper', True) as table
              ):
                 ledger.update({oid: t.to_dict()})
                 # Write to pps toml right now
@@ -530,7 +530,7 @@ async def trades_dialogue(
 
     ):
 
-        with open_pps(broker, 'paper', write_on_exit=False) as table:
+        with open_pps(broker, 'paper') as table:
             # save pps in local state
             _positions.update(table.pps)
 
