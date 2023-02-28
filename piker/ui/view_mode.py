@@ -181,11 +181,12 @@ def overlay_viewlists(
         tuple[float, float],
     ] | None = None,
 
-    overlay_technique: Literal[
+    method: Literal[
         'loglin_ref_to_curve',
         'loglin_ref_to_first',
         'mxmn',
         'solo',
+
     ] = 'loglin_ref_to_curve',
 
     # internal debug
@@ -194,7 +195,7 @@ def overlay_viewlists(
 ) -> None:
     '''
     Calculate and apply y-domain (axis y-range) multi-curve overlay adjustments
-    a set of ``plots`` based on the requested ``overlay_technique``.
+    a set of ``plots`` based on the requested ``method``.
 
     '''
     chart_name: str
@@ -313,7 +314,7 @@ def overlay_viewlists(
             # non-overlay group case
             if (
                 not viz.is_ohlc
-                or overlay_technique == 'solo'
+                or method == 'solo'
             ):
                 pi.vb._set_yrange(yrange=yrange)
                 profiler(
@@ -582,7 +583,7 @@ def overlay_viewlists(
             key = 'open' if viz.is_ohlc else viz.name
 
             xref = minor_in_view[0]['time']
-            match overlay_technique:
+            match method:
 
                 # Pin this curve to the "major dispersion" (or other
                 # target) curve:
@@ -731,7 +732,7 @@ def overlay_viewlists(
 
                 case _:
                     raise RuntimeError(
-                        f'overlay_technique is invalid `{overlay_technique}'
+                        f'overlay ``method`` is invalid `{method}'
                     )
 
         if scaled:
