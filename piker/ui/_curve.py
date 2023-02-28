@@ -158,7 +158,10 @@ class FlowGraphic(pg.GraphicsObject):
         drawn yet, ``None``.
 
         '''
-        return self._last_line.x1() if self._last_line else None
+        if self._last_line:
+            return self._last_line.x1()
+
+        return None
 
 
 class Curve(FlowGraphic):

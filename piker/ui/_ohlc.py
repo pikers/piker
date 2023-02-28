@@ -93,7 +93,7 @@ class BarItems(FlowGraphic):
     '''
     # XXX: causes this weird jitter bug when click-drag panning
     # where the path curve will awkwardly flicker back and forth?
-    # cache_mode: int = QGraphicsItem.NoCache
+    cache_mode: int = QGraphicsItem.NoCache
 
     def __init__(
         self,
@@ -113,9 +113,10 @@ class BarItems(FlowGraphic):
         '''
         if self._last_bar_lines:
             close_arm_line = self._last_bar_lines[-1]
-            return close_arm_line.x2() if close_arm_line else None
-        else:
-            return None
+            if close_arm_line:
+                return close_arm_line.x2()
+
+        return None
 
     # Qt docs: https://doc.qt.io/qt-5/qgraphicsitem.html#boundingRect
     def boundingRect(self):
