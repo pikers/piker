@@ -84,7 +84,12 @@ async def _async_main(
                         case {'name': 'position'}:
                             break
 
-        if assert_entries or assert_pps or assert_zeroed_pps or assert_msg:
+        if (
+            assert_entries 
+            or assert_pps 
+            or assert_zeroed_pps 
+            or assert_msg
+        ):
             _assert(
                 assert_entries,
                 assert_pps,
