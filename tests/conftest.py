@@ -171,11 +171,14 @@ def open_test_pikerd_and_ems(
         open_test_pikerd
     ) 
 
-@pytest.fixture(scope='session') 
+@pytest.fixture(scope='session')
 def delete_testing_dir():
-    '''This fixture removes the temp directory
+    '''
+    This fixture removes the temp directory
     used for storing all config/ledger/pp data
-    created during testing sessions
+    created during testing sessions. During test runs
+    this file can be found in .config/piker/_testing
+
     '''
     yield
     app_dir = Path(config.get_app_dir('piker')).resolve()
