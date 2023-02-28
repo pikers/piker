@@ -201,6 +201,8 @@ def overlay_viewlists(
     chart: ChartPlotWidget
     for chart_name, chart in plots.items():
 
+        overlay_viz_items = chart._vizs.items()
+
         # Common `PlotItem` maxmin table; presumes that some path
         # graphics (and thus their backing data sets) are in the
         # same co-domain and view box (since the were added
@@ -217,6 +219,46 @@ def overlay_viewlists(
         # -> for any "group" overlay we want to dispersion normalize
         #    and scale minor charts onto the major chart: the chart
         #    with the most dispersion in the set.
+
+        # ONLY auto-yrange the viz mapped to THIS view box
+        if (
+            not do_overlay_scaling
+            or len(overlay_viz_items) < 2
+        ):
+            viz = active_viz
+            if debug_print:
+                print(f'ONLY ranging THIS viz: {viz.name}')
+
+            out = _maybe_calc_yrange(
+                viz,
+                yrange_kwargs,
+                profiler,
+                chart_name,
+            )
+            if out is None:
+                continue
+
+            read_slc, yrange_kwargs = out
+            viz.plot.vb._set_yrange(**yrange_kwargs)
+            profiler(f'{viz.name}@{chart_name} single curve yrange')
+
+            # don't iterate overlays, just move to next chart
+            continue
+
+        if debug_print:
+            print(
+                f'BEGIN UX GRAPHICS CYCLE: @{chart_name}\n'
+                +
+                '#'*100
+                +
+                '\n'
+            )
+
+        # create a group overlay log-linearized y-range transform to
+        # track and eventually inverse transform all overlay curves
+        # to a common target max dispersion range.
+        dnt = OverlayT()
+        upt = OverlayT()
 
         # collect certain flows have grapics objects **in seperate
         # plots/viewboxes** into groups and do a common calc to
@@ -239,44 +281,8 @@ def overlay_viewlists(
             ],
         ] = {}
 
-        # ONLY auto-yrange the viz mapped to THIS view box
-        if not do_overlay_scaling:
-            viz = active_viz
-            if debug_print:
-                print(f'ONLY ranging THIS viz: {viz.name}')
-
-            out = _maybe_calc_yrange(
-                viz,
-                yrange_kwargs,
-                profiler,
-                chart_name,
-            )
-            if out is None:
-                continue
-
-            read_slc, yrange_kwargs = out
-            viz.plot.vb._set_yrange(**yrange_kwargs)
-            profiler(f'{viz.name}@{chart_name} single curve yrange')
-
-            # don't iterate overlays, just move to next chart
-            continue
-
-        # create a group overlay log-linearized y-range transform to
-        # track and eventually inverse transform all overlay curves
-        # to a common target max dispersion range.
-        dnt = OverlayT()
-        upt = OverlayT()
-
-        if debug_print:
-            print(
-                f'BEGIN UX GRAPHICS CYCLE: @{chart_name}\n'
-                +
-                '#'*100
-                +
-                '\n'
-            )
-
-        for name, viz in chart._vizs.items():
+        # multi-curve overlay processing stage
+        for name, viz in overlay_viz_items:
 
             out = _maybe_calc_yrange(
                 viz,
