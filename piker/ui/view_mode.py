@@ -19,9 +19,6 @@ Overlay (aka multi-chart) UX machinery.
 
 '''
 from __future__ import annotations
-from math import (
-    isinf,
-)
 from typing import (
     Any,
     Literal,
@@ -74,31 +71,12 @@ class OverlayT(Struct):
     # that pin point causing the original range to have to increase.
     y_val: float | None = None
 
-    def apply_rng(
+    def apply_r(
         self,
         y_ref: float,  # reference value for dispersion metric
 
     ) -> float:
         return y_ref * (1 + self.rng)
-
-    def scalars_from_index(
-        self,
-        xref: float,
-    ) -> tuple[float, float]:
-        pass
-
-    #     y_ref: float,  # reference value for dispersion metric
-    #     mn: float,  # min y in target log-lin range
-    #     mx: float,  # max y in target log-lin range
-    #     offset: float,  # y-offset to start log-scaling from
-
-    # ) -> tuple[float, float]:
-    #     r_up = (mx - y_ref) / y_ref
-    #     r_down = (mn - y_ref) / y_ref
-    #     ymn = offset * (1 + r_down)
-    #     ymx = offset * (1 + r_up)
-
-    #     return ymn, ymx
 
 
 def intersect_from_longer(
@@ -362,12 +340,6 @@ def overlay_viewlists(
                 key = 'open' if viz.is_ohlc else viz.name
                 start_t = row_start['time']
 
-                # TODO: call `Viz.disp_from_range()` here!
-                # disp = viz.disp_from_range(yref=y_ref)
-                # if disp is None:
-                #     print(f'{viz.name}: WTF NO DISP')
-                #     continue
-
                 # returns scalars
                 r_up = (ymx - y_ref) / y_ref
                 r_down = (ymn - y_ref) / y_ref
@@ -419,7 +391,7 @@ def overlay_viewlists(
                     if intersect:
                         longer_in_view, _t, i = intersect
 
-                        scaled_mn = dnt.apply_rng(y_ref)
+                        scaled_mn = dnt.apply_r(y_ref)
                         if scaled_mn > ymn:
                             # after major curve scaling we detected
                             # the minor curve is still out of range
@@ -479,7 +451,7 @@ def overlay_viewlists(
                         # the minor curve is still out of range
                         # so we need to adjust the major's range
                         # to include the new composed range.
-                        scaled_mx = upt.apply_rng(y_ref)
+                        scaled_mx = upt.apply_r(y_ref)
                         if scaled_mx < ymx:
                             y_maj_ref = longer_in_view[key]
                             new_major_ymx = y_maj_ref * (1 + r_up)
@@ -498,22 +470,18 @@ def overlay_viewlists(
                             profiler(msg)
                             print(msg)
 
-                disp = r_up - r_down
-
                 # register curves by a "full" dispersion metric for
                 # later sort order in the overlay (technique
                 # ) application loop below.
+                disp = r_up - r_down
                 overlay_table[disp] = (
                     viz.plot.vb,
                     viz,
-
                     y_ref,
                     ymn,
                     ymx,
-
                     read_slc,
                     in_view,
-
                     r_up,
                     r_down,
                 )
@@ -568,12 +536,6 @@ def overlay_viewlists(
         if debug_print:
             print(msg)
 
-        # if a minor curves scaling brings it "outside" the range of
-        # the major curve (in major curve co-domain terms) then we
-        # need to rescale the major to also include this range. The
-        # below placeholder denotes when this occurs.
-        # group_mxmn: None | tuple[float, float] = None
-
         r_up_mx: float
         r_dn_mn: float
         mx_disp = max(overlay_table)
@@ -589,7 +551,6 @@ def overlay_viewlists(
             r_up_mx,
             r_dn_mn,
         ) = mx_entry
-        mx_disp = r_up_mx - r_dn_mn
 
         scaled: dict[
             float,
@@ -613,15 +574,6 @@ def overlay_viewlists(
             ) = overlay_table[full_disp]
 
             key = 'open' if viz.is_ohlc else viz.name
-
-            if (
-                isinf(ymx)
-                or isinf(ymn)
-            ):
-                log.warning(
-                    f'BAD ymx/ymn: {(ymn, ymx)}'
-                )
-                continue
 
             xref = minor_in_view[0]['time']
             match overlay_technique:
@@ -761,8 +713,8 @@ def overlay_viewlists(
                 # reference point for returns vs. every other curve in
                 # view.
                 case 'loglin_ref_to_first':
-                    ymn = dnt.apply_rng(y_start)
-                    ymx = upt.apply_rng(y_start)
+                    ymn = dnt.apply_r(y_start)
+                    ymx = upt.apply_r(y_start)
                     view._set_yrange(yrange=(ymn, ymx))
 
                 # Do not pin curves by log-linearizing their y-ranges,
@@ -797,7 +749,6 @@ def overlay_viewlists(
                         f'UP MAJOR C: {upt.viz.name} with disp: {upt.rng}\n'
                         f'DOWN MAJOR C: {dnt.viz.name} with disp: {dnt.rng}\n'
                         f'SIGMA MAJOR C: {mx_viz.name} -> {mx_disp}\n'
-                        # f'disp: {disp}\n'
                         f'xref for MINOR: {xref}\n'
                         f'y_start: {y_start}\n'
                         f'y min: {y_min}\n'
