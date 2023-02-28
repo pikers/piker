@@ -53,6 +53,10 @@ class Client:
         # else:
         #     self._key_id = None
         #     self._key_secret = None
+    async def request(self, action: Literal["POST", "GET", "PUT", "DELETE"], route: str, api_v: str = 'v2'):
+        api_url = f"https://api.kucoin.com/api/{api_v}{route}"
+        res = await asks.request(action, api_url)
+        return res.json()['data']
 
     async def symbol_info(
         self,
@@ -68,12 +72,6 @@ class Client:
         
         syms = {item['name']: item for item in entries}
         return syms
- 
-
-    async def request(self, action: Literal["POST", "GET", "PUT", "DELETE"], route: str):
-        api_url = f"https://api.kucoin.com/api/v2{route}"
-        res = await asks.request(action, api_url)
-        return res.json()['data']
 
     async def cache_symbols(
         self,
@@ -135,3 +133,6 @@ async def stream_quotes(
         loglevel,
         task_status,
     )
+
+async def open_history_client():
+   
