@@ -69,6 +69,7 @@ async def open_history_client(
     async with open_cached_client('deribit') as client:
 
         async def get_ohlc(
+            timeframe: float,
             end_dt: Optional[datetime] = None,
             start_dt: Optional[datetime] = None,
 
