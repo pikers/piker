@@ -929,8 +929,6 @@ class ChartView(ViewBox):
             tuple[float, float],
         ] | None = None,
 
-        overlay_technique: str = 'loglin_to_first',
-
     ):
         profiler = Profiler(
             msg=f'ChartView.interact_graphics_cycle() for {self.name}',
@@ -968,5 +966,4 @@ class ChartView(ViewBox):
             do_overlay_scaling=do_overlay_scaling,
             do_linked_charts=do_linked_charts,
             yrange_kwargs=yrange_kwargs,
-            overlay_technique=overlay_technique,
         )
