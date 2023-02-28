@@ -1355,3 +1355,6 @@ class ChartPlotWidget(pg.PlotWidget):
     @property
     def main_viz(self) -> Viz:
         return self.get_viz(self.name)
+
+    def iter_vizs(self) -> Iterator[Viz]:
+        return iter(self._vizs.values())
