@@ -47,10 +47,10 @@ async def _async_main(
     assert_pps: bool = False,
     assert_zeroed_pps: bool = False,
     assert_msg: bool = False,
-   ) -> None:
+) -> None:
     '''
-    Start piker, place a trade and assert data in 
-    pps stream, ledger and position table. 
+    Start piker, place a trade and assert data in
+    pps stream, ledger and position table.
 
     '''
 
@@ -75,7 +75,6 @@ async def _async_main(
                     brokers=brokers,
                 )
                 # This is actually a syncronous call to push a message
-                # to the async ems clue - hence why we call trio.sleep afterwards
                 book.send(order)
 
                 async for msg in trades_stream:
@@ -185,7 +184,8 @@ def test_sell(open_test_pikerd_and_ems: AsyncContextManager, delete_testing_dir)
         ),
     )
 
-@pytest.mark.skip(reason="Due to precision issues, this test will currently fail")
+
+@pytest.mark.skip(reason='Due to precision issues, this test will currently fail')
 def test_multi_sell(open_test_pikerd_and_ems: AsyncContextManager, delete_testing_dir):
     # Make 5 market limit buy orders
     _run_test_and_check(
