@@ -37,11 +37,12 @@ import trio
 import tractor
 
 from .. import data
-from ..data._source import Symbol
 from ..data.types import Struct
 from ..pp import (
     Position,
     Transaction,
+    open_trade_ledger,
+    open_pps,
 )
 from ..data._normalize import iterticks
 from ..data._source import unpack_fqsn
@@ -56,6 +57,7 @@ from ._messages import (
     BrokerdError,
 )
 
+from ..config import load
 
 log = get_logger(__name__)
 
@@ -234,8 +236,6 @@ class PaperBoi(Struct):
         log.info(f'Fake filling order:\n{fill_msg}')
         await self.ems_trades_stream.send(fill_msg)
 
-        self._trade_ledger.update(fill_msg.to_dict())
-
         if order_complete:
             msg = BrokerdStatus(
                 reqid=reqid,
@@ -250,18 +250,6 @@ class PaperBoi(Struct):
 
         # lookup any existing position
         key = fqsn.rstrip(f'.{self.broker}')
-        pp = self._positions.setdefault(
-            fqsn,
-            Position(
-                Symbol(
-                    key=key,
-                    broker_info={self.broker: {}},
-                ),
-                size=size,
-                ppu=price,
-                bsuid=key,
-            )
-        )
         t = Transaction(
             fqsn=fqsn,
             tid=oid,
@@ -271,21 +259,29 @@ class PaperBoi(Struct):
             dt=pendulum.from_timestamp(fill_time_s),
             bsuid=key,
         )
-        pp.add_clear(t)
 
-        pp_msg = BrokerdPosition(
-            broker=self.broker,
-            account='paper',
-            symbol=fqsn,
-            # TODO: we need to look up the asset currency from
-            # broker info. i guess for crypto this can be
-            # inferred from the pair?
-            currency='',
-            size=pp.size,
-            avg_price=pp.ppu,
-        )
+        with (
+                open_trade_ledger(self.broker, 'paper') as ledger,
+                open_pps(self.broker, 'paper', True) as table
+             ):
+                ledger.update({oid: t.to_dict()})
+                # Write to pps toml right now
+                table.update_from_trans({oid: t})
 
-        await self.ems_trades_stream.send(pp_msg)
+                pp = table.pps[key]
+                pp_msg = BrokerdPosition(
+                    broker=self.broker,
+                    account='paper',
+                    symbol=fqsn,
+                    # TODO: we need to look up the asset currency from
+                    # broker info. i guess for crypto this can be
+                    # inferred from the pair?
+                    currency=key,
+                    size=pp.size,
+                    avg_price=pp.ppu,
+                )
+
+                await self.ems_trades_stream.send(pp_msg)
 
 
 async def simulate_fills(
@@ -533,6 +529,11 @@ async def trades_dialogue(
         ) as feed,
 
     ):
+
+        with open_pps(broker, 'paper') as table:
+            # save pps in local state
+            _positions.update(table.pps)
+
         pp_msgs: list[BrokerdPosition] = []
         pos: Position
         token: str  # f'{symbol}.{self.broker}'
@@ -545,8 +546,6 @@ async def trades_dialogue(
                 avg_price=pos.ppu,
             ))
 
-        # TODO: load paper positions per broker from .toml config file
-        # and pass as symbol to position data mapping: ``dict[str, dict]``
         await ctx.started((
             pp_msgs,
             ['paper'],
@@ -564,7 +563,6 @@ async def trades_dialogue(
 
                 _reqids=_reqids,
 
-                # TODO: load paper positions from ``positions.toml``
                 _positions=_positions,
 
                 # TODO: load postions from ledger file

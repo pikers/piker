@@ -20,6 +20,7 @@ that doesn't try to cuk most humans who prefer to not lose their moneys..
 (looking at you `ib` and dirt-bird friends)
 
 '''
+from __future__ import annotations
 from contextlib import contextmanager as cm
 from pprint import pformat
 import os
@@ -32,6 +33,7 @@ from typing import (
     Iterator,
     Optional,
     Union,
+    Generator
 )
 
 import pendulum
@@ -54,7 +56,7 @@ def open_trade_ledger(
     broker: str,
     account: str,
 
-) -> dict:
+) -> Generator[dict, None, None]:
     '''
     Indempotently create and read in a trade log file from the
     ``<configuration_dir>/ledgers/`` directory.
@@ -90,8 +92,7 @@ def open_trade_ledger(
             # TODO: show diff output?
             # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
             print(f'Updating ledger for {tradesfile}:\n')
-            ledger.update(cpy)
-
+            ledger.update(cpy) 
             # we write on close the mutated ledger data
             with open(tradesfile, 'w') as cf:
                 toml.dump(ledger, cf)
@@ -879,9 +880,9 @@ class PpsEncoder(toml.TomlEncoder):
 def open_pps(
     brokername: str,
     acctid: str,
-    write_on_exit: bool = True,
+    write_on_exit: bool = False,
 
-) -> PpTable:
+) -> Generator[PpTable, None, None]:
     '''
     Read out broker-specific position entries from
     incremental update file: ``pps.toml``.

@@ -25,10 +25,10 @@ from os import path
 from os.path import dirname
 import shutil
 from typing import Optional
-
+from pathlib import Path
 from bidict import bidict
 import toml
-
+from piker.testing import TEST_CONFIG_DIR_PATH
 from .log import get_logger
 
 log = get_logger('broker-config')
@@ -75,6 +75,13 @@ def get_app_dir(app_name, roaming=True, force_posix=False):
     def _posixify(name):
         return "-".join(name.split()).lower()
 
+    # TODO: This is a hacky way to a) determine we're testing
+    # and b) creating a test dir. We should aim to set a variable
+    # within the tractor runtimes and store testing config data
+    # outside of the users filesystem
+    if "pytest" in sys.modules:
+        app_name = os.path.join(app_name, TEST_CONFIG_DIR_PATH)
+
     # if WIN:
     if platform.system() == 'Windows':
         key = "APPDATA" if roaming else "LOCALAPPDATA"
@@ -115,6 +122,7 @@ _conf_names: set[str] = {
     'pps',
     'trades',
     'watchlists',
+    'paper_trades'
 }
 
 _watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
@@ -198,7 +206,7 @@ def load(
     path = path or get_conf_path(conf_name)
 
     if not os.path.isdir(_config_dir):
-        os.mkdir(_config_dir)
+        Path(_config_dir).mkdir(parents=True, exist_ok=True)
 
     if not os.path.isfile(path):
         fn = _conf_fn_w_ext(conf_name)
@@ -212,6 +220,10 @@ def load(
         # if one exists.
         if os.path.isfile(template):
             shutil.copyfile(template, path)
+        else:
+            # create an empty file
+            with open(path, 'x'):
+                pass
     else:
         with open(path, 'r'):
             pass  # touch it

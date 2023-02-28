@@ -35,6 +35,7 @@ from typing import (
 )
 import time
 from math import isnan
+from pathlib import Path
 
 from bidict import bidict
 from msgspec.msgpack import encode, decode
@@ -134,7 +135,7 @@ def start_marketstore(
 
     # create dirs when dne
     if not os.path.isdir(config._config_dir):
-        os.mkdir(config._config_dir)
+       Path(config._config_dir).mkdir(parents=True, exist_ok=True)
 
     if not os.path.isdir(mktsdir):
         os.mkdir(mktsdir)
