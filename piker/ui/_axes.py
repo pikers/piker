@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -304,8 +304,9 @@ class DynamicDateAxis(Axis):
         viz = chart._vizs[chart.name]
         shm = viz.shm
         array = shm.array
-        times = array['time']
-        i_0, i_l = times[0], times[-1]
+        ifield = viz.index_field
+        index = array[ifield]
+        i_0, i_l = index[0], index[-1]
 
         # edge cases
         if (
@@ -317,11 +318,13 @@ class DynamicDateAxis(Axis):
             (indexes[0] > i_0
              and indexes[-1] > i_l)
         ):
+            # print(f"x-label indexes empty edge case: {indexes}")
             return []
 
-        if viz.index_field == 'index':
-            arr_len = times.shape[0]
+        if ifield == 'index':
+            arr_len = index.shape[0]
             first = shm._first.value
+            times = array['time']
             epochs = times[
                 list(
                     map(
