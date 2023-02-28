@@ -531,17 +531,19 @@ async def stream_quotes(
 
         async with open_autorecon_ws(
             'wss://stream.binance.com/ws',
+            # XXX: see api docs which show diff addr?
+            # https://developers.binance.com/docs/binance-trading-api/websocket_api#general-api-information
+            # 'wss://ws-api.binance.com:443/ws-api/v3',
             fixture=subscribe,
         ) as ws:
 
             # pull a first quote and deliver
             msg_gen = stream_messages(ws)
 
-            typ, quote = await msg_gen.__anext__()
+            typ, quote = await anext(msg_gen)
 
             while typ != 'trade':
-                # TODO: use ``anext()`` when it lands in 3.10!
-                typ, quote = await msg_gen.__anext__()
+                typ, quote = await anext(msg_gen)
 
             task_status.started((init_msgs,  quote))
 
