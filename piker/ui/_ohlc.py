@@ -28,7 +28,6 @@ from PyQt5.QtCore import (
     QLineF,
     QRectF,
 )
-from PyQt5.QtWidgets import QGraphicsItem
 from PyQt5.QtGui import QPainterPath
 
 from ._curve import FlowGraphic
@@ -91,10 +90,6 @@ class BarItems(FlowGraphic):
     "Price range" bars graphics rendered from a OHLC sampled sequence.
 
     '''
-    # XXX: causes this weird jitter bug when click-drag panning
-    # where the path curve will awkwardly flicker back and forth?
-    # cache_mode: int = QGraphicsItem.NoCache
-
     def __init__(
         self,
         *args,

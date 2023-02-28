@@ -19,7 +19,10 @@ Chart view box primitives
 
 '''
 from __future__ import annotations
-from contextlib import asynccontextmanager
+from contextlib import (
+    asynccontextmanager,
+    ExitStack,
+)
 import time
 from typing import (
     Callable,
@@ -405,7 +408,8 @@ class ChartView(ViewBox):
         self.order_mode: bool = False
 
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
-        self._ic = None
+        self._in_interact: trio.Event | None = None
+        self._interact_stack: ExitStack = ExitStack()
 
         # TODO: probably just assign this whenever a new `PlotItem` is
         # allocated since they're 1to1 with views..
@@ -420,10 +424,20 @@ class ChartView(ViewBox):
         to any interested task waiters.
 
         '''
-        if self._ic is None:
+        if self._in_interact is None:
+            chart = self.chart
             try:
-                self.chart.pause_all_feeds()
-                self._ic = trio.Event()
+                chart.pause_all_feeds()
+                self._in_interact = trio.Event()
+                for viz in chart.iter_vizs():
+                    self._interact_stack.enter_context(
+                        viz.graphics.reset_cache(),
+                    )
+                    dsg = viz.ds_graphics
+                    if dsg:
+                        self._interact_stack.enter_context(
+                            dsg.reset_cache(),
+                        )
             except RuntimeError:
                 pass
 
@@ -437,10 +451,11 @@ class ChartView(ViewBox):
         to any waiters.
 
         '''
-        if self._ic:
+        if self._in_interact:
             try:
-                self._ic.set()
-                self._ic = None
+                self._in_interact.set()
+                self._in_interact = None
+                self._interact_stack.close()
                 self.chart.resume_all_feeds()
             except RuntimeError:
                 pass
@@ -667,9 +682,6 @@ class ChartView(ViewBox):
                     self.start_ic()
                 except RuntimeError:
                     pass
-                # if self._ic is None:
-                #     self.chart.pause_all_feeds()
-                #     self._ic = trio.Event()
 
                 if axis == 1:
                     self.chart._static_yrange = 'axis'
@@ -693,8 +705,8 @@ class ChartView(ViewBox):
 
                 if ev.isFinish():
                     self.signal_ic()
-                    # self._ic.set()
-                    # self._ic = None
+                    # self._in_interact.set()
+                    # self._in_interact = None
                     # self.chart.resume_all_feeds()
 
                 # # XXX: WHY

@@ -473,7 +473,7 @@ async def graphics_update_loop(
                     fast_chart.pause_all_feeds()
                     continue
 
-                ic = fast_chart.view._ic
+                ic = fast_chart.view._in_interact
                 if ic:
                     fast_chart.pause_all_feeds()
                     print(f'{fqsn} PAUSING DURING INTERACTION')
@@ -756,8 +756,8 @@ def graphics_update_cycle(
             mx = max(mx, lmx)
 
             if (
-                main_vb._ic is None
-                or not main_vb._ic.is_set()
+                main_vb._in_interact is None
+                or not main_vb._in_interact.is_set()
             ):
                 # print(f'SETTING Y-mnmx -> {main_viz.name}: {(mn, mx)}')
                 this_vb.interact_graphics_cycle(
