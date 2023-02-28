@@ -114,11 +114,11 @@ def _assert(
     executions,
 ):
     with (
-        open_trade_ledger(broker, account) as ledger,
         open_pps(broker, account) as table,
     ):
         '''
-        Assert multiple cases including pps, ledger and final position message state
+        Assert multiple cases including pps,
+        ledger and final position message state
 
         '''
         if assert_entries:
