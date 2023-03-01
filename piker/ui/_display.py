@@ -853,7 +853,12 @@ def graphics_update_cycle(
         vlm_vizs = vlm_chart._vizs
         main_vlm_viz = vlm_vizs['volume']
         main_vlm_vb = main_vlm_viz.plot.vb
-        (_, vlm_ymx) = vlm_yrange = main_vlm_vb._yrange
+
+        # TODO: we should probably read this
+        # from the `Viz.vs: ViewState`!
+        vlm_yr = main_vlm_vb._yrange
+        if vlm_yr:
+            (_, vlm_ymx) = vlm_yrange = vlm_yr
 
         # always update y-label
         ds.vlm_sticky.update_from_data(
@@ -892,6 +897,7 @@ def graphics_update_cycle(
 
             if (
                 mx_vlm_in_view
+                and vlm_yr
                 and mx_vlm_in_view != vlm_ymx
             ):
                 # in this case we want to scale all overlays in the
