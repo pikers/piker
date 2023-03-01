@@ -22,6 +22,7 @@ that doesn't try to cuk most humans who prefer to not lose their moneys..
 '''
 from __future__ import annotations
 from contextlib import contextmanager as cm
+from pathlib import Path
 from decimal import Decimal, ROUND_HALF_EVEN
 from pprint import pformat
 import os
@@ -198,11 +199,9 @@ class Position(Struct):
         sym_info = s.broker_info[broker]
 
         d['symbol'] = {
-            'info': {
-                'asset_type': sym_info['asset_type'],
-                'price_tick_size': sym_info['price_tick_size'],
-                'lot_tick_size': sym_info['lot_tick_size']
-            }
+            'asset_type': sym_info['asset_type'],
+            'price_tick_size': sym_info['price_tick_size'],
+            'lot_tick_size': sym_info['lot_tick_size']
         }
 
         if self.expiry is None:
@@ -693,11 +692,20 @@ class PpTable(Struct):
         '''
         # TODO: show diff output?
         # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
-        log.info(f'Updating ``pps.toml`` for {path}:\n')
         # active, closed_pp_objs = table.dump_active()
         pp_entries = self.to_toml()
-        log.info(f'Current positions:\n{pp_entries}')
-        self.conf[self.brokername][self.acctid] = pp_entries
+        if pp_entries:
+            log.info(f'Updating ``pps.toml`` for {path}:\n')
+            log.info(f'Current positions:\n{pp_entries}')
+            self.conf[self.brokername][self.acctid] = pp_entries
+
+        elif (
+            self.brokername in self.conf and
+            self.acctid in self.conf[self.brokername]
+        ):
+            del self.conf[self.brokername][self.acctid]
+            if len(self.conf[self.brokername]) == 0:
+                del self.conf[self.brokername]
 
         # TODO: why tf haven't they already done this for inline
         # tables smh..
@@ -711,6 +719,7 @@ class PpTable(Struct):
             self.conf,
             'pps',
             encoder=enc,
+            fail_empty=False
         )
 
 
@@ -972,7 +981,8 @@ def open_pps(
             expiry = pendulum.parse(expiry)
 
         pp = pp_objs[bsuid] = Position(
-            Symbol.from_fqsn(fqsn, info={}),
+            Symbol.from_fqsn(
+                fqsn, entry['symbol']),
             size=size,
             ppu=ppu,
             split_ratio=split_ratio,

@@ -237,6 +237,7 @@ def write(
     config: dict,  # toml config as dict
     name: str = 'brokers',
     path: str = None,
+    fail_empty: bool = True,
     **toml_kwargs,
 
 ) -> None:
@@ -252,7 +253,7 @@ def write(
         log.debug(f"Creating config dir {_config_dir}")
         os.makedirs(dirname)
 
-    if not config:
+    if not config and fail_empty:
         raise ValueError(
             "Watch out you're trying to write a blank config!")
 
