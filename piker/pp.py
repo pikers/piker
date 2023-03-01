@@ -631,7 +631,7 @@ class PpTable(Struct):
             # XXX: debug hook for size mismatches
             # qqqbsuid = 320227571
             # if bsuid == qqqbsuid:
-            #     xbreakpoint()
+            #     breakpoint()
 
             pp.ensure_state()
 
@@ -696,7 +696,7 @@ class PpTable(Struct):
         log.info(f'Updating ``pps.toml`` for {path}:\n')
         # active, closed_pp_objs = table.dump_active()
         pp_entries = self.to_toml()
-        log.info(pp_entries)
+        log.info(f'Current positions:\n{pp_entries}')
         self.conf[self.brokername][self.acctid] = pp_entries
 
         # TODO: why tf haven't they already done this for inline
