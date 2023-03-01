@@ -470,6 +470,7 @@ async def trades_dialogue(
             open_pps(
                 'kraken',
                 acctid,
+                write_on_exit=True,
             ) as table,
 
             open_trade_ledger(
@@ -627,7 +628,7 @@ async def trades_dialogue(
                                         cost_scalar=1,
                                     )
                                     log.info(
-                                        'Updated {dst} from transfers:\n'
+                                        f'Updated {dst} from transfers:\n'
                                         f'{pformat(updated)}'
                                     )
 
@@ -1212,23 +1213,3 @@ def norm_trade_records(
         )
 
     return records
-
-
-@cm
-def open_ledger(
-    acctid: str,
-    trade_entries: list[dict[str, Any]],
-
-) -> set[Transaction]:
-    '''
-    Write recent session's trades to the user's (local) ledger file.
-
-    '''
-    with open_trade_ledger(
-        'kraken',
-        acctid,
-    ) as ledger:
-        yield ledger
-
-        # update on exit
-        ledger.update(trade_entries)
