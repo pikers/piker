@@ -221,7 +221,7 @@ class Client:
 
     async def get_trades(
         self,
-        fetch_limit: int = 10,
+        fetch_limit: int | None = None,
 
     ) -> dict[str, Any]:
         '''
@@ -233,7 +233,10 @@ class Client:
         trades_by_id: dict[str, Any] = {}
 
         for i in itertools.count():
-            if i >= fetch_limit:
+            if (
+                fetch_limit
+                and i >= fetch_limit
+            ):
                 break
 
             # increment 'ofs' pagination offset
@@ -246,7 +249,8 @@ class Client:
             by_id = resp['result']['trades']
             trades_by_id.update(by_id)
 
-            # we can get up to 50 results per query
+            # can get up to 50 results per query, see:
+            # https://docs.kraken.com/rest/#tag/User-Data/operation/getTradeHistory
             if (
                 len(by_id) < 50
             ):
