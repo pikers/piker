@@ -474,7 +474,7 @@ async def trades_dialogue(
 
             open_trade_ledger(
                 'kraken',
-                acctid,
+                acctid
             ) as ledger_dict,
         ):
             # transaction-ify the ledger entries
