@@ -480,10 +480,17 @@ async def trades_dialogue(
                 # open ledger and pptable wrapper for each
                 # detected account.
                 ledger = ledgers[acctid] = lstack.enter_context(
-                    open_trade_ledger('ib', acctid)
+                    open_trade_ledger(
+                        'ib',
+                        acctid,
+                    )
                 )
                 table = tables[acctid] = lstack.enter_context(
-                    open_pps('ib', acctid)
+                    open_pps(
+                        'ib',
+                        acctid,
+                        write_on_exit=True,
+                    )
                 )
 
             for account, proxy in proxies.items():
