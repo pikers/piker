@@ -763,7 +763,7 @@ class ChartView(ViewBox):
 
         # NOTE: this value pairs (more or less) with L1 label text
         # height offset from from the bid/ask lines.
-        range_margin: float | None = 0.09,
+        range_margin: float | None = 0.06,
 
         bars_range: tuple[int, int, int, int] | None = None,
 
