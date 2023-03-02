@@ -192,17 +192,15 @@ class Position(Struct):
         # listing venue here even when the backend isn't providing
         # it via the trades ledger..
         # drop symbol obj in serialized form
-        s = d.get('symbol')
+        s = d.pop('symbol')
         fqsn = s.front_fqsn()
 
         broker, key, suffix = unpack_fqsn(fqsn)
         sym_info = s.broker_info[broker]
 
-        d['symbol'] = {
-            'asset_type': sym_info['asset_type'],
-            'price_tick_size': sym_info['price_tick_size'],
-            'lot_tick_size': sym_info['lot_tick_size']
-        }
+        d['asset_type'] = sym_info['asset_type']
+        d['price_tick_size'] = sym_info['price_tick_size']
+        d['lot_tick_size'] = sym_info['lot_tick_size']
 
         if self.expiry is None:
             d.pop('expiry', None)
@@ -935,6 +933,13 @@ def open_pps(
     # and update `PpTable` obj entries.
     for fqsn, entry in pps.items():
         bsuid = entry['bsuid']
+        symbol = Symbol.from_fqsn(
+            fqsn, info={
+                'asset_type': entry['asset_type'],
+                'price_tick_size': entry['price_tick_size'],
+                'lot_tick_size': entry['lot_tick_size']
+            }
+        )
 
         # convert clears sub-tables (only in this form
         # for toml re-presentation) back into a master table.
@@ -959,8 +964,7 @@ def open_pps(
 
             trans.append(Transaction(
                 fqsn=bsuid,
-                sym=Symbol.from_fqsn(
-                    fqsn, entry['symbol']),
+                sym=symbol,
                 bsuid=bsuid,
                 tid=tid,
                 size=clears_table['size'],
@@ -981,8 +985,7 @@ def open_pps(
             expiry = pendulum.parse(expiry)
 
         pp = pp_objs[bsuid] = Position(
-            Symbol.from_fqsn(
-                fqsn, entry['symbol']),
+            symbol,
             size=size,
             ppu=ppu,
             split_ratio=split_ratio,
