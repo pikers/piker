@@ -128,8 +128,9 @@ class Trade(Struct):
     index_price: float
     direction: str
     amount: float
-    combo_trade_id: Optional[int] = 0,
-    combo_id: Optional[str] = '',
+    combo_trade_id: Optional[int] = 0
+    combo_id: Optional[str] = ''
+    block_trade_id: str | None = ''
 
 
 class LastTradesResult(Struct):

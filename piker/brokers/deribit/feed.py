@@ -46,9 +46,12 @@ from cryptofeed.defines import (
 from cryptofeed.symbols import Symbol
 
 from .api import (
-    Client, Trade,
+    Client,
+    Trade,
     get_config,
-    str_to_cb_sym, piker_sym_to_cb_sym, cb_sym_to_deribit_inst,
+    str_to_cb_sym,
+    piker_sym_to_cb_sym,
+    cb_sym_to_deribit_inst,
     maybe_open_price_feed
 )
 
