@@ -22,8 +22,6 @@ that doesn't try to cuk most humans who prefer to not lose their moneys..
 '''
 from __future__ import annotations
 from contextlib import contextmanager as cm
-from pathlib import Path
-from decimal import Decimal, ROUND_HALF_EVEN
 from pprint import pformat
 import os
 from os import path
@@ -91,10 +89,12 @@ def open_trade_ledger(
         yield cpy
     finally:
         if cpy != ledger:
+
             # TODO: show diff output?
             # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
             log.info(f'Updating ledger for {tradesfile}:\n')
-            ledger.update(cpy) 
+            ledger.update(cpy)
+
             # we write on close the mutated ledger data
             with open(tradesfile, 'w') as cf:
                 toml.dump(ledger, cf)
@@ -476,7 +476,7 @@ class Position(Struct):
         if self.split_ratio is not None:
             size = round(size * self.split_ratio)
 
-        return float(self.symbol.decimal_quant(Decimal(size)))
+        return float(self.symbol.quantize_size(size))
 
     def minimize_clears(
         self,
@@ -934,10 +934,18 @@ def open_pps(
     for fqsn, entry in pps.items():
         bsuid = entry['bsuid']
         symbol = Symbol.from_fqsn(
-            fqsn, info={
-                'asset_type': entry['asset_type'],
-                'price_tick_size': entry['price_tick_size'],
-                'lot_tick_size': entry['lot_tick_size']
+            fqsn,
+
+            # NOTE & TODO: right now we fill in the defaults from
+            # `.data._source.Symbol` but eventually these should always
+            # either be already written to the pos table or provided at
+            # write time to ensure always having these values somewhere
+            # and thus allowing us to get our pos sizing precision
+            # correct!
+            info={
+                'asset_type': entry.get('asset_type', '<unknown>'),
+                'price_tick_size': entry.get('price_tick_size', 0.01),
+                'lot_tick_size': entry.get('lot_tick_size', 0.0),
             }
         )
 
@@ -977,7 +985,11 @@ def open_pps(
         size = entry['size']
 
         # TODO: remove but, handle old field name for now
-        ppu = entry.get('ppu', entry.get('be_price', 0))
+        ppu = entry.get(
+            'ppu',
+            entry.get('be_price', 0),
+        )
+
         split_ratio = entry.get('split_ratio')
 
         expiry = entry.get('expiry')
