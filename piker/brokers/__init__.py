@@ -24,7 +24,7 @@ __brokers__ = [
     'binance',
     'ib',
     'kraken',
-
+    'kucoin'
     # broken but used to work
     # 'questrade',
     # 'robinhood',
@@ -35,7 +35,6 @@ __brokers__ = [
     # iex
 
     # deribit
-    # kucoin
     # bitso
 ]
 
