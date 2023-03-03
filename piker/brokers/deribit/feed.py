@@ -20,36 +20,26 @@ Deribit backend.
 '''
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
-from typing import Any, Optional, Callable
-import time
+from typing import (
+    Callable,
+)
 
 import trio
 from trio_typing import TaskStatus
 import pendulum
-from fuzzywuzzy import process as fuzzy
 import numpy as np
 import tractor
 
 from piker._cacheables import open_cached_client
 from piker.log import get_logger, get_console_log
-from piker.data import ShmArray
 from piker.brokers._util import (
-    BrokerError,
     DataUnavailable,
 )
 
-from cryptofeed import FeedHandler
-
-from cryptofeed.defines import (
-    DERIBIT, L1_BOOK, TRADES, OPTION, CALL, PUT
-)
-from cryptofeed.symbols import Symbol
 
 from .api import (
     Client,
     Trade,
-    get_config,
-    str_to_cb_sym,
     piker_sym_to_cb_sym,
     cb_sym_to_deribit_inst,
     maybe_open_price_feed
@@ -73,8 +63,8 @@ async def open_history_client(
 
         async def get_ohlc(
             timeframe: float,
-            end_dt: Optional[datetime] = None,
-            start_dt: Optional[datetime] = None,
+            end_dt: datetime | None = None,
+            start_dt: datetime | None = None,
 
         ) -> tuple[
             np.ndarray,
@@ -139,7 +129,7 @@ async def stream_quotes(
 
         async with maybe_open_price_feed(sym) as stream:
 
-            cache = await client.cache_symbols()
+            await client.cache_symbols()
 
             last_trades = (await client.last_trades(
                 cb_sym_to_deribit_inst(nsym), count=1)).trades
@@ -181,7 +171,7 @@ async def open_symbol_search(
     async with open_cached_client('deribit') as client:
 
         # load all symbols locally for fast search
-        cache = await client.cache_symbols()
+        await client.cache_symbols()
         await ctx.started()
 
         async with ctx.open_stream() as stream:
