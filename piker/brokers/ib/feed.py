@@ -57,6 +57,7 @@ from .api import (
     RequestError,
     Contract,
 )
+from ._util import data_reset_hack
 
 
 # https://interactivebrokers.github.io/tws-api/tick_types.html
@@ -912,65 +913,6 @@ async def stream_quotes(
                             # ugh, clear ticks since we've consumed them
                             ticker.ticks = []
                             # last = time.time()
-
-
-async def data_reset_hack(
-    reset_type: str = 'data',
-
-) -> None:
-    '''
-    Run key combos for resetting data feeds and yield back to caller
-    when complete.
-
-    This is a linux-only hack around:
-
-    https://interactivebrokers.github.io/tws-api/historical_limitations.html#pacing_violations
-
-    TODOs:
-        - a return type that hopefully determines if the hack was
-          successful.
-        - other OS support?
-        - integration with ``ib-gw`` run in docker + Xorg?
-        - is it possible to offer a local server that can be accessed by
-          a client? Would be sure be handy for running native java blobs
-          that need to be wrangle.
-
-    '''
-
-    async def vnc_click_hack(
-        reset_type: str = 'data'
-    ) -> None:
-        '''
-        Reset the data or netowork connection for the VNC attached
-        ib gateway using magic combos.
-
-        '''
-        key = {'data': 'f', 'connection': 'r'}[reset_type]
-
-        import asyncvnc
-
-        async with asyncvnc.connect(
-            'localhost',
-            port=3003,
-            # password='ibcansmbz',
-        ) as client:
-
-            # move to middle of screen
-            # 640x1800
-            client.mouse.move(
-                x=500,
-                y=500,
-            )
-            client.mouse.click()
-            client.keyboard.press('Ctrl', 'Alt', key)  # keys are stacked
-
-    try:
-        await tractor.to_asyncio.run_task(vnc_click_hack)
-    except OSError:
-        return False
-
-    # we don't really need the ``xdotool`` approach any more B)
-    return True
 
 
 @tractor.context
