@@ -42,54 +42,13 @@ from piker.brokers._util import (
     DataUnavailable,
 )
 from piker.log import get_console_log
-from piker.data import ShmArray
 from piker.data.types import Struct
 from piker.data._web_bs import open_autorecon_ws, NoBsWs
 from . import log
 from .api import (
     Client,
+    Pair,
 )
-
-
-# https://www.kraken.com/features/api#get-tradable-pairs
-class Pair(Struct):
-    altname: str  # alternate pair name
-    wsname: str  # WebSocket pair name (if available)
-    aclass_base: str  # asset class of base component
-    base: str  # asset id of base component
-    aclass_quote: str  # asset class of quote component
-    quote: str  # asset id of quote component
-    lot: str  # volume lot size
-
-    cost_decimals: int
-    costmin: float
-    pair_decimals: int  # scaling decimal places for pair
-    lot_decimals: int  # scaling decimal places for volume
-
-    # amount to multiply lot volume by to get currency volume
-    lot_multiplier: float
-
-    # array of leverage amounts available when buying
-    leverage_buy: list[int]
-    # array of leverage amounts available when selling
-    leverage_sell: list[int]
-
-    # fee schedule array in [volume, percent fee] tuples
-    fees: list[tuple[int, float]]
-
-    # maker fee schedule array in [volume, percent fee] tuples (if on
-    # maker/taker)
-    fees_maker: list[tuple[int, float]]
-
-    fee_volume_currency: str  # volume discount currency
-    margin_call: str  # margin call level
-    margin_stop: str  # stop-out/liquidation margin level
-    ordermin: float  # minimum order volume for pair
-    tick_size: float # min price step size
-    status: str
-
-    short_position_limit: float
-    long_position_limit: float
 
 
 class OHLC(Struct):
@@ -336,14 +295,14 @@ async def stream_quotes(
 
             # transform to upper since piker style is always lower
             sym = sym.upper()
-            sym_info = await client.symbol_info(sym)
-            try:
-                si = Pair(**sym_info)  # validation
-            except TypeError:
-                fields_diff = set(sym_info) - set(Pair.__struct_fields__)
-                raise TypeError(
-                    f'Missing msg fields {fields_diff}'
-                )
+            si: Pair = await client.symbol_info(sym)
+            # try:
+            #     si = Pair(**sym_info)  # validation
+            # except TypeError:
+            #     fields_diff = set(sym_info) - set(Pair.__struct_fields__)
+            #     raise TypeError(
+            #         f'Missing msg fields {fields_diff}'
+            #     )
             syminfo = si.to_dict()
             syminfo['price_tick_size'] = 1. / 10**si.pair_decimals
             syminfo['lot_tick_size'] = 1. / 10**si.lot_decimals

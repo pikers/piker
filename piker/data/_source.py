@@ -18,7 +18,10 @@
 numpy data source coversion helpers.
 """
 from __future__ import annotations
-from decimal import Decimal, ROUND_HALF_EVEN
+from decimal import (
+    Decimal,
+    ROUND_HALF_EVEN,
+)
 from typing import Any
 
 from bidict import bidict
@@ -77,6 +80,10 @@ def mk_fqsn(
 def float_digits(
     value: float,
 ) -> int:
+    '''
+    Return the number of precision digits read from a float value.
+
+    '''
     if value == 0:
         return 0
 
@@ -127,6 +134,56 @@ def unpack_fqsn(fqsn: str) -> tuple[str, str, str]:
     )
 
 
+class MktPair(Struct, frozen=True):
+
+    src: str  # source asset name being used to buy
+    src_type: str  # source asset's financial type/classification name
+    # ^ specifies a "class" of financial instrument
+    # egs. stock, futer, option, bond etc.
+
+    dst: str  # destination asset name being bought
+    dst_type: str  # destination asset's financial type/classification name
+
+    price_tick: float  # minimum price increment value increment
+    price_tick_digits: int  # required decimal digits for above
+
+    size_tick: float  # minimum size (aka vlm) increment value increment
+    size_tick_digits: int  # required decimal digits for above
+
+    venue: str | None = None  # market venue provider name
+    expiry: str | None = None  # for derivs, expiry datetime parseable str
+
+    # for derivs, info describing contract, egs.
+    # strike price, call or put, swap type, exercise model, etc.
+    contract_info: str | None = None
+
+    @classmethod
+    def from_msg(
+        self,
+        msg: dict[str, Any],
+
+    ) -> MktPair:
+        '''
+        Constructor for a received msg-dict normally received over IPC.
+
+        '''
+        ...
+
+    # fqa, fqma, .. etc. see issue:
+    # https://github.com/pikers/piker/issues/467
+    @property
+    def fqsn(self) -> str:
+        '''
+        Return the fully qualified market (endpoint) name for the
+        pair of transacting assets.
+
+        '''
+        ...
+
+
+# TODO: rework the below `Symbol` (which was originally inspired and
+# derived from stuff in quantdom) into a simpler, ipc msg ready, market
+# endpoint meta-data container type as per the drafted interace above.
 class Symbol(Struct):
     '''
     I guess this is some kinda container thing for dealing with
@@ -141,10 +198,6 @@ class Symbol(Struct):
     suffix: str = ''
     broker_info: dict[str, dict[str, Any]] = {}
 
-    # specifies a "class" of financial instrument
-    # ex. stock, futer, option, bond etc.
-
-    # @validate_arguments
     @classmethod
     def from_broker_info(
         cls,
@@ -244,22 +297,22 @@ class Symbol(Struct):
         fqsn = '.'.join(map(str.lower, tokens))
         return fqsn
 
-    def iterfqsns(self) -> list[str]:
-        keys = []
-        for broker in self.broker_info.keys():
-            fqsn = mk_fqsn(self.key, broker)
-            if self.suffix:
-                fqsn += f'.{self.suffix}'
-            keys.append(fqsn)
+    def quantize_size(
+        self,
+        size: float,
 
-        return keys
+    ) -> Decimal:
+        '''
+        Truncate input ``size: float`` using ``Decimal``
+        and ``.lot_size_digits``.
 
-    def decimal_quant(self, d: Decimal):
+        '''
         digits = self.lot_size_digits
-        return d.quantize(
+        return Decimal(size).quantize(
             Decimal(f'1.{"0".ljust(digits, "0")}'),
             rounding=ROUND_HALF_EVEN
         )
+
 
 def _nan_to_closest_num(array: np.ndarray):
     """Return interpolated values instead of NaN.

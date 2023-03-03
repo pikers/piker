@@ -770,7 +770,7 @@ async def stream_quotes(
 
             syminfo['price_tick_size'] = max(syminfo['minTick'], min_tick)
 
-            # for "traditional" assets, volume is normally discreet, not
+            # for "legacy" assets, volume is normally discreet, not
             # a float
             syminfo['lot_tick_size'] = 0.0
 
