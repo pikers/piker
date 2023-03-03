@@ -81,12 +81,15 @@ async def open_history_client(
             datetime,  # start
             datetime,  # end
         ]:
+            if timeframe != 60:
+                raise DataUnavailable('Only 1m bars are supported')
 
             array = await client.bars(
                 instrument,
                 start_dt=start_dt,
                 end_dt=end_dt,
             )
+
             if len(array) == 0:
                 raise DataUnavailable
 
