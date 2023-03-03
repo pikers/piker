@@ -40,6 +40,8 @@ import base64
 import trio
 
 from piker import config
+from piker.data.types import Struct
+from piker.data._source import Symbol
 from piker.brokers._util import (
     resproc,
     SymbolNotFound,
@@ -113,11 +115,53 @@ class InvalidKey(ValueError):
     '''
 
 
+# https://www.kraken.com/features/api#get-tradable-pairs
+class Pair(Struct):
+    altname: str  # alternate pair name
+    wsname: str  # WebSocket pair name (if available)
+    aclass_base: str  # asset class of base component
+    base: str  # asset id of base component
+    aclass_quote: str  # asset class of quote component
+    quote: str  # asset id of quote component
+    lot: str  # volume lot size
+
+    cost_decimals: int
+    costmin: float
+    pair_decimals: int  # scaling decimal places for pair
+    lot_decimals: int  # scaling decimal places for volume
+
+    # amount to multiply lot volume by to get currency volume
+    lot_multiplier: float
+
+    # array of leverage amounts available when buying
+    leverage_buy: list[int]
+    # array of leverage amounts available when selling
+    leverage_sell: list[int]
+
+    # fee schedule array in [volume, percent fee] tuples
+    fees: list[tuple[int, float]]
+
+    # maker fee schedule array in [volume, percent fee] tuples (if on
+    # maker/taker)
+    fees_maker: list[tuple[int, float]]
+
+    fee_volume_currency: str  # volume discount currency
+    margin_call: str  # margin call level
+    margin_stop: str  # stop-out/liquidation margin level
+    ordermin: float  # minimum order volume for pair
+    tick_size: float  # min price step size
+    status: str
+
+    short_position_limit: float = 0
+    long_position_limit: float = float('inf')
+
+
 class Client:
 
     # global symbol normalization table
     _ntable: dict[str, str] = {}
     _atable: bidict[str, str] = bidict()
+    _pairs: dict[str, Pair] = {}
 
     def __init__(
         self,
@@ -133,13 +177,12 @@ class Client:
                 'krakenex/2.1.0 (+https://github.com/veox/python3-krakenex)'
         })
         self.conf: dict[str, str] = config
-        self._pairs: list[str] = []
         self._name = name
         self._api_key = api_key
         self._secret = secret
 
     @property
-    def pairs(self) -> dict[str, Any]:
+    def pairs(self) -> dict[str, Pair]:
         if self._pairs is None:
             raise RuntimeError(
                 "Make sure to run `cache_symbols()` on startup!"
@@ -295,15 +338,28 @@ class Client:
 
         trans: dict[str, Transaction] = {}
         for entry in xfers:
-            # look up the normalized name
-            asset = self._atable[entry['asset']].lower()
+
+            # look up the normalized name and asset info
+            asset_key = entry['asset']
+            asset_info = self.assets[asset_key]
+            asset = self._atable[asset_key].lower()
 
             # XXX: this is in the asset units (likely) so it isn't
             # quite the same as a commisions cost necessarily..)
             cost = float(entry['fee'])
 
+            fqsn = asset + '.kraken'
+            pairinfo = Symbol.from_fqsn(
+                fqsn,
+                info={
+                    'asset_type': 'crypto',
+                    'lot_tick_size': asset_info['decimals'],
+                },
+            )
+
             tran = Transaction(
-                fqsn=asset + '.kraken',
+                fqsn=fqsn,
+                sym=pairinfo,
                 tid=entry['txid'],
                 dt=pendulum.from_timestamp(entry['time']),
                 bsuid=f'{asset}{src_asset}',
@@ -317,7 +373,7 @@ class Client:
                 price='NaN',
 
                 # XXX: see note above
-                cost=0,
+                cost=cost,
             )
             trans[tran.tid] = tran
 
@@ -372,7 +428,7 @@ class Client:
         self,
         pair: Optional[str] = None,
 
-    ) -> dict[str, dict[str, str]]:
+    ) -> dict[str, Pair] | Pair:
 
         if pair is not None:
             pairs = {'pair': pair}
@@ -389,19 +445,36 @@ class Client:
 
         if pair is not None:
             _, data = next(iter(pairs.items()))
-            return data
+            return Pair(**data)
         else:
-            return pairs
+            return {key: Pair(**data) for key, data in pairs.items()}
 
-    async def cache_symbols(
-        self,
-    ) -> dict:
+    async def cache_symbols(self) -> dict:
+        '''
+        Load all market pair info build and cache it for downstream use.
+
+        A ``._ntable: dict[str, str]`` is available for mapping the
+        websocket pair name-keys and their http endpoint API (smh)
+        equivalents to the "alternative name" which is generally the one
+        we actually want to use XD
+
+        '''
         if not self._pairs:
-            self._pairs = await self.symbol_info()
+            self._pairs.update(await self.symbol_info())
 
-            ntable = {}
-            for restapikey, info in self._pairs.items():
-                ntable[restapikey] = ntable[info['wsname']] = info['altname']
+            # table of all ws and rest keys to their alt-name values.
+            ntable: dict[str, str] = {}
+
+            for rest_key in list(self._pairs.keys()):
+
+                pair: Pair = self._pairs[rest_key]
+                altname = pair.altname
+                wsname = pair.wsname
+                ntable[rest_key] = ntable[wsname] = altname
+
+                # register the pair under all monikers, a giant flat
+                # surjection of all possible names to each info obj.
+                self._pairs[altname] = self._pairs[wsname] = pair
 
             self._ntable.update(ntable)
 
@@ -411,26 +484,34 @@ class Client:
         self,
         pattern: str,
         limit: int = None,
+
     ) -> dict[str, Any]:
-        if self._pairs is not None:
-            data = self._pairs
-        else:
-            data = await self.symbol_info()
+        '''
+        Search for a symbol by "alt name"..
+
+        It is expected that the ``Client._pairs`` table
+        gets populated before conducting the underlying fuzzy-search
+        over the pair-key set.
+
+        '''
+        if not len(self._pairs):
+            await self.cache_symbols()
+            assert self._pairs, '`Client.cache_symbols()` was never called!?'
 
         matches = fuzzy.extractBests(
             pattern,
-            data,
+            self._pairs,
             score_cutoff=50,
         )
         # repack in dict form
-        return {item[0]['altname']: item[0] for item in matches}
+        return {item[0].altname: item[0] for item in matches}
 
     async def bars(
         self,
         symbol: str = 'XBTUSD',
 
         # UTC 2017-07-02 12:53:20
-        since: Optional[Union[int, datetime]] = None,
+        since: Union[int, datetime] | None = None,
         count: int = 720,  # <- max allowed per query
         as_np: bool = True,
 
@@ -506,7 +587,7 @@ class Client:
     def normalize_symbol(
         cls,
         ticker: str
-    ) -> str:
+    ) -> tuple[str, Pair]:
         '''
         Normalize symbol names to to a 3x3 pair from the global
         definition map which we build out from the data retreived from
@@ -514,7 +595,7 @@ class Client:
 
         '''
         ticker = cls._ntable[ticker]
-        return ticker.lower()
+        return ticker.lower(), cls._pairs[ticker]
 
 
 @acm

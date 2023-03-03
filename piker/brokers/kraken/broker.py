@@ -48,6 +48,7 @@ from piker.pp import (
     open_trade_ledger,
     open_pps,
 )
+from piker.data._source import Symbol
 from piker.clearing._messages import (
     Order,
     Status,
@@ -1196,10 +1197,21 @@ def norm_trade_records(
         }[record['type']]
 
         # we normalize to kraken's `altname` always..
-        bsuid = norm_sym = Client.normalize_symbol(record['pair'])
+        bsuid, pair_info = Client.normalize_symbol(record['pair'])
+        fqsn = f'{bsuid}.kraken'
+
+        mktpair = Symbol.from_fqsn(
+            fqsn,
+            info={
+                'lot_size_digits': pair_info.lot_decimals,
+                'tick_size_digits': pair_info.pair_decimals,
+                'asset_type': 'crypto',
+            },
+        )
 
         records[tid] = Transaction(
-            fqsn=f'{norm_sym}.kraken',
+            fqsn=fqsn,
+            sym=mktpair,
             tid=tid,
             size=size,
             price=float(record['price']),
