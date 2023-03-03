@@ -84,24 +84,19 @@ async def _async_main(
                         case {'name': 'position'}:
                             break
 
-        if (
-            assert_entries 
-            or assert_pps 
-            or assert_zeroed_pps 
-            or assert_msg
-        ):
-            _assert(
-                assert_entries,
-                assert_pps,
-                assert_zeroed_pps,
-                pps,
-                last_msg,
-                size,
-                executions,
-            )
-
         # Teardown piker like a user would
         raise KeyboardInterrupt
+
+    if assert_entries or assert_pps or assert_zeroed_pps or assert_msg:
+        _assert(
+            assert_entries,
+            assert_pps,
+            assert_zeroed_pps,
+            pps,
+            last_msg,
+            size,
+            executions,
+        )
 
 
 def _assert(
@@ -206,8 +201,6 @@ def test_sell(
         ),
     )
 
-
-@pytest.mark.xfail(reason='Due to precision issues, this test will currently fail')
 def test_multi_sell(
     open_test_pikerd_and_ems: AsyncContextManager, 
     delete_testing_dir

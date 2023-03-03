@@ -70,7 +70,10 @@ from piker.clearing._messages import (
     BrokerdFill,
     BrokerdError,
 )
-from piker.data._source import Symbol
+from piker.data._source import (
+    Symbol,
+    float_digits,
+)
 from .api import (
     _accounts2clients,
     con2fqsn,
@@ -303,6 +306,9 @@ async def update_ledger_from_api_trades(
                 pexch = condict['exchange']
 
         entry['listingExchange'] = pexch
+
+        # pack in the ``Contract.secType``
+        entry['asset_type'] = condict['secType']
 
     conf = get_config()
     entries = api_trades_to_ledger_entries(
@@ -616,9 +622,10 @@ async def trades_dialogue(
                         # from the api trades it seems we get a key
                         # error from ``update[bsuid]`` ?
                         pp = table.pps[bsuid]
+                        pairinfo = pp.symbol
                         if msg.size != pp.size:
                             log.error(
-                                f'Position mismatch {pp.symbol.front_fqsn()}:\n'
+                                f'Pos size mismatch {pairinfo.front_fqsn()}:\n'
                                 f'ib: {msg.size}\n'
                                 f'piker: {pp.size}\n'
                             )
@@ -1095,13 +1102,15 @@ def norm_trade_records(
 
     '''
     records: list[Transaction] = []
-    for tid, record in ledger.items():
 
+    for tid, record in ledger.items():
         conid = record.get('conId') or record['conid']
         comms = record.get('commission')
         if comms is None:
             comms = -1*record['ibCommission']
+
         price = record.get('price') or record['tradePrice']
+        price_tick_digits = float_digits(price)
 
         # the api doesn't do the -/+ on the quantity for you but flex
         # records do.. are you fucking serious ib...!?
@@ -1144,9 +1153,14 @@ def norm_trade_records(
 
         # special handling of symbol extraction from
         # flex records using some ad-hoc schema parsing.
-        instr = record.get('assetCategory')
-        if instr == 'FUT':
-            symbol = record['description'][:3]
+        asset_type: str = record.get('assetCategory') or record['secType']
+
+        # TODO: XXX: WOA this is kinda hacky.. probably
+        # should figure out the correct future pair key more
+        # explicitly and consistently?
+        if asset_type == 'FUT':
+            # (flex) ledger entries don't have any simple 3-char key?
+            symbol = record['symbol'][:3]
 
         # try to build out piker fqsn from record.
         expiry = record.get(
@@ -1156,10 +1170,34 @@ def norm_trade_records(
             suffix = f'{exch}.{expiry}'
             expiry = pendulum.parse(expiry)
 
-        fqsn = Symbol.from_fqsn(
+        src: str = record['currency']
+
+        pair = Symbol.from_fqsn(
             fqsn=f'{symbol}.{suffix}.ib',
-            info={},
-        ).front_fqsn().rstrip('.ib')
+            info={
+                'tick_size_digits': price_tick_digits,
+
+                # NOTE: for "legacy" assets, volume is normally discreet, not
+                # a float, but we keep a digit in case the suitz decide
+                # to get crazy and change it; we'll be kinda ready
+                # schema-wise..
+                'lot_size_digits': 1,
+
+                # TODO: remove when we switching from
+                # ``Symbol`` -> ``MktPair``
+                'asset_type': asset_type,
+
+                # TODO: figure out a target fin-type name
+                # set and normalize to that here!
+                'dst_type': asset_type.lower(),
+
+                # starting to use new key naming as in ``MktPair``
+                # type have drafted...
+                'src': src,
+                'src_type': 'fiat',
+            },
+        )
+        fqsn = pair.front_fqsn().rstrip('.ib')
 
         # NOTE: for flex records the normal fields for defining an fqsn
         # sometimes won't be available so we rely on two approaches for
@@ -1175,6 +1213,7 @@ def norm_trade_records(
             records,
             Transaction(
                 fqsn=fqsn,
+                sym=pair,
                 tid=tid,
                 size=size,
                 price=price,
@@ -1201,7 +1240,11 @@ def parse_flex_dt(
 
 def api_trades_to_ledger_entries(
     accounts: bidict,
-    trade_entries: list[object],
+
+    # TODO: maybe we should just be passing through the
+    # ``ib_insync.order.Trade`` instance directly here
+    # instead of pre-casting to dicts?
+    trade_entries: list[dict],
 
 ) -> dict:
     '''

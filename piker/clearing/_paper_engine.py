@@ -38,6 +38,7 @@ import tractor
 
 from .. import data
 from ..data.types import Struct
+from ..data._source import Symbol
 from ..pp import (
     Position,
     Transaction,
@@ -81,6 +82,7 @@ class PaperBoi(Struct):
     _reqids: bidict
     _positions: dict[str, Position]
     _trade_ledger: dict[str, Any]
+    _syms: dict[str, Symbol] = {}
 
     # init edge case L1 spread
     last_ask: tuple[float, float] = (float('inf'), 0)  # price, size
@@ -252,6 +254,7 @@ class PaperBoi(Struct):
         key = fqsn.rstrip(f'.{self.broker}')
         t = Transaction(
             fqsn=fqsn,
+            sym=self._syms[fqsn],
             tid=oid,
             size=size,
             price=price,
@@ -261,27 +264,29 @@ class PaperBoi(Struct):
         )
 
         with (
-                open_trade_ledger(self.broker, 'paper') as ledger,
-                open_pps(self.broker, 'paper', True) as table
-             ):
-                ledger.update({oid: t.to_dict()})
-                # Write to pps toml right now
-                table.update_from_trans({oid: t})
+            open_trade_ledger(self.broker, 'paper') as ledger,
+            open_pps(self.broker, 'paper', write_on_exit=True) as table
+        ):
+            tx = t.to_dict()
+            tx.pop('sym')
+            ledger.update({oid: tx})
+            # Write to pps toml right now
+            table.update_from_trans({oid: t})
 
-                pp = table.pps[key]
-                pp_msg = BrokerdPosition(
-                    broker=self.broker,
-                    account='paper',
-                    symbol=fqsn,
-                    # TODO: we need to look up the asset currency from
-                    # broker info. i guess for crypto this can be
-                    # inferred from the pair?
-                    currency=key,
-                    size=pp.size,
-                    avg_price=pp.ppu,
-                )
+            pp = table.pps[key]
+            pp_msg = BrokerdPosition(
+                broker=self.broker,
+                account='paper',
+                symbol=fqsn,
+                # TODO: we need to look up the asset currency from
+                # broker info. i guess for crypto this can be
+                # inferred from the pair?
+                currency=key,
+                size=pp.size,
+                avg_price=pp.ppu,
+            )
 
-                await self.ems_trades_stream.send(pp_msg)
+            await self.ems_trades_stream.send(pp_msg)
 
 
 async def simulate_fills(
@@ -567,6 +572,10 @@ async def trades_dialogue(
 
                 # TODO: load postions from ledger file
                 _trade_ledger={},
+                _syms={
+                    fqsn: flume.symbol
+                    for fqsn, flume in feed.flumes.items()
+                }
             )
 
             n.start_soon(

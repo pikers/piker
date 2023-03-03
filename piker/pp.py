@@ -44,7 +44,7 @@ import toml
 from . import config
 from .brokers import get_brokermod
 from .clearing._messages import BrokerdPosition, Status
-from .data._source import Symbol
+from .data._source import Symbol, unpack_fqsn
 from .log import get_logger
 from .data.types import Struct
 
@@ -82,17 +82,19 @@ def open_trade_ledger(
     with open(tradesfile, 'rb') as cf:
         start = time.time()
         ledger = tomli.load(cf)
-        print(f'Ledger load took {time.time() - start}s')
+        log.info(f'Ledger load took {time.time() - start}s')
         cpy = ledger.copy()
 
     try:
         yield cpy
     finally:
         if cpy != ledger:
+
             # TODO: show diff output?
             # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
-            print(f'Updating ledger for {tradesfile}:\n')
-            ledger.update(cpy) 
+            log.info(f'Updating ledger for {tradesfile}:\n')
+            ledger.update(cpy)
+
             # we write on close the mutated ledger data
             with open(tradesfile, 'w') as cf:
                 toml.dump(ledger, cf)
@@ -102,17 +104,18 @@ class Transaction(Struct, frozen=True):
     # TODO: should this be ``.to`` (see below)?
     fqsn: str
 
+    sym: Symbol
     tid: Union[str, int]  # unique transaction id
     size: float
     price: float
     cost: float  # commisions or other additional costs
     dt: datetime
-    expiry: Optional[datetime] = None
+    expiry: datetime | None = None
 
     # optional key normally derived from the broker
     # backend which ensures the instrument-symbol this record
     # is for is truly unique.
-    bsuid: Optional[Union[str, int]] = None
+    bsuid: Union[str, int] | None = None
 
     # optional fqsn for the source "asset"/money symbol?
     # from: Optional[str] = None
@@ -191,6 +194,13 @@ class Position(Struct):
         # drop symbol obj in serialized form
         s = d.pop('symbol')
         fqsn = s.front_fqsn()
+
+        broker, key, suffix = unpack_fqsn(fqsn)
+        sym_info = s.broker_info[broker]
+
+        d['asset_type'] = sym_info['asset_type']
+        d['price_tick_size'] = sym_info['price_tick_size']
+        d['lot_tick_size'] = sym_info['lot_tick_size']
 
         if self.expiry is None:
             d.pop('expiry', None)
@@ -466,7 +476,7 @@ class Position(Struct):
         if self.split_ratio is not None:
             size = round(size * self.split_ratio)
 
-        return size
+        return float(self.symbol.quantize_size(size))
 
     def minimize_clears(
         self,
@@ -510,7 +520,7 @@ class Position(Struct):
             'cost': t.cost,
             'price': t.price,
             'size': t.size,
-            'dt': t.dt,
+            'dt': t.dt
         }
 
         # TODO: compute these incrementally instead
@@ -557,7 +567,7 @@ class PpTable(Struct):
                     Symbol.from_fqsn(
                         t.fqsn,
                         info={},
-                    ),
+                    ) if not t.sym else t.sym,
                     size=0.0,
                     ppu=0.0,
                     bsuid=t.bsuid,
@@ -680,11 +690,20 @@ class PpTable(Struct):
         '''
         # TODO: show diff output?
         # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
-        print(f'Updating ``pps.toml`` for {path}:\n')
-
         # active, closed_pp_objs = table.dump_active()
         pp_entries = self.to_toml()
-        self.conf[self.brokername][self.acctid] = pp_entries
+        if pp_entries:
+            log.info(f'Updating ``pps.toml`` for {path}:\n')
+            log.info(f'Current positions:\n{pp_entries}')
+            self.conf[self.brokername][self.acctid] = pp_entries
+
+        elif (
+            self.brokername in self.conf and
+            self.acctid in self.conf[self.brokername]
+        ):
+            del self.conf[self.brokername][self.acctid]
+            if len(self.conf[self.brokername]) == 0:
+                del self.conf[self.brokername]
 
         # TODO: why tf haven't they already done this for inline
         # tables smh..
@@ -698,6 +717,7 @@ class PpTable(Struct):
             self.conf,
             'pps',
             encoder=enc,
+            fail_empty=False
         )
 
 
@@ -881,7 +901,6 @@ def open_pps(
     brokername: str,
     acctid: str,
     write_on_exit: bool = False,
-
 ) -> Generator[PpTable, None, None]:
     '''
     Read out broker-specific position entries from
@@ -914,6 +933,21 @@ def open_pps(
     # and update `PpTable` obj entries.
     for fqsn, entry in pps.items():
         bsuid = entry['bsuid']
+        symbol = Symbol.from_fqsn(
+            fqsn,
+
+            # NOTE & TODO: right now we fill in the defaults from
+            # `.data._source.Symbol` but eventually these should always
+            # either be already written to the pos table or provided at
+            # write time to ensure always having these values somewhere
+            # and thus allowing us to get our pos sizing precision
+            # correct!
+            info={
+                'asset_type': entry.get('asset_type', '<unknown>'),
+                'price_tick_size': entry.get('price_tick_size', 0.01),
+                'lot_tick_size': entry.get('lot_tick_size', 0.0),
+            }
+        )
 
         # convert clears sub-tables (only in this form
         # for toml re-presentation) back into a master table.
@@ -935,8 +969,10 @@ def open_pps(
             dtstr = clears_table['dt']
             dt = pendulum.parse(dtstr)
             clears_table['dt'] = dt
+
             trans.append(Transaction(
                 fqsn=bsuid,
+                sym=symbol,
                 bsuid=bsuid,
                 tid=tid,
                 size=clears_table['size'],
@@ -949,7 +985,11 @@ def open_pps(
         size = entry['size']
 
         # TODO: remove but, handle old field name for now
-        ppu = entry.get('ppu', entry.get('be_price', 0))
+        ppu = entry.get(
+            'ppu',
+            entry.get('be_price', 0),
+        )
+
         split_ratio = entry.get('split_ratio')
 
         expiry = entry.get('expiry')
@@ -957,7 +997,7 @@ def open_pps(
             expiry = pendulum.parse(expiry)
 
         pp = pp_objs[bsuid] = Position(
-            Symbol.from_fqsn(fqsn, info={}),
+            symbol,
             size=size,
             ppu=ppu,
             split_ratio=split_ratio,
