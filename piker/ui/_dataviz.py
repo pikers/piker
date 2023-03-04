@@ -1018,9 +1018,11 @@ class Viz(Struct):  # , frozen=True):
 
     def default_view(
         self,
-        bars_from_y: int = int(616 * 3/8),
+        min_bars_from_y: int = int(616 * 4/11),
         y_offset: int = 0,  # in datums
+
         do_ds: bool = True,
+        do_min_bars: bool = False,
 
     ) -> None:
         '''
@@ -1090,9 +1092,7 @@ class Viz(Struct):  # , frozen=True):
 
             offset = l1_offset
 
-            if (
-                rescale_to_data
-            ):
+            if rescale_to_data:
                 offset = (offset / uppx) * new_uppx
 
         else:
@@ -1130,6 +1130,12 @@ class Viz(Struct):  # , frozen=True):
             # maintain the l->r view distance
             l_reset = r_reset - rl_diff
 
+        if (
+            do_min_bars
+            and (r_reset - l_reset) < min_bars_from_y
+        ):
+            l_reset = r_reset - min_bars_from_y
+
         # remove any custom user yrange setttings
         if chartw._static_yrange == 'axis':
             chartw._static_yrange = None
@@ -1142,7 +1148,6 @@ class Viz(Struct):  # , frozen=True):
 
         if do_ds:
             view.interact_graphics_cycle()
-            # view._set_yrange(viz=self)
 
     def incr_info(
         self,
