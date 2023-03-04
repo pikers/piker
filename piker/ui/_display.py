@@ -21,7 +21,6 @@ this module ties together quote and computational (fsp) streams with
 graphics update methods via our custom ``pyqtgraph`` charting api.
 
 '''
-from functools import partial
 import itertools
 from math import floor
 import time
@@ -389,7 +388,6 @@ async def graphics_update_loop(
             'fqsn': fqsn,
             'godwidget': godwidget,
             'quotes': {},
-            # 'maxmin': maxmin,
 
             'flume': flume,
 
@@ -1397,10 +1395,6 @@ async def display_symbol_data(
                 # for zoom-interaction purposes.
                 hist_viz.draw_last(array_key=fqsn)
 
-                hist_pi.vb.maxmin = partial(
-                    hist_chart.maxmin,
-                    name=fqsn,
-                )
                 # TODO: we need a better API to do this..
                 # specially store ref to shm for lookup in display loop
                 # since only a placeholder of `None` is entered in
@@ -1425,10 +1419,6 @@ async def display_symbol_data(
 
                     color=bg_chart_color,
                     last_step_color=bg_last_bar_color,
-                )
-                rt_pi.vb.maxmin = partial(
-                    rt_chart.maxmin,
-                    name=fqsn,
                 )
 
                 # TODO: we need a better API to do this..

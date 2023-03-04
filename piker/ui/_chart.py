@@ -1305,43 +1305,6 @@ class ChartPlotWidget(pg.PlotWidget):
         self.sig_mouse_leave.emit(self)
         self.scene().leaveEvent(ev)
 
-    def maxmin(
-        self,
-        name: str | None = None,
-        bars_range: tuple[
-            int, int, int, int, int, int
-        ] | None = None,
-
-    ) -> tuple[float, float]:
-        '''
-        Return the max and min y-data values "in view".
-
-        If ``bars_range`` is provided use that range.
-
-        '''
-        # TODO: here we should instead look up the ``Viz.shm.array``
-        # and read directly from shm to avoid copying to memory first
-        # and then reading it again here.
-        viz_key = name or self.name
-        viz = self._vizs.get(viz_key)
-        if viz is None:
-            log.error(f"viz {viz_key} doesn't exist in chart {self.name} !?")
-            return 0, 0
-
-        res = viz.maxmin()
-
-        if (
-            res is None
-        ):
-            mxmn = 0, 0
-            if not self._on_screen:
-                self.default_view(do_ds=False)
-                self._on_screen = True
-        else:
-            x_range, read_slc, mxmn = res
-
-        return mxmn
-
     def get_viz(
         self,
         key: str,
