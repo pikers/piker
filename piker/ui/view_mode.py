@@ -250,7 +250,7 @@ def overlay_viewlists(
             print(
                 f'BEGIN UX GRAPHICS CYCLE: @{chart_name}\n'
                 +
-                '#'*100
+                '#'*66
                 +
                 '\n'
             )
@@ -350,12 +350,14 @@ def overlay_viewlists(
                 # returns scalars
                 r_up = (ymx - y_ref) / y_ref
                 r_down = (ymn - y_ref) / y_ref
+                disp = r_up - r_down
 
                 msg = (
-                    f'### {viz.name}@{chart_name} ###\n'
+                    f'=> {viz.name}@{chart_name}\n'
                     f'y_ref: {y_ref}\n'
                     f'down disp: {r_down}\n'
                     f'up disp: {r_up}\n'
+                    f'full disp: {disp}\n'
                 )
                 profiler(msg)
                 if debug_print:
@@ -376,7 +378,7 @@ def overlay_viewlists(
                     dnt.start_t = in_view[0]['time']
                     dnt.y_val = ymn
 
-                    msg = f'NEW DOWN: {viz.name}@{chart_name} r:{r_down}\n'
+                    msg = f'NEW DOWN: {viz.name}@{chart_name} r: {r_down}'
                     profiler(msg)
                     if debug_print:
                         print(msg)
@@ -437,7 +439,7 @@ def overlay_viewlists(
                     upt.in_view = in_view
                     upt.start_t = in_view[0]['time']
                     upt.y_val = ymx
-                    msg = f'NEW UP: {viz.name}@{chart_name} r:{r_up}\n'
+                    msg = f'NEW UP: {viz.name}@{chart_name} r: {r_up}'
                     profiler(msg)
                     if debug_print:
                         print(msg)
@@ -480,7 +482,6 @@ def overlay_viewlists(
                 # register curves by a "full" dispersion metric for
                 # later sort order in the overlay (technique
                 # ) application loop below.
-                disp = r_up - r_down
                 overlay_table[disp] = (
                     viz.plot.vb,
                     viz,
@@ -528,19 +529,21 @@ def overlay_viewlists(
 
         elif (
             mxmns_by_common_pi
-            # and not major_sigma_viz
             and not overlay_table
         ):
             # move to next chart in linked set since
             # no overlay transforming is needed.
             continue
 
-        msg = (
-            f'`Viz` curve first pass complete\n'
-            f'overlay_table: {overlay_table.keys()}\n'
-        )
-        profiler(msg)
+        profiler('`Viz` curve first pass complete\n')
+
         if debug_print:
+            # print overlay table in descending dispersion order
+            msg = 'overlays by disp:\n'
+            for disp in reversed(overlay_table):
+                entry = overlay_table[disp]
+                msg += f'{entry[1].name}: {disp}\n'
+
             print(msg)
 
         r_up_mx: float
@@ -612,6 +615,7 @@ def overlay_viewlists(
                         ) = mx_viz.scalars_from_index(xref)
 
                         ymn = y_start * (1 + r_major_down_here)
+                        ymx = y_start * (1 + r_major_up_here)
 
                         # if this curve's y-range is detected as **not
                         # being in view** after applying the
@@ -661,8 +665,6 @@ def overlay_viewlists(
                                         f'RESCALE MAJ ymn -> {mx_ymn}'
                                     )
 
-                        ymx = y_start * (1 + r_major_up_here)
-
                         # same as above but for minor being out-of-range
                         # on the upside.
                         if ymx <= y_max:
@@ -689,17 +691,19 @@ def overlay_viewlists(
                                         f'RESCALE {_viz.name} ymn -> {new_ymx}'
                                     )
 
+                        # register all overlays for a final pass where we
+                        # apply all pinned-curve y-range transform scalings.
+                        scaled[view] = (viz, y_start, ymn, ymx, xref)
+
                         if debug_print:
                             print(
                                 f'Minor SCALARS {viz.name}:\n'
                                 f'xref: {xref}\n'
                                 f'dn: {r_major_down_here}\n'
                                 f'up: {r_major_up_here}\n'
+                                f'ymn: {ymn}\n'
+                                f'ymx: {ymx}\n'
                             )
-
-                        # register all overlays for a final pass where we
-                        # apply all pinned-curve y-range transform scalings.
-                        scaled[view] = (viz, y_start, ymn, ymx, xref)
 
                     # target/dispersion MAJOR case
                     else:
@@ -708,6 +712,8 @@ def overlay_viewlists(
                                 f'MAJOR SCALARS {viz.name}:\n'
                                 f'dn: {r_dn_mn}\n'
                                 f'up: {r_up_mx}\n'
+                                f'mx_ymn: {mx_ymn}\n'
+                                f'mx_ymx: {mx_ymx}\n'
                             )
 
                         # target/major curve's mxmn may have been
@@ -763,6 +769,9 @@ def overlay_viewlists(
                         f'T scaled ymn: {ymn}\n'
                         f'T scaled ymx: {ymx}\n'
                         '------------------------------\n'
+                        f'Viz[{viz.name}]:\n'
+                        f'  .yrange = {viz.vs.yrange}\n'
+                        f'  .xrange = {viz.vs.xrange}\n'
                     )
 
             # finally, scale major curve to possibly re-scaled/modified
@@ -773,7 +782,7 @@ def overlay_viewlists(
             print(
                 f'END UX GRAPHICS CYCLE: @{chart_name}\n'
                 +
-                '#'*100
+                '#'*66
                 +
                 '\n'
             )
