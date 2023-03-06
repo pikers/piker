@@ -19,6 +19,10 @@ High level chart-widget apis.
 
 '''
 from __future__ import annotations
+from contextlib import (
+    contextmanager as cm,
+    ExitStack,
+)
 from typing import (
     Iterator,
     TYPE_CHECKING,
@@ -257,7 +261,9 @@ class GodWidget(QWidget):
             # last had the xlast in view, if so then shift so it's
             # still in view, if the user was viewing history then
             # do nothing yah?
-            self.rt_linked.chart.default_view()
+            self.rt_linked.chart.main_viz.default_view(
+                do_min_bars=True,
+            )
 
         # if a history chart instance is already up then
         # set the search widget as its sidepane.
@@ -811,11 +817,17 @@ class LinkedSplits(QWidget):
                 self.chart.sidepane.setMinimumWidth(sp_w)
 
 
-# TODO: we should really drop using this type and instead just
-# write our own wrapper around `PlotItem`..
+# TODO: a general rework of this widget-interface:
+# - we should really drop using this type and instead just lever our
+#   own override of `PlotItem`..
+# - possibly rename to class -> MultiChart(pg.PlotWidget):
+#   where the widget is responsible for containing management
+#   harness for multi-Viz "view lists" and their associated mode-panes
+#   (fsp chain, order ctl, feed queue-ing params, actor ctl, etc).
+
 class ChartPlotWidget(pg.PlotWidget):
     '''
-    ``GraphicsView`` subtype containing a ``.plotItem: PlotItem`` as well
+    ``PlotWidget`` subtype containing a ``.plotItem: PlotItem`` as well
     as a `.pi_overlay: PlotItemOverlay`` which helps manage and overlay flow
     graphics view multiple compose view boxes.
 
@@ -1004,32 +1016,6 @@ class ChartPlotWidget(pg.PlotWidget):
         #     f'line_end: {line_end}\n'
         # )
         return line_end, marker_right, r_axis_x
-
-    def default_view(
-        self,
-        bars_from_y: int = int(616 * 3/8),
-        y_offset: int = 0,
-        do_ds: bool = True,
-
-    ) -> None:
-        '''
-        Set the view box to the "default" startup view of the scene.
-
-        '''
-        viz = self.get_viz(self.name)
-
-        if not viz:
-            log.warning(f'`Viz` for {self.name} not loaded yet?')
-            return
-
-        viz.default_view(
-            bars_from_y,
-            y_offset,
-            do_ds,
-        )
-
-        if do_ds:
-            self.linked.graphics_cycle()
 
     def increment_view(
         self,
@@ -1321,3 +1307,30 @@ class ChartPlotWidget(pg.PlotWidget):
 
     def iter_vizs(self) -> Iterator[Viz]:
         return iter(self._vizs.values())
+
+    @cm
+    def reset_graphics_caches(self) -> None:
+        '''
+        Reset all managed ``Viz`` (flow) graphics objects
+        Qt cache modes (to ``NoCache`` mode) on enter and
+        restore on exit.
+
+        '''
+        with ExitStack() as stack:
+            for viz in self.iter_vizs():
+                stack.enter_context(
+                    viz.graphics.reset_cache(),
+                )
+
+                # also reset any downsampled alt-graphics objects which
+                # might be active.
+                dsg = viz.ds_graphics
+                if dsg:
+                    stack.enter_context(
+                        dsg.reset_cache(),
+                    )
+            try:
+                print("RESETTING ALL")
+                yield
+            finally:
+                stack.close()

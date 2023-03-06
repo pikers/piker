@@ -419,7 +419,7 @@ async def graphics_update_loop(
             ds.vlm_chart = vlm_chart
             ds.vlm_sticky = vlm_sticky
 
-        fast_chart.default_view()
+        fast_chart.main_viz.default_view()
 
         # ds.hist_vars.update({
         #     'i_last_append': 0,
@@ -1446,7 +1446,7 @@ async def display_symbol_data(
             for fqsn, flume in feed.flumes.items():
 
                 # size view to data prior to order mode init
-                rt_chart.default_view()
+                rt_chart.main_viz.default_view()
                 rt_linked.graphics_cycle()
 
                 # TODO: look into this because not sure why it was
@@ -1457,7 +1457,7 @@ async def display_symbol_data(
                 # determine if auto-range adjustements should be made.
                 # rt_linked.subplots.pop('volume', None)
 
-                hist_chart.default_view()
+                hist_chart.main_viz.default_view()
                 hist_linked.graphics_cycle()
 
                 godwidget.resize_all()
@@ -1500,10 +1500,10 @@ async def display_symbol_data(
 
                 # default view adjuments and sidepane alignment
                 # as final default UX touch.
-                rt_chart.default_view()
+                rt_chart.main_viz.default_view()
                 await trio.sleep(0)
 
-                hist_chart.default_view()
+                hist_chart.main_viz.default_view()
                 hist_viz = hist_chart.get_viz(fqsn)
                 await trio.sleep(0)
 
