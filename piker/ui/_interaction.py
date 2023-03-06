@@ -154,9 +154,12 @@ async def handle_viewmode_kb_inputs(
                 god = order_mode.godw  # noqa
                 feed = order_mode.feed  # noqa
                 chart = order_mode.chart  # noqa
+                viz = chart.main_viz  # noqa
                 vlm_chart = chart.linked.subplots['volume']  # noqa
+                vlm_viz = vlm_chart.main_viz  # noqa
                 dvlm_pi = vlm_chart._vizs['dolla_vlm'].plot  # noqa
                 await tractor.breakpoint()
+                view.interact_graphics_cycle()
 
             # SEARCH MODE #
             # ctlr-<space>/<l> for "lookup", "search" -> open search tree
@@ -185,9 +188,13 @@ async def handle_viewmode_kb_inputs(
             # View modes
             if key == Qt.Key_R:
 
-                # TODO: set this for all subplots
-                # edge triggered default view activation
-                view.chart.default_view()
+                # NOTE: seems that if we don't yield a Qt render
+                # cycle then the m4 downsampled curves will show here
+                # without another reset..
+                view._viz.default_view()
+                view.interact_graphics_cycle()
+                await trio.sleep(0)
+                view.interact_graphics_cycle()
 
             if len(fast_key_seq) > 1:
                 # begin matches against sequences
@@ -427,17 +434,12 @@ class ChartView(ViewBox):
         if self._in_interact is None:
             chart = self.chart
             try:
-                chart.pause_all_feeds()
                 self._in_interact = trio.Event()
-                for viz in chart.iter_vizs():
-                    self._interact_stack.enter_context(
-                        viz.graphics.reset_cache(),
-                    )
-                    dsg = viz.ds_graphics
-                    if dsg:
-                        self._interact_stack.enter_context(
-                            dsg.reset_cache(),
-                        )
+
+                chart.pause_all_feeds()
+                self._interact_stack.enter_context(
+                    chart.reset_graphics_caches()
+                )
             except RuntimeError:
                 pass
 
@@ -453,10 +455,11 @@ class ChartView(ViewBox):
         '''
         if self._in_interact:
             try:
-                self._in_interact.set()
-                self._in_interact = None
                 self._interact_stack.close()
                 self.chart.resume_all_feeds()
+
+                self._in_interact.set()
+                self._in_interact = None
             except RuntimeError:
                 pass
 
@@ -940,7 +943,7 @@ class ChartView(ViewBox):
             str,
             tuple[float, float],
         ] | None = None,
-
+ 
     ):
         profiler = Profiler(
             msg=f'ChartView.interact_graphics_cycle() for {self.name}',
