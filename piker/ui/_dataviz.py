@@ -1372,17 +1372,29 @@ class Viz(Struct):
             case 'both':
                 return r_up, r_down
 
-    @lru_cache(maxsize=6116)
+    # @lru_cache(maxsize=6116)
     def i_from_t(
         self,
         t: float,
-    ) -> int:
-        return slice_from_time(
+        return_y: bool = False,
+
+    ) -> int | tuple[int, float]:
+
+        istart = slice_from_time(
             self.vs.in_view,
             start_t=t,
             stop_t=t,
             step=self.index_step(),
         ).start
+
+        if not return_y:
+            return istart
+
+        vs = self.vs
+        arr = vs.in_view
+        key = 'open' if self.is_ohlc else self.name
+        yref = arr[istart][key]
+        return istart, yref
 
     def scalars_from_index(
         self,
