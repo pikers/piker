@@ -249,7 +249,7 @@ class ViewState(Struct):
     in_view: np.ndarray | None = None
 
 
-class Viz(Struct):  # , frozen=True):
+class Viz(Struct):
     '''
     (Data) "Visualization" compound type which wraps a real-time
     shm array stream with displayed graphics (curves, charts)
@@ -454,6 +454,7 @@ class Viz(Struct):  # , frozen=True):
                         f'{ixrng} -> {cached_result}'
                     )
                 read_slc, mxmn = cached_result
+                self.vs.yrange = mxmn
                 return (
                     ixrng,
                     read_slc,
@@ -1147,6 +1148,7 @@ class Viz(Struct):  # , frozen=True):
         )
 
         if do_ds:
+            view.interact_graphics_cycle()
             view.interact_graphics_cycle()
 
     def incr_info(
