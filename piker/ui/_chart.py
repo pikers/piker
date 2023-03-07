@@ -1330,7 +1330,6 @@ class ChartPlotWidget(pg.PlotWidget):
                         dsg.reset_cache(),
                     )
             try:
-                print("RESETTING ALL")
                 yield
             finally:
                 stack.close()
