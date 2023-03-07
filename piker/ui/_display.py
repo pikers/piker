@@ -32,6 +32,7 @@ from typing import (
 import tractor
 import trio
 import pyqtgraph as pg
+# import pendulum
 
 from msgspec import field
 
@@ -187,8 +188,6 @@ class DisplayState(Struct):
             'i_last': 0,
             'i_last_append': 0,
             'last_mx_vlm': 0,
-            # 'last_mx': 0,
-            # 'last_mn': 0,
         }
     )
     hist_vars: dict[str, Any] = field(
@@ -196,8 +195,6 @@ class DisplayState(Struct):
             'i_last': 0,
             'i_last_append': 0,
             'last_mx_vlm': 0,
-            # 'last_mx': 0,
-            # 'last_mn': 0,
         }
     )
 
@@ -773,20 +770,33 @@ def graphics_update_cycle(
                 )
                 profiler('main vb y-autorange')
 
-        # SLOW CHART y-auto-range resize case
-        (
-            _,
-            hist_liv,
-            _,
-            _,
-            _,
-            _,
-            _,
-        ) = hist_viz.incr_info(
-            ds=ds,
-            is_1m=True,
-        )
-        profiler('hist `Viz.incr_info()`')
+        # SLOW CHART y-auto-range resize casd
+        # (NOTE: still is still inside the y-range
+        # guard block above!)
+        # (
+        #     _,
+        #     hist_liv,
+        #     _,
+        #     _,
+        #     _,
+        #     _,
+        #     _,
+        # ) = hist_viz.incr_info(
+        #     ds=ds,
+        #     is_1m=True,
+        # )
+
+        # if hist_liv:
+        #     times = hist_viz.shm.array['time']
+        #     last_t = times[-1]
+        #     dt = pendulum.from_timestamp(last_t)
+        #     log.info(
+        #         f'{hist_viz.name} TIMESTEP:'
+        #         f'epoch: {last_t}\n'
+        #         f'datetime: {dt}\n'
+        #     )
+
+        # profiler('hist `Viz.incr_info()`')
 
         # hist_chart = ds.hist_chart
         # if (
