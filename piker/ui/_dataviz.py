@@ -239,6 +239,8 @@ class ViewState(Struct):
         float | int
     ] | None = None
 
+    # TODO: cache the (ixl, ixr) read_slc-into-.array style slice index?
+
     # (ymn, ymx) "output" min and max in viewed y-codomain
     yrange: tuple[
         float | int,
@@ -655,6 +657,7 @@ class Viz(Struct):
                 array,
                 start_t=lbar,
                 stop_t=rbar,
+                step=self.index_step(),
             )
 
             # TODO: maybe we should return this from the slicer call
@@ -1400,8 +1403,23 @@ class Viz(Struct):
         self,
         xref: float | None = None,
 
-    ) -> tuple[int, float, float, float]:
+    ) -> tuple[
+            int,
+            float,
+            float,
+            float,
+    ]:
+        '''
+        Calculate and deliver the log-returns scalars specifically
+        according to y-data supported on this ``Viz``'s underlying
+        x-domain data range from ``xref`` -> ``.vs.xrange[1]``.
 
+        The main use case for this method (currently) is to generate
+        scalars which will allow calculating the required y-range for
+        some "pinned" curve to be aligned *from* the ``xref`` time
+        stamped datum *to* the curve rendered by THIS viz.
+
+        '''
         vs = self.vs
         arr = vs.in_view
 
@@ -1409,22 +1427,28 @@ class Viz(Struct):
         # .vs.xrange input for caching?
         # read_slc_start = self.i_from_t(xref)
 
-        slc = slice_from_time(
+        read_slc = slice_from_time(
             arr=self.vs.in_view,
             start_t=xref,
-            stop_t=xref,
+            stop_t=vs.xrange[1],
+            step=self.index_step(),
         )
-        read_slc_start = slc.start
-
         key = 'open' if self.is_ohlc else self.name
-        yref = arr[read_slc_start][key]
+
+        # NOTE: old code, it's no faster right?
+        # read_slc_start = read_slc.start
+        # yref = arr[read_slc_start][key]
+
+        read = arr[read_slc][key]
+        yref = read[0]
         ymn, ymx = self.vs.yrange
         # print(
-        #     f'INTERSECT xref: {read_slc_start}\n'
-        #     f'ymn, ymx: {(ymn, ymx)}\n'
+        #     f'Viz[{self.name}].scalars_from_index(xref={xref})\n'
+        #     f'read_slc: {read_slc}\n'
+        #     f'ymnmx: {(ymn, ymx)}\n'
         # )
         return (
-            read_slc_start,
+            read_slc.start,
             yref,
             (ymx - yref) / yref,
             (ymn - yref) / yref,
