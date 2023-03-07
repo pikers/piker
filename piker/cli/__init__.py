@@ -54,6 +54,11 @@ log = get_logger('cli')
     is_flag=True,
     help='Enable local ``elasticsearch`` instance'
 )
+@click.option(
+    '--mpd',
+    is_flag=True,
+    help='Read from deribit and dump data to elastic db'
+)
 def pikerd(
     loglevel: str,
     host: str,
@@ -62,6 +67,7 @@ def pikerd(
     pdb: bool,
     tsdb: bool,
     es: bool,
+    mpd: bool,
 ):
     '''
     Spawn the piker broker-daemon.
@@ -92,6 +98,7 @@ def pikerd(
             open_pikerd(
                 tsdb=tsdb,
                 es=es,
+                mpd=mpd,
                 loglevel=loglevel,
                 debug_mode=pdb,
                 registry_addr=reg_addr,
