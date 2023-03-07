@@ -86,6 +86,7 @@ def intersect_from_longer(
 
     start_t_second: float,
     in_view_second: np.ndarray,
+    step: float,
 
 ) -> np.ndarray:
 
@@ -114,6 +115,7 @@ def intersect_from_longer(
         arr=longer,
         start_t=find_t,
         stop_t=find_t,
+        step=step,
     )
     return (
         longer[slc.start],
@@ -228,21 +230,22 @@ def overlay_viewlists(
             or len(overlay_viz_items) < 2
         ):
             viz = active_viz
-            if debug_print:
-                print(f'ONLY ranging THIS viz: {viz.name}')
-
             out = _maybe_calc_yrange(
                 viz,
                 yrange_kwargs,
                 profiler,
                 chart_name,
             )
+
             if out is None:
                 continue
 
             read_slc, yrange_kwargs = out
             viz.plot.vb._set_yrange(**yrange_kwargs)
             profiler(f'{viz.name}@{chart_name} single curve yrange')
+
+            if debug_print:
+                print(f'ONLY ranging THIS viz: {viz.name}')
 
             # don't iterate overlays, just move to next chart
             continue
@@ -362,7 +365,7 @@ def overlay_viewlists(
                     f'y_ref: {y_ref}\n'
                     f'ymn: {ymn}\n'
                     f'ymx: {ymx}\n'
-                    f'r_up disp: {r_up}\n'
+                    f'r_up: {r_up}\n'
                     f'r_down: {r_down}\n'
                     f'(full) disp: {disp}\n'
                 )
@@ -398,6 +401,7 @@ def overlay_viewlists(
                         dnt.in_view,
                         start_t,
                         in_view,
+                        viz.index_step(),
                     )
                     profiler(f'{viz.name}@{chart_name} intersect by t')
 
@@ -451,6 +455,7 @@ def overlay_viewlists(
                         upt.in_view,
                         start_t,
                         in_view,
+                        viz.index_step(),
                     )
                     profiler(f'{viz.name}@{chart_name} intersect by t')
 
@@ -669,6 +674,19 @@ def overlay_viewlists(
                         r_down_from_major_at_xref,
                     ) = mx_viz.scalars_from_index(xref)
 
+                    if debug_print:
+                        print(
+                            'MAJOR PIN SCALING\n'
+                            f'mx_xref: {mx_xref}\n'
+                            f'major i_start: {i_start}\n'
+                            f'y_ref_major: {y_ref_major}\n'
+                            f'r_up_from_major_at_xref {r_up_from_major_at_xref}\n'
+                            f'r_down_from_major_at_xref: {r_down_from_major_at_xref}\n'
+                            f'-----to minor-----\n'
+                            f'xref: {xref}\n'
+                            f'y_start: {y_start}\n'
+                            f'yref: {yref}\n'
+                        )
                     ymn = yref * (1 + r_down_from_major_at_xref)
                     ymx = yref * (1 + r_up_from_major_at_xref)
 
@@ -693,8 +711,8 @@ def overlay_viewlists(
 
                         if debug_print:
                             print(
-                                f'RESCALE {viz.name} ymn -> {y_min}'
-                                f'RESCALE MAJ ymn -> {mx_ymn}'
+                                f'RESCALE {mx_viz.name} DUE TO {viz.name} ymn -> {y_min}\n'
+                                f'-> MAJ ymn (w r_down: {r_dn_minor}) -> {mx_ymn}\n\n'
                             )
                         # rescale all already scaled curves to new
                         # increased range for this side as
@@ -735,8 +753,8 @@ def overlay_viewlists(
 
                         if debug_print:
                             print(
-                                f'RESCALE {viz.name} ymn -> {y_max}'
-                                f'RESCALE MAJ ymx -> {mx_ymx}'
+                                f'RESCALE {mx_viz.name} DUE TO {viz.name} ymx -> {y_max}\n'
+                                f'-> MAJ ymx (r_up: {r_up_minor} -> {mx_ymx}\n\n'
                             )
 
                         for _view in scaled:
