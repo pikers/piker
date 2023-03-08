@@ -368,10 +368,12 @@ async def open_pikerd(
 
             log.info('Spawning `marketstore` supervisor')
             ctn_ready, config, (cid, pid) = await service_nursery.start(
-                start_ahab,
-                'marketstored',
-                start_marketstore,
-                loglevel,
+                partial(
+                    start_ahab,
+                    'marketstored',
+                    start_marketstore,
+                    loglevel=loglevel,
+                )
 
             )
             log.info(
@@ -391,6 +393,7 @@ async def open_pikerd(
                     start_ahab,
                     'elasticsearch',
                     start_elasticsearch,
+                    loglevel=loglevel,
                 )
             )
 
