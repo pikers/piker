@@ -26,7 +26,6 @@
 from __future__ import annotations
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
-from pprint import pformat
 from typing import (
     Any,
     Optional,
@@ -55,7 +54,7 @@ if TYPE_CHECKING:
     import docker
     from ._ahab import DockerContainer
 
-from .feed import maybe_open_feed
+from ..data.feed import maybe_open_feed
 from ..log import get_logger, get_console_log
 from .._profile import Profiler
 
@@ -136,7 +135,7 @@ def start_marketstore(
 
     # create dirs when dne
     if not os.path.isdir(config._config_dir):
-       Path(config._config_dir).mkdir(parents=True, exist_ok=True)
+        Path(config._config_dir).mkdir(parents=True, exist_ok=True)
 
     if not os.path.isdir(mktsdir):
         os.mkdir(mktsdir)

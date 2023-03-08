@@ -144,7 +144,7 @@ def storesh(
 
         async with open_piker_runtime(
             'storesh',
-            enable_modules=['piker.data._ahab'],
+            enable_modules=['piker.service._ahab'],
         ):
             symbol = symbols[0]
 
@@ -194,7 +194,7 @@ def storage(
 
         async with open_piker_runtime(
             'tsdb_storage',
-            enable_modules=['piker.data._ahab'],
+            enable_modules=['piker.service._ahab'],
         ):
             symbol = symbols[0]
             async with open_tsdb_client(symbol) as storage:

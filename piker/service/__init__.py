@@ -362,8 +362,8 @@ async def open_pikerd(
         Services.debug_mode = debug_mode
 
         if tsdb:
-            from piker.data._ahab import start_ahab
-            from piker.data.marketstore import start_marketstore
+            from ._ahab import start_ahab
+            from .marketstore import start_marketstore
 
             log.info('Spawning `marketstore` supervisor')
             ctn_ready, config, (cid, pid) = await service_nursery.start(
