@@ -1082,12 +1082,10 @@ class Viz(Struct):
         data_diff = last_datum - first_datum
         rl_diff = vr - vl
         rescale_to_data: bool = False
-        # new_uppx: float = 1
 
         if rl_diff > data_diff:
             rescale_to_data = True
             rl_diff = data_diff
-            new_uppx: float = data_diff / self.px_width()
 
         # orient by offset from the y-axis including
         # space to compensate for the L1 labels.
@@ -1097,14 +1095,28 @@ class Viz(Struct):
             offset = l1_offset
 
             if rescale_to_data:
+                new_uppx: float = data_diff / self.px_width()
                 offset = (offset / uppx) * new_uppx
 
         else:
             offset = (y_offset * step) + uppx*step
 
+        # NOTE: if we are in the midst of start-up and a bunch of
+        # widgets are spawning/rendering  concurrently, it's likely the
+        # label size above `l1_offset` won't have yet fully rendered.
+        # Here we try to compensate for that ensure at least a static
+        # bar gap between the last datum and the y-axis.
+        if (
+            do_min_bars
+            and offset <= (6 * step)
+        ):
+            offset = 6 * step
+
         # align right side of view to the rightmost datum + the selected
         # offset from above.
-        r_reset = (self.graphics.x_last() or last_datum) + offset
+        r_reset = (
+            self.graphics.x_last() or last_datum
+        ) + offset
 
         # no data is in view so check for the only 2 sane cases:
         # - entire view is LEFT of data
@@ -1129,7 +1141,6 @@ class Viz(Struct):
             else:
                 log.warning(f'Unknown view state {vl} -> {vr}')
                 return
-
         else:
             # maintain the l->r view distance
             l_reset = r_reset - rl_diff
@@ -1138,7 +1149,11 @@ class Viz(Struct):
             do_min_bars
             and (r_reset - l_reset) < min_bars_from_y
         ):
-            l_reset = r_reset - min_bars_from_y
+            l_reset = (
+                (r_reset + offset)
+                -
+                min_bars_from_y * step
+            )
 
         # remove any custom user yrange setttings
         if chartw._static_yrange == 'axis':
@@ -1151,7 +1166,6 @@ class Viz(Struct):
         )
 
         if do_ds:
-            view.interact_graphics_cycle()
             view.interact_graphics_cycle()
 
     def incr_info(
