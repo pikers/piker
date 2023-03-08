@@ -58,7 +58,7 @@ from ..log import (
     get_logger,
     get_console_log,
 )
-from .._daemon import (
+from ..service import (
     maybe_spawn_brokerd,
     check_for_service,
 )

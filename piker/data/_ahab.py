@@ -426,11 +426,15 @@ async def open_ahabd(
         finally:
             # TODO: ensure loglevel can be set and teardown logs are
             # reported if possible on error or cancel..
-            with trio.CancelScope(shield=True):
-                await cntr.cancel(
-                    log_msg_key=conf['log_msg_key'],
-                    stop_predicate=stop_lambda,
-                )
+            # XXX WARNING: currently shielding here can result in hangs
+            # on ctl-c from user.. ideally we can avoid a cancel getting
+            # consumed and not propagating whilst still doing teardown
+            # logging..
+            # with trio.CancelScope(shield=True):
+            await cntr.cancel(
+                log_msg_key=conf['log_msg_key'],
+                stop_predicate=stop_lambda,
+            )
 
 
 async def start_ahab(

@@ -1,5 +1,5 @@
 # piker: trading gear for hackers.
-# Copyright 2020-eternity Tyler Goodlet (in stewardship for piker0)
+# Copyright 2020-eternity Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -14,11 +14,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""
+'''
 piker: trading gear for hackers.
 
-"""
-from ._daemon import open_piker_runtime
+'''
+from .service import open_piker_runtime
 from .data.feed import open_feed
 
 __all__ = [

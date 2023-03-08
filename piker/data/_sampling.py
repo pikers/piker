@@ -42,7 +42,7 @@ from ..log import (
     get_logger,
     get_console_log,
 )
-from .._daemon import maybe_spawn_daemon
+from ..service import maybe_spawn_daemon
 
 if TYPE_CHECKING:
     from ._sharedmem import (
@@ -68,8 +68,8 @@ class Sampler:
 
     This non-instantiated type is meant to be a singleton within
     a `samplerd` actor-service spawned once by the user wishing to
-    time-step sample real-time quote feeds, see
-    ``._daemon.maybe_open_samplerd()`` and the below
+    time-step-sample (real-time) quote feeds, see
+    ``.service.maybe_open_samplerd()`` and the below
     ``register_with_sampler()``.
 
     '''
@@ -379,7 +379,7 @@ async def spawn_samplerd(
     update and increment count write and stream broadcasting.
 
     '''
-    from piker._daemon import Services
+    from piker.service import Services
 
     dname = 'samplerd'
     log.info(f'Spawning `{dname}`')

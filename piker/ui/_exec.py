@@ -49,7 +49,7 @@ from qdarkstyle import DarkPalette
 import trio
 from outcome import Error
 
-from .._daemon import (
+from ..service import (
     maybe_open_pikerd,
     get_tractor_runtime_kwargs,
 )

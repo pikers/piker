@@ -1,7 +1,6 @@
 from contextlib import asynccontextmanager as acm
 from functools import partial
 import os
-from typing import AsyncContextManager
 from pathlib import Path
 from shutil import rmtree
 
@@ -11,7 +10,7 @@ from piker import (
     # log,
     config,
 )
-from piker._daemon import (
+from piker.service import (
     Services,
 )
 from piker.clearing._client import open_ems
@@ -88,7 +87,7 @@ async def _open_test_pikerd(
 
     '''
     import random
-    from piker._daemon import maybe_open_pikerd
+    from piker.service import maybe_open_pikerd
 
     if reg_addr is None:
         port = random.randint(6e3, 7e3)
@@ -151,8 +150,9 @@ async def _open_test_pikerd_and_ems(
             fqsn,
             mode=mode,
             loglevel=loglevel,
-        ) as ems_services):
-            yield (services, ems_services)
+        ) as ems_services,
+    ):
+        yield (services, ems_services)
 
 
 @pytest.fixture
@@ -168,7 +168,7 @@ def open_test_pikerd_and_ems(
         mode,
         loglevel,
         open_test_pikerd
-    ) 
+    )
 
 
 @pytest.fixture(scope='module')

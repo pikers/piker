@@ -24,7 +24,7 @@ import tractor
 
 from ..cli import cli
 from .. import watchlists as wl
-from .._daemon import maybe_spawn_brokerd
+from ..service import maybe_spawn_brokerd
 
 
 _config_dir = click.get_app_dir('piker')

@@ -19,6 +19,8 @@ Structured, daemon tree service management.
 
 """
 from __future__ import annotations
+from pprint import pformat
+from functools import partial
 import os
 from typing import (
     Optional,
@@ -35,14 +37,11 @@ import tractor
 import trio
 from trio_typing import TaskStatus
 
-from .log import (
+from ..log import (
     get_logger,
     get_console_log,
 )
-from .brokers import get_brokermod
-
-from pprint import pformat
-from functools import partial
+from ..brokers import get_brokermod
 
 
 log = get_logger(__name__)
@@ -669,7 +668,7 @@ async def spawn_brokerd(
     )
 
     # non-blocking setup of brokerd service nursery
-    from .data import _setup_persistent_brokerd
+    from ..data import _setup_persistent_brokerd
 
     await Services.start_service_task(
         dname,
@@ -732,7 +731,7 @@ async def spawn_emsd(
     )
 
     # non-blocking setup of clearing service
-    from .clearing._ems import _setup_persistent_emsd
+    from ..clearing._ems import _setup_persistent_emsd
 
     await Services.start_service_task(
         'emsd',

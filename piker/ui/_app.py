@@ -24,7 +24,7 @@ from types import ModuleType
 from PyQt5.QtCore import QEvent
 import trio
 
-from .._daemon import maybe_spawn_brokerd
+from ..service import maybe_spawn_brokerd
 from . import _event
 from ._exec import run_qtractor
 from ..data.feed import install_brokerd_search

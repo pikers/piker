@@ -3,7 +3,7 @@ import trio
 
 from typing import AsyncContextManager
 
-from piker._daemon import Services
+from piker.service import Services
 from piker.log import get_logger
 
 from elasticsearch import Elasticsearch

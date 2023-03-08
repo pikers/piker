@@ -28,7 +28,7 @@ import trio
 
 from ..log import get_logger
 from . import get_brokermod
-from .._daemon import maybe_spawn_brokerd
+from ..service import maybe_spawn_brokerd
 from .._cacheables import open_cached_client
 
 

@@ -137,7 +137,7 @@ def storesh(
 
     '''
     from piker.data.marketstore import open_tsdb_client
-    from piker._daemon import open_piker_runtime
+    from piker.service import open_piker_runtime
 
     async def main():
         nonlocal symbols
@@ -187,7 +187,7 @@ def storage(
 
     '''
     from piker.data.marketstore import open_tsdb_client
-    from piker._daemon import open_piker_runtime
+    from piker.service import open_piker_runtime
 
     async def main():
         nonlocal symbols
