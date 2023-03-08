@@ -413,7 +413,7 @@ async def open_ahabd(
                     log.info(entry)
 
                 raise DockerNotStarted(
-                    f'Failed to start container: {dcntr.cuid}\n'
+                    f'Failed to start container: {cntr.cuid}\n'
                     f'due to startup_timeout={conf["startup_timeout"]}s\n\n'
                     "prolly you should check your container's logs for deats.."
                 )
@@ -484,7 +484,7 @@ async def start_ahab(
             async with portal.open_context(
                 open_ahabd,
                 endpoint=str(NamespacePath.from_ref(endpoint)),
-                loglevel=loglevel,
+                loglevel='cancel',
             ) as (ctx, first):
 
                 cid, pid, cntr_config = first
