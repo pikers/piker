@@ -67,7 +67,7 @@ _config = {
     'grpc_listen_port': 5995,
     'ws_listen_port': 5993,
     'log_level': 'debug',
-    'startup_timeout': 1,
+    'startup_timeout': 2,
 }
 
 _yaml_config = '''
