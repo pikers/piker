@@ -38,6 +38,7 @@ from ..brokers import get_brokermod
 from ._mngr import (
     Services,
 )
+from ._actor_runtime import maybe_open_pikerd
 from ._registry import find_service
 
 log = get_logger(__name__)
@@ -100,7 +101,6 @@ async def maybe_spawn_daemon(
     # ask root ``pikerd`` daemon to spawn the daemon we need if
     # pikerd is not live we now become the root of the
     # process tree
-    from . import maybe_open_pikerd
     async with maybe_open_pikerd(
 
         loglevel=loglevel,
