@@ -185,7 +185,11 @@ def start_marketstore(
             config_dir_mnt,
             data_dir_mnt,
         ],
+
+        # XXX: this must be set to allow backgrounding/non-blocking
+        # usage interaction with the container's process.
         detach=True,
+
         # stop_signal='SIGINT',
         init=True,
         # remove=True,
