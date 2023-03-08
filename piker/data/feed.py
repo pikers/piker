@@ -86,7 +86,7 @@ from ..brokers._util import (
 )
 
 if TYPE_CHECKING:
-    from .marketstore import Storage
+    from ..service.marketstore import Storage
 
 log = get_logger(__name__)
 
@@ -865,7 +865,7 @@ async def manage_history(
         ):
             log.info('Found existing `marketstored`')
 
-            from . import marketstore
+            from ..service import marketstore
             async with (
                 marketstore.open_storage_client(fqsn)as storage,
             ):

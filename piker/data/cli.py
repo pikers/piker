@@ -30,7 +30,7 @@ import tractor
 import click
 import numpy as np
 
-from .marketstore import (
+from ..service.marketstore import (
     get_client,
     # stream_quotes,
     ingest_quote_stream,
