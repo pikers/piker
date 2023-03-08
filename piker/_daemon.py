@@ -337,7 +337,6 @@ async def open_pikerd(
     alive underling services (see below).
 
     '''
-
     async with (
         open_piker_runtime(
 
@@ -355,7 +354,13 @@ async def open_pikerd(
         tractor.open_nursery() as actor_nursery,
         trio.open_nursery() as service_nursery,
     ):
-        assert root_actor.accept_addr == reg_addr
+        if root_actor.accept_addr != reg_addr:
+            raise RuntimeError(f'Daemon failed to bind on {reg_addr}!?')
+
+        # assign globally for future daemon/task creation
+        Services.actor_n = actor_nursery
+        Services.service_n = service_nursery
+        Services.debug_mode = debug_mode
 
         if tsdb:
             from piker.data._ahab import start_ahab
@@ -366,6 +371,7 @@ async def open_pikerd(
                 start_ahab,
                 'marketstored',
                 start_marketstore,
+                loglevel,
 
             )
             log.info(
@@ -385,7 +391,6 @@ async def open_pikerd(
                     start_ahab,
                     'elasticsearch',
                     start_elasticsearch,
-                    start_timeout=240.0  # high cause ci
                 )
             )
 
@@ -395,12 +400,6 @@ async def open_pikerd(
                 f'container id: {cid[:12]}\n'
                 f'config: {pformat(config)}'
             )
-
-        # assign globally for future daemon/task creation
-        Services.actor_n = actor_nursery
-        Services.service_n = service_nursery
-        Services.debug_mode = debug_mode
-
 
         try:
             yield Services
@@ -695,7 +694,10 @@ async def maybe_spawn_brokerd(
 
         f'brokerd.{brokername}',
         service_task_target=spawn_brokerd,
-        spawn_args={'brokername': brokername, 'loglevel': loglevel},
+        spawn_args={
+            'brokername': brokername,
+            'loglevel': loglevel,
+        },
         loglevel=loglevel,
         **kwargs,
 
