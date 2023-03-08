@@ -15,16 +15,10 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from __future__ import annotations
-from contextlib import asynccontextmanager as acm
-from pprint import pformat
 from typing import (
     Any,
     TYPE_CHECKING,
 )
-
-import pyqtgraph as pg
-import numpy as np
-import tractor
 
 
 if TYPE_CHECKING:
@@ -65,14 +59,14 @@ def start_elasticsearch(
             -itd \
             --rm \
             --network=host \
-            --mount type=bind,source="$(pwd)"/elastic,target=/usr/share/elasticsearch/data \
+            --mount type=bind,source="$(pwd)"/elastic,\
+              target=/usr/share/elasticsearch/data \
             --env "elastic_username=elastic" \
             --env "elastic_password=password" \
             --env "xpack.security.enabled=false" \
             elastic
 
     '''
-    import docker
     get_console_log('info', name=__name__)
 
     dcntr: DockerContainer = client.containers.run(
@@ -86,7 +80,7 @@ def start_elasticsearch(
     async def start_matcher(msg: str):
         try:
             health = (await asks.get(
-                f'http://localhost:19200/_cat/health',
+                'http://localhost:19200/_cat/health',
                 params={'format': 'json'}
             )).json()
 
@@ -102,7 +96,17 @@ def start_elasticsearch(
 
     return (
         dcntr,
-        {},
+        {
+            # apparently we're REALLY tolerant of startup latency
+            # for CI XD
+            'startup_timeout': 240.0,
+
+            # XXX: decrease http poll period bc docker
+            # is shite at handling fast poll rates..
+            'startup_query_period': 0.1,
+
+            'log_msg_key': 'message',
+        },
         # expected startup and stop msgs
         start_matcher,
         stop_matcher,
