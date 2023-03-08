@@ -199,8 +199,16 @@ class Position(Struct):
         sym_info = s.broker_info[broker]
 
         d['asset_type'] = sym_info['asset_type']
-        d['price_tick_size'] = sym_info['price_tick_size']
-        d['lot_tick_size'] = sym_info['lot_tick_size']
+        d['price_tick_size'] = (
+            sym_info.get('price_tick_size')
+            or
+            s.tick_size
+        )
+        d['lot_tick_size'] = (
+            sym_info.get('lot_tick_size')
+            or
+            s.lot_tick_size
+        )
 
         if self.expiry is None:
             d.pop('expiry', None)
