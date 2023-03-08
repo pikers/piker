@@ -187,7 +187,6 @@ over a NoBsWs.
 
 '''
 
-
 class JSONRPCResult(Struct):
     id: int
     jsonrpc: str = '2.0'
@@ -202,8 +201,31 @@ async def open_jsonrpc_session(
     response_type: type = JSONRPCResult,
     request_type: Optional[type] = None,
     request_hook: Optional[Callable] = None,
-    error_hook: Optional[Callable] = None,
+    error_hook: Optional[Callable] = None
 ) -> Callable[[str, dict], dict]:
+
+    # xor: this two params need to be passed together or not at all
+    if bool(request_type) ^ bool(request_hook):
+        raise ValueError(
+            'Need to path both a request_type and request_hook')
+
+    hook_table = {
+        'request': request_hook,
+        'error': error_hook
+    }
+
+    types_table = {
+        'response': response_type,
+        'request': request_type
+    }
+
+    def update_hooks(new_hooks: dict):
+        nonlocal hook_table
+        hook_table.update(new_hooks)
+
+    def update_types(new_types: dict):
+        nonlocal types_table
+        types_table.update(new_types)
 
     async with (
         trio.open_nursery() as n,
@@ -257,8 +279,7 @@ async def open_jsonrpc_session(
                         'result': _,
                         'id': mid,
                     } if res_entry := rpc_results.get(mid):
-
-                        res_entry['result'] = response_type(**msg)
+                        res_entry['result'] = types_table['response'](**msg)
                         res_entry['event'].set()
 
                     case {
@@ -270,23 +291,31 @@ async def open_jsonrpc_session(
                         )
 
                     case {
+                        'error': error,
+                        'id': mid
+                    } if res_entry := rpc_results.get(mid):
+
+                        res_entry['result'] = types_table['response'](**msg)
+                        res_entry['event'].set()
+
+                    case {
                         'method': _,
                         'params': _,
                     }:
-                        log.debug(f'Recieved\n{msg}')
-                        if request_hook:
-                            await request_hook(request_type(**msg))
+                        log.info(f'Recieved\n{msg}')
+                        if hook_table['request']:
+                            await hook_table['request'](types_table['request'](**msg))
 
                     case {
-                        'error': error
+                        'error': error,
                     }:
                         log.warning(f'Recieved\n{error}')
-                        if error_hook:
-                            await error_hook(response_type(**msg))
+                        if hook_table['error']:
+                            await hook_table['error'](types_table['response'](**msg))
 
                     case _:
                         log.warning(f'Unhandled JSON-RPC msg!?\n{msg}')
 
         n.start_soon(recv_task)
-        yield json_rpc
+        yield json_rpc, update_hooks, update_types
         n.cancel_scope.cancel()

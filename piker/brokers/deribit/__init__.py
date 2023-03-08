@@ -52,13 +52,3 @@ __enable_modules__: list[str] = [
     'feed',
 #   'broker',
 ]
-
-# passed to ``tractor.ActorNursery.start_actor()``
-_spawn_kwargs = {
-    'infect_asyncio': True,
-}
-
-# annotation to let backend agnostic code
-# know if ``brokerd`` should be spawned with
-# ``tractor``'s aio mode.
-_infect_asyncio: bool = True

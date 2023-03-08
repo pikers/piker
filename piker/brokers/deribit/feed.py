@@ -40,15 +40,8 @@ from piker.brokers._util import (
 from .api import (
     Client,
     Trade,
-    piker_sym_to_cb_sym,
-    cb_sym_to_deribit_inst,
     maybe_open_price_feed
 )
-
-_spawn_kwargs = {
-    'infect_asyncio': True,
-}
-
 
 log = get_logger(__name__)
 
@@ -107,10 +100,7 @@ async def stream_quotes(
 
     sym = symbols[0]
 
-    async with (
-        open_cached_client('deribit') as client,
-        send_chan as send_chan
-    ):
+    async with open_cached_client('deribit') as client:
 
         init_msgs = {
             # pass back token, and bool, signalling if we're the writer
@@ -118,21 +108,18 @@ async def stream_quotes(
             sym: {
                 'symbol_info': {
                     'asset_type': 'option',
-                    'price_tick_size': 0.0005
+                    'price_tick_size': 0.0005,
+                    'lot_tick_size': 0.1
                 },
                 'shm_write_opts': {'sum_tick_vml': False},
                 'fqsn': sym,
             },
         }
 
-        nsym = piker_sym_to_cb_sym(sym)
+
+        last_trades = (await client.last_trades(sym, count=1)).trades
 
         async with maybe_open_price_feed(sym) as stream:
-
-            await client.cache_symbols()
-
-            last_trades = (await client.last_trades(
-                cb_sym_to_deribit_inst(nsym), count=1)).trades
 
             if len(last_trades) == 0:
                 last_trade = None
