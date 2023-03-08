@@ -63,11 +63,12 @@ from .._profile import Profiler
 log = get_logger(__name__)
 
 
-# container level config
+# ahabd-supervisor and container level config
 _config = {
     'grpc_listen_port': 5995,
     'ws_listen_port': 5993,
     'log_level': 'debug',
+    'startup_timeout': 1,
 }
 
 _yaml_config = '''
