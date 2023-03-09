@@ -40,6 +40,9 @@ log = get_logger(__name__)
 _config = {
     'port': 19200,
     'log_level': 'debug',
+
+    # hardcoded to our image version
+    'version': '7.17.4',
 }
 
 
@@ -77,21 +80,31 @@ def start_elasticsearch(
         remove=True
     )
 
-    async def start_matcher(msg: str):
+    async def health_query(msg: str | None = None):
+        if (
+            msg
+            and _config['version'] in msg
+        ):
+            return True
+
         try:
             health = (await asks.get(
                 'http://localhost:19200/_cat/health',
                 params={'format': 'json'}
             )).json()
+            kog.info(
+                'ElasticSearch cntr health:\n'
+                f'{health}'
+            )
 
         except OSError:
-            log.error('couldnt reach elastic container')
+            log.exception('couldnt reach elastic container')
             return False
 
         log.info(health)
         return health[0]['status'] == 'green'
 
-    async def stop_matcher(msg: str):
+    async def chk_for_closed_msg(msg: str):
         return msg == 'closed'
 
     return (
@@ -106,8 +119,10 @@ def start_elasticsearch(
             'startup_query_period': 0.1,
 
             'log_msg_key': 'message',
+
+            # 'started_afunc': health_query,
         },
         # expected startup and stop msgs
-        start_matcher,
-        stop_matcher,
+        health_query,
+        chk_for_closed_msg,
     )
