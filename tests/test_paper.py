@@ -17,7 +17,6 @@ from functools import partial
 from piker.log import get_logger
 from piker.clearing._messages import Order
 from piker.pp import (
-    open_trade_ledger,
     open_pps,
 )
 
@@ -42,18 +41,19 @@ async def _async_main(
     price: int = 30000,
     executions: int = 1,
     size: float = 0.01,
+
     # Assert options
     assert_entries: bool = False,
     assert_pps: bool = False,
     assert_zeroed_pps: bool = False,
     assert_msg: bool = False,
+
 ) -> None:
     '''
     Start piker, place a trade and assert data in
     pps stream, ledger and position table.
 
     '''
-
     oid: str = ''
     last_msg = {}
 
@@ -136,7 +136,7 @@ def _assert(
 
 
 def _run_test_and_check(fn):
-    '''        
+    '''
     Close position and assert empty position in pps
 
     '''
@@ -150,8 +150,7 @@ def _run_test_and_check(fn):
 
 
 def test_buy(
-    open_test_pikerd_and_ems: AsyncContextManager, 
-    delete_testing_dir
+    open_test_pikerd_and_ems: AsyncContextManager,
 ):
     '''
     Enter a trade and assert entries are made in pps and ledger files.
@@ -177,8 +176,7 @@ def test_buy(
 
 
 def test_sell(
-    open_test_pikerd_and_ems: AsyncContextManager, 
-    delete_testing_dir
+    open_test_pikerd_and_ems: AsyncContextManager,
 ):
     '''
     Sell position and ensure pps are zeroed.
@@ -201,13 +199,13 @@ def test_sell(
         ),
     )
 
+
 def test_multi_sell(
-    open_test_pikerd_and_ems: AsyncContextManager, 
-    delete_testing_dir
+    open_test_pikerd_and_ems: AsyncContextManager,
 ):
     '''
-    Make 5 market limit buy orders and 
-    then sell 5 slots at the same price. 
+    Make 5 market limit buy orders and
+    then sell 5 slots at the same price.
     Finally, assert cleared positions.
 
     '''
