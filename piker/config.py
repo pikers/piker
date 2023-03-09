@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-Broker configuration mgmt.
+Platform configuration (files) mgmt.
 
 """
 import platform
@@ -26,17 +26,25 @@ from os.path import dirname
 import shutil
 from typing import Optional
 from pathlib import Path
+
 from bidict import bidict
 import toml
-from piker.testing import TEST_CONFIG_DIR_PATH
+
 from .log import get_logger
 
 log = get_logger('broker-config')
 
 
-# taken from ``click`` since apparently they have some
+# XXX NOTE: taken from ``click`` since apparently they have some
 # super weirdness with sigint and sudo..no clue
-def get_app_dir(app_name, roaming=True, force_posix=False):
+# we're probably going to slowly just modify it to our own version over
+# time..
+def get_app_dir(
+    app_name: str,
+    roaming: bool = True,
+    force_posix: bool = False,
+
+) -> str:
     r"""Returns the config folder for the application.  The default behavior
     is to return whatever is most appropriate for the operating system.
 
@@ -75,14 +83,30 @@ def get_app_dir(app_name, roaming=True, force_posix=False):
     def _posixify(name):
         return "-".join(name.split()).lower()
 
-    # TODO: This is a hacky way to a) determine we're testing
-    # and b) creating a test dir. We should aim to set a variable
-    # within the tractor runtimes and store testing config data
-    # outside of the users filesystem
+    # NOTE: for testing with `pytest` we leverage the `tmp_dir`
+    # fixture to generate (and clean up) a test-request-specific
+    # directory for isolated configuration files such that,
+    # - multiple tests can run (possibly in parallel) without data races
+    #   on the config state,
+    # - we don't need to ever worry about leaking configs into the
+    #   system thus avoiding needing to manage config cleaup fixtures or
+    #   other bothers (since obviously `tmp_dir` cleans up after itself).
+    #
+    # In order to "pass down" the test dir path to all (sub-)actors in
+    # the actor tree we preload the root actor's runtime vars state (an
+    # internal mechanism for inheriting state down an actor tree in
+    # `tractor`) with the testing dir and check for it whenever we
+    # detect `pytest` is being used (which it isn't under normal
+    # operation).
     if "pytest" in sys.modules:
-        app_name = os.path.join(app_name, TEST_CONFIG_DIR_PATH)
+        import tractor
+        actor = tractor.current_actor(err_on_no_runtime=False)
+        if actor:  # runtime is up
+            rvs = tractor._state._runtime_vars
+            testdirpath = Path(rvs['piker_vars']['piker_test_dir'])
+            assert testdirpath.exists(), 'piker test harness might be borked!?'
+            app_name = str(testdirpath)
 
-    # if WIN:
     if platform.system() == 'Windows':
         key = "APPDATA" if roaming else "LOCALAPPDATA"
         folder = os.environ.get(key)
