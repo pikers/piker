@@ -154,6 +154,7 @@ async def open_pikerd(
     # db init flags
     tsdb: bool = False,
     es: bool = False,
+    drop_root_perms_for_ahab: bool = True,
 
     **kwargs,
 
@@ -203,6 +204,7 @@ async def open_pikerd(
                     'marketstored',
                     start_marketstore,
                     loglevel=loglevel,
+                    drop_root_perms=drop_root_perms_for_ahab,
                 )
 
             )
@@ -224,6 +226,7 @@ async def open_pikerd(
                     'elasticsearch',
                     start_elasticsearch,
                     loglevel=loglevel,
+                    drop_root_perms=drop_root_perms_for_ahab,
                 )
             )
 
@@ -244,28 +247,29 @@ async def open_pikerd(
             service_nursery.cancel_scope.cancel()
 
 
-@acm
-async def maybe_open_runtime(
-    loglevel: Optional[str] = None,
-    **kwargs,
+# TODO: do we even need this?
+# @acm
+# async def maybe_open_runtime(
+#     loglevel: Optional[str] = None,
+#     **kwargs,
 
-) -> None:
-    '''
-    Start the ``tractor`` runtime (a root actor) if none exists.
+# ) -> None:
+#     '''
+#     Start the ``tractor`` runtime (a root actor) if none exists.
 
-    '''
-    name = kwargs.pop('name')
+#     '''
+#     name = kwargs.pop('name')
 
-    if not tractor.current_actor(err_on_no_runtime=False):
-        async with open_piker_runtime(
-            name,
-            loglevel=loglevel,
-            **kwargs,
-        ) as (_, addr):
-            yield addr,
-    else:
-        async with open_registry() as addr:
-            yield addr
+#     if not tractor.current_actor(err_on_no_runtime=False):
+#         async with open_piker_runtime(
+#             name,
+#             loglevel=loglevel,
+#             **kwargs,
+#         ) as (_, addr):
+#             yield addr,
+#     else:
+#         async with open_registry() as addr:
+#             yield addr
 
 
 @acm
@@ -274,6 +278,7 @@ async def maybe_open_pikerd(
     registry_addr: None | tuple = None,
     tsdb: bool = False,
     es: bool = False,
+    drop_root_perms_for_ahab: bool = True,
 
     **kwargs,
 
@@ -288,7 +293,10 @@ async def maybe_open_pikerd(
         get_console_log(loglevel)
 
     # subtle, we must have the runtime up here or portal lookup will fail
-    query_name = kwargs.pop('name', f'piker_query_{os.getpid()}')
+    query_name = kwargs.pop(
+        'name',
+        f'piker_query_{os.getpid()}',
+    )
 
     # TODO: if we need to make the query part faster we could not init
     # an actor runtime and instead just hit the socket?
@@ -324,9 +332,13 @@ async def maybe_open_pikerd(
         loglevel=loglevel,
         debug_mode=kwargs.get('debug_mode', False),
         registry_addr=registry_addr,
+
+        # ahabd (docker super) specific controls
         tsdb=tsdb,
         es=es,
+        drop_root_perms_for_ahab=drop_root_perms_for_ahab,
 
+        # passthrough to ``tractor`` init
         **kwargs,
 
     ) as service_manager:
