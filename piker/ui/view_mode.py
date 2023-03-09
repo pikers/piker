@@ -337,8 +337,9 @@ def overlay_viewlists(
 
                 # determine start datum in view
                 in_view = viz.vs.in_view
-                if not in_view.size:
-                    log.warning(f'{viz.name} not in view?')
+                if in_view.size < 2:
+                    if debug_print:
+                        print(f'{viz.name} not in view?')
                     continue
 
                 row_start = in_view[0]
@@ -501,6 +502,8 @@ def overlay_viewlists(
                 )
                 profiler(f'{viz.name}@{chart_name} yrange scan complete')
 
+        # __ END OF scan phase (loop) __
+
         # NOTE: if no there were no overlay charts
         # detected/collected (could be either no group detected or
         # chart with a single symbol, thus a single viz/overlay)
@@ -610,10 +613,8 @@ def overlay_viewlists(
             ) = overlay_table[full_disp]
 
             key = 'open' if viz.is_ohlc else viz.name
-
             xref = minor_in_view[0]['time']
             match method:
-
                 # Pin this curve to the "major dispersion" (or other
                 # target) curve:
                 #
@@ -667,12 +668,16 @@ def overlay_viewlists(
                                 f'yref@xref_pin: {yref}\n'
                             )
 
+                    mx_scalars = mx_viz.scalars_from_index(xref)
+                    if mx_scalars is None:
+                        continue
+
                     (
                         i_start,
                         y_ref_major,
                         r_up_from_major_at_xref,
                         r_down_from_major_at_xref,
-                    ) = mx_viz.scalars_from_index(xref)
+                    ) = mx_scalars
 
                     if debug_print:
                         print(
@@ -680,8 +685,10 @@ def overlay_viewlists(
                             f'mx_xref: {mx_xref}\n'
                             f'major i_start: {i_start}\n'
                             f'y_ref_major: {y_ref_major}\n'
-                            f'r_up_from_major_at_xref {r_up_from_major_at_xref}\n'
-                            f'r_down_from_major_at_xref: {r_down_from_major_at_xref}\n'
+                            f'r_up_from_major_at_xref '
+                            f'{r_up_from_major_at_xref}\n'
+                            f'r_down_from_major_at_xref: '
+                            f'{r_down_from_major_at_xref}\n'
                             f'-----to minor-----\n'
                             f'xref: {xref}\n'
                             f'y_start: {y_start}\n'
@@ -711,8 +718,10 @@ def overlay_viewlists(
 
                         if debug_print:
                             print(
-                                f'RESCALE {mx_viz.name} DUE TO {viz.name} ymn -> {y_min}\n'
-                                f'-> MAJ ymn (w r_down: {r_dn_minor}) -> {mx_ymn}\n\n'
+                                f'RESCALE {mx_viz.name} DUE TO {viz.name} '
+                                f'ymn -> {y_min}\n'
+                                f'-> MAJ ymn (w r_down: {r_dn_minor}) '
+                                f'-> {mx_ymn}\n\n'
                             )
                         # rescale all already scaled curves to new
                         # increased range for this side as
@@ -753,8 +762,10 @@ def overlay_viewlists(
 
                         if debug_print:
                             print(
-                                f'RESCALE {mx_viz.name} DUE TO {viz.name} ymx -> {y_max}\n'
-                                f'-> MAJ ymx (r_up: {r_up_minor} -> {mx_ymx}\n\n'
+                                f'RESCALE {mx_viz.name} DUE TO {viz.name} '
+                                f'ymx -> {y_max}\n'
+                                f'-> MAJ ymx (r_up: {r_up_minor} '
+                                f'-> {mx_ymx}\n\n'
                             )
 
                         for _view in scaled:
@@ -815,6 +826,13 @@ def overlay_viewlists(
                         f'overlay ``method`` is invalid `{method}'
                     )
 
+        # __ END OF transform calc phase (loop) __
+
+        # finally, scale the major target/dispersion curve to
+        # the (possibly re-scaled/modified) values were set in
+        # transform phase loop.
+        mx_view._set_yrange(yrange=(mx_ymn, mx_ymx))
+
         if scaled:
             if debug_print:
                 print(
@@ -861,10 +879,7 @@ def overlay_viewlists(
                         '--------------------------------\n'
                     )
 
-            # finally, scale the major target/dispersion curve to
-            # the (possibly re-scaled/modified) values were set in
-            # transform phase loop.
-            mx_view._set_yrange(yrange=(mx_ymn, mx_ymx))
+        # __ END OF overlay scale phase (loop) __
 
         if debug_print:
             print(

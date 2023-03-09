@@ -1422,7 +1422,7 @@ class Viz(Struct):
             float,
             float,
             float,
-    ]:
+    ] | None:
         '''
         Calculate and deliver the log-returns scalars specifically
         according to y-data supported on this ``Viz``'s underlying
@@ -1454,6 +1454,9 @@ class Viz(Struct):
         # yref = arr[read_slc_start][key]
 
         read = arr[read_slc][key]
+        if not read.size:
+            return None
+
         yref = read[0]
         ymn, ymx = self.vs.yrange
         # print(
