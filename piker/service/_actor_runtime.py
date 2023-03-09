@@ -209,8 +209,8 @@ async def open_pikerd(
             )
 
         if es:
-            from piker.data._ahab import start_ahab
-            from piker.data.elastic import start_elasticsearch
+            from ._ahab import start_ahab
+            from .elastic import start_elasticsearch
 
             log.info('Spawning `elasticsearch` supervisor')
             ctn_ready, config, (cid, pid) = await service_nursery.start(
