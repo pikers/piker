@@ -1,12 +1,14 @@
-import trio
-
 from typing import AsyncContextManager
+import logging
 
+import trio
 from elasticsearch import (
     Elasticsearch,
     ConnectionError,
 )
+
 from piker.service import marketstore
+from piker.service import elastic
 
 
 def test_marketstore_startup_and_version(
@@ -31,6 +33,9 @@ def test_marketstore_startup_and_version(
                 services,
             ),
         ):
+            # TODO: we should probably make this connection poll
+            # loop part of the `get_client()` implementation no?
+
             # XXX NOTE: we use a retry-connect loop because it seems
             # that if we connect *too fast* to a booting container
             # instance (i.e. if mkts's IPC machinery isn't up early
@@ -67,9 +72,11 @@ def test_marketstore_startup_and_version(
 def test_elasticsearch_startup_and_version(
     open_test_pikerd: AsyncContextManager,
     loglevel: str,
+    log: logging.Logger,
 ):
     '''
-    Verify elasticsearch starts correctly
+    Verify elasticsearch starts correctly (like at some point before
+    infinity time)..
 
     '''
     async def main():
@@ -86,14 +93,32 @@ def test_elasticsearch_startup_and_version(
                 services,
             ),
         ):
+            # TODO: much like the above connect loop for mkts, we should
+            # probably make this sync start part of the
+            # ``open_client()`` implementation?
+            for i in range(240):
+                with Elasticsearch(
+                    hosts=[f'http://localhost:{port}']
+                ) as es:
+                    try:
 
-            for _ in range(240):
-                try:
-                    es = Elasticsearch(hosts=[f'http://localhost:{port}'])
-                except ConnectionError:
-                    await trio.sleep(1)
-                    continue
+                        resp = es.info()
+                        assert (
+                            resp['version']['number']
+                            ==
+                            elastic._config['version']
+                        )
+                        print(
+                            "OMG ELASTIX FINALLY CUKCING CONNECTED!>!>!\n"
+                            f'resp: {resp}'
+                        )
+                        break
 
-                assert es.info()['version']['number'] == '7.17.4'
+                    except ConnectionError:
+                        log.exception(
+                            f'RETRYING client connection for {i} time!'
+                        )
+                        await trio.sleep(1)
+                        continue
 
     trio.run(main)
