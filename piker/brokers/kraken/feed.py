@@ -453,7 +453,7 @@ async def open_symbol_search(
                     score_cutoff=50,
                 )
                 # repack in dict form
-                await stream.send(
-                    {item[0]['altname']: item[0]
-                     for item in matches}
-                )
+                await stream.send({
+                    pair[0].altname: pair[0]
+                    for pair in matches
+                })
