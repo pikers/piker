@@ -718,7 +718,7 @@ async def install_brokerd_search(
 
     async with portal.open_context(
         brokermod.open_symbol_search
-    ) as (ctx, cache):
+    ) as (ctx, _):
 
         # shield here since we expect the search rpc to be
         # cancellable by the user as they see fit.
