@@ -328,7 +328,7 @@ def quote_to_marketstore_structarray(
 @acm
 async def get_client(
     host: str = 'localhost',
-    port: int = 5995
+    port: int = _config['grpc_listen_port'],
 
 ) -> MarketstoreClient:
     '''
