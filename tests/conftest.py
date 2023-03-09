@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager as acm
 from functools import partial
+import logging
 import os
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from piker import (
 from piker.service import (
     Services,
 )
+from piker.log import get_console_log
 from piker.clearing._client import open_ems
 
 
@@ -65,6 +67,21 @@ def ci_env() -> bool:
 
     '''
     return _ci_env
+
+
+@pytest.fixture()
+def log(
+    request: pytest.FixtureRequest,
+    loglevel: str,
+) -> logging.Logger:
+    '''
+    Deliver a per-test-named ``piker.log`` instance.
+
+    '''
+    return get_console_log(
+        level=loglevel,
+        name=request.node.name,
+    )
 
 
 @acm
