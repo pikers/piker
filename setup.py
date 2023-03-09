@@ -87,7 +87,8 @@ setup(
         ],
         'es': [
             'docker',
-            'elasticsearch'
+            'elasticsearch',
+            'cryptofeed',
         ]
     },
     tests_require=['pytest'],

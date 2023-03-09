@@ -327,6 +327,7 @@ async def open_pikerd(
     # db init flags
     tsdb: bool = False,
     es: bool = False,
+    mpd: bool = False,
 
 ) -> Services:
     '''
@@ -395,6 +396,14 @@ async def open_pikerd(
                 f'container id: {cid[:12]}\n'
                 f'config: {pformat(config)}'
             )
+
+        if mpd:
+            from piker.data._max_pain_daemon import start_max_pain_daemon
+
+            start_max_pain_daemon()
+
+            log.info('Collecting data from deribit...')
+
 
         # assign globally for future daemon/task creation
         Services.actor_n = actor_nursery
