@@ -31,6 +31,7 @@ from typing import (
 )
 
 import pendulum
+import asks
 import trio
 from trio_typing import TaskStatus
 from fuzzywuzzy import process as fuzzy
@@ -356,6 +357,19 @@ class Client:
             })
 
         return LastTradesResult(**resp.result)
+
+    async def get_book_summary(
+        self,
+        currency: str,
+        kind: str = 'option'
+    ):
+        return await self.json_rpc(
+            'public/get_book_summary_by_currency',
+            params={
+                'currency': currency,
+                'kind': kind
+            })
+
 
 
 class JSONRPCSubRequest(Struct):
