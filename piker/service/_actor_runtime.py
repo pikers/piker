@@ -49,8 +49,6 @@ from ._registry import (  # noqa
 
 log = get_logger(__name__)
 
-_root_dname = 'pikerd'
-
 
 def get_tractor_runtime_kwargs() -> dict[str, Any]:
     '''
@@ -58,15 +56,6 @@ def get_tractor_runtime_kwargs() -> dict[str, Any]:
 
     '''
     return _tractor_kwargs
-
-
-_root_modules = [
-    __name__,
-    'piker.service._daemon',
-    'piker.clearing._ems',
-    'piker.clearing._client',
-    'piker.data._sampling',
-]
 
 
 @acm
@@ -139,6 +128,16 @@ async def open_piker_runtime(
             )
 
 
+_root_dname = 'pikerd'
+_root_modules = [
+    __name__,
+    'piker.service._daemon',
+    'piker.clearing._ems',
+    'piker.clearing._client',
+    'piker.data._sampling',
+]
+
+
 @acm
 async def open_pikerd(
 
@@ -155,8 +154,7 @@ async def open_pikerd(
 
 ) -> Services:
     '''
-    Start a root piker daemon who's lifetime extends indefinitely until
-    cancelled.
+    Start a root piker daemon with an indefinite lifetime.
 
     A root actor nursery is created which can be used to create and keep
     alive underling services (see below).
