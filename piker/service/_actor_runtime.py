@@ -74,6 +74,7 @@ async def open_piker_runtime(
     # and spawn the service tree distributed per that.
     start_method: str = 'trio',
 
+    tractor_runtime_overrides: dict | None = None,
     **tractor_kwargs,
 
 ) -> tuple[
@@ -93,6 +94,8 @@ async def open_piker_runtime(
         actor = tractor.current_actor().uid
 
     except tractor._exceptions.NoRuntime:
+        tractor._state._runtime_vars[
+            'piker_vars'] = tractor_runtime_overrides
 
         registry_addr = registry_addr or _default_reg_addr
 
@@ -152,6 +155,8 @@ async def open_pikerd(
     tsdb: bool = False,
     es: bool = False,
 
+    **kwargs,
+
 ) -> Services:
     '''
     Start a root piker daemon with an indefinite lifetime.
@@ -172,6 +177,8 @@ async def open_pikerd(
             loglevel=loglevel,
             debug_mode=debug_mode,
             registry_addr=registry_addr,
+
+            **kwargs,
 
         ) as (root_actor, reg_addr),
         tractor.open_nursery() as actor_nursery,
@@ -297,6 +304,7 @@ async def maybe_open_pikerd(
             loglevel=loglevel,
             **kwargs,
         ) as _,
+
         tractor.find_actor(
             _root_dname,
             arbiter_sockaddr=registry_addr,
@@ -318,6 +326,8 @@ async def maybe_open_pikerd(
         registry_addr=registry_addr,
         tsdb=tsdb,
         es=es,
+
+        **kwargs,
 
     ) as service_manager:
         # in the case where we're starting up the
