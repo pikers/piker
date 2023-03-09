@@ -2,7 +2,10 @@ import trio
 
 from typing import AsyncContextManager
 
-from elasticsearch import Elasticsearch
+from elasticsearch import (
+    Elasticsearch,
+    ConnectionError,
+)
 from piker.service import marketstore
 
 
@@ -45,8 +48,8 @@ def test_marketstore_startup_and_version(
                     if cs.cancelled_caught:
                         continue
 
-
-                    # should be an empty db?
+                    # should be an empty db (for now) since we spawn
+                    # marketstore in a ephemeral test-harness dir.
                     assert not syms
                     print(f'RX syms resp: {syms}')
 
@@ -72,12 +75,25 @@ def test_elasticsearch_startup_and_version(
     async def main():
         port = 19200
 
-        async with open_test_pikerd(
-            loglevel=loglevel,
-            es=True
-        ) as (s, i, pikerd_portal, services):
+        async with (
+            open_test_pikerd(
+                loglevel=loglevel,
+                es=True
+            ) as (
+                _,  # host
+                _,  # port
+                pikerd_portal,
+                services,
+            ),
+        ):
 
-            es = Elasticsearch(hosts=[f'http://localhost:{port}'])
-            assert es.info()['version']['number'] == '7.17.4'
+            for _ in range(240):
+                try:
+                    es = Elasticsearch(hosts=[f'http://localhost:{port}'])
+                except ConnectionError:
+                    await trio.sleep(1)
+                    continue
+
+                assert es.info()['version']['number'] == '7.17.4'
 
     trio.run(main)
