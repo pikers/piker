@@ -117,7 +117,13 @@ async def _open_test_pikerd(
             tractor_runtime_overrides={
                 'piker_test_dir': tmpconfdir,
             },
+
+            # tests may need to spawn containers dynamically
+            # or just in sequence per test, so we keep root.
+            drop_root_perms_for_ahab=False,
+
             **kwargs,
+
         ) as service_manager,
     ):
         # this proc/actor is the pikerd
