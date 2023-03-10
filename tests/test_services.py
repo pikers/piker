@@ -9,8 +9,7 @@ import pytest
 import trio
 import tractor
 
-from piker.log import get_logger
-from piker._daemon import (
+from piker.service import (
     find_service,
     Services,
 )

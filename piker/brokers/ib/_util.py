@@ -177,8 +177,11 @@ def i3ipc_xdotool_manual_click_hack() -> None:
                 )
 
     # re-activate and focus original window
-    subprocess.call([
-        'xdotool',
-        'windowactivate', '--sync', str(orig_win_id),
-        'click', '--window', str(orig_win_id), '1',
-    ])
+    try:
+        subprocess.call([
+            'xdotool',
+            'windowactivate', '--sync', str(orig_win_id),
+            'click', '--window', str(orig_win_id), '1',
+        ])
+    except subprocess.TimeoutExpired:
+        log.exception(f'xdotool timed out?')

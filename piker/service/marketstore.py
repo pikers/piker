@@ -26,7 +26,6 @@
 from __future__ import annotations
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
-from pprint import pformat
 from typing import (
     Any,
     Optional,
@@ -55,7 +54,7 @@ if TYPE_CHECKING:
     import docker
     from ._ahab import DockerContainer
 
-from .feed import maybe_open_feed
+from ..data.feed import maybe_open_feed
 from ..log import get_logger, get_console_log
 from .._profile import Profiler
 
@@ -63,11 +62,12 @@ from .._profile import Profiler
 log = get_logger(__name__)
 
 
-# container level config
+# ahabd-supervisor and container level config
 _config = {
     'grpc_listen_port': 5995,
     'ws_listen_port': 5993,
     'log_level': 'debug',
+    'startup_timeout': 2,
 }
 
 _yaml_config = '''
@@ -135,7 +135,7 @@ def start_marketstore(
 
     # create dirs when dne
     if not os.path.isdir(config._config_dir):
-       Path(config._config_dir).mkdir(parents=True, exist_ok=True)
+        Path(config._config_dir).mkdir(parents=True, exist_ok=True)
 
     if not os.path.isdir(mktsdir):
         os.mkdir(mktsdir)
@@ -185,7 +185,11 @@ def start_marketstore(
             config_dir_mnt,
             data_dir_mnt,
         ],
+
+        # XXX: this must be set to allow backgrounding/non-blocking
+        # usage interaction with the container's process.
         detach=True,
+
         # stop_signal='SIGINT',
         init=True,
         # remove=True,
@@ -324,7 +328,7 @@ def quote_to_marketstore_structarray(
 @acm
 async def get_client(
     host: str = 'localhost',
-    port: int = 5995
+    port: int = _config['grpc_listen_port'],
 
 ) -> MarketstoreClient:
     '''
@@ -510,7 +514,6 @@ class Storage:
 
         client = self.client
         syms = await client.list_symbols()
-        print(syms)
         if key not in syms:
             raise KeyError(f'`{key}` table key not found in\n{syms}?')
 
@@ -627,10 +630,10 @@ async def open_storage_client(
         yield Storage(client)
 
 
-async def tsdb_history_update(
-    fqsn: Optional[str] = None,
-
-) -> list[str]:
+@acm
+async def open_tsdb_client(
+    fqsn: str,
+) -> Storage:
 
     # TODO: real-time dedicated task for ensuring
     # history consistency between the tsdb, shm and real-time feed..
@@ -659,7 +662,7 @@ async def tsdb_history_update(
     #     - https://github.com/pikers/piker/issues/98
     #
     profiler = Profiler(
-        disabled=False,  # not pg_profile_enabled(),
+        disabled=True,  # not pg_profile_enabled(),
         delayed=False,
     )
 
@@ -700,14 +703,10 @@ async def tsdb_history_update(
 
             # profiler('Finished db arrays diffs')
 
-        syms = await storage.client.list_symbols()
-        log.info(f'Existing tsdb symbol set:\n{pformat(syms)}')
-        profiler(f'listed symbols {syms}')
-
-        # TODO: ask if user wants to write history for detected
-        # available shm buffers?
-        from tractor.trionics import ipython_embed
-        await ipython_embed()
+            syms = await storage.client.list_symbols()
+            # log.info(f'Existing tsdb symbol set:\n{pformat(syms)}')
+            # profiler(f'listed symbols {syms}')
+            yield storage
 
         # for array in [to_append, to_prepend]:
         #     if array is None:

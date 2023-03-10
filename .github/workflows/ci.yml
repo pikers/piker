@@ -36,6 +36,7 @@ jobs:
 
   testing:
     name: 'install + test-suite'
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
 

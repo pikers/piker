@@ -24,7 +24,7 @@ import tractor
 
 from ..cli import cli
 from .. import watchlists as wl
-from .._daemon import maybe_spawn_brokerd
+from ..service import maybe_spawn_brokerd
 
 
 _config_dir = click.get_app_dir('piker')
@@ -181,9 +181,6 @@ def chart(
             'debug_mode': pdb,
             'loglevel': tractorloglevel,
             'name': 'chart',
-            'enable_modules': [
-                'piker.clearing._client'
-            ],
             'registry_addr': config.get('registry_addr'),
         },
     )

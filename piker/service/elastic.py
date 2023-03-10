@@ -15,16 +15,10 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from __future__ import annotations
-from contextlib import asynccontextmanager as acm
-from pprint import pformat
 from typing import (
     Any,
     TYPE_CHECKING,
 )
-
-import pyqtgraph as pg
-import numpy as np
-import tractor
 
 
 if TYPE_CHECKING:
@@ -46,6 +40,9 @@ log = get_logger(__name__)
 _config = {
     'port': 19200,
     'log_level': 'debug',
+
+    # hardcoded to our image version
+    'version': '7.17.4',
 }
 
 
@@ -65,14 +62,14 @@ def start_elasticsearch(
             -itd \
             --rm \
             --network=host \
-            --mount type=bind,source="$(pwd)"/elastic,target=/usr/share/elasticsearch/data \
+            --mount type=bind,source="$(pwd)"/elastic,\
+              target=/usr/share/elasticsearch/data \
             --env "elastic_username=elastic" \
             --env "elastic_password=password" \
             --env "xpack.security.enabled=false" \
             elastic
 
     '''
-    import docker
     get_console_log('info', name=__name__)
 
     dcntr: DockerContainer = client.containers.run(
@@ -83,27 +80,49 @@ def start_elasticsearch(
         remove=True
     )
 
-    async def start_matcher(msg: str):
+    async def health_query(msg: str | None = None):
+        if (
+            msg
+            and _config['version'] in msg
+        ):
+            return True
+
         try:
             health = (await asks.get(
-                f'http://localhost:19200/_cat/health',
+                'http://localhost:19200/_cat/health',
                 params={'format': 'json'}
             )).json()
+            kog.info(
+                'ElasticSearch cntr health:\n'
+                f'{health}'
+            )
 
         except OSError:
-            log.error('couldnt reach elastic container')
+            log.exception('couldnt reach elastic container')
             return False
 
         log.info(health)
         return health[0]['status'] == 'green'
 
-    async def stop_matcher(msg: str):
+    async def chk_for_closed_msg(msg: str):
         return msg == 'closed'
 
     return (
         dcntr,
-        {},
+        {
+            # apparently we're REALLY tolerant of startup latency
+            # for CI XD
+            'startup_timeout': 240.0,
+
+            # XXX: decrease http poll period bc docker
+            # is shite at handling fast poll rates..
+            'startup_query_period': 0.1,
+
+            'log_msg_key': 'message',
+
+            # 'started_afunc': health_query,
+        },
         # expected startup and stop msgs
-        start_matcher,
-        stop_matcher,
+        health_query,
+        chk_for_closed_msg,
     )

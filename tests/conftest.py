@@ -1,19 +1,18 @@
 from contextlib import asynccontextmanager as acm
 from functools import partial
+import logging
 import os
-from typing import AsyncContextManager
 from pathlib import Path
-from shutil import rmtree
 
 import pytest
 import tractor
 from piker import (
-    # log,
     config,
 )
-from piker._daemon import (
+from piker.service import (
     Services,
 )
+from piker.log import get_console_log
 from piker.clearing._client import open_ems
 
 
@@ -70,8 +69,24 @@ def ci_env() -> bool:
     return _ci_env
 
 
+@pytest.fixture()
+def log(
+    request: pytest.FixtureRequest,
+    loglevel: str,
+) -> logging.Logger:
+    '''
+    Deliver a per-test-named ``piker.log`` instance.
+
+    '''
+    return get_console_log(
+        level=loglevel,
+        name=request.node.name,
+    )
+
+
 @acm
 async def _open_test_pikerd(
+    tmpconfdir: str,
     reg_addr: tuple[str, int] | None = None,
     loglevel: str = 'warning',
     **kwargs,
@@ -88,7 +103,7 @@ async def _open_test_pikerd(
 
     '''
     import random
-    from piker._daemon import maybe_open_pikerd
+    from piker.service import maybe_open_pikerd
 
     if reg_addr is None:
         port = random.randint(6e3, 7e3)
@@ -98,7 +113,17 @@ async def _open_test_pikerd(
         maybe_open_pikerd(
             registry_addr=reg_addr,
             loglevel=loglevel,
+
+            tractor_runtime_overrides={
+                'piker_test_dir': tmpconfdir,
+            },
+
+            # tests may need to spawn containers dynamically
+            # or just in sequence per test, so we keep root.
+            drop_root_perms_for_ahab=False,
+
             **kwargs,
+
         ) as service_manager,
     ):
         # this proc/actor is the pikerd
@@ -120,17 +145,39 @@ async def _open_test_pikerd(
 
 @pytest.fixture
 def open_test_pikerd(
-    request,
+    request: pytest.FixtureRequest,
+    tmp_path: Path,
     loglevel: str,
 ):
+    tmpconfdir: Path = tmp_path / '_testing'
+    tmpconfdir.mkdir()
+    tmpconfdir_str: str = str(tmpconfdir)
+
+    # NOTE: on linux the tmp config dir is generally located at:
+    # /tmp/pytest-of-<username>/pytest-<run#>/test_<current_test_name>/
+    # the default `pytest` config ensures that only the last 4 test
+    # suite run's dirs will be persisted, otherwise they are removed:
+    # https://docs.pytest.org/en/6.2.x/tmpdir.html#the-default-base-temporary-directory
+    print(f'CURRENT TEST CONF DIR: {tmpconfdir}')
 
     yield partial(
         _open_test_pikerd,
+
+        # pass in a unique temp dir for this test request
+        # so that we can have multiple tests running (maybe in parallel)
+        # bwitout clobbering each other's config state.
+        tmpconfdir=tmpconfdir_str,
 
         # bind in level from fixture, which is itself set by
         # `--ll <value>` cli flag.
         loglevel=loglevel,
     )
+
+    # NOTE: the `tmp_dir` fixture will wipe any files older then 3 test
+    # sessions by default:
+    # https://docs.pytest.org/en/6.2.x/tmpdir.html#the-default-base-temporary-directory
+    # BUT, if we wanted to always wipe conf dir and all contained files,
+    # rmtree(str(tmp_path))
 
     # TODO: teardown checks such as,
     # - no leaked subprocs or shm buffers
@@ -151,8 +198,9 @@ async def _open_test_pikerd_and_ems(
             fqsn,
             mode=mode,
             loglevel=loglevel,
-        ) as ems_services):
-            yield (services, ems_services)
+        ) as ems_services,
+    ):
+        yield (services, ems_services)
 
 
 @pytest.fixture
@@ -168,20 +216,4 @@ def open_test_pikerd_and_ems(
         mode,
         loglevel,
         open_test_pikerd
-    ) 
-
-
-@pytest.fixture(scope='module')
-def delete_testing_dir():
-    '''
-    This fixture removes the temp directory
-    used for storing all config/ledger/pp data
-    created during testing sessions. During test runs
-    this file can be found in .config/piker/_testing
-
-    '''
-    yield
-    app_dir = Path(config.get_app_dir('piker')).resolve()
-    if app_dir.is_dir():
-        rmtree(str(app_dir))
-        assert not app_dir.is_dir()
+    )

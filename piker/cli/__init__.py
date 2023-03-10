@@ -19,16 +19,18 @@ CLI commons.
 
 '''
 import os
-from pprint import pformat
-from functools import partial
 
 import click
 import trio
 import tractor
 
-from ..log import get_console_log, get_logger, colorize_json
+from ..log import (
+    get_console_log,
+    get_logger,
+    colorize_json,
+)
 from ..brokers import get_brokermod
-from .._daemon import (
+from ..service import (
     _default_registry_host,
     _default_registry_port,
 )
@@ -68,7 +70,7 @@ def pikerd(
 
     '''
 
-    from .._daemon import open_pikerd
+    from ..service import open_pikerd
     log = get_console_log(loglevel)
 
     if pdb:
@@ -171,7 +173,7 @@ def cli(
 @click.pass_obj
 def services(config, tl, ports):
 
-    from .._daemon import (
+    from ..service import (
         open_piker_runtime,
         _default_registry_port,
         _default_registry_host,
@@ -204,8 +206,8 @@ def services(config, tl, ports):
 
 
 def _load_clis() -> None:
-    from ..data import marketstore  # noqa
-    from ..data import elastic
+    from ..service import marketstore  # noqa
+    from ..service import elastic
     from ..data import cli  # noqa
     from ..brokers import cli  # noqa
     from ..ui import cli  # noqa

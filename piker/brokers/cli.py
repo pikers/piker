@@ -29,8 +29,15 @@ import tractor
 from ..cli import cli
 from .. import watchlists as wl
 from ..log import get_console_log, colorize_json, get_logger
-from .._daemon import maybe_spawn_brokerd, maybe_open_pikerd
-from ..brokers import core, get_brokermod, data
+from ..service import (
+    maybe_spawn_brokerd,
+    maybe_open_pikerd,
+)
+from ..brokers import (
+    core,
+    get_brokermod,
+    data,
+)
 
 log = get_logger('cli')
 DEFAULT_BROKER = 'questrade'
@@ -60,6 +67,7 @@ def get_method(client, meth_name: str):
     print_ok('found!.')
     return method
 
+
 async def run_method(client, meth_name: str, **kwargs):
     method = get_method(client, meth_name)
     print('running...', end='', flush=True)
@@ -67,19 +75,20 @@ async def run_method(client, meth_name: str, **kwargs):
     print_ok(f'done! result: {type(result)}')
     return result
 
+
 async def run_test(broker_name: str):
     brokermod = get_brokermod(broker_name)
     total = 0
     passed = 0
     failed = 0
 
-    print(f'getting client...', end='', flush=True)
+    print('getting client...', end='', flush=True)
     if not hasattr(brokermod, 'get_client'):
         print_error('fail! no \'get_client\' context manager found.')
         return
 
     async with brokermod.get_client(is_brokercheck=True) as client:
-        print_ok(f'done! inside client context.')
+        print_ok('done! inside client context.')
 
         # check for methods present on brokermod
         method_list = [
@@ -130,7 +139,6 @@ async def run_test(broker_name: str):
 
             total += 1
 
-
         # check for methods present con brokermod.Client and their
         # results
 
@@ -178,7 +186,6 @@ def brokercheck(config, broker):
             await portal.cancel_actor()
 
     trio.run(run_test, broker)
-
 
 
 @cli.command()
@@ -334,8 +341,6 @@ def contracts(ctx, loglevel, broker, symbol, ids):
     '''
     brokermod = get_brokermod(broker)
     get_console_log(loglevel)
-
-
 
     contracts = trio.run(partial(core.contracts, brokermod, symbol))
     if not ids:

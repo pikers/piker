@@ -18,31 +18,22 @@
 marketstore cli.
 
 """
-from functools import partial
-from pprint import pformat
-
-from anyio_marketstore import open_marketstore_client
 import trio
 import tractor
 import click
-import numpy as np
 
-from .marketstore import (
-    get_client,
+from ..service.marketstore import (
+    # get_client,
     # stream_quotes,
     ingest_quote_stream,
     # _url,
-    _tick_tbk_ids,
-    mk_tbk,
+    # _tick_tbk_ids,
+    # mk_tbk,
 )
 from ..cli import cli
 from .. import watchlists as wl
-from ..log import get_logger
-from ._sharedmem import (
-    maybe_open_shm_array,
-)
-from ._source import (
-    base_iohlc_dtype,
+from ..log import (
+    get_logger,
 )
 
 
@@ -89,16 +80,16 @@ def ms_stream(
 #     async def main():
 #         nonlocal names
 #         async with get_client(url) as client:
-# 
+#
 #             if not names:
 #                 names = await client.list_symbols()
-# 
+#
 #             # default is to wipe db entirely.
 #             answer = input(
 #                 "This will entirely wipe you local marketstore db @ "
 #                 f"{url} of the following symbols:\n {pformat(names)}"
 #                 "\n\nDelete [N/y]?\n")
-# 
+#
 #             if answer == 'y':
 #                 for sym in names:
 #                     # tbk = _tick_tbk.format(sym)
@@ -107,21 +98,17 @@ def ms_stream(
 #                     await client.destroy(mk_tbk(tbk))
 #             else:
 #                 print("Nothing deleted.")
-# 
+#
 #     tractor.run(main)
 
 
 @cli.command()
 @click.option(
-    '--tl',
-    is_flag=True,
-    help='Enable tractor logging')
-@click.option(
-    '--host',
+    '--tsdb_host',
     default='localhost'
 )
 @click.option(
-    '--port',
+    '--tsdb_port',
     default=5993
 )
 @click.argument('symbols', nargs=-1)
@@ -137,18 +124,93 @@ def storesh(
     Start an IPython shell ready to query the local marketstore db.
 
     '''
-    from piker.data.marketstore import tsdb_history_update
-    from piker._daemon import open_piker_runtime
+    from piker.data.marketstore import open_tsdb_client
+    from piker.service import open_piker_runtime
 
     async def main():
         nonlocal symbols
 
         async with open_piker_runtime(
             'storesh',
-            enable_modules=['piker.data._ahab'],
+            enable_modules=['piker.service._ahab'],
         ):
             symbol = symbols[0]
-            await tsdb_history_update(symbol)
+
+            async with open_tsdb_client(symbol):
+                # TODO: ask if user wants to write history for detected
+                # available shm buffers?
+                from tractor.trionics import ipython_embed
+                await ipython_embed()
+
+    trio.run(main)
+
+
+@cli.command()
+@click.option(
+    '--host',
+    default='localhost'
+)
+@click.option(
+    '--port',
+    default=5993
+)
+@click.option(
+    '--delete',
+    '-d',
+    is_flag=True,
+    help='Delete history (1 Min) for symbol(s)',
+)
+@click.argument('symbols', nargs=-1)
+@click.pass_obj
+def storage(
+    config,
+    host,
+    port,
+    symbols: list[str],
+    delete: bool,
+
+):
+    '''
+    Start an IPython shell ready to query the local marketstore db.
+
+    '''
+    from piker.service.marketstore import open_tsdb_client
+    from piker.service import open_piker_runtime
+
+    async def main():
+        nonlocal symbols
+
+        async with open_piker_runtime(
+            'tsdb_storage',
+            enable_modules=['piker.service._ahab'],
+        ):
+            symbol = symbols[0]
+            async with open_tsdb_client(symbol) as storage:
+                if delete:
+                    for fqsn in symbols:
+                        syms = await storage.client.list_symbols()
+
+                        resp60s = await storage.delete_ts(fqsn, 60)
+
+                        msgish = resp60s.ListFields()[0][1]
+                        if 'error' in str(msgish):
+
+                            # TODO: MEGA LOL, apparently the symbols don't
+                            # flush out until you refresh something or other
+                            # (maybe the WALFILE)... #lelandorlulzone, classic
+                            # alpaca(Rtm) design here ..
+                            # well, if we ever can make this work we
+                            # probably want to dogsplain the real reason
+                            # for the delete errurz..llululu
+                            if fqsn not in syms:
+                                log.error(f'Pair {fqsn} dne in DB')
+
+                            log.error(f'Deletion error: {fqsn}\n{msgish}')
+
+                        resp1s = await storage.delete_ts(fqsn, 1)
+                        msgish = resp1s.ListFields()[0][1]
+                        if 'error' in str(msgish):
+                            log.error(f'Deletion error: {fqsn}\n{msgish}')
 
     trio.run(main)
 
@@ -182,7 +244,7 @@ def ingest(config, name, test_file, tl):
 
     async def entry_point():
         async with tractor.open_nursery() as n:
-            for provider, symbols in grouped_syms.items(): 
+            for provider, symbols in grouped_syms.items():
                 await n.run_in_actor(
                     ingest_quote_stream,
                     name='ingest_marketstore',
