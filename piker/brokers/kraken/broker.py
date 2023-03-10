@@ -40,7 +40,7 @@ import pendulum
 import trio
 import tractor
 
-from piker.pp import (
+from piker.accounting import (
     Position,
     PpTable,
     Transaction,

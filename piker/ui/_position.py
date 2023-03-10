@@ -46,7 +46,7 @@ from ..calc import (
     puterize,
 )
 from ..clearing._allocate import Allocator
-from ..pp import Position
+from ..accounting import Position
 from ..data._normalize import iterticks
 from ..data.feed import (
     Feed,

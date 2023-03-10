@@ -49,7 +49,7 @@ from piker.brokers._util import (
     BrokerError,
     DataThrottle,
 )
-from piker.pp import Transaction
+from piker.accounting import Transaction
 from . import log
 
 # <uri>/<version>/

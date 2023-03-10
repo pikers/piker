@@ -25,7 +25,7 @@ from bidict import bidict
 
 from ..data._source import Symbol
 from ..data.types import Struct
-from ..pp import Position
+from ..accounting import Position
 
 
 _size_units = bidict({

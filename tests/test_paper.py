@@ -16,7 +16,7 @@ from functools import partial
 
 from piker.log import get_logger
 from piker.clearing._messages import Order
-from piker.pp import (
+from piker.accounting import (
     open_pps,
 )
 

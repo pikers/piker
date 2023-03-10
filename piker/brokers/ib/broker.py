@@ -51,7 +51,7 @@ from ib_insync.objects import Position as IbPosition
 import pendulum
 
 from piker import config
-from piker.pp import (
+from piker.accounting import (
     Position,
     Transaction,
     open_trade_ledger,

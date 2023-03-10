@@ -36,7 +36,7 @@ import trio
 from PyQt5.QtCore import Qt
 
 from .. import config
-from ..pp import Position
+from ..accounting import Position
 from ..clearing._client import open_ems, OrderBook
 from ..clearing._allocate import (
     mk_allocator,

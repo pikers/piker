@@ -39,7 +39,7 @@ import tractor
 from .. import data
 from ..data.types import Struct
 from ..data._source import Symbol
-from ..pp import (
+from ..accounting import (
     Position,
     Transaction,
     open_trade_ledger,
@@ -57,8 +57,6 @@ from ._messages import (
     BrokerdPosition,
     BrokerdError,
 )
-
-from ..config import load
 
 log = get_logger(__name__)
 
