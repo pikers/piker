@@ -154,19 +154,13 @@ class Client:
         json_rpc: Callable,
         append_hooks: Callable,
         update_types: Callable,
+        key_id: str | None = None,
+        key_secret: str | None = None
     ) -> None:
 
         self._pairs: dict[str, Any] = None
-
-        config = get_config().get('deribit', {})
-
-        if ('key_id' in config) and ('key_secret' in config):
-            self._key_id = config['key_id']
-            self._key_secret = config['key_secret']
-
-        else:
-            self._key_id = None
-            self._key_secret = None
+        self._key_id = key_id
+        self._key_secret = key_secret
 
         self.json_rpc = json_rpc
         self.append_hooks = append_hooks
@@ -383,14 +377,24 @@ async def get_client(
     is_brokercheck: bool = False
 ) -> Client:
 
+    config = get_config().get('deribit', {})
+
+    ws_url = config.get('ws_url', _ws_url)
+    key_id = config.get('key_id', None)
+    key_secret = config.get('key_secret', None)
+
     async with (
         trio.open_nursery() as n,
         open_jsonrpc_session(
-            _ws_url,
+            ws_url,
             response_type=JSONRPCResult
         ) as control_functions
     ):
-        client = Client(*control_functions)
+        client = Client(
+            *control_functions,
+            key_id=key_id,
+            key_secret=key_secret
+        )
 
         _refresh_token: Optional[str] = None
         _access_token: Optional[str] = None
@@ -580,6 +584,9 @@ async def open_ticker_feed(
 
         client.append_hooks({
             'request': [sub_hook]
+        })
+        client.update_types({
+            'request': JSONRPCSubRequest
         })
 
         resp = await client.json_rpc(
