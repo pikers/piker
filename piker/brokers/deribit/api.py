@@ -152,7 +152,7 @@ class Client:
     def __init__(
         self,
         json_rpc: Callable,
-        update_hooks: Callable,
+        append_hooks: Callable,
         update_types: Callable,
     ) -> None:
 
@@ -169,7 +169,7 @@ class Client:
             self._key_secret = None
 
         self.json_rpc = json_rpc
-        self.update_hooks = update_hooks
+        self.append_hooks = append_hooks
         self.update_types = update_types
 
     @property
@@ -490,6 +490,7 @@ async def open_price_feed(
                     }]
                 }
             ))
+            return True
 
         elif chan == book_chan:
             bid, bsize = data['bids'][0]
@@ -504,11 +505,14 @@ async def open_price_feed(
                     {'type': 'asize', 'price': ask, 'size': asize}
                 ]}
             ))
+            return True
+
+        return False
 
     async with open_cached_client('deribit') as client:
 
-        client.update_hooks({
-            'request': sub_hook
+        client.append_hooks({
+            'request': [sub_hook]
         })
         client.update_types({
             'request': JSONRPCSubRequest
@@ -517,12 +521,15 @@ async def open_price_feed(
         resp = await client.json_rpc(
             'private/subscribe', {'channels': channels})
 
-        assert resp.result == channels
+        assert not resp.error
 
         log.info(f'Subscribed to {channels}')
 
         yield recv_chann
 
+        resp = await client.json_rpc('private/unsubscribe', {'channels': channels})
+
+        assert not resp.error
 
 @acm
 async def maybe_open_price_feed(
@@ -543,71 +550,64 @@ async def maybe_open_price_feed(
             yield feed
 
 
-# TODO: order broker support: this is all draft code from @guilledk B)
+@acm
+async def open_ticker_feed(
+    instrument: str
+) -> trio.abc.ReceiveStream:
 
-# async def aio_order_feed_relay(
-#     fh: FeedHandler,
-#     instrument: Symbol,
-#     from_trio: asyncio.Queue,
-#     to_trio: trio.abc.SendChannel,
+    instrument_db = sym_fmt_piker_to_deribit(instrument)
 
-# ) -> None:
-#     async def _fill(data: dict, receipt_timestamp):
-#         breakpoint()
+    ticker_chan = f'incremental_ticker.{instrument_db}'
 
-#     async def _order_info(data: dict, receipt_timestamp):
-#         breakpoint()
+    channels = [ticker_chan]
 
-#     fh.add_feed(
-#         DERIBIT,
-#         channels=[FILLS, ORDER_INFO],
-#         symbols=[instrument.upper()],
-#         callbacks={
-#             FILLS: _fill,
-#             ORDER_INFO: _order_info,
-#         })
+    send_chann, recv_chann = trio.open_memory_channel(0)
+    async def sub_hook(msg):
+        chann = msg.params['channel']
+        if chann == ticker_chan:
+            data = msg.params['data']
+            await send_chann.send((
+                'ticker', {
+                    'symbol': instrument,
+                    'data': data
+                }
+            ))
+            return True
 
-#     if not fh.running:
-#         fh.run(
-#             start_loop=False,
-#             install_signal_handlers=False)
+        return False
 
-#     # sync with trio
-#     to_trio.send_nowait(None)
+    async with open_cached_client('deribit') as client:
 
-#     await asyncio.sleep(float('inf'))
+        client.append_hooks({
+            'request': [sub_hook]
+        })
 
+        resp = await client.json_rpc(
+            'private/subscribe', {'channels': channels})
 
-# @acm
-# async def open_order_feed(
-#     instrument: list[str]
-# ) -> trio.abc.ReceiveStream:
-#     async with maybe_open_feed_handler() as fh:
-#         async with to_asyncio.open_channel_from(
-#             partial(
-#                 aio_order_feed_relay,
-#                 fh,
-#                 instrument
-#             )
-#         ) as (first, chan):
-#             yield chan
+        assert not resp.error
 
+        log.info(f'Subscribed to {channels}')
 
-# @acm
-# async def maybe_open_order_feed(
-#     instrument: str
-# ) -> trio.abc.ReceiveStream:
+        yield recv_chann
 
-#     # TODO: add a predicate to maybe_open_context
-#     async with maybe_open_context(
-#         acm_func=open_order_feed,
-#         kwargs={
-#             'instrument': instrument,
-#             'fh': fh
-#         },
-#         key=f'{instrument}-order',
-#     ) as (cache_hit, feed):
-#         if cache_hit:
-#             yield broadcast_receiver(feed, 10)
-#         else:
-#             yield feed
+        resp = await client.json_rpc('private/unsubscribe', {'channels': channels})
+
+        assert not resp.error
+
+@acm
+async def maybe_open_ticker_feed(
+    instrument: str
+) -> trio.abc.ReceiveStream:
+
+    async with maybe_open_context(
+        acm_func=open_ticker_feed,
+        kwargs={
+            'instrument': instrument
+        },
+        key=f'{instrument}-ticker',
+    ) as (cache_hit, feed):
+        if cache_hit:
+            yield broadcast_receiver(feed, 10)
+        else:
+            yield feed

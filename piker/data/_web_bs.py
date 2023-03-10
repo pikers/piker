@@ -209,9 +209,17 @@ async def open_jsonrpc_session(
         raise ValueError(
             'Need to path both a request_type and request_hook')
 
+    req_hooks = []
+    if request_hook:
+        req_hooks.append(request_hook)
+
+    err_hooks = []
+    if error_hook:
+        err_hooks.append(error_hook)
+
     hook_table = {
-        'request': request_hook,
-        'error': error_hook
+        'request': req_hooks,
+        'error': err_hooks
     }
 
     types_table = {
@@ -219,9 +227,10 @@ async def open_jsonrpc_session(
         'request': request_type
     }
 
-    def update_hooks(new_hooks: dict):
+    def append_hooks(new_hooks: dict):
         nonlocal hook_table
-        hook_table.update(new_hooks)
+        for htype, hooks in new_hooks.items():
+            hook_table[htype] += hooks
 
     def update_types(new_types: dict):
         nonlocal types_table
@@ -234,7 +243,7 @@ async def open_jsonrpc_session(
         rpc_id: Iterable = count(start_id)
         rpc_results: dict[int, dict] = {}
 
-        async def json_rpc(method: str, params: dict) -> dict:
+        async def json_rpc(method: str, params: dict = {}) -> dict:
             '''
             perform a json rpc call and wait for the result, raise exception in
             case of error field present on response
@@ -303,19 +312,25 @@ async def open_jsonrpc_session(
                         'params': _,
                     }:
                         log.info(f'Recieved\n{msg}')
-                        if hook_table['request']:
-                            await hook_table['request'](types_table['request'](**msg))
+                        if len(hook_table['request']) > 0:
+                            for hook in hook_table['request']:
+                                result = await hook(types_table['request'](**msg))
+                                if result:
+                                    break
 
                     case {
                         'error': error,
                     }:
                         log.warning(f'Recieved\n{error}')
-                        if hook_table['error']:
-                            await hook_table['error'](types_table['response'](**msg))
+                        if len(hook_table['error']) > 0:
+                            for hook in hook_table['error']:
+                                result = await hook(types_table['response'](**msg))
+                                if result:
+                                    break
 
                     case _:
                         log.warning(f'Unhandled JSON-RPC msg!?\n{msg}')
 
         n.start_soon(recv_task)
-        yield json_rpc, update_hooks, update_types
+        yield json_rpc, append_hooks, update_types
         n.cancel_scope.cancel()
