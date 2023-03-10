@@ -90,6 +90,21 @@ def float_digits(
     return int(-Decimal(str(value)).as_tuple().exponent)
 
 
+def digits_to_dec(
+    ndigits: int,
+) -> Decimal:
+    '''
+    Return the minimum float value for an input integer value.
+
+    eg. 3 -> 0.001
+
+    '''
+    if ndigits == 0:
+        return Decimal('0')
+
+    return Decimal('0.' + '0'*(ndigits-1) + '1')
+
+
 def ohlc_zeros(length: int) -> np.ndarray:
     """Construct an OHLC field formatted structarray.
 
@@ -213,10 +228,13 @@ class Symbol(Struct):
 
         return Symbol(
             key=symbol,
+
             tick_size=tick_size,
             lot_tick_size=lot_size,
+
             tick_size_digits=float_digits(tick_size),
             lot_size_digits=float_digits(lot_size),
+
             suffix=suffix,
             broker_info={broker: info},
         )
