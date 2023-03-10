@@ -1153,7 +1153,7 @@ def norm_trade_records(
 
         # special handling of symbol extraction from
         # flex records using some ad-hoc schema parsing.
-        asset_type: str = record.get('assetCategory') or record['secType']
+        asset_type: str = record.get('assetCategory') or record.get('secType', 'STK')
 
         # TODO: XXX: WOA this is kinda hacky.. probably
         # should figure out the correct future pair key more
