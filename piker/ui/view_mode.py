@@ -668,18 +668,17 @@ def overlay_viewlists(
                                 f'yref@xref_pin: {yref}\n'
                             )
 
-                    # if we need to handle not-in-view cases?
-                    # mx_scalars = mx_viz.scalars_from_index(xref)
-                    # if mx_scalars is None:
-                    #     continue
-
+                    # XXX: we need to handle not-in-view cases?
+                    # still not sure why or when tf this happens..
+                    mx_scalars = mx_viz.scalars_from_index(xref)
+                    if mx_scalars is None:
+                        continue
                     (
                         i_start,
                         y_ref_major,
                         r_up_from_major_at_xref,
                         r_down_from_major_at_xref,
-                    ) = mx_viz.scalars_from_index(xref)
-                    # ) = mx_scalars
+                    ) = mx_scalars
 
                     if debug_print:
                         print(
