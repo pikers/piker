@@ -20,6 +20,7 @@ Kraken web API wrapping.
 '''
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
+from decimal import Decimal
 import itertools
 from typing import (
     Any,
@@ -248,6 +249,9 @@ class Client:
             {},
         )
         by_bsuid = resp['result']
+
+        # TODO: we need to pull out the "asset" decimals
+        # data and return a `decimal.Decimal` instead here!
         return {
             self._atable[sym].lower(): float(bal)
             for sym, bal in by_bsuid.items()

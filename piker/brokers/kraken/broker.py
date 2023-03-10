@@ -21,7 +21,6 @@ Order api and machinery
 from collections import ChainMap, defaultdict
 from contextlib import (
     asynccontextmanager as acm,
-    contextmanager as cm,
 )
 from functools import partial
 from itertools import count
@@ -47,8 +46,12 @@ from piker.pp import (
     Transaction,
     open_trade_ledger,
     open_pps,
+    get_likely_pair,
 )
-from piker.data._source import Symbol
+from piker.data._source import (
+    Symbol,
+    digits_to_dec,
+)
 from piker.clearing._messages import (
     Order,
     Status,
@@ -470,12 +473,14 @@ async def trades_dialogue(
         with (
             open_pps(
                 'kraken',
-                acctid
+                acctid,
+                write_on_exit=True,
+
             ) as table,
 
             open_trade_ledger(
                 'kraken',
-                acctid
+                acctid,
             ) as ledger_dict,
         ):
             # transaction-ify the ledger entries
@@ -494,7 +499,10 @@ async def trades_dialogue(
             # what amount of trades-transactions need
             # to be reloaded.
             balances = await client.get_balances()
+            # await tractor.breakpoint()
+
             for dst, size in balances.items():
+
                 # we don't care about tracking positions
                 # in the user's source fiat currency.
                 if (
@@ -508,45 +516,20 @@ async def trades_dialogue(
                     )
                     continue
 
-                def get_likely_pair(
-                    dst: str,
-                    bsuid: str,
-                    src_fiat: str = src_fiat
-
-                ) -> str:
-                    '''
-                    Attempt to get the likely trading pair masting
-                    a given destination asset `dst: str`.
-
-                    '''
-                    try:
-                        src_name_start = bsuid.rindex(src_fiat)
-                    except (
-                        ValueError,   # substr not found
-                    ):
-                        # TODO: handle nested positions..(i.e.
-                        # positions where the src fiat was used to
-                        # buy some other dst which was furhter used
-                        # to buy another dst..)
-                        log.warning(
-                            f'No src fiat {src_fiat} found in {bsuid}?'
-                        )
-                        return
-
-                    likely_dst = bsuid[:src_name_start]
-                    if likely_dst == dst:
-                        return bsuid
-
                 def has_pp(
                     dst: str,
                     size: float,
 
-                ) -> Position | bool:
+                ) -> Position | None:
 
                     src2dst: dict[str, str] = {}
 
                     for bsuid in table.pps:
-                        likely_pair = get_likely_pair(dst, bsuid)
+                        likely_pair = get_likely_pair(
+                            src_fiat,
+                            dst,
+                            bsuid,
+                        )
                         if likely_pair:
                             src2dst[src_fiat] = dst
 
@@ -574,7 +557,7 @@ async def trades_dialogue(
                             )
                             return pp
 
-                    return False
+                    return None  # signal no entry
 
                 pos = has_pp(dst, size)
                 if not pos:
@@ -602,7 +585,11 @@ async def trades_dialogue(
                             # yet and thus this likely pair grabber will
                             # likely fail.
                             for bsuid in table.pps:
-                                likely_pair = get_likely_pair(dst, bsuid)
+                                likely_pair = get_likely_pair(
+                                    src_fiat,
+                                    dst,
+                                    bsuid,
+                                )
                                 if likely_pair:
                                     break
                             else:
@@ -724,8 +711,8 @@ async def handle_order_updates(
     '''
     Main msg handling loop for all things order management.
 
-    This code is broken out to make the context explicit and state variables
-    defined in the signature clear to the reader.
+    This code is broken out to make the context explicit and state
+    variables defined in the signature clear to the reader.
 
     '''
     async for msg in ws_stream:
@@ -1204,7 +1191,13 @@ def norm_trade_records(
             fqsn,
             info={
                 'lot_size_digits': pair_info.lot_decimals,
+                'lot_tick_size': digits_to_dec(
+                    pair_info.lot_decimals,
+                ),
                 'tick_size_digits': pair_info.pair_decimals,
+                'price_tick_size': digits_to_dec(
+                    pair_info.pair_decimals,
+                ),
                 'asset_type': 'crypto',
             },
         )
