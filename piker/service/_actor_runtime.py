@@ -174,7 +174,6 @@ async def open_pikerd(
             # having the root have more then permissions to
             # spawn other specialized daemons I think?
             enable_modules=_root_modules,
-
             loglevel=loglevel,
             debug_mode=debug_mode,
             registry_addr=registry_addr,
@@ -330,7 +329,6 @@ async def maybe_open_pikerd(
     # configured address
     async with open_pikerd(
         loglevel=loglevel,
-        debug_mode=kwargs.get('debug_mode', False),
         registry_addr=registry_addr,
 
         # ahabd (docker super) specific controls

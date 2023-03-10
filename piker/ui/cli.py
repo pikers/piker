@@ -181,9 +181,6 @@ def chart(
             'debug_mode': pdb,
             'loglevel': tractorloglevel,
             'name': 'chart',
-            'enable_modules': [
-                'piker.clearing._client'
-            ],
             'registry_addr': config.get('registry_addr'),
         },
     )
