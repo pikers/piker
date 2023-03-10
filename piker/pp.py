@@ -484,7 +484,9 @@ class Position(Struct):
         if self.split_ratio is not None:
             size = round(size * self.split_ratio)
 
-        return float(self.symbol.quantize_size(size))
+        return float(
+            self.symbol.quantize_size(size),
+        )
 
     def minimize_clears(
         self,
@@ -564,9 +566,13 @@ class PpTable(Struct):
         pps = self.pps
         updated: dict[str, Position] = {}
 
-        # lifo update all pps from records
-        for tid, t in trans.items():
-
+        # lifo update all pps from records, ensuring
+        # we compute the PPU and size sorted in time!
+        for t in sorted(
+            trans.values(),
+            key=lambda t: t.dt,
+            reverse=True,
+        ):
             pp = pps.setdefault(
                 t.bsuid,
 
@@ -590,7 +596,10 @@ class PpTable(Struct):
                 # included in the current pps state.
                 if (
                     t.tid in clears
-                    or first_clear_dt and t.dt < first_clear_dt
+                    or (
+                        first_clear_dt
+                        and t.dt < first_clear_dt
+                    )
                 ):
                     # NOTE: likely you'll see repeats of the same
                     # ``Transaction`` passed in here if/when you are restarting
@@ -607,6 +616,8 @@ class PpTable(Struct):
         for bsuid, pp in updated.items():
             pp.ensure_state()
 
+        # deliver only the position entries that were actually updated
+        # (modified the state) from the input transaction set.
         return updated
 
     def dump_active(
@@ -1029,6 +1040,36 @@ def open_pps(
     finally:
         if write_on_exit:
             table.write_config()
+
+
+def get_likely_pair(
+    src: str,
+    dst: str,
+    bsuid: str,
+
+) -> str:
+    '''
+    Attempt to get the likely trading pair matching a given destination
+    asset `dst: str`.
+
+    '''
+    try:
+        src_name_start = bsuid.rindex(src)
+    except (
+        ValueError,   # substr not found
+    ):
+        # TODO: handle nested positions..(i.e.
+        # positions where the src fiat was used to
+        # buy some other dst which was furhter used
+        # to buy another dst..)
+        log.warning(
+            f'No src fiat {src} found in {bsuid}?'
+        )
+        return
+
+    likely_dst = bsuid[:src_name_start]
+    if likely_dst == dst:
+        return bsuid
 
 
 if __name__ == '__main__':
