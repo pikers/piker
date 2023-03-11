@@ -15,10 +15,9 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-
+Kucoin broker backend
 """
 
-from logging import warning
 from typing import Any, Optional, Literal
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
@@ -40,10 +39,6 @@ from piker._cacheables import open_cached_client
 from piker.log import get_logger
 from ._util import DataUnavailable
 from piker.pp import config
-
-_spawn_kwargs = {
-    "infect_asyncio": True,
-}
 
 log = get_logger(__name__)
 _ohlc_dtype = [
@@ -68,7 +63,7 @@ class Client:
         self._authenticated: bool = False
 
         config = get_config()
-        breakpoint()
+
         if ("key_id" in config) and \
             ("key_secret" in config) and \
                 ("key_passphrase" in config):
@@ -83,11 +78,13 @@ class Client:
         endpoint: str,
         api_v: str = "v2",
     ):
+        '''
+        https://docs.kucoin.com/#authentication
+        '''
         now = int(time.time() * 1000)
         path = f'/api/{api_v}{endpoint}'
         str_to_sign = str(now) + action + path
 
-        # Add headers to request if authenticated
         signature = base64.b64encode(
             hmac.new(
                 self._key_secret.encode('utf-8'),
@@ -109,7 +106,7 @@ class Client:
             "KC-API-TIMESTAMP": str(now),
             "KC-API-KEY": self._key_id,
             "KC-API-PASSPHRASE": passphrase,
-            "KC-API-KEY-VERSION": "2"
+            "KC-API-KEY-VERSION": api_v[1]
         }
 
     async def _request(
@@ -117,8 +114,8 @@ class Client:
         action: Literal["POST", "GET", "PUT", "DELETE"],
         endpoint: str,
         api_v: str = "v2",
+        headers: dict = {}
     ) -> Any:
-        headers = {}
 
         if self._authenticated:
             headers = self._gen_auth_req_headers(action, endpoint, api_v)
