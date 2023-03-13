@@ -30,10 +30,10 @@ import tractor
 import pendulum
 import numpy as np
 
-from .types import Struct
-from ._source import (
+from ..accounting._mktinfo import (
     Symbol,
 )
+from .types import Struct
 from ._sharedmem import (
     attach_shm_array,
     ShmArray,

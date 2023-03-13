@@ -42,7 +42,7 @@ from ..clearing._allocate import (
     mk_allocator,
 )
 from ._style import _font
-from ..data._source import Symbol
+from ..accounting._mktinfo import Symbol
 from ..data.feed import (
     Feed,
     Flume,

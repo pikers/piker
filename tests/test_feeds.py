@@ -13,7 +13,7 @@ from piker.data import (
     ShmArray,
     open_feed,
 )
-from piker.data._source import (
+from piker.accounting._mktinfo import (
     unpack_fqsn,
 )
 

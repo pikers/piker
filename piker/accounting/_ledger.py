@@ -33,9 +33,9 @@ import tomli
 import toml
 
 from .. import config
-from ..data._source import Symbol
 from ..data.types import Struct
 from ..log import get_logger
+from ._mktinfo import Symbol
 
 log = get_logger(__name__)
 

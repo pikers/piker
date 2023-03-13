@@ -68,7 +68,7 @@ from ..data.feed import (
     Feed,
     Flume,
 )
-from ..data._source import Symbol
+from ..accounting._mktinfo import Symbol
 from ..log import get_logger
 from ._interaction import ChartView
 from ._forms import FieldsForm

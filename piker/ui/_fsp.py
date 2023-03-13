@@ -46,7 +46,7 @@ from ..data._sharedmem import (
     try_read,
 )
 from ..data.feed import Flume
-from ..data._source import Symbol
+from ..accounting._mktinfo import Symbol
 from ._chart import (
     ChartPlotWidget,
     LinkedSplits,

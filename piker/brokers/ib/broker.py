@@ -70,7 +70,7 @@ from piker.clearing._messages import (
     BrokerdFill,
     BrokerdError,
 )
-from piker.data._source import (
+from piker.accounting._mktinfo import (
     Symbol,
     float_digits,
 )

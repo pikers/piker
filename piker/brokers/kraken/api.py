@@ -42,7 +42,7 @@ import trio
 
 from piker import config
 from piker.data.types import Struct
-from piker.data._source import Symbol
+from piker.accounting._mktinfo import Symbol
 from piker.brokers._util import (
     resproc,
     SymbolNotFound,

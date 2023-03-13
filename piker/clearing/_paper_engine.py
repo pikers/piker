@@ -38,7 +38,7 @@ import tractor
 
 from .. import data
 from ..data.types import Struct
-from ..data._source import Symbol
+from ..accounting._mktinfo import Symbol
 from ..accounting import (
     Position,
     Transaction,

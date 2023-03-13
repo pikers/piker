@@ -43,10 +43,13 @@ from ._ledger import (
     iter_by_dt,
     open_trade_ledger,
 )
+from ._mktinfo import (
+    Symbol,
+    unpack_fqsn,
+)
 from .. import config
 from ..brokers import get_brokermod
 from ..clearing._messages import BrokerdPosition, Status
-from ..data._source import Symbol, unpack_fqsn
 from ..data.types import Struct
 from ..log import get_logger
 
@@ -153,6 +156,7 @@ class Position(Struct):
 
             inline_table['tid'] = tid
             toml_clears_list.append(inline_table)
+
 
         d['clears'] = toml_clears_list
 

@@ -70,11 +70,11 @@ from ._sharedmem import (
 )
 from .ingest import get_ingestormod
 from .types import Struct
-from ._source import (
-    base_iohlc_dtype,
+from ..accounting._mktinfo import (
     Symbol,
     unpack_fqsn,
 )
+from ._source import base_iohlc_dtype
 from ..ui import _search
 from ._sampling import (
     open_sample_stream,

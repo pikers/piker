@@ -29,7 +29,7 @@ from typing import (
 
 from msgspec import field
 
-from ..data._source import Symbol
+from ..accounting._mktinfo import Symbol
 from ..data.types import Struct
 
 

@@ -644,7 +644,7 @@ class Client:
         # fqsn parsing stage
         # ------------------
         if '.ib' in pattern:
-            from ..data._source import unpack_fqsn
+            from ..accounting._mktinfo import unpack_fqsn
             _, symbol, expiry = unpack_fqsn(pattern)
 
         else:

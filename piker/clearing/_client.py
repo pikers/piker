@@ -27,6 +27,7 @@ import trio
 import tractor
 from tractor.trionics import broadcast_receiver
 
+from ..accounting._mktinfo import unpack_fqsn
 from ..log import get_logger
 from ..data.types import Struct
 from ..service import maybe_open_emsd
@@ -228,7 +229,6 @@ async def open_ems(
     # ready for order commands
     book = get_orders()
 
-    from ..data._source import unpack_fqsn
     broker, symbol, suffix = unpack_fqsn(fqsn)
 
     async with maybe_open_emsd(broker) as portal:

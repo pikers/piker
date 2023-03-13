@@ -43,7 +43,7 @@ import tractor
 
 from ..log import get_logger
 from ..data._normalize import iterticks
-from ..data._source import (
+from ..accounting._mktinfo import (
     unpack_fqsn,
     mk_fqsn,
     float_digits,
@@ -521,7 +521,6 @@ class Router(Struct):
         none already exists.
 
         '''
-        from ..data._source import unpack_fqsn
         broker, symbol, suffix = unpack_fqsn(fqsn)
 
         async with (

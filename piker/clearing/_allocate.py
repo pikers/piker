@@ -23,7 +23,7 @@ from typing import Optional
 
 from bidict import bidict
 
-from ..data._source import Symbol
+from ..accounting._mktinfo import Symbol
 from ..data.types import Struct
 from ..accounting import Position
 

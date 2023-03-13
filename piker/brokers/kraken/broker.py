@@ -48,7 +48,7 @@ from piker.accounting import (
     open_pps,
     get_likely_pair,
 )
-from piker.data._source import (
+from piker.accounting._mktinfo import (
     Symbol,
     digits_to_dec,
 )

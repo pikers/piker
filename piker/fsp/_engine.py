@@ -45,7 +45,7 @@ from ..data._sampling import (
     _default_delay_s,
     open_sample_stream,
 )
-from ..data._source import Symbol
+from ..accounting._mktinfo import Symbol
 from ._api import (
     Fsp,
     _load_builtins,

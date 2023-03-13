@@ -28,7 +28,7 @@ from ..service import maybe_spawn_brokerd
 from . import _event
 from ._exec import run_qtractor
 from ..data.feed import install_brokerd_search
-from ..data._source import unpack_fqsn
+from ..accounting._mktinfo import unpack_fqsn
 from . import _search
 from ._chart import GodWidget
 from ..log import get_logger
