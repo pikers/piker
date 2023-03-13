@@ -192,6 +192,10 @@ class Renderer(msgspec.Struct):
 
         ) = fmt_out
 
+        if not x_1d.size:
+            log.warning(f'{array_key} has no `.size`?')
+            return
+
         # redraw conditions
         if (
             prepend_length > 0
