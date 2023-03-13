@@ -24,7 +24,10 @@ from contextlib import asynccontextmanager as acm
 from functools import partial
 import inspect
 from itertools import cycle
-from typing import Optional, AsyncGenerator, Any
+from typing import (
+    AsyncGenerator,
+    Any,
+)
 
 import numpy as np
 import msgspec
@@ -80,7 +83,7 @@ def has_vlm(ohlcv: ShmArray) -> bool:
 def update_fsp_chart(
     viz,
     graphics_name: str,
-    array_key: Optional[str],
+    array_key: str | None,
     **kwargs,
 
 ) -> None:
@@ -476,7 +479,7 @@ class FspAdmin:
         target: Fsp,
         conf: dict[str, dict[str, Any]],
 
-        worker_name: Optional[str] = None,
+        worker_name: str | None = None,
         loglevel: str = 'info',
 
     ) -> (Flume, trio.Event):
@@ -608,10 +611,11 @@ async def open_vlm_displays(
     linked: LinkedSplits,
     flume: Flume,
     dvlm: bool = True,
+    loglevel: str = 'info',
 
     task_status: TaskStatus[ChartPlotWidget] = trio.TASK_STATUS_IGNORED,
 
-) -> ChartPlotWidget:
+) -> None:
     '''
     Volume subchart displays.
 
@@ -666,7 +670,6 @@ async def open_vlm_displays(
         # built-in vlm which we plot ASAP since it's
         # usually data provided directly with OHLC history.
         shm = ohlcv
-        # ohlc_chart = linked.chart
 
         vlm_chart = linked.add_plot(
             name='volume',
@@ -690,7 +693,14 @@ async def open_vlm_displays(
         # the axis on the left it's totally not lined up...
         # show volume units value on LHS (for dinkus)
         # vlm_chart.hideAxis('right')
-        # vlm_chart.showAxis('left')
+        vlm_chart.hideAxis('left')
+
+        # TODO: is it worth being able to remove axes (from i guess
+        # a perf perspective) enough that we can actually do this and
+        # other axis related calls (for eg. label upddates in the
+        # display loop) don't raise when a the axis can't be loaded and
+        # thus would normally cause many label related calls to crash?
+        # axis = vlm_chart.removeAxis('left')
 
         # send back new chart to caller
         task_status.started(vlm_chart)
@@ -704,17 +714,9 @@ async def open_vlm_displays(
 
         # read from last calculated value
         value = shm.array['volume'][-1]
-
         last_val_sticky.update_from_data(-1, value)
 
-        _, _, vlm_curve = vlm_chart.update_graphics_from_flow(
-            'volume',
-        )
-
-        # size view to data once at outset
-        vlm_chart.view._set_yrange(
-            viz=vlm_viz
-        )
+        _, _, vlm_curve = vlm_viz.update_graphics()
 
         # add axis title
         axis = vlm_chart.getAxis('right')
@@ -722,7 +724,6 @@ async def open_vlm_displays(
 
         if dvlm:
 
-            tasks_ready = []
             # spawn and overlay $ vlm on the same subchart
             dvlm_flume, started = await admin.start_engine_task(
                 dolla_vlm,
@@ -736,22 +737,8 @@ async def open_vlm_displays(
                         },
                     },
                 },
-                # loglevel,
+                loglevel,
             )
-            tasks_ready.append(started)
-
-            # FIXME: we should error on starting the same fsp right
-            # since it might collide with existing shm.. or wait we
-            # had this before??
-            # dolla_vlm
-
-            tasks_ready.append(started)
-            # profiler(f'created shm for fsp actor: {display_name}')
-
-            # wait for all engine tasks to startup
-            async with trio.open_nursery() as n:
-                for event in tasks_ready:
-                    n.start_soon(event.wait)
 
             # dolla vlm overlay
             # XXX: the main chart already contains a vlm "units" axis
@@ -773,10 +760,6 @@ async def open_vlm_displays(
                     'text_color': vlm_color,
                 },
             )
-
-            # TODO: should this maybe be implicit based on input args to
-            # `.overlay_plotitem()` above?
-            dvlm_pi.hideAxis('bottom')
 
             # all to be overlayed curve names
             dvlm_fields = [
@@ -827,6 +810,7 @@ async def open_vlm_displays(
                     )
                     assert viz.plot is pi
 
+            await started.wait()
             chart_curves(
                 dvlm_fields,
                 dvlm_pi,
@@ -835,19 +819,17 @@ async def open_vlm_displays(
                 step_mode=True,
             )
 
-            # spawn flow rates fsp **ONLY AFTER** the 'dolla_vlm' fsp is
-            # up since this one depends on it.
-
+            # NOTE: spawn flow rates fsp **ONLY AFTER** the 'dolla_vlm' fsp is
+            # up since calculating vlm "rates" obvs first requires the
+            # underlying vlm event feed ;)
             fr_flume, started = await admin.start_engine_task(
                 flow_rates,
                 {  # fsp engine conf
                     'func_name': 'flow_rates',
                     'zero_on_step': True,
                 },
-                # loglevel,
+                loglevel,
             )
-            await started.wait()
-
             # chart_curves(
             #     dvlm_rate_fields,
             #     dvlm_pi,
@@ -859,13 +841,15 @@ async def open_vlm_displays(
             # hide the original vlm curve since the $vlm one is now
             # displayed and the curves are effectively the same minus
             # liquidity events (well at least on low OHLC periods - 1s).
-            vlm_curve.hide()
+            # vlm_curve.hide()
             vlm_chart.removeItem(vlm_curve)
             vlm_viz = vlm_chart._vizs['volume']
-            vlm_viz.render = False
-
-            # avoid range sorting on volume once disabled
             vlm_chart.view.disable_auto_yrange()
+            # NOTE: DON'T DO THIS.
+            # WHY: we want range sorting on volume for the RHS label!
+            #  -> if you don't want that then use this but likely you
+            #     only will if we decide to drop unit vlm..
+            # vlm_viz.render = False
 
             # Trade rate overlay
             # XXX: requires an additional overlay for
@@ -888,8 +872,8 @@ async def open_vlm_displays(
                 },
 
             )
-            tr_pi.hideAxis('bottom')
 
+            await started.wait()
             chart_curves(
                 trade_rate_fields,
                 tr_pi,

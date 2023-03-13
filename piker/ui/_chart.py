@@ -19,9 +19,12 @@ High level chart-widget apis.
 
 '''
 from __future__ import annotations
+from contextlib import (
+    contextmanager as cm,
+    ExitStack,
+)
 from typing import (
     Iterator,
-    Optional,
     TYPE_CHECKING,
 )
 
@@ -102,7 +105,7 @@ class GodWidget(QWidget):
 
         super().__init__(parent)
 
-        self.search: Optional[SearchWidget] = None
+        self.search: SearchWidget | None = None
 
         self.hbox = QHBoxLayout(self)
         self.hbox.setContentsMargins(0, 0, 0, 0)
@@ -116,22 +119,14 @@ class GodWidget(QWidget):
 
         self.hbox.addLayout(self.vbox)
 
-        # self.toolbar_layout = QHBoxLayout()
-        # self.toolbar_layout.setContentsMargins(0, 0, 0, 0)
-        # self.vbox.addLayout(self.toolbar_layout)
-
-        # self.init_timeframes_ui()
-        # self.init_strategy_ui()
-        # self.vbox.addLayout(self.hbox)
-
         self._chart_cache: dict[
             str,
             tuple[LinkedSplits, LinkedSplits],
         ] = {}
 
-        self.hist_linked: Optional[LinkedSplits] = None
-        self.rt_linked: Optional[LinkedSplits] = None
-        self._active_cursor: Optional[Cursor] = None
+        self.hist_linked: LinkedSplits | None = None
+        self.rt_linked: LinkedSplits | None = None
+        self._active_cursor: Cursor | None = None
 
         # assigned in the startup func `_async_main()`
         self._root_n: trio.Nursery = None
@@ -143,14 +138,17 @@ class GodWidget(QWidget):
         # and the window does not? Never right?!
         # self.reg_for_resize(self)
 
+    # TODO: strat loader/saver that we don't need yet.
+    # def init_strategy_ui(self):
+    #     self.toolbar_layout = QHBoxLayout()
+    #     self.toolbar_layout.setContentsMargins(0, 0, 0, 0)
+    #     self.vbox.addLayout(self.toolbar_layout)
+    #     self.strategy_box = StrategyBoxWidget(self)
+    #     self.toolbar_layout.addWidget(self.strategy_box)
+
     @property
     def linkedsplits(self) -> LinkedSplits:
         return self.rt_linked
-
-    # XXX: strat loader/saver that we don't need yet.
-    # def init_strategy_ui(self):
-    #     self.strategy_box = StrategyBoxWidget(self)
-    #     self.toolbar_layout.addWidget(self.strategy_box)
 
     def set_chart_symbols(
         self,
@@ -263,7 +261,9 @@ class GodWidget(QWidget):
             # last had the xlast in view, if so then shift so it's
             # still in view, if the user was viewing history then
             # do nothing yah?
-            self.rt_linked.chart.default_view()
+            self.rt_linked.chart.main_viz.default_view(
+                do_min_bars=True,
+            )
 
         # if a history chart instance is already up then
         # set the search widget as its sidepane.
@@ -372,7 +372,7 @@ class ChartnPane(QFrame):
     '''
     sidepane: FieldsForm | SearchWidget
     hbox: QHBoxLayout
-    chart: Optional[ChartPlotWidget] = None
+    chart: ChartPlotWidget | None = None
 
     def __init__(
         self,
@@ -432,7 +432,7 @@ class LinkedSplits(QWidget):
 
         self.godwidget = godwidget
         self.chart: ChartPlotWidget = None  # main (ohlc) chart
-        self.subplots: dict[tuple[str, ...], ChartPlotWidget] = {}
+        self.subplots: dict[str, ChartPlotWidget] = {}
 
         self.godwidget = godwidget
         # placeholder for last appended ``PlotItem``'s bottom axis.
@@ -450,7 +450,7 @@ class LinkedSplits(QWidget):
         # chart-local graphics state that can be passed to
         # a ``graphic_update_cycle()`` call by any task wishing to
         # update the UI for a given "chart instance".
-        self.display_state: Optional[DisplayState] = None
+        self.display_state: DisplayState | None = None
 
         self._symbol: Symbol = None
 
@@ -480,7 +480,7 @@ class LinkedSplits(QWidget):
 
     def set_split_sizes(
         self,
-        prop: Optional[float] = None,
+        prop: float | None = None,
 
     ) -> None:
         '''
@@ -494,7 +494,7 @@ class LinkedSplits(QWidget):
             prop = 3/8
 
         h = self.height()
-        histview_h = h * (6/16)
+        histview_h = h * (4/11)
         h = h - histview_h
 
         major = 1 - prop
@@ -574,11 +574,11 @@ class LinkedSplits(QWidget):
         shm: ShmArray,
         flume: Flume,
 
-        array_key: Optional[str] = None,
+        array_key: str | None = None,
         style: str = 'line',
         _is_main: bool = False,
 
-        sidepane: Optional[QWidget] = None,
+        sidepane: QWidget | None = None,
         draw_kwargs: dict = {},
 
         **cpw_kwargs,
@@ -634,6 +634,7 @@ class LinkedSplits(QWidget):
             axis.pi = cpw.plotItem
 
         cpw.hideAxis('left')
+        # cpw.removeAxis('left')
         cpw.hideAxis('bottom')
 
         if (
@@ -750,12 +751,12 @@ class LinkedSplits(QWidget):
 
         # NOTE: back-link the new sub-chart to trigger y-autoranging in
         # the (ohlc parent) main chart for this linked set.
-        if self.chart:
-            main_viz = self.chart.get_viz(self.chart.name)
-            self.chart.view.enable_auto_yrange(
-                src_vb=cpw.view,
-                viz=main_viz,
-            )
+        # if self.chart:
+        #     main_viz = self.chart.get_viz(self.chart.name)
+        #     self.chart.view.enable_auto_yrange(
+        #         src_vb=cpw.view,
+        #         viz=main_viz,
+        #     )
 
         graphics = viz.graphics
         data_key = viz.name
@@ -793,7 +794,7 @@ class LinkedSplits(QWidget):
 
     def resize_sidepanes(
         self,
-        from_linked: Optional[LinkedSplits] = None,
+        from_linked: LinkedSplits | None = None,
 
     ) -> None:
         '''
@@ -816,11 +817,17 @@ class LinkedSplits(QWidget):
                 self.chart.sidepane.setMinimumWidth(sp_w)
 
 
-# TODO: we should really drop using this type and instead just
-# write our own wrapper around `PlotItem`..
+# TODO: a general rework of this widget-interface:
+# - we should really drop using this type and instead just lever our
+#   own override of `PlotItem`..
+# - possibly rename to class -> MultiChart(pg.PlotWidget):
+#   where the widget is responsible for containing management
+#   harness for multi-Viz "view lists" and their associated mode-panes
+#   (fsp chain, order ctl, feed queue-ing params, actor ctl, etc).
+
 class ChartPlotWidget(pg.PlotWidget):
     '''
-    ``GraphicsView`` subtype containing a ``.plotItem: PlotItem`` as well
+    ``PlotWidget`` subtype containing a ``.plotItem: PlotItem`` as well
     as a `.pi_overlay: PlotItemOverlay`` which helps manage and overlay flow
     graphics view multiple compose view boxes.
 
@@ -861,7 +868,7 @@ class ChartPlotWidget(pg.PlotWidget):
         # TODO: load from config
         use_open_gl: bool = False,
 
-        static_yrange: Optional[tuple[float, float]] = None,
+        static_yrange: tuple[float, float] | None = None,
 
         parent=None,
         **kwargs,
@@ -876,7 +883,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # NOTE: must be set bfore calling ``.mk_vb()``
         self.linked = linkedsplits
-        self.sidepane: Optional[FieldsForm] = None
+        self.sidepane: FieldsForm | None = None
 
         # source of our custom interactions
         self.cv = self.mk_vb(name)
@@ -1010,36 +1017,10 @@ class ChartPlotWidget(pg.PlotWidget):
         # )
         return line_end, marker_right, r_axis_x
 
-    def default_view(
-        self,
-        bars_from_y: int = int(616 * 3/8),
-        y_offset: int = 0,
-        do_ds: bool = True,
-
-    ) -> None:
-        '''
-        Set the view box to the "default" startup view of the scene.
-
-        '''
-        viz = self.get_viz(self.name)
-
-        if not viz:
-            log.warning(f'`Viz` for {self.name} not loaded yet?')
-            return
-
-        viz.default_view(
-            bars_from_y,
-            y_offset,
-            do_ds,
-        )
-
-        if do_ds:
-            self.linked.graphics_cycle()
-
     def increment_view(
         self,
         datums: int = 1,
-        vb: Optional[ChartView] = None,
+        vb: ChartView | None = None,
 
     ) -> None:
         '''
@@ -1057,6 +1038,7 @@ class ChartPlotWidget(pg.PlotWidget):
             # breakpoint()
             return
 
+        # should trigger broadcast on all overlays right?
         view.setXRange(
             min=l + x_shift,
             max=r + x_shift,
@@ -1069,8 +1051,8 @@ class ChartPlotWidget(pg.PlotWidget):
     def overlay_plotitem(
         self,
         name: str,
-        index: Optional[int] = None,
-        axis_title: Optional[str] = None,
+        index: int | None = None,
+        axis_title: str | None = None,
         axis_side: str = 'right',
         axis_kwargs: dict = {},
 
@@ -1119,6 +1101,15 @@ class ChartPlotWidget(pg.PlotWidget):
             link_axes=(0,),
         )
 
+        # hide all axes not named by ``axis_side``
+        for axname in (
+            ({'bottom'} | allowed_sides) - {axis_side}
+        ):
+            try:
+                pi.hideAxis(axname)
+            except Exception:
+                pass
+
         # add axis title
         # TODO: do we want this API to still work?
         # raxis = pi.getAxis('right')
@@ -1134,11 +1125,11 @@ class ChartPlotWidget(pg.PlotWidget):
         shm: ShmArray,
         flume: Flume,
 
-        array_key: Optional[str] = None,
+        array_key: str | None = None,
         overlay: bool = False,
-        color: Optional[str] = None,
+        color: str | None = None,
         add_label: bool = True,
-        pi: Optional[pg.PlotItem] = None,
+        pi: pg.PlotItem | None = None,
         step_mode: bool = False,
         is_ohlc: bool = False,
         add_sticky: None | str = 'right',
@@ -1197,6 +1188,10 @@ class ChartPlotWidget(pg.PlotWidget):
         )
 
         pi.viz = viz
+        # so that viewboxes are associated 1-to-1 with
+        # their parent plotitem
+        pi.vb._viz = viz
+
         assert isinstance(viz.shm, ShmArray)
 
         # TODO: this probably needs its own method?
@@ -1209,17 +1204,21 @@ class ChartPlotWidget(pg.PlotWidget):
                 pi = overlay
 
         if add_sticky:
-            axis = pi.getAxis(add_sticky)
-            if pi.name not in axis._stickies:
 
-                if pi is not self.plotItem:
-                    overlay = self.pi_overlay
-                    assert pi in overlay.overlays
-                    overlay_axis = overlay.get_axis(
-                        pi,
-                        add_sticky,
-                    )
-                    assert overlay_axis is axis
+            if pi is not self.plotItem:
+                # overlay = self.pi_overlay
+                # assert pi in overlay.overlays
+                overlay = self.pi_overlay
+                assert pi in overlay.overlays
+                axis = overlay.get_axis(
+                    pi,
+                    add_sticky,
+                )
+
+            else:
+                axis = pi.getAxis(add_sticky)
+
+            if pi.name not in axis._stickies:
 
                 # TODO: UGH! just make this not here! we should
                 # be making the sticky from code which has access
@@ -1263,7 +1262,7 @@ class ChartPlotWidget(pg.PlotWidget):
         shm: ShmArray,
         flume: Flume,
 
-        array_key: Optional[str] = None,
+        array_key: str | None = None,
         **draw_curve_kwargs,
 
     ) -> Viz:
@@ -1280,24 +1279,6 @@ class ChartPlotWidget(pg.PlotWidget):
             **draw_curve_kwargs,
         )
 
-    def update_graphics_from_flow(
-        self,
-        graphics_name: str,
-        array_key: Optional[str] = None,
-
-        **kwargs,
-
-    ) -> pg.GraphicsObject:
-        '''
-        Update the named internal graphics from ``array``.
-
-        '''
-        viz = self._vizs[array_key or graphics_name]
-        return viz.update_graphics(
-            array_key=array_key,
-            **kwargs,
-        )
-
     # TODO: pretty sure we can just call the cursor
     # directly not? i don't wee why we need special "signal proxies"
     # for this lul..
@@ -1309,43 +1290,6 @@ class ChartPlotWidget(pg.PlotWidget):
         # pg.PlotWidget.leaveEvent(self, ev)
         self.sig_mouse_leave.emit(self)
         self.scene().leaveEvent(ev)
-
-    def maxmin(
-        self,
-        name: Optional[str] = None,
-        bars_range: Optional[tuple[
-            int, int, int, int, int, int
-        ]] = None,
-
-    ) -> tuple[float, float]:
-        '''
-        Return the max and min y-data values "in view".
-
-        If ``bars_range`` is provided use that range.
-
-        '''
-        # TODO: here we should instead look up the ``Viz.shm.array``
-        # and read directly from shm to avoid copying to memory first
-        # and then reading it again here.
-        viz_key = name or self.name
-        viz = self._vizs.get(viz_key)
-        if viz is None:
-            log.error(f"viz {viz_key} doesn't exist in chart {self.name} !?")
-            return 0, 0
-
-        res = viz.maxmin()
-
-        if (
-            res is None
-        ):
-            mxmn = 0, 0
-            if not self._on_screen:
-                self.default_view(do_ds=False)
-                self._on_screen = True
-        else:
-            x_range, read_slc, mxmn = res
-
-        return mxmn
 
     def get_viz(
         self,
@@ -1360,3 +1304,32 @@ class ChartPlotWidget(pg.PlotWidget):
     @property
     def main_viz(self) -> Viz:
         return self.get_viz(self.name)
+
+    def iter_vizs(self) -> Iterator[Viz]:
+        return iter(self._vizs.values())
+
+    @cm
+    def reset_graphics_caches(self) -> None:
+        '''
+        Reset all managed ``Viz`` (flow) graphics objects
+        Qt cache modes (to ``NoCache`` mode) on enter and
+        restore on exit.
+
+        '''
+        with ExitStack() as stack:
+            for viz in self.iter_vizs():
+                stack.enter_context(
+                    viz.graphics.reset_cache(),
+                )
+
+                # also reset any downsampled alt-graphics objects which
+                # might be active.
+                dsg = viz.ds_graphics
+                if dsg:
+                    stack.enter_context(
+                        dsg.reset_cache(),
+                    )
+            try:
+                yield
+            finally:
+                stack.close()

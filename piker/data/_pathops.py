@@ -295,7 +295,7 @@ def slice_from_time(
     arr: np.ndarray,
     start_t: float,
     stop_t: float,
-    step: int | None = None,
+    step: float,  # sampler period step-diff
 
 ) -> slice:
     '''
@@ -323,12 +323,6 @@ def slice_from_time(
     # the greatest index we can return which slices to the
     # end of the input array.
     read_i_max = arr.shape[0]
-
-    # TODO: require this is always passed in?
-    if step is None:
-        step = round(t_last - times[-2])
-        if step == 0:
-            step = 1
 
     # compute (presumed) uniform-time-step index offsets
     i_start_t = floor(start_t)
@@ -395,7 +389,7 @@ def slice_from_time(
             #     f'diff: {t_diff}\n'
             #     f'REMAPPED START i: {read_i_start} -> {new_read_i_start}\n'
             # )
-            read_i_start = new_read_i_start - 1
+            read_i_start = new_read_i_start
 
     t_iv_stop = times[read_i_stop - 1]
     if (
@@ -412,7 +406,7 @@ def slice_from_time(
             times[read_i_start:],
             # times,
             i_stop_t,
-            side='left',
+            side='right',
         )
 
         if (

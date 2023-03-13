@@ -25,7 +25,6 @@ from functools import partial
 from math import floor, copysign
 from typing import (
     Callable,
-    Optional,
     TYPE_CHECKING,
 )
 
@@ -170,12 +169,12 @@ class SettingsPane:
     limit_label: QLabel
 
     # encompasing high level namespace
-    order_mode: Optional['OrderMode'] = None  # typing: ignore # noqa
+    order_mode: OrderMode | None = None  # typing: ignore # noqa
 
     def set_accounts(
         self,
         names: list[str],
-        sizes: Optional[list[float]] = None,
+        sizes: list[float] | None = None,
     ) -> None:
 
         combo = self.form.fields['account']
@@ -540,8 +539,8 @@ class Nav(Struct):
     charts: dict[int, ChartPlotWidget]
     pp_labels: dict[str, Label] = {}
     size_labels: dict[str, Label] = {}
-    lines: dict[str, Optional[LevelLine]] = {}
-    level_markers: dict[str, Optional[LevelMarker]] = {}
+    lines: dict[str, LevelLine | None] = {}
+    level_markers: dict[str, LevelMarker | None] = {}
     color: str = 'default_lightest'
 
     def update_ui(
@@ -550,7 +549,7 @@ class Nav(Struct):
         price: float,
         size: float,
         slots_used: float,
-        size_digits: Optional[int] = None,
+        size_digits: int | None = None,
 
     ) -> None:
         '''
@@ -847,7 +846,7 @@ class PositionTracker:
 
     def update_from_pp(
         self,
-        position: Optional[Position] = None,
+        position: Position | None = None,
         set_as_startup: bool = False,
 
     ) -> None:

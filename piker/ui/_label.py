@@ -19,7 +19,10 @@ Non-shitty labels that don't re-invent the wheel.
 
 """
 from inspect import isfunction
-from typing import Callable, Optional, Any
+from typing import (
+    Callable,
+    Any,
+)
 
 import pyqtgraph as pg
 from PyQt5 import QtGui, QtWidgets
@@ -70,9 +73,7 @@ class Label:
         self._fmt_str = fmt_str
         self._view_xy = QPointF(0, 0)
 
-        self.scene_anchor: Optional[
-            Callable[..., QPointF]
-        ] = None
+        self.scene_anchor: Callable[..., QPointF] | None = None
 
         self._x_offset = x_offset
 
@@ -164,7 +165,7 @@ class Label:
         self,
 
         y: float,
-        x: Optional[float] = None,
+        x: float | None = None,
 
     ) -> None:
 

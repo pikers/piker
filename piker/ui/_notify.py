@@ -21,7 +21,6 @@ Notifications utils.
 import os
 import platform
 import subprocess
-from typing import Optional
 
 import trio
 
@@ -33,7 +32,7 @@ from ..clearing._messages import (
 log = get_logger(__name__)
 
 
-_dbus_uid: Optional[str] = ''
+_dbus_uid: str | None = ''
 
 
 async def notify_from_ems_status_msg(

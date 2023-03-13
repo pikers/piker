@@ -25,7 +25,6 @@ from functools import partial
 from pprint import pformat
 import time
 from typing import (
-    Optional,
     Callable,
     Any,
     TYPE_CHECKING,
@@ -129,7 +128,7 @@ class OrderMode:
     trackers: dict[str, PositionTracker]
 
     # switched state, the current position
-    current_pp: Optional[PositionTracker] = None
+    current_pp: PositionTracker | None = None
     active: bool = False
     name: str = 'order'
     dialogs: dict[str, Dialog] = field(default_factory=dict)
@@ -139,7 +138,7 @@ class OrderMode:
         'buy': 'buy_green',
         'sell': 'sell_red',
     }
-    _staged_order: Optional[Order] = None
+    _staged_order: Order | None = None
 
     def on_level_change_update_next_order_info(
         self,
@@ -180,7 +179,7 @@ class OrderMode:
     def new_line_from_order(
         self,
         order: Order,
-        chart: Optional[ChartPlotWidget] = None,
+        chart: ChartPlotWidget | None = None,
         **line_kwargs,
 
     ) -> LevelLine:
@@ -340,7 +339,7 @@ class OrderMode:
     def submit_order(
         self,
         send_msg: bool = True,
-        order: Optional[Order] = None,
+        order: Order | None = None,
 
     ) -> Dialog:
         '''
@@ -452,7 +451,7 @@ class OrderMode:
     def on_submit(
         self,
         uuid: str,
-        order: Optional[Order] = None,
+        order: Order | None = None,
 
     ) -> Dialog:
         '''
@@ -496,7 +495,7 @@ class OrderMode:
         price: float,
         time_s: float,
 
-        pointing: Optional[str] = None,
+        pointing: str | None = None,
 
     ) -> None:
         '''

@@ -51,7 +51,20 @@ log = get_logger(__name__)
 
 
 class Renderer(msgspec.Struct):
+    '''
+    Low(er) level interface for converting a source, real-time updated,
+    data buffer (usually held in a ``ShmArray``) to a graphics data
+    format usable by `Qt`.
 
+    A renderer reads in context-specific source data using a ``Viz``,
+    formats that data to a 2D-xy pre-graphics format using
+    a ``IncrementalFormatter``, then renders that data to a set of
+    output graphics objects normally a ``.ui._curve.FlowGraphics``
+    sub-type to which the ``Renderer.path`` is applied and further "last
+    datum" graphics are updated from the source buffer's latest
+    sample(s).
+
+    '''
     viz: Viz
     fmtr: IncrementalFormatter
 
@@ -179,6 +192,10 @@ class Renderer(msgspec.Struct):
 
         ) = fmt_out
 
+        if not x_1d.size:
+            log.warning(f'{array_key} has no `.size`?')
+            return
+
         # redraw conditions
         if (
             prepend_length > 0
@@ -195,7 +212,7 @@ class Renderer(msgspec.Struct):
         fast_path: QPainterPath = self.fast_path
         reset: bool = False
 
-        self.viz.yrange = None
+        self.viz.ds_yrange = None
 
         # redraw the entire source data if we have either of:
         # - no prior path graphic rendered or,
@@ -218,7 +235,7 @@ class Renderer(msgspec.Struct):
                 )
                 if ds_out is not None:
                     x_1d, y_1d, ymn, ymx = ds_out
-                    self.viz.yrange = ymn, ymx
+                    self.viz.ds_yrange = ymn, ymx
                     # print(f'{self.viz.name} post ds: ymn, ymx: {ymn},{ymx}')
 
                     reset = True

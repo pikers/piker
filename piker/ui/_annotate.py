@@ -18,7 +18,7 @@
 Annotations for ur faces.
 
 """
-from typing import Callable, Optional
+from typing import Callable
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF, QRectF
@@ -105,7 +105,7 @@ class LevelMarker(QGraphicsPathItem):
         get_level: Callable[..., float],
         size: float = 20,
         keep_in_view: bool = True,
-        on_paint: Optional[Callable] = None,
+        on_paint: Callable | None = None,
 
     ) -> None:
 

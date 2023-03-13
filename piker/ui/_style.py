@@ -18,7 +18,7 @@
 Qt UI styling.
 
 '''
-from typing import Optional, Dict
+from typing import Dict
 import math
 
 import pyqtgraph as pg
@@ -52,7 +52,7 @@ class DpiAwareFont:
         # TODO: move to config
         name: str = 'Hack',
         font_size: str = 'default',
-        # size_in_inches: Optional[float] = None,
+
     ) -> None:
         self.name = name
         self._qfont = QtGui.QFont(name)
@@ -91,13 +91,14 @@ class DpiAwareFont:
     def px_size(self) -> int:
         return self._qfont.pixelSize()
 
-    def configure_to_dpi(self, screen: Optional[QtGui.QScreen] = None):
-        """Set an appropriately sized font size depending on the screen DPI.
+    def configure_to_dpi(self, screen: QtGui.QScreen | None = None):
+        '''
+        Set an appropriately sized font size depending on the screen DPI.
 
         If we end up needing to generalize this more here there are resources
         listed in the script in ``snippets/qt_screen_info.py``.
 
-        """
+        '''
         if screen is None:
             screen = self.screen
 

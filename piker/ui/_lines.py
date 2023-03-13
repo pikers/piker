@@ -22,7 +22,6 @@ from __future__ import annotations
 from functools import partial
 from math import floor
 from typing import (
-    Optional,
     Callable,
     TYPE_CHECKING,
 )
@@ -32,7 +31,7 @@ from pyqtgraph import Point, functions as fn
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
 
-from ._annotate import qgo_draw_markers, LevelMarker
+from ._annotate import LevelMarker
 from ._anchors import (
     vbr_left,
     right_axis,
@@ -295,7 +294,7 @@ class LevelLine(pg.InfiniteLine):
             # show y-crosshair again
             cursor.show_xhair()
 
-    def get_cursor(self) -> Optional[Cursor]:
+    def get_cursor(self) -> Cursor | None:
 
         chart = self._chart
         cur = chart.linked.cursor
@@ -610,11 +609,11 @@ def order_line(
 
     chart,
     level: float,
-    action: Optional[str] = 'buy',  # buy or sell
+    action: str | None = 'buy',  # buy or sell
 
-    marker_style: Optional[str] = None,
-    level_digits: Optional[float] = 3,
-    size: Optional[int] = 1,
+    marker_style: str | None = None,
+    level_digits: float | None = 3,
+    size: int | None = 1,
     size_digits: int = 1,
     show_markers: bool = False,
     submit_price: float = None,

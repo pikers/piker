@@ -22,7 +22,6 @@ from collections import defaultdict
 from functools import partial
 from typing import (
     Callable,
-    Optional,
 )
 
 from pyqtgraph.graphicsItems.AxisItem import AxisItem
@@ -116,6 +115,7 @@ class ComposedGridLayout:
 
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(0)
+            layout.setMinimumWidth(0)
 
             if name in ('top', 'bottom'):
                 orient = Qt.Vertical
@@ -125,7 +125,11 @@ class ComposedGridLayout:
 
             layout.setOrientation(orient)
 
-        self.insert_plotitem(0, pi)
+        self.insert_plotitem(
+            0,
+            pi,
+            remove_axes=False,
+        )
 
         # insert surrounding linear layouts into the parent pi's layout
         # such that additional axes can be appended arbitrarily without
@@ -140,7 +144,9 @@ class ComposedGridLayout:
                 assert linlayout.itemAt(0) is axis
 
             # XXX: see comment in ``.insert_plotitem()``...
+            # our `PlotItem.removeAxis()` does this internally.
             # pi.layout.removeItem(axis)
+
             pi.layout.addItem(linlayout, *index)
             layout = pi.layout.itemAt(*index)
             assert layout is linlayout
@@ -164,6 +170,8 @@ class ComposedGridLayout:
         self,
         index: int,
         plotitem: PlotItem,
+
+        remove_axes: bool = False,
 
     ) -> tuple[int, list[AxisItem]]:
         '''
@@ -193,25 +201,19 @@ class ComposedGridLayout:
             axis_view = axis.linkedView()
             assert axis_view is plotitem.vb
 
-            if (
-                not axis.isVisible()
+            # if (
+            #     not axis.isVisible()
 
-                # XXX: we never skip moving the axes for the *root*
-                # plotitem inserted (even if not shown) since we need to
-                # move all the hidden axes into linear sub-layouts for
-                # that "central" plot in the overlay. Also if we don't
-                # do it there's weird geomoetry calc offsets that make
-                # view coords slightly off somehow .. smh
-                and not len(self.pitems) == 0
-            ):
-                continue
-
-            # XXX: Remove old axis?
-            # No, turns out we don't need this?
-            # DON'T UNLINK IT since we need the original ``ViewBox`` to
-            # still drive it with events/handlers B)
-            # popped = plotitem.removeAxis(name, unlink=False)
-            # assert axis is popped
+            #     # XXX: we never skip moving the axes for the *root*
+            #     # plotitem inserted (even if not shown) since we need to
+            #     # move all the hidden axes into linear sub-layouts for
+            #     # that "central" plot in the overlay. Also if we don't
+            #     # do it there's weird geomoetry calc offsets that make
+            #     # view coords slightly off somehow .. smh
+            #     and not len(self.pitems) == 0
+            # ):
+            #     print(f'SKIPPING MOVE: {plotitem.name}:{name} -> {axis}')
+            #     continue
 
             # invert insert index for layouts which are
             # not-left-to-right, top-to-bottom insert oriented
@@ -224,6 +226,16 @@ class ComposedGridLayout:
             axes.insert(index, axis)
 
         self._register_item(index, plotitem)
+
+        if remove_axes:
+            for name, axis_info in plotitem.axes.copy().items():
+                axis = axis_info['item']
+                # XXX: Remove old axis?
+                # No, turns out we don't need this?
+                # DON'T UNLINK IT since we need the original ``ViewBox`` to
+                # still drive it with events/handlers B)
+                popped = plotitem.removeAxis(name, unlink=False)
+                assert axis is popped
 
         return (index, inserted_axes)
 
@@ -246,7 +258,7 @@ class ComposedGridLayout:
         plot: PlotItem,
         name: str,
 
-    ) -> Optional[AxisItem]:
+    ) -> AxisItem | None:
         '''
         Retrieve the named axis for overlayed ``plot`` or ``None``
         if axis for that name is not shown.
@@ -321,7 +333,7 @@ class PlotItemOverlay:
     def add_plotitem(
         self,
         plotitem: PlotItem,
-        index: Optional[int] = None,
+        index: int | None = None,
 
         # event/signal names which will be broadcasted to all added
         # (relayee) ``PlotItem``s (eg. ``ViewBox.mouseDragEvent``).
@@ -376,7 +388,7 @@ class PlotItemOverlay:
 
                         # TODO: drop this viewbox specific input and
                         # allow a predicate to be passed in by user.
-                        axis: 'Optional[int]' = None,
+                        axis: int | None = None,
 
                         *,
 
@@ -487,10 +499,10 @@ class PlotItemOverlay:
         else:
             insert_index, axes = self.layout.insert_plotitem(index, plotitem)
 
-        plotitem.setGeometry(root.vb.sceneBoundingRect())
+        plotitem.vb.setGeometry(root.vb.sceneBoundingRect())
 
         def size_to_viewbox(vb: 'ViewBox'):
-            plotitem.setGeometry(vb.sceneBoundingRect())
+            plotitem.vb.setGeometry(root.vb.sceneBoundingRect())
 
         root.vb.sigResized.connect(size_to_viewbox)
 

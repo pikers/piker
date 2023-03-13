@@ -19,7 +19,7 @@ Fast, smooth, sexy curves.
 
 """
 from contextlib import contextmanager as cm
-from typing import Optional, Callable
+from typing import Callable
 
 import numpy as np
 import pyqtgraph as pg
@@ -86,7 +86,7 @@ class FlowGraphic(pg.GraphicsObject):
         # line styling
         color: str = 'bracket',
         last_step_color: str | None = None,
-        fill_color: Optional[str] = None,
+        fill_color: str | None = None,
         style: str = 'solid',
 
         **kwargs
@@ -158,14 +158,37 @@ class FlowGraphic(pg.GraphicsObject):
         drawn yet, ``None``.
 
         '''
-        return self._last_line.x1() if self._last_line else None
+        if self._last_line:
+            return self._last_line.x1()
+
+        return None
+
+    # XXX: due to a variety of weird jitter bugs and "smearing"
+    # artifacts when click-drag panning and viewing history time series,
+    # we offer this ctx-mngr interface to allow temporarily disabling
+    # Qt's graphics caching mode; this is now currently used from
+    # ``ChartView.start/signal_ic()`` methods which also disable the
+    # rt-display loop when the user is moving around a view.
+    @cm
+    def reset_cache(self) -> None:
+        try:
+            none = QGraphicsItem.NoCache
+            log.debug(
+                f'{self._name} -> CACHE DISABLE: {none}'
+            )
+            self.setCacheMode(none)
+            yield
+        finally:
+            mode = self.cache_mode
+            log.debug(f'{self._name} -> CACHE ENABLE {mode}')
+            self.setCacheMode(mode)
 
 
 class Curve(FlowGraphic):
     '''
     A faster, simpler, append friendly version of
     ``pyqtgraph.PlotCurveItem`` built for highly customizable real-time
-    updates.
+    updates; a graphics object to render a simple "line" plot.
 
     This type is a much stripped down version of a ``pyqtgraph`` style
     "graphics object" in the sense that the internal lower level
@@ -191,14 +214,14 @@ class Curve(FlowGraphic):
 
     '''
     # TODO: can we remove this?
-    # sub_br: Optional[Callable] = None
+    # sub_br: Callable | None = None
 
     def __init__(
         self,
         *args,
 
         # color: str = 'default_lightest',
-        # fill_color: Optional[str] = None,
+        # fill_color: str | None = None,
         # style: str = 'solid',
 
         **kwargs
@@ -247,12 +270,6 @@ class Curve(FlowGraphic):
             if self.fast_path:
                 self.fast_path.clear()
                 # self.fast_path = None
-
-    @cm
-    def reset_cache(self) -> None:
-        self.setCacheMode(QtWidgets.QGraphicsItem.NoCache)
-        yield
-        self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
     def boundingRect(self):
         '''
@@ -378,7 +395,6 @@ class Curve(FlowGraphic):
 
     ) -> None:
         # default line draw last call
-        # with self.reset_cache():
         x = src_data[index_field]
         y = src_data[array_key]
 
@@ -406,10 +422,20 @@ class Curve(FlowGraphic):
 # element such that the current datum in view can be shown
 # (via it's max / min) even when highly zoomed out.
 class FlattenedOHLC(Curve):
+    '''
+    More or less the exact same as a standard line ``Curve`` above
+    but meant to handle a traced-and-downsampled OHLC time series.
+              _
+    _|         |    _
+     |_  |     |_  | |
+        _|  =>   |_| |
+         |           |
+         |_          |_
 
-    # avoids strange dragging/smearing artifacts when panning..
-    cache_mode: int = QGraphicsItem.NoCache
+    The main implementation different is that ``.draw_last_datum()``
+    expects an underlying OHLC array for the ``src_data`` input.
 
+    '''
     def draw_last_datum(
         self,
         path: QPainterPath,
@@ -434,7 +460,19 @@ class FlattenedOHLC(Curve):
 
 
 class StepCurve(Curve):
+    '''
+    A familiar rectangle-with-y-height-per-datum type curve:
 
+              ||
+        ||    ||
+     || ||    ||||
+    _||_||_||_||||_   where each datum's y-value is drawn as
+    a nearly full rectangle, each "level" spans some x-step size.
+
+    This is most often used for vlm and option OI style curves and/or
+    the very popular "bar chart".
+
+    '''
     def declare_paintables(
         self,
     ) -> None:

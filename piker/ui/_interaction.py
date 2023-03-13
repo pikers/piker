@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -14,16 +14,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""
+'''
 Chart view box primitives
 
-"""
+'''
 from __future__ import annotations
-from contextlib import asynccontextmanager
-from functools import partial
+from contextlib import (
+    asynccontextmanager,
+    ExitStack,
+)
 import time
 from typing import (
-    Optional,
     Callable,
     TYPE_CHECKING,
 )
@@ -40,6 +41,7 @@ import trio
 from ..log import get_logger
 from .._profile import Profiler
 from .._profile import pg_profile_enabled, ms_slower_then
+from .view_mode import overlay_viewlists
 # from ._style import _min_points_to_show
 from ._editors import SelectRect
 from . import _event
@@ -73,7 +75,7 @@ ORDER_MODE = {
 
 async def handle_viewmode_kb_inputs(
 
-    view: 'ChartView',
+    view: ChartView,
     recv_chan: trio.abc.ReceiveChannel,
 
 ) -> None:
@@ -87,7 +89,7 @@ async def handle_viewmode_kb_inputs(
     last = time.time()
     action: str
 
-    on_next_release: Optional[Callable] = None
+    on_next_release: Callable | None = None
 
     # for quick key sequence-combo pattern matching
     # we have a min_tap period and these should not
@@ -142,6 +144,23 @@ async def handle_viewmode_kb_inputs(
             if mods == Qt.ControlModifier:
                 ctrl = True
 
+            # UI REPL-shell
+            if (
+                ctrl and key in {
+                    Qt.Key_U,
+                }
+            ):
+                import tractor
+                god = order_mode.godw  # noqa
+                feed = order_mode.feed  # noqa
+                chart = order_mode.chart  # noqa
+                viz = chart.main_viz  # noqa
+                vlm_chart = chart.linked.subplots['volume']  # noqa
+                vlm_viz = vlm_chart.main_viz  # noqa
+                dvlm_pi = vlm_chart._vizs['dolla_vlm'].plot  # noqa
+                await tractor.breakpoint()
+                view.interact_graphics_cycle()
+
             # SEARCH MODE #
             # ctlr-<space>/<l> for "lookup", "search" -> open search tree
             if (
@@ -169,9 +188,13 @@ async def handle_viewmode_kb_inputs(
             # View modes
             if key == Qt.Key_R:
 
-                # TODO: set this for all subplots
-                # edge triggered default view activation
-                view.chart.default_view()
+                # NOTE: seems that if we don't yield a Qt render
+                # cycle then the m4 downsampled curves will show here
+                # without another reset..
+                view._viz.default_view()
+                view.interact_graphics_cycle()
+                await trio.sleep(0)
+                view.interact_graphics_cycle()
 
             if len(fast_key_seq) > 1:
                 # begin matches against sequences
@@ -313,7 +336,7 @@ async def handle_viewmode_kb_inputs(
 
 async def handle_viewmode_mouse(
 
-    view: 'ChartView',
+    view: ChartView,
     recv_chan: trio.abc.ReceiveChannel,
 
 ) -> None:
@@ -359,7 +382,7 @@ class ChartView(ViewBox):
         name: str,
 
         parent: pg.PlotItem = None,
-        static_yrange: Optional[tuple[float, float]] = None,
+        static_yrange: tuple[float, float] | None = None,
         **kwargs,
 
     ):
@@ -392,8 +415,13 @@ class ChartView(ViewBox):
         self.order_mode: bool = False
 
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
-        self._ic = None
-        self._yranger: Callable | None = None
+        self._in_interact: trio.Event | None = None
+        self._interact_stack: ExitStack = ExitStack()
+
+        # TODO: probably just assign this whenever a new `PlotItem` is
+        # allocated since they're 1to1 with views..
+        self._viz: Viz | None = None
+        self._yrange: tuple[float, float] | None = None
 
     def start_ic(
         self,
@@ -403,10 +431,15 @@ class ChartView(ViewBox):
         to any interested task waiters.
 
         '''
-        if self._ic is None:
+        if self._in_interact is None:
+            chart = self.chart
             try:
-                self.chart.pause_all_feeds()
-                self._ic = trio.Event()
+                self._in_interact = trio.Event()
+
+                chart.pause_all_feeds()
+                self._interact_stack.enter_context(
+                    chart.reset_graphics_caches()
+                )
             except RuntimeError:
                 pass
 
@@ -420,11 +453,13 @@ class ChartView(ViewBox):
         to any waiters.
 
         '''
-        if self._ic:
+        if self._in_interact:
             try:
-                self._ic.set()
-                self._ic = None
+                self._interact_stack.close()
                 self.chart.resume_all_feeds()
+
+                self._in_interact.set()
+                self._in_interact = None
             except RuntimeError:
                 pass
 
@@ -432,7 +467,7 @@ class ChartView(ViewBox):
     async def open_async_input_handler(
         self,
 
-    ) -> 'ChartView':
+    ) -> ChartView:
 
         async with (
             _event.open_handlers(
@@ -492,7 +527,7 @@ class ChartView(ViewBox):
 
         # don't zoom more then the min points setting
         viz = chart.get_viz(chart.name)
-        vl, lbar, rbar, vr = viz.bars_range()
+        _, vl, lbar, rbar, vr, r = viz.datums_range()
 
         # TODO: max/min zoom limits incorporating time step size.
         # rl = vr - vl
@@ -507,7 +542,7 @@ class ChartView(ViewBox):
         #     return
 
         # actual scaling factor
-        s = 1.015 ** (ev.delta() * -1 / 20)  # self.state['wheelScaleFactor'])
+        s = 1.016 ** (ev.delta() * -1 / 20)  # self.state['wheelScaleFactor'])
         s = [(None if m is False else s) for m in mask]
 
         if (
@@ -533,12 +568,13 @@ class ChartView(ViewBox):
             # scale_y = 1.3 ** (center.y() * -1 / 20)
             self.scaleBy(s, center)
 
+        # zoom in view-box area
         else:
             # use right-most point of current curve graphic
             xl = viz.graphics.x_last()
             focal = min(
                 xl,
-                vr,
+                r,
             )
 
             self._resetTarget()
@@ -552,7 +588,7 @@ class ChartView(ViewBox):
             # update, but i gotta feelin that because this one is signal
             # based (and thus not necessarily sync invoked right away)
             # that calling the resize method manually might work better.
-            self.sigRangeChangedManually.emit(mask)
+            # self.sigRangeChangedManually.emit(mask)
 
             # XXX: without this is seems as though sometimes
             # when zooming in from far out (and maybe vice versa?)
@@ -562,14 +598,15 @@ class ChartView(ViewBox):
             # that never seems to happen? Only question is how much this
             # "double work" is causing latency when these missing event
             # fires don't happen?
-            self.maybe_downsample_graphics()
+            self.interact_graphics_cycle()
+            self.interact_graphics_cycle()
 
             ev.accept()
 
     def mouseDragEvent(
         self,
         ev,
-        axis: Optional[int] = None,
+        axis: int | None = None,
 
     ) -> None:
         pos = ev.pos()
@@ -581,7 +618,10 @@ class ChartView(ViewBox):
         button = ev.button()
 
         # Ignore axes if mouse is disabled
-        mouseEnabled = np.array(self.state['mouseEnabled'], dtype=np.float)
+        mouseEnabled = np.array(
+            self.state['mouseEnabled'],
+            dtype=np.float,
+        )
         mask = mouseEnabled.copy()
         if axis is not None:
             mask[1-axis] = 0.0
@@ -645,9 +685,6 @@ class ChartView(ViewBox):
                     self.start_ic()
                 except RuntimeError:
                     pass
-                # if self._ic is None:
-                #     self.chart.pause_all_feeds()
-                #     self._ic = trio.Event()
 
                 if axis == 1:
                     self.chart._static_yrange = 'axis'
@@ -664,16 +701,19 @@ class ChartView(ViewBox):
                 if x is not None or y is not None:
                     self.translateBy(x=x, y=y)
 
-                self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
+                # self.sigRangeChangedManually.emit(mask)
+                    # self.state['mouseEnabled']
+                # )
+                self.interact_graphics_cycle()
 
                 if ev.isFinish():
                     self.signal_ic()
-                    # self._ic.set()
-                    # self._ic = None
+                    # self._in_interact.set()
+                    # self._in_interact = None
                     # self.chart.resume_all_feeds()
 
-                # XXX: WHY
-                ev.accept()
+                # # XXX: WHY
+                # ev.accept()
 
         # WEIRD "RIGHT-CLICK CENTER ZOOM" MODE
         elif button & QtCore.Qt.RightButton:
@@ -695,10 +735,12 @@ class ChartView(ViewBox):
             center = Point(tr.map(ev.buttonDownPos(QtCore.Qt.RightButton)))
             self._resetTarget()
             self.scaleBy(x=x, y=y, center=center)
-            self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
 
-            # XXX: WHY
-            ev.accept()
+            # self.sigRangeChangedManually.emit(self.state['mouseEnabled'])
+            self.interact_graphics_cycle()
+
+        # XXX: WHY
+        ev.accept()
 
     # def mouseClickEvent(self, event: QtCore.QEvent) -> None:
     #      '''This routine is rerouted to an async handler.
@@ -719,19 +761,19 @@ class ChartView(ViewBox):
         self,
         *,
 
-        yrange: Optional[tuple[float, float]] = None,
+        yrange: tuple[float, float] | None = None,
         viz: Viz | None = None,
 
         # NOTE: this value pairs (more or less) with L1 label text
         # height offset from from the bid/ask lines.
-        range_margin: float = 0.09,
+        range_margin: float | None = 0.06,
 
-        bars_range: Optional[tuple[int, int, int, int]] = None,
+        bars_range: tuple[int, int, int, int] | None = None,
 
         # flag to prevent triggering sibling charts from the same linked
         # set from recursion errors.
         autoscale_linked_plots: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
 
     ) -> None:
         '''
@@ -743,14 +785,13 @@ class ChartView(ViewBox):
 
         '''
         name = self.name
-        # print(f'YRANGE ON {name}')
+        # print(f'YRANGE ON {name} -> yrange{yrange}')
         profiler = Profiler(
             msg=f'`ChartView._set_yrange()`: `{name}`',
             disabled=not pg_profile_enabled(),
             ms_threshold=ms_slower_then,
             delayed=True,
         )
-        set_range = True
         chart = self._chart
 
         # view has been set in 'axis' mode
@@ -759,8 +800,8 @@ class ChartView(ViewBox):
         # - disable autoranging
         # - remove any y range limits
         if chart._static_yrange == 'axis':
-            set_range = False
             self.setLimits(yMin=None, yMax=None)
+            return
 
         # static y-range has been set likely by
         # a specialized FSP configuration.
@@ -773,54 +814,72 @@ class ChartView(ViewBox):
         elif yrange is not None:
             ylow, yhigh = yrange
 
-        if set_range:
+        # XXX: only compute the mxmn range
+        # if none is provided as input!
+        if not yrange:
 
-            # XXX: only compute the mxmn range
-            # if none is provided as input!
-            if not yrange:
+            if not viz:
+                breakpoint()
 
-                if not viz:
-                    breakpoint()
+            out = viz.maxmin()
+            if out is None:
+                log.warning(f'No yrange provided for {name}!?')
+                return
+            (
+                ixrng,
+                _,
+                yrange
+            ) = out
 
-                out = viz.maxmin()
-                if out is None:
-                    log.warning(f'No yrange provided for {name}!?')
-                    return
-                (
-                    ixrng,
-                    _,
-                    yrange
-                ) = out
+            profiler(f'`{self.name}:Viz.maxmin()` -> {ixrng}=>{yrange}')
 
-                profiler(f'`{self.name}:Viz.maxmin()` -> {ixrng}=>{yrange}')
-
-                if yrange is None:
-                    log.warning(f'No yrange provided for {name}!?')
-                    return
+            if yrange is None:
+                log.warning(f'No yrange provided for {name}!?')
+                return
 
             ylow, yhigh = yrange
 
-            # view margins: stay within a % of the "true range"
+        # always stash last range for diffing by
+        # incremental update calculations BEFORE adding
+        # margin.
+        self._yrange = ylow, yhigh
+
+        # view margins: stay within a % of the "true range"
+        if range_margin is not None:
             diff = yhigh - ylow
-            ylow = ylow - (diff * range_margin)
-            yhigh = yhigh + (diff * range_margin)
-
-            # XXX: this often needs to be unset
-            # to get different view modes to operate
-            # correctly!
-            self.setLimits(
-                yMin=ylow,
-                yMax=yhigh,
+            ylow = max(
+                ylow - (diff * range_margin),
+                0,
             )
-            self.setYRange(ylow, yhigh)
-            profiler(f'set limits: {(ylow, yhigh)}')
+            yhigh = min(
+                yhigh + (diff * range_margin),
+                yhigh * (1 + range_margin),
+            )
 
+        # print(
+        #     f'set limits {self.name}:\n'
+        #     f'ylow: {ylow}\n'
+        #     f'yhigh: {yhigh}\n'
+        # )
+        self.setYRange(
+            ylow,
+            yhigh,
+            padding=0,
+        )
+        self.setLimits(
+            yMin=ylow,
+            yMax=yhigh,
+        )
+        self.update()
+
+        # LOL: yet anothercucking pg buggg..
+        # can't use `msg=f'setYRange({ylow}, {yhigh}')`
         profiler.finish()
 
     def enable_auto_yrange(
         self,
         viz: Viz,
-        src_vb: Optional[ChartView] = None,
+        src_vb: ChartView | None = None,
 
     ) -> None:
         '''
@@ -831,18 +890,6 @@ class ChartView(ViewBox):
         if src_vb is None:
             src_vb = self
 
-        if self._yranger is None:
-            self._yranger = partial(
-                self._set_yrange,
-                viz=viz,
-            )
-
-        # widget-UIs/splitter(s) resizing
-        src_vb.sigResized.connect(self._yranger)
-
-        # mouse wheel doesn't emit XRangeChanged
-        src_vb.sigRangeChangedManually.connect(self._yranger)
-
         # re-sampling trigger:
         # TODO: a smarter way to avoid calling this needlessly?
         # 2 things i can think of:
@@ -850,23 +897,20 @@ class ChartView(ViewBox):
         #   iterate those.
         # - only register this when certain downsample-able graphics are
         #   "added to scene".
-        src_vb.sigRangeChangedManually.connect(
-            self.maybe_downsample_graphics
+        # src_vb.sigRangeChangedManually.connect(
+        #     self.interact_graphics_cycle
+        # )
+
+        # widget-UIs/splitter(s) resizing
+        src_vb.sigResized.connect(
+            self.interact_graphics_cycle
         )
 
     def disable_auto_yrange(self) -> None:
 
         # XXX: not entirely sure why we can't de-reg this..
         self.sigResized.disconnect(
-            self._yranger,
-        )
-
-        self.sigRangeChangedManually.disconnect(
-            self._yranger,
-        )
-
-        self.sigRangeChangedManually.disconnect(
-            self.maybe_downsample_graphics
+            self.interact_graphics_cycle
         )
 
     def x_uppx(self) -> float:
@@ -887,57 +931,54 @@ class ChartView(ViewBox):
         else:
             return 0
 
-    def maybe_downsample_graphics(
+    def interact_graphics_cycle(
         self,
-        autoscale_overlays: bool = False,
+        *args,  # capture Qt signal (slot) inputs
+
+        # debug_print: bool = False,
+        do_linked_charts: bool = True,
+        do_overlay_scaling: bool = True,
+
+        yrange_kwargs: dict[
+            str,
+            tuple[float, float],
+        ] | None = None,
+ 
     ):
         profiler = Profiler(
-            msg=f'ChartView.maybe_downsample_graphics() for {self.name}',
+            msg=f'ChartView.interact_graphics_cycle() for {self.name}',
             disabled=not pg_profile_enabled(),
+            ms_threshold=ms_slower_then,
 
             # XXX: important to avoid not seeing underlying
-            # ``.update_graphics_from_flow()`` nested profiling likely
+            # ``Viz.update_graphics()`` nested profiling likely
             # due to the way delaying works and garbage collection of
             # the profiler in the delegated method calls.
-            ms_threshold=6,
-            # ms_threshold=ms_slower_then,
+            delayed=True,
+
+            # for hardcore latency checking, comment these flags above.
+            # disabled=False,
+            # ms_threshold=4,
         )
 
-        # TODO: a faster single-loop-iterator way of doing this XD
-        chart = self._chart
-        plots = {chart.name: chart}
-
         linked = self.linked
-        if linked:
+        if (
+            do_linked_charts
+            and linked
+        ):
+            plots = {linked.chart.name: linked.chart}
             plots |= linked.subplots
 
-        for chart_name, chart in plots.items():
-            for name, flow in chart._vizs.items():
+        else:
+            chart = self._chart
+            plots = {chart.name: chart}
 
-                if (
-                    not flow.render
-
-                    # XXX: super important to be aware of this.
-                    # or not flow.graphics.isVisible()
-                ):
-                    # print(f'skipping {flow.name}')
-                    continue
-
-                # pass in no array which will read and render from the last
-                # passed array (normally provided by the display loop.)
-                chart.update_graphics_from_flow(name)
-
-                # for each overlay on this chart auto-scale the
-                # y-range to max-min values.
-                # if autoscale_overlays:
-                #     overlay = chart.pi_overlay
-                #     if overlay:
-                #         for pi in overlay.overlays:
-                #             pi.vb._set_yrange(
-                #                 # TODO: get the range once up front...
-                #                 # bars_range=br,
-                #                 viz=pi.viz,
-                #             )
-                #     profiler('autoscaled linked plots')
-
-        profiler(f'<{chart_name}>.update_graphics_from_flow({name})')
+        # TODO: a faster single-loop-iterator way of doing this?
+        return overlay_viewlists(
+            self._viz,
+            plots,
+            profiler,
+            do_overlay_scaling=do_overlay_scaling,
+            do_linked_charts=do_linked_charts,
+            yrange_kwargs=yrange_kwargs,
+        )

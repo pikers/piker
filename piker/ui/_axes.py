@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -20,7 +20,7 @@ Chart axes graphics and behavior.
 """
 from __future__ import annotations
 from functools import lru_cache
-from typing import Optional, Callable
+from typing import Callable
 from math import floor
 
 import numpy as np
@@ -60,7 +60,8 @@ class Axis(pg.AxisItem):
             **kwargs
         )
 
-        # XXX: pretty sure this makes things slower
+        # XXX: pretty sure this makes things slower!
+        # no idea why given we only move labels for the most part?
         # self.setCacheMode(QtWidgets.QGraphicsItem.DeviceCoordinateCache)
 
         self.pi = plotitem
@@ -190,7 +191,7 @@ class PriceAxis(Axis):
         *args,
         min_tick: int = 2,
         title: str = '',
-        formatter: Optional[Callable[[float], str]] = None,
+        formatter: Callable[[float], str] | None = None,
         **kwargs
 
     ) -> None:
@@ -202,8 +203,8 @@ class PriceAxis(Axis):
     def set_title(
         self,
         title: str,
-        view: Optional[ChartView] = None,
-        color: Optional[str] = None,
+        view: ChartView | None = None,
+        color: str | None = None,
 
     ) -> Label:
         '''
@@ -303,8 +304,9 @@ class DynamicDateAxis(Axis):
         viz = chart._vizs[chart.name]
         shm = viz.shm
         array = shm.array
-        times = array['time']
-        i_0, i_l = times[0], times[-1]
+        ifield = viz.index_field
+        index = array[ifield]
+        i_0, i_l = index[0], index[-1]
 
         # edge cases
         if (
@@ -316,11 +318,13 @@ class DynamicDateAxis(Axis):
             (indexes[0] > i_0
              and indexes[-1] > i_l)
         ):
+            # print(f"x-label indexes empty edge case: {indexes}")
             return []
 
-        if viz.index_field == 'index':
-            arr_len = times.shape[0]
+        if ifield == 'index':
+            arr_len = index.shape[0]
             first = shm._first.value
+            times = array['time']
             epochs = times[
                 list(
                     map(

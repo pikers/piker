@@ -22,8 +22,6 @@ Generally, our does not require "scentific precision" for pixel perfect
 view transforms.
 
 """
-from typing import Optional
-
 import pyqtgraph as pg
 
 from ._axes import Axis
@@ -47,9 +45,10 @@ def invertQTransform(tr):
 
 
 def _do_overrides() -> None:
-    """Dooo eeet.
+    '''
+    Dooo eeet.
 
-    """
+    '''
     # we don't care about potential fp issues inside Qt
     pg.functions.invertQTransform = invertQTransform
     pg.PlotItem = PlotItem
@@ -91,7 +90,7 @@ class PlotItem(pg.PlotItem):
         title=None,
         viewBox=None,
         axisItems=None,
-        default_axes=['left', 'bottom'],
+        default_axes=['right', 'bottom'],
         enableMenu=True,
         **kargs
     ):
@@ -119,7 +118,7 @@ class PlotItem(pg.PlotItem):
         name: str,
         unlink: bool = True,
 
-    ) -> Optional[pg.AxisItem]:
+    ) -> pg.AxisItem | None:
         """
         Remove an axis from the contained axis items
         by ```name: str```.
@@ -130,7 +129,7 @@ class PlotItem(pg.PlotItem):
 
         If the ``unlink: bool`` is set to ``False`` then the axis will
         stay linked to its view and will only be removed from the
-        layoutonly be removed from the layout.
+        layout.
 
         If no axis with ``name: str`` is found then this is a noop.
 
@@ -144,7 +143,10 @@ class PlotItem(pg.PlotItem):
 
         axis = entry['item']
         self.layout.removeItem(axis)
-        axis.scene().removeItem(axis)
+        scn = axis.scene()
+        if scn:
+            scn.removeItem(axis)
+
         if unlink:
             axis.unlinkFromView()
 
@@ -166,14 +168,14 @@ class PlotItem(pg.PlotItem):
     def setAxisItems(
         self,
         # XXX: yeah yeah, i know we can't use type annots like this yet.
-        axisItems: Optional[dict[str, pg.AxisItem]] = None,
+        axisItems: dict[str, pg.AxisItem] | None = None,
         add_to_layout: bool = True,
         default_axes: list[str] = ['left', 'bottom'],
     ):
-        """
-        Override axis item setting to only
+        '''
+        Override axis item setting to only what is passed in.
 
-        """
+        '''
         axisItems = axisItems or {}
 
         # XXX: wth is is this even saying?!?
