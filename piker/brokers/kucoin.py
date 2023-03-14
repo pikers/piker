@@ -26,7 +26,8 @@ import math
 import base64
 import hmac
 import hashlib
-import wsproto
+# import wsproto
+from uuid import uuid4
 
 import asks
 import tractor
@@ -66,7 +67,6 @@ def get_config() -> dict[str, Any]:
     # TODO: document why we send this, basically because logging params for cryptofeed
     conf["log"] = {}
     conf["log"]["disabled"] = True
-    breakpoint()
     if section is None:
         log.warning("No config section found for kucoin in config")
 
@@ -152,8 +152,12 @@ class Client:
 
     async def _get_ws_token(self, private: bool) -> str:
         token_type = "private" if private else "public"
-        token = await self._request("POST", f"/bullet-{token_type}", "v1")
-        return token
+        data = await self._request("POST", f"/bullet-{token_type}", "v1")
+        if "token" in data:
+            return data["token"]
+        else:
+            print(f'KUCOIN ERROR: {data.json()["msg"]}')
+            breakpoint()
 
     async def get_pairs(
         self,
@@ -201,7 +205,6 @@ class Client:
 
     async def last_trades(self, sym: str):
         trades = await self._request("GET", f"/accounts/ledgers?currency={sym}", "v1")
-        breakpoint()
         return trades.items
 
     async def get_bars(
@@ -328,13 +331,15 @@ async def stream_quotes(
         # async def subscribe(ws: wsproto.WSConnection):
 
         token = await client._get_ws_token(True)
+        connect_id = str(uuid4())
         async with open_autorecon_ws(
-            f"wss://ws-api-spot.kucoin.com/?token=={token}&[connectId={12345}]"
+            f"wss://ws-api-spot.kucoin.com/?token=={token}&[connectId={connect_id}]"
         ) as ws:
-            msg_gen = stream_messageS(ws)
+            breakpoint()
+            msg_gen = stream_messages(ws)
 
 
-async def stream_messageS(ws: NoBsWs) -> AsyncGenerator[NoBsWs, dict]:
+async def stream_messages(ws: NoBsWs) -> AsyncGenerator[NoBsWs, dict]:
     timeouts = 0
     while True:
         with trio.move_on_after(3) as cs:
