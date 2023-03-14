@@ -100,6 +100,7 @@ class NoBsWs:
         last_err = None
         for i in range(tries):
             try:
+                breakpoint()
                 self._ws = await self._stack.enter_async_context(
                     trio_websocket.open_websocket_url(self.url)
                 )
@@ -166,7 +167,7 @@ async def open_autorecon_ws(
     # TODO: proper type cannot smh
     fixture: Optional[Callable] = None,
 
-) -> AsyncGenerator[tuple[...],  NoBsWs]:
+) -> AsyncGenerator[tuple[...], NoBsWs]:
     """Apparently we can QoS for all sorts of reasons..so catch em.
 
     """
