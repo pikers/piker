@@ -34,33 +34,168 @@ from decimal import (
 )
 from typing import (
     Any,
+    Literal,
 )
 
 from ..data.types import Struct
 
 
+_underlyings: list[str] = [
+    'stock',
+    'bond',
+    'crypto_currency',
+    'fiat_currency',
+    'commodity',
+]
+
+
+_derivs: list[str] = [
+    'swap',
+    'future',
+    'continuous_future',
+    'option',
+    'futures_option',
+]
+
+# NOTE: a tag for other subsystems to try
+# and do default settings for certain things:
+# - allocator does unit vs. dolla size limiting.
+AssetTypeName: Literal[
+    _underlyings
+    +
+    _derivs
+]
+
+# egs. stock, futer, option, bond etc.
+
+
+def float_digits(
+    value: float,
+) -> int:
+    '''
+    Return the number of precision digits read from a decimal or float
+    value.
+
+    '''
+    if value == 0:
+        return 0
+
+    return int(
+        -Decimal(str(value)).as_tuple().exponent
+    )
+
+
+def digits_to_dec(
+    ndigits: int,
+) -> Decimal:
+    '''
+    Return the minimum float value for an input integer value.
+
+    eg. 3 -> 0.001
+
+    '''
+    if ndigits == 0:
+        return Decimal('0')
+
+    return Decimal('0.' + '0'*(ndigits-1) + '1')
+
+
+class Asset(Struct, frozen=True):
+    '''
+    Container type describing any transactable asset's technology.
+
+    '''
+    name: str
+    atype: AssetTypeName
+
+    # minimum transaction size / precision.
+    # eg. for buttcoin this is a "satoshi".
+    tx_tick: Decimal
+
+    # NOTE: additional info optionally packed in by the backend, but
+    # should not be explicitly required in our generic API.
+    info: dict = {}  # make it frozen?
+
+    def __str__(self) -> str:
+        return self.name
+
+    def quantize(
+        self,
+        size: float,
+
+    ) -> Decimal:
+        '''
+        Truncate input ``size: float`` using ``Decimal``
+        quantized form of the digit precision defined
+        by ``self.lot_tick_size``.
+
+        '''
+        digits = float_digits(self.tx_tick)
+        return Decimal(size).quantize(
+            Decimal(f'1.{"0".ljust(digits, "0")}'),
+            rounding=ROUND_HALF_EVEN
+        )
+
+
 class MktPair(Struct, frozen=True):
+    '''
+    Market description for a pair of assets which are tradeable:
+    a market which enables transactions of the form,
+        buy: source asset -> destination asset
+        sell: destination asset -> source asset
 
-    src: str  # source asset name being used to buy
-    src_type: str  # source asset's financial type/classification name
-    # ^ specifies a "class" of financial instrument
-    # egs. stock, futer, option, bond etc.
+    The main intention of this type is for a cross-asset, venue, broker
+    normalized descriptive data type from which all market-auctions can
+    be mapped, simply.
 
-    dst: str  # destination asset name being bought
-    dst_type: str  # destination asset's financial type/classification name
+    '''
+    # "source asset" (name) used to buy *from*
+    # (or used to sell *to*)
+    src: str | Asset
+    # "destination asset" (name) used to buy *to*
+    # (or used to sell *from*)
+    dst: str | Asset
 
-    price_tick: float  # minimum price increment value increment
-    price_tick_digits: int  # required decimal digits for above
-
-    size_tick: float  # minimum size (aka vlm) increment value increment
-
-    # size_tick_digits: int  # required decimal digits for above
     @property
-    def size_tick_digits(self) -> int:
-        return self.size_tick
+    def key(self) -> str:
+        '''
+        The "endpoint key" for this market.
 
+        In most other tina platforms this is referred to as the
+        "symbol".
+
+        '''
+        return f'{self.src}{self.dst}'
+
+    # the tick size is the number describing the smallest step in value
+    # available in this market between the source and destination
+    # assets.
+    # https://en.wikipedia.org/wiki/Tick_size
+    # https://en.wikipedia.org/wiki/Commodity_tick
+    # https://en.wikipedia.org/wiki/Percentage_in_point
+    price_tick: Decimal  # minimum price increment value increment
+    size_tick: Decimal  # minimum size (aka vlm) increment value increment
+
+    # @property
+    # def size_tick_digits(self) -> int:
+    #     return float_digits(self.size_tick)
+
+    broker: str | None = None  # the middle man giving access
     venue: str | None = None  # market venue provider name
     expiry: str | None = None  # for derivs, expiry datetime parseable str
+
+    # destination asset's financial type/classification name
+    # NOTE: this is required for the order size allocator system,
+    # since we use different default settings based on the type
+    # of the destination asset, eg. futes use a units limits vs.
+    # equities a $limit.
+    dst_type: AssetTypeName | None = None
+
+    # source asset's financial type/classification name
+    # TODO: is a src type required for trading?
+    # there's no reason to need any more then the one-way alloc-limiter
+    # config right?
+    # src_type: AssetTypeName
 
     # for derivs, info describing contract, egs.
     # strike price, call or put, swap type, exercise model, etc.
@@ -81,13 +216,53 @@ class MktPair(Struct, frozen=True):
     # fqa, fqma, .. etc. see issue:
     # https://github.com/pikers/piker/issues/467
     @property
-    def fqsn(self) -> str:
+    def fqme(self) -> str:
         '''
-        Return the fully qualified market (endpoint) name for the
+        Return the fully qualified market endpoint-address for the
         pair of transacting assets.
 
+        Yes, you can pronounce it colloquially as "f#$%-me"..
+
         '''
-        ...
+
+    # fqsn = fqme
+
+    def quantize(
+        self,
+        size: float,
+
+        quantity_type: Literal['price', 'size'] = 'size',
+
+    ) -> Decimal:
+        '''
+        Truncate input ``size: float`` using ``Decimal``
+        and ``.size_tick``'s # of digits.
+
+        '''
+        match quantity_type:
+            case 'price':
+                digits = float_digits(self.price_tick)
+            case 'size':
+                digits = float_digits(self.size_tick)
+
+        return Decimal(size).quantize(
+            Decimal(f'1.{"0".ljust(digits, "0")}'),
+            rounding=ROUND_HALF_EVEN
+        )
+
+    # TODO: remove this?
+    @property
+    def type_key(self) -> str:
+        return list(self.broker_info.values())[0]['asset_type']
+
+    # @classmethod
+    # def from_fqme(
+    #     cls,
+    #     fqme: str,
+    #     **kwargs,
+
+    # ) -> MktPair:
+    #     broker, key, suffix = unpack_fqme(fqme)
 
 
 def mk_fqsn(
@@ -101,34 +276,6 @@ def mk_fqsn(
 
     '''
     return '.'.join([symbol, provider]).lower()
-
-
-def float_digits(
-    value: float,
-) -> int:
-    '''
-    Return the number of precision digits read from a float value.
-
-    '''
-    if value == 0:
-        return 0
-
-    return int(-Decimal(str(value)).as_tuple().exponent)
-
-
-def digits_to_dec(
-    ndigits: int,
-) -> Decimal:
-    '''
-    Return the minimum float value for an input integer value.
-
-    eg. 3 -> 0.001
-
-    '''
-    if ndigits == 0:
-        return Decimal('0')
-
-    return Decimal('0.' + '0'*(ndigits-1) + '1')
 
 
 def unpack_fqsn(fqsn: str) -> tuple[str, str, str]:
@@ -164,6 +311,10 @@ def unpack_fqsn(fqsn: str) -> tuple[str, str, str]:
         suffix,
     )
 
+
+unpack_fqme = unpack_fqsn
+
+
 # TODO: rework the below `Symbol` (which was originally inspired and
 # derived from stuff in quantdom) into a simpler, ipc msg ready, market
 # endpoint meta-data container type as per the drafted interace above.
@@ -176,36 +327,8 @@ class Symbol(Struct):
     key: str
     tick_size: float = 0.01
     lot_tick_size: float = 0.0  # "volume" precision as min step value
-    tick_size_digits: int = 2
-    lot_size_digits: int = 0
     suffix: str = ''
     broker_info: dict[str, dict[str, Any]] = {}
-
-    @classmethod
-    def from_broker_info(
-        cls,
-        broker: str,
-        symbol: str,
-        info: dict[str, Any],
-        suffix: str = '',
-
-    ) -> Symbol:
-
-        tick_size = info.get('price_tick_size', 0.01)
-        lot_size = info.get('lot_tick_size', 0.0)
-
-        return Symbol(
-            key=symbol,
-
-            tick_size=tick_size,
-            lot_tick_size=lot_size,
-
-            tick_size_digits=float_digits(tick_size),
-            lot_size_digits=float_digits(lot_size),
-
-            suffix=suffix,
-            broker_info={broker: info},
-        )
 
     @classmethod
     def from_fqsn(
@@ -215,12 +338,24 @@ class Symbol(Struct):
 
     ) -> Symbol:
         broker, key, suffix = unpack_fqsn(fqsn)
-        return cls.from_broker_info(
-            broker,
-            key,
-            info=info,
+        tick_size = info.get('price_tick_size', 0.01)
+        lot_size = info.get('lot_tick_size', 0.0)
+
+        return Symbol(
+            key=key,
+
+            tick_size=tick_size,
+            lot_tick_size=lot_size,
+
+            # tick_size_digits=float_digits(tick_size),
+            # lot_size_digits=float_digits(lot_size),
+
             suffix=suffix,
+            broker_info={broker: info},
         )
+
+    # compat name mapping
+    from_fqme = from_fqsn
 
     @property
     def type_key(self) -> str:
@@ -230,38 +365,20 @@ class Symbol(Struct):
     def brokers(self) -> list[str]:
         return list(self.broker_info.keys())
 
-    def nearest_tick(self, value: float) -> float:
-        '''
-        Return the nearest tick value based on mininum increment.
+    @property
+    def tick_size_digits(self) -> int:
+        return float_digits(self.lot_tick_size)
 
-        '''
-        mult = 1 / self.tick_size
-        return round(value * mult) / mult
+    @property
+    def lot_size_digits(self) -> int:
+        return float_digits(self.lot_tick_size)
 
-    def front_feed(self) -> tuple[str, str]:
-        '''
-        Return the "current" feed key for this symbol.
-
-        (i.e. the broker + symbol key in a tuple).
-
-        '''
-        return (
-            list(self.broker_info.keys())[0],
-            self.key,
-        )
-
-    def tokens(self) -> tuple[str]:
-        broker, key = self.front_feed()
-        if self.suffix:
-            return (key, self.suffix, broker)
-        else:
-            return (key, broker)
+    @property
+    def broker(self) -> str:
+        return list(self.broker_info.keys())[0]
 
     @property
     def fqsn(self) -> str:
-        return '.'.join(self.tokens()).lower()
-
-    def front_fqsn(self) -> str:
         '''
         fqsn = "fully qualified symbol name"
 
@@ -279,24 +396,30 @@ class Symbol(Struct):
         <broker>.<venue>.<instrumentname>.<suffixwithmetadata>
 
         '''
-        tokens = self.tokens()
-        fqsn = '.'.join(map(str.lower, tokens))
-        return fqsn
+        broker = self.broker
+        key = self.key
+        if self.suffix:
+            tokens = (key, self.suffix, broker)
+        else:
+            tokens = (key, broker)
 
-    def quantize_size(
+        return '.'.join(tokens).lower()
+
+    fqme = fqsn
+
+    def quantize(
         self,
         size: float,
 
     ) -> Decimal:
         '''
         Truncate input ``size: float`` using ``Decimal``
-        and ``.lot_size_digits``.
+        quantized form of the digit precision defined
+        by ``self.lot_tick_size``.
 
         '''
-        digits = self.lot_size_digits
+        digits = float_digits(self.lot_tick_size)
         return Decimal(size).quantize(
             Decimal(f'1.{"0".ljust(digits, "0")}'),
             rounding=ROUND_HALF_EVEN
         )
-
-
