@@ -292,7 +292,7 @@ class OrderMode:
             account=self.current_pp.alloc.account,
             size=0,
             symbol=symbol,
-            brokers=symbol.brokers,
+            brokers=[symbol.broker],
             oid='',  # filled in on submit
             exec_mode=trigger_type,  # dark or live
         )
@@ -709,7 +709,7 @@ async def open_order_mode(
 
         # load account names from ``brokers.toml``
         accounts_def = config.load_accounts(
-            providers=symbol.brokers
+            providers=[symbol.broker],
         )
 
         # XXX: ``brokerd`` delivers a set of account names that it

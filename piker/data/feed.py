@@ -1635,7 +1635,7 @@ async def open_feed(
                     # apply `brokerd`-common steam to each flume
                     # tracking a symbol from that provider.
                     for fqsn, flume in feed.flumes.items():
-                        if brokermod.name in flume.symbol.brokers:
+                        if brokermod.name == flume.symbol.broker:
                             flume.stream = stream
 
                 assert len(feed.mods) == len(feed.portals) == len(feed.streams)

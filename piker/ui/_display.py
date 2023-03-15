@@ -1288,7 +1288,7 @@ async def display_symbol_data(
         hist_ohlcv: ShmArray = flume.hist_shm
 
         symbol = flume.symbol
-        brokername = symbol.brokers[0]
+        brokername = symbol.broker
         fqsn = symbol.fqsn
 
         hist_chart = hist_linked.plot_ohlc_main(
