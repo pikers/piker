@@ -50,6 +50,7 @@ from piker.accounting import (
 )
 from piker.accounting._mktinfo import (
     Symbol,
+    MktPair,
     digits_to_dec,
 )
 from piker.clearing._messages import (
@@ -370,6 +371,8 @@ def trades2pps(
     acctid: str,
     new_trans: dict[str, Transaction] = {},
 
+    write_storage: bool = True,
+
 ) -> tuple[
     list[BrokerdPosition],
     list[Transaction],
@@ -400,12 +403,19 @@ def trades2pps(
                 # right since `.broker` is already
                 # included?
                 account='kraken.' + acctid,
-                symbol=p.symbol.front_fqsn(),
+                symbol=p.symbol.fqme,
                 size=p.size,
                 avg_price=p.ppu,
                 currency='',
             )
             position_msgs.append(msg)
+
+    if write_storage:
+        # TODO: ideally this blocks the this task
+        # as little as possible. we need to either do
+        # these writes in another actor, or try out `trio`'s
+        # async file IO api?
+        table.write_config()
 
     return position_msgs
 
@@ -639,6 +649,12 @@ async def trades_dialogue(
             )
             await ctx.started((ppmsgs, [acc_name]))
 
+            # TODO: ideally this blocks the this task
+            # as little as possible. we need to either do
+            # these writes in another actor, or try out `trio`'s
+            # async file IO api?
+            table.write_config()
+
             # Get websocket token for authenticated data stream
             # Assert that a token was actually received.
             resp = await client.endpoint('GetWebSocketsToken', {})
@@ -813,8 +829,6 @@ async def handle_order_updates(
                 )
                 for pp_msg in ppmsgs:
                     await ems_stream.send(pp_msg)
-
-                ledger_trans.update(new_trans)
 
             # process and relay order state change events
             # https://docs.kraken.com/websockets/#message-openOrders
@@ -1184,8 +1198,20 @@ def norm_trade_records(
         }[record['type']]
 
         # we normalize to kraken's `altname` always..
-        bsuid, pair_info = Client.normalize_symbol(record['pair'])
+        bsuid, pair_info = Client.normalize_symbol(
+            record['pair']
+        )
         fqsn = f'{bsuid}.kraken'
+
+        dst, src = pair_info.wsname.lower().split('/')
+        # mkpair = MktPair(
+        #     src=src,
+        #     dst=dst,
+        #     price_tick=digits_to_dec(pair_info.pair_decimals),
+        #     size_tick=digits_to_dec(pair_info.lot_decimals),
+        #     dst_type='crypto_currency',
+        # )
+        # breakpoint()
 
         mktpair = Symbol.from_fqsn(
             fqsn,
