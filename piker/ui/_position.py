@@ -46,7 +46,13 @@ from ..calc import (
     puterize,
 )
 from ..clearing._allocate import Allocator
-from ..accounting import Position
+from ..accounting import (
+    Position,
+)
+from ..accounting._mktinfo import (
+    _derivs,
+)
+
 from ..data._normalize import iterticks
 from ..data.feed import (
     Feed,
@@ -85,7 +91,7 @@ async def update_pnl_from_feed(
 
     pp: PositionTracker = order_mode.current_pp
     live: Position = pp.live_pp
-    key: str = live.symbol.front_fqsn()
+    key: str = live.symbol.fqme
 
     log.info(f'Starting pnl display for {pp.alloc.account}')
 
@@ -424,7 +430,7 @@ class SettingsPane:
 
             # maybe start update task
             global _pnl_tasks
-            fqsn = sym.front_fqsn()
+            fqsn = sym.fqme
             if fqsn not in _pnl_tasks:
                 _pnl_tasks[fqsn] = True
                 self.order_mode.nursery.start_soon(
@@ -493,14 +499,6 @@ def pp_line(
     vb.sigRangeChanged.connect(marker.position_in_view)
 
     return line
-
-
-_derivs = (
-    'future',
-    'continuous_future',
-    'option',
-    'futures_option',
-)
 
 
 # TODO: move into annoate module?
