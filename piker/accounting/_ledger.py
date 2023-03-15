@@ -35,7 +35,10 @@ import toml
 from .. import config
 from ..data.types import Struct
 from ..log import get_logger
-from ._mktinfo import Symbol
+from ._mktinfo import (
+    Symbol,  # legacy
+    MktPair,
+)
 
 log = get_logger(__name__)
 
@@ -90,10 +93,13 @@ def open_trade_ledger(
 
 
 class Transaction(Struct, frozen=True):
-    # TODO: should this be ``.to`` (see below)?
-    fqsn: str
 
-    sym: Symbol
+    # TODO: unify this with the `MktPair`,
+    # once we have that as a required field,
+    # we don't really need the fqsn any more..
+    fqsn: str
+    sym: Symbol | MktPair
+
     tid: Union[str, int]  # unique transaction id
     size: float
     price: float
@@ -101,17 +107,45 @@ class Transaction(Struct, frozen=True):
     dt: datetime
     expiry: datetime | None = None
 
+    @property
+    def mktpair(self) -> MktPair:
+        sym = self.sym
+
+        if isinstance(sym, MktPair):
+            # presume it's already set as our desired
+            # ``MktPair`` type:
+            return sym
+
+        # cast to new type
+        return MktPair.from_fqme(
+            sym.fqme,
+            price_tick=digits_to_dec(
+                Decimal(str(sym.tick_size)),
+            ),
+            size_tick=digits_to_dec(
+                Decimal(str(sym.lot_tick_size)),
+            ),
+        )
+
+    # remap for back-compat
+    @property
+    def fqme(self) -> str:
+        return self.fqsn
+
     # optional key normally derived from the broker
     # backend which ensures the instrument-symbol this record
     # is for is truly unique.
     bsuid: Union[str, int] | None = None
 
+    # XXX NOTE: this will come from the `MktPair`
+    # instead of defined here right?
     # optional fqsn for the source "asset"/money symbol?
     # from: Optional[str] = None
 
 
 def iter_by_dt(
     clears: dict[str, Any],
+
 ) -> Iterator[tuple[str, dict]]:
     '''
     Iterate entries of a ``clears: dict`` table sorted by entry recorded
