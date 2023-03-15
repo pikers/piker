@@ -45,6 +45,7 @@ from ._ledger import (
 )
 from ._mktinfo import (
     Symbol,
+    # MktPair,
     unpack_fqsn,
 )
 from .. import config
@@ -62,7 +63,7 @@ class Position(Struct):
     transaction history.
 
     '''
-    symbol: Symbol
+    symbol: Symbol  # | MktPair
 
     # can be +ve or -ve for long/short
     size: float
@@ -113,7 +114,7 @@ class Position(Struct):
         # it via the trades ledger..
         # drop symbol obj in serialized form
         s = d.pop('symbol')
-        fqsn = s.front_fqsn()
+        fqsn = s.fqme
 
         broker, key, suffix = unpack_fqsn(fqsn)
         sym_info = s.broker_info[broker]
@@ -156,7 +157,6 @@ class Position(Struct):
 
             inline_table['tid'] = tid
             toml_clears_list.append(inline_table)
-
 
         d['clears'] = toml_clears_list
 
@@ -218,19 +218,14 @@ class Position(Struct):
         symbol = self.symbol
 
         lot_size_digits = symbol.lot_size_digits
-        ppu, size = (
-            round(
-                msg['avg_price'],
-                ndigits=symbol.tick_size_digits
-            ),
-            round(
-                msg['size'],
-                ndigits=lot_size_digits
-            ),
+        self.ppu = round(
+            msg['avg_price'],
+            ndigits=symbol.tick_size_digits,
         )
-
-        self.ppu = ppu
-        self.size = size
+        self.size = round(
+            msg['size'],
+            ndigits=lot_size_digits,
+        )
 
     @property
     def dsize(self) -> float:
@@ -406,7 +401,7 @@ class Position(Struct):
             size = round(size * self.split_ratio)
 
         return float(
-            self.symbol.quantize_size(size),
+            self.symbol.quantize(size),
         )
 
     def minimize_clears(
@@ -466,8 +461,8 @@ class Position(Struct):
 
         return clear
 
-    def sugest_split(self) -> float:
-        ...
+    # def sugest_split(self) -> float:
+    #     ...
 
 
 class PpTable(Struct):
