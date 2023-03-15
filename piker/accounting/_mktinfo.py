@@ -43,8 +43,8 @@ from ..data.types import Struct
 _underlyings: list[str] = [
     'stock',
     'bond',
-    'crypto_currency',
-    'fiat_currency',
+    'crypto',
+    'fiat',
     'commodity',
 ]
 
@@ -102,7 +102,8 @@ def digits_to_dec(
 
 class Asset(Struct, frozen=True):
     '''
-    Container type describing any transactable asset's technology.
+    Container type describing any transactable asset and its
+    contract-like and/or underlying technology meta-info.
 
     '''
     name: str
@@ -115,6 +116,9 @@ class Asset(Struct, frozen=True):
     # NOTE: additional info optionally packed in by the backend, but
     # should not be explicitly required in our generic API.
     info: dict = {}  # make it frozen?
+
+    # TODO?
+    # _to_dict_skip = {'info'}
 
     def __str__(self) -> str:
         return self.name
@@ -137,6 +141,18 @@ class Asset(Struct, frozen=True):
         )
 
 
+def maybe_cons_tokens(
+    tokens: list[Any],
+    delim_char: str = '.',
+) -> str:
+    '''
+    Construct `str` output from a maybe-concatenation of input
+    sequence of elements in ``tokens``.
+
+    '''
+    return '.'.join(filter(bool, tokens)).lower()
+
+
 class MktPair(Struct, frozen=True):
     '''
     Market description for a pair of assets which are tradeable:
@@ -144,52 +160,50 @@ class MktPair(Struct, frozen=True):
         buy: source asset -> destination asset
         sell: destination asset -> source asset
 
-    The main intention of this type is for a cross-asset, venue, broker
-    normalized descriptive data type from which all market-auctions can
-    be mapped, simply.
+    The main intention of this type is for a **simple** cross-asset
+    venue/broker normalized descrption type from which all
+    market-auctions can be mapped from FQME identifiers.
+
+    TODO: our eventual target fqme format/schema is:
+    <dst>/<src>.<expiry>.<con_info_1>.<con_info_2>. -> .<venue>.<broker>
+          ^ -- optional tokens ------------------------------- ^
 
     '''
-    # "source asset" (name) used to buy *from*
-    # (or used to sell *to*)
-    src: str | Asset
+    dst: str | Asset
     # "destination asset" (name) used to buy *to*
     # (or used to sell *from*)
-    dst: str | Asset
 
-    @property
-    def key(self) -> str:
-        '''
-        The "endpoint key" for this market.
-
-        In most other tina platforms this is referred to as the
-        "symbol".
-
-        '''
-        return f'{self.src}{self.dst}'
-
+    price_tick: Decimal  # minimum price increment
+    size_tick: Decimal  # minimum size (aka vlm) increment
     # the tick size is the number describing the smallest step in value
     # available in this market between the source and destination
     # assets.
     # https://en.wikipedia.org/wiki/Tick_size
     # https://en.wikipedia.org/wiki/Commodity_tick
     # https://en.wikipedia.org/wiki/Percentage_in_point
-    price_tick: Decimal  # minimum price increment value increment
-    size_tick: Decimal  # minimum size (aka vlm) increment value increment
 
-    # @property
-    # def size_tick_digits(self) -> int:
-    #     return float_digits(self.size_tick)
+    # unique "broker id" since every market endpoint provider
+    # has their own nomenclature and schema for market maps.
+    bs_mktid: str
+    broker: str  # the middle man giving access
 
-    broker: str | None = None  # the middle man giving access
-    venue: str | None = None  # market venue provider name
-    expiry: str | None = None  # for derivs, expiry datetime parseable str
+    # NOTE: to start this field is optional but should eventually be
+    # required; the reason is for backward compat since more positioning
+    # calculations were not originally stored with a src asset..
+
+    src: str | Asset | None = None
+    # "source asset" (name) used to buy *from*
+    # (or used to sell *to*).
+
+    venue: str = ''  # market venue provider name
+    expiry: str = ''  # for derivs, expiry datetime parseable str
 
     # destination asset's financial type/classification name
     # NOTE: this is required for the order size allocator system,
     # since we use different default settings based on the type
     # of the destination asset, eg. futes use a units limits vs.
     # equities a $limit.
-    dst_type: AssetTypeName | None = None
+    # dst_type: AssetTypeName | None = None
 
     # source asset's financial type/classification name
     # TODO: is a src type required for trading?
@@ -211,21 +225,101 @@ class MktPair(Struct, frozen=True):
         Constructor for a received msg-dict normally received over IPC.
 
         '''
-        ...
+        raise NotImplementedError
 
-    # fqa, fqma, .. etc. see issue:
-    # https://github.com/pikers/piker/issues/467
+    @property
+    def resolved(self) -> bool:
+        return isinstance(self.dst, Asset)
+
+    @classmethod
+    def from_fqme(
+        cls,
+        fqme: str,
+        price_tick: float | str,
+        size_tick: float | str,
+        bs_mktid: str,
+
+    ) -> MktPair:
+
+        broker, key, suffix = unpack_fqme(fqme)
+
+        # XXX: loading from a fqme string will
+        # leave this pair as "un resolved" meaning
+        # we don't yet have `.dst` set as an `Asset`
+        # which we expect to be filled in by some
+        # backend client with access to that data-info.
+        return cls(
+            dst=key,  # not resolved
+            price_tick=price_tick,
+            size_tick=size_tick,
+            bs_mktid=bs_mktid,
+            broker=broker,
+        )
+
+    @property
+    def key(self) -> str:
+        '''
+        The "endpoint key" for this market.
+
+        Eg. mnq/usd or btc/usdt or xmr/btc
+
+        In most other tina platforms this is referred to as the
+        "symbol".
+
+        '''
+        return maybe_cons_tokens([self.dst, self.src])
+
+    # NOTE: the main idea behind an fqme is to map a "market address"
+    # to some endpoint from a transaction provider (eg. a broker) such
+    # that we build a table of `fqme: str -> bs_mktid: Any` where any "piker
+    # market address" maps 1-to-1 to some broker trading endpoint.
+    # @cached_property
     @property
     def fqme(self) -> str:
         '''
         Return the fully qualified market endpoint-address for the
         pair of transacting assets.
 
-        Yes, you can pronounce it colloquially as "f#$%-me"..
+        fqme = "fully qualified market endpoint"
+
+        And yes, you pronounce it colloquially as read..
+
+        Basically the idea here is for all client code (consumers of piker's
+        APIs which query the data/broker-provider agnostic layer(s)) should be
+        able to tell which backend / venue / derivative each data feed/flow is
+        from by an explicit string-key of the current form:
+
+        <market-instrument-name>
+            .<venue>
+            .<expiry>
+            .<derivative-suffix-info>
+            .<brokerbackendname>
+
+        eg. for an explicit daq mini futes contract: mnq.cme.20230317.ib
+
+        TODO: I have thoughts that we should actually change this to be
+        more like an "attr lookup" (like how the web should have done
+        urls, but marketting peeps ruined it etc. etc.)
+
+        <broker>.<venue>.<instrumentname>.<suffixwithmetadata>
+
+        TODO:
+        See community discussion on naming and nomenclature, order
+        of addressing hierarchy, general schema, internal representation:
+
+        https://github.com/pikers/piker/issues/467
 
         '''
+        return maybe_cons_tokens([
+            self.key,  # final "pair name" (eg. qqq[/usd], btcusdt)
+            self.venue,
+            self.expiry,
+            self.broker,
+        ])
 
-    # fqsn = fqme
+    @property
+    def fqsn(self) -> str:
+        return self.fqme
 
     def quantize(
         self,
@@ -250,35 +344,27 @@ class MktPair(Struct, frozen=True):
             rounding=ROUND_HALF_EVEN
         )
 
-    # TODO: remove this?
+    # @property
+    # def size_tick_digits(self) -> int:
+    #     return float_digits(self.size_tick)
+
+    # TODO: BACKWARD COMPAT, TO REMOVE?
     @property
     def type_key(self) -> str:
-        return list(self.broker_info.values())[0]['asset_type']
+        return str(self.dst.atype)
 
-    # @classmethod
-    # def from_fqme(
-    #     cls,
-    #     fqme: str,
-    #     **kwargs,
+    @property
+    def tick_size_digits(self) -> int:
+        return float_digits(self.price_tick)
 
-    # ) -> MktPair:
-    #     broker, key, suffix = unpack_fqme(fqme)
-
-
-def mk_fqsn(
-    provider: str,
-    symbol: str,
-
-) -> str:
-    '''
-    Generate a "fully qualified symbol name" which is
-    a reverse-hierarchical cross broker/provider symbol
-
-    '''
-    return '.'.join([symbol, provider]).lower()
+    @property
+    def lot_size_digits(self) -> int:
+        return float_digits(self.size_tick)
 
 
-def unpack_fqsn(fqsn: str) -> tuple[str, str, str]:
+def unpack_fqme(
+    fqme: str,
+) -> tuple[str, str, str]:
     '''
     Unpack a fully-qualified-symbol-name to ``tuple``.
 
@@ -287,37 +373,38 @@ def unpack_fqsn(fqsn: str) -> tuple[str, str, str]:
     suffix = ''
 
     # TODO: probably reverse the order of all this XD
-    tokens = fqsn.split('.')
-    if len(tokens) < 3:
-        # probably crypto
-        symbol, broker = tokens
-        return (
-            broker,
-            symbol,
-            '',
-        )
+    tokens = fqme.split('.')
 
-    elif len(tokens) > 3:
-        symbol, venue, suffix, broker = tokens
-    else:
-        symbol, venue, broker = tokens
-        suffix = ''
+    match tokens:
+        case [mkt_ep, broker]:
+            # probably crypto
+            # mkt_ep, broker = tokens
+            return (
+                broker,
+                mkt_ep,
+                '',
+            )
 
-    # head, _, broker = fqsn.rpartition('.')
-    # symbol, _, suffix = head.rpartition('.')
+        # TODO: swap venue and suffix/deriv-info here?
+        case [mkt_ep, venue, suffix, broker]:
+            pass
+
+        case [mkt_ep, venue, broker]:
+            suffix = ''
+
+        case _:
+            raise ValueError(f'Invalid fqme: {fqme}')
+
     return (
         broker,
-        '.'.join([symbol, venue]),
+        '.'.join([mkt_ep, venue]),
         suffix,
     )
 
 
-unpack_fqme = unpack_fqsn
+unpack_fqsn = unpack_fqme
 
 
-# TODO: rework the below `Symbol` (which was originally inspired and
-# derived from stuff in quantdom) into a simpler, ipc msg ready, market
-# endpoint meta-data container type as per the drafted interace above.
 class Symbol(Struct):
     '''
     I guess this is some kinda container thing for dealing with
@@ -343,13 +430,8 @@ class Symbol(Struct):
 
         return Symbol(
             key=key,
-
             tick_size=tick_size,
             lot_tick_size=lot_size,
-
-            # tick_size_digits=float_digits(tick_size),
-            # lot_size_digits=float_digits(lot_size),
-
             suffix=suffix,
             broker_info={broker: info},
         )
@@ -360,10 +442,6 @@ class Symbol(Struct):
     @property
     def type_key(self) -> str:
         return list(self.broker_info.values())[0]['asset_type']
-
-    @property
-    def brokers(self) -> list[str]:
-        return list(self.broker_info.keys())
 
     @property
     def tick_size_digits(self) -> int:
@@ -379,23 +457,6 @@ class Symbol(Struct):
 
     @property
     def fqsn(self) -> str:
-        '''
-        fqsn = "fully qualified symbol name"
-
-        Basically the idea here is for all client-ish code (aka programs/actors
-        that ask the provider agnostic layers in the stack for data) should be
-        able to tell which backend / venue / derivative each data feed/flow is
-        from by an explicit string key of the current form:
-
-        <instrumentname>.<venue>.<suffixwithmetadata>.<brokerbackendname>
-
-        TODO: I have thoughts that we should actually change this to be
-        more like an "attr lookup" (like how the web should have done
-        urls, but marketting peeps ruined it etc. etc.):
-
-        <broker>.<venue>.<instrumentname>.<suffixwithmetadata>
-
-        '''
         broker = self.broker
         key = self.key
         if self.suffix:
@@ -410,14 +471,7 @@ class Symbol(Struct):
     def quantize(
         self,
         size: float,
-
     ) -> Decimal:
-        '''
-        Truncate input ``size: float`` using ``Decimal``
-        quantized form of the digit precision defined
-        by ``self.lot_tick_size``.
-
-        '''
         digits = float_digits(self.lot_tick_size)
         return Decimal(size).quantize(
             Decimal(f'1.{"0".ljust(digits, "0")}'),
