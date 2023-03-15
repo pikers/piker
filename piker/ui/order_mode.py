@@ -354,7 +354,7 @@ class OrderMode:
             order = staged.copy()
             order.oid = oid
 
-        order.symbol = order.symbol.front_fqsn()
+        order.symbol = order.symbol.fqme
 
         lines = self.lines_from_order(
             order,
@@ -948,8 +948,8 @@ async def process_trade_msg(
     ):
         sym = mode.chart.linked.symbol
         pp_msg_symbol = msg['symbol'].lower()
-        fqsn = sym.front_fqsn()
-        broker, key = sym.front_feed()
+        fqsn = sym.fqme
+        broker = sym.broker
         if (
             pp_msg_symbol == fqsn
             or pp_msg_symbol == fqsn.removesuffix(f'.{broker}')
@@ -997,7 +997,7 @@ async def process_trade_msg(
                 assert msg.resp in ('open', 'dark_open'), f'Unknown msg: {msg}'
 
                 sym = mode.chart.linked.symbol
-                fqsn = sym.front_fqsn()
+                fqsn = sym.fqme
                 if (
                     ((order.symbol + f'.{msg.src}') == fqsn)
 
