@@ -42,7 +42,12 @@ import trio
 
 from piker import config
 from piker.data.types import Struct
-from piker.accounting._mktinfo import Symbol
+from piker.accounting._mktinfo import (
+    Asset,
+    digits_to_dec,
+    MktPair,
+    Symbol,
+)
 from piker.brokers._util import (
     resproc,
     SymbolNotFound,
@@ -177,10 +182,12 @@ class Client:
             'User-Agent':
                 'krakenex/2.1.0 (+https://github.com/veox/python3-krakenex)'
         })
-        self.conf: dict[str, str] = config
         self._name = name
         self._api_key = api_key
         self._secret = secret
+
+        self.conf: dict[str, str] = config
+        self.assets: dict[str, Asset] = {}
 
     @property
     def pairs(self) -> dict[str, Pair]:
@@ -252,19 +259,50 @@ class Client:
 
         # TODO: we need to pull out the "asset" decimals
         # data and return a `decimal.Decimal` instead here!
+        # using the underlying Asset
         return {
             self._atable[sym].lower(): float(bal)
             for sym, bal in by_bsuid.items()
         }
 
     async def get_assets(self) -> dict[str, dict]:
+        '''
+        Get all assets available for trading and xfer.
+
+        https://docs.kraken.com/rest/#tag/Market-Data/operation/getAssetInfo
+
+        return msg:
+            "asset1": {
+                "aclass": "string",
+                "altname": "string",
+                "decimals": 0,
+                "display_decimals": 0,
+                "collateral_value": 0,
+                "status": "string"
+            }
+
+        '''
         resp = await self._public('Assets', {})
         return resp['result']
 
     async def cache_assets(self) -> None:
-        assets = self.assets = await self.get_assets()
+        '''
+        Load and cache all asset infos and pack into
+        our native ``Asset`` struct.
+
+        '''
+        assets = await self.get_assets()
         for bsuid, info in assets.items():
-            self._atable[bsuid] = info['altname']
+
+            aname = self._atable[bsuid] = info['altname']
+            aclass = info['aclass']
+
+            self.assets[bsuid] = Asset(
+                name=aname.lower(),
+                atype=f'crypto_{aclass}',
+                tx_tick=digits_to_dec(info['decimals']),
+                info=info,
+            )
 
     async def get_trades(
         self,
@@ -327,10 +365,15 @@ class Client:
         Currently only withdrawals are supported.
 
         '''
-        xfers: list[dict] = (await self.endpoint(
+        resp = await self.endpoint(
             'WithdrawStatus',
             {'asset': asset},
-        ))['result']
+        )
+        try:
+            xfers: list[dict] = resp['result']
+        except KeyError:
+            log.exception(f'Kraken suxxx: {resp}')
+            return []
 
         # eg. resp schema:
         # 'result': [{'method': 'Bitcoin', 'aclass': 'currency', 'asset':
@@ -345,19 +388,32 @@ class Client:
 
             # look up the normalized name and asset info
             asset_key = entry['asset']
-            asset_info = self.assets[asset_key]
-            asset = self._atable[asset_key].lower()
+            asset = self.assets[asset_key]
+            asset_key = self._atable[asset_key].lower()
 
             # XXX: this is in the asset units (likely) so it isn't
             # quite the same as a commisions cost necessarily..)
             cost = float(entry['fee'])
 
-            fqsn = asset + '.kraken'
+            fqsn = asset_key + '.kraken'
+
+            # pair = MktPair(
+            #     src=Asset(
+            #         name=asset_key,
+            #         type='crypto_currency',
+            #         tx_tick=asset_info['decimals']
+
+            #         tx_tick=
+            #         info=asset_info,
+            #     )
+            #     broker='kraken',
+            # )
+
             pairinfo = Symbol.from_fqsn(
                 fqsn,
                 info={
                     'asset_type': 'crypto',
-                    'lot_tick_size': asset_info['decimals'],
+                    'lot_tick_size': asset.tx_tick,
                 },
             )
 
@@ -366,7 +422,7 @@ class Client:
                 sym=pairinfo,
                 tid=entry['txid'],
                 dt=pendulum.from_timestamp(entry['time']),
-                bsuid=f'{asset}{src_asset}',
+                bsuid=f'{asset_key}{src_asset}',
                 size=-1*(
                     float(entry['amount'])
                     +
