@@ -45,7 +45,6 @@ from ..log import get_logger
 from ..data._normalize import iterticks
 from ..accounting._mktinfo import (
     unpack_fqsn,
-    mk_fqsn,
     float_digits,
 )
 from ..data.feed import (
@@ -948,7 +947,7 @@ async def translate_and_relay_brokerd_events(
 
                     # NOTE: be sure to pack an fqsn for the client side!
                     order = Order(**status_msg.req)
-                    order.symbol = mk_fqsn(broker, order.symbol)
+                    order.symbol = f'{order.symbol}.{broker}'
 
                     assert order.price and order.size
                     status_msg.req = order
