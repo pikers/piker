@@ -104,7 +104,7 @@ async def fsp_compute(
         disabled=True
     )
 
-    fqsn = symbol.front_fqsn()
+    fqsn = symbol.fqme
     out_stream = func(
 
         # TODO: do we even need this if we do the feed api right?

@@ -290,7 +290,7 @@ class GodWidget(QWidget):
         symbol = self.rt_linked.symbol
         if symbol is not None:
             self.window.setWindowTitle(
-                f'{symbol.front_fqsn()} '
+                f'{symbol.fqme} '
                 f'tick:{symbol.tick_size}'
             )
 

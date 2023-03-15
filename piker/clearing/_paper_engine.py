@@ -544,7 +544,7 @@ async def trades_dialogue(
             pp_msgs.append(BrokerdPosition(
                 broker=broker,
                 account='paper',
-                symbol=pos.symbol.front_fqsn(),
+                symbol=pos.symbol.fqme,
                 size=pos.size,
                 avg_price=pos.ppu,
             ))

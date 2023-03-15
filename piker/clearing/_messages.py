@@ -300,10 +300,10 @@ class BrokerdError(Struct):
 
 
 class BrokerdPosition(Struct):
-    '''Position update event from brokerd.
+    '''
+    Position update event from brokerd.
 
     '''
-
     broker: str
     account: str
     symbol: str
