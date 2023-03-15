@@ -21,6 +21,7 @@ from __future__ import annotations
 from bisect import insort
 from contextlib import ExitStack
 from dataclasses import asdict
+from decimal import Decimal
 from functools import partial
 from pprint import pformat
 import time
@@ -72,7 +73,6 @@ from piker.clearing._messages import (
 )
 from piker.accounting._mktinfo import (
     Symbol,
-    float_digits,
 )
 from .api import (
     _accounts2clients,
@@ -414,7 +414,7 @@ async def update_and_audit_msgs(
                 # right since `.broker` is already included?
                 account=f'ib.{acctid}',
                 # XXX: the `.ib` is stripped..?
-                symbol=p.symbol.front_fqsn(),
+                symbol=p.symbol.fqme,
                 # currency=ibppmsg.currency,
                 size=p.size,
                 avg_price=p.ppu,
@@ -625,7 +625,7 @@ async def trades_dialogue(
                         pairinfo = pp.symbol
                         if msg.size != pp.size:
                             log.error(
-                                f'Pos size mismatch {pairinfo.front_fqsn()}:\n'
+                                f'Pos size mismatch {pairinfo.fqsn}:\n'
                                 f'ib: {msg.size}\n'
                                 f'piker: {pp.size}\n'
                             )
@@ -1110,7 +1110,6 @@ def norm_trade_records(
             comms = -1*record['ibCommission']
 
         price = record.get('price') or record['tradePrice']
-        price_tick_digits = float_digits(price)
 
         # the api doesn't do the -/+ on the quantity for you but flex
         # records do.. are you fucking serious ib...!?
@@ -1153,7 +1152,9 @@ def norm_trade_records(
 
         # special handling of symbol extraction from
         # flex records using some ad-hoc schema parsing.
-        asset_type: str = record.get('assetCategory') or record.get('secType', 'STK')
+        asset_type: str = record.get(
+            'assetCategory'
+        ) or record.get('secType', 'STK')
 
         # TODO: XXX: WOA this is kinda hacky.. probably
         # should figure out the correct future pair key more
@@ -1170,34 +1171,38 @@ def norm_trade_records(
             suffix = f'{exch}.{expiry}'
             expiry = pendulum.parse(expiry)
 
-        src: str = record['currency']
+        # src: str = record['currency']
 
+        # price_tick_digits = float_digits(price)
+        tick_size = Decimal(
+            Decimal(10)**Decimal(str(price)).as_tuple().exponent
+        )
         pair = Symbol.from_fqsn(
             fqsn=f'{symbol}.{suffix}.ib',
             info={
-                'tick_size_digits': price_tick_digits,
+                'tick_size': tick_size,
 
                 # NOTE: for "legacy" assets, volume is normally discreet, not
                 # a float, but we keep a digit in case the suitz decide
                 # to get crazy and change it; we'll be kinda ready
                 # schema-wise..
-                'lot_size_digits': 1,
+                'lot_tick_size': 0.0,
 
                 # TODO: remove when we switching from
                 # ``Symbol`` -> ``MktPair``
                 'asset_type': asset_type,
 
-                # TODO: figure out a target fin-type name
-                # set and normalize to that here!
-                'dst_type': asset_type.lower(),
+                # # TODO: figure out a target fin-type name
+                # # set and normalize to that here!
+                # 'dst_type': asset_type.lower(),
 
-                # starting to use new key naming as in ``MktPair``
-                # type have drafted...
-                'src': src,
-                'src_type': 'fiat',
+                # # starting to use new key naming as in ``MktPair``
+                # # type have drafted...
+                # 'src': src,
+                # 'src_type': 'fiat',
             },
         )
-        fqsn = pair.front_fqsn().rstrip('.ib')
+        fqsn = pair.fqme.rstrip('.ib')
 
         # NOTE: for flex records the normal fields for defining an fqsn
         # sometimes won't be available so we rely on two approaches for
