@@ -38,6 +38,7 @@ from ..log import get_logger
 from ._mktinfo import (
     Symbol,  # legacy
     MktPair,
+    Asset,
 )
 
 log = get_logger(__name__)
@@ -98,7 +99,18 @@ class Transaction(Struct, frozen=True):
     # once we have that as a required field,
     # we don't really need the fqsn any more..
     fqsn: str
-    sym: Symbol | MktPair
+
+    # TODO: drop the Symbol type
+
+    # the underlying "transaction system", normally one of a ``MktPair``
+    # (a description of a tradable double auction) or a ledger-recorded
+    # ("ledger" in any sense as long as you can record transfers) of any
+    # sort) ``Asset``.
+    sym: MktPair | Asset | Symbol
+
+    @property
+    def sys(self) -> Symbol:
+        return self.sym
 
     tid: Union[str, int]  # unique transaction id
     size: float
@@ -107,35 +119,22 @@ class Transaction(Struct, frozen=True):
     dt: datetime
     expiry: datetime | None = None
 
-    @property
-    def mktpair(self) -> MktPair:
-        sym = self.sym
-
-        if isinstance(sym, MktPair):
-            # presume it's already set as our desired
-            # ``MktPair`` type:
-            return sym
-
-        # cast to new type
-        return MktPair.from_fqme(
-            sym.fqme,
-            price_tick=digits_to_dec(
-                Decimal(str(sym.tick_size)),
-            ),
-            size_tick=digits_to_dec(
-                Decimal(str(sym.lot_tick_size)),
-            ),
-        )
-
     # remap for back-compat
     @property
     def fqme(self) -> str:
         return self.fqsn
 
-    # optional key normally derived from the broker
-    # backend which ensures the instrument-symbol this record
-    # is for is truly unique.
-    bsuid: Union[str, int] | None = None
+    # (optional) key-id defined by the broker-service backend which
+    # ensures the instrument-symbol market key for this record is unique
+    # in the "their backend/system" sense; i.e. this uid for the market
+    # as defined (internally) in some namespace defined by the broker
+    # service.
+    bsuid: str | int | None = None
+
+    @property
+    def bs_mktid(self) -> str | int | None:
+        print(f'STOP USING .bsuid` for {self.fqme}')
+        return self.bs_mktid
 
     # XXX NOTE: this will come from the `MktPair`
     # instead of defined here right?
