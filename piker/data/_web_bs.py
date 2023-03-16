@@ -100,7 +100,6 @@ class NoBsWs:
         last_err = None
         for i in range(tries):
             try:
-                breakpoint()
                 self._ws = await self._stack.enter_async_context(
                     trio_websocket.open_websocket_url(self.url)
                 )

@@ -342,15 +342,16 @@ async def stream_quotes(
             yield
 
             # unsub
-            await ws.send_msg(
-                {
-                    "id": connect_id,
-                    "type": "unsubscribe",
-                    "topic": f"/market/ticker:{sym}",
-                    "privateChannel": False,
-                    "response": True,
-                }
-            )
+            if ws.connected():
+                await ws.send_msg(
+                    {
+                        "id": connect_id,
+                        "type": "unsubscribe",
+                        "topic": f"/market/ticker:{sym}",
+                        "privateChannel": False,
+                        "response": True,
+                    }
+                )
 
         token = await client._get_ws_token()
         async with open_autorecon_ws(
