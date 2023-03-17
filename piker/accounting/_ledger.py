@@ -129,12 +129,7 @@ class Transaction(Struct, frozen=True):
     # in the "their backend/system" sense; i.e. this uid for the market
     # as defined (internally) in some namespace defined by the broker
     # service.
-    bsuid: str | int | None = None
-
-    @property
-    def bs_mktid(self) -> str | int | None:
-        print(f'STOP USING .bsuid` for {self.fqme}')
-        return self.bs_mktid
+    bs_mktid: str | int | None = None
 
     # XXX NOTE: this will come from the `MktPair`
     # instead of defined here right?

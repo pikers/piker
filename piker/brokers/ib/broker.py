@@ -335,12 +335,12 @@ async def update_and_audit_msgs(
 
     msgs: list[BrokerdPosition] = []
     for p in pps:
-        bsuid = p.bsuid
+        bs_mktid = p.bs_mktid
 
         # retreive equivalent ib reported position message
         # for comparison/audit versus the piker equivalent
         # breakeven pp calcs.
-        ibppmsg = cids2pps.get((acctid, bsuid))
+        ibppmsg = cids2pps.get((acctid, bs_mktid))
 
         if ibppmsg:
             msg = BrokerdPosition(
@@ -555,18 +555,18 @@ async def trades_dialogue(
                     # collect all ib-pp reported positions so that we can be
                     # sure know which positions to update from the ledger if
                     # any are missing from the ``pps.toml``
-                    bsuid, msg = pack_position(pos)
+                    bs_mktid, msg = pack_position(pos)
 
                     acctid = msg.account = accounts_def.inverse[msg.account]
                     acctid = acctid.strip('ib.')
-                    cids2pps[(acctid, bsuid)] = msg
+                    cids2pps[(acctid, bs_mktid)] = msg
                     assert msg.account in accounts, (
                         f'Position for unknown account: {msg.account}')
 
                     ledger = ledgers[acctid]
                     table = tables[acctid]
 
-                    pp = table.pps.get(bsuid)
+                    pp = table.pps.get(bs_mktid)
                     if (
                         not pp
                         or pp.size != msg.size
@@ -605,12 +605,12 @@ async def trades_dialogue(
                         # the updated output (maybe this is a bug?) but
                         # if you create a pos from TWS and then load it
                         # from the api trades it seems we get a key
-                        # error from ``update[bsuid]`` ?
-                        pp = table.pps.get(bsuid)
+                        # error from ``update[bs_mktid]`` ?
+                        pp = table.pps.get(bs_mktid)
                         if not pp:
                             log.error(
                                 f'The contract id for {msg} may have '
-                                f'changed to {bsuid}\nYou may need to '
+                                f'changed to {bs_mktid}\nYou may need to '
                                 'adjust your ledger for this, skipping '
                                 'for now.'
                             )
@@ -620,8 +620,8 @@ async def trades_dialogue(
                         # the updated output (maybe this is a bug?) but
                         # if you create a pos from TWS and then load it
                         # from the api trades it seems we get a key
-                        # error from ``update[bsuid]`` ?
-                        pp = table.pps[bsuid]
+                        # error from ``update[bs_mktid]`` ?
+                        pp = table.pps[bs_mktid]
                         pairinfo = pp.symbol
                         if msg.size != pp.size:
                             log.error(
@@ -760,7 +760,7 @@ async def emit_pp_update(
     # re-formatted pps as msgs to the ems.
     for pos in filter(
         bool,
-        [active.get(r.bsuid), closed.get(r.bsuid)]
+        [active.get(r.bs_mktid), closed.get(r.bs_mktid)]
     ):
         msgs = await update_and_audit_msgs(
             acctid,
@@ -1225,7 +1225,7 @@ def norm_trade_records(
                 cost=comms,
                 dt=dt,
                 expiry=expiry,
-                bsuid=conid,
+                bs_mktid=conid,
             ),
             key=lambda t: t.dt
         )

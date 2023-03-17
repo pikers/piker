@@ -45,7 +45,8 @@ from ._ledger import (
 )
 from ._mktinfo import (
     Symbol,
-    # MktPair,
+    MktPair,
+    Asset,
     unpack_fqsn,
 )
 from .. import config
@@ -63,7 +64,7 @@ class Position(Struct):
     transaction history.
 
     '''
-    symbol: Symbol  # | MktPair
+    symbol: Symbol | MktPair
 
     # can be +ve or -ve for long/short
     size: float
@@ -72,17 +73,17 @@ class Position(Struct):
     # zero for the entirety of the current "trade state".
     ppu: float
 
-    # unique backend symbol id
-    bsuid: str
+    # unique "backend system market id"
+    bs_mktid: str
 
-    split_ratio: Optional[int] = None
+    split_ratio: int | None = None
 
     # ordered record of known constituent trade messages
     clears: dict[
         Union[str, int, Status],  # trade id
         dict[str, Any],  # transaction history summaries
     ] = {}
-    first_clear_dt: Optional[datetime] = None
+    first_clear_dt: datetime | None = None
 
     expiry: Optional[datetime] = None
 
@@ -117,19 +118,34 @@ class Position(Struct):
         fqsn = s.fqme
 
         broker, key, suffix = unpack_fqsn(fqsn)
-        sym_info = s.broker_info[broker]
 
-        d['asset_type'] = sym_info['asset_type']
-        d['price_tick_size'] = (
-            sym_info.get('price_tick_size')
-            or
-            s.tick_size
-        )
-        d['lot_tick_size'] = (
-            sym_info.get('lot_tick_size')
-            or
-            s.lot_tick_size
-        )
+        if isinstance(s, Symbol):
+            sym_info = s.broker_info[broker]
+            d['asset_type'] = sym_info['asset_type']
+            d['price_tick'] = (
+                sym_info.get('price_tick_size')
+                or
+                s.tick_size
+            )
+            d['size_tick'] = (
+                sym_info.get('lot_tick_size')
+                or
+                s.lot_tick_size
+            )
+
+        # the newwww wayyy B)
+        else:
+            mkt = s
+            assert isinstance(mkt, MktPair)
+
+            # an asset resolved mkt where we have ``Asset`` info about
+            # each tradeable asset in the market.
+            if mkt.resolved:
+                dst: Asset = mkt.dst
+                d['asset_type'] = dst.atype
+
+            d['price_tick'] = mkt.price_tick
+            d['size_tick'] = mkt.size_tick
 
         if self.expiry is None:
             d.pop('expiry', None)
@@ -217,14 +233,19 @@ class Position(Struct):
         # XXX: better place to do this?
         symbol = self.symbol
 
-        lot_size_digits = symbol.lot_size_digits
+        # TODO: switch to new fields..?
+        # .size_tick_digits, .price_tick_digits
+        size_tick_digits = symbol.lot_size_digits
+        price_tick_digits = symbol.tick_size_digits
+
         self.ppu = round(
+            # TODO: change this to ppu?
             msg['avg_price'],
-            ndigits=symbol.tick_size_digits,
+            ndigits=price_tick_digits,
         )
         self.size = round(
             msg['size'],
-            ndigits=lot_size_digits,
+            ndigits=size_tick_digits,
         )
 
     @property
@@ -490,7 +511,7 @@ class PpTable(Struct):
             reverse=True,
         ):
             pp = pps.setdefault(
-                t.bsuid,
+                t.bs_mktid,
 
                 # if no existing pp, allocate fresh one.
                 Position(
@@ -500,7 +521,7 @@ class PpTable(Struct):
                     ) if not t.sym else t.sym,
                     size=0.0,
                     ppu=0.0,
-                    bsuid=t.bsuid,
+                    bs_mktid=t.bs_mktid,
                     expiry=t.expiry,
                 )
             )
@@ -526,10 +547,10 @@ class PpTable(Struct):
 
             # update clearing table
             pp.add_clear(t)
-            updated[t.bsuid] = pp
+            updated[t.bs_mktid] = pp
 
         # minimize clears tables and update sizing.
-        for bsuid, pp in updated.items():
+        for bs_mktid, pp in updated.items():
             pp.ensure_state()
 
         # deliver only the position entries that were actually updated
@@ -557,14 +578,8 @@ class PpTable(Struct):
         open_pp_objs: dict[str, Position] = {}
 
         pp_objs = self.pps
-        for bsuid in list(pp_objs):
-            pp = pp_objs[bsuid]
-
-            # XXX: debug hook for size mismatches
-            # qqqbsuid = 320227571
-            # if bsuid == qqqbsuid:
-            #     breakpoint()
-
+        for bs_mktid in list(pp_objs):
+            pp = pp_objs[bs_mktid]
             pp.ensure_state()
 
             if (
@@ -583,10 +598,10 @@ class PpTable(Struct):
                 # ignored; the closed positions won't be written to the
                 # ``pps.toml`` since ``pp_active_entries`` above is what's
                 # written.
-                closed_pp_objs[bsuid] = pp
+                closed_pp_objs[bs_mktid] = pp
 
             else:
-                open_pp_objs[bsuid] = pp
+                open_pp_objs[bs_mktid] = pp
 
         return open_pp_objs, closed_pp_objs
 
@@ -600,7 +615,7 @@ class PpTable(Struct):
         # we don't store in the ``pps.toml``.
         to_toml_dict = {}
 
-        for bsuid, pos in active.items():
+        for bs_mktid, pos in active.items():
 
             # keep the minimal amount of clears that make up this
             # position since the last net-zero state.
@@ -674,7 +689,7 @@ def load_pps_from_ledger(
     Open a ledger file by broker name and account and read in and
     process any trade records into our normalized ``Transaction`` form
     and then update the equivalent ``Pptable`` and deliver the two
-    bsuid-mapped dict-sets of the transactions and pps.
+    bs_mktid-mapped dict-sets of the transactions and pps.
 
     '''
     with (
@@ -690,9 +705,9 @@ def load_pps_from_ledger(
 
         if filter_by:
             records = {}
-            bsuids = set(filter_by)
+            bs_mktids = set(filter_by)
             for tid, r in src_records.items():
-                if r.bsuid in bsuids:
+                if r.bs_mktid in bs_mktids:
                     records[tid] = r
         else:
             records = src_records
@@ -868,22 +883,35 @@ def open_pps(
 
     # unmarshal/load ``pps.toml`` config entries into object form
     # and update `PpTable` obj entries.
-    for fqsn, entry in pps.items():
-        bsuid = entry['bsuid']
-        symbol = Symbol.from_fqsn(
-            fqsn,
+    for fqme, entry in pps.items():
 
-            # NOTE & TODO: right now we fill in the defaults from
-            # `.data._source.Symbol` but eventually these should always
-            # either be already written to the pos table or provided at
-            # write time to ensure always having these values somewhere
-            # and thus allowing us to get our pos sizing precision
-            # correct!
-            info={
-                'asset_type': entry.get('asset_type', '<unknown>'),
-                'price_tick_size': entry.get('price_tick_size', 0.01),
-                'lot_tick_size': entry.get('lot_tick_size', 0.0),
-            }
+        # atype = entry.get('asset_type', '<unknown>')
+
+        # unique broker market id
+        bs_mktid = (
+            entry.get('bsuid')
+            or entry.get('bs_mktid')
+        )
+        price_tick = (
+            entry.get('price_tick_size')
+            or entry.get('price_tick')
+            or 0.01
+        )
+        size_tick = (
+            entry.get('lot_tick_size')
+            or entry.get('size_tick')
+            or 0.0
+        )
+
+        # load the pair using the fqme which
+        # will make the pair "unresolved" until
+        # the backend broker actually loads
+        # the market and position info.
+        mkt = MktPair.from_fqme(
+            fqme,
+            price_tick=price_tick,
+            size_tick=size_tick,
+            bs_mktid=bs_mktid
         )
 
         # convert clears sub-tables (only in this form
@@ -893,7 +921,7 @@ def open_pps(
         # index clears entries in "object" form by tid in a top
         # level dict instead of a list (as is presented in our
         # ``pps.toml``).
-        clears = pp_objs.setdefault(bsuid, {})
+        clears = pp_objs.setdefault(bs_mktid, {})
 
         # TODO: should be make a ``Struct`` for clear/event entries?
         # convert "clear events table" from the toml config (list of
@@ -908,9 +936,9 @@ def open_pps(
             clears_table['dt'] = dt
 
             trans.append(Transaction(
-                fqsn=bsuid,
-                sym=symbol,
-                bsuid=bsuid,
+                fqsn=bs_mktid,
+                sym=mkt,
+                bs_mktid=bs_mktid,
                 tid=tid,
                 size=clears_table['size'],
                 price=clears_table['price'],
@@ -933,13 +961,13 @@ def open_pps(
         if expiry:
             expiry = pendulum.parse(expiry)
 
-        pp = pp_objs[bsuid] = Position(
-            symbol,
+        pp = pp_objs[bs_mktid] = Position(
+            mkt,
             size=size,
             ppu=ppu,
             split_ratio=split_ratio,
             expiry=expiry,
-            bsuid=entry['bsuid'],
+            bs_mktid=bs_mktid,
         )
 
         # XXX: super critical, we need to be sure to include

@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -258,7 +258,7 @@ class PaperBoi(Struct):
             price=price,
             cost=0,  # TODO: cost model
             dt=pendulum.from_timestamp(fill_time_s),
-            bsuid=key,
+            bs_mktid=key,
         )
 
         with (

@@ -206,7 +206,7 @@ class Allocator(Struct):
                     symbol=sym,
                     size=order_size,
                     ppu=price,
-                    bsuid=sym,
+                    bs_mktid=sym,
                 )
             )
 

@@ -48,7 +48,7 @@ __all__ = [
 def get_likely_pair(
     src: str,
     dst: str,
-    bsuid: str,
+    bs_mktid: str,
 
 ) -> str:
     '''
@@ -57,7 +57,7 @@ def get_likely_pair(
 
     '''
     try:
-        src_name_start = bsuid.rindex(src)
+        src_name_start = bs_mktid.rindex(src)
     except (
         ValueError,   # substr not found
     ):
@@ -66,13 +66,13 @@ def get_likely_pair(
         # buy some other dst which was furhter used
         # to buy another dst..)
         log.warning(
-            f'No src fiat {src} found in {bsuid}?'
+            f'No src fiat {src} found in {bs_mktid}?'
         )
         return
 
-    likely_dst = bsuid[:src_name_start]
+    likely_dst = bs_mktid[:src_name_start]
     if likely_dst == dst:
-        return bsuid
+        return bs_mktid
 
 
 if __name__ == '__main__':

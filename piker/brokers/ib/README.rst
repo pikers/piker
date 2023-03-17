@@ -127,7 +127,7 @@ your ``pps.toml`` file will have position entries like,
     [ib.algopaper."mnq.globex.20221216"]
     size = -1.0
     ppu = 12423.630576923071
-    bsuid = 515416577
+    bs_mktid = 515416577
     expiry = "2022-12-16T00:00:00+00:00"
     clears = [
      { dt = "2022-08-31T18:54:46+00:00", ppu = 12423.630576923071, accum_size = -19.0, price = 12372.75, size = 1.0, cost = 0.57, tid = "0000e1a7.630f5e5a.01.01" },

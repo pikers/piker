@@ -737,7 +737,7 @@ async def open_order_mode(
                 ppu=0,
 
                 # XXX: BLEH, do we care about this on the client side?
-                bsuid=symbol,
+                bs_mktid=symbol.key,
             )
 
             # allocator config
