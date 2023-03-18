@@ -26,7 +26,7 @@ from typing import (
 )
 import time
 
-from async_generator import aclosing
+from trio_util import trio_async_generator
 import trio
 from trio_typing import TaskStatus
 import pendulum
@@ -318,7 +318,10 @@ class AggTrade(Struct):
     M: bool  # Ignore
 
 
-async def stream_messages(ws: NoBsWs) -> AsyncGenerator[NoBsWs, dict]:
+@trio_async_generator
+async def stream_messages(
+    ws: NoBsWs,
+) -> AsyncGenerator[NoBsWs, dict]:
 
     timeouts = 0
     while True:
@@ -540,7 +543,7 @@ async def stream_quotes(
             ) as ws,
 
             # avoid stream-gen closure from breaking trio..
-            aclosing(stream_messages(ws)) as msg_gen,
+            stream_messages(ws) as msg_gen,
         ):
             typ, quote = await anext(msg_gen)
 

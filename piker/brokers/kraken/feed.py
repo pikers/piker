@@ -27,11 +27,11 @@ from typing import (
 )
 import time
 
-from async_generator import aclosing
 from fuzzywuzzy import process as fuzzy
 import numpy as np
 import pendulum
 from trio_typing import TaskStatus
+from trio_util import trio_async_generator
 import tractor
 import trio
 
@@ -122,6 +122,7 @@ async def stream_messages(
                 yield msg
 
 
+@trio_async_generator
 async def process_data_feed_msgs(
     ws: NoBsWs,
 ):
@@ -378,7 +379,12 @@ async def stream_quotes(
                 'wss://ws.kraken.com/',
                 fixture=subscribe,
             ) as ws,
-            aclosing(process_data_feed_msgs(ws)) as msg_gen,
+
+            # avoid stream-gen closure from breaking trio..
+            # NOTE: not sure this actually works XD particularly
+            # if we call `ws._connect()` manally in the streaming
+            # async gen..
+            process_data_feed_msgs(ws) as msg_gen,
         ):
             # pull a first quote and deliver
             typ, ohlc_last = await anext(msg_gen)
