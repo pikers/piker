@@ -255,14 +255,14 @@ class Client:
             'Balance',
             {},
         )
-        by_bsuid = resp['result']
+        by_bsmktid = resp['result']
 
         # TODO: we need to pull out the "asset" decimals
         # data and return a `decimal.Decimal` instead here!
         # using the underlying Asset
         return {
             self._atable[sym].lower(): float(bal)
-            for sym, bal in by_bsuid.items()
+            for sym, bal in by_bsmktid.items()
         }
 
     async def get_assets(self) -> dict[str, dict]:
@@ -292,12 +292,12 @@ class Client:
 
         '''
         assets = await self.get_assets()
-        for bsuid, info in assets.items():
+        for bs_mktid, info in assets.items():
 
-            aname = self._atable[bsuid] = info['altname']
+            aname = self._atable[bs_mktid] = info['altname']
             aclass = info['aclass']
 
-            self.assets[bsuid] = Asset(
+            self.assets[bs_mktid] = Asset(
                 name=aname.lower(),
                 atype=f'crypto_{aclass}',
                 tx_tick=digits_to_dec(info['decimals']),
@@ -398,31 +398,25 @@ class Client:
             fqsn = asset_key + '.kraken'
 
             # pair = MktPair(
-            #     src=Asset(
-            #         name=asset_key,
-            #         type='crypto_currency',
-            #         tx_tick=asset_info['decimals']
-
-            #         tx_tick=
-            #         info=asset_info,
-            #     )
+            #     src=asset,
+            #     dst=asset,
             #     broker='kraken',
             # )
 
-            pairinfo = Symbol.from_fqsn(
-                fqsn,
-                info={
-                    'asset_type': 'crypto',
-                    'lot_tick_size': asset.tx_tick,
-                },
-            )
+            # pairinfo = Symbol.from_fqsn(
+            #     fqsn,
+            #     info={
+            #         'asset_type': 'crypto',
+            #         'lot_tick_size': asset.tx_tick,
+            #     },
+            # )
 
             tran = Transaction(
                 fqsn=fqsn,
-                sym=pairinfo,
+                sym=asset,
                 tid=entry['txid'],
                 dt=pendulum.from_timestamp(entry['time']),
-                bsuid=f'{asset_key}{src_asset}',
+                bs_mktid=f'{asset_key}{src_asset}',
                 size=-1*(
                     float(entry['amount'])
                     +

@@ -518,7 +518,7 @@ async def trades_dialogue(
                 if (
                     dst == src_fiat
                     or not any(
-                        dst in bsuid for bsuid in table.pps
+                        dst in bs_mktid for bs_mktid in table.pps
                     )
                 ):
                     log.warning(
@@ -534,11 +534,11 @@ async def trades_dialogue(
 
                     src2dst: dict[str, str] = {}
 
-                    for bsuid in table.pps:
+                    for bs_mktid in table.pps:
                         likely_pair = get_likely_pair(
                             src_fiat,
                             dst,
-                            bsuid,
+                            bs_mktid,
                         )
                         if likely_pair:
                             src2dst[src_fiat] = dst
@@ -558,7 +558,7 @@ async def trades_dialogue(
                         ):
                             log.warning(
                                 f'`kraken` account says you have  a ZERO '
-                                f'balance for {bsuid}:{pair}\n'
+                                f'balance for {bs_mktid}:{pair}\n'
                                 f'but piker seems to think `{pp.size}`\n'
                                 'This is likely a discrepancy in piker '
                                 'accounting if the above number is'
@@ -594,11 +594,11 @@ async def trades_dialogue(
                             # in the ``pps.toml`` for the necessary pair
                             # yet and thus this likely pair grabber will
                             # likely fail.
-                            for bsuid in table.pps:
+                            for bs_mktid in table.pps:
                                 likely_pair = get_likely_pair(
                                     src_fiat,
                                     dst,
-                                    bsuid,
+                                    bs_mktid,
                                 )
                                 if likely_pair:
                                     break
@@ -1198,10 +1198,10 @@ def norm_trade_records(
         }[record['type']]
 
         # we normalize to kraken's `altname` always..
-        bsuid, pair_info = Client.normalize_symbol(
+        bs_mktid, pair_info = Client.normalize_symbol(
             record['pair']
         )
-        fqsn = f'{bsuid}.kraken'
+        fqsn = f'{bs_mktid}.kraken'
 
         dst, src = pair_info.wsname.lower().split('/')
         # mkpair = MktPair(
@@ -1236,7 +1236,7 @@ def norm_trade_records(
             price=float(record['price']),
             cost=float(record['fee']),
             dt=pendulum.from_timestamp(float(record['time'])),
-            bsuid=bsuid,
+            bs_mktid=bs_mktid,
 
             # XXX: there are no derivs on kraken right?
             # expiry=expiry,
