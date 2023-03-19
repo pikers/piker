@@ -469,7 +469,7 @@ async def stream_quotes(
                     l1_sub = make_sub(kucoin_sym, connect_id)
                     await ws.send_msg(l1_sub)
 
-                    yieldhttps: // github.com/pikers/piker/pull/494
+                    yield
 
                     # unsub
                     if ws.connected():
