@@ -441,8 +441,14 @@ async def stream_quotes(
 
             @acm
             async def subscribe(ws: wsproto.WSConnection):
+
                 @acm
                 async def open_ping_task(ws: wsproto.WSConnection):
+                    '''
+                    Ping ws server every ping_interval
+                    so Kucoin doesn't drop our connection
+
+                    '''
                     async with trio.open_nursery() as n:
 
                         async def ping_server():
@@ -504,7 +510,11 @@ def make_sub(sym, connect_id) -> dict[str, str | bool]:
     }
 
 
-async def stream_messages(ws: NoBsWs, sym: str) -> AsyncGenerator[NoBsWs, dict]:
+async def stream_messages(
+    ws: NoBsWs,
+    sym: str
+) -> AsyncGenerator[NoBsWs, dict]:
+
     timeouts = 0
 
     while True:
