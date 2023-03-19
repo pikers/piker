@@ -246,7 +246,7 @@ class Client:
                 f'Error making request for Kucoin ws token -> {res.json()["msg"]}'
             )
 
-    async def get_pairs(
+    async def _get_pairs(
         self,
     ) -> dict[str, KucoinMktPair]:
         if self._pairs:
@@ -265,12 +265,12 @@ class Client:
 
         '''
         if not self._pairs:
-            self._pairs = await self.get_pairs()
+            self._pairs = await self._get_pairs()
         if normalize:
-            self._pairs = self.normalize_pairs(self._pairs)
+            self._pairs = self._normalize_pairs(self._pairs)
         return self._pairs
 
-    def normalize_pairs(
+    def _normalize_pairs(
         self, pairs: dict[str, KucoinMktPair]
     ) -> dict[str, KucoinMktPair]:
         """
@@ -290,7 +290,7 @@ class Client:
         pattern: str,
         limit: int = 30,
     ) -> dict[str, KucoinMktPair]:
-        data = await self.get_pairs()
+        data = await self._get_pairs()
 
         matches = fuzzy.extractBests(pattern, data, score_cutoff=35, limit=limit)
         # repack in dict form
@@ -300,7 +300,7 @@ class Client:
         trades = await self._request("GET", f"/accounts/ledgers?currency={sym}", "v1")
         return trades.items
 
-    async def get_bars(
+    async def _get_bars(
         self,
         fqsn: str,
         start_dt: Optional[datetime] = None,
@@ -564,7 +564,7 @@ async def open_history_client(
             if timeframe != 60:
                 raise DataUnavailable("Only 1m bars are supported")
 
-            array = await client.get_bars(
+            array = await client._get_bars(
                 symbol,
                 start_dt=start_dt,
                 end_dt=end_dt,
