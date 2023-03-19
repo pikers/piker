@@ -156,7 +156,8 @@ class Client:
         config = get_config()
 
         if (
-            float("key_id" in config)
+            config
+            and float("key_id" in config)
             and ("key_secret" in config)
             and ("key_passphrase" in config)
         ):
