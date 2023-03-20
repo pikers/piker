@@ -24,7 +24,6 @@ from decimal import Decimal
 import itertools
 from typing import (
     Any,
-    Optional,
     Union,
 )
 import time
@@ -44,9 +43,8 @@ from piker import config
 from piker.data.types import Struct
 from piker.accounting._mktinfo import (
     Asset,
-    digits_to_dec,
     MktPair,
-    Symbol,
+    digits_to_dec,
 )
 from piker.brokers._util import (
     resproc,
@@ -160,6 +158,14 @@ class Pair(Struct):
 
     short_position_limit: float = 0
     long_position_limit: float = float('inf')
+
+    @property
+    def price_tick(self) -> Decimal:
+        return digits_to_dec(self.pair_decimals)
+
+    @property
+    def size_tick(self) -> Decimal:
+        return digits_to_dec(self.lot_decimals)
 
 
 class Client:
@@ -395,24 +401,10 @@ class Client:
             # quite the same as a commisions cost necessarily..)
             cost = float(entry['fee'])
 
-            fqsn = asset_key + '.kraken'
+            fqme = asset_key + '.kraken'
 
-            # pair = MktPair(
-            #     src=asset,
-            #     dst=asset,
-            #     broker='kraken',
-            # )
-
-            # pairinfo = Symbol.from_fqsn(
-            #     fqsn,
-            #     info={
-            #         'asset_type': 'crypto',
-            #         'lot_tick_size': asset.tx_tick,
-            #     },
-            # )
-
-            tran = Transaction(
-                fqsn=fqsn,
+            tx = Transaction(
+                fqsn=fqme,
                 sym=asset,
                 tid=entry['txid'],
                 dt=pendulum.from_timestamp(entry['time']),
@@ -429,7 +421,7 @@ class Client:
                 # XXX: see note above
                 cost=cost,
             )
-            trans[tran.tid] = tran
+            trans[tx.tid] = tx
 
         return trans
 
@@ -478,9 +470,9 @@ class Client:
         # txid is a transaction id given by kraken
         return await self.endpoint('CancelOrder', {"txid": reqid})
 
-    async def symbol_info(
+    async def pair_info(
         self,
-        pair: Optional[str] = None,
+        pair: str | None = None,
 
     ) -> dict[str, Pair] | Pair:
 
@@ -501,7 +493,29 @@ class Client:
             _, data = next(iter(pairs.items()))
             return Pair(**data)
         else:
-            return {key: Pair(**data) for key, data in pairs.items()}
+            return {
+                key: Pair(**data)
+                for key, data in pairs.items()
+            }
+
+    async def mkt_info(
+        self,
+        pair_str: str,
+
+    ) -> MktPair:
+
+        pair_info: Pair  # = await self.pair_info(pair)
+        bs_mktid: str
+        bs_mktid, pair_info = Client.normalize_symbol(pair_str)
+        dst_asset = self.assets[pair_info.base]
+
+        return MktPair(
+            dst=dst_asset,
+            price_tick=pair_info.price_tick,
+            size_tick=pair_info.size_tick,
+            bs_mktid=bs_mktid,
+            broker='kraken',
+        )
 
     async def cache_symbols(self) -> dict:
         '''
@@ -514,7 +528,7 @@ class Client:
 
         '''
         if not self._pairs:
-            self._pairs.update(await self.symbol_info())
+            self._pairs.update(await self.pair_info())
 
             # table of all ws and rest keys to their alt-name values.
             ntable: dict[str, str] = {}
