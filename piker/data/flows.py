@@ -22,6 +22,7 @@ real-time data processing data-structures.
 
 """
 from __future__ import annotations
+from decimal import Decimal
 from typing import (
     TYPE_CHECKING,
 )
@@ -172,7 +173,11 @@ class Flume(Struct):
 
     # TODO: get native msgspec decoding for these workinn
     def to_msg(self) -> dict:
+
         msg = self.to_dict()
+
+        # TODO: do we even need to convert to dict
+        # first now?
         msg['symbol'] = msg['symbol'].to_dict()
 
         # can't serialize the stream or feed objects, it's expected
@@ -184,7 +189,14 @@ class Flume(Struct):
 
     @classmethod
     def from_msg(cls, msg: dict) -> dict:
+
+        # XXX NOTE: ``msgspec`` can encode `Decimal`
+        # but it doesn't decide to it by default since
+        # we aren't spec-cing these msgs as structs...
         symbol = Symbol(**msg.pop('symbol'))
+        symbol.tick_size = Decimal(symbol.tick_size)
+        symbol.lot_tick_size = Decimal(symbol.lot_tick_size)
+
         return cls(
             symbol=symbol,
             **msg,
