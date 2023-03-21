@@ -49,9 +49,7 @@ from piker.accounting import (
     get_likely_pair,
 )
 from piker.accounting._mktinfo import (
-    Symbol,
     MktPair,
-    digits_to_dec,
 )
 from piker.clearing._messages import (
     Order,
@@ -1201,45 +1199,25 @@ def norm_trade_records(
         bs_mktid, pair_info = Client.normalize_symbol(
             record['pair']
         )
-        fqsn = f'{bs_mktid}.kraken'
+        fqme = f'{bs_mktid}.kraken'
 
         dst, src = pair_info.wsname.lower().split('/')
-        # mkpair = MktPair(
-        #     src=src,
-        #     dst=dst,
-        #     price_tick=digits_to_dec(pair_info.pair_decimals),
-        #     size_tick=digits_to_dec(pair_info.lot_decimals),
-        #     dst_type='crypto_currency',
-        # )
-        # breakpoint()
-
-        mktpair = Symbol.from_fqsn(
-            fqsn,
-            info={
-                'lot_size_digits': pair_info.lot_decimals,
-                'lot_tick_size': digits_to_dec(
-                    pair_info.lot_decimals,
-                ),
-                'tick_size_digits': pair_info.pair_decimals,
-                'price_tick_size': digits_to_dec(
-                    pair_info.pair_decimals,
-                ),
-                'asset_type': 'crypto',
-            },
+        mkt = MktPair.from_fqme(
+            fqme,
+            price_tick=pair_info.price_tick,
+            size_tick=pair_info.size_tick,
+            bs_mktid=bs_mktid,
         )
 
         records[tid] = Transaction(
-            fqsn=fqsn,
-            sym=mktpair,
+            fqsn=fqme,
+            sym=mkt,
             tid=tid,
             size=size,
             price=float(record['price']),
             cost=float(record['fee']),
             dt=pendulum.from_timestamp(float(record['time'])),
             bs_mktid=bs_mktid,
-
-            # XXX: there are no derivs on kraken right?
-            # expiry=expiry,
         )
 
     return records
