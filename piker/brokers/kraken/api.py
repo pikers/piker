@@ -538,7 +538,7 @@ class Client:
                 pair: Pair = self._pairs[rest_key]
                 altname = pair.altname
                 wsname = pair.wsname
-                ntable[rest_key] = ntable[wsname] = altname
+                ntable[altname] = ntable[rest_key] = ntable[wsname] = altname
 
                 # register the pair under all monikers, a giant flat
                 # surjection of all possible names to each info obj.
