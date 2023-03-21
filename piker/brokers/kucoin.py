@@ -343,6 +343,7 @@ class Client:
 
         url = f"/market/candles?type={type}&symbol={kucoin_sym}&startAt={start_dt}&endAt={end_dt}"
         bars = []
+
         for i in range(10):
 
             res = await self._request(
@@ -350,7 +351,9 @@ class Client:
                 url,
                 api_v="v1",
             )
-            if not isinstance(res, list):
+
+            if not isinstance(res, list) or not len(bars):
+                # Do a gradual backoff if Kucoin is rate limiting us
                 await trio.sleep(i + (randint(0, 1000) / 1000))
             else:
                 bars = res
