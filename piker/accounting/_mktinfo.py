@@ -454,11 +454,19 @@ class Symbol(Struct):
 
     @property
     def tick_size_digits(self) -> int:
-        return float_digits(self.lot_tick_size)
+        return float_digits(self.tick_size)
 
     @property
     def lot_size_digits(self) -> int:
         return float_digits(self.lot_tick_size)
+
+    @property
+    def price_tick(self) -> Decimal:
+        return Decimal(str(self.tick_size))
+
+    @property
+    def size_tick(self) -> Decimal:
+        return Decimal(str(self.lot_tick_size))
 
     @property
     def broker(self) -> str:
