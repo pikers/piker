@@ -363,7 +363,7 @@ class Cursor(pg.GraphicsObject):
 
         # value used for rounding y-axis discreet tick steps
         # computing once, up front, here cuz why not
-        self._y_incr_mult = 1 / self.linked._symbol.tick_size
+        self._y_incr_mult = float(1 / self.linked._symbol.tick_size)
 
         # line width in view coordinates
         self._lw = self.pixelWidth() * self.lines_pen.width()
