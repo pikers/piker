@@ -35,6 +35,9 @@ from trio_util import trio_async_generator
 import tractor
 import trio
 
+from piker.accounting._mktinfo import (
+    MktPair,
+)
 from piker._cacheables import open_cached_client
 from piker.brokers._util import (
     BrokerError,
@@ -287,29 +290,26 @@ async def stream_quotes(
     get_console_log(loglevel or tractor.current_actor().loglevel)
 
     ws_pairs = {}
-    sym_infos = {}
+    mkt_infos = {}
 
-    async with open_cached_client('kraken') as client, send_chan as send_chan:
-
+    async with (
+        open_cached_client('kraken') as client,
+        send_chan as send_chan,
+    ):
         # keep client cached for real-time section
         for sym in symbols:
 
             # transform to upper since piker style is always lower
             sym = sym.upper()
-            si: Pair = await client.symbol_info(sym)
-            # try:
-            #     si = Pair(**sym_info)  # validation
-            # except TypeError:
-            #     fields_diff = set(sym_info) - set(Pair.__struct_fields__)
-            #     raise TypeError(
-            #         f'Missing msg fields {fields_diff}'
-            #     )
-            syminfo = si.to_dict()
-            syminfo['price_tick_size'] = 1. / 10**si.pair_decimals
-            syminfo['lot_tick_size'] = 1. / 10**si.lot_decimals
-            syminfo['asset_type'] = 'crypto'
-            sym_infos[sym] = syminfo
-            ws_pairs[sym] = si.wsname
+            pair: Pair = await client.pair_info(sym)
+            mkt: MktPair = await client.mkt_info(sym)
+            mktinfo = mkt.to_dict()
+            mkt_infos[sym] = mktinfo
+
+            # TODO: remove this once we drop ``Symbol``!!
+            mktinfo['asset_type'] = mkt.dst.atype
+
+            ws_pairs[sym] = pair.wsname
 
         symbol = symbols[0].lower()
 
@@ -317,7 +317,7 @@ async def stream_quotes(
             # pass back token, and bool, signalling if we're the writer
             # and that history has been written
             symbol: {
-                'symbol_info': sym_infos[sym],
+                'symbol_info': mkt_infos[sym],
                 'shm_write_opts': {'sum_tick_vml': False},
                 'fqsn': sym,
             },
