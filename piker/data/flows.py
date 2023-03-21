@@ -22,7 +22,7 @@ real-time data processing data-structures.
 
 """
 from __future__ import annotations
-from decimal import Decimal
+# from decimal import Decimal
 from typing import (
     TYPE_CHECKING,
 )
@@ -193,19 +193,30 @@ class Flume(Struct):
         return msg
 
     @classmethod
-    def from_msg(cls, msg: dict) -> dict:
+    def from_msg(
+        cls,
+        msg: dict,
 
-        # XXX NOTE: ``msgspec`` can encode `Decimal`
-        # but it doesn't decide to it by default since
-        # we aren't spec-cing these msgs as structs...
-        symbol = Symbol(**msg.pop('symbol'))
-        symbol.tick_size = Decimal(symbol.tick_size)
-        symbol.lot_tick_size = Decimal(symbol.lot_tick_size)
+    ) -> dict:
+        '''
+        Load from an IPC msg presumably in either `dict` or
+        `msgspec.Struct` form.
 
-        return cls(
-            symbol=symbol,
-            **msg,
-        )
+        '''
+        sym_msg = msg.pop('symbol')
+
+        if 'dst' in sym_msg:
+            mkt = MktPair.from_msg(sym_msg)
+
+        else:
+            # XXX NOTE: ``msgspec`` can encode `Decimal`
+            # but it doesn't decide to it by default since
+            # we aren't spec-cing these msgs as structs, SO
+            # we have to ensure we do a struct type case (which `.copy()`
+            # does) to ensure we get the right type!
+            mkt = Symbol(**sym_msg).copy()
+
+        return cls(symbol=mkt, **msg)
 
     def get_index(
         self,
