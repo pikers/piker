@@ -32,6 +32,7 @@ import pendulum
 import numpy as np
 
 from ..accounting._mktinfo import (
+    MktPair,
     Symbol,
 )
 from .types import Struct
@@ -90,7 +91,7 @@ class Flume(Struct):
        queuing properties.
 
     '''
-    symbol: Symbol
+    symbol: Symbol | MktPair
     first_quote: dict
     _rt_shm_token: _Token
 
@@ -178,7 +179,11 @@ class Flume(Struct):
 
         # TODO: do we even need to convert to dict
         # first now?
+        # TODO: drop the former.
         msg['symbol'] = msg['symbol'].to_dict()
+        mktpair = msg.get('mktpair')
+        if mktpair:
+            msg['mktpair'] = mktpair.to_dict()
 
         # can't serialize the stream or feed objects, it's expected
         # you'll have a ref to it since this msg should be rxed on
