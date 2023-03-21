@@ -20,6 +20,7 @@ Data feed endpoints pre-wrapped and ready for use with ``tractor``/``trio``.
 from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager as acm
+from decimal import Decimal
 from dataclasses import asdict
 from datetime import datetime
 from functools import partial
@@ -765,15 +766,19 @@ async def stream_quotes(
             }:
                 syminfo['no_vlm'] = True
 
+            # XXX: pretty sure we don't need this any more right?
             # for stocks it seems TWS reports too small a tick size
             # such that you can't submit orders with that granularity?
-            min_tick = 0.01 if atype == 'stock' else 0
+            # min_price_tick = Decimal('0.01') if atype == 'stock' else 0
+            # price_tick = max(price_tick, min_tick)
 
-            syminfo['price_tick_size'] = max(syminfo['minTick'], min_tick)
+            price_tick: Decimal = Decimal(str(syminfo['minTick']))
+            size_tick: Decimal = Decimal(str(syminfo['minSize']).rstrip('0'))
 
-            # for "legacy" assets, volume is normally discreet, not
-            # a float
-            syminfo['lot_tick_size'] = 0.0
+            syminfo['price_tick_size'] = price_tick
+            # NOTE: as you'd expect for "legacy" assets, the "volume
+            # precision" is normally discreet.
+            syminfo['lot_tick_size'] = size_tick
 
             ibclient = proxy._aio_ns.ib.client
             host, port = ibclient.host, ibclient.port
