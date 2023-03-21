@@ -421,8 +421,8 @@ class Symbol(Struct):
 
     '''
     key: str
-    tick_size: float = 0.01
-    lot_tick_size: float = 0.0  # "volume" precision as min step value
+    tick_size: Decimal = 0.01
+    lot_tick_size: Decimal = 0.0  # "volume" precision as min step value
     suffix: str = ''
     broker_info: dict[str, dict[str, Any]] = {}
 
