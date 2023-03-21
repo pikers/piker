@@ -215,6 +215,8 @@ class MktPair(Struct, frozen=True):
     # strike price, call or put, swap type, exercise model, etc.
     contract_info: str | None = None
 
+    _atype: str = ''
+
     @classmethod
     def from_msg(
         self,
@@ -239,6 +241,8 @@ class MktPair(Struct, frozen=True):
         size_tick: float | str,
         bs_mktid: str,
 
+        **kwargs,
+
     ) -> MktPair:
 
         broker, key, suffix = unpack_fqme(fqme)
@@ -254,6 +258,8 @@ class MktPair(Struct, frozen=True):
             size_tick=size_tick,
             bs_mktid=bs_mktid,
             broker=broker,
+
+            **kwargs,
         )
 
     @property
@@ -267,7 +273,7 @@ class MktPair(Struct, frozen=True):
         "symbol".
 
         '''
-        return maybe_cons_tokens([self.dst, self.src])
+        return maybe_cons_tokens([str(self.dst), self.src])
 
     # NOTE: the main idea behind an fqme is to map a "market address"
     # to some endpoint from a transaction provider (eg. a broker) such
@@ -351,7 +357,10 @@ class MktPair(Struct, frozen=True):
     # TODO: BACKWARD COMPAT, TO REMOVE?
     @property
     def type_key(self) -> str:
-        return str(self.dst.atype)
+        if isinstance(self.dst, Asset):
+            return str(self.dst.atype)
+
+        return self._atype
 
     @property
     def tick_size_digits(self) -> int:
