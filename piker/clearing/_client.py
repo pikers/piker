@@ -27,7 +27,7 @@ import trio
 import tractor
 from tractor.trionics import broadcast_receiver
 
-from ..accounting._mktinfo import unpack_fqsn
+from ..accounting._mktinfo import unpack_fqme
 from ..log import get_logger
 from ..data.types import Struct
 from ..service import maybe_open_emsd
@@ -177,7 +177,7 @@ async def relay_order_cmds_from_sync_code(
 
 @acm
 async def open_ems(
-    fqsn: str,
+    fqme: str,
     mode: str = 'live',
     loglevel: str = 'error',
 
@@ -229,7 +229,7 @@ async def open_ems(
     # ready for order commands
     book = get_orders()
 
-    broker, symbol, suffix = unpack_fqsn(fqsn)
+    broker, symbol, suffix = unpack_fqme(fqme)
 
     async with maybe_open_emsd(broker) as portal:
 
@@ -246,7 +246,7 @@ async def open_ems(
             portal.open_context(
 
                 _emsd_main,
-                fqsn=fqsn,
+                fqme=fqme,
                 exec_mode=mode,
                 loglevel=loglevel,
 
@@ -266,7 +266,7 @@ async def open_ems(
             async with trio.open_nursery() as n:
                 n.start_soon(
                     relay_order_cmds_from_sync_code,
-                    fqsn,
+                    fqme,
                     trades_stream
                 )
 
