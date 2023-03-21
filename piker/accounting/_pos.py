@@ -24,6 +24,7 @@ that doesn't try to cuk most humans who prefer to not lose their moneys..
 '''
 from __future__ import annotations
 from contextlib import contextmanager as cm
+from decimal import Decimal
 from math import copysign
 import re
 from typing import (
@@ -152,7 +153,7 @@ class Position(Struct):
         elif expiry:
             d['expiry'] = str(expiry)
 
-        toml_clears_list = []
+        toml_clears_list: list[dict[str, Any]] = []
 
         # reverse sort so latest clears are at top of section?
         for tid, data in iter_by_dt(clears):
@@ -864,6 +865,7 @@ def open_pps(
     brokername: str,
     acctid: str,
     write_on_exit: bool = False,
+
 ) -> Generator[PpTable, None, None]:
     '''
     Read out broker-specific position entries from
@@ -899,20 +901,20 @@ def open_pps(
         # atype = entry.get('asset_type', '<unknown>')
 
         # unique broker market id
-        bs_mktid = (
+        bs_mktid = str(
             entry.get('bsuid')
             or entry.get('bs_mktid')
         )
-        price_tick = (
+        price_tick = Decimal(str(
             entry.get('price_tick_size')
             or entry.get('price_tick')
-            or 0.01
-        )
-        size_tick = (
+            or '0.01'
+        ))
+        size_tick = Decimal(str(
             entry.get('lot_tick_size')
             or entry.get('size_tick')
-            or 0.0
-        )
+            or '0.0'
+        ))
 
         # load the pair using the fqme which
         # will make the pair "unresolved" until
@@ -925,22 +927,20 @@ def open_pps(
             bs_mktid=bs_mktid
         )
 
+        # TODO: RE: general "events" instead of just "clears":
+        # - make this an `events` field and support more event types
+        # such as 'split', 'name_change', 'mkt_info', etc..
+        # - should be make a ``Struct`` for clear/event entries? convert
+        # "clear events table" from the toml config (list of a dicts)
+        # and load it into object form for use in position processing of
+        # new clear events.
+
         # convert clears sub-tables (only in this form
         # for toml re-presentation) back into a master table.
-        clears_list = entry['clears']
-
-        # index clears entries in "object" form by tid in a top
-        # level dict instead of a list (as is presented in our
-        # ``pps.toml``).
-        clears = pp_objs.setdefault(bs_mktid, {})
-
-        # TODO: should be make a ``Struct`` for clear/event entries?
-        # convert "clear events table" from the toml config (list of
-        # a dicts) and load it into object form for use in position
-        # processing of new clear events.
+        toml_clears_list: list[dict[str, Any]] = entry['clears']
         trans: list[Transaction] = []
+        for clears_table in toml_clears_list:
 
-        for clears_table in clears_list:
             tid = clears_table.pop('tid')
             dtstr = clears_table['dt']
             dt = pendulum.parse(dtstr)
@@ -956,7 +956,6 @@ def open_pps(
                 cost=clears_table['cost'],
                 dt=dt,
             ))
-            clears[tid] = clears_table
 
         size = entry['size']
 
