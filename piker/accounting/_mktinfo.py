@@ -69,8 +69,9 @@ AssetTypeName: Literal[
 # egs. stock, futer, option, bond etc.
 
 
-def float_digits(
-    value: float,
+def dec_digits(
+    value: float | str | Decimal,
+
 ) -> int:
     '''
     Return the number of precision digits read from a decimal or float
@@ -83,6 +84,9 @@ def float_digits(
     return int(
         -Decimal(str(value)).as_tuple().exponent
     )
+
+
+float_digits = dec_digits
 
 
 def digits_to_dec(
