@@ -47,7 +47,7 @@ from ._mktinfo import (
     Symbol,
     MktPair,
     Asset,
-    unpack_fqsn,
+    unpack_fqme,
 )
 from .. import config
 from ..brokers import get_brokermod
@@ -117,7 +117,7 @@ class Position(Struct):
         s = d.pop('symbol')
         fqsn = s.fqme
 
-        broker, key, suffix = unpack_fqsn(fqsn)
+        broker, key, suffix = unpack_fqme(fqsn)
 
         if isinstance(s, Symbol):
             sym_info = s.broker_info[broker]
@@ -510,18 +510,29 @@ class PpTable(Struct):
             key=lambda t: t.dt,
             reverse=True,
         ):
+            fqme = t.fqme
+            bs_mktid = t.bs_mktid
+
+            # template the mkt-info presuming a legacy market ticks
+            # if no info exists in the transactions..
+            mkt = t.sys
+            if not mkt:
+                mkt = MktPair.from_fqme(
+                    fqme,
+                    price_tick='0.01',
+                    size_tick='0.0',
+                    bs_mktid=bs_mktid,
+                )
+
             pp = pps.setdefault(
-                t.bs_mktid,
+                bs_mktid,
 
                 # if no existing pp, allocate fresh one.
                 Position(
-                    Symbol.from_fqsn(
-                        t.fqsn,
-                        info={},
-                    ) if not t.sym else t.sym,
+                    mkt,
                     size=0.0,
                     ppu=0.0,
-                    bs_mktid=t.bs_mktid,
+                    bs_mktid=bs_mktid,
                     expiry=t.expiry,
                 )
             )
