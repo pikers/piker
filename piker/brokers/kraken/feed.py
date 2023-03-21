@@ -308,6 +308,8 @@ async def stream_quotes(
 
             # TODO: remove this once we drop ``Symbol``!!
             mktinfo['asset_type'] = mkt.dst.atype
+            mktinfo['price_tick_size'] = mkt.price_tick
+            mktinfo['lot_tick_size'] = mkt.size_tick
 
             ws_pairs[sym] = pair.wsname
 
