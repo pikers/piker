@@ -20,6 +20,7 @@ Binance backend
 """
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
+from decimal import Decimal
 from typing import (
     Any, Union, Optional,
     AsyncGenerator, Callable,
@@ -173,10 +174,10 @@ class Client:
         )
         return resproc(resp, log)
 
-    async def symbol_info(
+    async def mkt_info(
 
         self,
-        sym: Optional[str] = None,
+        sym: str | None = None,
 
     ) -> dict[str, Any]:
         '''Get symbol info for the exchange.
@@ -208,11 +209,13 @@ class Client:
         else:
             return syms
 
+    symbol_info = mkt_info
+
     async def cache_symbols(
         self,
     ) -> dict:
         if not self._pairs:
-            self._pairs = await self.symbol_info()
+            self._pairs = await self.mkt_info()
 
         return self._pairs
 
@@ -224,7 +227,7 @@ class Client:
         if self._pairs is not None:
             data = self._pairs
         else:
-            data = await self.symbol_info()
+            data = await self.mkt_info()
 
         matches = fuzzy.extractBests(
             pattern,
@@ -476,11 +479,11 @@ async def stream_quotes(
 
             # XXX: after manually inspecting the response format we
             # just directly pick out the info we need
-            si['price_tick_size'] = float(
-                filters['PRICE_FILTER']['tickSize']
+            si['price_tick_size'] = Decimal(
+                filters['PRICE_FILTER']['tickSize'].rstrip('0')
             )
-            si['lot_tick_size'] = float(
-                filters['LOT_SIZE']['stepSize']
+            si['lot_tick_size'] = Decimal(
+                filters['LOT_SIZE']['stepSize'].rstrip('0')
             )
             si['asset_type'] = 'crypto'
 
@@ -585,7 +588,7 @@ async def open_symbol_search(
         async with ctx.open_stream() as stream:
 
             async for pattern in stream:
-                # results = await client.symbol_info(sym=pattern.upper())
+                # results = await client.mkt_info(sym=pattern.upper())
 
                 matches = fuzzy.extractBests(
                     pattern,
