@@ -80,6 +80,8 @@ class Struct(
             msgspec.msgpack.Encoder().encode(self)
         )
 
+    # NOTE XXX: this won't work on frozen types!
+    # use ``.copy()`` above in such cases.
     def typecast(
         self,
         # fields: Optional[list[str]] = None,
