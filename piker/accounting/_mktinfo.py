@@ -154,7 +154,7 @@ def maybe_cons_tokens(
     sequence of elements in ``tokens``.
 
     '''
-    return '.'.join(filter(bool, tokens)).lower()
+    return delim_char.join(filter(bool, tokens)).lower()
 
 
 class MktPair(Struct, frozen=True):
@@ -195,7 +195,7 @@ class MktPair(Struct, frozen=True):
     # required; the reason is for backward compat since more positioning
     # calculations were not originally stored with a src asset..
 
-    src: str | Asset | None = None
+    src: str | Asset = ''
     # "source asset" (name) used to buy *from*
     # (or used to sell *to*).
 
@@ -217,7 +217,7 @@ class MktPair(Struct, frozen=True):
 
     # for derivs, info describing contract, egs.
     # strike price, call or put, swap type, exercise model, etc.
-    contract_info: str | None = None
+    contract_info: list[str] | None = None
 
     _atype: str = ''
 
@@ -287,7 +287,32 @@ class MktPair(Struct, frozen=True):
         "symbol".
 
         '''
-        return maybe_cons_tokens([str(self.dst), self.src])
+        return maybe_cons_tokens(
+            [str(self.dst), self.src],
+            delim_char='',
+        )
+
+    @property
+    def suffix(self) -> str:
+        '''
+        The "contract suffix" for this market.
+
+        Eg. mnq/usd.20230616.cme.ib
+                    ^ ----- ^
+        or tsla/usd.20230324.200c.cboe.ib
+                    ^ ---------- ^
+
+        In most other tina platforms they only show you these details in
+        some kinda "meta data" format, we have FQMEs so we do this up
+        front and explicit.
+
+        '''
+        field_strs = [self.expiry]
+        con_info = self.contract_info
+        if con_info is not None:
+            field_strs.extend(con_info)
+
+        return maybe_cons_tokens(field_strs)
 
     # NOTE: the main idea behind an fqme is to map a "market address"
     # to some endpoint from a transaction provider (eg. a broker) such
@@ -387,6 +412,7 @@ class MktPair(Struct, frozen=True):
 
 def unpack_fqme(
     fqme: str,
+
 ) -> tuple[str, str, str]:
     '''
     Unpack a fully-qualified-symbol-name to ``tuple``.
