@@ -111,7 +111,7 @@ class Asset(Struct, frozen=True):
 
     '''
     name: str
-    atype: AssetTypeName
+    atype: str  # AssetTypeName
 
     # minimum transaction size / precision.
     # eg. for buttcoin this is a "satoshi".
@@ -223,7 +223,7 @@ class MktPair(Struct, frozen=True):
 
     @classmethod
     def from_msg(
-        self,
+        cls,
         msg: dict[str, Any],
 
     ) -> MktPair:
@@ -231,7 +231,17 @@ class MktPair(Struct, frozen=True):
         Constructor for a received msg-dict normally received over IPC.
 
         '''
-        raise NotImplementedError
+        dst_asset_msg = msg.pop('dst')
+        if isinstance(dst_asset_msg, str):
+            return cls.from_fqme(
+                dst_asset_msg,
+                **msg,
+            )
+
+        # NOTE: we call `.copy()` here to ensure
+        # type casting!
+        dst = Asset(**dst_asset_msg).copy()
+        return cls(dst=dst, **msg).copy()
 
     @property
     def resolved(self) -> bool:
@@ -264,7 +274,7 @@ class MktPair(Struct, frozen=True):
             broker=broker,
 
             **kwargs,
-        )
+        ).copy()
 
     @property
     def key(self) -> str:
@@ -425,8 +435,11 @@ class Symbol(Struct):
 
     '''
     key: str
-    tick_size: Decimal = 0.01
-    lot_tick_size: Decimal = 0.0  # "volume" precision as min step value
+
+    # precision descriptors for price and vlm
+    tick_size: Decimal = Decimal('0.01')
+    lot_tick_size: Decimal = Decimal('0.0')
+
     suffix: str = ''
     broker_info: dict[str, dict[str, Any]] = {}
 
