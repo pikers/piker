@@ -19,7 +19,6 @@ Built-in (extension) types.
 
 """
 import sys
-from typing import Optional
 from pprint import pformat
 
 import msgspec
@@ -59,7 +58,7 @@ class Struct(
 
     def copy(
         self,
-        update: Optional[dict] = None,
+        update: dict | None = None,
 
     ) -> msgspec.Struct:
         '''
@@ -84,7 +83,7 @@ class Struct(
     # use ``.copy()`` above in such cases.
     def typecast(
         self,
-        # fields: Optional[list[str]] = None,
+        # fields: list[str] | None = None,
     ) -> None:
         for fname, ftype in self.__annotations__.items():
             setattr(self, fname, ftype(getattr(self, fname)))
