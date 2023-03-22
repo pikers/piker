@@ -34,8 +34,8 @@ from contextlib import (
 import tractor
 import trio
 
-from ..log import (
-    get_logger,
+from ._util import (
+    log,  # sub-sys logger
     get_console_log,
 )
 from ._mngr import (
@@ -46,8 +46,6 @@ from ._registry import (  # noqa
     _default_reg_addr,
     open_registry,
 )
-
-log = get_logger(__name__)
 
 
 def get_tractor_runtime_kwargs() -> dict[str, Any]:

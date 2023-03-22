@@ -54,12 +54,12 @@ if TYPE_CHECKING:
     import docker
     from ._ahab import DockerContainer
 
+from ._util import (
+    log,  # sub-sys logger
+    get_console_log,
+)
 from ..data.feed import maybe_open_feed
-from ..log import get_logger, get_console_log
 from .._profile import Profiler
-
-
-log = get_logger(__name__)
 
 
 # ahabd-supervisor and container level config
@@ -703,7 +703,7 @@ async def open_tsdb_client(
 
             # profiler('Finished db arrays diffs')
 
-            syms = await storage.client.list_symbols()
+            _ = await storage.client.list_symbols()
             # log.info(f'Existing tsdb symbol set:\n{pformat(syms)}')
             # profiler(f'listed symbols {syms}')
             yield storage

@@ -20,6 +20,7 @@ Actor-runtime service orchestration machinery.
 """
 from __future__ import annotations
 
+from ._util import log
 from ._mngr import Services
 from ._registry import (  # noqa
     _tractor_kwargs,

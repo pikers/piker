@@ -48,13 +48,11 @@ from requests.exceptions import (
     ReadTimeout,
 )
 
-from ..log import (
-    get_logger,
+from ._util import (
+    log,  # sub-sys logger
     get_console_log,
 )
 from .. import config
-
-log = get_logger(__name__)
 
 
 class DockerNotStarted(Exception):

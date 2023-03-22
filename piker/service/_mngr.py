@@ -28,11 +28,9 @@ import trio
 from trio_typing import TaskStatus
 import tractor
 
-from ..log import (
-    get_logger,
+from ._util import (
+    log,  # sub-sys logger
 )
-
-log = get_logger(__name__)
 
 
 # TODO: factor this into a ``tractor.highlevel`` extension

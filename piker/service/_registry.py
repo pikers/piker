@@ -28,12 +28,9 @@ from typing import (
 
 import tractor
 
-
-from ..log import (
-    get_logger,
+from ._util import (
+    log,  # sub-sys logger
 )
-
-log = get_logger(__name__)
 
 _default_registry_host: str = '127.0.0.1'
 _default_registry_port: int = 6116

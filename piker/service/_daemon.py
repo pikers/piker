@@ -30,8 +30,8 @@ from contextlib import (
 
 import tractor
 
-from ..log import (
-    get_logger,
+from ._util import (
+    log,  # sub-sys logger
     get_console_log,
 )
 from ..brokers import get_brokermod
@@ -40,8 +40,6 @@ from ._mngr import (
 )
 from ._actor_runtime import maybe_open_pikerd
 from ._registry import find_service
-
-log = get_logger(__name__)
 
 # `brokerd` enabled modules
 # NOTE: keeping this list as small as possible is part of our caps-sec

@@ -20,20 +20,16 @@ from typing import (
     TYPE_CHECKING,
 )
 
+import asks
 
 if TYPE_CHECKING:
     import docker
     from ._ahab import DockerContainer
 
-from piker.log import (
-    get_logger,
-    get_console_log
+from . import log  # sub-sys logger
+from ._util import (
+    get_console_log,
 )
-
-import asks
-
-
-log = get_logger(__name__)
 
 
 # container level config
@@ -92,7 +88,7 @@ def start_elasticsearch(
                 'http://localhost:19200/_cat/health',
                 params={'format': 'json'}
             )).json()
-            kog.info(
+            log.info(
                 'ElasticSearch cntr health:\n'
                 f'{health}'
             )
