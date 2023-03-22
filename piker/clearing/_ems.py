@@ -1248,7 +1248,7 @@ async def process_client_order_cmds(
                 pred = mk_check(trigger_price, last, action)
 
                 spread_slap: float = 5
-                min_tick = flume.symbol.tick_size
+                min_tick = flume.symbol.size_tick
                 min_tick_digits = float_digits(min_tick)
 
                 if action == 'buy':
