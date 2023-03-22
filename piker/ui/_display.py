@@ -1221,7 +1221,6 @@ async def display_symbol_data(
 
         # use expanded contract symbols passed back from feed layer.
         fqsns = list(feed.flumes.keys())
-
         # step_size_s = 1
         # tf_key = tf_in_1s[step_size_s]
         godwidget.window.setWindowTitle(
@@ -1288,7 +1287,6 @@ async def display_symbol_data(
         hist_ohlcv: ShmArray = flume.hist_shm
 
         symbol = flume.symbol
-        brokername = symbol.broker
         fqsn = symbol.fqsn
 
         hist_chart = hist_linked.plot_ohlc_main(
@@ -1337,8 +1335,7 @@ async def display_symbol_data(
                 None | ChartPlotWidget
             ] = {}.fromkeys(feed.flumes)
             if (
-                not symbol.broker_info[brokername].get('no_vlm', False)
-                and has_vlm(ohlcv)
+                has_vlm(ohlcv)
                 and vlm_chart is None
             ):
                 vlm_chart = vlm_charts[fqsn] = await ln.start(
@@ -1497,13 +1494,13 @@ async def display_symbol_data(
             )
 
             # boot order-mode
-            order_ctl_symbol: str = fqsns[0]
+            order_ctl_fqme: str = fqsns[0]
             mode: OrderMode
             async with (
                 open_order_mode(
                     feed,
                     godwidget,
-                    fqsns[0],
+                    order_ctl_fqme,
                     order_mode_started,
                     loglevel=loglevel
                 ) as mode
@@ -1511,7 +1508,7 @@ async def display_symbol_data(
 
                 rt_linked.mode = mode
 
-                rt_viz = rt_chart.get_viz(order_ctl_symbol)
+                rt_viz = rt_chart.get_viz(order_ctl_fqme)
                 rt_viz.plot.setFocus()
 
                 # default view adjuments and sidepane alignment
