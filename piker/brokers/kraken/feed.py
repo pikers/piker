@@ -290,7 +290,7 @@ async def stream_quotes(
     get_console_log(loglevel or tractor.current_actor().loglevel)
 
     ws_pairs = {}
-    mkt_infos = {}
+    mkt_infos: dict[str, MktPair] = {}
 
     async with (
         open_cached_client('kraken') as client,
@@ -299,29 +299,25 @@ async def stream_quotes(
         # keep client cached for real-time section
         for sym in symbols:
 
-            # transform to upper since piker style is always lower
-            sym = sym.upper()
-            pair: Pair = await client.pair_info(sym)
-            mkt: MktPair = await client.mkt_info(sym)
-            mktinfo = mkt.to_dict()
-            mkt_infos[sym] = mktinfo
+            # uppercase since piker style is always lowercase.
+            sym_str = sym.upper()
+            pair: Pair = await client.pair_info(sym_str)
+            mkt: MktPair = await client.mkt_info(sym_str)
+            mkt_infos[sym_str] = mkt
 
-            # TODO: remove this once we drop ``Symbol``!!
-            mktinfo['asset_type'] = mkt.dst.atype
-            mktinfo['price_tick_size'] = mkt.price_tick
-            mktinfo['lot_tick_size'] = mkt.size_tick
-
-            ws_pairs[sym] = pair.wsname
+            ws_pairs[sym_str] = pair.wsname
 
         symbol = symbols[0].lower()
 
+        # sync with `.data.feed` caller
+        # TODO: should we make this init msg a `Struct`?
         init_msgs = {
-            # pass back token, and bool, signalling if we're the writer
-            # and that history has been written
             symbol: {
-                'symbol_info': mkt_infos[sym],
-                'shm_write_opts': {'sum_tick_vml': False},
-                'fqsn': sym,
+                'fqsn': sym_str,
+                'mkt_info': mkt_infos[sym_str],
+                'shm_write_opts': {
+                    'sum_tick_vml': False,
+                },
             },
         }
 
