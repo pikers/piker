@@ -26,13 +26,10 @@ from typing import List, Dict, Any, Optional
 
 import trio
 
-from ..log import get_logger
+from ._util import log
 from . import get_brokermod
 from ..service import maybe_spawn_brokerd
 from .._cacheables import open_cached_client
-
-
-log = get_logger(__name__)
 
 
 async def api(brokername: str, methname: str, **kwargs) -> dict:

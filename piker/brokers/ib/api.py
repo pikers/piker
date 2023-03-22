@@ -68,10 +68,8 @@ import numpy as np
 
 from piker import config
 from piker.log import get_logger
+from piker.brokers._util import log
 from piker.data._source import base_ohlc_dtype
-
-
-log = get_logger(__name__)
 
 
 _time_units = {

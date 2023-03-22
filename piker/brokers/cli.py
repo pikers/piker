@@ -28,7 +28,13 @@ import tractor
 
 from ..cli import cli
 from .. import watchlists as wl
-from ..log import get_console_log, colorize_json, get_logger
+from ..log import (
+    colorize_json,
+)
+from ._util import (
+    log,
+    get_console_log,
+)
 from ..service import (
     maybe_spawn_brokerd,
     maybe_open_pikerd,
@@ -38,9 +44,7 @@ from ..brokers import (
     get_brokermod,
     data,
 )
-
-log = get_logger('cli')
-DEFAULT_BROKER = 'questrade'
+DEFAULT_BROKER = 'binance'
 
 _config_dir = click.get_app_dir('piker')
 _watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')

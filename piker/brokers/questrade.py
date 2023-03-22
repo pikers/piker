@@ -43,10 +43,13 @@ from ..calc import humanize, percent_change
 from .._cacheables import open_cached_client, async_lifo_cache
 from .. import config
 from ._util import resproc, BrokerError, SymbolNotFound
-from ..log import get_logger, colorize_json, get_console_log
-
-
-log = get_logger(__name__)
+from ..log import (
+    colorize_json,
+)
+from .util import (
+    log,
+    get_console_log,
+)
 
 _use_practice_account = False
 _refresh_token_ep = 'https://{}login.questrade.com/oauth2/'

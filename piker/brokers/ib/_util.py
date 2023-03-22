@@ -24,9 +24,7 @@ import subprocess
 
 import tractor
 
-from piker.log import get_logger
-
-log = get_logger(__name__)
+from .._util import log
 
 
 _reset_tech: Literal[
