@@ -34,7 +34,6 @@ from typing import (
     Union,
 )
 
-from async_generator import aclosing
 from bidict import bidict
 import pendulum
 import trio
@@ -672,11 +671,9 @@ async def trades_dialogue(
                         token=token,
                     ),
                 ) as ws,
-                aclosing(stream_messages(ws)) as stream,
+                stream_messages(ws) as stream,
                 trio.open_nursery() as nurse,
             ):
-                stream = stream_messages(ws)
-
                 # task for processing inbound requests from ems
                 nurse.start_soon(
                     handle_order_requests,
