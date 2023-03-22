@@ -509,11 +509,16 @@ class Client:
         bs_mktid, pair_info = Client.normalize_symbol(pair_str)
         dst_asset = self.assets[pair_info.base]
 
+        # NOTE XXX parse out the src asset name until we figure out
+        # how to get the src asset's `Pair` info from kraken..
+        src_key = pair_str.lstrip(dst_asset.name.upper()).lower()
+
         return MktPair(
             dst=dst_asset,
             price_tick=pair_info.price_tick,
             size_tick=pair_info.size_tick,
             bs_mktid=bs_mktid,
+            src=src_key,
             broker='kraken',
         )
 
