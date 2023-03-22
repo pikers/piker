@@ -353,18 +353,13 @@ class OrderMode:
             # apply order fields for ems
             oid = str(uuid.uuid4())
 
-            # we have to copy and slap in the `MktPair` first
-            # since we can't cast to it without being mega explicit
-            # with `msgspec.Struct`, which we're not yet..
-            fqme = staged.symbol
-            if not isinstance(fqme, str):
-                mkt = staged.symbol.copy()
-                fqme = mkt.fqme
-                staged.symbol = fqme
-
-            order = staged.copy()
-            order.symbol = fqme
-            order.oid = oid
+            # NOTE: we have to str-ify `MktPair` first since we can't
+            # cast to it without being mega explicit with
+            # `msgspec.Struct`, which we're not yet..
+            order = staged.copy({
+                'symbol': str(staged.symbol),
+                'oid': oid,
+            })
 
         lines = self.lines_from_order(
             order,
@@ -411,7 +406,7 @@ class OrderMode:
 
         # send order cmd to ems
         if send_msg:
-            self.book.send(order)
+            self.book.send_nowait(order)
         else:
             # just register for control over this order
             # TODO: some kind of mini-perms system here based on
@@ -445,7 +440,7 @@ class OrderMode:
         size = dialog.order.size
 
         # NOTE: sends modified order msg to EMS
-        self.book.send_update(
+        self.book.update_nowait(
             uuid=line.dialog.uuid,
             price=level,
             size=size,
@@ -617,7 +612,7 @@ class OrderMode:
                     dialog.last_status_close = cancel_status_close
 
                     ids.append(oid)
-                    self.book.cancel(uuid=oid)
+                    self.book.cancel_nowait(uuid=oid)
 
         return ids
 
