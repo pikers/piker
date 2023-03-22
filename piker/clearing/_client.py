@@ -64,7 +64,7 @@ class OrderBook(Struct):
     _from_order_book: trio.abc.ReceiveChannel
     _sent_orders: dict[str, Order] = {}
 
-    def send(
+    def send_nowait(
         self,
         msg: Order | dict,
 
@@ -72,6 +72,15 @@ class OrderBook(Struct):
         self._sent_orders[msg.oid] = msg
         self._to_ems.send_nowait(msg)
         return msg
+
+    # TODO: make this an async version..
+    def send(
+        self,
+        msg: Order | dict,
+
+    ) -> dict:
+        log.warning('USE `.send_nowait()` instead!')
+        return self.send_nowait(msg)
 
     def send_update(
         self,
@@ -86,10 +95,14 @@ class OrderBook(Struct):
         self._to_ems.send_nowait(msg)
         return cmd
 
-    def cancel(self, uuid: str) -> bool:
-        """Cancel an order (or alert) in the EMS.
+    def cancel_nowait(
+        self,
+        uuid: str,
+    ) -> bool:
+        '''
+        Cancel an order (or alert) in the EMS.
 
-        """
+        '''
         cmd = self._sent_orders.get(uuid)
         if not cmd:
             log.error(
@@ -97,11 +110,20 @@ class OrderBook(Struct):
                 f'Maybe there is a stale entry or line?\n'
                 f'You should report this as a bug!'
             )
+        fqme = str(cmd.symbol)
         msg = Cancel(
             oid=uuid,
-            symbol=cmd.symbol,
+            symbol=fqme,
         )
         self._to_ems.send_nowait(msg)
+
+    # TODO: make this an async version..
+    def cancel(
+        self,
+        uuid: str,
+    ) -> bool:
+        log.warning('USE `.cancel_nowait()` instead!')
+        return self.cancel_nowait(uuid)
 
 
 _orders: OrderBook = None
