@@ -24,7 +24,10 @@ from contextlib import asynccontextmanager as acm
 from contextlib import AsyncExitStack
 from dataclasses import asdict, astuple
 from datetime import datetime
-from functools import partial
+from functools import (
+    partial,
+    lru_cache,
+)
 import itertools
 from math import isnan
 from typing import (
@@ -328,7 +331,7 @@ class Client:
         self.ib.RaiseRequestErrors = True
 
         # contract cache
-        self._feeds: dict[str, trio.abc.SendChannel] = {}
+        self._cons: dict[str, Contract] = {}
 
         # NOTE: the ib.client here is "throttled" to 45 rps by default
 
@@ -612,13 +615,20 @@ class Client:
 
         return con
 
+    # TODO: make this work with our `MethodProxy`..
+    # @lru_cache(maxsize=None)
     async def get_con(
         self,
         conid: int,
     ) -> Contract:
-        return await self.ib.qualifyContractsAsync(
-            ibis.Contract(conId=conid)
-        )
+        try:
+            return self._cons[conid]
+        except KeyError:
+            con: Contract = await self.ib.qualifyContractsAsync(
+                ibis.Contract(conId=conid)
+            )
+            self._cons[conid] = con
+            return con
 
     def parse_patt2fqsn(
         self,
