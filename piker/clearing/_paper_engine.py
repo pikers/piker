@@ -46,7 +46,7 @@ from ..accounting import (
     open_pps,
 )
 from ..data._normalize import iterticks
-from ..data._source import unpack_fqsn
+from ..accounting._mktinfo import unpack_fqme
 from ..log import get_logger
 from ._messages import (
     BrokerdCancel,
@@ -195,7 +195,7 @@ class PaperBoi(Struct):
     async def fake_fill(
         self,
 
-        fqsn: str,
+        fqme: str,
         price: float,
         size: float,
         action: str,  # one of {'buy', 'sell'}
@@ -249,10 +249,10 @@ class PaperBoi(Struct):
             await self.ems_trades_stream.send(msg)
 
         # lookup any existing position
-        key = fqsn.rstrip(f'.{self.broker}')
+        key = fqme.rstrip(f'.{self.broker}')
         t = Transaction(
-            fqsn=fqsn,
-            sym=self._syms[fqsn],
+            fqsn=fqme,
+            sym=self._syms[fqme],
             tid=oid,
             size=size,
             price=price,
@@ -275,7 +275,7 @@ class PaperBoi(Struct):
             pp_msg = BrokerdPosition(
                 broker=self.broker,
                 account='paper',
-                symbol=fqsn,
+                symbol=fqme,
                 # TODO: we need to look up the asset currency from
                 # broker info. i guess for crypto this can be
                 # inferred from the pair?
@@ -419,7 +419,7 @@ async def simulate_fills(
 
                         # clearing price would have filled entirely
                         await client.fake_fill(
-                            fqsn=sym,
+                            fqme=sym,
                             # todo slippage to determine fill price
                             price=tick_price,
                             size=size,
@@ -518,7 +518,7 @@ async def trades_dialogue(
 
     ctx: tractor.Context,
     broker: str,
-    fqsn: str,
+    fqme: str,
     loglevel: str = None,
 
 ) -> None:
@@ -527,7 +527,7 @@ async def trades_dialogue(
 
     async with (
         data.open_feed(
-            [fqsn],
+            [fqme],
             loglevel=loglevel,
         ) as feed,
 
@@ -571,8 +571,8 @@ async def trades_dialogue(
                 # TODO: load postions from ledger file
                 _trade_ledger={},
                 _syms={
-                    fqsn: flume.symbol
-                    for fqsn, flume in feed.flumes.items()
+                    fqme: flume.symbol
+                    for fqme, flume in feed.flumes.items()
                 }
             )
 
@@ -588,7 +588,7 @@ async def trades_dialogue(
 
 @asynccontextmanager
 async def open_paperboi(
-    fqsn: str,
+    fqme: str,
     loglevel: str,
 
 ) -> Callable:
@@ -597,7 +597,7 @@ async def open_paperboi(
     its context.
 
     '''
-    broker, symbol, expiry = unpack_fqsn(fqsn)
+    broker, symbol, expiry = unpack_fqme(fqme)
     service_name = f'paperboi.{broker}'
 
     async with (
@@ -617,7 +617,7 @@ async def open_paperboi(
         async with portal.open_context(
             trades_dialogue,
             broker=broker,
-            fqsn=fqsn,
+            fqme=fqme,
             loglevel=loglevel,
 
         ) as (ctx, first):
