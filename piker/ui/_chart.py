@@ -291,7 +291,7 @@ class GodWidget(QWidget):
         if symbol is not None:
             self.window.setWindowTitle(
                 f'{symbol.fqme} '
-                f'tick:{symbol.tick_size}'
+                f'tick:{symbol.size_tick}'
             )
 
         return order_mode_started
