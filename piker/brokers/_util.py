@@ -15,13 +15,28 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-Handy utils.
+Handy cross-broker utils.
+
 """
+from functools import partial
+
 import json
 import asks
 import logging
 
-from ..log import colorize_json
+from ..log import (
+    get_logger,
+    get_console_log,
+    colorize_json,
+)
+subsys: str = 'piker.brokers'
+
+log = get_logger(subsys)
+
+get_console_log = partial(
+    get_console_log,
+    name=subsys,
+)
 
 
 class BrokerError(Exception):
@@ -67,7 +82,6 @@ class DataThrottle(BrokerError):
 
     '''
     # TODO: add in throttle metrics/feedback
-
 
 
 def resproc(
