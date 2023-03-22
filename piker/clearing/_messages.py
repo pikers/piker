@@ -29,7 +29,6 @@ from typing import (
 
 from msgspec import field
 
-from ..accounting._mktinfo import Symbol
 from ..data.types import Struct
 
 
@@ -94,7 +93,8 @@ class Order(Struct):
 
     # internal ``emdsd`` unique "order id"
     oid: str  # uuid4
-    symbol: str | Symbol
+    # TODO: figure out how to optionally typecast this to `MktPair`?
+    symbol: str  # | MktPair
     account: str  # should we set a default as '' ?
 
     price: float
