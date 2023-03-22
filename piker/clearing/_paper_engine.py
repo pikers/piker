@@ -47,7 +47,9 @@ from ..accounting import (
 )
 from ..data._normalize import iterticks
 from ..accounting._mktinfo import unpack_fqme
-from ..log import get_logger
+from ._util import (
+    log,  # sub-sys logger
+)
 from ._messages import (
     BrokerdCancel,
     BrokerdOrder,
@@ -57,8 +59,6 @@ from ._messages import (
     BrokerdPosition,
     BrokerdError,
 )
-
-log = get_logger(__name__)
 
 
 class PaperBoi(Struct):

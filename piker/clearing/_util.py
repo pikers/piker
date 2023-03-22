@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -13,17 +13,21 @@
 
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+Sub-sys module commons.
 
 """
-Market machinery for order executions, book, management.
+from functools import partial
 
-"""
-from ..log import get_logger
-from ._client import open_ems
+from ..log import (
+    get_logger,
+    get_console_log,
+)
+subsys: str = 'piker.clearing'
 
+log = get_logger(subsys)
 
-__all__ = [
-    'open_ems',
-]
-
-log = get_logger(__name__)
+get_console_log = partial(
+    get_console_log,
+    name=subsys,
+)

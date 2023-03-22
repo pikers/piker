@@ -27,8 +27,10 @@ import trio
 import tractor
 from tractor.trionics import broadcast_receiver
 
+from ._util import (
+    log,  # sub-sys logger
+)
 from ..accounting._mktinfo import unpack_fqme
-from ..log import get_logger
 from ..data.types import Struct
 from ..service import maybe_open_emsd
 from ._messages import (
@@ -42,9 +44,6 @@ if TYPE_CHECKING:
         BrokerdPosition,
         Status,
     )
-
-
-log = get_logger(__name__)
 
 
 class OrderBook(Struct):
