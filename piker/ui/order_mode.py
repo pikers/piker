@@ -349,12 +349,22 @@ class OrderMode:
         '''
         if not order:
             staged: Order = self._staged_order
+
             # apply order fields for ems
             oid = str(uuid.uuid4())
-            order = staged.copy()
-            order.oid = oid
 
-        order.symbol = order.symbol.fqme
+            # we have to copy and slap in the `MktPair` first
+            # since we can't cast to it without being mega explicit
+            # with `msgspec.Struct`, which we're not yet..
+            fqme = staged.symbol
+            if not isinstance(fqme, str):
+                mkt = staged.symbol.copy()
+                fqme = mkt.fqme
+                staged.symbol = fqme
+
+            order = staged.copy()
+            order.symbol = fqme
+            order.oid = oid
 
         lines = self.lines_from_order(
             order,
