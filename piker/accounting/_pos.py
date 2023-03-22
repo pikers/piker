@@ -26,6 +26,7 @@ from __future__ import annotations
 from contextlib import contextmanager as cm
 from decimal import Decimal
 from math import copysign
+from pprint import pformat
 import re
 from typing import (
     Any,
@@ -87,6 +88,9 @@ class Position(Struct):
     first_clear_dt: datetime | None = None
 
     expiry: Optional[datetime] = None
+
+    def __repr__(self) -> str:
+        return pformat(self.to_dict())
 
     def to_dict(self) -> dict:
         return {
@@ -657,7 +661,7 @@ class PpTable(Struct):
         if pp_entries:
             log.info(
                 f'Updating ``pps.toml``:\n'
-                f'Current positions:\n{pp_entries}'
+                f'Current positions:\n{pformat(pp_entries)}'
             )
             self.conf[self.brokername][self.acctid] = pp_entries
 
