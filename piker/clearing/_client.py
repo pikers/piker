@@ -82,7 +82,7 @@ class OrderBook(Struct):
         log.warning('USE `.send_nowait()` instead!')
         return self.send_nowait(msg)
 
-    def send_update(
+    def update_nowait(
         self,
 
         uuid: str,
@@ -94,6 +94,14 @@ class OrderBook(Struct):
         self._sent_orders[uuid] = msg
         self._to_ems.send_nowait(msg)
         return cmd
+
+    # TODO: async meth for this!
+    # def update(
+    #     self,
+    #     uuid: str,
+    #     **data: dict,
+    # ) -> dict:
+    #     ...
 
     def cancel_nowait(
         self,
