@@ -221,6 +221,10 @@ class MktPair(Struct, frozen=True):
 
     _atype: str = ''
 
+    # NOTE: when cast to `str` return fqme
+    def __str__(self) -> str:
+        return self.fqme
+
     @classmethod
     def from_msg(
         cls,
@@ -358,7 +362,7 @@ class MktPair(Struct, frozen=True):
         return maybe_cons_tokens([
             self.key,  # final "pair name" (eg. qqq[/usd], btcusdt)
             self.venue,
-            self.expiry,
+            self.suffix,  # includes expiry and other con info
             self.broker,
         ])
 
@@ -537,3 +541,7 @@ class Symbol(Struct):
             Decimal(f'1.{"0".ljust(digits, "0")}'),
             rounding=ROUND_HALF_EVEN
         )
+
+    # NOTE: when cast to `str` return fqme
+    def __str__(self) -> str:
+        return self.fqme
