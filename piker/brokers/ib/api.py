@@ -387,8 +387,7 @@ class Client:
         bar_size, duration, dt_duration = _samplings[sample_period_s]
 
         global _enters
-        # log.info(f'REQUESTING BARS {_enters} @ end={end_dt}')
-        print(
+        log.info(
             f"REQUESTING {duration}'s worth {bar_size} BARS\n"
             f'{_enters} @ end={end_dt}"'
         )
@@ -730,7 +729,7 @@ class Client:
                 )
 
         elif (
-            exch in ('IDEALPRO')
+            exch in {'IDEALPRO'}
             or sectype == 'CASH'
         ):
             # if '/' in symbol:
@@ -1199,9 +1198,14 @@ async def load_aio_clients(
     for host, port in combos:
 
         sockaddr = (host, port)
+
+        maybe_client = _client_cache.get(sockaddr)
         if (
-            sockaddr in _client_cache
-            or sockaddr in _scan_ignore
+            sockaddr in _scan_ignore
+            or (
+                maybe_client
+                and maybe_client.ib.isConnected()
+            )
         ):
             continue
 
@@ -1307,18 +1311,12 @@ async def load_clients_for_trio(
     a ``tractor.to_asyncio.open_channel_from()``.
 
     '''
-    global _accounts2clients
+    async with load_aio_clients() as accts2clients:
 
-    if _accounts2clients:
-        to_trio.send_nowait(_accounts2clients)
+        to_trio.send_nowait(accts2clients)
+
+        # TODO: maybe a sync event to wait on instead?
         await asyncio.sleep(float('inf'))
-
-    else:
-        async with load_aio_clients() as accts2clients:
-            to_trio.send_nowait(accts2clients)
-
-            # TODO: maybe a sync event to wait on instead?
-            await asyncio.sleep(float('inf'))
 
 
 @acm
@@ -1517,7 +1515,8 @@ async def open_client_proxy(
 
         # mock all remote methods on ib ``Client``.
         for name, method in inspect.getmembers(
-            Client, predicate=inspect.isfunction
+            Client,
+            predicate=inspect.isfunction,
         ):
             if '_' == name[0]:
                 continue
