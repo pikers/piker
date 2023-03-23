@@ -37,14 +37,19 @@ import numpy as np
 import tractor
 import wsproto
 
+from ..accounting._mktinfo import (
+    Asset,
+    MktPair,
+    digits_to_dec,
+)
 from .._cacheables import open_cached_client
 from ._util import (
     resproc,
     SymbolNotFound,
     DataUnavailable,
 )
-from ..log import (
-    get_logger,
+from ._util import (
+    log,
     get_console_log,
 )
 from ..data.types import Struct
@@ -52,8 +57,6 @@ from ..data._web_bs import (
     open_autorecon_ws,
     NoBsWs,
 )
-
-log = get_logger(__name__)
 
 
 _url = 'https://api.binance.com'
@@ -89,7 +92,10 @@ _show_wap_in_history = False
 
 
 # https://binance-docs.github.io/apidocs/spot/en/#exchange-information
-class Pair(Struct, frozen=True):
+
+# TODO: make this frozen again by pre-processing the
+# filters list to a dict at init time?
+class Pair(Struct):  # , frozen=True):
     symbol: str
     status: str
 
@@ -115,8 +121,40 @@ class Pair(Struct, frozen=True):
     defaultSelfTradePreventionMode: str
     allowedSelfTradePreventionModes: list[str]
 
-    filters: list[dict[str, Union[str, int, float]]]
+    filters: list[
+        dict[
+            str,
+            Union[str, int, float]
+        ]
+    ]
     permissions: list[str]
+
+    _filtersbykey: dict | None = None
+
+    def get_filter(self) -> dict[str, dict]:
+        filters = self._filtersbykey
+
+        if self._filtersbykey:
+            return filters
+
+        filters = self._filtersbykey = {}
+        for entry in self.filters:
+            ftype = entry['filterType']
+            filters[ftype] = entry
+
+        return filters
+
+    def size_tick(self) -> Decimal:
+        # XXX: lul, after manually inspecting the response format we
+        # just directly pick out the info we need
+        return Decimal(
+            self.get_filter()['PRICE_FILTER']['tickSize'].rstrip('0')
+        )
+
+    def price_tick(self) -> Decimal:
+        return Decimal(
+            self.get_filter()['LOT_SIZE']['stepSize'].rstrip('0')
+        )
 
 
 class OHLC(Struct):
@@ -160,7 +198,7 @@ class Client:
     def __init__(self) -> None:
         self._sesh = asks.Session(connections=4)
         self._sesh.base_location = _url
-        self._pairs: dict[str, Any] = {}
+        self._pairs: dict[str, Pair] = {}
 
     async def _api(
         self,
@@ -174,50 +212,43 @@ class Client:
         )
         return resproc(resp, log)
 
-    async def mkt_info(
+    async def exch_info(
 
         self,
         sym: str | None = None,
 
-    ) -> dict[str, Any]:
-        '''Get symbol info for the exchange.
+    ) -> dict[str, Pair] | Pair:
+        '''
+        Fresh exchange-pairs info query for symbol ``sym: str``:
+        https://binance-docs.github.io/apidocs/spot/en/#exchange-information
 
         '''
-        # TODO: we can load from our self._pairs cache
-        # on repeat calls...
+        cached_pair = self._pairs.get(sym)
+        if cached_pair:
+            return cached_pair
 
-        # will retrieve all symbols by default
+        # retrieve all symbols by default
         params = {}
-
         if sym is not None:
             sym = sym.lower()
             params = {'symbol': sym}
 
-        resp = await self._api(
-            'exchangeInfo',
-            params=params,
-        )
-
+        resp = await self._api('exchangeInfo', params=params)
         entries = resp['symbols']
         if not entries:
-            raise SymbolNotFound(f'{sym} not found')
+            raise SymbolNotFound(f'{sym} not found:\n{resp}')
 
-        syms = {item['symbol']: item for item in entries}
+        pairs = {
+            item['symbol']: Pair(**item) for item in entries
+        }
+        self._pairs.update(pairs)
 
         if sym is not None:
-            return syms[sym]
+            return pairs[sym]
         else:
-            return syms
+            return self._pairs
 
-    symbol_info = mkt_info
-
-    async def cache_symbols(
-        self,
-    ) -> dict:
-        if not self._pairs:
-            self._pairs = await self.mkt_info()
-
-        return self._pairs
+    symbol_info = exch_info
 
     async def search_symbols(
         self,
@@ -227,7 +258,7 @@ class Client:
         if self._pairs is not None:
             data = self._pairs
         else:
-            data = await self.mkt_info()
+            data = await self.exch_info()
 
         matches = fuzzy.extractBests(
             pattern,
@@ -302,7 +333,7 @@ class Client:
 @acm
 async def get_client() -> Client:
     client = Client()
-    await client.cache_symbols()
+    await client.exch_info()
     yield client
 
 
@@ -465,27 +496,38 @@ async def stream_quotes(
     ):
 
         # keep client cached for real-time section
-        cache = await client.cache_symbols()
+        pairs = await client.exch_info()
+        sym_infos: dict[str, dict] = {}
+        mkt_infos: dict[str, MktPair] = {}
 
         for sym in symbols:
-            d = cache[sym.upper()]
-            syminfo = Pair(**d)  # validation
 
-            si = sym_infos[sym] = syminfo.to_dict()
-            filters = {}
-            for entry in syminfo.filters:
-                ftype = entry['filterType']
-                filters[ftype] = entry
+            pair: Pair = pairs[sym.upper()]
+            price_tick = pair.price_tick()
+            size_tick = pair.size_tick()
 
-            # XXX: after manually inspecting the response format we
-            # just directly pick out the info we need
-            si['price_tick_size'] = Decimal(
-                filters['PRICE_FILTER']['tickSize'].rstrip('0')
+            mkt_infos[sym] = MktPair(
+                dst=Asset(
+                    name=pair.baseAsset,
+                    atype='crypto',
+                    tx_tick=digits_to_dec(pair.baseAssetPrecision),
+                ),
+                src=Asset(
+                    name=pair.quoteAsset,
+                    atype='crypto',
+                    tx_tick=digits_to_dec(pair.quoteAssetPrecision),
+                ),
+                price_tick=price_tick,
+                size_tick=size_tick,
+                bs_mktid=pair.symbol,
+                broker='binance',
             )
-            si['lot_tick_size'] = Decimal(
-                filters['LOT_SIZE']['stepSize'].rstrip('0')
-            )
-            si['asset_type'] = 'crypto'
+
+            sym_infos[sym] = {
+                'price_tick_size': price_tick,
+                'lot_tick_size': size_tick,
+                'asset_type': 'crypto',
+            }
 
         symbol = symbols[0]
 
@@ -493,9 +535,11 @@ async def stream_quotes(
             # pass back token, and bool, signalling if we're the writer
             # and that history has been written
             symbol: {
-                'symbol_info': sym_infos[sym],
-                'shm_write_opts': {'sum_tick_vml': False},
                 'fqsn': sym,
+
+                # 'symbol_info': sym_infos[sym],
+                'mkt_info': mkt_infos[sym],
+                'shm_write_opts': {'sum_tick_vml': False},
             },
         }
 
@@ -582,13 +626,13 @@ async def open_symbol_search(
     async with open_cached_client('binance') as client:
 
         # load all symbols locally for fast search
-        cache = await client.cache_symbols()
+        cache = await client.exch_info()
         await ctx.started()
 
         async with ctx.open_stream() as stream:
 
             async for pattern in stream:
-                # results = await client.mkt_info(sym=pattern.upper())
+                # results = await client.exch_info(sym=pattern.upper())
 
                 matches = fuzzy.extractBests(
                     pattern,
