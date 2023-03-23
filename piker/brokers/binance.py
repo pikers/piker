@@ -95,7 +95,7 @@ _show_wap_in_history = False
 
 # TODO: make this frozen again by pre-processing the
 # filters list to a dict at init time?
-class Pair(Struct):  # , frozen=True):
+class Pair(Struct, frozen=True):
     symbol: str
     status: str
 
@@ -121,40 +121,21 @@ class Pair(Struct):  # , frozen=True):
     defaultSelfTradePreventionMode: str
     allowedSelfTradePreventionModes: list[str]
 
-    filters: list[
-        dict[
-            str,
-            Union[str, int, float]
-        ]
+    filters: dict[
+        str,
+        Union[str, int, float]
     ]
     permissions: list[str]
 
-    _filtersbykey: dict | None = None
-
-    def get_filter(self) -> dict[str, dict]:
-        filters = self._filtersbykey
-
-        if self._filtersbykey:
-            return filters
-
-        filters = self._filtersbykey = {}
-        for entry in self.filters:
-            ftype = entry['filterType']
-            filters[ftype] = entry
-
-        return filters
-
+    @property
     def size_tick(self) -> Decimal:
         # XXX: lul, after manually inspecting the response format we
         # just directly pick out the info we need
-        return Decimal(
-            self.get_filter()['PRICE_FILTER']['tickSize'].rstrip('0')
-        )
+        return Decimal(self.filters['PRICE_FILTER']['tickSize'].rstrip('0'))
 
+    @property
     def price_tick(self) -> Decimal:
-        return Decimal(
-            self.get_filter()['LOT_SIZE']['stepSize'].rstrip('0')
-        )
+        return Decimal(self.filters['LOT_SIZE']['stepSize'].rstrip('0'))
 
 
 class OHLC(Struct):
@@ -238,9 +219,24 @@ class Client:
         if not entries:
             raise SymbolNotFound(f'{sym} not found:\n{resp}')
 
-        pairs = {
-            item['symbol']: Pair(**item) for item in entries
-        }
+        # pre-process .filters field into a table
+        pairs = {}
+        for item in entries:
+            symbol = item['symbol']
+            filters = {}
+            filters_ls: list = item.pop('filters')
+            for entry in filters_ls:
+                ftype = entry['filterType']
+                filters[ftype] = entry
+
+            pairs[symbol] = Pair(
+                filters=filters,
+                **item,
+            )
+
+        # pairs = {
+        #     item['symbol']: Pair(**item) for item in entries
+        # }
         self._pairs.update(pairs)
 
         if sym is not None:
@@ -503,8 +499,8 @@ async def stream_quotes(
         for sym in symbols:
 
             pair: Pair = pairs[sym.upper()]
-            price_tick = pair.price_tick()
-            size_tick = pair.size_tick()
+            price_tick = pair.price_tick
+            size_tick = pair.size_tick
 
             mkt_infos[sym] = MktPair(
                 dst=Asset(
