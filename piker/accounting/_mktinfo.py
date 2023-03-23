@@ -236,16 +236,31 @@ class MktPair(Struct, frozen=True):
 
         '''
         dst_asset_msg = msg.pop('dst')
+        src_asset_msg = msg.pop('src')
+
         if isinstance(dst_asset_msg, str):
+            src: str = str(src_asset_msg)
+            assert isinstance(src, str)
             return cls.from_fqme(
                 dst_asset_msg,
+                src=src,
                 **msg,
             )
 
-        # NOTE: we call `.copy()` here to ensure
-        # type casting!
-        dst = Asset(**dst_asset_msg).copy()
-        return cls(dst=dst, **msg).copy()
+        else:
+            # NOTE: we call `.copy()` here to ensure
+            # type casting!
+            dst = Asset(**dst_asset_msg).copy()
+            if not isinstance(src_asset_msg, str):
+                src = Asset(**src_asset_msg).copy()
+            else:
+                src = str(src_asset_msg)
+
+        return cls(
+            dst=dst,
+            src=src,
+            **msg,
+        ).copy()
 
     @property
     def resolved(self) -> bool:
@@ -292,7 +307,8 @@ class MktPair(Struct, frozen=True):
 
         '''
         return maybe_cons_tokens(
-            [str(self.dst), self.src],
+            [str(self.dst),
+             str(self.src)],
             delim_char='',
         )
 
