@@ -736,9 +736,19 @@ async def stream_quotes(
     sym = symbols[0]
     log.info(f'request for real-time quotes: {sym}')
 
+    proxy: MethodProxy
     async with open_data_client() as proxy:
 
-        con, first_ticker, details = await proxy.get_sym_details(symbol=sym)
+        try:
+            (
+                con,
+                first_ticker,
+                details,
+            ) = await proxy.get_sym_details(symbol=sym)
+        except ConnectionError:
+            log.exception(f'Proxy is ded {proxy._aio_ns}')
+            raise
+
         first_quote = normalize(first_ticker)
         # print(f'first quote: {first_quote}')
 
@@ -825,7 +835,7 @@ async def stream_quotes(
             await trio.sleep_forever()
             return  # we never expect feed to come up?
 
-        cs: Optional[trio.CancelScope] = None
+        cs: trio.CancelScope | None = None
         startup: bool = True
         while (
             startup
