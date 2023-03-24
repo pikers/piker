@@ -40,6 +40,7 @@ setup(
         'console_scripts': [
             'piker = piker.cli:cli',
             'pikerd = piker.cli:pikerd',
+            'ledger = piker.accounting.cli:ledger',
         ]
     },
     install_requires=[
