@@ -164,7 +164,7 @@ class Client:
         config: BrokerConfig | None = get_config()
 
         if (
-            config and config.key_id and config.key_secret and config.key_passphrase
+            config and float(config.key_id) and config.key_secret and config.key_passphrase
         ):
             self._authenticated = True
             self._key_id = config.key_id
@@ -343,17 +343,19 @@ class Client:
 
         for i in range(10):
 
-            res = await self._request(
+            data = await self._request(
                 "GET",
                 url,
                 api_v="v1",
             )
 
-            if not isinstance(res, list) or not len(bars):
+            if not isinstance(data, list):
                 # Do a gradual backoff if Kucoin is rate limiting us
-                await trio.sleep(i + (randint(0, 1000) / 1000))
+                backoff_interval = i + (randint(0, 1000) / 1000)
+                log.warn(f'History call failed, backing off for {backoff_interval}s')
+                await trio.sleep(backoff_interval)
             else:
-                bars = res
+                bars = data
                 break
 
         # Map to OHLC values to dict then to np array
@@ -392,6 +394,8 @@ class Client:
 def fqsn_to_kucoin_sym(
     fqsn: str,
     pairs: dict[str, KucoinMktPair]
+
+
 ) -> str:
     pair_data = pairs[fqsn]
     return pair_data.baseCurrency + "-" + pair_data.quoteCurrency
@@ -401,7 +405,7 @@ def kucoin_sym_to_fqsn(sym: str) -> str:
     return sym.lower().replace("-", "")
 
 
-@acm
+@ acm
 async def get_client() -> AsyncGenerator[Client, None]:
 
     client = Client()
@@ -410,7 +414,7 @@ async def get_client() -> AsyncGenerator[Client, None]:
     yield client
 
 
-@tractor.context
+@ tractor.context
 async def open_symbol_search(
     ctx: tractor.Context,
 ) -> None:
@@ -581,6 +585,7 @@ async def open_history_client(
     type: str = "1m",
 ) -> AsyncGenerator[Callable, None]:
     async with open_cached_client("kucoin") as client:
+        log.info("Attempting to open kucoin history client")
 
         async def get_ohlc_history(
 
