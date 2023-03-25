@@ -380,7 +380,7 @@ class Client:
                 value = data[field_name]
 
                 match field_name:
-                    case "index" | "time":
+                    case "index":
                         row.append(int(value))
                     case _:
                         row.append(float(value))
