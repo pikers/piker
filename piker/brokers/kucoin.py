@@ -164,7 +164,7 @@ class Client:
         config: BrokerConfig | None = get_config()
 
         if (
-            config and float(config.key_id) and config.key_secret and config.key_passphrase
+            config and config.key_id and config.key_secret and config.key_passphrase
         ):
             self._authenticated = True
             self._key_id = config.key_id
@@ -396,7 +396,6 @@ class Client:
 def fqsn_to_kucoin_sym(
     fqsn: str,
     pairs: dict[str, KucoinMktPair]
-
 
 ) -> str:
     pair_data = pairs[fqsn]
