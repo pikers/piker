@@ -426,6 +426,7 @@ async def open_symbol_search(
         async with ctx.open_stream() as stream:
             async for pattern in stream:
                 await stream.send(await client.search_symbols(pattern))
+                log.info("Kucoin symbol search opened")
 
 
 async def stream_quotes(
@@ -444,7 +445,7 @@ async def stream_quotes(
     connect_id = str(uuid4())
 
     async with open_cached_client("kucoin") as client:
-
+        log.info("Starting up quote stream")
         # loop through symbols and sub to feedz
         for sym in symbols:
 
@@ -493,6 +494,7 @@ async def stream_quotes(
                 # Spawn the ping task here
                 async with open_ping_task(ws) as ws:
                     # subscribe to market feedz here
+                    log.info(f'Subscribing to {kucoin_sym} feed')
                     l1_sub = make_sub(kucoin_sym, connect_id)
                     await ws.send_msg(l1_sub)
 
@@ -500,6 +502,7 @@ async def stream_quotes(
 
                     # unsub
                     if ws.connected():
+                        log.info(f'Unsubscribing to {kucoin_sym} feed')
                         await ws.send_msg(
                             {
                                 "id": connect_id,
@@ -619,6 +622,7 @@ async def open_history_client(
 
             start_dt = pendulum.from_timestamp(times[0])
             end_dt = pendulum.from_timestamp(times[-1])
+            log.info('History succesfully fetched baby')
             return array, start_dt, end_dt
 
         yield get_ohlc_history, {"erlangs": 3, "rate": 3}
