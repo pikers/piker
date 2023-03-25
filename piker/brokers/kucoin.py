@@ -382,6 +382,8 @@ class Client:
                 match field_name:
                     case "index":
                         row.append(int(value))
+                    case "time":
+                        row.append(value)
                     case _:
                         row.append(float(value))
 
