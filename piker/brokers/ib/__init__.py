@@ -35,7 +35,6 @@ from .feed import (
 )
 from .broker import (
     trades_dialogue,
-    norm_trade_records,
 )
 
 __all__ = [
@@ -46,13 +45,22 @@ __all__ = [
     'stream_quotes',
 ]
 
-
-# tractor RPC enable arg
-__enable_modules__: list[str] = [
+_brokerd_mods: list[str] = [
     'api',
-    'feed',
     'broker',
 ]
+
+_datad_mods: list[str] = [
+    'feed',
+]
+
+
+# tractor RPC enable arg
+__enable_modules__: list[str] = (
+    _brokerd_mods
+    +
+    _datad_mods
+)
 
 # passed to ``tractor.ActorNursery.start_actor()``
 _spawn_kwargs = {
