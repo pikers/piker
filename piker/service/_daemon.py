@@ -20,7 +20,6 @@ Daemon-actor spawning "endpoint-hooks".
 """
 from __future__ import annotations
 from typing import (
-    Optional,
     Callable,
     Any,
 )
@@ -42,6 +41,7 @@ from ._actor_runtime import maybe_open_pikerd
 from ._registry import find_service
 
 # `brokerd` enabled modules
+# TODO: move this def to the `.data` subpkg..
 # NOTE: keeping this list as small as possible is part of our caps-sec
 # model and should be treated with utmost care!
 _data_mods = [
@@ -59,7 +59,7 @@ async def maybe_spawn_daemon(
     service_name: str,
     service_task_target: Callable,
     spawn_args: dict[str, Any],
-    loglevel: Optional[str] = None,
+    loglevel: str | None = None,
 
     singleton: bool = False,
     **kwargs,
@@ -100,7 +100,6 @@ async def maybe_spawn_daemon(
     # pikerd is not live we now become the root of the
     # process tree
     async with maybe_open_pikerd(
-
         loglevel=loglevel,
         **kwargs,
 
@@ -141,7 +140,8 @@ async def maybe_spawn_daemon(
 async def spawn_brokerd(
 
     brokername: str,
-    loglevel: Optional[str] = None,
+    loglevel: str | None = None,
+
     **tractor_kwargs,
 
 ) -> bool:
@@ -190,7 +190,7 @@ async def spawn_brokerd(
 async def maybe_spawn_brokerd(
 
     brokername: str,
-    loglevel: Optional[str] = None,
+    loglevel: str | None = None,
     **kwargs,
 
 ) -> tractor.Portal:
@@ -216,7 +216,7 @@ async def maybe_spawn_brokerd(
 
 async def spawn_emsd(
 
-    loglevel: Optional[str] = None,
+    loglevel: str | None = None,
     **extra_tractor_kwargs
 
 ) -> bool:
@@ -252,7 +252,7 @@ async def spawn_emsd(
 async def maybe_open_emsd(
 
     brokername: str,
-    loglevel: Optional[str] = None,
+    loglevel: str | None = None,
     **kwargs,
 
 ) -> tractor._portal.Portal:  # noqa
