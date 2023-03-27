@@ -26,10 +26,10 @@ from contextlib import contextmanager as cm
 from decimal import Decimal
 from math import copysign
 from pprint import pformat
+from pathlib import Path
 from typing import (
     Any,
     Iterator,
-    Optional,
     Union,
     Generator
 )
@@ -88,7 +88,7 @@ class Position(Struct):
     ] = {}
     first_clear_dt: datetime | None = None
 
-    expiry: Optional[datetime] = None
+    expiry: datetime | None = None
 
     def __repr__(self) -> str:
         return pformat(self.to_dict())
@@ -497,7 +497,8 @@ class PpTable(Struct):
     brokername: str
     acctid: str
     pps: dict[str, Position]
-    conf: Optional[dict] = {}
+    conf_path: Path
+    conf: dict | None = {}
 
     def update_from_trans(
         self,
@@ -683,8 +684,8 @@ class PpTable(Struct):
         ] = enc.dump_inline_table
 
         config.write(
-            self.conf,
-            'pps',
+            config=self.conf,
+            path=self.conf_path,
             encoder=enc,
             fail_empty=False
         )
@@ -696,7 +697,7 @@ def load_pps_from_ledger(
     acctname: str,
 
     # post normalization filter on ledger entries to be processed
-    filter_by: Optional[list[dict]] = None,
+    filter_by: list[dict] | None = None,
 
 ) -> tuple[
     dict[str, Transaction],
@@ -746,7 +747,11 @@ def open_pps(
     incremental update file: ``pps.toml``.
 
     '''
-    conf, path = config.load('pps')
+    conf: dict
+    conf_path: Path
+    conf, conf_path = config.load(
+        f'pps.{brokername}.{acctid}',
+    )
     brokersection = conf.setdefault(brokername, {})
     pps = brokersection.setdefault(acctid, {})
 
@@ -765,6 +770,7 @@ def open_pps(
         brokername,
         acctid,
         pp_objs,
+        conf_path,
         conf=conf,
     )
 
