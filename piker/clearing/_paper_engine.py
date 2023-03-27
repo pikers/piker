@@ -262,8 +262,16 @@ class PaperBoi(Struct):
         )
 
         with (
-            open_trade_ledger(self.broker, 'paper') as ledger,
-            open_pps(self.broker, 'paper', write_on_exit=True) as table
+            open_trade_ledger(
+                self.broker,
+                'paper',
+            ) as ledger,
+
+            open_pps(
+                brokername=self.broker,
+                acctid='paper',
+                write_on_exit=True,
+            ) as table
         ):
             tx = t.to_dict()
             tx.pop('sym')
