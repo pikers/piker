@@ -19,7 +19,7 @@ Fake trading for forward testing.
 
 """
 from collections import defaultdict
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager as acm
 from datetime import datetime
 from operator import itemgetter
 import itertools
@@ -530,9 +530,7 @@ async def trades_dialogue(
             [fqme],
             loglevel=loglevel,
         ) as feed,
-
     ):
-
         with open_pps(broker, 'paper') as table:
             # save pps in local state
             _positions.update(table.pps)
@@ -586,7 +584,7 @@ async def trades_dialogue(
             await simulate_fills(feed.streams[broker], client)
 
 
-@asynccontextmanager
+@acm
 async def open_paperboi(
     fqme: str,
     loglevel: str,
