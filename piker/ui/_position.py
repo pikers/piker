@@ -45,7 +45,7 @@ from ..calc import (
     pnl,
     puterize,
 )
-from ..clearing._allocate import Allocator
+from ..accounting._allocate import Allocator
 from ..accounting import (
     Position,
 )

@@ -37,10 +37,10 @@ from PyQt5.QtCore import Qt
 
 from .. import config
 from ..accounting import Position
-from ..clearing._client import open_ems, OrderBook
-from ..clearing._allocate import (
+from ..accounting._allocate import (
     mk_allocator,
 )
+from ..clearing._client import open_ems, OrderBook
 from ._style import _font
 from ..accounting._mktinfo import Symbol
 from ..data.feed import (

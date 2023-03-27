@@ -23,9 +23,9 @@ from typing import Optional
 
 from bidict import bidict
 
-from ..accounting._mktinfo import Symbol
+from ._pos import Position
+from ._mktinfo import Symbol
 from ..data.types import Struct
-from ..accounting import Position
 
 
 _size_units = bidict({
