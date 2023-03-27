@@ -612,36 +612,39 @@ async def trades_dialogue(
 
                 # update trades ledgers for all accounts from connected
                 # api clients which report trades for **this session**.
-                trades = await proxy.trades()
-                if trades:
+                api_trades = await proxy.trades()
+                if api_trades:
+
                     trans_by_acct: dict[str, Transaction]
                     api_to_ledger_entries: dict[str, dict]
                     (
                         trans_by_acct,
                         api_to_ledger_entries,
                     ) = await update_ledger_from_api_trades(
-                        trades,
+                        api_trades,
                         proxy,
                         accounts_def_inv,
                     )
 
-                    # if new trades are detected from the API, prepare
+                    # if new api_trades are detected from the API, prepare
                     # them for the ledger file and update the pptable.
                     if api_to_ledger_entries:
                         trade_entries = api_to_ledger_entries.get(acctid)
-
+                        await tractor.breakpoint()
                         if trade_entries:
-                            # write ledger with all new trades
-                            # **AFTER** we've updated the
-                            # `pps.toml` from the original
-                            # ledger state! (i.e. this is
-                            # currently done on exit)
-                            ledger.update(trade_entries)
+                            # write ledger with all new api_trades
+                            # **AFTER** we've updated the `pps.toml`
+                            # from the original ledger state! (i.e. this
+                            # is currently done on exit)
+                            for tid, entry in trade_entries.items():
+                                ledger.setdefault(tid, {}).update(entry)
 
                             trans = trans_by_acct.get(acctid)
                             if trans:
                                 table.update_from_trans(trans)
 
+                # update position table with latest ledger from all
+                # gathered transactions: ledger file + api records.
                 trans = norm_trade_records(ledger)
                 table.update_from_trans(trans)
 
@@ -653,7 +656,8 @@ async def trades_dialogue(
                 # -> collect all ib-pp reported positions so that we can be
                 # sure know which positions to update from the ledger if
                 # any are missing from the ``pps.toml``
-                pos: IbPosition  # named tuple actually
+
+                pos: IbPosition  # named tuple subtype
                 for pos in client.positions():
 
                     # NOTE XXX: we skip options for now since we don't
