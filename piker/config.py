@@ -21,8 +21,6 @@ Platform configuration (files) mgmt.
 import platform
 import sys
 import os
-from os import path
-from os.path import dirname
 import shutil
 from typing import Optional
 from pathlib import Path
@@ -126,30 +124,35 @@ def get_app_dir(
     )
 
 
-_config_dir = _click_config_dir = get_app_dir('piker')
-_parent_user = os.environ.get('SUDO_USER')
+_click_config_dir: Path = Path(get_app_dir('piker'))
+_config_dir: Path = _click_config_dir
+_parent_user: str = os.environ.get('SUDO_USER')
 
 if _parent_user:
-    non_root_user_dir = os.path.expanduser(
-        f'~{_parent_user}'
+    non_root_user_dir = Path(
+        os.path.expanduser(f'~{_parent_user}')
     )
-    root = 'root'
+    root: str = 'root'
+    _ccds: str = str(_click_config_dir)  # click config dir string
+    i_tail: int = int(_ccds.rfind(root) + len(root))
     _config_dir = (
-        non_root_user_dir +
-        _click_config_dir[
-            _click_config_dir.rfind(root) + len(root):
-        ]
+        non_root_user_dir
+        /
+        Path(_ccds[i_tail+1:])  # +1 to capture trailing '/'
     )
+
 
 _conf_names: set[str] = {
     'brokers',
-    'pps',
+    # 'pps',
     'trades',
     'watchlists',
     'paper_trades'
 }
 
-_watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
+# TODO: probably drop all this super legacy, questrade specific,
+# config stuff XD ?
+_watchlists_data_path: Path = _config_dir / Path('watchlists.json')
 _context_defaults = dict(
     default_map={
         # Questrade specific quote poll rates
@@ -180,7 +183,7 @@ def _conf_fn_w_ext(
 def get_conf_path(
     conf_name: str = 'brokers',
 
-) -> str:
+) -> Path:
     '''
     Return the top-level default config path normally under
     ``~/.config/piker`` on linux for a given ``conf_name``, the config
@@ -196,72 +199,68 @@ def get_conf_path(
     - strats.toml
 
     '''
-    assert conf_name in _conf_names
+    if 'pps.' not in conf_name:
+        assert str(conf_name) in _conf_names
+
     fn = _conf_fn_w_ext(conf_name)
-    return os.path.join(
-        _config_dir,
-        fn,
-    )
+    return _config_dir / Path(fn)
 
 
-def repodir():
+def repodir() -> Path:
     '''
-    Return the abspath to the repo directory.
+    Return the abspath as ``Path`` to the git repo's root dir.
 
     '''
-    dirpath = path.abspath(
-        # we're 3 levels down in **this** module file
-        dirname(dirname(os.path.realpath(__file__)))
-    )
-    return dirpath
+    return Path(__file__).absolute().parent.parent
 
 
 def load(
     conf_name: str = 'brokers',
-    path: str = None,
+    path: Path | None = None,
 
     **tomlkws,
 
-) -> (dict, str):
+) -> tuple[dict, str]:
     '''
     Load config file by name.
 
     '''
-    path = path or get_conf_path(conf_name)
+    path: Path = path or get_conf_path(conf_name)
 
-    if not os.path.isdir(_config_dir):
-        Path(_config_dir).mkdir(parents=True, exist_ok=True)
-
-    if not os.path.isfile(path):
-        fn = _conf_fn_w_ext(conf_name)
-
-        template = os.path.join(
-            repodir(),
-            'config',
-            fn
+    if not _config_dir.is_dir():
+        _config_dir.mkdir(
+            parents=True,
+            exist_ok=True,
         )
-        # try to copy in a template config to the user's directory
-        # if one exists.
-        if os.path.isfile(template):
+
+    if not path.is_file():
+        fn: str = _conf_fn_w_ext(conf_name)
+
+        # try to copy in a template config to the user's directory if
+        # one exists.
+        template: Path = repodir() / 'config' / fn
+        if template.is_file():
             shutil.copyfile(template, path)
         else:
-            # create an empty file
-            with open(path, 'x'):
+            # create empty file
+            with path.open(mode='x'):
                 pass
     else:
-        with open(path, 'r'):
+        with path.open(mode='r'):
             pass  # touch it
 
-    config = toml.load(path, **tomlkws)
+    config: dict = toml.load(str(path), **tomlkws)
     log.debug(f"Read config file {path}")
     return config, path
 
 
 def write(
     config: dict,  # toml config as dict
-    name: str = 'brokers',
-    path: str = None,
+
+    name: str | None = None,
+    path: Path | None = None,
     fail_empty: bool = True,
+
     **toml_kwargs,
 
 ) -> None:
@@ -271,21 +270,26 @@ def write(
     Create a ``brokers.ini`` file if one does not exist.
 
     '''
-    path = path or get_conf_path(name)
-    dirname = os.path.dirname(path)
-    if not os.path.isdir(dirname):
-        log.debug(f"Creating config dir {_config_dir}")
-        os.makedirs(dirname)
+    if name:
+        path: Path = path or get_conf_path(name)
+        dirname: Path = path.parent
+        if not dirname.is_dir():
+            log.debug(f"Creating config dir {_config_dir}")
+            dirname.mkdir()
 
-    if not config and fail_empty:
+    if (
+        not config
+        and fail_empty
+    ):
         raise ValueError(
-            "Watch out you're trying to write a blank config!")
+            "Watch out you're trying to write a blank config!"
+        )
 
     log.debug(
         f"Writing config `{name}` file to:\n"
         f"{path}"
     )
-    with open(path, 'w') as cf:
+    with path.open(mode='w') as cf:
         return toml.dump(
             config,
             cf,
