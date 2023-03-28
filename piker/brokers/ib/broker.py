@@ -1233,6 +1233,8 @@ def norm_trade_records(
         tick_size = Decimal(
             Decimal(10)**Decimal(str(price)).as_tuple().exponent
         )
+
+        # TODO: convert to MktPair!!!
         pair = Symbol.from_fqsn(
             fqsn=f'{symbol}.{suffix}.ib',
             info={
@@ -1258,22 +1260,22 @@ def norm_trade_records(
                 # 'src_type': 'fiat',
             },
         )
-        fqsn = pair.fqme.rstrip('.ib')
+        fqme = pair.fqme
 
-        # NOTE: for flex records the normal fields for defining an fqsn
+        # NOTE: for flex records the normal fields for defining an fqme
         # sometimes won't be available so we rely on two approaches for
-        # the "reverse lookup" of piker style fqsn keys:
+        # the "reverse lookup" of piker style fqme keys:
         # - when dealing with API trade records received from
         #   `IB.trades()` we do a contract lookup at he time of processing
         # - when dealing with flex records, it is assumed the record
         #   is at least a day old and thus the TWS position reporting system
         #   should already have entries if the pps are still open, in
-        #   which case, we can pull the fqsn from that table (see
+        #   which case, we can pull the fqme from that table (see
         #   `trades_dialogue()` above).
         insort(
             records,
             Transaction(
-                fqsn=fqsn,
+                fqsn=fqme,
                 sym=pair,
                 tid=tid,
                 size=size,
