@@ -543,7 +543,7 @@ async def stream_quotes(
                 # TODO: use ``anext()`` when it lands in 3.10!
                 typ, quote = await msg_gen.__anext__()
 
-            task_status.started((init_msgs,  quote))
+            task_status.started((init_msgs, quote))
 
             # signal to caller feed is ready for consumption
             feed_is_live.set()
