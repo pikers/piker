@@ -500,7 +500,7 @@ async def stream_quotes(
                     tasks.append(make_sub(kucoin_sym, connect_id, level='l1'))
 
                     for task in tasks:
-                        log.info(f'Subscribing to {task.level} feed for {sym}')
+                        log.info(f'Subscribing to {task["topic"]} feed for {sym}')
                         await ws.send_msg(task)
 
                     yield
