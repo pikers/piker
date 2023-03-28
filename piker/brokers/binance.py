@@ -551,7 +551,7 @@ async def stream_quotes(
             while typ != 'trade':
                 typ, quote = await anext(msg_gen)
 
-            task_status.started((init_msgs,  quote))
+            task_status.started((init_msgs, quote))
 
             # signal to caller feed is ready for consumption
             feed_is_live.set()
