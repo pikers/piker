@@ -93,6 +93,7 @@ def sync(
     account: str,
 
     loglevel: str = 'cancel',
+    pdb: bool = False,
 ):
 
     start_kwargs, _, trades_ep = broker_init(
@@ -106,6 +107,8 @@ def sync(
             open_piker_runtime(
                 name='ledger_cli',
                 loglevel=loglevel,
+                debug_mode=pdb,
+
             ) as (actor, sockaddr),
 
             tractor.open_nursery() as an,
@@ -120,12 +123,12 @@ def sync(
                 brokername == 'paper'
                 or trades_ep is None
             ):
-                # from . import _paper_engine as paper
-                # open_trades_endpoint = paper.open_paperboi(
-                #     fqme='.'.join([symbol, broker]),
-                #     loglevel=loglevel,
-                # )
-                RuntimeError('Paper mode not supported for sync!')
+                from ..clearing import _paper_engine as paper
+                open_trades_endpoint = paper.open_paperboi(
+                    fqme=None,  # tell paper to not start clearing loop
+                    broker=brokername,
+                    loglevel=loglevel,
+                )
             else:
                 # open live brokerd trades endpoint
                 open_trades_endpoint = portal.open_context(
