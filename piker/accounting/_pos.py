@@ -121,9 +121,8 @@ class Position(Struct):
         # it via the trades ledger..
         # drop symbol obj in serialized form
         s = d.pop('symbol')
-        fqsn = s.fqme
-
-        broker, key, suffix = unpack_fqme(fqsn)
+        fqme = s.fqme
+        broker, key, suffix = unpack_fqme(fqme)
 
         if isinstance(s, Symbol):
             sym_info = s.broker_info[broker]
@@ -182,7 +181,7 @@ class Position(Struct):
 
         d['clears'] = toml_clears_list
 
-        return fqsn, d
+        return fqme, d
 
     def ensure_state(self) -> None:
         '''
@@ -522,7 +521,7 @@ class PpTable(Struct):
 
             # template the mkt-info presuming a legacy market ticks
             # if no info exists in the transactions..
-            mkt = t.sys
+            mkt: MktPair | Symbol = t.sys
             if not mkt:
                 mkt = MktPair.from_fqme(
                     fqme,
@@ -531,18 +530,25 @@ class PpTable(Struct):
                     bs_mktid=bs_mktid,
                 )
 
-            pp = pps.setdefault(
-                bs_mktid,
-
+            pp = pps.get(bs_mktid)
+            if not pp:
                 # if no existing pp, allocate fresh one.
-                Position(
+                pp = pps[bs_mktid] = Position(
                     mkt,
                     size=0.0,
                     ppu=0.0,
                     bs_mktid=bs_mktid,
                     expiry=t.expiry,
                 )
-            )
+            else:
+                # NOTE: if for some reason a "less resolved" mkt pair
+                # info has been set (based on the `.fqme` being
+                # a shorter string), instead use the one from the
+                # transaction since it likely has (more) full
+                # information from the provider.
+                if len(pp.symbol.fqme) < len(fqme):
+                    pp.symbol = mkt
+
             clears = pp.clears
             if clears:
                 first_clear_dt = pp.first_clear_dt
@@ -641,12 +647,12 @@ class PpTable(Struct):
             pos.ensure_state()
 
             # serialize to pre-toml form
-            fqsn, asdict = pos.to_pretoml()
-            log.info(f'Updating active pp: {fqsn}')
+            fqme, asdict = pos.to_pretoml()
+            log.info(f'Updating active pp: {fqme}')
 
             # XXX: ugh, it's cuz we push the section under
             # the broker name.. maybe we need to rethink this?
-            brokerless_key = fqsn.removeprefix(f'{self.brokername}.')
+            brokerless_key = fqme.removeprefix(f'{self.brokername}.')
             to_toml_dict[brokerless_key] = asdict
 
         return to_toml_dict
@@ -662,8 +668,8 @@ class PpTable(Struct):
         pp_entries = self.to_toml()
         if pp_entries:
             log.info(
-                f'Updating ``pps.toml``:\n'
-                f'Current positions:\n{pformat(pp_entries)}'
+                f'Updating positions in ``{self.conf_path}``:\n'
+                f'n{pformat(pp_entries)}'
             )
             self.conf[self.brokername][self.acctid] = pp_entries
 
