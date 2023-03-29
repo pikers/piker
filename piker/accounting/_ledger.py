@@ -19,9 +19,9 @@ Trade and transaction ledger processing.
 
 '''
 from __future__ import annotations
+from collections import UserDict
 from contextlib import contextmanager as cm
-import os
-from os import path
+from pathlib import Path
 import time
 from typing import (
     Any,
@@ -32,6 +32,7 @@ from typing import (
 
 from pendulum import (
     datetime,
+    parse,
 )
 import tomli
 import toml
@@ -46,6 +47,145 @@ from ._mktinfo import (
 )
 
 log = get_logger(__name__)
+
+
+class Transaction(Struct, frozen=True):
+
+    # TODO: unify this with the `MktPair`,
+    # once we have that as a required field,
+    # we don't really need the fqsn any more..
+    fqsn: str
+
+    tid: Union[str, int]  # unique transaction id
+    size: float
+    price: float
+    cost: float  # commisions or other additional costs
+    dt: datetime
+
+    # TODO: we can drop this right since we
+    # can instead expect the backend to provide this
+    # via the `MktPair`?
+    expiry: datetime | None = None
+
+    # remap for back-compat
+    @property
+    def fqme(self) -> str:
+        return self.fqsn
+
+    # TODO: drop the Symbol type
+
+    # the underlying "transaction system", normally one of a ``MktPair``
+    # (a description of a tradable double auction) or a ledger-recorded
+    # ("ledger" in any sense as long as you can record transfers) of any
+    # sort) ``Asset``.
+    sym: MktPair | Asset | Symbol | None = None
+
+    @property
+    def sys(self) -> Symbol:
+        return self.sym
+
+    # (optional) key-id defined by the broker-service backend which
+    # ensures the instrument-symbol market key for this record is unique
+    # in the "their backend/system" sense; i.e. this uid for the market
+    # as defined (internally) in some namespace defined by the broker
+    # service.
+    bs_mktid: str | int | None = None
+
+    def to_dict(self) -> dict:
+        dct = super().to_dict()
+        # ensure we use a pendulum formatted
+        # ISO style str here!@
+        dct['dt'] = str(self.dt)
+        return dct
+
+
+class TransactionLedger(UserDict):
+    '''
+    Very simple ``dict`` wrapper + ``pathlib.Path`` handle to
+    a TOML formatted transaction file for enabling file writes
+    dynamically whilst still looking exactly like a ``dict`` from the
+    outside.
+
+    '''
+    def __init__(
+        self,
+        ledger_dict: dict,
+        file_path: Path,
+
+    ) -> None:
+        self.file_path = file_path
+        super().__init__(ledger_dict)
+
+    def write_config(self) -> None:
+        '''
+        Render the self.data ledger dict to it's TML file form.
+
+        '''
+        with self.file_path.open(mode='w') as fp:
+            toml.dump(self.data, fp)
+
+    def iter_trans(
+        self,
+        broker: str = 'paper',
+
+    ) -> Generator[
+        tuple[str, Transaction],
+        None,
+        None,
+    ]:
+        '''
+        Deliver trades records in ``(key: str, t: Transaction)``
+        form via generator.
+
+        '''
+        if broker != 'paper':
+            raise NotImplementedError('Per broker support not dun yet!')
+
+            # TODO: lookup some standard normalizer
+            # func in the backend?
+            # from ..brokers import get_brokermod
+            # mod = get_brokermod(broker)
+            # trans_dict = mod.norm_trade_records(self.data)
+
+            # NOTE: instead i propose the normalizer is
+            # a one shot routine (that can be lru cached)
+            # and instead call it for each entry incrementally:
+            # normer = mod.norm_trade_record(txdict)
+
+        for tid, txdict in self.data.items():
+            # special field handling for datetimes
+            # to ensure pendulum is used!
+            fqme = txdict.get('fqme', txdict['fqsn'])
+            dt = parse(txdict['dt'])
+            expiry = txdict.get('expiry')
+
+            yield (
+                tid,
+                Transaction(
+                    fqsn=fqme,
+                    tid=txdict['tid'],
+                    dt=dt,
+                    price=txdict['price'],
+                    size=txdict['size'],
+                    cost=txdict.get('cost', 0),
+                    bs_mktid=txdict['bs_mktid'],
+
+                    # optional
+                    sym=None,
+                    expiry=parse(expiry) if expiry else None,
+                )
+            )
+
+    def to_trans(
+        self,
+        broker: str = 'paper',
+
+    ) -> dict[str, Transaction]:
+        '''
+        Return the entire output from ``.iter_trans()`` in a ``dict``.
+
+        '''
+        return dict(self.iter_trans())
 
 
 @cm
@@ -63,82 +203,39 @@ def open_trade_ledger(
     name as defined in the user's ``brokers.toml`` config.
 
     '''
-    ldir = path.join(config._config_dir, 'ledgers')
-    if not path.isdir(ldir):
-        os.makedirs(ldir)
+    ldir: Path = config._config_dir / 'ledgers'
+    if not ldir.is_dir():
+        ldir.mkdir()
 
     fname = f'trades_{broker}_{account}.toml'
-    tradesfile = path.join(ldir, fname)
+    tradesfile: Path = ldir / fname
 
-    if not path.isfile(tradesfile):
+    if not tradesfile.is_file():
         log.info(
             f'Creating new local trades ledger: {tradesfile}'
         )
-        with open(tradesfile, 'w') as cf:
-            pass  # touch
-    with open(tradesfile, 'rb') as cf:
+        tradesfile.touch()
+
+    with tradesfile.open(mode='rb') as cf:
         start = time.time()
-        ledger = tomli.load(cf)
+        ledger_dict = tomli.load(cf)
         log.info(f'Ledger load took {time.time() - start}s')
-        cpy = ledger.copy()
+        cpy = ledger_dict.copy()
+
+    ledger = TransactionLedger(
+        ledger_dict=cpy,
+        file_path=tradesfile,
+    )
 
     try:
-        yield cpy
+        yield ledger
     finally:
-        if cpy != ledger:
+        if ledger.data != ledger_dict:
 
             # TODO: show diff output?
             # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
             log.info(f'Updating ledger for {tradesfile}:\n')
-            ledger.update(cpy)
-
-            # we write on close the mutated ledger data
-            with open(tradesfile, 'w') as cf:
-                toml.dump(ledger, cf)
-
-
-class Transaction(Struct, frozen=True):
-
-    # TODO: unify this with the `MktPair`,
-    # once we have that as a required field,
-    # we don't really need the fqsn any more..
-    fqsn: str
-
-    # TODO: drop the Symbol type
-
-    # the underlying "transaction system", normally one of a ``MktPair``
-    # (a description of a tradable double auction) or a ledger-recorded
-    # ("ledger" in any sense as long as you can record transfers) of any
-    # sort) ``Asset``.
-    sym: MktPair | Asset | Symbol
-
-    @property
-    def sys(self) -> Symbol:
-        return self.sym
-
-    tid: Union[str, int]  # unique transaction id
-    size: float
-    price: float
-    cost: float  # commisions or other additional costs
-    dt: datetime
-    expiry: datetime | None = None
-
-    # remap for back-compat
-    @property
-    def fqme(self) -> str:
-        return self.fqsn
-
-    # (optional) key-id defined by the broker-service backend which
-    # ensures the instrument-symbol market key for this record is unique
-    # in the "their backend/system" sense; i.e. this uid for the market
-    # as defined (internally) in some namespace defined by the broker
-    # service.
-    bs_mktid: str | int | None = None
-
-    # XXX NOTE: this will come from the `MktPair`
-    # instead of defined here right?
-    # optional fqsn for the source "asset"/money symbol?
-    # from: Optional[str] = None
+            ledger.write_config()
 
 
 def iter_by_dt(
