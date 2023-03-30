@@ -683,23 +683,6 @@ async def trades_dialogue(
                     assert msg.account in accounts, (
                         f'Position for unknown account: {msg.account}')
 
-                    ledger: dict = ledgers[acctid]
-                    table: PpTable = tables[acctid]
-                    pp: Position = table.pps.get(bs_mktid)
-
-                    if (
-                        not pp
-                        or pp.size != msg.size
-                    ):
-                        pp = table.pps[bs_mktid]
-                        pairinfo = pp.symbol
-                        if msg.size != pp.size:
-                            log.error(
-                                f'Pos size mismatch {pairinfo.fqsn}:\n'
-                                f'ib: {msg.size}\n'
-                                f'piker: {pp.size}\n'
-                            )
-
             # iterate all (newly) updated pps tables for every
             # client-account and build out position msgs to deliver to
             # EMS.
@@ -802,13 +785,14 @@ async def emit_pp_update(
     active, closed = table.dump_active()
 
     # NOTE: update ledger with all new trades
-    for acctid, trades_by_id in api_to_ledger_entries.items():
+    for fq_acctid, trades_by_id in api_to_ledger_entries.items():
+        acctid = fq_acctid.strip('ib.')
         ledger = ledgers[acctid]
 
         for tid, tdict in trades_by_id.items():
             # NOTE: don't override flex/previous entries with new API
             # ones, just update with new fields!
-            ledger.setdefaults(tid, {}).update(tdict)
+            ledger.setdefault(tid, {}).update(tdict)
 
     # generate pp msgs and cross check with ib's positions data, relay
     # re-formatted pps as msgs to the ems.
