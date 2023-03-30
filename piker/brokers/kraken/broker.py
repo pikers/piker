@@ -43,6 +43,7 @@ from piker.accounting import (
     Position,
     PpTable,
     Transaction,
+    TransactionLedger,
     open_trade_ledger,
     open_pps,
     get_likely_pair,
@@ -477,28 +478,39 @@ async def trades_dialogue(
         # update things correctly.
         simulate_pp_update: bool = False
 
+        table: PpTable
+        ledger: TransactionLedger
         with (
             open_pps(
                 'kraken',
                 acctid,
                 write_on_exit=True,
-
             ) as table,
 
             open_trade_ledger(
                 'kraken',
                 acctid,
-            ) as ledger_dict,
+            ) as ledger,
         ):
             # transaction-ify the ledger entries
-            ledger_trans = norm_trade_records(ledger_dict)
+            ledger_trans = norm_trade_records(ledger)
+
+            if not table.pps:
+                # NOTE: we can't use this since it first needs
+                # broker: str input support!
+                # table.update_from_trans(ledger.to_trans())
+                table.update_from_trans(ledger_trans)
+                table.write_config()
 
             # TODO: eventually probably only load
             # as far back as it seems is not deliverd in the
             # most recent 50 trades and assume that by ordering we
             # already have those records in the ledger.
             tids2trades = await client.get_trades()
-            ledger_dict.update(tids2trades)
+            ledger.update(tids2trades)
+            if tids2trades:
+                ledger.write_config()
+
             api_trans = norm_trade_records(tids2trades)
 
             # retrieve kraken reported balances
@@ -506,7 +518,6 @@ async def trades_dialogue(
             # what amount of trades-transactions need
             # to be reloaded.
             balances = await client.get_balances()
-            # await tractor.breakpoint()
 
             for dst, size in balances.items():
 
