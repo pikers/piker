@@ -40,7 +40,10 @@ from ..accounting import Position
 from ..accounting._allocate import (
     mk_allocator,
 )
-from ..clearing._client import open_ems, OrderBook
+from ..clearing._client import (
+    open_ems,
+    OrderClient,
+)
 from ._style import _font
 from ..accounting._mktinfo import Symbol
 from ..data.feed import (
@@ -120,7 +123,7 @@ class OrderMode:
     chart: ChartPlotWidget  #  type: ignore # noqa
     hist_chart: ChartPlotWidget  #  type: ignore # noqa
     nursery: trio.Nursery  # used by ``ui._position`` code?
-    book: OrderBook
+    book: OrderClient
     lines: LineEditor
     arrows: ArrowEditor
     multistatus: MultiStatus
@@ -679,7 +682,7 @@ async def open_order_mode(
     multistatus = chart.window().status_bar
     done = multistatus.open_status('starting order mode..')
 
-    book: OrderBook
+    book: OrderClient
     trades_stream: tractor.MsgStream
 
     # The keys in this dict **must** be in set our set of "normalized"
@@ -923,7 +926,7 @@ async def process_trades_and_update_ui(
 
     trades_stream: tractor.MsgStream,
     mode: OrderMode,
-    book: OrderBook,
+    book: OrderClient,
 
 ) -> None:
 
@@ -939,7 +942,7 @@ async def process_trades_and_update_ui(
 
 async def process_trade_msg(
     mode: OrderMode,
-    book: OrderBook,
+    book: OrderClient,
     msg: dict,
 
 ) -> tuple[Dialog, Status]:
