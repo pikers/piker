@@ -183,7 +183,10 @@ async def open_pikerd(
         trio.open_nursery() as service_nursery,
     ):
         if root_actor.accept_addr != reg_addr:
-            raise RuntimeError(f'Daemon failed to bind on {reg_addr}!?')
+            raise RuntimeError(
+                f'`pikerd` failed to bind on {reg_addr}!\n'
+                'Maybe you have another daemon already running?'
+            )
 
         # assign globally for future daemon/task creation
         Services.actor_n = actor_nursery
