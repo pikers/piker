@@ -19,7 +19,13 @@ Kucoin broker backend
 '''
 
 from random import randint
-from typing import Any, Callable, Optional, Literal, AsyncGenerator
+from typing import (
+        Any, 
+        Callable, 
+        Optional, 
+        Literal, 
+        AsyncGenerator
+)
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
 import time
