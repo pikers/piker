@@ -180,6 +180,8 @@ _adhoc_cmdty_set = {
     'xagusd.cmdty',  # silver spot
 }
 
+# NOTE: if you aren't seeing one of these symbol's futues contracts
+# show up, it's likely the `.<venue>` part is wrong!
 _adhoc_futes_set = {
 
     # equities
@@ -205,7 +207,7 @@ _adhoc_futes_set = {
     'mgc.comex',  # micro
 
     # oil & gas
-    'cl.comex',
+    'cl.nymex',
 
     'ni.comex',  # silver futes
     'qi.comex',  # mini-silver futes
