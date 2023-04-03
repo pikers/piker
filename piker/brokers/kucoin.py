@@ -18,7 +18,6 @@ Kucoin broker backend
 
 '''
 
-from random import randint
 from typing import (
         Any, 
         Callable, 
@@ -73,7 +72,6 @@ class KucoinMktPair(Struct, frozen=True):
     Kucoin's pair format
 
     '''
-
     baseCurrency: str
     baseIncrement: float
     baseMaxSize: float
@@ -98,7 +96,6 @@ class AccountTrade(Struct, frozen=True):
     Historical trade format
 
     '''
-
     id: str
     currency: str
     amount: float
@@ -140,7 +137,6 @@ class KucoinL2(Struct, frozen=True):
     Real-time L2 order book format
 
     '''
-
     asks: list[list[float]]
     bids: list[list[float]]
     timestamp: float
