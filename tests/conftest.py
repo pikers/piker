@@ -206,13 +206,13 @@ async def _open_test_pikerd_and_ems(
 @pytest.fixture
 def open_test_pikerd_and_ems(
     open_test_pikerd,
-    fqsn: str = 'xbtusdt.kraken',
+    fqme: str = 'xbtusdt.kraken',
     mode: str = 'paper',
     loglevel: str = 'info',
 ):
     yield partial(
         _open_test_pikerd_and_ems,
-        fqsn,
+        fqme,
         mode,
         loglevel,
         open_test_pikerd

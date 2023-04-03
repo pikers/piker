@@ -24,7 +24,7 @@ from piker.clearing._messages import (
     Status,
 )
 from piker.clearing._client import (
-    OrderBook,
+    OrderClient,
 )
 
 
@@ -121,7 +121,7 @@ def test_ensure_ems_in_paper_actors(
     async def main():
 
         # type declares
-        book: OrderBook
+        book: OrderClient
         trades_stream: tractor.MsgStream
         pps: dict[str, list[BrokerdPosition]]
         accounts: list[str]
