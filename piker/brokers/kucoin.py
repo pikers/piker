@@ -69,7 +69,8 @@ _ohlc_dtype = [
 
 class KucoinMktPair(Struct, frozen=True):
     '''
-    Kucoin's pair format
+    Kucoin's pair format:
+    https://docs.kucoin.com/#get-symbols-list
 
     '''
     baseCurrency: str
@@ -93,7 +94,8 @@ class KucoinMktPair(Struct, frozen=True):
 
 class AccountTrade(Struct, frozen=True):
     '''
-    Historical trade format
+    Historical trade format:
+    https://docs.kucoin.com/#get-account-ledgers
 
     '''
     id: str
@@ -109,6 +111,10 @@ class AccountTrade(Struct, frozen=True):
 
 
 class AccountResponse(Struct, frozen=True):
+    '''
+    https://docs.kucoin.com/#get-account-ledgers
+
+    '''
     currentPage: int
     pageSize: int
     totalNum: int
@@ -118,8 +124,8 @@ class AccountResponse(Struct, frozen=True):
 
 class KucoinTrade(Struct, frozen=True):
     '''
-    Real-time trade format
-
+    Real-time trade format:
+    https://docs.kucoin.com/#symbol-ticker
     '''
 
     bestAsk: float
@@ -134,7 +140,8 @@ class KucoinTrade(Struct, frozen=True):
 
 class KucoinL2(Struct, frozen=True):
     '''
-    Real-time L2 order book format
+    Real-time L2 order book format:
+    https://docs.kucoin.com/#level2-5-best-ask-bid-orders
 
     '''
     asks: list[list[float]]
@@ -143,6 +150,10 @@ class KucoinL2(Struct, frozen=True):
 
 
 class KucoinMsg(Struct, frozen=True):
+    '''
+    Generic outer-wrapper for any Kucoin ws msg
+
+    '''
     type: str
     topic: str
     subject: str
