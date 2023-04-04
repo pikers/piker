@@ -473,6 +473,7 @@ async def handle_order_requests(
                     BrokerdOrderAck(
                         oid=order.oid,
                         reqid=reqid,
+                        account='paper'
                     )
                 )
 
@@ -563,6 +564,10 @@ async def trades_dialogue(
             pp_msgs,
             ['paper'],
         ))
+
+        # write new positions state in case ledger was
+        # newer then that tracked in pps.toml
+        ppt.write_config()
 
         # exit early since no fqme was passed,
         # normally this case is just to load
