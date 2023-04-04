@@ -698,7 +698,7 @@ async def translate_and_relay_brokerd_events(
     async for brokerd_msg in brokerd_trades_stream:
         fmsg = pformat(brokerd_msg)
         log.info(
-            f'Received broker trade event:\n'
+            f'Rx brokerd trade msg:\n'
             f'{fmsg}'
         )
         status_msg: Optional[Status] = None
