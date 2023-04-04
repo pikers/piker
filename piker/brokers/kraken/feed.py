@@ -189,6 +189,17 @@ async def process_data_feed_msgs(
                     #     chan_id, *payload_array, chan_name, pair = msg
                     #     print(msg)
 
+                case {
+                    'connectionID': conid,
+                    'event': 'systemStatus',
+                    'status': 'online',
+                    'version': ver,
+                }:
+                    log.info(
+                        f'Established {ver} ws connection with id: {conid}'
+                    )
+                    continue
+
                 case _:
                     print(f'UNHANDLED MSG: {msg}')
                     # yield msg
