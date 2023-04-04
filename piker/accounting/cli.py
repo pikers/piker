@@ -115,7 +115,7 @@ def sync(
         ):
             portal = await an.start_actor(
                 loglevel=loglevel,
-                debug_mode=True,
+                debug_mode=pdb,
                 **start_kwargs,
             )
 
