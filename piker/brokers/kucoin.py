@@ -19,11 +19,11 @@ Kucoin broker backend
 '''
 
 from typing import (
-        Any, 
-        Callable, 
-        Optional, 
-        Literal, 
-        AsyncGenerator
+    Any,
+    Callable,
+    Optional,
+    Literal,
+    AsyncGenerator
 )
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
@@ -126,8 +126,8 @@ class KucoinTrade(Struct, frozen=True):
     '''
     Real-time trade format:
     https://docs.kucoin.com/#symbol-ticker
-    '''
 
+    '''
     bestAsk: float
     bestAskSize: float
     bestBid: float
@@ -195,7 +195,8 @@ class Client:
         https://docs.kucoin.com/#authentication
 
         '''
-        str_to_sign = str(int(time.time() * 1000)) + action + f'/api/{api_v}{endpoint}'
+        str_to_sign = str(int(time.time() * 1000)) + \
+            action + f'/api/{api_v}{endpoint}'
 
         signature = base64.b64encode(
             hmac.new(
@@ -243,7 +244,8 @@ class Client:
         if 'data' in res.json():
             return res.json()['data']
         else:
-            log.error(f'Error making request to {api_url} -> {res.json()["msg"]}')
+            log.error(
+                f'Error making request to {api_url} -> {res.json()["msg"]}')
             return res.json()['msg']
 
     async def _get_ws_token(self, private: bool = False) -> tuple[str, int] | None:
@@ -269,14 +271,14 @@ class Client:
         self,
     ) -> dict[str, KucoinMktPair]:
         entries = await self._request('GET', '/symbols')
-        syms = {item['name']: KucoinMktPair(**item) for item in entries}
+        syms = {kucoin_sym_to_fqsn(item['name']): KucoinMktPair(**item) for item in entries}
 
-        log.info('Kucoin market pairs fetches')
+        log.info('Kucoin market pairs fetched')
         return syms
 
     async def cache_pairs(
         self,
-        normalize: bool = True,
+        # normalize: bool = True,
     ) -> dict[str, KucoinMktPair]:
         '''
         Get cached pairs and convert keyed symbols into fqsns if ya want
@@ -284,24 +286,8 @@ class Client:
         '''
         if not self._pairs:
             self._pairs = await self._get_pairs()
-        if normalize:
-            self._pairs = self._normalize_pairs(self._pairs)
+
         return self._pairs
-
-    def _normalize_pairs(
-        self, pairs: dict[str, KucoinMktPair]
-    ) -> dict[str, KucoinMktPair]:
-        '''
-        Map kucoin pairs to fqsn strings
-
-        '''
-        norm_pairs = {}
-
-        for key, value in pairs.items():
-            fqsn = key.lower().replace('-', '')
-            norm_pairs[fqsn] = value
-
-        return norm_pairs
 
     async def search_symbols(
         self,
@@ -310,9 +296,10 @@ class Client:
     ) -> dict[str, KucoinMktPair]:
         data = await self._get_pairs()
 
-        matches = fuzzy.extractBests(pattern, data, score_cutoff=35, limit=limit)
+        matches = fuzzy.extractBests(
+            pattern, data, score_cutoff=35, limit=limit)
         # repack in dict form
-        return {kucoin_sym_to_fqsn(item[0].name): item[0] for item in matches}
+        return {item[0].name: item[0] for item in matches}
 
     async def last_trades(self, sym: str) -> list[AccountTrade]:
         trades = await self._request('GET', f'/accounts/ledgers?currency={sym}', 'v1')
@@ -358,7 +345,8 @@ class Client:
             if not isinstance(data, list):
                 # Do a gradual backoff if Kucoin is rate limiting us
                 backoff_interval = i
-                log.warn(f'History call failed, backing off for {backoff_interval}s')
+                log.warn(
+                    f'History call failed, backing off for {backoff_interval}s')
                 await trio.sleep(backoff_interval)
             else:
                 bars = data
@@ -497,7 +485,8 @@ async def stream_quotes(
                     tasks.append(make_sub(kucoin_sym, connect_id, level='l1'))
 
                     for task in tasks:
-                        log.info(f'Subscribing to {task["topic"]} feed for {sym}')
+                        log.info(
+                            f'Subscribing to {task["topic"]} feed for {sym}')
                         await ws.send_msg(task)
 
                     yield
