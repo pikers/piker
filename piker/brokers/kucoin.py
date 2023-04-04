@@ -248,7 +248,8 @@ class Client:
 
     async def _get_ws_token(self, private: bool = False) -> tuple[str, int] | None:
         '''
-        Fetch ws token needed for sub access
+        Fetch ws token needed for sub access:
+        https://docs.kucoin.com/#apply-connect-token
 
         '''
         token_type = 'private' if private else 'public'
