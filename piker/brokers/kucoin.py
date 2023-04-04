@@ -316,7 +316,8 @@ class Client:
         type: str = '1min',
     ) -> np.ndarray:
         '''
-        Get OHLC data and convert to numpy array for perffff
+        Get OHLC data and convert to numpy array for perffff:
+        https://docs.kucoin.com/#get-klines
 
         '''
         # Generate generic end and start time if values not passed
