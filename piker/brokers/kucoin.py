@@ -195,9 +195,7 @@ class Client:
         https://docs.kucoin.com/#authentication
 
         '''
-        now = int(time.time() * 1000)
-        path = f'/api/{api_v}{endpoint}'
-        str_to_sign = str(now) + action + path
+        str_to_sign = str(int(time.time() * 1000)) + action + f'/api/{api_v}{endpoint}'
 
         signature = base64.b64encode(
             hmac.new(
