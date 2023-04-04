@@ -43,6 +43,7 @@ import tractor
 
 from ._util import (
     log,  # sub-sys logger
+    get_console_log,
 )
 from ..data._normalize import iterticks
 from ..accounting._mktinfo import (
@@ -411,6 +412,9 @@ class Router(Struct):
             trades_endpoint is None
             or exec_mode == 'paper'
         ):
+            # for logging purposes
+            brokermod = paper
+
             # for paper mode we need to mock this trades response feed
             # so we load bidir stream to a new sub-actor running
             # a paper-simulator clearing engine.
@@ -468,13 +472,15 @@ class Router(Struct):
             # msgs.
             pps = {}
             for msg in positions:
-                log.info(f'loading pp: {msg}')
 
-                account = msg['account']
+                msg = BrokerdPosition(**msg)
+                log.info(
+                    f'loading pp for {brokermod.__name__}:\n'
+                    f'{pformat(msg.to_dict())}',
+                )
 
-                # TODO: better value error for this which
-                # dumps the account and message and states the
-                # mismatch..
+                # TODO: state any mismatch here?
+                account = msg.account
                 assert account in accounts
 
                 pps.setdefault(
@@ -635,10 +641,13 @@ _router: Router = None
 
 @tractor.context
 async def _setup_persistent_emsd(
-
     ctx: tractor.Context,
+    loglevel: str | None = None,
 
 ) -> None:
+
+    if loglevel:
+        get_console_log(loglevel)
 
     global _router
 
@@ -1371,7 +1380,7 @@ async def _emsd_main(
     ctx: tractor.Context,
     fqme: str,
     exec_mode: str,  # ('paper', 'live')
-    loglevel: str = 'info',
+    loglevel: str | None = None,
 
 ) -> tuple[
     dict[
