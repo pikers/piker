@@ -182,19 +182,7 @@ class Client:
     def __init__(self) -> None:
         self._pairs: dict[str, KucoinMktPair] = {}
         self._bars: list[list[float]] = []
-        self._key_id: str
-        self._key_secret: str
-        self._key_passphrase: str
-        self._authenticated: bool = False
-
-        config: BrokerConfig | None = get_config()
-
-        if config and config.key_id and config.key_secret and config.key_passphrase:
-            self._authenticated = True
-            self._key_id = config.key_id
-            self._key_secret = config.key_secret
-            self._key_passphrase = config.key_passphrase
-            log.info('User credentials added')
+        self._config: BrokerConfig | None = get_config()
 
     def _gen_auth_req_headers(
         self,
@@ -247,7 +235,7 @@ class Client:
         Generic request wrapper for Kucoin API
 
         '''
-        if self._authenticated:
+        if self._config:
             headers = self._gen_auth_req_headers(action, endpoint, api_v)
 
         api_url = f'https://api.kucoin.com/api/{api_v}{endpoint}'
