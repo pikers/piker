@@ -240,7 +240,10 @@ async def open_ems(
     '''
     broker, symbol, suffix = unpack_fqme(fqme)
 
-    async with maybe_open_emsd(broker) as portal:
+    async with maybe_open_emsd(
+        broker,
+        loglevel=loglevel,
+    ) as portal:
 
         mod = get_brokermod(broker)
         if (
@@ -304,3 +307,6 @@ async def open_ems(
                     accounts,
                     dialogs,
                 )
+
+                # stop the sync-msg-relay task on exit.
+                n.cancel_scope.cancel()
