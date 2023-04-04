@@ -504,6 +504,8 @@ class PpTable(Struct):
         trans: dict[str, Transaction],
         cost_scalar: float = 2,
 
+        mkt: MktPair | None = None,
+
     ) -> dict[str, Position]:
 
         pps = self.pps
@@ -521,7 +523,7 @@ class PpTable(Struct):
 
             # template the mkt-info presuming a legacy market ticks
             # if no info exists in the transactions..
-            mkt: MktPair | Symbol = t.sys
+            mkt: MktPair | Symbol | None = mkt or t.sys
             if not mkt:
                 mkt = MktPair.from_fqme(
                     fqme,
@@ -671,7 +673,20 @@ class PpTable(Struct):
                 f'Updating positions in ``{self.conf_path}``:\n'
                 f'n{pformat(pp_entries)}'
             )
-            self.conf[self.brokername][self.acctid] = pp_entries
+
+            if self.brokername in self.conf:
+                log.warning(
+                    f'Rewriting {self.conf_path} keys to drop <broker.acct>!'
+                )
+                # legacy key schema including <brokername.account>, so
+                # rewrite all entries to drop those tables since we now
+                # put that in the filename!
+                accounts = self.conf.pop(self.brokername)
+                assert len(accounts) == 1
+                entries = accounts.pop(self.acctid)
+                self.conf.update(entries)
+
+            self.conf.update(pp_entries)
 
         elif (
             self.brokername in self.conf and
@@ -758,8 +773,18 @@ def open_pps(
     conf, conf_path = config.load(
         f'pps.{brokername}.{acctid}',
     )
-    brokersection = conf.setdefault(brokername, {})
-    pps = brokersection.setdefault(acctid, {})
+
+    if brokername in conf:
+        log.warning(
+            f'Rewriting {conf_path} keys to drop <broker.acct>!'
+        )
+        # legacy key schema including <brokername.account>, so
+        # rewrite all entries to drop those tables since we now
+        # put that in the filename!
+        accounts = conf.pop(brokername)
+        for acctid in accounts.copy():
+            entries = accounts.pop(acctid)
+            conf.update(entries)
 
     # TODO: ideally we can pass in an existing
     # pps state to this right? such that we
@@ -782,7 +807,7 @@ def open_pps(
 
     # unmarshal/load ``pps.toml`` config entries into object form
     # and update `PpTable` obj entries.
-    for fqme, entry in pps.items():
+    for fqme, entry in conf.items():
 
         # atype = entry.get('asset_type', '<unknown>')
 
