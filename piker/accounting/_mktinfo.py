@@ -408,10 +408,6 @@ class MktPair(Struct, frozen=True):
             rounding=ROUND_HALF_EVEN
         )
 
-    # @property
-    # def size_tick_digits(self) -> int:
-    #     return float_digits(self.size_tick)
-
     # TODO: BACKWARD COMPAT, TO REMOVE?
     @property
     def type_key(self) -> str:
