@@ -249,8 +249,10 @@ class PaperBoi(Struct):
             )
             await self.ems_trades_stream.send(msg)
 
-        # lookup any existing position
-        key = fqme.rstrip(f'.{self.broker}')
+        # NOTE: for paper we set the "bs_mktid" as just the fqme since
+        # we don't actually have any unique backend symbol ourselves
+        # other then this thing, our fqme address.
+        bs_mktid: str = fqme
         t = Transaction(
             fqsn=fqme,
             sym=self._syms[fqme],
@@ -259,7 +261,7 @@ class PaperBoi(Struct):
             price=price,
             cost=0,  # TODO: cost model
             dt=pendulum.from_timestamp(fill_time_s),
-            bs_mktid=key,
+            bs_mktid=bs_mktid,
         )
 
         tx = t.to_dict()
@@ -270,17 +272,19 @@ class PaperBoi(Struct):
         self.ppt.update_from_trans({oid: t})
 
         # transmit pp msg to ems
-        pp = self.ppt.pps[key]
+        pp = self.ppt.pps[bs_mktid]
         pp_msg = BrokerdPosition(
             broker=self.broker,
             account='paper',
             symbol=fqme,
+
+            size=pp.size,
+            avg_price=pp.ppu,
+
             # TODO: we need to look up the asset currency from
             # broker info. i guess for crypto this can be
             # inferred from the pair?
-            currency=key,
-            size=pp.size,
-            avg_price=pp.ppu,
+            # currency=bs_mktid,
         )
         await self.ems_trades_stream.send(pp_msg)
 
