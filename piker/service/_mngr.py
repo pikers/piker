@@ -56,7 +56,7 @@ class Services:
         name: str,
         portal: tractor.Portal,
         target: Callable,
-        **kwargs,
+        **ctx_kwargs,
 
     ) -> (trio.CancelScope, tractor.Context):
         '''
@@ -81,7 +81,7 @@ class Services:
             with trio.CancelScope() as cs:
                 async with portal.open_context(
                     target,
-                    **kwargs,
+                    **ctx_kwargs,
 
                 ) as (ctx, first):
 

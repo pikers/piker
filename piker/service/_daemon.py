@@ -31,7 +31,6 @@ import tractor
 
 from ._util import (
     log,  # sub-sys logger
-    get_console_log,
 )
 from ..brokers import get_brokermod
 from ._mngr import (
@@ -77,9 +76,6 @@ async def maybe_spawn_daemon(
     clients.
 
     '''
-    if loglevel:
-        get_console_log(loglevel)
-
     # serialize access to this section to avoid
     # 2 or more tasks racing to create a daemon
     lock = Services.locks[service_name]
@@ -91,10 +87,10 @@ async def maybe_spawn_daemon(
             yield portal
             return
 
-    log.warning(f"Couldn't find any existing {service_name}")
-
-    # TODO: really shouldn't the actor spawning be part of the service
-    # starting method `Services.start_service()` ?
+    log.warning(
+        f"Couldn't find any existing {service_name}\n"
+        'Attempting to spawn new daemon-service..'
+    )
 
     # ask root ``pikerd`` daemon to spawn the daemon we need if
     # pikerd is not live we now become the root of the
@@ -114,23 +110,33 @@ async def maybe_spawn_daemon(
         # service task for that actor.
         started: bool
         if pikerd_portal is None:
-            started = await service_task_target(**spawn_args)
+            started = await service_task_target(
+                loglevel=loglevel,
+                **spawn_args,
+            )
 
         else:
-            # tell the remote `pikerd` to start the target,
-            # the target can't return a non-serializable value
-            # since it is expected that service startingn is
-            # non-blocking and the target task will persist running
-            # on `pikerd` after the client requesting it's start
-            # disconnects.
+            # request a remote `pikerd` (service manager) to start the
+            # target daemon-task, the target can't return
+            # a non-serializable value since it is expected that service
+            # starting is non-blocking and the target task will persist
+            # running "under" or "within" the `pikerd` actor tree after
+            # the questing client disconnects. in other words this
+            # spawns a persistent daemon actor that continues to live
+            # for the lifespan of whatever the service manager inside
+            # `pikerd` says it should.
             started = await pikerd_portal.run(
                 service_task_target,
+                loglevel=loglevel,
                 **spawn_args,
             )
 
         if started:
             log.info(f'Service {service_name} started!')
 
+        # block until we can discover (by IPC connection) to the newly
+        # spawned daemon-actor and then deliver the portal to the
+        # caller.
         async with tractor.wait_for_actor(service_name) as portal:
             lock.release()
             yield portal
@@ -180,8 +186,11 @@ async def spawn_brokerd(
     await Services.start_service_task(
         dname,
         portal,
+
+        # signature of target root-task endpoint
         _setup_persistent_brokerd,
         brokername=brokername,
+        loglevel=loglevel,
     )
     return True
 
@@ -243,7 +252,10 @@ async def spawn_emsd(
     await Services.start_service_task(
         'emsd',
         portal,
+
+        # signature of target root-task endpoint
         _setup_persistent_emsd,
+        loglevel=loglevel,
     )
     return True
 
@@ -255,10 +267,9 @@ async def maybe_open_emsd(
     loglevel: str | None = None,
     **kwargs,
 
-) -> tractor._portal.Portal:  # noqa
+) -> tractor.Portal:  # noqa
 
     async with maybe_spawn_daemon(
-
         'emsd',
         service_task_target=spawn_emsd,
         spawn_args={'loglevel': loglevel},
