@@ -268,9 +268,6 @@ class Client:
     async def _get_pairs(
         self,
     ) -> dict[str, KucoinMktPair]:
-        if self._pairs:
-            return self._pairs
-
         entries = await self._request('GET', '/symbols')
         syms = {item['name']: KucoinMktPair(**item) for item in entries}
 
