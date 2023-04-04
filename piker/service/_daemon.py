@@ -57,11 +57,13 @@ async def maybe_spawn_daemon(
 
     service_name: str,
     service_task_target: Callable,
-    spawn_args: dict[str, Any],
-    loglevel: str | None = None,
 
+    spawn_args: dict[str, Any],
+
+    loglevel: str | None = None,
     singleton: bool = False,
-    **kwargs,
+
+    **pikerd_kwargs,
 
 ) -> tractor.Portal:
     '''
@@ -97,7 +99,7 @@ async def maybe_spawn_daemon(
     # process tree
     async with maybe_open_pikerd(
         loglevel=loglevel,
-        **kwargs,
+        **pikerd_kwargs,
 
     ) as pikerd_portal:
 
@@ -200,7 +202,8 @@ async def maybe_spawn_brokerd(
 
     brokername: str,
     loglevel: str | None = None,
-    **kwargs,
+
+    **pikerd_kwargs,
 
 ) -> tractor.Portal:
     '''
@@ -214,10 +217,10 @@ async def maybe_spawn_brokerd(
         service_task_target=spawn_brokerd,
         spawn_args={
             'brokername': brokername,
-            'loglevel': loglevel,
         },
         loglevel=loglevel,
-        **kwargs,
+
+        **pikerd_kwargs,
 
     ) as portal:
         yield portal
@@ -265,16 +268,17 @@ async def maybe_open_emsd(
 
     brokername: str,
     loglevel: str | None = None,
-    **kwargs,
+
+    **pikerd_kwargs,
 
 ) -> tractor.Portal:  # noqa
 
     async with maybe_spawn_daemon(
         'emsd',
         service_task_target=spawn_emsd,
-        spawn_args={'loglevel': loglevel},
+        spawn_args={},
         loglevel=loglevel,
-        **kwargs,
+        **pikerd_kwargs,
 
     ) as portal:
         yield portal

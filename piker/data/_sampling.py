@@ -429,7 +429,7 @@ async def spawn_samplerd(
 async def maybe_open_samplerd(
 
     loglevel: str | None = None,
-    **kwargs,
+    **pikerd_kwargs,
 
 ) -> tractor.Portal:  # noqa
     '''
@@ -442,9 +442,9 @@ async def maybe_open_samplerd(
     async with maybe_spawn_daemon(
         dname,
         service_task_target=spawn_samplerd,
-        spawn_args={'loglevel': loglevel},
+        spawn_args={},
         loglevel=loglevel,
-        **kwargs,
+        **pikerd_kwargs,
 
     ) as portal:
         yield portal
