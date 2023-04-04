@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 import pytest
+import pytest_trio
 import tractor
 from piker import (
     config,
@@ -13,7 +14,6 @@ from piker.service import (
     Services,
 )
 from piker.log import get_console_log
-from piker.clearing._client import open_ems
 
 
 def pytest_addoption(parser):
@@ -122,6 +122,8 @@ async def _open_test_pikerd(
             # or just in sequence per test, so we keep root.
             drop_root_perms_for_ahab=False,
 
+            debug_mode=True,
+
             **kwargs,
 
         ) as service_manager,
@@ -153,6 +155,11 @@ def open_test_pikerd(
     tmpconfdir.mkdir()
     tmpconfdir_str: str = str(tmpconfdir)
 
+    # override config dir in the root actor (aka
+    # this top level testing process).
+    from piker import config
+    config._config_dir = tmpconfdir
+
     # NOTE: on linux the tmp config dir is generally located at:
     # /tmp/pytest-of-<username>/pytest-<run#>/test_<current_test_name>/
     # the default `pytest` config ensures that only the last 4 test
@@ -183,37 +190,3 @@ def open_test_pikerd(
     # - no leaked subprocs or shm buffers
     # - all requested container service are torn down
     # - certain ``tractor`` runtime state?
-
-
-@acm
-async def _open_test_pikerd_and_ems(
-    fqsn,
-    mode,
-    loglevel,
-    open_test_pikerd
-):
-    async with (
-        open_test_pikerd() as (_, _, _, services),
-        open_ems(
-            fqsn,
-            mode=mode,
-            loglevel=loglevel,
-        ) as ems_services,
-    ):
-        yield (services, ems_services)
-
-
-@pytest.fixture
-def open_test_pikerd_and_ems(
-    open_test_pikerd,
-    fqme: str = 'xbtusdt.kraken',
-    mode: str = 'paper',
-    loglevel: str = 'info',
-):
-    yield partial(
-        _open_test_pikerd_and_ems,
-        fqme,
-        mode,
-        loglevel,
-        open_test_pikerd
-    )
