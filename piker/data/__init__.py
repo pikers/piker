@@ -56,6 +56,7 @@ __all__ = [
 async def _setup_persistent_brokerd(
     ctx: tractor.Context,
     brokername: str,
+    loglevel: str | None = None,
 
 ) -> None:
     '''
@@ -64,7 +65,9 @@ async def _setup_persistent_brokerd(
     the broker backend as needed.
 
     '''
-    get_console_log(tractor.current_actor().loglevel)
+    get_console_log(
+        loglevel or tractor.current_actor().loglevel,
+    )
 
     from .feed import (
         _bus,
@@ -84,5 +87,3 @@ async def _setup_persistent_brokerd(
         # we pin this task to keep the feeds manager active until the
         # parent actor decides to tear it down
         await trio.sleep_forever()
-
-
