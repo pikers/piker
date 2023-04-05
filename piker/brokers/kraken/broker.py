@@ -69,7 +69,6 @@ from .api import (
     get_client,
 )
 from .feed import (
-    get_console_log,
     open_autorecon_ws,
     NoBsWs,
     stream_messages,
@@ -424,9 +423,6 @@ async def trades_dialogue(
     loglevel: str = None,
 
 ) -> AsyncIterator[dict[str, Any]]:
-
-    # XXX: required to propagate ``tractor`` loglevel to ``piker`` logging
-    get_console_log(loglevel or tractor.current_actor().loglevel)
 
     async with get_client() as client:
 
