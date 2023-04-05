@@ -170,9 +170,12 @@ class Pair(Struct):
 
 class Client:
 
-    # global symbol normalization table
+    # symbol mapping from all names to the altname
     _ntable: dict[str, str] = {}
-    _atable: bidict[str, str] = bidict()
+
+    # 2-way map of symbol names to their "alt names" ffs XD
+    _altnames: bidict[str, str] = bidict()
+
     _pairs: dict[str, Pair] = {}
 
     def __init__(
@@ -267,7 +270,7 @@ class Client:
         # data and return a `decimal.Decimal` instead here!
         # using the underlying Asset
         return {
-            self._atable[sym].lower(): float(bal)
+            self._altnames[sym].lower(): float(bal)
             for sym, bal in by_bsmktid.items()
         }
 
@@ -300,7 +303,7 @@ class Client:
         assets = await self.get_assets()
         for bs_mktid, info in assets.items():
 
-            aname = self._atable[bs_mktid] = info['altname']
+            aname = self._altnames[bs_mktid] = info['altname']
             aclass = info['aclass']
 
             self.assets[bs_mktid] = Asset(
@@ -395,7 +398,7 @@ class Client:
             # look up the normalized name and asset info
             asset_key = entry['asset']
             asset = self.assets[asset_key]
-            asset_key = self._atable[asset_key].lower()
+            asset_key = self._altnames[asset_key].lower()
 
             # XXX: this is in the asset units (likely) so it isn't
             # quite the same as a commisions cost necessarily..)
@@ -504,9 +507,11 @@ class Client:
 
     ) -> MktPair:
 
-        pair_info: Pair  # = await self.pair_info(pair)
-        bs_mktid: str
-        bs_mktid, pair_info = Client.normalize_symbol(pair_str)
+        (
+            bs_mktid,  # str
+            pair_info,  # Pair
+        ) = Client.normalize_symbol(pair_str)
+
         dst_asset = self.assets[pair_info.base]
 
         # NOTE XXX parse out the src asset name until we figure out
