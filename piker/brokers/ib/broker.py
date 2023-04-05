@@ -369,6 +369,9 @@ async def update_and_audit_msgs(
             )
             msgs.append(msg)
 
+            ibfmtmsg = pformat(ibppmsg.to_dict())
+            pikerfmtmsg = pformat(msg.to_dict())
+
             if validate:
                 ibsize = ibppmsg.size
                 pikersize = msg.size
@@ -388,13 +391,13 @@ async def update_and_audit_msgs(
 
                     # raise ValueError(
                     log.error(
-                        f'POSITION MISMATCH ib <-> piker ledger:\n'
-                        'FIGURE OUT WHY TF YOUR LEDGER IS OFF!?!?\n\n'
+                        f'Pos mismatch in ib vs. the piker ledger!\n'
+                        f'IB:\n{ibfmtmsg}\n\n'
+                        f'PIKER:\n{pikerfmtmsg}\n\n'
                         'If you are expecting a (reverse) split in this '
-                        'instrument you should probably put the following\n\n'
-                        f'in the `pps.toml` section:\n{entry}'
-                        f'IB:\nm{ibppmsg.to_dict()}\n\n'
-                        f'PIKER:\n{msg.to_dict()}\n\n'
+                        'instrument you should probably put the following'
+                        'in the `pps.toml` section:\n'
+                        f'{entry}\n'
                         # f'reverse_split_ratio: {reverse_split_ratio}\n'
                         # f'split_ratio: {split_ratio}\n\n'
                     )
@@ -403,10 +406,9 @@ async def update_and_audit_msgs(
             if ibppmsg.avg_price != msg.avg_price:
                 # TODO: make this a "propaganda" log level?
                 log.warning(
-                    'The mega-cucks at IB want you to believe with their '
-                    f'"FIFO" positioning for {msg.symbol}:\n'
-                    f'"ib" mega-cucker avg price: {ibppmsg.avg_price}\n'
-                    f'piker, LIFO breakeven PnL price: {msg.avg_price}'
+                    f'IB "FIFO" avg price for {msg.symbol} is DIFF:\n'
+                    f'ib: {ibppmsg.avg_price}\n'
+                    f'piker: {msg.avg_price}'
                 )
 
         else:
@@ -431,9 +433,8 @@ async def update_and_audit_msgs(
                 # raise ValueError(
                 log.error(
                     f'UNEXPECTED POSITION says IB:\n'
-                    'YOU SHOULD FIGURE OUT WHY TF YOUR LEDGER IS OFF!?\n'
-                    'THEY LIQUIDATED YOU OR YOUR MISSING LEDGER RECORDS!?\n'
-                    f'PIKER:\n{msg.to_dict()}\n'
+                    'Maybe they LIQUIDATED YOU or your missing ledger records?\n'
+                    f'PIKER:\n{pikerfmtmsg}\n\n'
                 )
             msgs.append(msg)
 
