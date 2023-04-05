@@ -1,5 +1,8 @@
 # piker: trading gear for hackers
-# Copyright (C) Guillermo Rodriguez (in stewardship for piker0)
+# Copyright (C)
+#   Guillermo Rodriguez
+#   Tyler Goodlet
+#   (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -469,6 +472,34 @@ async def open_history_client(
         yield get_ohlc, {'erlangs': 3, 'rate': 3}
 
 
+async def get_mkt_info(
+    fqme: str,
+
+) -> tuple[MktPair, Pair]:
+
+    async with open_cached_client('binance') as client:
+
+        pair: Pair = await client.exch_info(fqme.upper())
+
+        mkt = MktPair(
+            dst=Asset(
+                name=pair.baseAsset,
+                atype='crypto',
+                tx_tick=digits_to_dec(pair.baseAssetPrecision),
+            ),
+            src=Asset(
+                name=pair.quoteAsset,
+                atype='crypto',
+                tx_tick=digits_to_dec(pair.quoteAssetPrecision),
+            ),
+            price_tick=pair.price_tick,
+            size_tick=pair.size_tick,
+            bs_mktid=pair.symbol,
+            broker='binance',
+        )
+        return mkt, pair
+
+
 async def stream_quotes(
 
     send_chan: trio.abc.SendChannel,
@@ -483,47 +514,15 @@ async def stream_quotes(
     # XXX: required to propagate ``tractor`` loglevel to piker logging
     get_console_log(loglevel or tractor.current_actor().loglevel)
 
-    sym_infos = {}
     uid = 0
 
     async with (
-        open_cached_client('binance') as client,
         send_chan as send_chan,
     ):
-
-        # keep client cached for real-time section
-        pairs = await client.exch_info()
-        sym_infos: dict[str, dict] = {}
         mkt_infos: dict[str, MktPair] = {}
-
         for sym in symbols:
-
-            pair: Pair = pairs[sym.upper()]
-            price_tick = pair.price_tick
-            size_tick = pair.size_tick
-
-            mkt_infos[sym] = MktPair(
-                dst=Asset(
-                    name=pair.baseAsset,
-                    atype='crypto',
-                    tx_tick=digits_to_dec(pair.baseAssetPrecision),
-                ),
-                src=Asset(
-                    name=pair.quoteAsset,
-                    atype='crypto',
-                    tx_tick=digits_to_dec(pair.quoteAssetPrecision),
-                ),
-                price_tick=price_tick,
-                size_tick=size_tick,
-                bs_mktid=pair.symbol,
-                broker='binance',
-            )
-
-            sym_infos[sym] = {
-                'price_tick_size': price_tick,
-                'lot_tick_size': size_tick,
-                'asset_type': 'crypto',
-            }
+            mkt, pair = await get_mkt_info(sym)
+            mkt_infos[sym] = mkt
 
         symbol = symbols[0]
 
@@ -533,7 +532,6 @@ async def stream_quotes(
             symbol: {
                 'fqsn': sym,
 
-                # 'symbol_info': sym_infos[sym],
                 'mkt_info': mkt_infos[sym],
                 'shm_write_opts': {'sum_tick_vml': False},
             },
@@ -638,5 +636,5 @@ async def open_symbol_search(
                 # repack in dict form
                 await stream.send({
                     item[0].symbol: item[0]
-                     for item in matches
+                    for item in matches
                 })
