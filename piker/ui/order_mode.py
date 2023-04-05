@@ -871,7 +871,6 @@ async def open_order_mode(
         # the expected symbol key in its positions msg.
         for (broker, acctid), msgs in position_msgs.items():
             for msg in msgs:
-                log.info(f'Loading pp for {acctid}@{broker}:\n{pformat(msg)}')
                 await process_trade_msg(
                     mode,
                     book,
@@ -956,13 +955,16 @@ async def process_trade_msg(
     ):
         sym = mode.chart.linked.symbol
         pp_msg_symbol = msg['symbol'].lower()
-        fqsn = sym.fqme
+        fqme = sym.fqme
         broker = sym.broker
         if (
-            pp_msg_symbol == fqsn
-            or pp_msg_symbol == fqsn.removesuffix(f'.{broker}')
+            pp_msg_symbol == fqme
+            or pp_msg_symbol == fqme.removesuffix(f'.{broker}')
         ):
-            log.info(f'{fqsn} matched pp msg: {fmsg}')
+            log.info(
+                f'Loading position for `{fqme}`:\n'
+                f'{fmsg}'
+            )
             tracker = mode.trackers[msg['account']]
             tracker.live_pp.update_from_msg(msg)
             tracker.update_from_pp(set_as_startup=True)  # status/pane UI
