@@ -557,23 +557,28 @@ async def trades_dialogue(
         # existing brokerd daemon?
         # - alternatively we can possibly expect and use
         # a `.broker.norm_trade_records()` ep?
-        mkt: MktPair | None = None
-        brokermod = get_brokermod(broker)
-        gmi = getattr(brokermod, 'get_mkt_info', None)
-        if gmi:
-            mkt, pair = await brokermod.get_mkt_info(
-                fqme.rstrip(f'.{broker}'),
+        fqmes: list[str] = [fqme]
+        if fqme is None:
+            fqmes = list(ppt.pps)
+
+        for fqme in fqmes:
+            mkt: MktPair | None = None
+            brokermod = get_brokermod(broker)
+            gmi = getattr(brokermod, 'get_mkt_info', None)
+            if gmi:
+                mkt, pair = await brokermod.get_mkt_info(
+                    fqme.rstrip(f'.{broker}'),
+                )
+
+            # update pos table from ledger history
+            ppt.update_from_trans(
+                ledger.to_trans(),
+
+                # NOTE: here we pass in any `MktPair` provided by the
+                # backend broker instead of assuming the pps.toml contains
+                # the correct contents!
+                force_mkt=mkt
             )
-
-        # update pos table from ledger history
-        ppt.update_from_trans(
-            ledger.to_trans(),
-
-            # NOTE: here we pass in any `MktPair` provided by the
-            # backend broker instead of assuming the pps.toml contains
-            # the correct contents!
-            force_mkt=mkt
-        )
 
         pp_msgs: list[BrokerdPosition] = []
         pos: Position
