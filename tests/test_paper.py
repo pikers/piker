@@ -91,12 +91,11 @@ async def submit_order(
         # TODO: i guess we should still test the old sync-API?
         # client.send_nowait(order)
 
+        # Wait for position message before moving on to verify flow(s)
+        # for the multi-order position entry/exit.
         msgs: list[Status | BrokerdPosition] = []
         async for msg in trades_stream:
-            print(f'Rx Order resp: {msg}')
             match msg:
-
-                # Wait for position message before moving on
                 case {'name': 'position'}:
                     ppmsg = BrokerdPosition(**msg)
                     msgs.append(ppmsg)
@@ -187,8 +186,6 @@ async def atest_buy(
         tuple[str, str],  # brokername, acctid
         list[BrokerdPosition],
     ]
-
-    assert loglevel == 'info'
     async with (
         open_ems(
             fqme,
@@ -196,7 +193,7 @@ async def atest_buy(
             loglevel=loglevel,
         ) as (
             client,  # OrderClient
-            trades_stream,
+            trades_stream,  # tractor.MsgStream
             startup_pps,
             accounts,
             dialogs,
@@ -211,7 +208,7 @@ async def atest_buy(
             trades_stream,
             fqme,
             action='buy',
-            size=1,
+            size=0.01,
         )
 
         last_order = sent[-1]
