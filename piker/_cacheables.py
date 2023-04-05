@@ -21,7 +21,7 @@ Cacheing apis and toolz.
 
 from collections import OrderedDict
 from contextlib import (
-    asynccontextmanager,
+    asynccontextmanager as acm,
 )
 
 from tractor.trionics import maybe_open_context
@@ -62,7 +62,7 @@ def async_lifo_cache(maxsize=128):
     return decorator
 
 
-@asynccontextmanager
+@acm
 async def open_cached_client(
     brokername: str,
 ) -> 'Client':  # noqa
