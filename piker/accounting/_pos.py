@@ -504,7 +504,7 @@ class PpTable(Struct):
         trans: dict[str, Transaction],
         cost_scalar: float = 2,
 
-        mkt: MktPair | None = None,
+        force_mkt: MktPair | None = None,
 
     ) -> dict[str, Position]:
 
@@ -523,7 +523,7 @@ class PpTable(Struct):
 
             # template the mkt-info presuming a legacy market ticks
             # if no info exists in the transactions..
-            mkt: MktPair | Symbol | None = mkt or t.sys
+            mkt: MktPair | Symbol | None = force_mkt or t.sys
             if not mkt:
                 mkt = MktPair.from_fqme(
                     fqme,

@@ -34,9 +34,13 @@ import pendulum
 import trio
 import tractor
 
+from ..brokers import get_brokermod
 from .. import data
 from ..data.types import Struct
-from ..accounting._mktinfo import Symbol
+from ..accounting._mktinfo import (
+    Symbol,
+    MktPair,
+)
 from ..accounting import (
     Position,
     PpTable,
@@ -545,8 +549,31 @@ async def trades_dialogue(
             'paper',
         ) as ledger
     ):
+        # attempt to get market info from the backend instead of presuming
+        # the ledger entries have everything correct.
+        # TODO: how to process ledger info from backends?
+        # - should we be rolling our own actor-cached version of these
+        # client API refs or using portal IPC to send requests to the
+        # existing brokerd daemon?
+        # - alternatively we can possibly expect and use
+        # a `.broker.norm_trade_records()` ep?
+        mkt: MktPair | None = None
+        brokermod = get_brokermod(broker)
+        gmi = getattr(brokermod, 'get_mkt_info', None)
+        if gmi:
+            mkt, pair = await brokermod.get_mkt_info(
+                fqme.rstrip(f'.{broker}'),
+            )
+
         # update pos table from ledger history
-        ppt.update_from_trans(ledger.to_trans())
+        ppt.update_from_trans(
+            ledger.to_trans(),
+
+            # NOTE: here we pass in any `MktPair` provided by the
+            # backend broker instead of assuming the pps.toml contains
+            # the correct contents!
+            force_mkt=mkt
+        )
 
         pp_msgs: list[BrokerdPosition] = []
         pos: Position
