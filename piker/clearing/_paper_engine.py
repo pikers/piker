@@ -666,21 +666,23 @@ async def open_paperboi(
     else:
         broker, symbol, expiry = unpack_fqme(fqme)
 
+    we_spawned: bool = False
     service_name = f'paperboi.{broker}'
 
     async with (
         tractor.find_actor(service_name) as portal,
         tractor.open_nursery() as tn,
     ):
-        # only spawn if no paperboi already is up
-        # (we likely don't need more then one proc for basic
-        # simulated order clearing)
+        # NOTE: only spawn if no paperboi already is up since we likely
+        # don't need more then one actor for simulated order clearing
+        # per broker-backend.
         if portal is None:
             log.info('Starting new paper-engine actor')
             portal = await tn.start_actor(
                 service_name,
                 enable_modules=[__name__]
             )
+            we_spawned = True
 
         async with portal.open_context(
             trades_dialogue,
@@ -690,3 +692,8 @@ async def open_paperboi(
 
         ) as (ctx, first):
             yield ctx, first
+
+            # tear down connection and any spawned actor on exit
+            await ctx.cancel()
+            if we_spawned:
+                await portal.cancel_actor()
