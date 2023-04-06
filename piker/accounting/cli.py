@@ -22,10 +22,8 @@ from typing import (
     Any,
 )
 
-from rich import print
 from rich.console import Console
 from rich.markdown import Markdown
-# from blessings import Terminal
 import tractor
 import trio
 import typer
@@ -53,7 +51,6 @@ def broker_init(
     the relevant `brokerd` service endpoint.
 
     '''
-    # log.info(f'Spawning {brokername} broker daemon')
     from ..brokers import get_brokermod
     brokermod = get_brokermod(brokername)
     modpath = brokermod.__name__
@@ -95,8 +92,6 @@ def broker_init(
 @ledger.command()
 def sync(
     fully_qualified_account_name: str,
-    # brokername: str,
-    # account: str,
     pdb: bool = False,
 
     loglevel: str = typer.Option(
@@ -119,7 +114,6 @@ def sync(
         console.print(md)
         return
 
-    # term = Terminal()
     start_kwargs, _, trades_ep = broker_init(
         brokername,
         loglevel=loglevel,
@@ -168,23 +162,12 @@ def sync(
                     (positions, accounts,),
                 ),
             ):
-                # XXX: ``blessings`` lib syntax..
-                # summary: str = (
-                #     term.dim('Position Summary ')
-                #     + term.dim_blue_underline(f'{brokername}')
-                #     + term.dim('.')
-                #     + term.blue_underline(f'{account}')
-                #     + term.dim(':\n')
-                #     + term.dim('|-> total pps: ')
-                #     + term.green(f'{len(positions)}\n')
-                # )
-
                 summary: str = (
-                    '[dim]PP Summary[/] '
+                    '[dim underline]Piker Position Summary[/] '
                     f'[dim blue underline]{brokername}[/]'
                     '[dim].[/]'
                     f'[blue underline]{account}[/]'
-                    f'[dim]:\n|-> total pps: [/]'
+                    f'[dim underline] -> total pps: [/]'
                     f'[green]{len(positions)}[/]\n'
                 )
                 for ppdict in positions:
@@ -195,46 +178,23 @@ def sync(
                             ppmsg.avg_price,
                             ndigits=2,
                         )
-                        cb: str = humanize(size * ppu)
+                        cost_basis: str = humanize(size * ppu)
                         h_size: str = humanize(size)
 
                         if size < 0:
-                            # pcolor = term.red
                             pcolor = 'red'
                         else:
-                            # pcolor = term.green
                             pcolor = 'green'
 
-                        # sematic-highligh of fqme
+                        # sematic-highlight of fqme
                         fqme = ppmsg.symbol
                         tokens = fqme.split('.')
-                        # styled_fqme = term.blue_underline(f'{tokens[0]}')
                         styled_fqme = f'[blue underline]{tokens[0]}[/]'
                         for tok in tokens[1:]:
-                            # styled_fqme += term.dim('.')
                             styled_fqme += '[dim].[/]'
-                            # styled_fqme += term.dim_blue_underline(tok)
                             styled_fqme += f'[dim blue underline]{tok}[/]'
 
-                        # blessing.Terminal code.
-                        # summary += (
-                        #     # term.dim('- ')
-                        #     # + term.dim_blue(f'{ppmsg.symbol}')
-                        #     styled_fqme
-                        #     + term.dim(': ')
-                        #     + pcolor(f'{h_size}')
-                        #     # + term.dim_blue('u \n')
-                        #     # + term.dim_blue('@ ')
-                        #     + term.dim_blue('u @')
-                        #     # + term.dim(f' |-> ppu: ')
-                        #     # + pcolor(f'{ppu}\n')
-                        #     + pcolor(f'{ppu}')
-
-                        #     # + term.dim(f' |-> book value: ')
-                        #     + term.dim_blue(' = ')
-                        #     + pcolor(f'$ {cb}\n')
-                        # )
-
+                        # TODO: instead display in a ``rich.Table``?
                         summary += (
                             styled_fqme +
                             '[dim]: [/]'
@@ -242,11 +202,10 @@ def sync(
                             '[dim blue]u @[/]'
                             f'[{pcolor}]{ppu}[/]'
                             '[dim blue] = [/]'
-                            f'[{pcolor}]$ {cb}\n[/]'
+                            f'[{pcolor}]$ {cost_basis}\n[/]'
                         )
 
-                # console.print(summar)
-                print(summary)
+                console.print(summary)
                 await brokerd_ctx.cancel()
 
             await portal.cancel_actor()
