@@ -22,6 +22,10 @@ from typing import (
     Any,
 )
 
+from rich import print
+from rich.console import Console
+from rich.markdown import Markdown
+# from blessings import Terminal
 import tractor
 import trio
 import typer
@@ -29,7 +33,8 @@ import typer
 from ..service import (
     open_piker_runtime,
 )
-# from ._pos import open_pps
+from ..clearing._messages import BrokerdPosition
+from ..calc import humanize
 
 
 ledger = typer.Typer()
@@ -89,13 +94,32 @@ def broker_init(
 
 @ledger.command()
 def sync(
-    brokername: str,
-    account: str,
-
-    loglevel: str = 'cancel',
+    fully_qualified_account_name: str,
+    # brokername: str,
+    # account: str,
     pdb: bool = False,
-):
 
+    loglevel: str = typer.Option(
+        'error',
+        "-l",
+    ),
+):
+    console = Console()
+
+    try:
+        brokername, account = fully_qualified_account_name.split('.')
+    except ValueError:
+        md = Markdown(
+            f'=> `{fully_qualified_account_name}` <=\n\n'
+            'is not a valid '
+            '__fully qualified account name?__\n\n'
+            'Your account name needs to be of the form '
+            '`<brokername>.<account_name>`\n'
+        )
+        console.print(md)
+        return
+
+    # term = Terminal()
     start_kwargs, _, trades_ep = broker_init(
         brokername,
         loglevel=loglevel,
@@ -138,15 +162,91 @@ def sync(
 
             positions: dict[str, Any]
             accounts: list[str]
-            # brokerd_trades_stream: tractor.MsgStream
             async with (
                 open_trades_endpoint as (
                     brokerd_ctx,
                     (positions, accounts,),
                 ),
-                # brokerd_ctx.open_stream() as brokerd_trades_stream,
             ):
-                await tractor.breakpoint()
+                # XXX: ``blessings`` lib syntax..
+                # summary: str = (
+                #     term.dim('Position Summary ')
+                #     + term.dim_blue_underline(f'{brokername}')
+                #     + term.dim('.')
+                #     + term.blue_underline(f'{account}')
+                #     + term.dim(':\n')
+                #     + term.dim('|-> total pps: ')
+                #     + term.green(f'{len(positions)}\n')
+                # )
+
+                summary: str = (
+                    '[dim]PP Summary[/] '
+                    f'[dim blue underline]{brokername}[/]'
+                    '[dim].[/]'
+                    f'[blue underline]{account}[/]'
+                    f'[dim]:\n|-> total pps: [/]'
+                    f'[green]{len(positions)}[/]\n'
+                )
+                for ppdict in positions:
+                    ppmsg = BrokerdPosition(**ppdict)
+                    size = ppmsg.size
+                    if size:
+                        ppu: float = round(
+                            ppmsg.avg_price,
+                            ndigits=2,
+                        )
+                        cb: str = humanize(size * ppu)
+                        h_size: str = humanize(size)
+
+                        if size < 0:
+                            # pcolor = term.red
+                            pcolor = 'red'
+                        else:
+                            # pcolor = term.green
+                            pcolor = 'green'
+
+                        # sematic-highligh of fqme
+                        fqme = ppmsg.symbol
+                        tokens = fqme.split('.')
+                        # styled_fqme = term.blue_underline(f'{tokens[0]}')
+                        styled_fqme = f'[blue underline]{tokens[0]}[/]'
+                        for tok in tokens[1:]:
+                            # styled_fqme += term.dim('.')
+                            styled_fqme += '[dim].[/]'
+                            # styled_fqme += term.dim_blue_underline(tok)
+                            styled_fqme += f'[dim blue underline]{tok}[/]'
+
+                        # blessing.Terminal code.
+                        # summary += (
+                        #     # term.dim('- ')
+                        #     # + term.dim_blue(f'{ppmsg.symbol}')
+                        #     styled_fqme
+                        #     + term.dim(': ')
+                        #     + pcolor(f'{h_size}')
+                        #     # + term.dim_blue('u \n')
+                        #     # + term.dim_blue('@ ')
+                        #     + term.dim_blue('u @')
+                        #     # + term.dim(f' |-> ppu: ')
+                        #     # + pcolor(f'{ppu}\n')
+                        #     + pcolor(f'{ppu}')
+
+                        #     # + term.dim(f' |-> book value: ')
+                        #     + term.dim_blue(' = ')
+                        #     + pcolor(f'$ {cb}\n')
+                        # )
+
+                        summary += (
+                            styled_fqme +
+                            '[dim]: [/]'
+                            f'[{pcolor}]{h_size}[/]'
+                            '[dim blue]u @[/]'
+                            f'[{pcolor}]{ppu}[/]'
+                            '[dim blue] = [/]'
+                            f'[{pcolor}]$ {cb}\n[/]'
+                        )
+
+                # console.print(summar)
+                print(summary)
                 await brokerd_ctx.cancel()
 
             await portal.cancel_actor()
