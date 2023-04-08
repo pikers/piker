@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -123,7 +123,7 @@ class OrderMode:
     chart: ChartPlotWidget  #  type: ignore # noqa
     hist_chart: ChartPlotWidget  #  type: ignore # noqa
     nursery: trio.Nursery  # used by ``ui._position`` code?
-    book: OrderClient
+    client: OrderClient
     lines: LineEditor
     arrows: ArrowEditor
     multistatus: MultiStatus
@@ -409,13 +409,13 @@ class OrderMode:
 
         # send order cmd to ems
         if send_msg:
-            self.book.send_nowait(order)
+            self.client.send_nowait(order)
         else:
             # just register for control over this order
             # TODO: some kind of mini-perms system here based on
             # an out-of-band tagging/auth sub-sys for multiplayer
             # order control?
-            self.book._sent_orders[order.oid] = order
+            self.client._sent_orders[order.oid] = order
 
         return dialog
 
@@ -443,7 +443,7 @@ class OrderMode:
         size = dialog.order.size
 
         # NOTE: sends modified order msg to EMS
-        self.book.update_nowait(
+        self.client.update_nowait(
             uuid=line.dialog.uuid,
             price=level,
             size=size,
@@ -559,7 +559,7 @@ class OrderMode:
 
     ) -> None:
 
-        msg = self.book._sent_orders.pop(uuid, None)
+        msg = self.client._sent_orders.pop(uuid, None)
 
         if msg is not None:
             self.lines.remove_line(uuid=uuid)
@@ -615,7 +615,7 @@ class OrderMode:
                     dialog.last_status_close = cancel_status_close
 
                     ids.append(oid)
-                    self.book.cancel_nowait(uuid=oid)
+                    self.client.cancel_nowait(uuid=oid)
 
         return ids
 
@@ -682,7 +682,7 @@ async def open_order_mode(
     multistatus = chart.window().status_bar
     done = multistatus.open_status('starting order mode..')
 
-    book: OrderClient
+    client: OrderClient
     trades_stream: tractor.MsgStream
 
     # The keys in this dict **must** be in set our set of "normalized"
@@ -693,8 +693,11 @@ async def open_order_mode(
 
     # spawn EMS actor-service
     async with (
-        open_ems(fqsn, loglevel=loglevel) as (
-            book,
+        open_ems(
+            fqsn,
+            loglevel=loglevel,
+        ) as (
+            client,
             trades_stream,
             position_msgs,
             brokerd_accounts,
@@ -821,7 +824,7 @@ async def open_order_mode(
             chart,
             hist_chart,
             tn,
-            book,
+            client,
             lines,
             arrows,
             multistatus,
@@ -873,7 +876,7 @@ async def open_order_mode(
             for msg in msgs:
                 await process_trade_msg(
                     mode,
-                    book,
+                    client,
                     msg,
                 )
 
@@ -907,7 +910,7 @@ async def open_order_mode(
 
                 await process_trade_msg(
                     mode,
-                    book,
+                    client,
                     msg,
                 )
 
@@ -915,7 +918,7 @@ async def open_order_mode(
                 process_trades_and_update_ui,
                 trades_stream,
                 mode,
-                book,
+                client,
             )
 
             yield mode
@@ -925,7 +928,7 @@ async def process_trades_and_update_ui(
 
     trades_stream: tractor.MsgStream,
     mode: OrderMode,
-    book: OrderClient,
+    client: OrderClient,
 
 ) -> None:
 
@@ -934,14 +937,14 @@ async def process_trades_and_update_ui(
     async for msg in trades_stream:
         await process_trade_msg(
             mode,
-            book,
+            client,
             msg,
         )
 
 
 async def process_trade_msg(
     mode: OrderMode,
-    book: OrderClient,
+    client: OrderClient,
     msg: dict,
 
 ) -> tuple[Dialog, Status]:
@@ -1079,7 +1082,7 @@ async def process_trade_msg(
         case Status(resp='fill'):
 
             # handle out-of-piker fills reporting?
-            order: Order = book._sent_orders.get(oid)
+            order: Order = client._sent_orders.get(oid)
             if not order:
                 log.warning(f'order {oid} is unknown')
                 order = msg.req
