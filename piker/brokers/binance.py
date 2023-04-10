@@ -332,6 +332,7 @@ class Client:
 @acm
 async def get_client() -> Client:
     client = Client()
+    log.info(f'Caching exchange infos..')
     await client.exch_info()
     yield client
 
