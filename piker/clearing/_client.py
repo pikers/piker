@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -36,12 +36,12 @@ from ..service import maybe_open_emsd
 from ._messages import (
     Order,
     Cancel,
+    BrokerdPosition,
 )
 from ..brokers import get_brokermod
 
 if TYPE_CHECKING:
     from ._messages import (
-        BrokerdPosition,
         Status,
     )
 
@@ -197,7 +197,7 @@ async def relay_orders_from_sync_code(
     ):
         async for cmd in sync_order_cmds:
             sym = cmd.symbol
-            msg = pformat(cmd)
+            msg = pformat(cmd.to_dict())
 
             if sym == symbol_key:
                 log.info(f'Send order cmd:\n{msg}')
@@ -223,7 +223,7 @@ async def open_ems(
     dict[
         # brokername, acctid
         tuple[str, str],
-        list[BrokerdPosition],
+        dict[str, BrokerdPosition],
     ],
     list[str],
     dict[str, Status],
@@ -256,7 +256,6 @@ async def open_ems(
         async with (
             # connect to emsd
             portal.open_context(
-
                 _emsd_main,
                 fqme=fqme,
                 exec_mode=mode,
