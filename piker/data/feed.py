@@ -941,7 +941,7 @@ class BackendInitMsg(Struct, frozen=True):
     from each backend broker/data provider.
 
     '''
-    fqsn: str
+    fqme: str
     symbol_info: dict | None = None
     mkt_info: MktPair | None = None
     shm_write_opts: dict[str, Any] | None = None
@@ -1284,7 +1284,9 @@ async def open_feed_bus(
 
     # sync feed subscribers with flume handles
     await ctx.started(
-        {fqsn: flume.to_msg() for fqsn, flume in flumes.items()}
+        {fqsn: flume.to_msg()
+         for fqsn, flume in flumes.items()
+        }
     )
 
     if not start_stream:
