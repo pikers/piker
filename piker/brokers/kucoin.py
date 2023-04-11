@@ -566,8 +566,12 @@ async def stream_messages(ws: NoBsWs, sym: str) -> AsyncGenerator[NoBsWs, dict]:
                 case 'trade.ticker':
                     trade_data = KucoinTrade(**msg.data)
 
-                    # Filter for duplicate messages
-                    if last_trade_data and trade_data.time == last_trade_data.time: 
+                    # XXX: Filter for duplicate messages as ws feed will send duplicate market state
+                    # https://docs.kucoin.com/#level2-5-best-ask-bid-orders
+                    if (
+                        last_trade_data
+                        and trade_data.time == last_trade_data.time
+                    ):
                         continue
 
                     last_trade_data = trade_data
