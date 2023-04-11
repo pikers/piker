@@ -619,7 +619,7 @@ async def _setup_quote_stream(
 async def open_aio_quote_stream(
 
     symbol: str,
-    contract: Optional[Contract] = None,
+    contract: Contract | None = None,
 
 ) -> trio.abc.ReceiveStream:
 
@@ -741,9 +741,9 @@ async def stream_quotes(
 
         try:
             (
-                con,
-                first_ticker,
-                details,
+                con,  # Contract
+                first_ticker,  # Ticker
+                details,  # ContractDetails
             ) = await proxy.get_sym_details(symbol=sym)
         except ConnectionError:
             log.exception(f'Proxy is ded {proxy._aio_ns}')
@@ -759,6 +759,7 @@ async def stream_quotes(
 
             '''
             # pass back some symbol info like min_tick, trading_hours, etc.
+            con: Contract = details.contract
             syminfo = asdict(details)
             syminfo.update(syminfo['contract'])
 
@@ -784,6 +785,11 @@ async def stream_quotes(
 
             price_tick: Decimal = Decimal(str(syminfo['minTick']))
             size_tick: Decimal = Decimal(str(syminfo['minSize']).rstrip('0'))
+
+            # XXX: GRRRR they don't support fractional share sizes for
+            # stocks from the API?!
+            if con.secType == 'STK':
+                size_tick = Decimal('1')
 
             syminfo['price_tick_size'] = price_tick
             # NOTE: as you'd expect for "legacy" assets, the "volume
