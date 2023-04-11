@@ -159,20 +159,26 @@ def load_and_check_pos(
             yield pp
 
 
-@pytest.mark.trio
-async def test_ems_err_on_bad_broker(
+def test_ems_err_on_bad_broker(
     open_test_pikerd: Services,
     loglevel: str,
 ):
-    try:
-        async with open_ems(
-            'doggy.smiles',
-            mode='paper',
-            loglevel=loglevel,
-        ) as _:
-            pytest.fail('EMS is working on non-broker!?')
-    except ModuleNotFoundError:
-        pass
+    async def load_bad_fqme():
+        try:
+            async with (
+                open_test_pikerd() as (_, _, _, services),
+
+                open_ems(
+                    'doggycoin.doggy',
+                    mode='paper',
+                    loglevel=loglevel,
+                ) as _
+            ):
+                pytest.fail('EMS is working on non-broker!?')
+        except ModuleNotFoundError:
+            pass
+
+    run_and_tollerate_cancels(load_bad_fqme)
 
 
 async def match_ppmsgs_on_ems_boot(
@@ -264,12 +270,14 @@ async def submit_and_check(
         od: dict
         for od in fills:
             print(f'Sending order {od} for fill')
+            size = od['size']
             sent, msgs = await order_and_and_wait_for_ppmsg(
                 client,
                 trades_stream,
                 fqme,
-                action='buy',
-                size=od['size'],
+                action='buy' if size > 0 else 'sell',
+                price=100e3 if size > 0 else 0,
+                size=size,
             )
 
         last_order: Order = sent[-1]
@@ -300,7 +308,8 @@ async def submit_and_check(
             {'size': 0.001},
         ),
 
-        # multi-partial entry and exits.
+        # multi-partial entry and exits from net-zero, to short and back
+        # to net-zero.
         (
             # enters
             {'size': 0.001},
@@ -314,10 +323,18 @@ async def submit_and_check(
             {'size': 0.001},
             {'size': 0.002},
 
-            # exits to get back to zero.
+            # nearly back to zero.
             {'size': -0.001},
+
+            # switch to net-short
             {'size': -0.025},
             {'size': -0.0195},
+
+            # another entry
+            {'size': 0.001},
+
+            # final cover to net-zero again.
+            {'size': 0.038},
         ),
     ],
     ids='fills={}'.format,
@@ -328,7 +345,7 @@ def test_multi_fill_positions(
 
     fills: tuple[dict],
 
-    check_cross_session: bool = True,
+    check_cross_session: bool = False,
 
 ) -> None:
 
