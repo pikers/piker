@@ -546,7 +546,7 @@ def make_sub(sym, connect_id, level='l1') -> dict[str, str | bool]:
 
 async def stream_messages(ws: NoBsWs, sym: str) -> AsyncGenerator[NoBsWs, dict]:
     timeouts = 0
-    last_trade_data: KucoinTrade | dict = {}
+    last_trade_ts = 0
 
     while True:
         with trio.move_on_after(3) as cs:
@@ -568,13 +568,10 @@ async def stream_messages(ws: NoBsWs, sym: str) -> AsyncGenerator[NoBsWs, dict]:
 
                     # XXX: Filter for duplicate messages as ws feed will send duplicate market state
                     # https://docs.kucoin.com/#level2-5-best-ask-bid-orders
-                    if (
-                        last_trade_data
-                        and trade_data.time == last_trade_data.time
-                    ):
+                    if trade_data.time == last_trade_ts:
                         continue
 
-                    last_trade_data = trade_data
+                    last_trade_ts = trade_data.time
 
                     yield 'trade', {
                         'symbol': sym,
