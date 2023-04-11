@@ -124,7 +124,10 @@ class PaperBoi(Struct):
         # in the broker trades event processing loop
         await trio.sleep(0.05)
 
-        if action == 'sell':
+        if (
+            action == 'sell'
+            and size > 0
+        ):
             size = -size
 
         msg = BrokerdStatus(
