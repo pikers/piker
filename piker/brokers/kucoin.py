@@ -588,7 +588,6 @@ async def stream_messages(ws: NoBsWs, sym: str) -> AsyncGenerator[NoBsWs, dict]:
 
                 case 'level2':
                     l2_data = KucoinL2(**msg.data)
-                    breakpoint()
                     first_ask = l2_data.asks[0]
                     first_bid = l2_data.bids[0]
                     yield 'l1', {
