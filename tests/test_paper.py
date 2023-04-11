@@ -1,5 +1,13 @@
 '''
-Paper-mode testing
+Execution mgmt system (EMS) e2e testing.
+
+Most tests leverage our paper clearing engine found (currently) in
+``piker.clearing._paper_engine`.
+
+Ideally in the longer run we are able to support forms of (non-clearing)
+live order tests against certain backends that make it possible to do
+so..
+
 '''
 from contextlib import (
     contextmanager as cm,
