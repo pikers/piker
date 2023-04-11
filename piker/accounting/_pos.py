@@ -637,8 +637,8 @@ class PpTable(Struct):
 
         active, closed = self.dump_active()
 
-        # ONLY dict-serialize all active positions; those that are closed
-        # we don't store in the ``pps.toml``.
+        # ONLY dict-serialize all active positions; those that are
+        # closed we don't store in the ``pps.toml``.
         to_toml_dict = {}
 
         for bs_mktid, pos in active.items():
@@ -688,13 +688,12 @@ class PpTable(Struct):
 
             self.conf.update(pp_entries)
 
-        elif (
-            self.brokername in self.conf and
-            self.acctid in self.conf[self.brokername]
-        ):
-            del self.conf[self.brokername][self.acctid]
-            if len(self.conf[self.brokername]) == 0:
-                del self.conf[self.brokername]
+        # if there are no active position entries according
+        # to the toml dump output above, then clear the config
+        # file of all entries.
+        elif self.conf:
+            for entry in list(self.conf):
+                del self.conf[entry]
 
         # TODO: why tf haven't they already done this for inline
         # tables smh..
