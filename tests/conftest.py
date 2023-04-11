@@ -87,8 +87,11 @@ def log(
 @acm
 async def _open_test_pikerd(
     tmpconfdir: str,
+
     reg_addr: tuple[str, int] | None = None,
     loglevel: str = 'warning',
+    debug_mode: bool = False,
+
     **kwargs,
 
 ) -> tuple[
@@ -122,7 +125,7 @@ async def _open_test_pikerd(
             # or just in sequence per test, so we keep root.
             drop_root_perms_for_ahab=False,
 
-            debug_mode=True,
+            debug_mode=debug_mode,
 
             **kwargs,
 
@@ -178,6 +181,8 @@ def open_test_pikerd(
         # bind in level from fixture, which is itself set by
         # `--ll <value>` cli flag.
         loglevel=loglevel,
+
+        debug_mode=request.config.option.usepdb
     )
 
     # NOTE: the `tmp_dir` fixture will wipe any files older then 3 test
