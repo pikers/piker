@@ -289,6 +289,20 @@ class OrderMode:
 
         symbol = self.chart.linked.symbol
 
+        # NOTE : we could also use instead,
+        # symbol.quantize(price, quantity_type='price')
+        # but it returns a Decimal and it's probably gonna
+        # be slower?
+        # TODO: should we be enforcing this precision
+        # at a different layer in the stack? right now
+        # any precision error will literally be relayed
+        # all the way back from the backend.
+
+        price = round(
+            price,
+            ndigits=symbol.tick_size_digits,
+        )
+
         order = self._staged_order = Order(
             action=action,
             price=price,
@@ -359,7 +373,7 @@ class OrderMode:
             # NOTE: we have to str-ify `MktPair` first since we can't
             # cast to it without being mega explicit with
             # `msgspec.Struct`, which we're not yet..
-            order = staged.copy({
+            order: Order = staged.copy({
                 'symbol': str(staged.symbol),
                 'oid': oid,
             })
@@ -436,8 +450,17 @@ class OrderMode:
         line: LevelLine,
 
     ) -> None:
+        '''
+        Retreive the level line's end state, compute the size
+        and price for the new price-level, send an update msg to
+        the EMS, adjust mirrored level line on secondary chart.
 
-        level = line.value()
+        '''
+        mktinfo = self.chart.linked.symbol
+        level = round(
+            line.value(),
+            ndigits=mktinfo.tick_size_digits,
+        )
         # updated by level change callback set in ``.new_line_from_order()``
         dialog = line.dialog
         size = dialog.order.size
@@ -689,7 +712,7 @@ async def open_order_mode(
     # symbol names (i.e. the same names you'd get back in search
     # results) in order for position msgs to correctly trigger the
     # display of a position indicator on screen.
-    position_msgs: dict[str, list[BrokerdPosition]]
+    position_msgs: dict[str, dict[str, BrokerdPosition]]
 
     # spawn EMS actor-service
     async with (
@@ -872,8 +895,11 @@ async def open_order_mode(
         # Pack position messages by account, should only be one-to-one.
         # NOTE: requires the backend exactly specifies
         # the expected symbol key in its positions msg.
-        for (broker, acctid), msgs in position_msgs.items():
-            for msg in msgs:
+        for (
+            (broker, acctid),
+            pps_by_fqme
+        ) in position_msgs.items():
+            for msg in pps_by_fqme.values():
                 await process_trade_msg(
                     mode,
                     client,
