@@ -26,6 +26,7 @@ from typing import (
 )
 import time
 
+from trio_util import trio_async_generator
 import trio
 from trio_typing import TaskStatus
 import pendulum
@@ -317,7 +318,10 @@ class AggTrade(Struct):
     M: bool  # Ignore
 
 
-async def stream_messages(ws: NoBsWs) -> AsyncGenerator[NoBsWs, dict]:
+@trio_async_generator
+async def stream_messages(
+    ws: NoBsWs,
+) -> AsyncGenerator[NoBsWs, dict]:
 
     timeouts = 0
     while True:
@@ -529,19 +533,23 @@ async def stream_quotes(
                 # XXX: do we need to ack the unsub?
                 # await ws.recv_msg()
 
-        async with open_autorecon_ws(
-            'wss://stream.binance.com/ws',
-            fixture=subscribe,
-        ) as ws:
+        async with (
+            open_autorecon_ws(
+                # XXX: see api docs which show diff addr?
+                # https://developers.binance.com/docs/binance-trading-api/websocket_api#general-api-information
+                # 'wss://ws-api.binance.com:443/ws-api/v3',
+                'wss://stream.binance.com/ws',
+                fixture=subscribe,
+            ) as ws,
+
+            # avoid stream-gen closure from breaking trio..
+            stream_messages(ws) as msg_gen,
+        ):
+            typ, quote = await anext(msg_gen)
 
             # pull a first quote and deliver
-            msg_gen = stream_messages(ws)
-
-            typ, quote = await msg_gen.__anext__()
-
             while typ != 'trade':
-                # TODO: use ``anext()`` when it lands in 3.10!
-                typ, quote = await msg_gen.__anext__()
+                typ, quote = await anext(msg_gen)
 
             task_status.started((init_msgs,  quote))
 

@@ -53,6 +53,7 @@ setup(
         # async
         'trio',
         'trio-websocket',
+        'trio-util',
         'async_generator',
 
         # from github currently (see requirements.txt)

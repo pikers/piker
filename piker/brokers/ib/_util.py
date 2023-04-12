@@ -24,6 +24,10 @@ import subprocess
 
 import tractor
 
+from piker.log import get_logger
+
+log = get_logger(__name__)
+
 
 _reset_tech: Literal[
     'vnc',
@@ -134,54 +138,54 @@ def i3ipc_xdotool_manual_click_hack() -> None:
         # 'IB',  # gw running in i3 (newer version?)
     ]
 
-    for name in win_names:
-        results = t.find_titled(name)
-        print(f'results for {name}: {results}')
-        if results:
-            con = results[0]
-            print(f'Resetting data feed for {name}')
-            win_id = str(con.window)
-            w, h = con.rect.width, con.rect.height
+    try:
+        for name in win_names:
+            results = t.find_titled(name)
+            print(f'results for {name}: {results}')
+            if results:
+                con = results[0]
+                print(f'Resetting data feed for {name}')
+                win_id = str(con.window)
+                w, h = con.rect.width, con.rect.height
 
-            # TODO: seems to be a few libs for python but not sure
-            # if they support all the sub commands we need, order of
-            # most recent commit history:
-            # https://github.com/rr-/pyxdotool
-            # https://github.com/ShaneHutter/pyxdotool
-            # https://github.com/cphyc/pyxdotool
+                # TODO: seems to be a few libs for python but not sure
+                # if they support all the sub commands we need, order of
+                # most recent commit history:
+                # https://github.com/rr-/pyxdotool
+                # https://github.com/ShaneHutter/pyxdotool
+                # https://github.com/cphyc/pyxdotool
 
-            # TODO: only run the reconnect (2nd) kc on a detected
-            # disconnect?
-            for key_combo, timeout in [
-                # only required if we need a connection reset.
-                # ('ctrl+alt+r', 12),
-                # data feed reset.
-                ('ctrl+alt+f', 6)
-            ]:
-                subprocess.call([
-                    'xdotool',
-                    'windowactivate', '--sync', win_id,
+                # TODO: only run the reconnect (2nd) kc on a detected
+                # disconnect?
+                for key_combo, timeout in [
+                    # only required if we need a connection reset.
+                    # ('ctrl+alt+r', 12),
+                    # data feed reset.
+                    ('ctrl+alt+f', 6)
+                ]:
+                    subprocess.call([
+                        'xdotool',
+                        'windowactivate', '--sync', win_id,
 
-                    # move mouse to bottom left of window (where there should
-                    # be nothing to click).
-                    'mousemove_relative', '--sync', str(w-4), str(h-4),
+                        # move mouse to bottom left of window (where
+                        # there should be nothing to click).
+                        'mousemove_relative', '--sync', str(w-4), str(h-4),
 
-                    # NOTE: we may need to stick a `--retry 3` in here..
-                    'click', '--window', win_id,
-                    '--repeat', '3', '1',
+                        # NOTE: we may need to stick a `--retry 3` in here..
+                        'click', '--window', win_id,
+                        '--repeat', '3', '1',
 
-                    # hackzorzes
-                    'key', key_combo,
-                    ],
-                    timeout=timeout,
-                )
+                        # hackzorzes
+                        'key', key_combo,
+                        ],
+                        timeout=timeout,
+                    )
 
     # re-activate and focus original window
-    try:
         subprocess.call([
             'xdotool',
             'windowactivate', '--sync', str(orig_win_id),
             'click', '--window', str(orig_win_id), '1',
         ])
     except subprocess.TimeoutExpired:
-        log.exception(f'xdotool timed out?')
+        log.exception('xdotool timed out?')
