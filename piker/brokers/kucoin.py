@@ -167,7 +167,7 @@ class BrokerConfig(Struct, frozen=True):
 
 
 def get_config() -> BrokerConfig | None:
-    conf, path = config.load()
+    conf, _= config.load()
 
     section = conf.get('kucoin')
 
@@ -200,7 +200,7 @@ class Client:
 
         signature = base64.b64encode(
             hmac.new(
-                self._key_secret.encode('utf-8'),
+                self._config.key_secret.encode('utf-8'),
                 str_to_sign.encode('utf-8'),
                 hashlib.sha256,
             ).digest()
@@ -216,7 +216,7 @@ class Client:
 
         return {
             'KC-API-SIGN': signature,
-            'KC-API-TIMESTAMP': str(now),
+            'KC-API-TIMESTAMP': str(pendulum.now().int_timestamp * 1000),
             'KC-API-KEY': self._key_id,
             'KC-API-PASSPHRASE': passphrase,
             # XXX: Even if using the v1 api - this stays the same
@@ -422,7 +422,7 @@ async def stream_quotes(
     send_chan: trio.abc.SendChannel,
     symbols: list[str],
     feed_is_live: trio.Event,
-    loglevel: str = None,
+    loglevel: str = '',
     # startup sync
     task_status: TaskStatus[tuple[dict, dict]] = trio.TASK_STATUS_IGNORED,
 ) -> None:
@@ -523,7 +523,7 @@ async def stream_quotes(
                     await send_chan.send({sym: msg})
 
 
-def make_sub(sym, connect_id, level='l1') -> dict[str, str | bool]:
+def make_sub(sym, connect_id, level='l1') -> dict[str, str | bool] | None:
     match level:
         case 'l1':
             return {

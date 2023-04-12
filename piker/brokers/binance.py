@@ -485,7 +485,7 @@ async def stream_quotes(
             si['asset_type'] = 'crypto'
 
         symbol = symbols[0]
-
+        breakpoint()
         init_msgs = {
             # pass back token, and bool, signalling if we're the writer
             # and that history has been written
