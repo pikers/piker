@@ -253,6 +253,8 @@ class Client:
         '''
         Fetch ws token needed for sub access:
         https://docs.kucoin.com/#apply-connect-token
+        returns a token and the interval we must ping
+        the server at to keep the connection alive
 
         '''
         token_type = 'private' if private else 'public'
@@ -261,6 +263,7 @@ class Client:
         )
 
         if data and 'token' in data:
+            # ping_interval is in ms
             ping_interval: int = data['instanceServers'][0]['pingInterval']
             return data['token'], ping_interval
         elif data:
