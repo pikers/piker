@@ -343,7 +343,7 @@ async def stream_messages(
         # https://binance-docs.github.io/apidocs/spot/en/#individual-symbol-book-ticker-streams
 
         if msg.get('u'):
-            sym = msg['s']what does the trio_async_generator from trio_util do?
+            sym = msg['s']
             bid = float(msg['b'])
             bsize = float(msg['B'])
             ask = float(msg['a'])
