@@ -317,8 +317,8 @@ class Client:
     async def _get_bars(
         self,
         fqsn: str,
-        start_dt: Optional[datetime] = None,
-        end_dt: Optional[datetime] = None,
+        start_dt: datetime | None = None,
+        end_dt: datetime | None = None,
         limit: int = 1000,
         as_np: bool = True,
         type: str = '1min',
