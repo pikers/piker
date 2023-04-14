@@ -302,7 +302,7 @@ class Client:
         pattern: str,
         limit: int = 30,
     ) -> dict[str, KucoinMktPair]:
-        data = await self._get_pairs()
+        data = await self.cache_pairs()
 
         matches = fuzzy.extractBests(
             pattern, data, score_cutoff=35, limit=limit)
