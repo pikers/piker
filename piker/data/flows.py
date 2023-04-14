@@ -35,6 +35,9 @@ from ..accounting._mktinfo import (
     MktPair,
     Symbol,
 )
+from ..log import (
+    get_logger,
+)
 from .types import Struct
 from ._sharedmem import (
     attach_shm_array,
@@ -49,6 +52,8 @@ from ._sharedmem import (
 if TYPE_CHECKING:
     # from pyqtgraph import PlotItem
     from .feed import Feed
+
+log = get_logger(__name__)
 
 
 # TODO: ideas for further abstractions as per
@@ -91,9 +96,17 @@ class Flume(Struct):
        queuing properties.
 
     '''
-    symbol: Symbol | MktPair
+    mkt: MktPair | Symbol
     first_quote: dict
     _rt_shm_token: _Token
+
+    @property
+    def symbol(self) -> MktPair | Symbol:
+        log.warning(
+            '`Flume.symbol` is deprecated!\n'
+            'Use `.mkt: MktPair` instead!'
+        )
+        return self.mkt
 
     # optional since some data flows won't have a "downsampled" history
     # buffer/stream (eg. FSPs).
@@ -176,14 +189,7 @@ class Flume(Struct):
     def to_msg(self) -> dict:
 
         msg = self.to_dict()
-
-        # TODO: do we even need to convert to dict
-        # first now?
-        # TODO: drop the former.
-        msg['symbol'] = msg['symbol'].to_dict()
-        mktpair = msg.get('mktpair')
-        if mktpair:
-            msg['mktpair'] = mktpair.to_dict()
+        msg['mkt'] = self.mkt.to_dict()
 
         # can't serialize the stream or feed objects, it's expected
         # you'll have a ref to it since this msg should be rxed on
@@ -203,10 +209,10 @@ class Flume(Struct):
         `msgspec.Struct` form.
 
         '''
-        sym_msg = msg.pop('symbol')
+        mkt_msg = msg.pop('mkt')
 
-        if 'dst' in sym_msg:
-            mkt = MktPair.from_msg(sym_msg)
+        if 'dst' in mkt_msg:
+            mkt = MktPair.from_msg(mkt_msg)
 
         else:
             # XXX NOTE: ``msgspec`` can encode `Decimal`
@@ -214,9 +220,9 @@ class Flume(Struct):
             # we aren't spec-cing these msgs as structs, SO
             # we have to ensure we do a struct type case (which `.copy()`
             # does) to ensure we get the right type!
-            mkt = Symbol(**sym_msg).copy()
+            mkt = Symbol(**mkt_msg).copy()
 
-        return cls(symbol=mkt, **msg)
+        return cls(mkt=mkt, **msg)
 
     def get_index(
         self,
