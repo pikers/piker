@@ -586,13 +586,13 @@ async def stream_messages(ws: NoBsWs, sym: str) -> AsyncGenerator[NoBsWs, dict]:
                     yield 'trade', {
                         'symbol': sym,
                         'last': trade_data.price,
-                        'brokerd_ts': trade_data_ts,
+                        'brokerd_ts': last_trade_ts,
                         'ticks': [
                             {
                                 'type': 'trade',
                                 'price': float(trade_data.price),
                                 'size': float(trade_data.size),
-                                'broker_ts': trade_data_ts,
+                                'broker_ts': last_trade_ts,
                             }
                         ],
                     }
