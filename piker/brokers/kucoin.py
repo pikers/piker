@@ -523,6 +523,7 @@ async def stream_quotes(
                 typ, quote = await anext(msg_gen)
 
                 while typ != 'trade':
+                    # take care to not unblock here until we get a real trade quote
                     typ, quote = await anext(msg_gen)
 
 
