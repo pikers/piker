@@ -503,7 +503,7 @@ class FspAdmin:
             },
         )
         dst_fsp_flume = Flume(
-            symbol=symbol,
+            mkt=symbol,
             _rt_shm_token=dst_shm.token,
             first_quote={},
 
