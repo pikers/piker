@@ -282,12 +282,11 @@ class Client:
         entries = await self._request('GET', '/symbols')
         syms = {kucoin_sym_to_fqsn(item['name']): KucoinMktPair(**item) for item in entries}
 
-        log.info('Kucoin market pairs fetched')
+        log.info(f' {syms.length} Kucoin market pairs fetched')
         return syms
 
     async def cache_pairs(
         self,
-        # normalize: bool = True,
     ) -> dict[str, KucoinMktPair]:
         '''
         Get cached pairs and convert keyed symbols into fqsns if ya want
