@@ -176,7 +176,7 @@ def get_config() -> BrokerConfig | None:
         log.warning('No config section found for kucoin in config')
         return None
 
-    return BrokerConfig(**section)
+    return BrokerConfig(**section).typecast()
 
 
 class Client:
@@ -448,7 +448,7 @@ async def stream_quotes(
         for sym in symbols:
             token, ping_interval = await client._get_ws_token()
             pairs = await client.cache_pairs()
-            pair = pairs[sym]: KucoinMktPair
+            pair: KucoinMktPair = pairs[sym]
             kucoin_sym = pair.symbol
 
             init_msgs = {
@@ -457,8 +457,8 @@ async def stream_quotes(
                 sym: {
                     'symbol_info': {
                         'asset_type': 'crypto',
-                        'price_tick_size': pair.baseIncrement,
-                        'lot_tick_size': pair.baseMinSize,
+                        'price_tick_size': float(pair.baseIncrement),
+                        'lot_tick_size': float(pair.baseMinSize),
                     },
                     'shm_write_opts': {'sum_tick_vml': False},
                     'fqsn': sym,
