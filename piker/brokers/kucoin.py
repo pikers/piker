@@ -448,7 +448,8 @@ async def stream_quotes(
         for sym in symbols:
             token, ping_interval = await client._get_ws_token()
             pairs = await client.cache_pairs()
-            kucoin_sym = pairs[sym].symbol
+            pair = pairs[sym]: KucoinMktPair
+            kucoin_sym = pair.symbol
 
             init_msgs = {
                 # pass back token, and bool, signalling if we're the writer
@@ -456,8 +457,8 @@ async def stream_quotes(
                 sym: {
                     'symbol_info': {
                         'asset_type': 'crypto',
-                        'price_tick_size': 0.0005,
-                        'lot_tick_size': 0.1,
+                        'price_tick_size': pair.baseIncrement,
+                        'lot_tick_size': pair.baseMinSize,
                     },
                     'shm_write_opts': {'sum_tick_vml': False},
                     'fqsn': sym,
