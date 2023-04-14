@@ -1250,6 +1250,11 @@ async def process_client_order_cmds(
 
                 pred = mk_check(trigger_price, last, action)
 
+                # NOTE: for dark orders currently we submit
+                # the triggered live order at a price 5 ticks
+                # above/below the L1 prices.
+                # TODO: make this configurable from our top level
+                # config, prolly in a .clearing` section?
                 spread_slap: float = 5
                 min_tick = float(flume.symbol.size_tick)
                 min_tick_digits = float_digits(min_tick)
