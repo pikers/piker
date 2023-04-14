@@ -258,9 +258,13 @@ class Client:
 
         '''
         token_type = 'private' if private else 'public'
-        data: dict[str, Any] | None = await self._request(
-            'POST', f'/bullet-{token_type}', 'v1'
-        )
+        try:
+            data: dict[str, Any] | None = await self._request(
+                'POST', f'/bullet-{token_type}', 'v1'
+            )
+        except Exception as e:
+            log.error(f'Error making request for Kucoin ws token -> {str(e)}')
+            return None
 
         if data and 'token' in data:
             # ping_interval is in ms
@@ -270,6 +274,7 @@ class Client:
             log.error(
                 f'Error making request for Kucoin ws token -> {data.json()["msg"]}'
             )
+
 
     async def _get_pairs(
         self,
