@@ -526,7 +526,6 @@ async def stream_quotes(
                     # take care to not unblock here until we get a real trade quote
                     typ, quote = await anext(msg_gen)
 
-
                 task_status.started((init_msgs, quote))
                 feed_is_live.set()
 
@@ -571,7 +570,7 @@ async def stream_messages(ws: NoBsWs, sym: str) -> AsyncGenerator[NoBsWs, dict]:
             continue
 
 
-        if msg.get('subject') != None:
+        if msg.get('subject'):
             msg = KucoinMsg(**msg)
             match msg.subject:
                 case 'trade.ticker':
