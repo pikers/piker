@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Guillermo Rodriguez (in stewardship for piker0)
+# Copyright (C) Guillermo Rodriguez (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -18,56 +18,40 @@
 Deribit backend.
 
 '''
-import json
+from __future__ import annotations
 import time
-import asyncio
 
-from contextlib import asynccontextmanager as acm, AsyncExitStack
+from contextlib import asynccontextmanager as acm
 from functools import partial
 from datetime import datetime
-from typing import Any, Optional, Iterable, Callable
+from typing import (
+    Any,
+    Optional,
+    Callable,
+)
 
 import pendulum
 import asks
 import trio
-from trio_typing import Nursery, TaskStatus
+from trio_typing import TaskStatus
 from fuzzywuzzy import process as fuzzy
 import numpy as np
+from tractor.trionics import (
+    broadcast_receiver,
+    maybe_open_context
+)
 
 from piker.data.types import Struct
 from piker.data._web_bs import (
-    NoBsWs,
-    open_autorecon_ws,
     open_jsonrpc_session
 )
 
-from .._util import resproc
-
 from piker import config
 from piker.log import get_logger
+from piker._cacheables import open_cached_client
 
-from tractor.trionics import (
-    broadcast_receiver,
-    BroadcastReceiver,
-    maybe_open_context
-)
-from tractor import to_asyncio
-
-from cryptofeed import FeedHandler
-
-from cryptofeed.defines import (
-    DERIBIT,
-    L1_BOOK, TRADES,
-    OPTION, CALL, PUT
-)
-from cryptofeed.symbols import Symbol
 
 log = get_logger(__name__)
-
-
-_spawn_kwargs = {
-    'infect_asyncio': True,
-}
 
 
 _url = 'https://www.deribit.com'
@@ -89,19 +73,20 @@ _ohlc_dtype = [
 
 
 class JSONRPCResult(Struct):
-    jsonrpc: str = '2.0'
     id: int
-    result: Optional[dict] = None
-    error: Optional[dict] = None
-    usIn: int 
-    usOut: int 
+    usIn: int
+    usOut: int
     usDiff: int
     testnet: bool
+    jsonrpc: str = '2.0'
+    result: Optional[dict] = None
+    error: Optional[dict] = None
+
 
 class JSONRPCChannel(Struct):
-    jsonrpc: str = '2.0'
     method: str
     params: dict
+    jsonrpc: str = '2.0'
 
 
 class KLinesResult(Struct):
@@ -114,6 +99,7 @@ class KLinesResult(Struct):
     ticks: list[int]
     volume: list[float]
 
+
 class Trade(Struct):
     trade_seq: int
     trade_id: str
@@ -125,9 +111,11 @@ class Trade(Struct):
     instrument_name: str
     index_price: float
     direction: str
-    combo_trade_id: Optional[int] = 0,
-    combo_id: Optional[str] = '',
     amount: float
+    combo_trade_id: Optional[int] = 0
+    combo_id: Optional[str] = ''
+    block_trade_id: str | None = ''
+
 
 class LastTradesResult(Struct):
     trades: list[Trade]
@@ -139,65 +127,12 @@ def deribit_timestamp(when):
     return int((when.timestamp() * 1000) + (when.microsecond / 1000))
 
 
-def str_to_cb_sym(name: str) -> Symbol:
-    base, strike_price, expiry_date, option_type = name.split('-')
-
-    quote = base
-
-    if option_type == 'put':
-        option_type = PUT 
-    elif option_type  == 'call':
-        option_type = CALL
-    else:
-        raise Exception("Couldn\'t parse option type")
-
-    return Symbol(
-        base, quote,
-        type=OPTION,
-        strike_price=strike_price,
-        option_type=option_type,
-        expiry_date=expiry_date,
-        expiry_normalize=False)
+def sym_fmt_piker_to_deribit(sym: str) -> str:
+    return sym.upper()
 
 
-def piker_sym_to_cb_sym(name: str) -> Symbol:
-    base, expiry_date, strike_price, option_type = tuple(
-        name.upper().split('-'))
-
-    quote = base
-
-    if option_type == 'P':
-        option_type = PUT 
-    elif option_type  == 'C':
-        option_type = CALL
-    else:
-        raise Exception("Couldn\'t parse option type")
-
-    return Symbol(
-        base, quote,
-        type=OPTION,
-        strike_price=strike_price,
-        option_type=option_type,
-        expiry_date=expiry_date.upper())
-
-
-def cb_sym_to_deribit_inst(sym: Symbol):
-    # cryptofeed normalized
-    cb_norm = ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z']
-
-    # deribit specific 
-    months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
-
-    exp = sym.expiry_date
-
-    # YYMDD
-    # 01234
-    year, month, day = (
-        exp[:2], months[cb_norm.index(exp[2:3])], exp[3:])
-
-    otype = 'C' if sym.option_type == CALL else 'P'
-
-    return f'{sym.base}-{day}{month}{year}-{sym.strike_price}-{otype}'
+def sym_fmt_deribit_to_piker(sym: str):
+    return sym.lower()
 
 
 def get_config() -> dict[str, Any]:
@@ -206,32 +141,30 @@ def get_config() -> dict[str, Any]:
 
     section = conf.get('deribit')
 
-    # TODO: document why we send this, basically because logging params for cryptofeed
-    conf['log'] = {}
-    conf['log']['disabled'] = True
-
     if section is None:
         log.warning(f'No config section found for deribit in {path}')
 
-    return conf 
+    return conf
 
 
 class Client:
 
-    def __init__(self, json_rpc: Callable) -> None:
+    def __init__(
+        self,
+        json_rpc: Callable,
+        append_hooks: Callable,
+        update_types: Callable,
+        key_id: str | None = None,
+        key_secret: str | None = None
+    ) -> None:
+
         self._pairs: dict[str, Any] = None
-
-        config = get_config().get('deribit', {})
-
-        if ('key_id' in config) and ('key_secret' in config):
-            self._key_id = config['key_id']
-            self._key_secret = config['key_secret']
-
-        else:
-            self._key_id = None
-            self._key_secret = None
+        self._key_id = key_id
+        self._key_secret = key_secret
 
         self.json_rpc = json_rpc
+        self.append_hooks = append_hooks
+        self.update_types = update_types
 
     @property
     def currencies(self):
@@ -278,7 +211,7 @@ class Client:
         """Place an order
         """
         params = {
-            'instrument_name': symbol.upper(),
+            'instrument_name': sym_fmt_piker_to_deribit(symbol),
             'amount': size,
             'type': 'limit',
             'price': price,
@@ -319,7 +252,7 @@ class Client:
         results = resp.result
 
         instruments = {
-            item['instrument_name'].lower(): item
+            sym_fmt_deribit_to_piker(item['instrument_name']): item
             for item in results
         }
 
@@ -350,8 +283,10 @@ class Client:
             limit=limit
         )
         # repack in dict form
-        return {item[0]['instrument_name'].lower(): item[0]
-                for item in matches}
+        return {
+            sym_fmt_deribit_to_piker(item[0]['instrument_name']): item[0]
+            for item in matches
+        }
 
     async def bars(
         self,
@@ -360,6 +295,7 @@ class Client:
         end_dt: Optional[datetime] = None,
         limit: int = 1000,
         as_np: bool = True,
+
     ) -> dict:
         instrument = symbol
 
@@ -377,7 +313,7 @@ class Client:
         resp = await self.json_rpc(
             'public/get_tradingview_chart_data',
             params={
-                'instrument_name': instrument.upper(),
+                'instrument_name': sym_fmt_piker_to_deribit(instrument),
                 'start_timestamp': start_time,
                 'end_timestamp': end_time,
                 'resolution': '1'
@@ -385,14 +321,8 @@ class Client:
 
         result = KLinesResult(**resp.result)
         new_bars = []
+
         for i in range(len(result.close)):
-
-            _open = result.open[i]
-            high = result.high[i]
-            low = result.low[i]
-            close = result.close[i]
-            volume = result.volume[i]
-
             row = [
                 (start_time + (i * (60 * 1000))) / 1000.0,  # time
                 result.open[i],
@@ -405,7 +335,7 @@ class Client:
 
             new_bars.append((i,) + tuple(row))
 
-        array = np.array(new_bars, dtype=_ohlc_dtype) if as_np else klines
+        array = np.array(new_bars, dtype=_ohlc_dtype) if as_np else new_bars
         return array
 
     async def last_trades(
@@ -416,11 +346,30 @@ class Client:
         resp = await self.json_rpc(
             'public/get_last_trades_by_instrument',
             params={
-                'instrument_name': instrument,
+                'instrument_name': sym_fmt_piker_to_deribit(instrument),
                 'count': count
             })
 
         return LastTradesResult(**resp.result)
+
+    async def get_book_summary(
+        self,
+        currency: str,
+        kind: str = 'option'
+    ):
+        return await self.json_rpc(
+            'public/get_book_summary_by_currency',
+            params={
+                'currency': currency,
+                'kind': kind
+            })
+
+
+
+class JSONRPCSubRequest(Struct):
+    method: str
+    params: dict
+    jsonrpc: str = '2.0'
 
 
 @acm
@@ -428,12 +377,24 @@ async def get_client(
     is_brokercheck: bool = False
 ) -> Client:
 
+    config = get_config().get('deribit', {})
+
+    ws_url = config.get('ws_url', _ws_url)
+    key_id = config.get('key_id', None)
+    key_secret = config.get('key_secret', None)
+
     async with (
         trio.open_nursery() as n,
         open_jsonrpc_session(
-            _testnet_ws_url, dtype=JSONRPCResult) as json_rpc
+            ws_url,
+            response_type=JSONRPCResult
+        ) as control_functions
     ):
-        client = Client(json_rpc)
+        client = Client(
+            *control_functions,
+            key_id=key_id,
+            key_secret=key_secret
+        )
 
         _refresh_token: Optional[str] = None
         _access_token: Optional[str] = None
@@ -446,7 +407,7 @@ async def get_client(
 
             https://docs.deribit.com/?python#authentication-2
             """
-            renew_time = 10
+            renew_time = 240
             access_scope = 'trade:read_write'
             _expiry_time = time.time()
             got_access = False
@@ -457,7 +418,7 @@ async def get_client(
                 if time.time() - _expiry_time < renew_time:
                     # if we are close to token expiry time
 
-                    if _refresh_token != None:
+                    if _refresh_token is not None:
                         # if we have a refresh token already dont need to send
                         # secret
                         params = {
@@ -467,7 +428,8 @@ async def get_client(
                         }
 
                     else:
-                        # we don't have refresh token, send secret to initialize
+                        # we don't have refresh token, send secret to
+                        # initialize
                         params = {
                             'grant_type': 'client_credentials',
                             'client_id': client._key_id,
@@ -475,7 +437,7 @@ async def get_client(
                             'scope': access_scope
                         }
 
-                    resp = await json_rpc('public/auth', params)
+                    resp = await client.json_rpc('public/auth', params)
                     result = resp.result
 
                     _expiry_time = time.time() + result['expires_in']
@@ -503,87 +465,75 @@ async def get_client(
 
 
 @acm
-async def open_feed_handler():
-    fh = FeedHandler(config=get_config())
-    yield fh
-    await to_asyncio.run_task(fh.stop_async)
-
-
-@acm
-async def maybe_open_feed_handler() -> trio.abc.ReceiveStream:
-    async with maybe_open_context(
-        acm_func=open_feed_handler,
-        key='feedhandler',
-    ) as (cache_hit, fh):
-        yield fh
-
-
-async def aio_price_feed_relay(
-    fh: FeedHandler,
-    instrument: Symbol,
-    from_trio: asyncio.Queue,
-    to_trio: trio.abc.SendChannel,
-) -> None:
-    async def _trade(data: dict, receipt_timestamp):
-        to_trio.send_nowait(('trade', {
-            'symbol': cb_sym_to_deribit_inst(
-                str_to_cb_sym(data.symbol)).lower(),
-            'last': data,
-            'broker_ts': time.time(),
-            'data': data.to_dict(),
-            'receipt': receipt_timestamp
-        }))
-
-    async def _l1(data: dict, receipt_timestamp):
-        to_trio.send_nowait(('l1', {
-            'symbol': cb_sym_to_deribit_inst(
-                str_to_cb_sym(data.symbol)).lower(),
-            'ticks': [
-                {'type': 'bid',
-                    'price': float(data.bid_price), 'size': float(data.bid_size)},
-                {'type': 'bsize',
-                    'price': float(data.bid_price), 'size': float(data.bid_size)},
-                {'type': 'ask',
-                    'price': float(data.ask_price), 'size': float(data.ask_size)},
-                {'type': 'asize',
-                    'price': float(data.ask_price), 'size': float(data.ask_size)}
-            ]
-        }))
-
-    fh.add_feed(
-        DERIBIT,
-        channels=[TRADES, L1_BOOK],
-        symbols=[piker_sym_to_cb_sym(instrument)],
-        callbacks={
-            TRADES: _trade,
-            L1_BOOK: _l1
-        })
-
-    if not fh.running:
-        fh.run(
-            start_loop=False,
-            install_signal_handlers=False)
-
-    # sync with trio
-    to_trio.send_nowait(None)
-
-    await asyncio.sleep(float('inf'))
-
-
-@acm
 async def open_price_feed(
     instrument: str
 ) -> trio.abc.ReceiveStream:
-    async with maybe_open_feed_handler() as fh:
-        async with to_asyncio.open_channel_from(
-            partial(
-                aio_price_feed_relay,
-                fh,
-                instrument
-            )
-        ) as (first, chan):
-            yield chan
 
+    instrument_db = sym_fmt_piker_to_deribit(instrument)
+
+    trades_chan = f'trades.{instrument_db}.raw'
+    book_chan = f'book.{instrument_db}.none.1.100ms'
+
+    channels = [trades_chan, book_chan]
+
+    send_chann, recv_chann = trio.open_memory_channel(0)
+    async def sub_hook(msg):
+        chan = msg.params['channel']
+        data = msg.params['data']
+        if chan == trades_chan:
+            await send_chann.send((
+                'trade', {
+                    'symbol': instrument,
+                    'last': data['price'],
+                    'brokerd_ts': time.time(),
+                    'ticks': [{
+                        'type': 'trade',
+                        'price': data['price'],
+                        'size': data['amount'],
+                        'broker_ts': data['timestamp']
+                    }]
+                }
+            ))
+            return True
+
+        elif chan == book_chan:
+            bid, bsize = data['bids'][0]
+            ask, asize = data['asks'][0]
+            await send_chann.send((
+                'l1', {
+                'symbol': instrument,
+                'ticks': [
+                    {'type': 'bid', 'price': bid, 'size': bsize},
+                    {'type': 'bsize', 'price': bid, 'size': bsize},
+                    {'type': 'ask', 'price': ask, 'size': asize},
+                    {'type': 'asize', 'price': ask, 'size': asize}
+                ]}
+            ))
+            return True
+
+        return False
+
+    async with open_cached_client('deribit') as client:
+
+        client.append_hooks({
+            'request': [sub_hook]
+        })
+        client.update_types({
+            'request': JSONRPCSubRequest
+        })
+
+        resp = await client.json_rpc(
+            'private/subscribe', {'channels': channels})
+
+        assert not resp.error
+
+        log.info(f'Subscribed to {channels}')
+
+        yield recv_chann
+
+        resp = await client.json_rpc('private/unsubscribe', {'channels': channels})
+
+        assert not resp.error
 
 @acm
 async def maybe_open_price_feed(
@@ -604,67 +554,65 @@ async def maybe_open_price_feed(
             yield feed
 
 
-
-async def aio_order_feed_relay(
-    fh: FeedHandler,
-    instrument: Symbol,
-    from_trio: asyncio.Queue,
-    to_trio: trio.abc.SendChannel,
-) -> None:
-    async def _fill(data: dict, receipt_timestamp):
-        breakpoint()
-
-    async def _order_info(data: dict, receipt_timestamp):
-        breakpoint()
-
-    fh.add_feed(
-        DERIBIT,
-        channels=[FILLS, ORDER_INFO],
-        symbols=[instrument.upper()],
-        callbacks={
-            FILLS: _fill,
-            ORDER_INFO: _order_info,
-        })
-
-    if not fh.running:
-        fh.run(
-            start_loop=False,
-            install_signal_handlers=False)
-
-    # sync with trio
-    to_trio.send_nowait(None)
-
-    await asyncio.sleep(float('inf'))
-
-
 @acm
-async def open_order_feed(
-    instrument: list[str]
-) -> trio.abc.ReceiveStream:
-    async with maybe_open_feed_handler() as fh:
-        async with to_asyncio.open_channel_from(
-            partial(
-                aio_order_feed_relay,
-                fh,
-                instrument
-            )
-        ) as (first, chan):
-            yield chan
-
-
-@acm
-async def maybe_open_order_feed(
+async def open_ticker_feed(
     instrument: str
 ) -> trio.abc.ReceiveStream:
 
-    # TODO: add a predicate to maybe_open_context
+    instrument_db = sym_fmt_piker_to_deribit(instrument)
+
+    ticker_chan = f'incremental_ticker.{instrument_db}'
+
+    channels = [ticker_chan]
+
+    send_chann, recv_chann = trio.open_memory_channel(0)
+    async def sub_hook(msg):
+        chann = msg.params['channel']
+        if chann == ticker_chan:
+            data = msg.params['data']
+            await send_chann.send((
+                'ticker', {
+                    'symbol': instrument,
+                    'data': data
+                }
+            ))
+            return True
+
+        return False
+
+    async with open_cached_client('deribit') as client:
+
+        client.append_hooks({
+            'request': [sub_hook]
+        })
+        client.update_types({
+            'request': JSONRPCSubRequest
+        })
+
+        resp = await client.json_rpc(
+            'private/subscribe', {'channels': channels})
+
+        assert not resp.error
+
+        log.info(f'Subscribed to {channels}')
+
+        yield recv_chann
+
+        resp = await client.json_rpc('private/unsubscribe', {'channels': channels})
+
+        assert not resp.error
+
+@acm
+async def maybe_open_ticker_feed(
+    instrument: str
+) -> trio.abc.ReceiveStream:
+
     async with maybe_open_context(
-        acm_func=open_order_feed,
+        acm_func=open_ticker_feed,
         kwargs={
-            'instrument': instrument,
-            'fh': fh
+            'instrument': instrument
         },
-        key=f'{instrument}-order',
+        key=f'{instrument}-ticker',
     ) as (cache_hit, feed):
         if cache_hit:
             yield broadcast_receiver(feed, 10)

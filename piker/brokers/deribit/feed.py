@@ -20,42 +20,28 @@ Deribit backend.
 '''
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
-from typing import Any, Optional, Callable
-import time
+from typing import (
+    Callable,
+)
 
 import trio
 from trio_typing import TaskStatus
 import pendulum
-from fuzzywuzzy import process as fuzzy
 import numpy as np
 import tractor
 
 from piker._cacheables import open_cached_client
 from piker.log import get_logger, get_console_log
-from piker.data import ShmArray
 from piker.brokers._util import (
-    BrokerError,
     DataUnavailable,
 )
 
-from cryptofeed import FeedHandler
-
-from cryptofeed.defines import (
-    DERIBIT, L1_BOOK, TRADES, OPTION, CALL, PUT
-)
-from cryptofeed.symbols import Symbol
 
 from .api import (
-    Client, Trade,
-    get_config,
-    str_to_cb_sym, piker_sym_to_cb_sym, cb_sym_to_deribit_inst,
+    Client,
+    Trade,
     maybe_open_price_feed
 )
-
-_spawn_kwargs = {
-    'infect_asyncio': True,
-}
-
 
 log = get_logger(__name__)
 
@@ -69,20 +55,24 @@ async def open_history_client(
     async with open_cached_client('deribit') as client:
 
         async def get_ohlc(
-            end_dt: Optional[datetime] = None,
-            start_dt: Optional[datetime] = None,
+            timeframe: float,
+            end_dt: datetime | None = None,
+            start_dt: datetime | None = None,
 
         ) -> tuple[
             np.ndarray,
             datetime,  # start
             datetime,  # end
         ]:
+            if timeframe != 60:
+                raise DataUnavailable('Only 1m bars are supported')
 
             array = await client.bars(
                 instrument,
                 start_dt=start_dt,
                 end_dt=end_dt,
             )
+
             if len(array) == 0:
                 raise DataUnavailable
 
@@ -110,10 +100,7 @@ async def stream_quotes(
 
     sym = symbols[0]
 
-    async with (
-        open_cached_client('deribit') as client,
-        send_chan as send_chan
-    ):
+    async with open_cached_client('deribit') as client:
 
         init_msgs = {
             # pass back token, and bool, signalling if we're the writer
@@ -121,21 +108,18 @@ async def stream_quotes(
             sym: {
                 'symbol_info': {
                     'asset_type': 'option',
-                    'price_tick_size': 0.0005
+                    'price_tick_size': 0.0005,
+                    'lot_tick_size': 0.1
                 },
                 'shm_write_opts': {'sum_tick_vml': False},
                 'fqsn': sym,
             },
         }
 
-        nsym = piker_sym_to_cb_sym(sym)
+
+        last_trades = (await client.last_trades(sym, count=1)).trades
 
         async with maybe_open_price_feed(sym) as stream:
-
-            cache = await client.cache_symbols()
-
-            last_trades = (await client.last_trades(
-                cb_sym_to_deribit_inst(nsym), count=1)).trades
 
             if len(last_trades) == 0:
                 last_trade = None
@@ -174,7 +158,7 @@ async def open_symbol_search(
     async with open_cached_client('deribit') as client:
 
         # load all symbols locally for fast search
-        cache = await client.cache_symbols()
+        await client.cache_symbols()
         await ctx.started()
 
         async with ctx.open_stream() as stream:
