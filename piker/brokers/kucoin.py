@@ -282,7 +282,7 @@ class Client:
         entries = await self._request('GET', '/symbols')
         syms = {kucoin_sym_to_fqsn(item['name']): KucoinMktPair(**item) for item in entries}
 
-        log.info(f' {syms.length} Kucoin market pairs fetched')
+        log.info(f' {len(syms)} Kucoin market pairs fetched')
         return syms
 
     async def cache_pairs(
@@ -342,7 +342,6 @@ class Client:
         kucoin_sym = fqsn_to_kucoin_sym(fqsn, self._pairs)
 
         url = f'/market/candles?type={type}&symbol={kucoin_sym}&startAt={start_dt}&endAt={end_dt}'
-        bars = []
 
         for i in range(10):
             data = await self._request(
@@ -358,7 +357,7 @@ class Client:
                     f'History call failed, backing off for {backoff_interval}s')
                 await trio.sleep(backoff_interval)
             else:
-                bars = data
+                bars: list[list[str]] = data
                 break
 
         # Map to OHLC values to dict then to np array
@@ -465,6 +464,7 @@ async def stream_quotes(
             }
             @acm
             async def subscribe(ws: wsproto.WSConnection):
+
                 @acm
                 async def open_ping_task(ws: wsproto.WSConnection):
                     '''
@@ -523,7 +523,6 @@ async def stream_quotes(
                 typ, quote = await anext(msg_gen)
 
                 while typ != 'trade':
-                    # TODO: use ``anext()`` when it lands in 3.10!
                     typ, quote = await anext(msg_gen)
 
 
