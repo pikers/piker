@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -46,7 +46,7 @@ from ._util import resproc, BrokerError, SymbolNotFound
 from ..log import (
     colorize_json,
 )
-from .util import (
+from ._util import (
     log,
     get_console_log,
 )
