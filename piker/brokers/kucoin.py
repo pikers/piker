@@ -21,14 +21,12 @@ Kucoin broker backend
 from typing import (
     Any,
     Callable,
-    Optional,
     Literal,
     AsyncGenerator
 )
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
 import time
-import math
 import base64
 import hmac
 import hashlib
@@ -168,7 +166,7 @@ class BrokerConfig(Struct, frozen=True):
 
 
 def get_config() -> BrokerConfig | None:
-    conf, _= config.load()
+    conf, _ = config.load()
 
     section = conf.get('kucoin')
 
@@ -176,7 +174,7 @@ def get_config() -> BrokerConfig | None:
         log.warning('No config section found for kucoin in config')
         return None
 
-    return BrokerConfig(**section).typecast()
+    return BrokerConfig(**section).copy()
 
 
 class Client:
@@ -209,8 +207,8 @@ class Client:
 
         passphrase = base64.b64encode(
             hmac.new(
-                self._key_secret.encode('utf-8'),
-                self._key_passphrase.encode('utf-8'),
+                self._config.key_secret.encode('utf-8'),
+                self._config.key_passphrase.encode('utf-8'),
                 hashlib.sha256,
             ).digest()
         )
@@ -218,7 +216,7 @@ class Client:
         return {
             'KC-API-SIGN': signature,
             'KC-API-TIMESTAMP': str(pendulum.now().int_timestamp * 1000),
-            'KC-API-KEY': self._key_id,
+            'KC-API-KEY': self._config.key_id,
             'KC-API-PASSPHRASE': passphrase,
             # XXX: Even if using the v1 api - this stays the same
             'KC-API-KEY-VERSION': '2',
@@ -249,7 +247,10 @@ class Client:
                 f'Error making request to {api_url} -> {res.json()["msg"]}')
             return res.json()['msg']
 
-    async def _get_ws_token(self, private: bool = False) -> tuple[str, int] | None:
+    async def _get_ws_token(
+        self,
+        private: bool = False,
+    ) -> tuple[str, int] | None:
         '''
         Fetch ws token needed for sub access:
         https://docs.kucoin.com/#apply-connect-token
@@ -274,7 +275,6 @@ class Client:
             log.error(
                 f'Error making request for Kucoin ws token -> {data.json()["msg"]}'
             )
-
 
     async def _get_pairs(
         self,
@@ -462,6 +462,7 @@ async def stream_quotes(
                     'fqsn': sym,
                 },
             }
+
             @acm
             async def subscribe(ws: wsproto.WSConnection):
 
@@ -553,6 +554,7 @@ def make_sub(sym, connect_id, level='l1') -> dict[str, str | bool] | None:
                 'response': True,
             }
 
+
 @trio_async_generator
 async def stream_messages(ws: NoBsWs, sym: str) -> AsyncGenerator[NoBsWs, dict]:
     timeouts = 0
@@ -568,7 +570,6 @@ async def stream_messages(ws: NoBsWs, sym: str) -> AsyncGenerator[NoBsWs, dict]:
                 await ws._connect()
 
             continue
-
 
         if msg.get('subject'):
             msg = KucoinMsg(**msg)
