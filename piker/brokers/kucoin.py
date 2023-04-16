@@ -530,7 +530,6 @@ async def stream_quotes(
 
 @acm
 async def subscribe(ws: wsproto.WSConnection, connect_id, sym):
-    # breakpoint()
     # level 2 sub
     await ws.send_msg({
         'id': connect_id,
