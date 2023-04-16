@@ -327,6 +327,29 @@ class Client:
         Get OHLC data and convert to numpy array for perffff:
         https://docs.kucoin.com/#get-klines
 
+        Kucoin bar data format:
+        [
+             "1545904980",             //Start time of the candle cycle 0
+             "0.058",                  //opening price 1
+             "0.049",                  //closing price 2
+             "0.058",                  //highest price 3
+             "0.049",                  //lowest price 4
+             "0.018",                  //Transaction volume 5
+             "0.000945"                //Transaction amount 6
+        ],
+
+        piker ohlc numpy array format:
+        [
+            ('index', int),
+            ('time', int),
+            ('open', float),
+            ('high', float),
+            ('low', float),
+            ('close', float),
+            ('volume', float),
+            ('bar_wap', float),  # will be zeroed by sampler if not filled
+        ]
+
         '''
         # Generate generic end and start time if values not passed
         # Currently gives us 12hrs of data
@@ -360,34 +383,30 @@ class Client:
                 bars: list[list[str]] = data
                 break
 
-        # Map to OHLC values to dict then to np array
         new_bars = []
-        for i, bar in enumerate(bars[::-1]):
-            data = {
-                'index': i,
-                'time': bar[0],
-                'open': bar[1],
-                'close': bar[2],
-                'high': bar[3],
-                'low': bar[4],
-                'volume': bar[5],
-                'amount': bar[6],
-                'bar_wap': 0.0,
-            }
+        reversed_bars = bars[::-1]
 
-            row = []
-            for _, (field_name, field_type) in enumerate(_ohlc_dtype):
-                value = data[field_name]
-
-                match field_name:
-                    case 'index':
-                        row.append(int(value))
-                    case 'time':
-                        row.append(value)
-                    case _:
-                        row.append(float(value))
-
-            new_bars.append(tuple(row))
+        for i, bar in enumerate(reversed_bars):
+            new_bars.append(
+                (
+                    # index
+                    i,
+                    # time
+                    int(bar[0]),
+                    # open
+                    float(bar[1]),
+                    # high
+                    float(bar[3]),
+                    # low
+                    float(bar[4]),
+                    # close
+                    float(bar[2]),
+                    # volume
+                    float(bar[5]),
+                    # bar_wap
+                    0.0,
+                )
+            )
 
         array = np.array(new_bars, dtype=_ohlc_dtype) if as_np else bars
         return array
