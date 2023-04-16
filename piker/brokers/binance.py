@@ -23,6 +23,7 @@ Binance backend
 """
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
+from functools import lru_cache
 from decimal import Decimal
 from typing import (
     Any, Union, Optional,
@@ -131,14 +132,16 @@ class Pair(Struct, frozen=True):
     permissions: list[str]
 
     @property
-    def size_tick(self) -> Decimal:
+    def price_tick(self) -> Decimal:
         # XXX: lul, after manually inspecting the response format we
         # just directly pick out the info we need
-        return Decimal(self.filters['PRICE_FILTER']['tickSize'].rstrip('0'))
+        step_size: str = self.filters['PRICE_FILTER']['tickSize'].rstrip('0')
+        return Decimal(step_size)
 
     @property
-    def price_tick(self) -> Decimal:
-        return Decimal(self.filters['LOT_SIZE']['stepSize'].rstrip('0'))
+    def size_tick(self) -> Decimal:
+        step_size: str = self.filters['LOT_SIZE']['stepSize'].rstrip('0')
+        return Decimal(step_size)
 
 
 class OHLC(Struct):
@@ -473,6 +476,7 @@ async def open_history_client(
         yield get_ohlc, {'erlangs': 3, 'rate': 3}
 
 
+@lru_cache
 async def get_mkt_info(
     fqme: str,
 
@@ -481,7 +485,6 @@ async def get_mkt_info(
     async with open_cached_client('binance') as client:
 
         pair: Pair = await client.exch_info(fqme.upper())
-
         mkt = MktPair(
             dst=Asset(
                 name=pair.baseAsset,
