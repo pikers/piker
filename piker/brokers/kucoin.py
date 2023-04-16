@@ -462,7 +462,7 @@ async def open_ping_task(ws: wsproto.WSConnection, ping_interval, connect_id):
         log.info(f'Starting ping task for kucoin ws connection')
         n.start_soon(ping_server)
 
-        yield ws
+        yield
 
         n.cancel_scope.cancel()
 
@@ -490,7 +490,7 @@ async def stream_quotes(
             open_autorecon_ws(
                 f'wss://ws-api-spot.kucoin.com/?token={token}&[connectId={connect_id}]'
             ) as ws,
-            open_ping_task(ws, ping_interval, connect_id) as ws,
+            open_ping_task(ws, ping_interval, connect_id),
         ):
             log.info('Starting up quote stream')
             # loop through symbols and sub to feedz
