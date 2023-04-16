@@ -387,6 +387,7 @@ class Client:
         new_bars = []
         reversed_bars = bars[::-1]
 
+        # Convert from kucoin format to piker format
         for i, bar in enumerate(reversed_bars):
             new_bars.append(
                 (
