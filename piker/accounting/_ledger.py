@@ -143,8 +143,8 @@ class TransactionLedger(UserDict):
 
     def iter_trans(
         self,
+        mkt_by_fqme: dict[str, MktPair],
         broker: str = 'paper',
-        mkt_by_fqme: dict[str, MktPair] | None = None,
 
     ) -> Generator[
         tuple[str, Transaction],
@@ -176,7 +176,12 @@ class TransactionLedger(UserDict):
             fqme = txdict.get('fqme', txdict['fqsn'])
             dt = parse(txdict['dt'])
             expiry = txdict.get('expiry')
-            mkt_by_fqme = mkt_by_fqme or {}
+
+            mkt = mkt_by_fqme.get(fqme)
+            if not mkt:
+                # we can't build a trans if we don't have
+                # the ``.sys: MktPair`` info, so skip.
+                continue
 
             yield (
                 tid,
@@ -189,29 +194,22 @@ class TransactionLedger(UserDict):
                     cost=txdict.get('cost', 0),
                     bs_mktid=txdict['bs_mktid'],
 
-                    # optional
-                    sym=mkt_by_fqme[fqme] if mkt_by_fqme else None,
+                    # TODO: change to .sys!
+                    sym=mkt,
                     expiry=parse(expiry) if expiry else None,
                 )
             )
 
     def to_trans(
         self,
-        broker: str = 'paper',
-
         **kwargs,
 
     ) -> dict[str, Transaction]:
         '''
-        Return the entire output from ``.iter_trans()`` in a ``dict``.
+        Return entire output from ``.iter_trans()`` in a ``dict``.
 
         '''
-        return dict(
-            self.iter_trans(
-                broker,
-                **kwargs,
-            )
-        )
+        return dict(self.iter_trans(**kwargs))
 
 
 @cm
