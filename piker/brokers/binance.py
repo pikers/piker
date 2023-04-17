@@ -23,7 +23,7 @@ Binance backend
 """
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
-from functools import lru_cache
+# from functools import lru_cache
 from decimal import Decimal
 from typing import (
     Any, Union, Optional,
@@ -335,7 +335,7 @@ class Client:
 @acm
 async def get_client() -> Client:
     client = Client()
-    log.info(f'Caching exchange infos..')
+    log.info('Caching exchange infos..')
     await client.exch_info()
     yield client
 
@@ -371,7 +371,13 @@ async def stream_messages(
             timeouts += 1
             if timeouts > 2:
                 log.error("binance feed seems down and slow af? rebooting...")
-                await ws._connect()
+                try:
+                    await ws._connect()
+                except BaseException as err:
+                    assert err
+                    # Wut in the f#@$% is going on here.
+                    with trio.CancelScope(shield=True):
+                        await tractor.breakpoint()
 
             continue
 
@@ -476,11 +482,19 @@ async def open_history_client(
         yield get_ohlc, {'erlangs': 3, 'rate': 3}
 
 
-@lru_cache
+# TODO: bleh, didn't we have an async version of
+# this at some point?
+# @lru_cache
 async def get_mkt_info(
     fqme: str,
 
+    _cache: dict[str, MktPair] = {}
+
 ) -> tuple[MktPair, Pair]:
+
+    both = _cache.get(fqme)
+    if both:
+        return both
 
     async with open_cached_client('binance') as client:
 
@@ -501,7 +515,9 @@ async def get_mkt_info(
             bs_mktid=pair.symbol,
             broker='binance',
         )
-        return mkt, pair
+        both = mkt, pair
+        _cache[fqme] = both
+        return both
 
 
 async def stream_quotes(
