@@ -75,6 +75,9 @@ def broker_init(
         subpath = f'{modpath}.{submodname}'
         enabled.append(subpath)
 
+        # TODO XXX: DO WE NEED THIS?
+        # enabled.append('piker.data.feed')
+
     # non-blocking setup of brokerd service nursery
     from ..data import _setup_persistent_brokerd
 
