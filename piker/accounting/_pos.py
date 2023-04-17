@@ -63,18 +63,41 @@ log = get_logger(__name__)
 
 class Position(Struct):
     '''
-    Basic pp (personal/piker position) model with attached clearing
-    transaction history.
+    An asset "position" model with attached clearing transaction history.
+
+    A financial "position" in `piker` terms is a summary of accounting
+    metrics computed from a transaction ledger; generally it describes
+    some acumulative "size" and "average price" from the summarized
+    underlying transaction set.
+
+    In piker we focus on the `.ppu` (price per unit) and the `.bep`
+    (break even price) including all transaction entries and exits since
+    the last "net-zero" size of the destination asset's holding.
+
+    This interface serves as an object API for computing and tracking
+    positions as well as supports serialization for storage in the local
+    file system (in TOML) and to interchange as a msg over IPC.
 
     '''
     symbol: Symbol | MktPair
 
+    @property
+    def mkt(self) -> MktPair:
+        return self.symbol
+
     # can be +ve or -ve for long/short
     size: float
 
-    # "breakeven price" above or below which pnl moves above and below
-    # zero for the entirety of the current "trade state".
+    # "price-per-unit price" above or below which pnl moves above and
+    # below zero for the entirety of the current "trade state". The ppu
+    # is only modified on "increases of" the absolute size of a position
+    # in one of a long/short "direction" (i.e. abs(.size_i) > 0 after
+    # the next transaction given .size was > 0 before that tx, and vice
+    # versa for -ve sized positions).
     ppu: float
+
+    # TODO: break-even-price support!
+    # bep: float
 
     # unique "backend system market id"
     bs_mktid: str
@@ -164,7 +187,8 @@ class Position(Struct):
             inline_table = toml.TomlDecoder().get_empty_inline_table()
 
             # serialize datetime to parsable `str`
-            inline_table['dt'] = str(data['dt'])
+            dtstr = inline_table['dt'] = str(data['dt'])
+            assert 'Datetime' not in dtstr
 
             # insert optional clear fields in column order
             for k in ['ppu', 'accum_size']:
@@ -191,7 +215,9 @@ class Position(Struct):
 
         '''
         clears = list(self.clears.values())
-        self.first_clear_dt = min(list(entry['dt'] for entry in clears))
+        self.first_clear_dt = min(
+            list(entry['dt'] for entry in clears)
+        )
         last_clear = clears[-1]
 
         csize = self.calc_size()
@@ -413,15 +439,21 @@ class Position(Struct):
         asset using the clears/trade event table; zero if expired.
 
         '''
-        size: float = 0
+        size: float = 0.
 
         # time-expired pps (normally derivatives) are "closed"
         # and have a zero size.
         if self.expired():
-            return 0
+            return 0.
 
         for tid, entry in self.clears.items():
             size += entry['size']
+            # XXX: do we need it every step?
+            # no right since rounding is an LT?
+            # size = self.mkt.quantize(
+            #     size + entry['size'],
+            #     quantity_type='size',
+            # )
 
         if self.split_ratio is not None:
             size = round(size * self.split_ratio)
@@ -450,7 +482,9 @@ class Position(Struct):
         # scan for the last "net zero" position by iterating
         # transactions until the next net-zero size, rinse, repeat.
         for tid, clear in self.clears.items():
-            size += clear['size']
+            size = float(
+                self.mkt.quantize(size + clear['size'])
+            )
             clears_since_zero.append((tid, clear))
 
             if size == 0:
@@ -504,8 +538,6 @@ class PpTable(Struct):
         trans: dict[str, Transaction],
         cost_scalar: float = 2,
 
-        force_mkt: MktPair | None = None,
-
     ) -> dict[str, Position]:
 
         pps = self.pps
@@ -523,15 +555,7 @@ class PpTable(Struct):
 
             # template the mkt-info presuming a legacy market ticks
             # if no info exists in the transactions..
-            mkt: MktPair | Symbol | None = force_mkt or t.sys
-            if not mkt:
-                mkt = MktPair.from_fqme(
-                    fqme,
-                    price_tick='0.01',
-                    size_tick='0.0',
-                    bs_mktid=bs_mktid,
-                )
-
+            mkt: MktPair = t.sys
             pp = pps.get(bs_mktid)
             if not pp:
                 # if no existing pp, allocate fresh one.
@@ -633,14 +657,18 @@ class PpTable(Struct):
 
     def to_toml(
         self,
+        active: dict[str, Position] | None = None,
+
     ) -> dict[str, Any]:
 
-        active, closed = self.dump_active()
+        if active is None:
+            active, _ = self.dump_active()
 
         # ONLY dict-serialize all active positions; those that are
         # closed we don't store in the ``pps.toml``.
         to_toml_dict = {}
 
+        pos: Position
         for bs_mktid, pos in active.items():
 
             # keep the minimal amount of clears that make up this
@@ -650,6 +678,8 @@ class PpTable(Struct):
 
             # serialize to pre-toml form
             fqme, asdict = pos.to_pretoml()
+
+            # assert 'Datetime' not in asdict['dt']
             log.info(f'Updating active pp: {fqme}')
 
             # XXX: ugh, it's cuz we push the section under
@@ -667,7 +697,9 @@ class PpTable(Struct):
         # TODO: show diff output?
         # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
         # active, closed_pp_objs = table.dump_active()
-        pp_entries = self.to_toml()
+
+        active, closed = self.dump_active()
+        pp_entries = self.to_toml(active=active)
         if pp_entries:
             log.info(
                 f'Updating positions in ``{self.conf_path}``:\n'
@@ -687,6 +719,12 @@ class PpTable(Struct):
                 self.conf.update(entries)
 
             self.conf.update(pp_entries)
+
+            # drop any entries that are computed as net-zero
+            # we don't care about storing in the pps file.
+            if closed:
+                for fqme in closed:
+                    self.conf.pop(fqme, None)
 
         # if there are no active position entries according
         # to the toml dump output above, then clear the config
