@@ -72,7 +72,8 @@ class Transaction(Struct, frozen=True):
     def fqme(self) -> str:
         return self.fqsn
 
-    # TODO: drop the Symbol type
+    # TODO: drop the Symbol type, construct using
+    # t.sys (the transaction system)
 
     # the underlying "transaction system", normally one of a ``MktPair``
     # (a description of a tradable double auction) or a ledger-recorded
@@ -93,6 +94,10 @@ class Transaction(Struct, frozen=True):
 
     def to_dict(self) -> dict:
         dct = super().to_dict()
+
+        # TODO: switch to sys!
+        dct.pop('sym')
+
         # ensure we use a pendulum formatted
         # ISO style str here!@
         dct['dt'] = str(self.dt)
@@ -122,11 +127,24 @@ class TransactionLedger(UserDict):
 
         '''
         with self.file_path.open(mode='w') as fp:
+
+            # rewrite the key name to fqme if needed
+            fqsn: str = self.data.get('fqsn')
+            if fqsn:
+                self.data['fqme'] = fqsn
+
             toml.dump(self.data, fp)
+
+    def update_from_t(
+        self,
+        t: Transaction,
+    ) -> None:
+        self.data[t.tid] = t.to_dict()
 
     def iter_trans(
         self,
         broker: str = 'paper',
+        mkt_by_fqme: dict[str, MktPair] | None = None,
 
     ) -> Generator[
         tuple[str, Transaction],
@@ -158,6 +176,7 @@ class TransactionLedger(UserDict):
             fqme = txdict.get('fqme', txdict['fqsn'])
             dt = parse(txdict['dt'])
             expiry = txdict.get('expiry')
+            mkt_by_fqme = mkt_by_fqme or {}
 
             yield (
                 tid,
@@ -171,7 +190,7 @@ class TransactionLedger(UserDict):
                     bs_mktid=txdict['bs_mktid'],
 
                     # optional
-                    sym=None,
+                    sym=mkt_by_fqme[fqme] if mkt_by_fqme else None,
                     expiry=parse(expiry) if expiry else None,
                 )
             )
@@ -180,12 +199,19 @@ class TransactionLedger(UserDict):
         self,
         broker: str = 'paper',
 
+        **kwargs,
+
     ) -> dict[str, Transaction]:
         '''
         Return the entire output from ``.iter_trans()`` in a ``dict``.
 
         '''
-        return dict(self.iter_trans())
+        return dict(
+            self.iter_trans(
+                broker,
+                **kwargs,
+            )
+        )
 
 
 @cm
