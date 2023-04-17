@@ -973,6 +973,12 @@ async def process_trade_msg(
     client: OrderClient,
     msg: dict,
 
+    # emit linux DE notification?
+    # XXX: currently my experience with `dunst` is that this
+    # is horrible slow and clunky and invasive and noisy so i'm
+    # disabling it for now until we find a better UX solution..
+    do_notify: bool = False,
+
 ) -> tuple[Dialog, Status]:
 
     fmsg = pformat(msg)
@@ -1092,7 +1098,8 @@ async def process_trade_msg(
             )
             mode.lines.remove_line(uuid=oid)
             msg.req = req
-            await notify_from_ems_status_msg(msg)
+            if do_notify:
+                await notify_from_ems_status_msg(msg)
 
         # response to completed 'dialog' for order request
         case Status(
@@ -1101,7 +1108,8 @@ async def process_trade_msg(
             req=req,
         ):
             msg.req = Order(**req)
-            await notify_from_ems_status_msg(msg)
+            if do_notify:
+                await notify_from_ems_status_msg(msg)
             mode.lines.remove_line(uuid=oid)
 
         # each clearing tick is responded individually
