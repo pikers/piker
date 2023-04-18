@@ -11,7 +11,8 @@
 # GNU Affero General Public License for more details.
 
 # You should have received a copy of the GNU Affero General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# along with this program.  If not, see
+# <https://www.gnu.org/licenses/>.
 
 '''
 Kucoin broker backend
@@ -234,7 +235,8 @@ class Client:
 
         '''
         if self._config:
-            headers = self._gen_auth_req_headers(action, endpoint, api_v)
+            headers = self._gen_auth_req_headers(
+                action, endpoint, api_v)
 
         api_url = f'https://api.kucoin.com/api/{api_v}{endpoint}'
 
@@ -264,7 +266,8 @@ class Client:
                 'POST', f'/bullet-{token_type}', 'v1'
             )
         except Exception as e:
-            log.error(f'Error making request for Kucoin ws token -> {str(e)}')
+            log.error(
+                f'Error making request for Kucoin ws token -> {str(e)}')
             return None
 
         if data and 'token' in data:
@@ -360,7 +363,8 @@ class Client:
             end_dt = pendulum.now('UTC').add(minutes=1)
 
         if start_dt is None:
-            start_dt = end_dt.start_of('minute').subtract(minutes=limit)
+            start_dt = end_dt.start_of(
+                'minute').subtract(minutes=limit)
 
         start_dt = int(start_dt.timestamp())
         end_dt = int(end_dt.timestamp())
@@ -412,11 +416,14 @@ class Client:
                 )
             )
 
-        array = np.array(new_bars, dtype=_ohlc_dtype) if as_np else bars
+        array = np.array(
+            new_bars,
+            dtype=_ohlc_dtype) if as_np else bars
         return array
 
 
-def fqsn_to_kucoin_sym(fqsn: str, pairs: dict[str, KucoinMktPair]) -> str:
+def fqsn_to_kucoin_sym(
+        fqsn: str, pairs: dict[str, KucoinMktPair]) -> str:
     pair_data = pairs[fqsn]
     return pair_data.baseCurrency + '-' + pair_data.quoteCurrency
 
@@ -477,7 +484,8 @@ async def stream_quotes(
     feed_is_live: trio.Event,
     loglevel: str = '',
     # startup sync
-    task_status: TaskStatus[tuple[dict, dict]] = trio.TASK_STATUS_IGNORED,
+    task_status: TaskStatus[tuple[dict, dict]
+                            ] = trio.TASK_STATUS_IGNORED,
 ) -> None:
     '''
     Required piker api to stream real-time data.
@@ -557,7 +565,7 @@ async def subscribe(ws: wsproto.WSConnection, connect_id, sym):
 
     # unsub
     if ws.connected():
-        log.info(f'Unsubscribing to {syn} feed')
+        log.info(f'Unsubscribing to {sym} feed')
         await ws.send_msg(
             {
                 'id': connect_id,
@@ -580,7 +588,8 @@ async def stream_messages(ws: NoBsWs, sym: str) -> AsyncGenerator[NoBsWs, dict]:
         if cs.cancelled_caught:
             timeouts += 1
             if timeouts > 2:
-                log.error('kucoin feed is sh**ing the bed... rebooting...')
+                log.error(
+                    'kucoin feed is sh**ing the bed... rebooting...')
                 await ws._connect()
 
             continue
