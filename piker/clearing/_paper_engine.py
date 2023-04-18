@@ -14,10 +14,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""
-Fake trading for forward testing.
+'''
+Fake trading: a full forward testing simulation engine.
 
-"""
+We can real-time emulate any mkt conditions you want bruddr B)
+Just slide us the model que quieres..
+
+'''
 from collections import defaultdict
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
@@ -567,11 +570,16 @@ async def trades_dialogue(
 
         # update all transactions with mkt info before
         # loading any pps
-        mkt_by_fqme: dict[str, MktPair | None] = {}
-        for tid, tdict in ledger.data.items():
+        mkt_by_fqme: dict[str, MktPair] = {}
+        if fqme:
+            mkt, _ = await brokermod.get_mkt_info(fqme.rstrip(f'.{broker}'))
+            mkt_by_fqme[fqme] = mkt
 
+        # for each sym in the ledger load it's `MktPair` info
+        for tid, tdict in ledger.data.items():
             # TODO: switch this to fqme
             l_fqme = tdict['fqsn']
+
             if (
                 gmi
                 and l_fqme not in mkt_by_fqme
@@ -680,7 +688,7 @@ async def open_paperboi(
     if not fqme:
         assert broker, 'One of `broker` or `fqme` is required siss..!'
     else:
-        broker, symbol, expiry = unpack_fqme(fqme)
+        broker, _, _, _ = unpack_fqme(fqme)
 
     we_spawned: bool = False
     service_name = f'paperboi.{broker}'
