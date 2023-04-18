@@ -55,6 +55,8 @@ import pendulum
 
 from piker import config
 from piker.accounting import (
+    dec_digits,
+    digits_to_dec,
     Position,
     Transaction,
     open_trade_ledger,
@@ -73,8 +75,8 @@ from piker.clearing._messages import (
     BrokerdFill,
     BrokerdError,
 )
-from piker.accounting._mktinfo import (
-    Symbol,
+from piker.accounting import (
+    MktPair,
 )
 from .api import (
     _accounts2clients,
@@ -433,7 +435,7 @@ async def update_and_audit_msgs(
                 # raise ValueError(
                 log.error(
                     f'UNEXPECTED POSITION says IB:\n'
-                    'Maybe they LIQUIDATED YOU or your missing ledger records?\n'
+                    'Maybe they LIQUIDATED YOU or are missing ledger txs?\n'
                     f'PIKER:\n{pikerfmtmsg}\n\n'
                 )
             msgs.append(msg)
@@ -1203,48 +1205,38 @@ def norm_trade_records(
         if asset_type == 'FUT':
             # (flex) ledger entries don't have any simple 3-char key?
             symbol = record['symbol'][:3]
+            asset_type: str = 'future'
+
+        elif asset_type == 'STK':
+            asset_type: str = 'stock'
 
         # try to build out piker fqsn from record.
-        expiry = record.get(
-            'lastTradeDateOrContractMonth') or record.get('expiry')
+        expiry = (
+            record.get('lastTradeDateOrContractMonth')
+            or record.get('expiry')
+        )
+
         if expiry:
             expiry = str(expiry).strip(' ')
             suffix = f'{exch}.{expiry}'
             expiry = pendulum.parse(expiry)
 
         # src: str = record['currency']
+        price_tick: Decimal = digits_to_dec(dec_digits(price))
 
-        # price_tick_digits = float_digits(price)
-        tick_size = Decimal(
-            Decimal(10)**Decimal(str(price)).as_tuple().exponent
+        pair = MktPair.from_fqme(
+            fqme=f'{symbol}.{suffix}.ib',
+            bs_mktid=str(conid),
+            _atype=asset_type,
+
+            price_tick=price_tick,
+            # NOTE: for "legacy" assets, volume is normally discreet, not
+            # a float, but we keep a digit in case the suitz decide
+            # to get crazy and change it; we'll be kinda ready
+            # schema-wise..
+            size_tick='1',
         )
 
-        # TODO: convert to MktPair!!!
-        pair = Symbol.from_fqsn(
-            fqsn=f'{symbol}.{suffix}.ib',
-            info={
-                'tick_size': tick_size,
-
-                # NOTE: for "legacy" assets, volume is normally discreet, not
-                # a float, but we keep a digit in case the suitz decide
-                # to get crazy and change it; we'll be kinda ready
-                # schema-wise..
-                'lot_tick_size': 0.0,
-
-                # TODO: remove when we switching from
-                # ``Symbol`` -> ``MktPair``
-                'asset_type': asset_type,
-
-                # # TODO: figure out a target fin-type name
-                # # set and normalize to that here!
-                # 'dst_type': asset_type.lower(),
-
-                # # starting to use new key naming as in ``MktPair``
-                # # type have drafted...
-                # 'src': src,
-                # 'src_type': 'fiat',
-            },
-        )
         fqme = pair.fqme
 
         # NOTE: for flex records the normal fields for defining an fqme
