@@ -54,6 +54,9 @@ _derivs: list[str] = [
     'continuous_future',
     'option',
     'futures_option',
+
+    # if we can't figure it out, presume the worst XD
+    'unknown',
 ]
 
 # NOTE: a tag for other subsystems to try
@@ -141,6 +144,39 @@ class Asset(Struct, frozen=True):
         return Decimal(size).quantize(
             Decimal(f'1.{"0".ljust(digits, "0")}'),
             rounding=ROUND_HALF_EVEN
+        )
+
+    @classmethod
+    def guess_from_mkt_ep_key(
+        cls,
+        mkt_ep_key: str,
+        atype: str | None = None,
+
+    ) -> Asset:
+        '''
+        A hacky guess method for presuming a (target) asset's properties
+        based on either the actualy market endpoint key, or config settings
+        from the user.
+
+        '''
+        atype = atype or 'unknown'
+
+        # attempt to strip off any source asset
+        # via presumed syntax of:
+        # - <dst>/<src>
+        # - <dst>.<src>
+        # - etc.
+        for char in ['/', '.']:
+            dst, _, src = mkt_ep_key.partition(char)
+            if src:
+                if not atype:
+                    atype = 'fiat'
+                break
+
+        return Asset(
+            name=dst,
+            atype=atype,
+            tx_tick=Decimal('0.01'),
         )
 
 
@@ -269,15 +305,28 @@ class MktPair(Struct, frozen=True):
     def from_fqme(
         cls,
         fqme: str,
+
         price_tick: float | str,
         size_tick: float | str,
         bs_mktid: str,
 
+        broker: str | None = None,
         **kwargs,
 
     ) -> MktPair:
 
-        broker, key, suffix = unpack_fqme(fqme)
+        _fqme: str = fqme
+        if (
+            broker
+            and broker not in fqme
+        ):
+            _fqme = f'{fqme}.{broker}'
+
+        broker, mkt_ep_key, venue, suffix = unpack_fqme(_fqme)
+        dst: Asset = Asset.guess_from_mkt_ep_key(
+            mkt_ep_key,
+            atype=kwargs.get('_atype'),
+        )
 
         # XXX: loading from a fqme string will
         # leave this pair as "un resolved" meaning
@@ -285,13 +334,21 @@ class MktPair(Struct, frozen=True):
         # which we expect to be filled in by some
         # backend client with access to that data-info.
         return cls(
-            dst=key,  # not resolved
+            # XXX: not resolved to ``Asset`` :(
+            dst=dst,
+
+            broker=broker,
+            venue=venue,
+            # XXX NOTE: we presume this token
+            # if the expiry for now!
+            expiry=suffix,
+
             price_tick=price_tick,
             size_tick=size_tick,
             bs_mktid=bs_mktid,
-            broker=broker,
 
             **kwargs,
+
         ).copy()
 
     @property
@@ -382,6 +439,14 @@ class MktPair(Struct, frozen=True):
         ])
 
     @property
+    def bs_fqme(self) -> str:
+        '''
+        FQME sin broker part XD
+
+        '''
+        return self.fqme.rstrip(f'.{self.broker}')
+
+    @property
     def fqsn(self) -> str:
         return self.fqme
 
@@ -428,7 +493,9 @@ class MktPair(Struct, frozen=True):
 def unpack_fqme(
     fqme: str,
 
-) -> tuple[str, str, str]:
+    broker: str | None = None
+
+) -> tuple[str, ...]:
     '''
     Unpack a fully-qualified-symbol-name to ``tuple``.
 
@@ -442,15 +509,24 @@ def unpack_fqme(
     match tokens:
         case [mkt_ep, broker]:
             # probably crypto
-            # mkt_ep, broker = tokens
             return (
                 broker,
                 mkt_ep,
+                '',
                 '',
             )
 
         # TODO: swap venue and suffix/deriv-info here?
         case [mkt_ep, venue, suffix, broker]:
+            pass
+
+        # handle `bs_mktid` + `broker` input case
+        case [
+            mkt_ep, venue, suffix
+        ] if (
+            broker
+            and suffix != broker
+        ):
             pass
 
         case [mkt_ep, venue, broker]:
@@ -461,12 +537,11 @@ def unpack_fqme(
 
     return (
         broker,
-        '.'.join([mkt_ep, venue]),
+        mkt_ep,
+        venue,
+        # '.'.join([mkt_ep, venue]),
         suffix,
     )
-
-
-unpack_fqsn = unpack_fqme
 
 
 class Symbol(Struct):
@@ -485,26 +560,25 @@ class Symbol(Struct):
     broker_info: dict[str, dict[str, Any]] = {}
 
     @classmethod
-    def from_fqsn(
+    def from_fqme(
         cls,
         fqsn: str,
         info: dict[str, Any],
 
     ) -> Symbol:
-        broker, key, suffix = unpack_fqsn(fqsn)
+        broker, mktep, venue, suffix = unpack_fqme(fqsn)
         tick_size = info.get('price_tick_size', 0.01)
         lot_size = info.get('lot_tick_size', 0.0)
 
         return Symbol(
-            key=key,
+            broker=broker,
+            key=mktep,
             tick_size=tick_size,
             lot_tick_size=lot_size,
+            venue=venue,
             suffix=suffix,
             broker_info={broker: info},
         )
-
-    # compat name mapping
-    from_fqme = from_fqsn
 
     @property
     def type_key(self) -> str:
