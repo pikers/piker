@@ -145,7 +145,7 @@ class Position(Struct):
         # drop symbol obj in serialized form
         s = d.pop('symbol')
         fqme = s.fqme
-        broker, key, suffix = unpack_fqme(fqme)
+        broker, mktep, venue, suffix = unpack_fqme(fqme)
 
         if isinstance(s, Symbol):
             sym_info = s.broker_info[broker]

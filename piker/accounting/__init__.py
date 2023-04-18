@@ -32,17 +32,27 @@ from ._pos import (
     Position,
     PpTable,
 )
+from ._mktinfo import (
+    Asset,
+    dec_digits,
+    digits_to_dec,
+    MktPair,
+)
 
 log = get_logger(__name__)
 
 __all__ = [
+    'Asset',
+    'dec_digits',
+    'digits_to_dec',
+    'MktPair',
+    'Position',
+    'PpTable',
     'Transaction',
     'TransactionLedger',
-    'open_trade_ledger',
-    'PpTable',
-    'open_pps',
     'load_pps_from_ledger',
-    'Position',
+    'open_pps',
+    'open_trade_ledger',
 ]
 
 
