@@ -238,7 +238,7 @@ async def open_ems(
     broker control client-API.
 
     '''
-    broker, symbol, suffix = unpack_fqme(fqme)
+    broker, mktep, venue, suffix = unpack_fqme(fqme)
 
     async with maybe_open_emsd(
         broker,

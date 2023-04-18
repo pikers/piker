@@ -383,7 +383,7 @@ class Router(Struct):
         brokermod: ModuleType,
         portal: tractor.Portal,
         exec_mode: str,
-        symbol: str,
+        fqme: str,
         loglevel: str,
 
     ) -> None:
@@ -424,7 +424,7 @@ class Router(Struct):
             # actor to simulate the real IPC load it'll have when also
             # pulling data from feeds
             open_trades_endpoint = paper.open_paperboi(
-                fqme='.'.join([symbol, broker]),
+                fqme=fqme,
                 loglevel=loglevel,
             )
 
@@ -522,15 +522,13 @@ class Router(Struct):
         indefinitely.
 
         '''
-        broker, symbol, suffix = unpack_fqme(fqme)
-
         async with (
             maybe_open_feed(
                 [fqme],
                 loglevel=loglevel,
             ) as feed,
         ):
-            brokername, _, _ = unpack_fqme(fqme)
+            brokername, _, _, _ = unpack_fqme(fqme)
             brokermod = feed.mods[brokername]
             broker = brokermod.name
             portal = feed.portals[brokermod]
@@ -545,7 +543,7 @@ class Router(Struct):
                 brokermod=brokermod,
                 portal=portal,
                 exec_mode=exec_mode,
-                symbol=symbol,
+                fqme=fqme,
                 loglevel=loglevel,
             ) as relay:
 
@@ -1435,7 +1433,7 @@ async def _emsd_main(
     global _router
     assert _router
 
-    broker, symbol, suffix = unpack_fqme(fqme)
+    broker, _, _, _ = unpack_fqme(fqme)
 
     # TODO: would be nice if in tractor we can require either a ctx arg,
     # or a named arg with ctx in it and a type annotation of
