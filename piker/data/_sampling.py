@@ -38,8 +38,8 @@ from tractor.trionics import (
 import trio
 from trio_typing import TaskStatus
 
-from ..log import (
-    get_logger,
+from ._util import (
+    log,
     get_console_log,
 )
 from ..service import maybe_spawn_daemon
@@ -49,8 +49,6 @@ if TYPE_CHECKING:
         ShmArray,
     )
     from .feed import _FeedsBus
-
-log = get_logger(__name__)
 
 
 # highest frequency sample step is 1 second by default, though in

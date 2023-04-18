@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-abstractions for organizing, managing and generally operating-on
+Public abstractions for organizing, managing and generally operating-on
 real-time data processing data-structures.
 
 "Streams, flumes, cascades and flows.."
@@ -35,8 +35,8 @@ from ..accounting._mktinfo import (
     MktPair,
     Symbol,
 )
-from ..log import (
-    get_logger,
+from ._util import (
+    log,
 )
 from .types import Struct
 from ._sharedmem import (
@@ -52,8 +52,6 @@ from ._sharedmem import (
 if TYPE_CHECKING:
     # from pyqtgraph import PlotItem
     from .feed import Feed
-
-log = get_logger(__name__)
 
 
 # TODO: ideas for further abstractions as per

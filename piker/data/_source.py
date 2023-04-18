@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -18,22 +18,10 @@
 numpy data source coversion helpers.
 """
 from __future__ import annotations
-from decimal import (
-    Decimal,
-    ROUND_HALF_EVEN,
-)
-from typing import Any
 
 from bidict import bidict
 import numpy as np
 
-from .types import Struct
-from ..accounting._mktinfo import (
-    # mkfqsn,
-    unpack_fqsn,
-    # digits_to_dec,
-    float_digits,
-)
 
 ohlc_fields = [
     ('time', float),

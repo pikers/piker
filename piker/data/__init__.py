@@ -25,7 +25,7 @@ sharing live streams over a network.
 import tractor
 import trio
 
-from ..log import (
+from ._util import (
     get_console_log,
 )
 from ._normalize import iterticks

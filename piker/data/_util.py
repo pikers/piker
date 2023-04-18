@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -14,28 +14,21 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""
-Ingestion, for dataz.
+'''
+Data layer module commons.
 
-Api layer likely in here...
+'''
+from functools import partial
 
-"""
-from types import ModuleType
-from importlib import import_module
+from ..log import (
+    get_logger,
+    get_console_log,
+)
+subsys: str = 'piker.data'
 
-from ._util import get_logger
+log = get_logger(subsys)
 
-log = get_logger(__name__)
-
-__ingestors__ = [
-    'marketstore',
-]
-
-
-def get_ingestormod(name: str) -> ModuleType:
-    """Return the imported ingestor module by name.
-    """
-    module = import_module('.' + name, 'piker.data')
-    # we only allow monkeying because it's for internal keying
-    module.name = module.__name__.split('.')[-1]
-    return module
+get_console_log = partial(
+    get_console_log,
+    name=subsys,
+)

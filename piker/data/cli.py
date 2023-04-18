@@ -32,12 +32,9 @@ from ..service.marketstore import (
 )
 from ..cli import cli
 from .. import watchlists as wl
-from ..log import (
-    get_logger,
+from ._util import (
+    log,
 )
-
-
-log = get_logger(__name__)
 
 
 @cli.command()

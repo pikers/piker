@@ -44,11 +44,8 @@ from trio_websocket._impl import (
     ConnectionTimeout,
 )
 
-from ..log import get_logger
-
+from ._util import log
 from .types import Struct
-
-log = get_logger(__name__)
 
 
 class NoBsWs:

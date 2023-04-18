@@ -32,12 +32,9 @@ import numpy as np
 from numpy.lib import recfunctions as rfn
 import tractor
 
-from ..log import get_logger
+from ._util import log
 from ._source import base_iohlc_dtype
 from .types import Struct
-
-
-log = get_logger(__name__)
 
 
 # how  much is probably dependent on lifestyle
