@@ -676,8 +676,8 @@ class Client:
         # fqsn parsing stage
         # ------------------
         if '.ib' in pattern:
-            from ..accounting._mktinfo import unpack_fqsn
-            _, symbol, expiry = unpack_fqsn(pattern)
+            from ..accounting._mktinfo import unpack_fqme
+            _, symbol, venue, expiry = unpack_fqme(pattern)
 
         else:
             symbol = pattern
@@ -857,8 +857,17 @@ class Client:
         self,
         symbol: str,
 
-    ) -> tuple[Contract, Ticker, ContractDetails]:
+    ) -> tuple[
+        Contract,
+        Ticker,
+        ContractDetails,
+    ]:
+        '''
+        Get summary (meta) data for a given symbol str including
+        ``Contract`` and its details and a (first snapshot of the)
+        ``Ticker``.
 
+        '''
         contract = (await self.find_contracts(symbol))[0]
         ticker: Ticker = self.ib.reqMktData(
             contract,

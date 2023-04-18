@@ -14,10 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""
-Position info and display
+'''
+Position (pos) info and display to track ur PnLz B)
 
-"""
+'''
 from __future__ import annotations
 from copy import copy
 from dataclasses import dataclass

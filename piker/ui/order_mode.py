@@ -1002,7 +1002,10 @@ async def process_trade_msg(
             )
             tracker = mode.trackers[msg['account']]
             tracker.live_pp.update_from_msg(msg)
-            tracker.update_from_pp(set_as_startup=True)  # status/pane UI
+            tracker.update_from_pp(
+                set_as_startup=True,
+            )
+            # status/pane UI
             mode.pane.update_status_ui(tracker)
 
             if tracker.live_pp.size:

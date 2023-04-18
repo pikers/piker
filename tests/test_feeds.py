@@ -15,7 +15,7 @@ from piker.data import (
 )
 from piker.data.flows import Flume
 from piker.accounting._mktinfo import (
-    unpack_fqsn,
+    unpack_fqme,
 )
 
 
@@ -54,7 +54,7 @@ def test_multi_fqsn_feed(
 
     brokers = set()
     for fqme in fqmes:
-        brokername, key, suffix = unpack_fqsn(fqme)
+        brokername, *_ = unpack_fqme(fqme)
         brokers.add(brokername)
 
     async def main():

@@ -28,7 +28,7 @@ from ..service import maybe_spawn_brokerd
 from . import _event
 from ._exec import run_qtractor
 from ..data.feed import install_brokerd_search
-from ..accounting._mktinfo import unpack_fqsn
+from ..accounting._mktinfo import unpack_fqme
 from . import _search
 from ._chart import GodWidget
 from ..log import get_logger
@@ -101,7 +101,7 @@ async def _async_main(
 
     needed_brokermods: dict[str, ModuleType] = {}
     for fqsn in syms:
-        brokername, *_ = unpack_fqsn(fqsn)
+        brokername, *_ = unpack_fqme(fqsn)
         needed_brokermods[brokername] = brokers[brokername]
 
     async with (
