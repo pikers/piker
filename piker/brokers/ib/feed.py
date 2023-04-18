@@ -714,6 +714,43 @@ def normalize(
     return data
 
 
+# TODO!
+# async def get_mkt_info(
+#     fqme: str,
+
+#     _cache: dict[str, MktPair] = {}
+
+# ) -> tuple[MktPair, Pair]:
+
+#     both = _cache.get(fqme)
+#     if both:
+#         return both
+
+#     proxy: MethodProxy
+#     async with open_data_client() as proxy:
+
+#         pair: Pair = await client.exch_info(fqme.upper())
+#         mkt = MktPair(
+#             dst=Asset(
+#                 name=pair.baseAsset,
+#                 atype='crypto',
+#                 tx_tick=digits_to_dec(pair.baseAssetPrecision),
+#             ),
+#             src=Asset(
+#                 name=pair.quoteAsset,
+#                 atype='crypto',
+#                 tx_tick=digits_to_dec(pair.quoteAssetPrecision),
+#             ),
+#             price_tick=pair.price_tick,
+#             size_tick=pair.size_tick,
+#             bs_mktid=pair.symbol,
+#             broker='binance',
+#         )
+#         both = mkt, pair
+#         _cache[fqme] = both
+#         return both
+
+
 async def stream_quotes(
 
     send_chan: trio.abc.SendChannel,
@@ -738,7 +775,6 @@ async def stream_quotes(
 
     proxy: MethodProxy
     async with open_data_client() as proxy:
-
         try:
             (
                 con,  # Contract
@@ -796,20 +832,24 @@ async def stream_quotes(
             # precision" is normally discreet.
             syminfo['lot_tick_size'] = size_tick
 
-            ibclient = proxy._aio_ns.ib.client
-            host, port = ibclient.host, ibclient.port
+            # should be at top level right?
+            syminfo['bs_mktid'] = con.conId
+
+            # ibclient = proxy._aio_ns.ib.client
+            # host, port = ibclient.host, ibclient.port
 
             # TODO: for loop through all symbols passed in
-            init_msgs = {
+            init_msgs: dict[str, dict] = {
                 # pass back token, and bool, signalling if we're the writer
                 # and that history has been written
                 sym: {
                     'symbol_info': syminfo,
                     'fqsn': first_quote['fqsn'],
+                    'bs_mktid': con.conId,
                 },
-                'status': {
-                    'data_ep': f'{host}:{port}',
-                },
+                # 'status': {
+                #     'data_ep': f'{host}:{port}',
+                # },
 
             }
             return init_msgs, syminfo
