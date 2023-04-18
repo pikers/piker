@@ -179,8 +179,9 @@ def mk_fsp_shm_key(
     target: Fsp
 
 ) -> str:
-    uid = tractor.current_actor().uid
-    return f'{sym}.fsp.{target.name}.{".".join(uid)}'
+    actor_name, uuid = tractor.current_actor().uid
+    uuid_snip: str = uuid[:16]
+    return f'piker.{actor_name}[{uuid_snip}].{sym}.{target.name}'
 
 
 def maybe_mk_fsp_shm(
