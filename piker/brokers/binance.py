@@ -41,6 +41,7 @@ import numpy as np
 import tractor
 import wsproto
 
+from .._cacheables import async_lifo_cache
 from ..accounting._mktinfo import (
     Asset,
     MktPair,
@@ -483,19 +484,11 @@ async def open_history_client(
         yield get_ohlc, {'erlangs': 3, 'rate': 3}
 
 
-# TODO: bleh, didn't we have an async version of
-# this at some point?
-# @lru_cache
+@async_lifo_cache()
 async def get_mkt_info(
     fqme: str,
 
-    _cache: dict[str, MktPair] = {}
-
 ) -> tuple[MktPair, Pair]:
-
-    both = _cache.get(fqme)
-    if both:
-        return both
 
     async with open_cached_client('binance') as client:
 
@@ -517,7 +510,6 @@ async def get_mkt_info(
             broker='binance',
         )
         both = mkt, pair
-        _cache[fqme] = both
         return both
 
 
