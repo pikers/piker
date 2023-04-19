@@ -170,6 +170,20 @@ def open_test_pikerd(
     # https://docs.pytest.org/en/6.2.x/tmpdir.html#the-default-base-temporary-directory
     print(f'CURRENT TEST CONF DIR: {tmpconfdir}')
 
+    conf = request.config
+    debug_mode: bool = conf.option.usepdb
+    if (
+        debug_mode
+        and conf.option.capture != 'no'
+    ):
+        # TODO: how to disable capture dynamically?
+        # conf._configured = False
+        # conf._do_configure()
+        pytest.fail(
+            'To use `--pdb` (with `tractor` subactors) you also must also '
+            'pass `-s`!'
+        )
+
     yield partial(
         _open_test_pikerd,
 
@@ -182,7 +196,7 @@ def open_test_pikerd(
         # `--ll <value>` cli flag.
         loglevel=loglevel,
 
-        debug_mode=request.config.option.usepdb
+        debug_mode=debug_mode,
     )
 
     # NOTE: the `tmp_dir` fixture will wipe any files older then 3 test
