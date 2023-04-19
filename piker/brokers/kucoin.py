@@ -382,7 +382,7 @@ class Client:
         )
 
         for i in range(10):
-            data = await self._request(
+            data: list[list[str]] | dict = await self._request(
                 'GET',
                 url,
                 api_v='v1',
