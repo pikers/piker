@@ -48,8 +48,6 @@ class FeedInit(Struct, frozen=True):
     from each backend broker/data provider.
 
     '''
-    # backend specific, market endpoint id
-    bs_mktid: str
     mkt_info: MktPair
     shm_write_opts: dict[str, Any] | None = None
 
@@ -70,18 +68,31 @@ def validate_backend(
     that haven't been implemented by this backend yet.
 
     '''
-    if isinstance(init_msgs, dict):
-        for i, (sym_str, msg) in enumerate(init_msgs.items()):
-            init: FeedInit | dict[str, Any] = msg
+    inits: list[
+        FeedInit | dict[str, Any]
+    ] = init_msgs
 
-            # XXX: eventually this WILL NOT necessarily be true.
-            if i > 0:
-                assert not len(init_msgs) == 1
+    # convert to list if from old dict-style
+    if isinstance(init_msgs, dict):
+        inits = list(init_msgs.values())
+
+    init: FeedInit | dict[str, Any]
+    for i, init in enumerate(inits):
+
+        # XXX: eventually this WILL NOT necessarily be true.
+        if i > 0:
+            assert not len(init_msgs) == 1
+            if isinstance(init_msgs, dict):
                 keys: set = set(init_msgs.keys()) - set(syms)
                 raise FeedInitializationError(
                     'TOO MANY INIT MSGS!\n'
                     f'Unexpected keys: {keys}\n'
                     'ALL MSGS:\n'
+                    f'{pformat(init_msgs)}\n'
+                )
+            else:
+                raise FeedInitializationError(
+                    'TOO MANY INIT MSGS!\n'
                     f'{pformat(init_msgs)}\n'
                 )
 
@@ -104,7 +115,6 @@ def validate_backend(
         rx_msg = True
 
     # verify feed init state / schema
-    bs_mktid: str  # backend specific (unique) market id
     bs_fqme: str  # backend specific fqme
     mkt: MktPair
 
@@ -157,14 +167,15 @@ def validate_backend(
             )
 
         case FeedInit(
-            # bs_mktid=bs_mktid,
             mkt_info=MktPair(dst=Asset()) as mkt,
-            shm_write_opts=dict(),
+            shm_write_opts=dict(shm_opts),
         ) as init:
+            name: str = mod.name
             log.info(
-                f'NICE JOB {mod.name} BACKEND!\n'
-                'You are fully up to API spec B):\n'
-                f'{init.to_dict()}'
+                f'NICE JOB {name} BACKEND being fully up to API spec B)\n'
+                f"{name}'s `MktPair` info:\n"
+                f'{pformat(mkt.to_dict())}\n'
+                f'shm conf: {pformat(shm_opts)}\n'
             )
 
         case _:
@@ -172,15 +183,14 @@ def validate_backend(
 
     # build a msg if we received a dict for input.
     if not rx_msg:
+        assert bs_fqme in mkt.fqme
         init = FeedInit(
-            bs_mktid=mkt.bs_mktid,
             mkt_info=mkt,
             shm_write_opts=init.get('shm_write_opts'),
         )
 
     # `MktPair` value audits
     mkt = init.mkt_info
-    assert bs_fqme in mkt.fqme
     assert mkt.type_key
 
     # `MktPair` wish list
