@@ -57,6 +57,7 @@ from ._util import (
     get_console_log,
 )
 from ..data.types import Struct
+from ..data.validate import FeedInit
 from ..data._web_bs import (
     open_autorecon_ws,
     NoBsWs,
@@ -539,23 +540,17 @@ async def stream_quotes(
     async with (
         send_chan as send_chan,
     ):
-        mkt_infos: dict[str, MktPair] = {}
+        init_msgs: list[FeedInit] = []
         for sym in symbols:
             mkt, pair = await get_mkt_info(sym)
-            mkt_infos[sym] = mkt
 
-        symbol = symbols[0]
-
-        init_msgs = {
-            # pass back token, and bool, signalling if we're the writer
-            # and that history has been written
-            symbol: {
-                'fqsn': sym,
-
-                'mkt_info': mkt_infos[sym],
-                'shm_write_opts': {'sum_tick_vml': False},
-            },
-        }
+            # build out init msgs according to latest spec
+            init_msgs.append(
+                FeedInit(
+                    mkt_info=mkt,
+                    shm_write_opts={'sum_tick_vml': False},
+                )
+            )
 
         @acm
         async def subscribe(ws: wsproto.WSConnection):
