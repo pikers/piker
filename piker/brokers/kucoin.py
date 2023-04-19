@@ -462,7 +462,10 @@ async def open_symbol_search(
 
 
 @acm
-async def open_ping_task(ws: wsproto.WSConnection, ping_interval, connect_id):
+async def open_ping_task(
+    ws: wsproto.WSConnection, 
+    ping_interval, connect_id
+) -> AsyncGenerator[None, None]:
     '''
     Spawn a non-blocking task that pings the ws
     server every ping_interval so Kucoin doesn't drop
@@ -678,7 +681,9 @@ async def open_history_client(
             end_dt: datetime | None = None,
             start_dt: datetime | None = None,
         ) -> tuple[
-            np.ndarray, datetime | None, datetime | None
+            np.ndarray, datetime |
+            None, datetime |
+            None
         ]:  # start  # end
             if timeframe != 60:
                 raise DataUnavailable('Only 1m bars are supported')
@@ -698,9 +703,6 @@ async def open_history_client(
                     f'difference in time between load and processing'
                     f'{inow - times[-1]}'
                 )
-
-                if (inow - times[-1]) > 60:
-                    await tractor.breakpoint()
 
             start_dt = pendulum.from_timestamp(times[0])
             end_dt = pendulum.from_timestamp(times[-1])
