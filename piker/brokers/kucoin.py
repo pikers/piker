@@ -195,6 +195,10 @@ class Client:
         https://docs.kucoin.com/#authentication
 
         '''
+
+        if not self._config:
+            raise ValueError('No config found when trying to send authenticated request')
+
         str_to_sign = (
             str(int(time.time() * 1000)) + action + f'/api/{api_v}{endpoint}'
         )
