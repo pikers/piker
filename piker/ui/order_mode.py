@@ -46,6 +46,7 @@ from ..clearing._client import (
 )
 from ._style import _font
 from ..accounting._mktinfo import Symbol
+from ..accounting import MktPair
 from ..data.feed import (
     Feed,
     Flume,
@@ -660,17 +661,17 @@ class OrderMode:
             and src not in ('dark', 'paperboi')
             and src not in symbol
         ):
-            fqsn = symbol + '.' + src
+            fqme = symbol + '.' + src
             brokername = src
         else:
-            fqsn = symbol
-            *head, brokername = fqsn.rsplit('.')
+            fqme = symbol
+            *head, brokername = fqme.rsplit('.')
 
         # fill out complex fields
         order.oid = str(order.oid)
         order.brokers = [brokername]
-        order.symbol = Symbol.from_fqsn(
-            fqsn=fqsn,
+        order.symbol = MktPair.from_fqme(
+            fqme=fqme,
             info={},
         )
         dialog = self.submit_order(
