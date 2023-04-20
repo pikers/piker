@@ -43,7 +43,6 @@ from piker import config
 from piker.data.types import Struct
 from piker.accounting._mktinfo import (
     Asset,
-    MktPair,
     digits_to_dec,
 )
 from piker.brokers._util import (
@@ -274,9 +273,10 @@ class Client:
             for sym, bal in by_bsmktid.items()
         }
 
-    async def get_assets(self) -> dict[str, dict]:
+    async def get_assets(self) -> dict[str, Asset]:
         '''
-        Get all assets available for trading and xfer.
+        Load and cache all asset infos and pack into
+        our native ``Asset`` struct.
 
         https://docs.kraken.com/rest/#tag/Market-Data/operation/getAssetInfo
 
@@ -292,26 +292,20 @@ class Client:
 
         '''
         resp = await self._public('Assets', {})
-        return resp['result']
+        assets = resp['result']
 
-    async def cache_assets(self) -> None:
-        '''
-        Load and cache all asset infos and pack into
-        our native ``Asset`` struct.
-
-        '''
-        assets = await self.get_assets()
         for bs_mktid, info in assets.items():
-
-            aname = self._altnames[bs_mktid] = info['altname']
+            altname = self._altnames[bs_mktid] = info['altname']
             aclass = info['aclass']
 
             self.assets[bs_mktid] = Asset(
-                name=aname.lower(),
+                name=altname.lower(),
                 atype=f'crypto_{aclass}',
                 tx_tick=digits_to_dec(info['decimals']),
                 info=info,
             )
+
+        return self.assets
 
     async def get_trades(
         self,
@@ -475,57 +469,42 @@ class Client:
 
     async def pair_info(
         self,
-        pair: str | None = None,
+        pair_patt: str | None = None,
 
     ) -> dict[str, Pair] | Pair:
+        '''
+        Query for a tradeable asset pair (info), or all if no input
+        pattern is provided.
 
-        if pair is not None:
-            pairs = {'pair': pair}
-        else:
-            pairs = None  # get all pairs
+        https://docs.kraken.com/rest/#tag/Market-Data/operation/getTradableAssetPairs
 
-        resp = await self._public('AssetPairs', pairs)
+        '''
+        # get all pairs by default, or filter
+        # to whatever pattern is provided as input.
+        pairs: dict[str, str] | None = None
+        if pair_patt is not None:
+            pairs = {'pair': pair_patt}
+
+        resp = await self._public(
+            'AssetPairs',
+            pairs,
+        )
         err = resp['error']
         if err:
-            symbolname = pairs['pair'] if pair else None
-            raise SymbolNotFound(f'{symbolname}.kraken')
+            raise SymbolNotFound(pair_patt)
 
-        pairs = resp['result']
+        pairs: dict[str, Pair] = {
 
-        if pair is not None:
-            _, data = next(iter(pairs.items()))
-            return Pair(**data)
-        else:
-            return {
-                key: Pair(**data)
-                for key, data in pairs.items()
-            }
+            key: Pair(**data)
+            for key, data in resp['result'].items()
+        }
+        # always cache so we can possibly do faster lookup
+        self._pairs.update(pairs)
 
-    async def mkt_info(
-        self,
-        pair_str: str,
+        if pair_patt is not None:
+            return next(iter(pairs.items()))[1]
 
-    ) -> MktPair:
-
-        (
-            bs_mktid,  # str
-            pair_info,  # Pair
-        ) = Client.normalize_symbol(pair_str)
-
-        dst_asset = self.assets[pair_info.base]
-
-        # NOTE XXX parse out the src asset name until we figure out
-        # how to get the src asset's `Pair` info from kraken..
-        src_key = pair_str.lstrip(dst_asset.name.upper()).lower()
-
-        return MktPair(
-            dst=dst_asset,
-            price_tick=pair_info.price_tick,
-            size_tick=pair_info.size_tick,
-            bs_mktid=bs_mktid,
-            src=src_key,
-            broker='kraken',
-        )
+        return pairs
 
     async def cache_symbols(self) -> dict:
         '''
@@ -538,14 +517,15 @@ class Client:
 
         '''
         if not self._pairs:
-            self._pairs.update(await self.pair_info())
+            pairs = await self.pair_info()
+            assert self._pairs == pairs
 
             # table of all ws and rest keys to their alt-name values.
             ntable: dict[str, str] = {}
 
-            for rest_key in list(self._pairs.keys()):
+            for rest_key in list(pairs.keys()):
 
-                pair: Pair = self._pairs[rest_key]
+                pair: Pair = pairs[rest_key]
                 altname = pair.altname
                 wsname = pair.wsname
                 ntable[altname] = ntable[rest_key] = ntable[wsname] = altname
@@ -561,7 +541,6 @@ class Client:
     async def search_symbols(
         self,
         pattern: str,
-        limit: int = None,
 
     ) -> dict[str, Any]:
         '''
@@ -672,8 +651,7 @@ class Client:
         the 'AssetPairs' endpoint, see methods above.
 
         '''
-        ticker = cls._ntable[ticker]
-        return ticker.lower(), cls._pairs[ticker]
+        return cls._ntable[ticker].lower()
 
 
 @acm
@@ -693,7 +671,7 @@ async def get_client() -> Client:
     # at startup, load all symbols, and asset info in
     # batch requests.
     async with trio.open_nursery() as nurse:
-        nurse.start_soon(client.cache_assets)
+        nurse.start_soon(client.get_assets)
         await client.cache_symbols()
 
     yield client
