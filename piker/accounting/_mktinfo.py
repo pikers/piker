@@ -571,11 +571,9 @@ class Symbol(Struct):
         lot_size = info.get('lot_tick_size', 0.0)
 
         return Symbol(
-            broker=broker,
             key=mktep,
             tick_size=tick_size,
             lot_tick_size=lot_size,
-            venue=venue,
             suffix=suffix,
             broker_info={broker: info},
         )
