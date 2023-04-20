@@ -495,7 +495,7 @@ async def stream_quotes(
     send_chan: trio.abc.SendChannel,
     symbols: list[str],
     feed_is_live: trio.Event,
-    # loglevel: str = '',
+    loglevel: str = '',
     # startup sync
     task_status: TaskStatus[tuple[dict, dict]] = trio.TASK_STATUS_IGNORED,
 ) -> None:
