@@ -69,6 +69,7 @@ from .api import (
     get_client,
 )
 from .feed import (
+    get_mkt_info,
     open_autorecon_ws,
     NoBsWs,
     stream_messages,
@@ -489,7 +490,7 @@ async def trades_dialogue(
             ) as ledger,
         ):
             # transaction-ify the ledger entries
-            ledger_trans = norm_trade_records(ledger)
+            ledger_trans = await norm_trade_records(ledger)
 
             if not table.pps:
                 # NOTE: we can't use this since it first needs
@@ -507,7 +508,7 @@ async def trades_dialogue(
             if tids2trades:
                 ledger.write_config()
 
-            api_trans = norm_trade_records(tids2trades)
+            api_trans = await norm_trade_records(tids2trades)
 
             # retrieve kraken reported balances
             # and do diff with ledger to determine
@@ -823,7 +824,7 @@ async def handle_order_updates(
                     )
                     await ems_stream.send(status_msg)
 
-                new_trans = norm_trade_records(trades)
+                new_trans = await norm_trade_records(trades)
                 ppmsgs = trades2pps(
                     table,
                     acctid,
@@ -1185,7 +1186,7 @@ async def handle_order_updates(
                 log.warning(f'Unhandled trades update msg: {msg}')
 
 
-def norm_trade_records(
+async def norm_trade_records(
     ledger: dict[str, Any],
 
 ) -> dict[str, Transaction]:
@@ -1200,18 +1201,9 @@ def norm_trade_records(
         }[record['type']]
 
         # we normalize to kraken's `altname` always..
-        bs_mktid, pair_info = Client.normalize_symbol(
-            record['pair']
-        )
+        bs_mktid = Client.normalize_symbol(record['pair'])
         fqme = f'{bs_mktid}.kraken'
-
-        dst, src = pair_info.wsname.lower().split('/')
-        mkt = MktPair.from_fqme(
-            fqme,
-            price_tick=pair_info.price_tick,
-            size_tick=pair_info.size_tick,
-            bs_mktid=bs_mktid,
-        )
+        mkt: MktPair = (await get_mkt_info(fqme))[0]
 
         records[tid] = Transaction(
             fqsn=fqme,
