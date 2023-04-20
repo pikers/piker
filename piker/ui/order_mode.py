@@ -670,8 +670,12 @@ class OrderMode:
         # fill out complex fields
         order.oid = str(order.oid)
         order.brokers = [brokername]
-        order.symbol = MktPair.from_fqme(
-            fqme=fqme,
+
+        # TODO: change this over to `MktPair`, but it's
+        # gonna be tough since we don't have any such data
+        # really in our clearing msg schema..
+        order.symbol = Symbol.from_fqme(
+            fqsn=fqme,
             info={},
         )
         dialog = self.submit_order(
