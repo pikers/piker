@@ -330,6 +330,9 @@ class Router(Struct):
     # broker to book map
     books: dict[str, DarkBook] = {}
 
+    # NOTE: disable for since stupid "dunst"
+    notify_on_order_loads: bool = False
+
     # sets of clients mapped from subscription keys
     subscribers: defaultdict[
         str,  # sub key, default fqme
@@ -617,6 +620,7 @@ class Router(Struct):
 
         if (
             not sent_some
+            and self.notify_on_order_loads
             and notify_on_headless
         ):
             log.info(
