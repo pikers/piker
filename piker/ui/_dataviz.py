@@ -23,6 +23,8 @@ from functools import lru_cache
 from math import (
     ceil,
     floor,
+    isnan,
+    log as logf,
 )
 from typing import (
     Literal,
@@ -332,6 +334,8 @@ class Viz(Struct):
         float,
     ] = {}
 
+    _mxmn_cache_enabled: bool = True
+
     # to make lru_cache-ing work, see
     # https://docs.python.org/3/faq/programming.html#how-do-i-cache-method-calls
     def __eq__(self, other):
@@ -447,7 +451,10 @@ class Viz(Struct):
             # https://stackoverflow.com/a/29980872
             ixrng = lbar, rbar = round(x_range[0]), round(x_range[1])
 
-        if use_caching:
+        if (
+            use_caching
+            and self._mxmn_cache_enabled
+        ):
             cached_result = self._mxmns.get(ixrng)
             if cached_result:
                 if do_print:
@@ -521,8 +528,31 @@ class Viz(Struct):
                 )
 
         # cache result for input range
-        assert mxmn
-        self._mxmns[ixrng] = (read_slc, mxmn)
+        ylow, yhi = mxmn
+
+        try:
+            prolly_anomaly: bool = (
+                (
+                    abs(logf(ylow, 10)) > 16
+                    if ylow
+                    else False
+                )
+                or (
+                    isnan(ylow) or isnan(yhi)
+                )
+            )
+        except ValueError:
+            prolly_anomaly = True
+
+        if prolly_anomaly:
+            return None
+
+        if (
+            not isnan(ylow)
+            and not prolly_anomaly
+        ):
+            self._mxmns[ixrng] = (read_slc, mxmn)
+
         self.vs.yrange = mxmn
         profiler(f'yrange mxmn cacheing: {x_range} -> {mxmn}')
         return (
