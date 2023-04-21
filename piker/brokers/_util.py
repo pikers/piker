@@ -31,6 +31,7 @@ from ..log import (
 )
 subsys: str = 'piker.brokers'
 
+# NOTE: level should be reset by any actor that is spawned
 log = get_logger(subsys)
 
 get_console_log = partial(

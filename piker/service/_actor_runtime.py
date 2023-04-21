@@ -133,8 +133,11 @@ _root_dname = 'pikerd'
 _root_modules = [
     __name__,
     'piker.service._daemon',
+    'piker.brokers._daemon',
+
     'piker.clearing._ems',
     'piker.clearing._client',
+
     'piker.data._sampling',
 ]
 

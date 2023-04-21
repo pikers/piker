@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     import docker
     from ._ahab import DockerContainer
 
-from . import log  # sub-sys logger
+from ._util import log  # sub-sys logger
 from ._util import (
     get_console_log,
 )

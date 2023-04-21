@@ -79,7 +79,7 @@ def broker_init(
         # enabled.append('piker.data.feed')
 
     # non-blocking setup of brokerd service nursery
-    from ..data import _setup_persistent_brokerd
+    from ..brokers import _setup_persistent_brokerd
 
     return (
         start_actor_kwargs,  # to `ActorNursery.start_actor()`
