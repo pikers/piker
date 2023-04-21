@@ -21,6 +21,7 @@ Order api and machinery
 from collections import ChainMap, defaultdict
 from contextlib import (
     asynccontextmanager as acm,
+    aclosing,
 )
 from functools import partial
 from itertools import count
@@ -679,7 +680,7 @@ async def trades_dialogue(
                         token=token,
                     ),
                 ) as ws,
-                stream_messages(ws) as stream,
+                aclosing(stream_messages(ws)) as stream,
                 trio.open_nursery() as nurse,
             ):
                 # task for processing inbound requests from ems
