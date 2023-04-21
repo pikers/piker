@@ -467,7 +467,7 @@ async def open_symbol_search(
 
 @acm
 async def open_ping_task(
-    ws: wsproto.WSConnection, 
+    ws: wsproto.WSConnection,
     ping_interval, connect_id
 ) -> AsyncGenerator[None, None]:
     '''
@@ -675,7 +675,6 @@ async def stream_messages(
 @acm
 async def open_history_client(
     symbol: str,
-    type: str = '1m',
 ) -> AsyncGenerator[Callable, None]:
     async with open_cached_client('kucoin') as client:
         log.info('Attempting to open kucoin history client')
