@@ -89,6 +89,12 @@ stale_threshold: 5
 enable_add: true
 enable_remove: false
 
+# SUPER DUPER CRITICAL to address a super weird issue:
+# https://github.com/pikers/piker/issues/443
+# seems like "variable compression" is possibly borked
+# or snappy compression somehow breaks easily?
+disable_variable_compression: true
+
 triggers:
   - module: ondiskagg.so
     on: "*/1Sec/OHLCV"
@@ -464,14 +470,20 @@ class Storage:
             limit=limit,
         )
 
-        try:
-            result = await client.query(params)
-        except purerpc.grpclib.exceptions.UnknownError as err:
-            # indicate there is no history for this timeframe
-            log.exception(
-                f'Unknown mkts QUERY error: {params}\n'
-                f'{err.args}'
-            )
+        for i in range(3):
+            try:
+                result = await client.query(params)
+                break
+            except purerpc.grpclib.exceptions.UnknownError as err:
+                if 'snappy' in err.args:
+                    await tractor.breakpoint()
+
+                # indicate there is no history for this timeframe
+                log.exception(
+                    f'Unknown mkts QUERY error: {params}\n'
+                    f'{err.args}'
+                )
+        else:
             return {}
 
         # TODO: it turns out column access on recarrays is actually slower:
