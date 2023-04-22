@@ -166,7 +166,7 @@ async def open_autorecon_ws(
     # TODO: proper type cannot smh
     fixture: Optional[Callable] = None,
 
-) -> AsyncGenerator[tuple[...],  NoBsWs]:
+) -> AsyncGenerator[tuple[...], NoBsWs]:
     """Apparently we can QoS for all sorts of reasons..so catch em.
 
     """
