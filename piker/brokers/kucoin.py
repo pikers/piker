@@ -598,7 +598,7 @@ async def subscribe(ws: wsproto.WSConnection, connect_id, sym):
 @trio_async_generator
 async def stream_messages(
     ws: NoBsWs, sym: str
-) -> AsyncGenerator[NoBsWs, dict]:
+) -> AsyncGenerator[tuple[str, dict], None]:
     timeouts = 0
     last_trade_ts = 0
 
@@ -612,7 +612,6 @@ async def stream_messages(
                 await ws._connect()
 
             continue
-
         if msg.get('subject'):
             msg = KucoinMsg(**msg)
             match msg.subject:
@@ -670,6 +669,8 @@ async def stream_messages(
                             },
                         ],
                     }
+
+
 
 
 @acm
