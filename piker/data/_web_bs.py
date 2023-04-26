@@ -156,6 +156,8 @@ async def _reconnect_forever(
 
 ) -> None:
 
+    src_mod: str = fixture.__module__
+
     async def proxy_msgs(
         ws: WebSocketConnection,
         pcs: trio.CancelScope,  # parent cancel scope
@@ -179,6 +181,7 @@ async def _reconnect_forever(
                     await snd.send(msg)
                 except nobsws.recon_errors:
                     log.exception(
+                        f'{src_mod}\n'
                         f'{url} connection bail with:'
                     )
                     await trio.sleep(0.5)
@@ -191,7 +194,8 @@ async def _reconnect_forever(
                 timeouts += 1
                 if timeouts > reset_after:
                     log.error(
-                        'WS feed seems down and slow af? .. resetting\n'
+                        f'{src_mod}\n'
+                        'WS feed seems down and slow af.. reconnecting\n'
                     )
                     pcs.cancel()
 
@@ -218,14 +222,20 @@ async def _reconnect_forever(
     task_status.started()
 
     while not snd._closed:
-        log.info(f'{url} trying (RE)CONNECT')
+        log.info(
+            f'{src_mod}\n'
+            f'{url} trying (RE)CONNECT'
+        )
 
         async with trio.open_nursery() as n:
             cs = nobsws._cs = n.cancel_scope
             ws: WebSocketConnection
             async with open_websocket_url(url) as ws:
                 nobsws._ws = ws
-                log.info(f'Connection success: {url}')
+                log.info(
+                    f'{src_mod}\n'
+                    f'Connection success: {url}'
+                )
 
                 # begin relay loop to forward msgs
                 n.start_soon(
@@ -235,7 +245,10 @@ async def _reconnect_forever(
                 )
 
                 if fixture is not None:
-                    log.info(f'Entering fixture: {fixture}')
+                    log.info(
+                        f'{src_mod}\n'
+                        f'Entering fixture: {fixture}'
+                    )
 
                     # TODO: should we return an explicit sub-cs
                     # from this fixture task?
@@ -267,7 +280,10 @@ async def _reconnect_forever(
         # -> from here, move to next reconnect attempt
 
     else:
-        log.exception('ws connection closed by client...')
+        log.exception(
+            f'{src_mod}\n'
+            'ws connection closed by client...'
+        )
 
 
 @acm
