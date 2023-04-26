@@ -75,8 +75,10 @@ from ib_insync.client import Client as ib_Client
 import numpy as np
 
 from piker import config
-from piker.log import get_logger
-from piker.brokers._util import log
+from piker.brokers._util import (
+    log,
+    get_logger,
+)
 from piker.data._source import base_ohlc_dtype
 
 
@@ -193,6 +195,7 @@ _adhoc_futes_set = {
 
     # cypto$
     'brr.cme',
+    'mbt.cme',  # micro
     'ethusdrr.cme',
 
     # agriculture
