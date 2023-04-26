@@ -11,11 +11,6 @@
 # our async client for ``marketstore`` (the tsdb)
 -e git+https://github.com/pikers/anyio-marketstore.git@master#egg=anyio-marketstore
 
-
-# ``trimeter`` for asysnc history fetching
--e git+https://github.com/python-trio/trimeter.git@master#egg=trimeter
-
-
 # ``asyncvnc`` for sending interactions to ib-gw inside docker
 -e git+https://github.com/pikers/asyncvnc.git@main#egg=asyncvnc
 

@@ -16,7 +16,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from setuptools import setup, find_packages
+from setuptools import (
+    setup,
+    find_packages,
+)
 
 with open('README.rst', encoding='utf-8') as f:
     readme = f.read()
@@ -57,13 +60,14 @@ setup(
         'async_generator',
 
         # from github currently (see requirements.txt)
-        # 'trimeter',  # not released yet..
+        # normally pinned to particular git hashes..
         # 'tractor',
-        # asyncvnc,
-        # 'cryptofeed',
+        # 'asyncvnc',
+        # 'pyqtgraph',
+        # anyio-marketstore  # mkts tsdb client
 
         # brokers
-        'asks',
+        'asks',  # for non-ws rest apis
         'ib_insync',
 
         # numerics
@@ -78,9 +82,6 @@ setup(
         # 'pyqtgraph',  from our fork see reqs.txt
         'qdarkstyle >= 3.0.2',  # themeing
         'fuzzywuzzy[speedup]',  # fuzzy search
-
-        # tsdbs
-        # anyio-marketstore  # from gh see reqs.txt
     ],
     extras_require={
         'tsdb': [
