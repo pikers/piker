@@ -108,6 +108,7 @@ setup(
         "Programming Language :: Python :: Implementation :: CPython",
         "Programming Language :: Python :: 3 :: Only",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
         'Intended Audience :: Financial and Insurance Industry',
         'Intended Audience :: Science/Research',
         'Intended Audience :: Developers',
