@@ -1470,6 +1470,7 @@ async def display_symbol_data(
 
                 hist_chart.main_viz.default_view(
                     do_min_bars=True,
+                    do_ds=False,
                 )
                 hist_linked.graphics_cycle()
 
