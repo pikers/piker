@@ -283,8 +283,6 @@ async def allocate_persistent_feed(
             # multiple live feeds from one task, instead of getting
             # a new request (and thus new task) for each subscription.
             symbols=[symstr],
-
-            loglevel=loglevel,
         )
     )
 
