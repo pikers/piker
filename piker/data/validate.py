@@ -144,13 +144,14 @@ def validate_backend(
                 'lot_tick_size',
                 Decimal('1'),
             )
+            bs_mktid = init.get('bs_mktid') or bs_fqme
             mkt = MktPair.from_fqme(
                 fqme=f'{bs_fqme}.{mod.name}',
 
                 price_tick=price_tick,
                 size_tick=size_tick,
 
-                bs_mktid=str(init['bs_mktid']),
+                bs_mktid=str(bs_mktid),
                 _atype=symbol_info['asset_type']
             )
 
