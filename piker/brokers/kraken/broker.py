@@ -429,8 +429,8 @@ async def trades_dialogue(
     async with get_client() as client:
 
         if not client._api_key:
-            raise RuntimeError(
-                'Missing Kraken API key in `brokers.toml`!?!?')
+            await ctx.started('paper')
+            return
 
         # TODO: make ems flip to paper mode via
         # some returned signal if the user only wants to use

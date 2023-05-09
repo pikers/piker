@@ -413,8 +413,6 @@ async def stream_quotes(
             topic, quote = normalize(ohlc_last)
 
             task_status.started((init_msgs,  quote))
-
-            # lol, only "closes" when they're margin squeezing clients ;P
             feed_is_live.set()
 
             # keep start of last interval for volume tracking

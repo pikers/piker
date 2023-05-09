@@ -407,11 +407,7 @@ class Router(Struct):
             yield relay
             return
 
-        trades_endpoint = getattr(brokermod, 'trades_dialogue', None)
-        if (
-            trades_endpoint is None
-            or exec_mode == 'paper'
-        ):
+        def mk_paper_ep():
             # for logging purposes
             brokermod = paper
 
@@ -426,26 +422,53 @@ class Router(Struct):
             # load the paper trading engine as a subactor of this emsd
             # actor to simulate the real IPC load it'll have when also
             # pulling data from feeds
-            open_trades_endpoint = paper.open_paperboi(
+            return paper.open_paperboi(
                 fqme=fqme,
                 loglevel=loglevel,
             )
 
-        else:
+        trades_endpoint = getattr(brokermod, 'trades_dialogue', None)
+        if (
+            trades_endpoint is not None
+            or exec_mode != 'paper'
+        ):
             # open live brokerd trades endpoint
             open_trades_endpoint = portal.open_context(
                 trades_endpoint,
                 loglevel=loglevel,
             )
 
-        # open trades-dialog endpoint with backend broker
+        else:
+            exec_mode: str = 'paper'
+
+        @acm
+        async def maybe_open_paper_ep():
+            if exec_mode == 'paper':
+                async with mk_paper_ep() as msg:
+                    yield msg
+                    return
+
+            # open trades-dialog endpoint with backend broker
+            async with open_trades_endpoint as msg:
+                ctx, first = msg
+
+                # runtime indication that the backend can't support live
+                # order ctrl yet, so boot the paperboi B0
+                if first == 'paper':
+                    async with mk_paper_ep() as msg:
+                        yield msg
+                        return
+                else:
+                    # working live ep case B)
+                    yield msg
+                    return
+
         positions: list[BrokerdPosition]
         accounts: tuple[str]
-
         async with (
-            open_trades_endpoint as (
+            maybe_open_paper_ep() as (
                 brokerd_ctx,
-                (positions, accounts,),
+                (positions, accounts),
             ),
             brokerd_ctx.open_stream() as brokerd_trades_stream,
         ):
