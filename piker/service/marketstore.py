@@ -28,7 +28,6 @@ from contextlib import asynccontextmanager as acm
 from datetime import datetime
 from typing import (
     Any,
-    Optional,
     Union,
     TYPE_CHECKING,
 )
@@ -292,7 +291,7 @@ def mk_tbk(keys: tuple[str, str, str]) -> str:
 
 def quote_to_marketstore_structarray(
     quote: dict[str, Any],
-    last_fill: Optional[float]
+    last_fill: float | None,
 
 ) -> np.array:
     '''
@@ -413,8 +412,8 @@ class Storage:
 
     ) -> tuple[
         np.ndarray,  # timeframe sampled array-series
-        Optional[datetime],  # first dt
-        Optional[datetime],  # last dt
+        datetime | None,  # first dt
+        datetime | None,  # last dt
     ]:
 
         first_tsdb_dt, last_tsdb_dt = None, None
@@ -444,7 +443,7 @@ class Storage:
         self,
         fqsn: str,
         timeframe: int | str,
-        end: Optional[int] = None,
+        end: int | None = None,
         limit: int = int(800e3),
 
     ) -> np.ndarray:
@@ -519,7 +518,7 @@ class Storage:
     async def delete_ts(
         self,
         key: str,
-        timeframe: Optional[Union[int, str]] = None,
+        timeframe: Union[int, str | None] = None,
         fmt: str = 'OHLCV',
 
     ) -> bool:
@@ -627,7 +626,7 @@ class Storage:
 @acm
 async def open_storage_client(
     fqsn: str,
-    period: Optional[Union[int, str]] = None,  # in seconds
+    period: Union[int, str | None] = None,  # in seconds
 
 ) -> tuple[Storage, dict[str, np.ndarray]]:
     '''
