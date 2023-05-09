@@ -1059,11 +1059,11 @@ class Client:
                 api_err,
                 report_api_err,
             ):
-                breakpoint()
                 to_trio.send_nowait((
                     'error',
                     msg,
                 ))
+                api_err.clear()  # drop msg history
 
         api_err.connect(report_api_err)
 

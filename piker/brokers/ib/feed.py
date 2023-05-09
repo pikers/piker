@@ -837,6 +837,7 @@ async def stream_quotes(
 
             # ibclient = proxy._aio_ns.ib.client
             # host, port = ibclient.host, ibclient.port
+            fqsn = first_quote['fqsn']
 
             # TODO: for loop through all symbols passed in
             init_msgs: dict[str, dict] = {
@@ -844,7 +845,7 @@ async def stream_quotes(
                 # and that history has been written
                 sym: {
                     'symbol_info': syminfo,
-                    'fqsn': first_quote['fqsn'],
+                    'fqsn': fqsn,
                     'bs_mktid': con.conId,
                 },
                 # 'status': {
