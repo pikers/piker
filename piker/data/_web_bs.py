@@ -156,7 +156,10 @@ async def _reconnect_forever(
 
 ) -> None:
 
-    src_mod: str = fixture.__module__
+    if fixture is not None:
+        src_mod: str = fixture.__module__
+    else:
+        src_mod: str = 'unknown'
 
     async def proxy_msgs(
         ws: WebSocketConnection,
