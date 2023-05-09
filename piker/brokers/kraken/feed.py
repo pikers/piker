@@ -399,7 +399,6 @@ async def stream_quotes(
             open_autorecon_ws(
                 'wss://ws.kraken.com/',
                 fixture=subscribe,
-                msg_recv_timeout=5,
                 reset_after=20,
             ) as ws,
 
