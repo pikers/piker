@@ -572,7 +572,8 @@ async def trades_dialogue(
         # loading any pps
         mkt_by_fqme: dict[str, MktPair] = {}
         if fqme:
-            mkt, _ = await brokermod.get_mkt_info(fqme.rstrip(f'.{broker}'))
+            bs_fqme, _, broker = fqme.rpartition('.')
+            mkt, _ = await brokermod.get_mkt_info(bs_fqme)
             mkt_by_fqme[fqme] = mkt
 
         # for each sym in the ledger load it's `MktPair` info
