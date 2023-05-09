@@ -360,7 +360,10 @@ async def register_with_sampler(
                             if msg == 'broadcast_all':
                                 await Sampler.broadcast_all()
                 finally:
-                    if sub_for_broadcasts:
+                    if (
+                        sub_for_broadcasts
+                        and subs
+                    ):
                         subs.remove(stream)
             else:
                 # if no shms are passed in we just wait until cancelled

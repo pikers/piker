@@ -391,3 +391,18 @@ def test_multi_fill_positions(
                 await match_ppmsgs_on_ems_boot([ppmsg])
 
         run_and_tollerate_cancels(just_check_pp)
+
+
+def test_open_orders_reloaded(
+    open_test_pikerd: AsyncContextManager,
+    loglevel: str,
+
+    fills: tuple[dict],
+
+    check_cross_session: bool = False,
+):
+    ...
+
+
+def test_dark_order_clearing():
+    ...
