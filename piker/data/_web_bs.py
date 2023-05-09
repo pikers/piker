@@ -156,6 +156,10 @@ async def _reconnect_forever(
 
 ) -> None:
 
+    # TODO: can we just report "where" in the call stack
+    # the client code is using the ws stream?
+    # Maybe we can just drop this since it's already in the log msg
+    # orefix?
     if fixture is not None:
         src_mod: str = fixture.__module__
     else:
@@ -295,8 +299,9 @@ async def open_autorecon_ws(
 
     fixture: AsyncContextManager | None = None,
 
-    # time in sec
-    msg_recv_timeout: float = 3,
+    # time in sec between msgs received before
+    # we presume connection might need a reset.
+    msg_recv_timeout: float = 16,
 
     # count of the number of above timeouts before connection reset
     reset_after: int = 3,
