@@ -19,12 +19,20 @@
 runnable script-programs.
 
 '''
-from typing import Literal
+from __future__ import annotations
+from functools import partial
+from typing import (
+    Literal,
+    TYPE_CHECKING,
+)
 import subprocess
 
 import tractor
 
 from .._util import log
+
+if TYPE_CHECKING:
+    from .api import MethodProxy
 
 
 _reset_tech: Literal[
@@ -39,7 +47,9 @@ _reset_tech: Literal[
 
 
 async def data_reset_hack(
+    proxy: MethodProxy,
     reset_type: str = 'data',
+    **kwargs,
 
 ) -> None:
     '''
@@ -71,10 +81,17 @@ async def data_reset_hack(
     '''
     global _reset_tech
 
+    client: 'IBCLIENTTHING'  = proxy._aio_ns.ib.client
+
     match _reset_tech:
         case 'vnc':
             try:
-                await tractor.to_asyncio.run_task(vnc_click_hack)
+                await tractor.to_asyncio.run_task(
+                    partial(
+                        vnc_click_hack,
+                        host=client.host,
+                    )
+                )
             except OSError:
                 _reset_tech = 'i3ipc_xdotool'
                 try:
@@ -94,10 +111,11 @@ async def data_reset_hack(
 
 
 async def vnc_click_hack(
+    host: str = 'localhost',
     reset_type: str = 'data'
 ) -> None:
     '''
-    Reset the data or netowork connection for the VNC attached
+    Reset the data or network connection for the VNC attached
     ib gateway using magic combos.
 
     '''
@@ -106,7 +124,7 @@ async def vnc_click_hack(
     import asyncvnc
 
     async with asyncvnc.connect(
-        'localhost',
+        host,
         port=3003,
         # password='ibcansmbz',
     ) as client:
