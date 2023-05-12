@@ -187,7 +187,7 @@ class Position(Struct):
             inline_table = toml.TomlDecoder().get_empty_inline_table()
 
             # serialize datetime to parsable `str`
-            dtstr = inline_table['dt'] = str(data['dt'])
+            dtstr = inline_table['dt'] = data['dt'].isoformat('T')
             assert 'Datetime' not in dtstr
 
             # insert optional clear fields in column order
@@ -670,8 +670,7 @@ class PpTable(Struct):
 
         pos: Position
         for bs_mktid, pos in active.items():
-
-            # keep the minimal amount of clears that make up this
+            # NOTE: we only store the minimal amount of clears that make up this
             # position since the last net-zero state.
             pos.minimize_clears()
             pos.ensure_state()
@@ -679,7 +678,7 @@ class PpTable(Struct):
             # serialize to pre-toml form
             fqme, asdict = pos.to_pretoml()
 
-            # assert 'Datetime' not in asdict['dt']
+            assert 'Datetime' not in asdict['clears'][0]['dt']
             log.info(f'Updating active pp: {fqme}')
 
             # XXX: ugh, it's cuz we push the section under
@@ -807,9 +806,7 @@ def open_pps(
     '''
     conf: dict
     conf_path: Path
-    conf, conf_path = config.load(
-        f'pps.{brokername}.{acctid}',
-    )
+    conf, conf_path = config.load_account(brokername, acctid)
 
     if brokername in conf:
         log.warning(

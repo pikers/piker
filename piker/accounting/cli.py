@@ -79,7 +79,7 @@ def broker_init(
         # enabled.append('piker.data.feed')
 
     # non-blocking setup of brokerd service nursery
-    from ..brokers import _setup_persistent_brokerd
+    from ..brokers._daemon import _setup_persistent_brokerd
 
     return (
         start_actor_kwargs,  # to `ActorNursery.start_actor()`
@@ -217,4 +217,4 @@ def sync(
 
 
 if __name__ == "__main__":
-    ledger()
+    ledger()  # this is called from ``>> ledger <accountname>``

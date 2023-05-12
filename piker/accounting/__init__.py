@@ -61,7 +61,7 @@ def get_likely_pair(
     dst: str,
     bs_mktid: str,
 
-) -> str:
+) -> str | None:
     '''
     Attempt to get the likely trading pair matching a given destination
     asset `dst: str`.
@@ -76,9 +76,9 @@ def get_likely_pair(
         # positions where the src fiat was used to
         # buy some other dst which was furhter used
         # to buy another dst..)
-        log.warning(
-            f'No src fiat {src} found in {bs_mktid}?'
-        )
+        # log.warning(
+        #     f'No src fiat {src} found in {bs_mktid}?'
+        # )
         return
 
     likely_dst = bs_mktid[:src_name_start]

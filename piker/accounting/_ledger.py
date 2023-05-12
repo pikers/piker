@@ -34,7 +34,6 @@ from pendulum import (
     datetime,
     parse,
 )
-import tomli
 import toml
 
 from .. import config
@@ -227,30 +226,12 @@ def open_trade_ledger(
     name as defined in the user's ``brokers.toml`` config.
 
     '''
-    ldir: Path = config._config_dir / 'ledgers'
-    if not ldir.is_dir():
-        ldir.mkdir()
-
-    fname = f'trades_{broker}_{account}.toml'
-    tradesfile: Path = ldir / fname
-
-    if not tradesfile.is_file():
-        log.info(
-            f'Creating new local trades ledger: {tradesfile}'
-        )
-        tradesfile.touch()
-
-    with tradesfile.open(mode='rb') as cf:
-        start = time.time()
-        ledger_dict = tomli.load(cf)
-        log.info(f'Ledger load took {time.time() - start}s')
-        cpy = ledger_dict.copy()
-
+    ledger_dict, fpath = config.load_ledger(broker, account)
+    cpy = ledger_dict.copy()
     ledger = TransactionLedger(
         ledger_dict=cpy,
-        file_path=tradesfile,
+        file_path=fpath,
     )
-
     try:
         yield ledger
     finally:
