@@ -212,7 +212,7 @@ _pacing: str = (
 async def wait_on_data_reset(
     proxy: MethodProxy,
     reset_type: str = 'data',
-    timeout: float = 16,
+    timeout: float = float('inf'),
 
     task_status: TaskStatus[
         tuple[
@@ -228,7 +228,7 @@ async def wait_on_data_reset(
         'HMDS data farm connection is OK:ushmds'
     )
 
-    # XXX: other event messages we might want to try and
+    # TODO: other event messages we might want to try and
     # wait for but i wasn't able to get any of this
     # reliable..
     # reconnect_start = proxy.status_event(
@@ -239,14 +239,21 @@ async def wait_on_data_reset(
     # )
     # try to wait on the reset event(s) to arrive, a timeout
     # will trigger a retry up to 6 times (for now).
+    client = proxy._aio_ns.ib.client
 
     done = trio.Event()
     with trio.move_on_after(timeout) as cs:
 
         task_status.started((cs, done))
 
-        log.warning('Sending DATA RESET request')
-        res = await data_reset_hack(reset_type=reset_type)
+        log.warning(
+            'Sending DATA RESET request:\n'
+            f'{client}'
+        )
+        res = await data_reset_hack(
+            vnc_host=client.host,
+            reset_type=reset_type,
+        )
 
         if not res:
             log.warning(
@@ -280,7 +287,7 @@ async def wait_on_data_reset(
 
 
 _data_resetter_task: trio.Task | None = None
-
+_failed_resets: int = 0
 
 async def get_bars(
 
@@ -299,6 +306,7 @@ async def get_bars(
     # history queries for instrument, presuming that most don't
     # not trade for a week XD
     max_nodatas: int = 6,
+    max_failed_resets: int = 6,
 
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
@@ -308,7 +316,7 @@ async def get_bars(
     a ``MethoProxy``.
 
     '''
-    global _data_resetter_task
+    global _data_resetter_task, _failed_resets
     nodatas_count: int = 0
 
     data_cs: trio.CancelScope | None = None
@@ -321,8 +329,11 @@ async def get_bars(
     result_ready = trio.Event()
 
     async def query():
+
+        global _failed_resets
         nonlocal result, data_cs, end_dt, nodatas_count
-        while True:
+
+        while _failed_resets < max_failed_resets:
             try:
                 out = await proxy.bars(
                     fqsn=fqsn,
@@ -382,49 +393,48 @@ async def get_bars(
                         f'Symbol: {fqsn}',
                     )
 
-                elif err.code == 162:
-                    if (
-                        'HMDS query returned no data' in msg
-                    ):
-                        # XXX: this is now done in the storage mgmt
-                        # layer and we shouldn't implicitly decrement
-                        # the frame dt index since the upper layer may
-                        # be doing so concurrently and we don't want to
-                        # be delivering frames that weren't asked for.
-                        # try to decrement start point and look further back
-                        # end_dt = end_dt.subtract(seconds=2000)
-                        logmsg = "SUBTRACTING DAY from DT index"
-                        if end_dt is not None:
-                            end_dt = end_dt.subtract(days=1)
-                        elif end_dt is None:
-                            end_dt = pendulum.now().subtract(days=1)
+                elif (
+                    'HMDS query returned no data' in msg
+                ):
+                    # XXX: this is now done in the storage mgmt
+                    # layer and we shouldn't implicitly decrement
+                    # the frame dt index since the upper layer may
+                    # be doing so concurrently and we don't want to
+                    # be delivering frames that weren't asked for.
+                    # try to decrement start point and look further back
+                    # end_dt = end_dt.subtract(seconds=2000)
+                    logmsg = "SUBTRACTING DAY from DT index"
+                    if end_dt is not None:
+                        end_dt = end_dt.subtract(days=1)
+                    elif end_dt is None:
+                        end_dt = pendulum.now().subtract(days=1)
 
-                        log.warning(
-                            f'NO DATA found ending @ {end_dt}\n'
-                            + logmsg
+                    log.warning(
+                        f'NO DATA found ending @ {end_dt}\n'
+                        + logmsg
+                    )
+
+                    if nodatas_count >= max_nodatas:
+                        raise DataUnavailable(
+                            f'Presuming {fqsn} has no further history '
+                            f'after {max_nodatas} tries..'
                         )
 
-                        if nodatas_count >= max_nodatas:
-                            raise DataUnavailable(
-                                f'Presuming {fqsn} has no further history '
-                                f'after {max_nodatas} tries..'
-                            )
+                    nodatas_count += 1
+                    continue
 
-                        nodatas_count += 1
-                        continue
-
-                    elif 'API historical data query cancelled' in err.message:
-                        log.warning(
-                            'Query cancelled by IB (:eyeroll:):\n'
-                            f'{err.message}'
-                        )
-                        continue
-                    elif (
-                        'Trading TWS session is connected from a different IP'
-                            in err.message
-                    ):
-                        log.warning("ignoring ip address warning")
-                        continue
+                elif 'API historical data query cancelled' in err.message:
+                    log.warning(
+                        'Query cancelled by IB (:eyeroll:):\n'
+                        f'{err.message}'
+                    )
+                    continue
+                elif (
+                    'Trading TWS session is connected from a different IP'
+                        in err.message
+                ):
+                    log.warning("ignoring ip address warning")
+                    continue
 
                 # XXX: more or less same as above timeout case
                 elif _pacing in msg:
@@ -433,8 +443,11 @@ async def get_bars(
                         'Resetting farms with `ctrl-alt-f` hack\n'
                     )
 
+                    client = proxy._aio_ns.ib.client
+
                     # cancel any existing reset task
                     if data_cs:
+                        log.cancel(f'Cancelling existing reset for {client}')
                         data_cs.cancel()
 
                     # spawn new data reset task
@@ -442,10 +455,13 @@ async def get_bars(
                         partial(
                             wait_on_data_reset,
                             proxy,
-                            timeout=float('inf'),
                             reset_type='connection'
                         )
                     )
+                    if reset_done:
+                        _failed_resets = 0
+                    else:
+                        _failed_resets += 1
                     continue
 
                 else:
@@ -482,7 +498,7 @@ async def get_bars(
                 partial(
                     wait_on_data_reset,
                     proxy,
-                    timeout=float('inf'),
+                    reset_type='data',
                 )
             )
             # sync wait on reset to complete

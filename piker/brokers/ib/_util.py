@@ -32,7 +32,10 @@ import tractor
 from .._util import log
 
 if TYPE_CHECKING:
-    from .api import MethodProxy
+    from .api import (
+        MethodProxy,
+        ib_Client
+    )
 
 
 _reset_tech: Literal[
@@ -47,9 +50,8 @@ _reset_tech: Literal[
 
 
 async def data_reset_hack(
-    proxy: MethodProxy,
-    reset_type: str = 'data',
-    **kwargs,
+    vnc_host: str,
+    reset_type: Literal['data', 'connection'],
 
 ) -> None:
     '''
@@ -79,9 +81,13 @@ async def data_reset_hack(
           that need to be wrangle.
 
     '''
-    global _reset_tech
 
-    client: 'IBCLIENTTHING'  = proxy._aio_ns.ib.client
+    no_setup_msg:str = (
+        'No data reset hack test setup for {vnc_host}!\n'
+        'See setup @\n'
+        'https://github.com/pikers/piker/tree/master/piker/brokers/ib'
+    )
+    global _reset_tech
 
     match _reset_tech:
         case 'vnc':
@@ -89,15 +95,26 @@ async def data_reset_hack(
                 await tractor.to_asyncio.run_task(
                     partial(
                         vnc_click_hack,
-                        host=client.host,
+                        host=vnc_host,
                     )
                 )
             except OSError:
-                _reset_tech = 'i3ipc_xdotool'
+                if vnc_host != 'localhost':
+                    log.warning(no_setup_msg)
+                    return False
+
+                try:
+                    import i3ipc
+                except ModuleNotFoundError:
+                    log.warning(no_setup_msg)
+                    return False
+
                 try:
                     i3ipc_xdotool_manual_click_hack()
+                    _reset_tech = 'i3ipc_xdotool'
                     return True
                 except OSError:
+                    log.exception(no_setup_msg)
                     return False
 
         case 'i3ipc_xdotool':
@@ -119,9 +136,21 @@ async def vnc_click_hack(
     ib gateway using magic combos.
 
     '''
-    key = {'data': 'f', 'connection': 'r'}[reset_type]
+    try:
+        import asyncvnc
+    except ModuleNotFoundError:
+        log.warning(
+            "In order to leverage `piker`'s built-in data reset hacks, install "
+            "the `asyncvnc` project: https://github.com/barneygale/asyncvnc"
+        )
+        return
 
-    import asyncvnc
+    # two different hot keys which trigger diff types of reset
+    # requests B)
+    key = {
+        'data': 'f',
+        'connection': 'r'
+    }[reset_type]
 
     async with asyncvnc.connect(
         host,
@@ -140,8 +169,6 @@ async def vnc_click_hack(
 
 
 def i3ipc_xdotool_manual_click_hack() -> None:
-    import i3ipc
-
     i3 = i3ipc.Connection()
     t = i3.get_tree()
 
