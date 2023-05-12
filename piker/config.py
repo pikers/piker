@@ -23,13 +23,19 @@ import sys
 import os
 import shutil
 import time
-from typing import Optional
+from typing import (
+    Callable,
+    MutableMapping,
+)
 from pathlib import Path
 
 from bidict import bidict
-import toml
-import tomli
-# import tomlkit  # TODO!
+import tomlkit
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
+
 
 from .log import get_logger
 
@@ -220,6 +226,11 @@ def load(
     conf_name: str = 'brokers',
     path: Path | None = None,
 
+    decode: Callable[
+        [str | bytes,],
+        MutableMapping,
+    ] = tomllib.loads,
+
     **tomlkws,
 
 ) -> tuple[dict, Path]:
@@ -250,11 +261,7 @@ def load(
                 pass
 
     with path.open(mode='r') as fp:
-        # TODO: move to tomlkit:
-        # - needs to be fixed to support bidict?
-        # - we need to use or fork's fix to do multiline array
-        #   indenting.
-        config: dict = toml.loads(
+        config: dict = decode(
             fp.read(),
             **tomlkws,
         )
@@ -277,7 +284,10 @@ def load_account(
     fn: str = f'account.{brokername}.{acctid}.toml'
 
     dirpath: Path = _config_dir / 'accounting'
-    config, path = load(path=dirpath / fn)
+    config, path = load(
+        path=dirpath / fn,
+        decode=tomlkit.parse,
+    )
 
     if not config:
         legacypath = dirpath / legacy_fn
@@ -287,7 +297,16 @@ def load_account(
             f'Rewriting contents to new name -> {path}\n'
             'Please delete the old file!\n'
         )
-        legacy_config, _ = load(path=legacypath)
+        legacy_config, _ = load(
+            path=legacypath,
+
+            # TODO: move to tomlkit:
+            # - needs to be fixed to support bidict?
+            #   https://github.com/sdispater/tomlkit/issues/289
+            # - we need to use or fork's fix to do multiline array
+            #   indenting.
+            decode=tomlkit.parse,
+        )
         config.update(legacy_config)
 
         # XXX: override the presumably previously non-existant
@@ -295,6 +314,7 @@ def load_account(
         write(
             config,
             path=path,
+            fail_empty=False,
         )
 
     return config, path
@@ -321,7 +341,7 @@ def load_ledger(
 
     with fpath.open(mode='rb') as cf:
         start = time.time()
-        ledger_dict = tomli.load(cf)
+        ledger_dict = tomlkit.parse(cf.read())
         log.debug(f'Ledger load took {time.time() - start}s')
 
     return ledger_dict, fpath
@@ -362,10 +382,10 @@ def write(
         f"Writing config `{name}` file to:\n"
         f"{path}"
     )
-    with path.open(mode='w') as cf:
-        return toml.dump(
+    with path.open(mode='w') as fp:
+        return tomlkit.dump(  # preserve style on write B)
             config,
-            cf,
+            fp,
             **toml_kwargs,
         )
 
@@ -373,7 +393,7 @@ def write(
 def load_accounts(
     providers: list[str] | None = None
 
-) -> bidict[str, Optional[str]]:
+) -> bidict[str, str | None]:
 
     conf, path = load()
     accounts = bidict()

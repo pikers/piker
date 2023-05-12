@@ -44,15 +44,16 @@ setup(
         ]
     },
     install_requires=[
-        'toml',
-        'tomli',  # fastest pure py reader
-        'click',
+        'tomlkit',  # fork & fix for now: 
+        'tomli',  # for pre-3.11
         'colorlog',
         'attrs',
         'pygments',
         'colorama',  # numba traceback coloring
         'msgspec',  # performant IPC messaging and structs
         'protobuf',
+        'typer',
+        'rich',
 
         # async
         'trio',
