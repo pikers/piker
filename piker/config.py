@@ -22,11 +22,13 @@ import platform
 import sys
 import os
 import shutil
+import time
 from typing import Optional
 from pathlib import Path
 
 from bidict import bidict
 import toml
+import tomli
 # import tomlkit  # TODO!
 
 from .log import get_logger
@@ -220,7 +222,7 @@ def load(
 
     **tomlkws,
 
-) -> tuple[dict, str]:
+) -> tuple[dict, Path]:
     '''
     Load config file by name.
 
@@ -265,7 +267,7 @@ def load_account(
     brokername: str,
     acctid: str,
 
-) -> tuple[dict, str]:
+) -> tuple[dict, Path]:
     '''
     Load a accounting (with positions) file from
     ~/.config/piker/accounting/account.<brokername>.<acctid>.toml.
@@ -297,6 +299,32 @@ def load_account(
 
     return config, path
 
+
+def load_ledger(
+    brokername: str,
+    acctid: str,
+
+) -> tuple[dict, Path]:
+
+    ldir: Path = _config_dir / 'accounting' / 'ledgers'
+    if not ldir.is_dir():
+        ldir.mkdir()
+
+    fname = f'trades_{brokername}_{acctid}.toml'
+    fpath: Path = ldir / fname
+
+    if not fpath.is_file():
+        log.info(
+            f'Creating new local trades ledger: {fpath}'
+        )
+        fpath.touch()
+
+    with fpath.open(mode='rb') as cf:
+        start = time.time()
+        ledger_dict = tomli.load(cf)
+        log.debug(f'Ledger load took {time.time() - start}s')
+
+    return ledger_dict, fpath
 
 
 def write(
