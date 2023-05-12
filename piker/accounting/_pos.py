@@ -36,11 +36,8 @@ from typing import (
 
 import pendulum
 from pendulum import datetime, now
+import tomlkit
 
-from ._toml import (
-    toml,
-    PpsEncoder,
-)
 from ._ledger import (
     Transaction,
     iter_by_dt,
@@ -180,11 +177,16 @@ class Position(Struct):
         elif expiry:
             d['expiry'] = str(expiry)
 
-        toml_clears_list: list[dict[str, Any]] = []
+        clears_table: tomlkit.Array = tomlkit.array()
+        clears_table.multiline(
+            multiline=True,
+            indent='',
+        )
 
         # reverse sort so latest clears are at top of section?
         for tid, data in iter_by_dt(clears):
-            inline_table = toml.TomlDecoder().get_empty_inline_table()
+
+            inline_table = tomlkit.inline_table()
 
             # serialize datetime to parsable `str`
             dtstr = inline_table['dt'] = data['dt'].isoformat('T')
@@ -201,9 +203,9 @@ class Position(Struct):
                 inline_table[k] = data[k]
 
             inline_table['tid'] = tid
-            toml_clears_list.append(inline_table)
+            clears_table.append(inline_table)
 
-        d['clears'] = toml_clears_list
+        d['clears'] = clears_table
 
         return fqme, d
 
@@ -732,19 +734,9 @@ class PpTable(Struct):
             for entry in list(self.conf):
                 del self.conf[entry]
 
-        # TODO: why tf haven't they already done this for inline
-        # tables smh..
-        enc = PpsEncoder(preserve=True)
-        # table_bs_type = type(toml.TomlDecoder().get_empty_inline_table())
-        enc.dump_funcs[
-            toml.decoder.InlineTableDict
-        ] = enc.dump_inline_table
-
         config.write(
             config=self.conf,
             path=self.conf_path,
-            encoder=enc,
-            fail_empty=False
         )
 
 
