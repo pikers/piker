@@ -27,6 +27,7 @@ from pathlib import Path
 
 from bidict import bidict
 import toml
+# import tomlkit  # TODO!
 
 from .log import get_logger
 
@@ -143,11 +144,11 @@ if _parent_user:
 
 
 _conf_names: set[str] = {
-    'brokers',
-    # 'pps',
-    'trades',
+    'piker',  # god config
+    'brokers',  # sec backend deatz
+    # 'trades',  #
     'watchlists',
-    'paper_trades'
+    # 'paper_trades'
 }
 
 # TODO: probably drop all this super legacy, questrade specific,
@@ -191,7 +192,6 @@ def get_conf_path(
 
     Contains files such as:
     - brokers.toml
-    - pp.toml
     - watchlists.toml
 
     # maybe coming soon ;)
@@ -234,24 +234,69 @@ def load(
         )
 
     if not path.is_file():
-        fn: str = _conf_fn_w_ext(conf_name)
+        if path is None:
+            fn: str = _conf_fn_w_ext(conf_name)
 
-        # try to copy in a template config to the user's directory if
-        # one exists.
-        template: Path = repodir() / 'config' / fn
-        if template.is_file():
-            shutil.copyfile(template, path)
+            # try to copy in a template config to the user's directory if
+            # one exists.
+            template: Path = repodir() / 'config' / fn
+            if template.is_file():
+                shutil.copyfile(template, path)
         else:
             # create empty file
             with path.open(mode='x'):
                 pass
-    else:
-        with path.open(mode='r'):
-            pass  # touch it
 
-    config: dict = toml.load(str(path), **tomlkws)
+    with path.open(mode='r') as fp:
+        # TODO: move to tomlkit:
+        # - needs to be fixed to support bidict?
+        # - we need to use or fork's fix to do multiline array
+        #   indenting.
+        config: dict = toml.loads(
+            fp.read(),
+            **tomlkws,
+        )
+
     log.debug(f"Read config file {path}")
     return config, path
+
+
+def load_account(
+    brokername: str,
+    acctid: str,
+
+) -> tuple[dict, str]:
+    '''
+    Load a accounting (with positions) file from
+    ~/.config/piker/accounting/account.<brokername>.<acctid>.toml.
+
+    '''
+    legacy_fn: str = f'pps.{brokername}.{acctid}.toml'
+    fn: str = f'account.{brokername}.{acctid}.toml'
+
+    dirpath: Path = _config_dir / 'accounting'
+    config, path = load(path=dirpath / fn)
+
+    if not config:
+        legacypath = dirpath / legacy_fn
+        log.warning(
+            f'Your account file -> {legacypath}\n'
+            f'is using the legacy `pps.` prefix..\n'
+            f'Rewriting contents to new name -> {path}\n'
+            'Please delete the old file!\n'
+        )
+        legacy_config, _ = load(path=legacypath)
+        config.update(legacy_config)
+
+        # XXX: override the presumably previously non-existant
+        # file with legacy's contents.
+        write(
+            config,
+            path=path,
+        )
+
+    return config, path
+
 
 
 def write(
@@ -298,7 +343,7 @@ def write(
 
 
 def load_accounts(
-    providers: Optional[list[str]] = None
+    providers: list[str] | None = None
 
 ) -> bidict[str, Optional[str]]:
 
