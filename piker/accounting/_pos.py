@@ -737,6 +737,7 @@ class PpTable(Struct):
         config.write(
             config=self.conf,
             path=self.conf_path,
+            fail_empty=False,
         )
 
 
