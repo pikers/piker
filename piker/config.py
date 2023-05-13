@@ -152,11 +152,9 @@ if _parent_user:
 
 
 _conf_names: set[str] = {
-    'piker',  # god config
+    'conf',  # god config
     'brokers',  # sec backend deatz
-    # 'trades',  #
-    'watchlists',
-    # 'paper_trades'
+    'watchlists',  # (user defined) market lists
 }
 
 # TODO: probably drop all this super legacy, questrade specific,
@@ -207,7 +205,7 @@ def get_conf_path(
     - strats.toml
 
     '''
-    if 'pps.' not in conf_name:
+    if 'account.' not in conf_name:
         assert str(conf_name) in _conf_names
 
     fn = _conf_fn_w_ext(conf_name)
@@ -223,13 +221,14 @@ def repodir() -> Path:
 
 
 def load(
-    conf_name: str = 'brokers',
+    conf_name: str = 'brokers',  # appended with .toml suffix
     path: Path | None = None,
 
     decode: Callable[
         [str | bytes,],
         MutableMapping,
     ] = tomllib.loads,
+    touch_if_dne: bool = False,
 
     **tomlkws,
 
@@ -237,9 +236,13 @@ def load(
     '''
     Load config file by name.
 
+    If desired config is not in the top level piker-user config path then
+    pass the ``path: Path`` explicitly.
+
     '''
     path: Path = path or get_conf_path(conf_name)
 
+    # create the $HOME/.config/piker dir if dne
     if not _config_dir.is_dir():
         _config_dir.mkdir(
             parents=True,
@@ -255,8 +258,9 @@ def load(
             template: Path = repodir() / 'config' / fn
             if template.is_file():
                 shutil.copyfile(template, path)
-        else:
-            # create empty file
+
+        # touch an empty file
+        elif touch_if_dne:
             with path.open(mode='x'):
                 pass
 
@@ -292,10 +296,10 @@ def load_account(
     if not config:
         legacypath = dirpath / legacy_fn
         log.warning(
-            f'Your account file -> {legacypath}\n'
-            f'is using the legacy `pps.` prefix..\n'
+            f'Your account file is using the legacy `pps.` prefix..\n'
             f'Rewriting contents to new name -> {path}\n'
             'Please delete the old file!\n'
+            f'|-> {legacypath}\n'
         )
         legacy_config, _ = load(
             path=legacypath,
