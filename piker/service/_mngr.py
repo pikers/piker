@@ -56,6 +56,7 @@ class Services:
         name: str,
         portal: tractor.Portal,
         target: Callable,
+        allow_overruns: bool = False,
         **ctx_kwargs,
 
     ) -> (trio.CancelScope, tractor.Context):
@@ -81,6 +82,7 @@ class Services:
             with trio.CancelScope() as cs:
                 async with portal.open_context(
                     target,
+                    allow_overruns=allow_overruns,
                     **ctx_kwargs,
 
                 ) as (ctx, first):
