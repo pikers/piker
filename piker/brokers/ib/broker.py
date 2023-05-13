@@ -1227,7 +1227,7 @@ def norm_trade_records(
         pair = MktPair.from_fqme(
             fqme=f'{symbol}.{suffix}.ib',
             bs_mktid=str(conid),
-            _atype=asset_type,
+            _atype=str(asset_type),  # XXX: can't serlialize `tomlkit.String`
 
             price_tick=price_tick,
             # NOTE: for "legacy" assets, volume is normally discreet, not
