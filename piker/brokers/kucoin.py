@@ -41,13 +41,14 @@ from typing import (
 import wsproto
 from uuid import uuid4
 
+from fuzzywuzzy import process as fuzzy
+from trio_typing import TaskStatus
 import asks
+from bidict import bidict
+import numpy as np
+import pendulum
 import tractor
 import trio
-from trio_typing import TaskStatus
-from fuzzywuzzy import process as fuzzy
-import pendulum
-import numpy as np
 
 from piker.accounting._mktinfo import (
     Asset,
@@ -228,6 +229,7 @@ class Client:
     def __init__(self) -> None:
         self._config: BrokerConfig | None = get_config()
         self._pairs: dict[str, KucoinMktPair] = {}
+        self._fqmes2mktids: bidict[str, str] = bidict()
         self._bars: list[list[float]] = []
         self._currencies: dict[str, Currency] = {}
 
@@ -374,15 +376,22 @@ class Client:
 
     async def _get_pairs(
         self,
-    ) -> dict[str, KucoinMktPair]:
+    ) -> tuple[
+        dict[str, KucoinMktPair],
+        bidict[str, KucoinMktPair],
+    ]:
         entries = await self._request('GET', 'symbols')
-        syms = {
-            item['name'].lower().replace('-', ''): KucoinMktPair(**item)
-            for item in entries
-        }
+        log.info(f' {len(entries)} Kucoin market pairs fetched')
 
-        log.info(f' {len(syms)} Kucoin market pairs fetched')
-        return syms
+        pairs: dict[str, KucoinMktPair] = {}
+        fqmes2mktids: bidict[str, str] = bidict()
+        for item in entries:
+            pair = pairs[item['name']] = KucoinMktPair(**item)
+            fqmes2mktids[
+                item['name'].lower().replace('-', '')
+            ] = pair.name
+
+        return pairs, fqmes2mktids
 
     async def cache_pairs(
         self,
@@ -390,14 +399,18 @@ class Client:
 
     ) -> dict[str, KucoinMktPair]:
         '''
-        Get cached pairs and convert keyed symbols into fqsns if ya want
+        Get request all market pairs and store in a local cache.
+
+        Also create a table of piker style fqme -> kucoin symbols.
 
         '''
         if (
             not self._pairs
             or update
         ):
-            self._pairs.update(await self._get_pairs())
+            pairs, fqmes = await self._get_pairs()
+            self._pairs.update(pairs)
+            self._fqmes2mktids.update(fqmes)
 
         return self._pairs
 
@@ -430,7 +443,7 @@ class Client:
 
     async def _get_bars(
         self,
-        fqsn: str,
+        fqme: str,
 
         start_dt: datetime | None = None,
         end_dt: datetime | None = None,
@@ -479,7 +492,7 @@ class Client:
         start_dt = int(start_dt.timestamp())
         end_dt = int(end_dt.timestamp())
 
-        kucoin_sym = fqsn_to_kucoin_sym(fqsn, self._pairs)
+        kucoin_sym = self._fqmes2mktids[fqme]
 
         url = (
             f'market/candles?type={type}'
@@ -537,12 +550,12 @@ class Client:
         return array
 
 
-def fqsn_to_kucoin_sym(
-    fqsn: str,
+def fqme_to_kucoin_sym(
+    fqme: str,
     pairs: dict[str, KucoinMktPair],
 
 ) -> str:
-    pair_data = pairs[fqsn]
+    pair_data = pairs[fqme]
     return pair_data.baseCurrency + '-' + pair_data.quoteCurrency
 
 
@@ -612,8 +625,9 @@ async def get_mkt_info(
         bs_fqme, _, broker = fqme.partition('.')
 
         pairs: dict[str, KucoinMktPair] = await client.cache_pairs()
-        pair: KucoinMktPair = pairs[bs_fqme]
-        bs_mktid: str = pair.symbol
+        bs_mktid: str = client._fqmes2mktids[bs_fqme]
+        pair: KucoinMktPair = pairs[bs_mktid]
+        assert bs_mktid == pair.symbol
 
         # pair: KucoinMktPair = await client.pair_info(pair_str)
         assets: dict[str, Currency] = client._currencies
