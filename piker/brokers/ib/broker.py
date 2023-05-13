@@ -563,7 +563,7 @@ async def trades_dialogue(
         tables: dict[str, PpTable] = {}
         order_msgs: list[Status] = []
         conf = get_config()
-        accounts_def_inv = conf['accounts'].inverse
+        accounts_def_inv: bidict[str, str] = bidict(conf['accounts']).inverse
 
         with (
             ExitStack() as lstack,
