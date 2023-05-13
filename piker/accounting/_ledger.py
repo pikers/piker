@@ -34,7 +34,7 @@ from pendulum import (
     datetime,
     parse,
 )
-import toml
+import tomlkit
 
 from .. import config
 from ..data.types import Struct
@@ -122,17 +122,27 @@ class TransactionLedger(UserDict):
 
     def write_config(self) -> None:
         '''
-        Render the self.data ledger dict to it's TML file form.
+        Render the self.data ledger dict to it's TOML file form.
 
         '''
+        towrite: dict[str, Any] = self.data.copy()
+
+        for tid, txdict in self.data.items():
+
+            # drop key for non-expiring assets
+            if (
+                'expiry' in txdict
+                and txdict['expiry'] is None
+            ):
+                txdict.pop('expiry')
+
+            # re-write old acro-key
+            fqme = txdict.get('fqsn')
+            if fqme:
+                txdict['fqme'] = fqme
+
         with self.file_path.open(mode='w') as fp:
-
-            # rewrite the key name to fqme if needed
-            fqsn: str = self.data.get('fqsn')
-            if fqsn:
-                self.data['fqme'] = fqsn
-
-            toml.dump(self.data, fp)
+            tomlkit.dump(towrite, fp)
 
     def update_from_t(
         self,
@@ -239,7 +249,7 @@ def open_trade_ledger(
 
             # TODO: show diff output?
             # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
-            log.info(f'Updating ledger for {tradesfile}:\n')
+            log.info(f'Updating ledger for {fpath}:\n')
             ledger.write_config()
 
 
