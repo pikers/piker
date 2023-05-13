@@ -351,7 +351,9 @@ async def register_with_sampler(
 
             if open_index_stream:
                 try:
-                    async with ctx.open_stream() as stream:
+                    async with ctx.open_stream(
+                        allow_overruns=True,
+                    ) as stream:
                         if sub_for_broadcasts:
                             subs.add(stream)
 
