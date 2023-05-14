@@ -884,6 +884,11 @@ async def open_history_client(
 
             times = array['time']
 
+            if not len(times):
+                raise DataUnavailable(
+                    f'No more history before {start_dt}?'
+                )
+
             if end_dt is None:
                 inow = round(time.time())
 
