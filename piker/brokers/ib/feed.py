@@ -212,7 +212,7 @@ _pacing: str = (
 async def wait_on_data_reset(
     proxy: MethodProxy,
     reset_type: str = 'data',
-    timeout: float = float('inf'),
+    timeout: float = 16, # float('inf'),
 
     task_status: TaskStatus[
         tuple[
@@ -351,7 +351,10 @@ async def get_bars(
 
                 bars, bars_array, dt_duration = out
 
-                if not bars:
+                if (
+                    not bars
+                    and end_dt
+                ):
                     log.warning(
                         f'History is blank for {dt_duration} from {end_dt}'
                     )
