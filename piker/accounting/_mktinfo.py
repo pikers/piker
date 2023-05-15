@@ -552,6 +552,9 @@ class Symbol(Struct):
     '''
     key: str
 
+    broker: str = ''
+    venue: str = ''
+
     # precision descriptors for price and vlm
     tick_size: Decimal = Decimal('0.01')
     lot_tick_size: Decimal = Decimal('0.0')
@@ -571,9 +574,11 @@ class Symbol(Struct):
         lot_size = info.get('lot_tick_size', 0.0)
 
         return Symbol(
+            broker=broker,
             key=mktep,
             tick_size=tick_size,
             lot_tick_size=lot_size,
+            venue=venue,
             suffix=suffix,
             broker_info={broker: info},
         )
@@ -603,17 +608,13 @@ class Symbol(Struct):
         return list(self.broker_info.keys())[0]
 
     @property
-    def fqsn(self) -> str:
-        broker = self.broker
-        key = self.key
-        if self.suffix:
-            tokens = (key, self.suffix, broker)
-        else:
-            tokens = (key, broker)
-
-        return '.'.join(tokens).lower()
-
-    fqme = fqsn
+    def fqme(self) -> str:
+        return maybe_cons_tokens([
+            self.key,  # final "pair name" (eg. qqq[/usd], btcusdt)
+            self.venue,
+            self.suffix,  # includes expiry and other con info
+            self.broker,
+        ])
 
     def quantize(
         self,
