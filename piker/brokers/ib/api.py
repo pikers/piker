@@ -862,7 +862,6 @@ class Client:
 
     ) -> tuple[
         Contract,
-        Ticker,
         ContractDetails,
     ]:
         '''
@@ -872,26 +871,23 @@ class Client:
 
         '''
         contract = (await self.find_contracts(symbol))[0]
+        details_fute = self.ib.reqContractDetailsAsync(contract)
+        details = (await details_fute)[0]
+        return contract, details
+
+    async def get_quote(
+        self,
+        contract: Contract,
+
+    ) -> Ticker:
+        '''
+        Return a single (snap) quote for symbol.
+
+        '''
         ticker: Ticker = self.ib.reqMktData(
             contract,
             snapshot=True,
         )
-        details_fute = self.ib.reqContractDetailsAsync(contract)
-        details = (await details_fute)[0]
-
-        return contract, ticker, details
-
-    async def get_quote(
-        self,
-        symbol: str,
-
-    ) -> tuple[Contract, Ticker, ContractDetails]:
-        '''
-        Return a single quote for symbol.
-
-        '''
-        contract, ticker, details = await self.get_sym_details(symbol)
-
         ready = ticker.updateEvent
 
         # ensure a last price gets filled in before we deliver quote
@@ -908,21 +904,22 @@ class Client:
                 else:
                     if not warnset:
                         log.warning(
-                            f'Quote for {symbol} timed out: market is closed?'
+                            f'Quote for {contract} timed out: market is closed?'
                         )
                         warnset = True
 
             else:
-                log.info(f'Got first quote for {symbol}')
+                log.info(f'Got first quote for {contract}')
                 break
         else:
             if not warnset:
                 log.warning(
-                    f'Symbol {symbol} is not returning a quote '
-                    'it may be outside trading hours?')
+                    f'Contract {contract} is not returning a quote '
+                    'it may be outside trading hours?'
+                )
                 warnset = True
 
-        return contract, ticker, details
+        return ticker
 
     # async to be consistent for the client proxy, and cuz why not.
     def submit_limit(
