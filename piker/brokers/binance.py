@@ -569,10 +569,7 @@ async def stream_quotes(
 
             # build out init msgs according to latest spec
             init_msgs.append(
-                FeedInit(
-                    mkt_info=mkt,
-                    shm_write_opts={'sum_tick_vml': False},
-                )
+                FeedInit(mkt_info=mkt)
             )
 
         iter_subids = itertools.count()

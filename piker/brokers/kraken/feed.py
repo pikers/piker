@@ -334,12 +334,7 @@ async def stream_quotes(
         for sym_str in symbols:
             mkt, pair = await get_mkt_info(sym_str)
             init_msgs.append(
-                FeedInit(
-                    mkt_info=mkt,
-                    shm_write_opts={
-                        'sum_tick_vml': False,
-                    },
-                )
+                FeedInit(mkt_info=mkt)
             )
 
             ws_pairs.append(pair.wsname)
