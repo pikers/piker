@@ -1164,6 +1164,12 @@ def norm_trade_records(
         exch = record['exchange']
         lexch = record.get('listingExchange')
 
+        # NOTE: remove null values since `tomlkit` can't serialize
+        # them to file.
+        dnc = record.pop('deltaNeutralContract', False)
+        if dnc is not None:
+            record['deltaNeutralContract'] = dnc
+
         suffix = lexch or exch
         symbol = record['symbol']
 
