@@ -49,7 +49,11 @@ class FeedInit(Struct, frozen=True):
 
     '''
     mkt_info: MktPair
-    shm_write_opts: dict[str, Any] | None = None
+
+    # NOTE: only field we use rn in ``.data.feed``
+    # TODO: maybe make a SamplerConfig(Struct)?
+    shm_write_opts: dict[str, Any] = {}
+    # 'sum_tick_vlm': True
 
 
 def validate_backend(
