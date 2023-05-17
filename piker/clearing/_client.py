@@ -30,7 +30,7 @@ from tractor.trionics import broadcast_receiver
 from ._util import (
     log,  # sub-sys logger
 )
-from ..accounting._mktinfo import unpack_fqme
+from ..accounting import unpack_fqme
 from ..data.types import Struct
 from ..service import maybe_open_emsd
 from ._messages import (

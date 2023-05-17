@@ -14,7 +14,7 @@ from piker.data import (
     open_feed,
 )
 from piker.data.flows import Flume
-from piker.accounting._mktinfo import (
+from piker.accounting import (
     unpack_fqme,
 )
 

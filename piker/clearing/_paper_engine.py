@@ -52,7 +52,7 @@ from ..accounting import (
     open_pps,
 )
 from ..data._normalize import iterticks
-from ..accounting._mktinfo import unpack_fqme
+from ..accounting import unpack_fqme
 from ._util import (
     log,  # sub-sys logger
 )

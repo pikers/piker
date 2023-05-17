@@ -70,7 +70,7 @@ from .history import (
 )
 from .ingest import get_ingestormod
 from .types import Struct
-from ..accounting._mktinfo import (
+from ..accounting import (
     MktPair,
     unpack_fqme,
 )

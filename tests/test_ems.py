@@ -39,7 +39,7 @@ from piker.clearing import (
     open_ems,
     OrderClient,
 )
-from piker.accounting._mktinfo import (
+from piker.accounting import (
     unpack_fqme,
 )
 from piker.accounting import (

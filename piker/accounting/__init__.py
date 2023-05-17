@@ -37,6 +37,7 @@ from ._mktinfo import (
     dec_digits,
     digits_to_dec,
     MktPair,
+    unpack_fqme,
 )
 
 log = get_logger(__name__)
