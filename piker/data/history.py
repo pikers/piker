@@ -39,7 +39,7 @@ import pendulum
 import numpy as np
 
 from .. import config
-from ..accounting._mktinfo import (
+from ..accounting import (
     MktPair,
     unpack_fqme,
 )
@@ -53,9 +53,6 @@ from ._sharedmem import (
     maybe_open_shm_array,
     ShmArray,
     _secs_in_day,
-)
-from ..accounting._mktinfo import (
-    unpack_fqme,
 )
 from ._source import base_iohlc_dtype
 from ._sampling import (
@@ -110,9 +107,8 @@ async def start_backfill(
     ]
     config: dict[str, int]
 
-    bs_fqme: str = mkt.bs_fqme
     async with mod.open_history_client(
-        bs_fqme,
+        mkt,
     ) as (hist, config):
 
         # get latest query's worth of history all the way
@@ -143,7 +139,7 @@ async def start_backfill(
                 surr = array[-6:]
                 diff_in_mins = round(diff/60., ndigits=2)
                 log.warning(
-                    f'STEP ERROR `{bs_fqme}` for period {step_size_s}s:\n'
+                    f'STEP ERROR `{mkt.fqme}` for period {step_size_s}s:\n'
                     f'Off by `{diff}` seconds (or `{diff_in_mins}` mins)\n'
                     'Surrounding 6 time stamps:\n'
                     f'{list(surr["time"])}\n'
@@ -257,7 +253,7 @@ async def start_backfill(
             ):
                 start_dt = min(starts)
                 log.warning(
-                    f"{bs_fqme}: skipping duplicate frame @ {next_start_dt}"
+                    f"{mkt.fqme}: skipping duplicate frame @ {next_start_dt}"
                 )
                 starts[start_dt] += 1
                 continue

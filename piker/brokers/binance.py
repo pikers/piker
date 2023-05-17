@@ -476,9 +476,11 @@ def make_sub(pairs: list[str], sub_name: str, uid: int) -> dict[str, str]:
 
 @acm
 async def open_history_client(
-    symbol: str,
+    mkt: MktPair,
 
 ) -> tuple[Callable, int]:
+
+    symbol: str = mkt.bs_fqme
 
     # TODO implement history getter for the new storage layer.
     async with open_cached_client('binance') as client:

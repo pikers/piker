@@ -847,8 +847,12 @@ async def stream_messages(
 
 @acm
 async def open_history_client(
-    symbol: str,
+    mkt: MktPair,
+
 ) -> AsyncGenerator[Callable, None]:
+
+    symbol: str = mkt.bs_fqme
+
     async with open_cached_client('kucoin') as client:
         log.info('Attempting to open kucoin history client')
 

@@ -25,8 +25,9 @@ from contextlib import (
 from datetime import datetime
 from typing import (
     Any,
-    Optional,
+    AsyncGenerator,
     Callable,
+    Optional,
 )
 import time
 
@@ -214,9 +215,11 @@ def normalize(
 
 @acm
 async def open_history_client(
-    symbol: str,
+    mkt: MktPair,
 
-) -> tuple[Callable, int]:
+) -> AsyncGenerator[Callable, None]:
+
+    symbol: str = mkt.bs_fqme
 
     # TODO implement history getter for the new storage layer.
     async with open_cached_client('kraken') as client:
