@@ -356,6 +356,13 @@ class MktPair(Struct, frozen=True):
         '''
         The "endpoint key" for this market.
 
+        '''
+        return self.pair
+
+    @property
+    def pair(self) -> str:
+        '''
+        The "endpoint asset pair key" for this market.
         Eg. mnq/usd or btc/usdt or xmr/btc
 
         In most other tina platforms this is referred to as the
@@ -390,13 +397,16 @@ class MktPair(Struct, frozen=True):
 
         return maybe_cons_tokens(field_strs)
 
-    # NOTE: the main idea behind an fqme is to map a "market address"
-    # to some endpoint from a transaction provider (eg. a broker) such
-    # that we build a table of `fqme: str -> bs_mktid: Any` where any "piker
-    # market address" maps 1-to-1 to some broker trading endpoint.
-    # @cached_property
-    @property
-    def fqme(self) -> str:
+    def get_fqme(
+        self,
+
+        # NOTE: allow dropping the source asset from the
+        # market endpoint's pair key. Eg. to change
+        # mnq/usd.<> -> mnq.<> which is useful when
+        # searching (legacy) stock exchanges.
+        without_src: bool = False,
+
+    ) -> str:
         '''
         Return the fully qualified market endpoint-address for the
         pair of transacting assets.
@@ -431,21 +441,33 @@ class MktPair(Struct, frozen=True):
         https://github.com/pikers/piker/issues/467
 
         '''
+        key: str = self.pair if not without_src else str(self.dst)
         return maybe_cons_tokens([
-            self.key,  # final "pair name" (eg. qqq[/usd], btcusdt)
+            key,  # final "pair name" (eg. qqq[/usd], btcusdt)
             self.venue,
             self.suffix,  # includes expiry and other con info
             self.broker,
         ])
 
-    @property
-    def bs_fqme(self) -> str:
+    # NOTE: the main idea behind an fqme is to map a "market address"
+    # to some endpoint from a transaction provider (eg. a broker) such
+    # that we build a table of `fqme: str -> bs_mktid: Any` where any "piker
+    # market address" maps 1-to-1 to some broker trading endpoint.
+    # @cached_property
+    fqme = property(get_fqme)
+
+    def get_bs_fqme(
+        self,
+        **kwargs,
+    ) -> str:
         '''
         FQME sin broker part XD
 
         '''
-        head, _, broker = self.fqme.rpartition('.')
-        return head
+        sin_broker, *_ = self.get_fqme(**kwargs).rpartition('.')
+        return sin_broker
+
+    bs_fqme = property(get_bs_fqme)
 
     @property
     def fqsn(self) -> str:
