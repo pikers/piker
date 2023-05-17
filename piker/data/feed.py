@@ -333,7 +333,7 @@ async def allocate_persistent_feed(
         manage_history,
         mod,
         bus,
-        fqme,
+        mkt,
         some_data_ready,
         feed_is_live,
     )
@@ -378,7 +378,12 @@ async def allocate_persistent_feed(
 
     # NOTE: if not configured otherwise, we always sum tick volume
     # values in the OHLCV sampler.
-    sum_tick_vlm: bool = (init.shm_write_opts or {}).get('sum_tick_vlm', True)
+    sum_tick_vlm: bool = True
+    if init.shm_write_opts:
+        sum_tick_vlm: bool = init.shm_write_opts.get(
+            'sum_tick_vlm',
+            True,
+        )
 
     # NOTE: if no high-freq sampled data has (yet) been loaded,
     # seed the buffer with a history datum - this is most handy
@@ -525,7 +530,7 @@ async def open_feed_bus(
             # NOTE we allow this since it's common to have the live
             # quote feed actor's sampling task push faster then the
             # the local UI-graphics code during startup.
-            allow_overruns=True,
+            # allow_overruns=True,
         ) as stream,
     ):
 
