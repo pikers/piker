@@ -388,7 +388,7 @@ class Client:
 
     async def bars(
         self,
-        fqsn: str,
+        fqme: str,
 
         # EST in ISO 8601 format is required... below is EPOCH
         start_dt: Union[datetime, str] = "1970-01-01T00:00:00.000000-05:00",
@@ -405,7 +405,7 @@ class Client:
 
     ) -> tuple[BarDataList, np.ndarray, pendulum.Duration]:
         '''
-        Retreive OHLCV bars for a fqsn over a range to the present.
+        Retreive OHLCV bars for a fqme over a range to the present.
 
         '''
         # See API docs here:
@@ -425,7 +425,7 @@ class Client:
 
         _enters += 1
 
-        contract = (await self.find_contracts(fqsn))[0]
+        contract = (await self.find_contracts(fqme))[0]
         bars_kwargs.update(getattr(contract, 'bars_kwargs', {}))
 
         bars = await self.ib.reqHistoricalDataAsync(
@@ -676,10 +676,10 @@ class Client:
 
         currency = ''
 
-        # fqsn parsing stage
+        # fqme parsing stage
         # ------------------
         if '.ib' in pattern:
-            from ..accounting._mktinfo import unpack_fqme
+            from piker.accounting import unpack_fqme
             _, symbol, venue, expiry = unpack_fqme(pattern)
 
         else:
@@ -841,14 +841,14 @@ class Client:
 
     async def get_head_time(
         self,
-        fqsn: str,
+        fqme: str,
 
     ) -> datetime:
         '''
         Return the first datetime stamp for ``contract``.
 
         '''
-        contract = (await self.find_contracts(fqsn))[0]
+        contract = (await self.find_contracts(fqme))[0]
         return await self.ib.reqHeadTimeStampAsync(
             contract,
             whatToShow='TRADES',
@@ -1081,7 +1081,7 @@ def con2fqsn(
 
 ) -> tuple[str, bool]:
     '''
-    Convert contracts to fqsn-style strings to be used both in symbol-search
+    Convert contracts to fqme-style strings to be used both in symbol-search
     matching and as feed tokens passed to the front end data deed layer.
 
     Previously seen contracts are cached by id.
