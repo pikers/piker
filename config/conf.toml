@@ -1,0 +1,4 @@
+[network]
+tsdb.backend = 'marketstore'
+tsdb.host = 'localhost'
+tsdb.grpc_port = 5995
