@@ -444,7 +444,8 @@ class MktPair(Struct, frozen=True):
         FQME sin broker part XD
 
         '''
-        return self.fqme.rstrip(f'.{self.broker}')
+        head, _, broker = self.fqme.rpartition('.')
+        return head
 
     @property
     def fqsn(self) -> str:
