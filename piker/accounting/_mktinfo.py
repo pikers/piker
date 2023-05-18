@@ -359,8 +359,10 @@ class MktPair(Struct, frozen=True):
         '''
         return self.pair
 
-    @property
-    def pair(self) -> str:
+    def pair(
+        self,
+        delim_char: str | None = None,
+    ) -> str:
         '''
         The "endpoint asset pair key" for this market.
         Eg. mnq/usd or btc/usdt or xmr/btc
@@ -372,7 +374,7 @@ class MktPair(Struct, frozen=True):
         return maybe_cons_tokens(
             [str(self.dst),
              str(self.src)],
-            delim_char='',
+            delim_char=delim_char or '',
         )
 
     @property
@@ -405,6 +407,7 @@ class MktPair(Struct, frozen=True):
         # mnq/usd.<> -> mnq.<> which is useful when
         # searching (legacy) stock exchanges.
         without_src: bool = False,
+        delim_char: str | None = None,
 
     ) -> str:
         '''
@@ -441,7 +444,12 @@ class MktPair(Struct, frozen=True):
         https://github.com/pikers/piker/issues/467
 
         '''
-        key: str = self.pair if not without_src else str(self.dst)
+        key: str = (
+            self.pair(delim_char=delim_char)
+            if not without_src
+            else str(self.dst)
+        )
+
         return maybe_cons_tokens([
             key,  # final "pair name" (eg. qqq[/usd], btcusdt)
             self.venue,
