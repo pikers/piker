@@ -307,10 +307,16 @@ class Position(Struct):
         datetime-stamped order.
 
         '''
-        return iter_by_dt(self.clears)
+        # sort on the already existing datetime that should have
+        # been generated for the entry's table
+        return iter_by_dt(
+            self.clears,
+            key=lambda entry: entry[1]['dt']
+        )
 
     def calc_ppu(
         self,
+
         # include transaction cost in breakeven price
         # and presume the worst case of the same cost
         # to exit this transaction (even though in reality
@@ -726,7 +732,15 @@ class PpTable(Struct):
             if closed:
                 bs_mktid: str
                 for bs_mktid, pos in closed.items():
-                    self.conf.pop(pos.symbol.fqme)
+                    fqme: str = pos.symbol.fqme
+                    if fqme in self.conf:
+                        self.conf.pop(fqme)
+                    else:
+                        # TODO: we reallly need a diff set of
+                        # loglevels/colors per subsys.
+                        log.warning(
+                            f'Recent position for {fqme} was closed!'
+                        )
 
         # if there are no active position entries according
         # to the toml dump output above, then clear the config

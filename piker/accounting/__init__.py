@@ -22,6 +22,7 @@ for tendiez.
 from ..log import get_logger
 
 from ._ledger import (
+    iter_by_dt,
     Transaction,
     TransactionLedger,
     open_trade_ledger,

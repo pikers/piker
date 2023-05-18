@@ -32,10 +32,11 @@ from typing import (
 
 from pendulum import (
     datetime,
+    DateTime,
+    from_timestamp,
     parse,
 )
-import tomlkit
-import tomli
+import tomli_w  # for fast ledger writing
 
 from .. import config
 from ..data.types import Struct
@@ -116,36 +117,12 @@ class TransactionLedger(UserDict):
         self,
         ledger_dict: dict,
         file_path: Path,
+        tx_sort: Callable,
 
     ) -> None:
         self.file_path = file_path
+        self.tx_sort = tx_sort
         super().__init__(ledger_dict)
-
-    def write_config(self) -> None:
-        '''
-        Render the self.data ledger dict to it's TOML file form.
-
-        '''
-        towrite: dict[str, Any] = self.data.copy()
-
-        for tid, txdict in self.data.items():
-
-            # drop key for non-expiring assets
-            if (
-                'expiry' in txdict
-                and txdict['expiry'] is None
-            ):
-                txdict.pop('expiry')
-
-            # re-write old acro-key
-            fqme = txdict.get('fqsn')
-            if fqme:
-                txdict['fqme'] = fqme
-
-        print(f'WRITING LEDGER {self.file_path}')
-        with self.file_path.open(mode='w') as fp:
-            tomlkit.dump(towrite, fp)
-        print(f'FINISHED WRITING LEDGER {self.file_path}')
 
     def update_from_t(
         self,
@@ -182,6 +159,7 @@ class TransactionLedger(UserDict):
             # and instead call it for each entry incrementally:
             # normer = mod.norm_trade_record(txdict)
 
+        # TODO: use tx_sort here yah?
         for tid, txdict in self.data.items():
             # special field handling for datetimes
             # to ensure pendulum is used!
@@ -195,22 +173,20 @@ class TransactionLedger(UserDict):
                 # the ``.sys: MktPair`` info, so skip.
                 continue
 
-            yield (
-                tid,
-                Transaction(
-                    fqsn=fqme,
-                    tid=txdict['tid'],
-                    dt=dt,
-                    price=txdict['price'],
-                    size=txdict['size'],
-                    cost=txdict.get('cost', 0),
-                    bs_mktid=txdict['bs_mktid'],
+            tx = Transaction(
+                fqsn=fqme,
+                tid=txdict['tid'],
+                dt=dt,
+                price=txdict['price'],
+                size=txdict['size'],
+                cost=txdict.get('cost', 0),
+                bs_mktid=txdict['bs_mktid'],
 
-                    # TODO: change to .sys!
-                    sym=mkt,
-                    expiry=parse(expiry) if expiry else None,
-                )
+                # TODO: change to .sys!
+                sym=mkt,
+                expiry=parse(expiry) if expiry else None,
             )
+            yield tid, tx
 
     def to_trans(
         self,
@@ -223,11 +199,80 @@ class TransactionLedger(UserDict):
         '''
         return dict(self.iter_trans(**kwargs))
 
+    def write_config(
+        self,
+
+    ) -> None:
+        '''
+        Render the self.data ledger dict to it's TOML file form.
+
+        '''
+        cpy = self.data.copy()
+        towrite: dict[str, Any] = {}
+        for tid, trans in cpy.items():
+
+            # drop key for non-expiring assets
+            txdict = towrite[tid] = self.data[tid]
+            if (
+                'expiry' in txdict
+                and txdict['expiry'] is None
+            ):
+                txdict.pop('expiry')
+
+            # re-write old acro-key
+            fqme = txdict.get('fqsn')
+            if fqme:
+                txdict['fqme'] = fqme
+
+        with self.file_path.open(mode='wb') as fp:
+            tomli_w.dump(towrite, fp)
+
+
+def iter_by_dt(
+    records: dict[str, Any],
+
+    # NOTE: parsers are looked up in the insert order
+    # so if you know that the record stats show some field
+    # is more common then others, stick it at the top B)
+    parsers: dict[tuple[str], Callable] = {
+        'dt': None,  # parity case
+        'datetime': parse,  # datetime-str
+        'time': from_timestamp,  # float epoch
+    },
+    key: Callable | None = None,
+
+) -> Iterator[tuple[str, dict]]:
+    '''
+    Iterate entries of a ``records: dict`` table sorted by entry recorded
+    datetime presumably set at the ``'dt'`` field in each entry.
+
+    '''
+    txs = records.items()
+
+    def dyn_parse_to_dt(
+        pair: tuple[str, dict],
+    ) -> DateTime:
+        _, txdict = pair
+        k, v, parser = next(
+            (k, txdict[k], parsers[k]) for k in parsers if k in txdict
+        )
+
+        return parser(v) if parser else v
+
+    for tid, data in sorted(
+        records.items(),
+        key=key or dyn_parse_to_dt,
+    ):
+        yield tid, data
+
 
 @cm
 def open_trade_ledger(
     broker: str,
     account: str,
+
+    # default is to sort by detected datetime-ish field
+    tx_sort: Callable = iter_by_dt,
 
 ) -> Generator[dict, None, None]:
     '''
@@ -244,6 +289,7 @@ def open_trade_ledger(
     ledger = TransactionLedger(
         ledger_dict=cpy,
         file_path=fpath,
+        tx_sort=tx_sort,
     )
     try:
         yield ledger
@@ -254,19 +300,3 @@ def open_trade_ledger(
             # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
             log.info(f'Updating ledger for {fpath}:\n')
             ledger.write_config()
-
-
-def iter_by_dt(
-    clears: dict[str, Any],
-
-) -> Iterator[tuple[str, dict]]:
-    '''
-    Iterate entries of a ``clears: dict`` table sorted by entry recorded
-    datetime presumably set at the ``'dt'`` field in each entry.
-
-    '''
-    for tid, data in sorted(
-        list(clears.items()),
-        key=lambda item: item[1]['dt'],
-    ):
-        yield tid, data

@@ -44,8 +44,9 @@ setup(
         ]
     },
     install_requires=[
-        'tomlkit',  # fork & fix for now: 
+        # 'tomlkit',  # fork & fix for now..
         'tomli',  # for pre-3.11
+        'tomli-w',  # for fast ledger writing
         'colorlog',
         'attrs',
         'pygments',
@@ -65,8 +66,7 @@ setup(
         # normally pinned to particular git hashes..
         # 'tractor',
         # 'asyncvnc',
-        # 'pyqtgraph',
-        # anyio-marketstore  # mkts tsdb client
+        # 'anyio-marketstore',  # mkts tsdb client
 
         # brokers
         'asks',  # for non-ws rest apis
