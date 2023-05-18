@@ -724,8 +724,9 @@ class PpTable(Struct):
             # drop any entries that are computed as net-zero
             # we don't care about storing in the pps file.
             if closed:
-                for fqme in closed:
-                    self.conf.pop(fqme, None)
+                bs_mktid: str
+                for bs_mktid, pos in closed.items():
+                    self.conf.pop(pos.symbol.fqme)
 
         # if there are no active position entries according
         # to the toml dump output above, then clear the config
@@ -879,7 +880,7 @@ def open_pps(
         trans: list[Transaction] = []
         for clears_table in toml_clears_list:
 
-            tid = clears_table.pop('tid')
+            tid = clears_table.get('tid')
             dtstr = clears_table['dt']
             dt = pendulum.parse(dtstr)
             clears_table['dt'] = dt
