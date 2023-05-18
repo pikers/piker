@@ -345,7 +345,7 @@ def load_ledger(
 
     with fpath.open(mode='rb') as cf:
         start = time.time()
-        ledger_dict = tomlkit.parse(cf.read())
+        ledger_dict = tomllib.load(cf)
         log.debug(f'Ledger load took {time.time() - start}s')
 
     return ledger_dict, fpath

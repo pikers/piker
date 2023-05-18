@@ -35,6 +35,7 @@ from pendulum import (
     parse,
 )
 import tomlkit
+import tomli
 
 from .. import config
 from ..data.types import Struct
@@ -141,8 +142,10 @@ class TransactionLedger(UserDict):
             if fqme:
                 txdict['fqme'] = fqme
 
+        print(f'WRITING LEDGER {self.file_path}')
         with self.file_path.open(mode='w') as fp:
             tomlkit.dump(towrite, fp)
+        print(f'FINISHED WRITING LEDGER {self.file_path}')
 
     def update_from_t(
         self,
