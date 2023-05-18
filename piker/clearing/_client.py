@@ -30,7 +30,6 @@ from tractor.trionics import broadcast_receiver
 from ._util import (
     log,  # sub-sys logger
 )
-from ..accounting import unpack_fqme
 from ..data.types import Struct
 from ..service import maybe_open_emsd
 from ._messages import (
@@ -238,6 +237,8 @@ async def open_ems(
     broker control client-API.
 
     '''
+    # TODO: prolly hand in the `MktPair` instance directly here as well!
+    from piker.accounting import unpack_fqme
     broker, mktep, venue, suffix = unpack_fqme(fqme)
 
     async with maybe_open_emsd(
