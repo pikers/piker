@@ -50,7 +50,7 @@ from .._util import (
 )
 from .api import (
     # _adhoc_futes_set,
-    con2fqsn,
+    con2fqme,
     log,
     load_aio_clients,
     ibis,
@@ -708,7 +708,7 @@ def normalize(
 
     # check for special contract types
     con = ticker.contract
-    fqme, calc_price = con2fqsn(con)
+    fqme, calc_price = con2fqme(con)
 
     # convert named tuples to dicts so we send usable keys
     new_ticks = []
@@ -823,7 +823,8 @@ async def get_mkt_info(
         # then we'll get a `MNQUSD` request for history data..
         # we need to figure out how we're going to handle this (later?)
         # but likely we want all backends to eventually handle
-        # ``dst/src.venue.`` style?
+        # ``dst/src.venue.`` style !?
+
         # src=Asset(
         #     name=str(con.currency),
         #     atype='fiat',

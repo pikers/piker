@@ -81,7 +81,7 @@ from piker.accounting import (
 )
 from .api import (
     _accounts2clients,
-    con2fqsn,
+    con2fqme,
     log,
     get_config,
     open_client_proxies,
@@ -100,7 +100,7 @@ def pack_position(
 ]:
 
     con = pos.contract
-    fqsn, calc_price = con2fqsn(con)
+    fqme, calc_price = con2fqme(con)
 
     # TODO: options contracts into a sane format..
     return (
@@ -108,7 +108,7 @@ def pack_position(
         BrokerdPosition(
             broker='ib',
             account=pos.account,
-            symbol=fqsn,
+            symbol=fqme,
             currency=con.currency,
             size=float(pos.position),
             avg_price=float(pos.avgCost) / float(con.multiplier or 1.0),
@@ -468,11 +468,11 @@ async def aggr_open_orders(
 
         # TODO: in the case of the SMART venue (aka ib's
         # router-clearing sys) we probably should handle
-        # showing such orders overtop of the fqsn for the
+        # showing such orders overtop of the fqme for the
         # primary exchange, how to map this easily is going
         # to be a bit tricky though?
         deats = await proxy.con_deats(contracts=[con])
-        fqsn = list(deats)[0]
+        fqme = list(deats)[0]
 
         reqid = order.orderId
 
@@ -490,7 +490,7 @@ async def aggr_open_orders(
                 action=action,
                 exec_mode='live',
                 oid=str(reqid),
-                symbol=fqsn,
+                symbol=fqme,
                 account=accounts_def.inverse[order.account],
                 price=order.lmtPrice,
                 size=size,
@@ -1224,7 +1224,7 @@ def norm_trade_records(
         elif asset_type == 'STK':
             asset_type: str = 'stock'
 
-        # try to build out piker fqsn from record.
+        # try to build out piker fqme from record.
         expiry = (
             record.get('lastTradeDateOrContractMonth')
             or record.get('expiry')

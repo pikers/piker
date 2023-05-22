@@ -500,7 +500,7 @@ class Client:
                 # nested dataclass we probably don't need and that won't
                 # IPC serialize..
                 d.secIdList = ''
-                key, calc_price = con2fqsn(d.contract)
+                key, calc_price = con2fqme(d.contract)
                 details[key] = d
 
         return details
@@ -656,7 +656,7 @@ class Client:
             self._cons[conid] = con
             return con
 
-    def parse_patt2fqsn(
+    def parse_patt2fqme(
         self,
         pattern: str,
 
@@ -721,7 +721,7 @@ class Client:
     ) -> Contract:
 
         if pattern is not None:
-            symbol, currency, exch, expiry = self.parse_patt2fqsn(
+            symbol, currency, exch, expiry = self.parse_patt2fqme(
                 pattern,
             )
             sectype = ''
@@ -1074,7 +1074,7 @@ class Client:
         return self.ib.positions(account=account)
 
 
-def con2fqsn(
+def con2fqme(
     con: Contract,
     _cache: dict[int, (str, bool)] = {}
 
@@ -1140,12 +1140,12 @@ def con2fqsn(
     if expiry:
         suffix += f'.{expiry}'
 
-    fqsn_key = symbol.lower()
+    fqme_key = symbol.lower()
     if suffix:
-        fqsn_key = '.'.join((fqsn_key, suffix)).lower()
+        fqme_key = '.'.join((fqme_key, suffix)).lower()
 
-    _cache[con.conId] = fqsn_key, calc_price
-    return fqsn_key, calc_price
+    _cache[con.conId] = fqme_key, calc_price
+    return fqme_key, calc_price
 
 
 # per-actor API ep caching
