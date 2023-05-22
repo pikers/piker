@@ -7,8 +7,8 @@ from pprint import pprint
 from typing import AsyncContextManager
 
 import pytest
-# import tractor
 import trio
+
 from piker.data import (
     ShmArray,
     open_feed,
@@ -37,7 +37,7 @@ def test_multi_fqsn_feed(
     open_test_pikerd: AsyncContextManager,
     fqmes: set[str],
     loglevel: str,
-    ci_env: bool
+    ci_env: bool,
 ):
     '''
     Start a real-time data feed for provided fqme and pull
@@ -103,7 +103,6 @@ def test_multi_fqsn_feed(
                         for fqme, quote in quotes.items():
                             cntr[fqme] += 1
 
-                            # await tractor.breakpoint()
                             flume = feed.flumes[fqme]
                             ohlcv: ShmArray = flume.rt_shm
                             hist_ohlcv: ShmArray = flume.hist_shm

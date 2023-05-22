@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 
 import pytest
-import pytest_trio
 import tractor
 from piker import (
     config,
@@ -149,19 +148,49 @@ async def _open_test_pikerd(
 
 
 @pytest.fixture
-def open_test_pikerd(
-    request: pytest.FixtureRequest,
+def tmpconfdir(
     tmp_path: Path,
-    loglevel: str,
-):
+) -> Path:
+    '''
+    Ensure the `brokers.toml` file for the test run exists
+    since we changed it to not touch files by default.
+
+    Here we override the default (in the user dir) and
+    set the global module var the same as we do inside
+    the `tmpconfdir` fixture.
+
+    '''
     tmpconfdir: Path = tmp_path / '_testing'
     tmpconfdir.mkdir()
-    tmpconfdir_str: str = str(tmpconfdir)
 
+    # touch the `brokers.toml` file since it won't
+    # exist in the tmp test dir by default!
     # override config dir in the root actor (aka
     # this top level testing process).
     from piker import config
-    config._config_dir = tmpconfdir
+    config._config_dir: Path = tmpconfdir
+    conf, path = config.load(
+        touch_if_dne=True,
+    )
+
+    return tmpconfdir
+
+    # NOTE: the `tmp_dir` fixture will wipe any files older then 3 test
+    # sessions by default:
+    # https://docs.pytest.org/en/6.2.x/tmpdir.html#the-default-base-temporary-directory
+    # BUT, if we wanted to always wipe conf dir and all contained files,
+    # rmtree(str(tmp_path))
+
+
+@pytest.fixture
+def open_test_pikerd(
+    request: pytest.FixtureRequest,
+    tmp_path: Path,
+    tmpconfdir: Path,
+    loglevel: str,
+):
+
+    tmpconfdir_str: str = str(tmpconfdir)
 
     # NOTE: on linux the tmp config dir is generally located at:
     # /tmp/pytest-of-<username>/pytest-<run#>/test_<current_test_name>/
@@ -198,12 +227,6 @@ def open_test_pikerd(
 
         debug_mode=debug_mode,
     )
-
-    # NOTE: the `tmp_dir` fixture will wipe any files older then 3 test
-    # sessions by default:
-    # https://docs.pytest.org/en/6.2.x/tmpdir.html#the-default-base-temporary-directory
-    # BUT, if we wanted to always wipe conf dir and all contained files,
-    # rmtree(str(tmp_path))
 
     # TODO: teardown checks such as,
     # - no leaked subprocs or shm buffers
