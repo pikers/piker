@@ -209,7 +209,14 @@ def sync(
                         )
 
                 console.print(summary)
-                await brokerd_ctx.cancel()
+
+                # exit via ctx cancellation.
+                await brokerd_ctx.cancel(timeout=1)
+                # TODO: once ported to newer tractor branch we should
+                # be able to do a loop like this:
+                # while brokerd_ctx.cancel_called_remote is None:
+                #     await trio.sleep(0.01)
+                #     await brokerd_ctx.cancel()
 
             await portal.cancel_actor()
 
