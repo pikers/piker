@@ -618,10 +618,10 @@ async def sample_and_broadcast(
             ] = bus.get_subs(sub_key)
 
             # NOTE: by default the broker backend doesn't append
-            # it's own "name" into the fqsn schema (but maybe it
+            # it's own "name" into the fqme schema (but maybe it
             # should?) so we have to manually generate the correct
             # key here.
-            fqsn = f'{broker_symbol}.{brokername}'
+            fqme = f'{broker_symbol}.{brokername}'
             lags: int = 0
 
             # TODO: speed up this loop in an AOT compiled lang (like
@@ -640,7 +640,7 @@ async def sample_and_broadcast(
                             # pushes to the ``uniform_rate_send()`` below.
                             try:
                                 stream.send_nowait(
-                                    (fqsn, quote)
+                                    (fqme, quote)
                                 )
                             except trio.WouldBlock:
                                 overruns[sub_key] += 1
@@ -672,7 +672,7 @@ async def sample_and_broadcast(
                                         raise trio.BrokenResourceError
                         else:
                             await stream.send(
-                                {fqsn: quote}
+                                {fqme: quote}
                             )
 
                     if cs.cancelled_caught:

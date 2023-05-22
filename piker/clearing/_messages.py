@@ -191,7 +191,7 @@ class BrokerdOrder(Struct):
     account: str
     time_ns: int
 
-    symbol: str  # fqsn
+    symbol: str  # fqme
     price: float
     size: float
 
