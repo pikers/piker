@@ -1249,7 +1249,7 @@ class Viz(Struct):
         i_step = lasts['index']  # last index-specific step.
         i_step_t = lasts['time']  # last time step.
 
-        # fqsn = self.flume.symbol.fqsn
+        # fqme = self.flume.symbol.fqme
 
         # check if "last (is) in view" -> is a real-time update necessary?
         if self.index_field == 'index':
@@ -1304,7 +1304,7 @@ class Viz(Struct):
             varz['i_last_append'] = i_step
 
             # print(
-            #     f'DOING APPEND => {fqsn}\n'
+            #     f'DOING APPEND => {fqme}\n'
             #     f'i_step: {i_step}\n'
             #     f'i_step_t: {i_step_t}\n'
             #     f'glast: {glast}\n'

@@ -152,7 +152,7 @@ class GodWidget(QWidget):
 
     def set_chart_symbols(
         self,
-        group_key: tuple[str],  # of form <fqsn>.<providername>
+        group_key: tuple[str],  # of form <fqme>.<providername>
         all_linked: tuple[LinkedSplits, LinkedSplits],  # type: ignore
 
     ) -> None:
@@ -170,7 +170,7 @@ class GodWidget(QWidget):
 
     async def load_symbols(
         self,
-        fqsns: list[str],
+        fqmes: list[str],
         loglevel: str,
         reset: bool = False,
 
@@ -183,7 +183,7 @@ class GodWidget(QWidget):
         '''
         # NOTE: for now we use the first symbol in the set as the "key"
         # for the overlay of feeds on the chart.
-        group_key: tuple[str] = tuple(fqsns)
+        group_key: tuple[str] = tuple(fqmes)
 
         all_linked = self.get_chart_symbols(group_key)
         order_mode_started = trio.Event()
@@ -217,7 +217,7 @@ class GodWidget(QWidget):
             self._root_n.start_soon(
                 display_symbol_data,
                 self,
-                fqsns,
+                fqmes,
                 loglevel,
                 order_mode_started,
             )
@@ -548,7 +548,7 @@ class LinkedSplits(QWidget):
         # be no distinction since we will have multiple symbols per
         # view as part of "aggregate feeds".
         self.chart = self.add_plot(
-            name=symbol.fqsn,
+            name=symbol.fqme,
             shm=shm,
             flume=flume,
             style=style,

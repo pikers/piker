@@ -398,7 +398,7 @@ class FspAdmin:
         portal: tractor.Portal,
         complete: trio.Event,
         started: trio.Event,
-        fqsn: str,
+        fqme: str,
         dst_fsp_flume: Flume,
         conf: dict,
         target: Fsp,
@@ -418,7 +418,7 @@ class FspAdmin:
                 cascade,
 
                 # data feed key
-                fqsn=fqsn,
+                fqme=fqme,
 
                 # TODO: pass `Flume.to_msg()`s here?
                 # mems
@@ -444,7 +444,7 @@ class FspAdmin:
 
             # register output data
             self._registry[
-                (fqsn, ns_path)
+                (fqme, ns_path)
             ] = (
                 stream,
                 dst_fsp_flume.rt_shm,
@@ -484,11 +484,11 @@ class FspAdmin:
 
     ) -> (Flume, trio.Event):
 
-        fqsn = self.flume.symbol.fqsn
+        fqme = self.flume.symbol.get_fqme(delim_char='')
 
         # allocate an output shm array
         key, dst_shm, opened = maybe_mk_fsp_shm(
-            fqsn,
+            fqme,
             target=target,
             readonly=True,
         )
@@ -519,7 +519,7 @@ class FspAdmin:
 
         # if not opened:
         #     raise RuntimeError(
-        #         f'Already started FSP `{fqsn}:{func_name}`'
+        #         f'Already started FSP `{fqme}:{func_name}`'
         #     )
 
         complete = trio.Event()
@@ -529,7 +529,7 @@ class FspAdmin:
             portal,
             complete,
             started,
-            fqsn,
+            fqme,
             dst_fsp_flume,
             conf,
             target,

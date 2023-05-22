@@ -639,10 +639,10 @@ class SearchWidget(QtWidgets.QWidget):
         godw = self.godwidget
 
         # first entry in the cache is the current symbol(s)
-        fqsns = set()
-        for multi_fqsns in list(godw._chart_cache):
-            for fqsn in set(multi_fqsns):
-                fqsns.add(fqsn)
+        fqmes = set()
+        for multi_fqmes in list(godw._chart_cache):
+            for fqme in set(multi_fqmes):
+                fqmes.add(fqme)
 
         if keep_current_item_selected:
             sel = self.view.selectionModel()
@@ -650,7 +650,7 @@ class SearchWidget(QtWidgets.QWidget):
 
         self.view.set_section_entries(
             'cache',
-            list(fqsns),
+            list(fqmes),
             # remove all other completion results except for cache
             clear_all=only,
             reverse=True,
@@ -722,18 +722,18 @@ class SearchWidget(QtWidgets.QWidget):
         cidx, provider, symbol = value
         godw = self.godwidget
 
-        fqsn = f'{symbol}.{provider}'
-        log.info(f'Requesting symbol: {fqsn}')
+        fqme = f'{symbol}.{provider}'
+        log.info(f'Requesting symbol: {fqme}')
 
         # assert provider in symbol
         await godw.load_symbols(
-            fqsns=[fqsn],
+            fqmes=[fqme],
             loglevel='info',
         )
 
         # fully qualified symbol name (SNS i guess is what we're
         # making?)
-        fqsn = '.'.join([symbol, provider]).lower()
+        fqme = '.'.join([symbol, provider]).lower()
 
         if clear_to_cache:
 
@@ -743,7 +743,7 @@ class SearchWidget(QtWidgets.QWidget):
             # LIFO order. this is normally only done internally by
             # the chart on new symbols being loaded into memory
             godw.set_chart_symbols(
-                (fqsn,), (
+                (fqme,), (
                     godw.hist_linked,
                     godw.rt_linked,
                 )
@@ -753,7 +753,7 @@ class SearchWidget(QtWidgets.QWidget):
             )
 
         self.bar.focus()
-        return fqsn
+        return fqme
 
     def space_dims(self) -> tuple[float, float]:
         '''

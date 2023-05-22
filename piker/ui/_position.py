@@ -125,7 +125,7 @@ async def update_pnl_from_feed(
 
                     # watch out for wrong quote msg-data if you muck
                     # with backend feed subs code..
-                    # assert sym == quote['fqsn']
+                    # assert sym == quote['fqme']
 
                     for tick in iterticks(quote, types):
                         # print(f'{1/period} Hz')
@@ -417,7 +417,7 @@ class SettingsPane:
         mode = self.order_mode
         sym = mode.chart.linked.symbol
         size = tracker.live_pp.size
-        flume: Feed = mode.feed.flumes[sym.fqsn]
+        flume: Feed = mode.feed.flumes[sym.fqme]
         pnl_value = 0
 
         if size:
@@ -430,9 +430,9 @@ class SettingsPane:
 
             # maybe start update task
             global _pnl_tasks
-            fqsn = sym.fqme
-            if fqsn not in _pnl_tasks:
-                _pnl_tasks[fqsn] = True
+            fqme = sym.fqme
+            if fqme not in _pnl_tasks:
+                _pnl_tasks[fqme] = True
                 self.order_mode.nursery.start_soon(
                     update_pnl_from_feed,
                     flume,

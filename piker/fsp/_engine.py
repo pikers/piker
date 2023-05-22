@@ -104,14 +104,14 @@ async def fsp_compute(
         disabled=True
     )
 
-    fqsn = symbol.fqme
+    fqme = symbol.fqme
     out_stream = func(
 
         # TODO: do we even need this if we do the feed api right?
         # shouldn't a local stream do this before we get a handle
         # to the async iterable? it's that or we do some kinda
         # async itertools style?
-        filter_quotes_by_sym(fqsn, quote_stream),
+        filter_quotes_by_sym(fqme, quote_stream),
 
         # XXX: currently the ``ohlcv`` arg
         flume.rt_shm,
@@ -271,7 +271,7 @@ async def cascade(
     ctx: tractor.Context,
 
     # data feed key
-    fqsn: str,
+    fqme: str,
 
     src_shm_token: dict,
     dst_shm_token: tuple[str, np.dtype],
@@ -329,7 +329,7 @@ async def cascade(
     # open a data feed stream with requested broker
     feed: Feed
     async with data.feed.maybe_open_feed(
-        [fqsn],
+        [fqme],
 
         # TODO throttle tick outputs from *this* daemon since
         # it'll emit tons of ticks due to the throttle only
@@ -339,7 +339,7 @@ async def cascade(
 
     ) as feed:
 
-        flume = feed.flumes[fqsn]
+        flume = feed.flumes[fqme]
         symbol = flume.symbol
         assert src.token == flume.rt_shm.token
         profiler(f'{func}: feed up')

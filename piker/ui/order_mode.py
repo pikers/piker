@@ -549,7 +549,7 @@ class OrderMode:
         # XXX: seems to fail on certain types of races?
         # assert len(lines) == 2
         if lines:
-            flume: Flume = self.feed.flumes[chart.linked.symbol.fqsn]
+            flume: Flume = self.feed.flumes[chart.linked.symbol.fqme]
             _, _, ratio = flume.get_ds_info()
 
             for chart, shm in [
@@ -691,7 +691,7 @@ async def open_order_mode(
 
     feed: Feed,
     godw: GodWidget,
-    fqsn: str,
+    fqme: str,
     started: trio.Event,
     loglevel: str = 'info'
 
@@ -722,7 +722,7 @@ async def open_order_mode(
     # spawn EMS actor-service
     async with (
         open_ems(
-            fqsn,
+            fqme,
             loglevel=loglevel,
         ) as (
             client,
@@ -734,7 +734,7 @@ async def open_order_mode(
         trio.open_nursery() as tn,
 
     ):
-        log.info(f'Opening order mode for {fqsn}')
+        log.info(f'Opening order mode for {fqme}')
 
         # annotations editors
         lines = LineEditor(godw=godw)
@@ -1027,7 +1027,7 @@ async def process_trade_msg(
     dialog: Dialog = mode.dialogs.get(oid)
 
     if dialog:
-        fqsn = dialog.symbol
+        fqme = dialog.symbol
 
     match msg:
         case Status(
@@ -1050,16 +1050,16 @@ async def process_trade_msg(
                 assert msg.resp in ('open', 'dark_open'), f'Unknown msg: {msg}'
 
                 sym = mode.chart.linked.symbol
-                fqsn = sym.fqme
+                fqme = sym.fqme
                 if (
-                    ((order.symbol + f'.{msg.src}') == fqsn)
+                    ((order.symbol + f'.{msg.src}') == fqme)
 
                     # a existing dark order for the same symbol
                     or (
-                        order.symbol == fqsn
+                        order.symbol == fqme
                         and (
                             msg.src in ('dark', 'paperboi')
-                            or (msg.src in fqsn)
+                            or (msg.src in fqme)
 
                         )
                     )

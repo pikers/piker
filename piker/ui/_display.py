@@ -163,7 +163,7 @@ class DisplayState(Struct):
     Chart-local real-time graphics state container.
 
     '''
-    fqsn: str
+    fqme: str
     godwidget: GodWidget
     quotes: dict[str, Any]
 
@@ -223,7 +223,7 @@ async def increment_history_view(
         async for msg in istream:
 
             profiler = Profiler(
-                msg=f'History chart cycle for: `{ds.fqsn}`',
+                msg=f'History chart cycle for: `{ds.fqme}`',
                 delayed=True,
                 disabled=not pg_profile_enabled(),
                 ms_threshold=ms_slower_then,
@@ -232,7 +232,7 @@ async def increment_history_view(
 
             # l3 = ds.viz.shm.array[-3:]
             # print(
-            #     f'fast step for {ds.flume.symbol.fqsn}:\n'
+            #     f'fast step for {ds.flume.symbol.fqme}:\n'
             #     f'{list(l3["time"])}\n'
             #     f'{l3}\n'
             # )
@@ -317,17 +317,17 @@ async def graphics_update_loop(
 
     dss: dict[str, DisplayState] = {}
 
-    for fqsn, flume in feed.flumes.items():
+    for fqme, flume in feed.flumes.items():
         ohlcv = flume.rt_shm
         hist_ohlcv = flume.hist_shm
         symbol = flume.symbol
-        fqsn = symbol.fqsn
+        fqme = symbol.fqme
 
         # update last price sticky
-        fast_viz = fast_chart._vizs[fqsn]
+        fast_viz = fast_chart._vizs[fqme]
         index_field = fast_viz.index_field
         fast_pi = fast_viz.plot
-        last_price_sticky = fast_pi.getAxis('right')._stickies[fqsn]
+        last_price_sticky = fast_pi.getAxis('right')._stickies[fqme]
         last_price_sticky.update_from_data(
             *ohlcv.array[-1][[
                 index_field,
@@ -336,9 +336,9 @@ async def graphics_update_loop(
         )
         last_price_sticky.show()
 
-        hist_viz = hist_chart._vizs[fqsn]
+        hist_viz = hist_chart._vizs[fqme]
         slow_pi = hist_viz.plot
-        hist_last_price_sticky = slow_pi.getAxis('right')._stickies[fqsn]
+        hist_last_price_sticky = slow_pi.getAxis('right')._stickies[fqme]
         hist_last_price_sticky.update_from_data(
             *hist_ohlcv.array[-1][[
                 index_field,
@@ -346,7 +346,7 @@ async def graphics_update_loop(
             ]]
         )
 
-        vlm_chart = vlm_charts[fqsn]
+        vlm_chart = vlm_charts[fqme]
         vlm_viz = vlm_chart._vizs.get('volume') if vlm_chart else None
 
         (
@@ -381,8 +381,8 @@ async def graphics_update_loop(
         fast_chart.show()
         last_quote_s = time.time()
 
-        dss[fqsn] = ds = linked.display_state = DisplayState(**{
-            'fqsn': fqsn,
+        dss[fqme] = ds = linked.display_state = DisplayState(**{
+            'fqme': fqme,
             'godwidget': godwidget,
             'quotes': {},
 
@@ -454,11 +454,11 @@ async def graphics_update_loop(
 
             last_quote_s = time.time()
 
-            for fqsn, quote in quotes.items():
-                ds = dss[fqsn]
+            for fqme, quote in quotes.items():
+                ds = dss[fqme]
                 ds.quotes = quote
 
-                rt_pi, hist_pi = pis[fqsn]
+                rt_pi, hist_pi = pis[fqme]
 
                 # chart isn't active/shown so skip render cycle and
                 # pause feed(s)
@@ -466,14 +466,14 @@ async def graphics_update_loop(
                     fast_chart.linked.isHidden()
                     or not rt_pi.isVisible()
                 ):
-                    print(f'{fqsn} skipping update for HIDDEN CHART')
+                    print(f'{fqme} skipping update for HIDDEN CHART')
                     fast_chart.pause_all_feeds()
                     continue
 
                 ic = fast_chart.view._in_interact
                 if ic:
                     fast_chart.pause_all_feeds()
-                    print(f'{fqsn} PAUSING DURING INTERACTION')
+                    print(f'{fqme} PAUSING DURING INTERACTION')
                     await ic.wait()
                     fast_chart.resume_all_feeds()
 
@@ -495,7 +495,7 @@ def graphics_update_cycle(
 ) -> None:
 
     profiler = Profiler(
-        msg=f'Graphics loop cycle for: `{ds.fqsn}`',
+        msg=f'Graphics loop cycle for: `{ds.fqme}`',
         disabled=not pg_profile_enabled(),
         ms_threshold=ms_slower_then,
         delayed=True,
@@ -509,7 +509,7 @@ def graphics_update_cycle(
     # - use a streaming minmax algo and drop the use of the
     #   state-tracking ``multi_maxmin()`` routine from above?
 
-    fqsn = ds.fqsn
+    fqme = ds.fqme
     chart = ds.chart
     vlm_chart = ds.vlm_chart
 
@@ -548,7 +548,7 @@ def graphics_update_cycle(
     #   the true range? This way you can slap in orders outside the
     #   current L1 (only) book range.
     main_vb: ChartView = main_viz.plot.vb
-    this_viz: Viz = chart._vizs[fqsn]
+    this_viz: Viz = chart._vizs[fqme]
     this_vb: ChartView = this_viz.plot.vb
     this_yr = this_vb._yrange
     if this_yr:
@@ -600,7 +600,7 @@ def graphics_update_cycle(
             profiler,
         )
 
-        profiler(f'{fqsn} `multi_maxmin()` call')
+        profiler(f'{fqme} `multi_maxmin()` call')
 
     # iterate frames of ticks-by-type such that we only update graphics
     # using the last update per type where possible.
@@ -828,7 +828,7 @@ def graphics_update_cycle(
 
         # update any overlayed fsp flows
         if (
-            curve_name != fqsn
+            curve_name != fqme
         ):
             update_fsp_chart(
                 viz,
@@ -939,7 +939,7 @@ def graphics_update_cycle(
                     liv and do_rt_update
                     or do_px_step
                 )
-                and curve_name not in {fqsn}
+                and curve_name not in {fqme}
             ):
                 update_fsp_chart(
                     viz,
@@ -1008,7 +1008,7 @@ async def link_views_with_region(
     hist_pi.addItem(region, ignoreBounds=True)
     region.setOpacity(6/16)
 
-    viz = rt_chart.get_viz(flume.symbol.fqsn)
+    viz = rt_chart.get_viz(flume.symbol.fqme)
     assert viz
     index_field = viz.index_field
 
@@ -1035,7 +1035,7 @@ async def link_views_with_region(
             # HFT/real-time chart.
             rng = mn, mx = viewRange[0]
 
-            # hist_viz = hist_chart.get_viz(flume.symbol.fqsn)
+            # hist_viz = hist_chart.get_viz(flume.symbol.fqme)
             # hist = hist_viz.shm.array[-3:]
             # print(
             #     f'mn: {mn}\n'
@@ -1153,7 +1153,7 @@ _quote_throttle_rate: int = 60 - 6
 
 async def display_symbol_data(
     godwidget: GodWidget,
-    fqsns: list[str],
+    fqmes: list[str],
     loglevel: str,
     order_mode_started: trio.Event,
 
@@ -1176,9 +1176,9 @@ async def display_symbol_data(
     #     group_key=loading_sym_key,
     # )
 
-    for fqsn in fqsns:
+    for fqme in fqmes:
         loading_sym_key = sbar.open_status(
-            f'loading {fqsn} ->',
+            f'loading {fqme} ->',
             group_key=True
         )
 
@@ -1197,7 +1197,7 @@ async def display_symbol_data(
     # TODO: we should be able to increase this if we use some
     # `mypyc` speedups elsewhere? 22ish seems to be the sweet
     # spot for single-feed chart.
-    num_of_feeds = len(fqsns)
+    num_of_feeds = len(fqmes)
     mx: int = 22
     if num_of_feeds > 1:
         # there will be more ctx switches with more than 1 feed so we
@@ -1213,18 +1213,18 @@ async def display_symbol_data(
 
     feed: Feed
     async with open_feed(
-        fqsns,
+        fqmes,
         loglevel=loglevel,
         tick_throttle=cycles_per_feed,
 
     ) as feed:
 
         # use expanded contract symbols passed back from feed layer.
-        fqsns = list(feed.flumes.keys())
+        fqmes = list(feed.flumes.keys())
         # step_size_s = 1
         # tf_key = tf_in_1s[step_size_s]
         godwidget.window.setWindowTitle(
-            f'{fqsns} '
+            f'{fqmes} '
             # f'tick:{symbol.tick_size} '
             # f'step:{tf_key} '
         )
@@ -1276,7 +1276,7 @@ async def display_symbol_data(
 
         # for the "first"/selected symbol we create new chart widgets
         # and sub-charts for FSPs
-        fqsn, flume = fitems[0]
+        fqme, flume = fitems[0]
 
         # TODO NOTE: THIS CONTROLS WHAT SYMBOL IS USED FOR ORDER MODE
         # SUBMISSIONS, we need to make this switch based on selection.
@@ -1287,7 +1287,7 @@ async def display_symbol_data(
         hist_ohlcv: ShmArray = flume.hist_shm
 
         symbol = flume.symbol
-        fqsn = symbol.fqsn
+        fqme = symbol.fqme
 
         hist_chart = hist_linked.plot_ohlc_main(
             symbol,
@@ -1304,9 +1304,9 @@ async def display_symbol_data(
 
         # ensure the last datum graphic is generated
         # for zoom-interaction purposes.
-        hist_viz = hist_chart.get_viz(fqsn)
-        hist_viz.draw_last(array_key=fqsn)
-        pis.setdefault(fqsn, [None, None])[1] = hist_chart.plotItem
+        hist_viz = hist_chart.get_viz(fqme)
+        hist_viz.draw_last(array_key=fqme)
+        pis.setdefault(fqme, [None, None])[1] = hist_chart.plotItem
 
         # don't show when not focussed
         hist_linked.cursor.always_show_xlabel = False
@@ -1322,8 +1322,8 @@ async def display_symbol_data(
                 'last_step_color': 'original',
             },
         )
-        rt_viz = rt_chart.get_viz(fqsn)
-        pis.setdefault(fqsn, [None, None])[0] = rt_chart.plotItem
+        rt_viz = rt_chart.get_viz(fqme)
+        pis.setdefault(fqme, [None, None])[0] = rt_chart.plotItem
 
         # for pause/resume on mouse interaction
         rt_chart.feed = feed
@@ -1338,7 +1338,7 @@ async def display_symbol_data(
                 has_vlm(ohlcv)
                 and vlm_chart is None
             ):
-                vlm_chart = vlm_charts[fqsn] = await ln.start(
+                vlm_chart = vlm_charts[fqme] = await ln.start(
                     open_vlm_displays,
                     rt_linked,
                     flume,
@@ -1372,7 +1372,7 @@ async def display_symbol_data(
             godwidget.resize_all()
             await trio.sleep(0)
 
-            for fqsn, flume in fitems[1:]:
+            for fqme, flume in fitems[1:]:
                 # get a new color from the palette
                 bg_chart_color, bg_last_bar_color = next(palette)
 
@@ -1380,18 +1380,18 @@ async def display_symbol_data(
                 hist_ohlcv: ShmArray = flume.hist_shm
 
                 symbol = flume.symbol
-                fqsn = symbol.fqsn
+                fqme = symbol.fqme
 
                 hist_pi = hist_chart.overlay_plotitem(
-                    name=fqsn,
-                    axis_title=fqsn,
+                    name=fqme,
+                    axis_title=fqme,
                 )
 
                 hist_viz = hist_chart.draw_curve(
-                    fqsn,
+                    fqme,
                     hist_ohlcv,
                     flume,
-                    array_key=fqsn,
+                    array_key=fqme,
                     overlay=hist_pi,
                     pi=hist_pi,
                     is_ohlc=True,
@@ -1402,26 +1402,26 @@ async def display_symbol_data(
 
                 # ensure the last datum graphic is generated
                 # for zoom-interaction purposes.
-                hist_viz.draw_last(array_key=fqsn)
+                hist_viz.draw_last(array_key=fqme)
 
                 # TODO: we need a better API to do this..
                 # specially store ref to shm for lookup in display loop
                 # since only a placeholder of `None` is entered in
                 # ``.draw_curve()``.
-                hist_viz = hist_chart._vizs[fqsn]
+                hist_viz = hist_chart._vizs[fqme]
                 assert hist_viz.plot is hist_pi
-                pis.setdefault(fqsn, [None, None])[1] = hist_pi
+                pis.setdefault(fqme, [None, None])[1] = hist_pi
 
                 rt_pi = rt_chart.overlay_plotitem(
-                    name=fqsn,
-                    axis_title=fqsn,
+                    name=fqme,
+                    axis_title=fqme,
                 )
 
                 rt_viz = rt_chart.draw_curve(
-                    fqsn,
+                    fqme,
                     ohlcv,
                     flume,
-                    array_key=fqsn,
+                    array_key=fqme,
                     overlay=rt_pi,
                     pi=rt_pi,
                     is_ohlc=True,
@@ -1434,9 +1434,9 @@ async def display_symbol_data(
                 # specially store ref to shm for lookup in display loop
                 # since only a placeholder of `None` is entered in
                 # ``.draw_curve()``.
-                rt_viz = rt_chart._vizs[fqsn]
+                rt_viz = rt_chart._vizs[fqme]
                 assert rt_viz.plot is rt_pi
-                pis.setdefault(fqsn, [None, None])[0] = rt_pi
+                pis.setdefault(fqme, [None, None])[0] = rt_pi
 
             rt_chart.setFocus()
 
@@ -1452,7 +1452,7 @@ async def display_symbol_data(
 
             # greedily do a view range default and pane resizing
             # on startup  before loading the order-mode machinery.
-            for fqsn, flume in feed.flumes.items():
+            for fqme, flume in feed.flumes.items():
 
                 # size view to data prior to order mode init
                 rt_chart.main_viz.default_view(
@@ -1495,7 +1495,7 @@ async def display_symbol_data(
             )
 
             # boot order-mode
-            order_ctl_fqme: str = fqsns[0]
+            order_ctl_fqme: str = fqmes[0]
             mode: OrderMode
             async with (
                 open_order_mode(
@@ -1522,7 +1522,7 @@ async def display_symbol_data(
                 hist_chart.main_viz.default_view(
                     do_min_bars=True,
                 )
-                hist_viz = hist_chart.get_viz(fqsn)
+                hist_viz = hist_chart.get_viz(fqme)
                 await trio.sleep(0)
 
                 godwidget.resize_all()
