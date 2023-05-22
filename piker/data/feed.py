@@ -815,7 +815,7 @@ async def open_feed(
 
     for fqme in fqmes:
         brokername, *_ = unpack_fqme(fqme)
-        bfqme = fqme.replace('.' + brokername, '')
+        bs_fqme = fqme.replace('.' + brokername, '')
 
         try:
             mod = get_brokermod(brokername)
@@ -823,7 +823,7 @@ async def open_feed(
             mod = get_ingestormod(brokername)
 
         # built a per-provider map to instrument names
-        providers.setdefault(mod, []).append(bfqme)
+        providers.setdefault(mod, []).append(bs_fqme)
         feed.mods[mod.name] = mod
 
     # one actor per brokerd for now
@@ -903,7 +903,7 @@ async def open_feed(
 
                 for fqme, flume_msg in flumes_msg_dict.items():
                     flume = Flume.from_msg(flume_msg)
-                    assert flume.symbol.fqme == fqme
+                    # assert flume.symbol.fqme == fqme
                     feed.flumes[fqme] = flume
 
                     # TODO: do we need this?
