@@ -401,7 +401,7 @@ class Client:
             fqme = asset_key + '.kraken'
 
             tx = Transaction(
-                fqsn=fqme,
+                fqme=fqme,
                 sym=asset,
                 tid=entry['txid'],
                 dt=pendulum.from_timestamp(entry['time']),

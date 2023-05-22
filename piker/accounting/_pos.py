@@ -900,7 +900,7 @@ def open_pps(
             clears_table['dt'] = dt
 
             trans.append(Transaction(
-                fqsn=bs_mktid,
+                fqme=bs_mktid,
                 sym=mkt,
                 bs_mktid=bs_mktid,
                 tid=tid,

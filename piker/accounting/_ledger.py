@@ -54,8 +54,8 @@ class Transaction(Struct, frozen=True):
 
     # TODO: unify this with the `MktPair`,
     # once we have that as a required field,
-    # we don't really need the fqsn any more..
-    fqsn: str
+    # we don't really need the fqme any more..
+    fqme: str
 
     tid: Union[str, int]  # unique transaction id
     size: float
@@ -67,11 +67,6 @@ class Transaction(Struct, frozen=True):
     # can instead expect the backend to provide this
     # via the `MktPair`?
     expiry: datetime | None = None
-
-    # remap for back-compat
-    @property
-    def fqme(self) -> str:
-        return self.fqsn
 
     # TODO: drop the Symbol type, construct using
     # t.sys (the transaction system)
@@ -174,7 +169,7 @@ class TransactionLedger(UserDict):
                 continue
 
             tx = Transaction(
-                fqsn=fqme,
+                fqme=fqme,
                 tid=txdict['tid'],
                 dt=dt,
                 price=txdict['price'],

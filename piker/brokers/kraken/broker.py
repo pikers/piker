@@ -895,7 +895,7 @@ async def handle_order_updates(
                             ids.inverse.get(reqid) is None
                         ):
                             # parse out existing live order
-                            fqsn = pair.replace('/', '').lower()
+                            fqme = pair.replace('/', '').lower()
                             price = float(price)
                             size = float(vol)
 
@@ -922,7 +922,7 @@ async def handle_order_updates(
                                     action=action,
                                     exec_mode='live',
                                     oid=oid,
-                                    symbol=fqsn,
+                                    symbol=fqme,
                                     account=acc_name,
                                     price=price,
                                     size=size,
@@ -1207,7 +1207,7 @@ async def norm_trade_records(
         mkt: MktPair = (await get_mkt_info(fqme))[0]
 
         records[tid] = Transaction(
-            fqsn=fqme,
+            fqme=fqme,
             sym=mkt,
             tid=tid,
             size=size,

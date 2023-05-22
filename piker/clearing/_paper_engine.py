@@ -263,7 +263,7 @@ class PaperBoi(Struct):
         # other then this thing, our fqme address.
         bs_mktid: str = fqme
         t = Transaction(
-            fqsn=fqme,
+            fqme=fqme,
             sym=self._mkts[fqme],
             tid=oid,
             size=size,
@@ -577,9 +577,9 @@ async def trades_dialogue(
             mkt_by_fqme[fqme] = mkt
 
         # for each sym in the ledger load it's `MktPair` info
-        for tid, tdict in ledger.data.items():
+        for tid, txdict in ledger.data.items():
             # TODO: switch this to fqme
-            l_fqme = tdict['fqsn']
+            l_fqme = txdict.get('fqme', txdict['fqsn'])
 
             if (
                 gmi

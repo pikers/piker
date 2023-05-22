@@ -1266,7 +1266,7 @@ def norm_trade_records(
         insort(
             records,
             Transaction(
-                fqsn=fqme,
+                fqme=fqme,
                 sym=pair,
                 tid=tid,
                 size=size,
