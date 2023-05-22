@@ -374,6 +374,7 @@ class MktPair(Struct, frozen=True):
         return maybe_cons_tokens(
             [str(self.dst),
              str(self.src)],
+            # TODO: make the default '/'
             delim_char=delim_char or '',
         )
 
