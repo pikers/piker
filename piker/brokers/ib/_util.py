@@ -170,6 +170,10 @@ async def vnc_click_hack(
 
 def i3ipc_xdotool_manual_click_hack() -> None:
     i3 = i3ipc.Connection()
+
+    # TODO: might be worth offering some kinda api for grabbing
+    # the window id from the pid?
+    # https://stackoverflow.com/a/2250879
     t = i3.get_tree()
 
     orig_win_id = t.find_focused().window

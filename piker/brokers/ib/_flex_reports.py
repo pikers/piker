@@ -35,6 +35,10 @@ from piker.accounting import (
 def parse_flex_dt(
     record: str,
 ) -> pendulum.datetime:
+    '''
+    Parse stupid flex record datetime stamps for the `dateTime` field..
+
+    '''
     date, ts = record.split(';')
     dt = pendulum.parse(date)
     ts = f'{ts[:2]}:{ts[2:4]}:{ts[4:]}'

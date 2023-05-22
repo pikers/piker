@@ -60,6 +60,7 @@ from piker.accounting import (
     Position,
     Transaction,
     open_trade_ledger,
+    iter_by_dt,
     open_pps,
     PpTable,
 )
@@ -434,9 +435,9 @@ async def update_and_audit_msgs(
             if validate and p.size:
                 # raise ValueError(
                 log.error(
-                    f'UNEXPECTED POSITION says IB:\n'
-                    'Maybe they LIQUIDATED YOU or are missing ledger txs?\n'
-                    f'PIKER:\n{pikerfmtmsg}\n\n'
+                    f'UNEXPECTED POSITION says IB => {msg.symbol}\n'
+                    'Maybe they LIQUIDATED YOU or are missing ledger entries?\n'
+                    f'{pikerfmtmsg}\n\n'
                 )
             msgs.append(msg)
 
@@ -581,6 +582,13 @@ async def trades_dialogue(
                     open_trade_ledger(
                         'ib',
                         acctid,
+                        tx_sort=partial(
+                            iter_by_dt,
+                            parsers={
+                                'dateTime': parse_flex_dt,
+                                'datetime': pendulum.parse,
+                            },
+                        ),
                     )
                 )
 
@@ -654,7 +662,7 @@ async def trades_dialogue(
 
                 # update position table with latest ledger from all
                 # gathered transactions: ledger file + api records.
-                trans = norm_trade_records(ledger)
+                trans: dict[str, Transaction] = norm_trade_records(ledger)
                 table.update_from_trans(trans)
 
                 # process pp value reported from ib's system. we only

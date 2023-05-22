@@ -120,9 +120,7 @@ async def open_data_client() -> MethodProxy:
 
 @acm
 async def open_history_client(
-    fqme: str,
-
-    # mkt: MktPair | None = None,
+    mkt: MktPair,
 
 ) -> tuple[Callable, int]:
     '''
@@ -130,7 +128,7 @@ async def open_history_client(
     that takes in ``pendulum.datetime`` and returns ``numpy`` arrays.
 
     '''
-    # TODO:
+    # TODO: mostly meta-data processing to drive shm and tsdb storage..
     # - add logic to handle tradable hours and only grab
     #   valid bars in the range?
     # - we want to avoid overrunning the underlying shm array buffer and
@@ -139,12 +137,21 @@ async def open_history_client(
     #   the shm size will be driven by user config and available sys
     #   memory.
 
+    # IB's internal symbology does not expect the "source asset" in
+    # the "symbol name", what we call the "market name". This is
+    # common in most legacy market brokers since it's presumed that
+    # given a certain stock exchange, listed assets are traded
+    # "from" a particular source fiat, normally something like USD.
+    if (
+        mkt.src
+        and mkt.src.atype == 'fiat'
+    ):
+        fqme: str = mkt.get_bs_fqme(without_src=True)
+    else:
+        fqme = mkt.bs_fqme
+
     async with open_data_client() as proxy:
 
-        # TODO: maybe strip the `MktPair.src: Asset` key here?
-        # see the comment below..
-        # if mkt is not None:
-        #     fqme: str = mkt.fqme.remove(mkt.src.name)
 
         max_timeout: float = 2.
         mean: float = 0
@@ -156,7 +163,7 @@ async def open_history_client(
             'idealpro' not in fqme
         ):
             try:
-                head_dt = await proxy.get_head_time(fqsn=fqme)
+                head_dt = await proxy.get_head_time(fqme=fqme)
             except RequestError:
                 head_dt = None
 
@@ -310,7 +317,7 @@ _failed_resets: int = 0
 async def get_bars(
 
     proxy: MethodProxy,
-    fqsn: str,
+    fqme: str,
     timeframe: int,
 
     # blank to start which tells ib to look up the latest datum
@@ -354,7 +361,7 @@ async def get_bars(
         while _failed_resets < max_failed_resets:
             try:
                 out = await proxy.bars(
-                    fqsn=fqsn,
+                    fqme=fqme,
                     end_dt=end_dt,
                     sample_period_s=timeframe,
 
@@ -380,7 +387,7 @@ async def get_bars(
                     continue
 
                 if bars_array is None:
-                    raise SymbolNotFound(fqsn)
+                    raise SymbolNotFound(fqme)
 
                 first_dt = pendulum.from_timestamp(
                     bars[0].date.timestamp())
@@ -411,7 +418,7 @@ async def get_bars(
                 if 'No market data permissions for' in msg:
                     # TODO: signalling for no permissions searches
                     raise NoData(
-                        f'Symbol: {fqsn}',
+                        f'Symbol: {fqme}',
                     )
 
                 elif (
@@ -437,7 +444,7 @@ async def get_bars(
 
                     if nodatas_count >= max_nodatas:
                         raise DataUnavailable(
-                            f'Presuming {fqsn} has no further history '
+                            f'Presuming {fqme} has no further history '
                             f'after {max_nodatas} tries..'
                         )
 
@@ -701,7 +708,7 @@ def normalize(
 
     # check for special contract types
     con = ticker.contract
-    fqsn, calc_price = con2fqsn(con)
+    fqme, calc_price = con2fqsn(con)
 
     # convert named tuples to dicts so we send usable keys
     new_ticks = []
@@ -731,9 +738,9 @@ def normalize(
     # serialize for transport
     data = asdict(ticker)
 
-    # generate fqsn with possible specialized suffix
+    # generate fqme with possible specialized suffix
     # for derivatives, note the lowercase.
-    data['symbol'] = data['fqsn'] = fqsn
+    data['symbol'] = data['fqme'] = fqme
 
     # convert named tuples to dicts for transport
     tbts = data.get('tickByTicks')
@@ -1002,9 +1009,9 @@ async def stream_quotes(
                         # last = time.time()
                         async for ticker in stream:
                             quote = normalize(ticker)
-                            fqsn = quote['fqsn']
-                            # print(f'sending {fqsn}:\n{quote}')
-                            await send_chan.send({fqsn: quote})
+                            fqme = quote['fqme']
+                            # print(f'sending {fqme}:\n{quote}')
+                            await send_chan.send({fqme: quote})
 
                             # ugh, clear ticks since we've consumed them
                             ticker.ticks = []

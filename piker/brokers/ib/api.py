@@ -14,11 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""
-``ib`` core API client machinery; mostly sane wrapping around
-``ib_insync``.
+'''
+Core API client machinery; mostly sane/useful wrapping around `ib_insync`..
 
-"""
+'''
 from __future__ import annotations
 from contextlib import (
     asynccontextmanager as acm,
@@ -1450,6 +1449,14 @@ class MethodProxy:
         while not chan.closed():
             # send through method + ``kwargs: dict`` as pair
             msg = await chan.receive()
+
+            # TODO: implement reconnect functionality like
+            # in our `.data._web_bs.NoBsWs`
+            # try:
+            #     msg = await chan.receive()
+            # except ConnectionError:
+            #     self.reset()
+
             # print(f'NEXT MSG: {msg}')
 
             # TODO: py3.10 ``match:`` syntax B)
