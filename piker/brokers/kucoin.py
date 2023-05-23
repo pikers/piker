@@ -614,11 +614,21 @@ async def get_mkt_info(
         bs_fqme, _, broker = fqme.partition('.')
 
         pairs: dict[str, KucoinMktPair] = await client.cache_pairs()
-        bs_mktid: str = client._fqmes2mktids[bs_fqme]
-        pair: KucoinMktPair = pairs[bs_mktid]
+
+        try:
+            # likely search result key which is already in native mkt symbol form
+            pair: KucoinMktPair = pairs[bs_fqme]
+            bs_mktid: str = bs_fqme
+
+        except KeyError:
+
+            # likely a piker-style fqme from API request or CLI
+            bs_mktid: str = client._fqmes2mktids[bs_fqme]
+            pair: KucoinMktPair = pairs[bs_mktid]
+
+        # symbology sanity
         assert bs_mktid == pair.symbol
 
-        # pair: KucoinMktPair = await client.pair_info(pair_str)
         assets: dict[str, Currency] = client._currencies
 
         # TODO: maybe just do this processing in
