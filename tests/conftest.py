@@ -120,12 +120,7 @@ async def _open_test_pikerd(
                 'piker_test_dir': tmpconfdir,
             },
 
-            # tests may need to spawn containers dynamically
-            # or just in sequence per test, so we keep root.
-            drop_root_perms_for_ahab=False,
-
             debug_mode=debug_mode,
-
             **kwargs,
 
         ) as service_manager,
@@ -180,6 +175,14 @@ def tmpconfdir(
     # https://docs.pytest.org/en/6.2.x/tmpdir.html#the-default-base-temporary-directory
     # BUT, if we wanted to always wipe conf dir and all contained files,
     # rmtree(str(tmp_path))
+
+
+@pytest.fixture
+def root_conf(tmpconfdir) -> dict:
+    return config.load(
+        'conf',
+        touch_if_dne=True,
+    )
 
 
 @pytest.fixture

@@ -14,6 +14,7 @@ from piker.service import elastic
 def test_marketstore_startup_and_version(
     open_test_pikerd: AsyncContextManager,
     loglevel: str,
+    root_conf: dict,
 ):
     '''
     Verify marketstore tsdb starts up and we can
@@ -21,18 +22,39 @@ def test_marketstore_startup_and_version(
 
     '''
     async def main():
+        user_conf: dict = {
+            'grpc_listen_port': 5995 + 6,
+            'ws_listen_port': 5993 + 6,
+        }
+
+        dname: str  # service name
+        config: dict  # service name
 
         async with (
             open_test_pikerd(
                 loglevel=loglevel,
-                tsdb=True
+                # tsdb=True
             ) as (
                 _,  # host
                 _,  # port
                 pikerd_portal,
                 services,
             ),
+
+            marketstore.start_ahab_daemon(
+                services,
+                user_conf,
+                loglevel=loglevel,
+
+            ) as (dname, config)
         ):
+            # ensure user config was applied
+            for k, v in user_conf.items():
+                assert config[k] == v
+
+            # netconf: dict = root_conf['network']
+            # tsdbconf = netconf['tsdb']
+
             # TODO: we should probably make this connection poll
             # loop part of the `get_client()` implementation no?
 
@@ -45,7 +67,12 @@ def test_marketstore_startup_and_version(
             for _ in range(3):
 
                 # NOTE: default sockaddr is embedded within
-                async with marketstore.get_client() as client:
+                async with marketstore.get_client(
+                    host='localhost',
+                    port=user_conf['grpc_listen_port'],
+
+                ) as client:
+                    print(f'Client is up @ {user_conf}!')
 
                     with trio.move_on_after(1) as cs:
                         syms = await client.list_symbols()
@@ -64,7 +91,13 @@ def test_marketstore_startup_and_version(
                     )
                     print('VERSION CHECKED')
 
+
                 break  # get out of retry-connect loop
+            else:
+                raise RuntimeError('Failed to connect to {conf}!')
+
+            # gracefully teardown docker-daemon-service
+            print(f'Cancelling docker service {dname}')
 
     trio.run(main)
 
@@ -80,18 +113,29 @@ def test_elasticsearch_startup_and_version(
 
     '''
     async def main():
-        port = 19200
+        port: int = 19200
+        user_conf: dict = {
+            'port': port,
+        }
+
+        dname: str  # service name
+        config: dict  # service name
 
         async with (
             open_test_pikerd(
                 loglevel=loglevel,
-                es=True
             ) as (
                 _,  # host
                 _,  # port
                 pikerd_portal,
                 services,
             ),
+            elastic.start_ahab_daemon(
+                services,
+                user_conf,
+                loglevel=loglevel,
+
+            ) as (dname, config)
         ):
             # TODO: much like the above connect loop for mkts, we should
             # probably make this sync start part of the
