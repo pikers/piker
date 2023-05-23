@@ -15,6 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from __future__ import annotations
+from contextlib import asynccontextmanager as acm
 from typing import (
     Any,
     TYPE_CHECKING,
@@ -122,3 +123,47 @@ def start_elasticsearch(
         health_query,
         chk_for_closed_msg,
     )
+
+
+@acm
+async def start_ahab_daemon(
+    service_mngr: Services,
+    user_config: dict | None = None,
+    loglevel: str | None = None,
+
+) -> tuple[str, dict]:
+    '''
+    Task entrypoint to start the estasticsearch docker container using
+    the service manager.
+
+    '''
+    from ._ahab import start_ahab_service
+
+    # dict-merge any user settings
+    conf: dict = _config.copy()
+    if user_config:
+        conf = conf | user_config
+
+    dname: str = 'esd'
+    log.info(f'Spawning `{dname}` supervisor')
+    async with start_ahab_service(
+        service_mngr,
+        dname,
+
+        # NOTE: docker-py client is passed at runtime
+        start_elasticsearch,
+        ep_kwargs={'user_config': conf},
+        loglevel=loglevel,
+
+    ) as (
+        ctn_ready,
+        config,
+        (cid, pid),
+    ):
+        log.info(
+            f'`{dname}` up!\n'
+            f'pid: {pid}\n'
+            f'container id: {cid[:12]}\n'
+            f'config: {pformat(config)}'
+        )
+        yield dname, conf
