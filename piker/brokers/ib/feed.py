@@ -146,7 +146,18 @@ async def open_history_client(
         mkt.src
         and mkt.src.atype == 'fiat'
     ):
-        fqme: str = mkt.get_bs_fqme(without_src=True)
+        fqme_kwargs: dict[str, Any] = {}
+
+        if mkt.dst.atype == 'forex':
+
+            # XXX: for now we do need the src token kept in since
+            fqme_kwargs  = {
+                'without_src': False,  # default is True
+                'delim_char': '',  # bc they would normally use a frickin `.` smh
+            }
+
+        fqme: str = mkt.get_bs_fqme(**(fqme_kwargs))
+
     else:
         fqme = mkt.bs_fqme
 
@@ -812,24 +823,26 @@ async def get_mkt_info(
     #         str(expiry).strip(' ')
     #     ))
 
+    # TODO: currently we can't pass the fiat src asset because
+    # then we'll get a `MNQUSD` request for history data..
+    # we need to figure out how we're going to handle this (later?)
+    # but likely we want all backends to eventually handle
+    # ``dst/src.venue.`` style !?
+    src: str | Asset = ''
+    if atype == 'forex':
+        src = Asset(
+            name=str(con.currency),
+            atype='fiat',
+            tx_tick=Decimal('0.01'),  # right?
+        )
+
     mkt = MktPair(
         dst=Asset(
             name=con.symbol.lower(),
             atype=atype,
             tx_tick=size_tick,
         ),
-
-        # TODO: currently we can't pass the fiat src asset because
-        # then we'll get a `MNQUSD` request for history data..
-        # we need to figure out how we're going to handle this (later?)
-        # but likely we want all backends to eventually handle
-        # ``dst/src.venue.`` style !?
-
-        # src=Asset(
-        #     name=str(con.currency),
-        #     atype='fiat',
-        #     tx_tick=Decimal('0.01'),  # right?
-        # ),
+        src=src,
 
         price_tick=price_tick,
         size_tick=size_tick,
