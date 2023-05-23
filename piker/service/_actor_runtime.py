@@ -152,11 +152,6 @@ async def open_pikerd(
     debug_mode: bool = False,
     registry_addr: None | tuple[str, int] = None,
 
-    # db init flags
-    tsdb: bool = False,
-    es: bool = False,
-    drop_root_perms_for_ahab: bool = True,
-
     **kwargs,
 
 ) -> Services:
@@ -195,50 +190,6 @@ async def open_pikerd(
         Services.actor_n = actor_nursery
         Services.service_n = service_nursery
         Services.debug_mode = debug_mode
-
-        if tsdb:
-            from ._ahab import start_ahab
-            from .marketstore import start_marketstore
-
-            log.info('Spawning `marketstore` supervisor')
-            ctn_ready, config, (cid, pid) = await service_nursery.start(
-                partial(
-                    start_ahab,
-                    'marketstored',
-                    start_marketstore,
-                    loglevel=loglevel,
-                    drop_root_perms=drop_root_perms_for_ahab,
-                )
-
-            )
-            log.info(
-                f'`marketstored` up!\n'
-                f'pid: {pid}\n'
-                f'container id: {cid[:12]}\n'
-                f'config: {pformat(config)}'
-            )
-
-        if es:
-            from ._ahab import start_ahab
-            from .elastic import start_elasticsearch
-
-            log.info('Spawning `elasticsearch` supervisor')
-            ctn_ready, config, (cid, pid) = await service_nursery.start(
-                partial(
-                    start_ahab,
-                    'elasticsearch',
-                    start_elasticsearch,
-                    loglevel=loglevel,
-                    drop_root_perms=drop_root_perms_for_ahab,
-                )
-            )
-
-            log.info(
-                f'`elasticsearch` up!\n'
-                f'pid: {pid}\n'
-                f'container id: {cid[:12]}\n'
-                f'config: {pformat(config)}'
-            )
 
         try:
             yield Services
@@ -279,9 +230,6 @@ async def open_pikerd(
 async def maybe_open_pikerd(
     loglevel: Optional[str] = None,
     registry_addr: None | tuple = None,
-    tsdb: bool = False,
-    es: bool = False,
-    drop_root_perms_for_ahab: bool = True,
 
     **kwargs,
 
@@ -334,11 +282,6 @@ async def maybe_open_pikerd(
     async with open_pikerd(
         loglevel=loglevel,
         registry_addr=registry_addr,
-
-        # ahabd (docker super) specific controls
-        tsdb=tsdb,
-        es=es,
-        drop_root_perms_for_ahab=drop_root_perms_for_ahab,
 
         # passthrough to ``tractor`` init
         **kwargs,
