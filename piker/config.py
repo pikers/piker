@@ -228,6 +228,7 @@ def load(
         [str | bytes,],
         MutableMapping,
     ] = tomllib.loads,
+
     touch_if_dne: bool = False,
 
     **tomlkws,
@@ -249,18 +250,19 @@ def load(
             exist_ok=True,
         )
 
-    if not path.is_file():
-        if path is None:
-            fn: str = _conf_fn_w_ext(conf_name)
+    if (
+        not path.is_file()
+        and touch_if_dne
+    ):
+        fn: str = _conf_fn_w_ext(conf_name)
 
-            # try to copy in a template config to the user's directory if
-            # one exists.
-            template: Path = repodir() / 'config' / fn
-            if template.is_file():
-                shutil.copyfile(template, path)
+        # try to copy in a template config to the user's directory if
+        # one exists.
+        template: Path = repodir() / 'config' / fn
+        if template.is_file():
+            shutil.copyfile(template, path)
 
-        # touch an empty file
-        elif touch_if_dne:
+        else:  # just touch an empty file with same name
             with path.open(mode='x'):
                 pass
 
