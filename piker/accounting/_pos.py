@@ -51,7 +51,10 @@ from ._mktinfo import (
 )
 from .. import config
 from ..brokers import get_brokermod
-from ..clearing._messages import BrokerdPosition, Status
+from ..clearing._messages import (
+    BrokerdPosition,
+    Status,
+)
 from ..data.types import Struct
 from ..log import get_logger
 
@@ -882,11 +885,11 @@ def open_pps(
 
         # TODO: RE: general "events" instead of just "clears":
         # - make this an `events` field and support more event types
-        # such as 'split', 'name_change', 'mkt_info', etc..
+        #   such as 'split', 'name_change', 'mkt_info', etc..
         # - should be make a ``Struct`` for clear/event entries? convert
-        # "clear events table" from the toml config (list of a dicts)
-        # and load it into object form for use in position processing of
-        # new clear events.
+        #   "clear events table" from the toml config (list of a dicts)
+        #   and load it into object form for use in position processing of
+        #   new clear events.
 
         # convert clears sub-tables (only in this form
         # for toml re-presentation) back into a master table.
