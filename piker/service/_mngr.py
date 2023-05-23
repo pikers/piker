@@ -33,8 +33,11 @@ from ._util import (
 )
 
 
-# TODO: factor this into a ``tractor.highlevel`` extension
-# pack for the library.
+# TODO: we need remote wrapping and a general soln:
+# - factor this into a ``tractor.highlevel`` extension # pack for the
+#   library.
+# - wrap a "remote api" wherein you can get a method proxy
+#   to the pikerd actor for starting services remotely!
 class Services:
 
     actor_n: tractor._supervise.ActorNursery
@@ -80,6 +83,7 @@ class Services:
         ) -> Any:
 
             with trio.CancelScope() as cs:
+
                 async with portal.open_context(
                     target,
                     allow_overruns=allow_overruns,
