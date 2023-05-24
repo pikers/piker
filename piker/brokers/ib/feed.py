@@ -803,7 +803,11 @@ async def get_mkt_info(
     init_info: dict = {}
     atype = _asset_type_map[con.secType]
 
-    venue = con.primaryExchange or con.exchange
+    if atype == 'commodity':
+        venue: str = 'cmdty'
+    else:
+        venue = con.primaryExchange or con.exchange
+
     price_tick: Decimal = Decimal(str(details.minTick))
 
     if atype == 'stock':
@@ -918,12 +922,12 @@ async def stream_quotes(
         # it might be outside regular trading hours so see if we can at
         # least grab history.
         if (
-            isnan(first_ticker.last)
-            and type(first_ticker.contract) not in (
-                ibis.Commodity,
-                ibis.Forex,
-                ibis.Crypto,
-            )
+            isnan(first_ticker.last)  # last quote price value is nan
+            and mkt.dst.atype not in {
+                'commodity',
+                'forex',
+                'crypto',
+            }
         ):
             task_status.started((init_msgs, first_quote))
 
