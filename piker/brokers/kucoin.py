@@ -647,7 +647,6 @@ async def get_mkt_info(
             tx_tick=digits_to_dec(dst.precision),
             info=dst.to_dict(),
         )
-
         mkt = MktPair(
             dst=dst_asset,
             src=src_asset,

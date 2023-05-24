@@ -402,7 +402,7 @@ def trades2pps(
                 # right since `.broker` is already
                 # included?
                 account='kraken.' + acctid,
-                symbol=p.symbol.fqme,
+                symbol=p.mkt.fqme,
                 size=p.size,
                 avg_price=p.ppu,
                 currency='',

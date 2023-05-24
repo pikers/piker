@@ -578,8 +578,7 @@ async def trades_dialogue(
 
         # for each sym in the ledger load it's `MktPair` info
         for tid, txdict in ledger.data.items():
-            # TODO: switch this to fqme
-            l_fqme = txdict.get('fqme', txdict['fqsn'])
+            l_fqme: str = txdict.get('fqme') or txdict['fqsn']
 
             if (
                 gmi
