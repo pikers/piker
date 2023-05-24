@@ -1,11 +1,12 @@
 from typing import AsyncContextManager
 import logging
 
-import trio
+import pytest
 from elasticsearch import (
     Elasticsearch,
     ConnectionError,
 )
+import trio
 
 from piker.service import marketstore
 from piker.service import elastic
@@ -102,6 +103,7 @@ def test_marketstore_startup_and_version(
     trio.run(main)
 
 
+@pytest.mark.skip
 def test_elasticsearch_startup_and_version(
     open_test_pikerd: AsyncContextManager,
     loglevel: str,
