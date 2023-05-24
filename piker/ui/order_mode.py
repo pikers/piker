@@ -996,7 +996,7 @@ async def process_trade_msg(
     if name in (
         'position',
     ):
-        sym = mode.chart.linked.symbol
+        sym: MktPair = mode.chart.linked.mkt
         pp_msg_symbol = msg['symbol'].lower()
         fqme = sym.fqme
         broker = sym.broker
@@ -1052,7 +1052,7 @@ async def process_trade_msg(
                 )
                 assert msg.resp in ('open', 'dark_open'), f'Unknown msg: {msg}'
 
-                sym = mode.chart.linked.symbol
+                sym: MktPair = mode.chart.linked.mkt
                 fqme = sym.fqme
                 if (
                     ((order.symbol + f'.{msg.src}') == fqme)

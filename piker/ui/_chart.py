@@ -70,7 +70,6 @@ from ..data.feed import (
 )
 from ..accounting import (
     MktPair,
-    Symbol,
 )
 from ..log import get_logger
 from ._interaction import ChartView
@@ -455,7 +454,7 @@ class LinkedSplits(QWidget):
         # update the UI for a given "chart instance".
         self.display_state: DisplayState | None = None
 
-        self._mkt: MktPair | Symbol = None
+        self._mkt: MktPair = None
 
     def on_splitter_adjust(
         self,
@@ -486,11 +485,6 @@ class LinkedSplits(QWidget):
     @property
     def mkt(self) -> MktPair:
         return self._mkt
-
-    @property
-    def symbol(self) -> Symbol | MktPair:
-        log.warning(f'{type(self)}.symbol is now deprecated use .mkt!')
-        return self.mkt
 
     def set_split_sizes(
         self,
@@ -1236,7 +1230,7 @@ class ChartPlotWidget(pg.PlotWidget):
 
                 # TODO: UGH! just make this not here! we should
                 # be making the sticky from code which has access
-                # to the ``Symbol`` instance..
+                # to the ``MktPair`` instance..
 
                 # if the sticky is for our symbol
                 # use the tick size precision for display
