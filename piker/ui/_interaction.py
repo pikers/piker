@@ -620,7 +620,7 @@ class ChartView(ViewBox):
         # Ignore axes if mouse is disabled
         mouseEnabled = np.array(
             self.state['mouseEnabled'],
-            dtype=np.float,
+            dtype=float,
         )
         mask = mouseEnabled.copy()
         if axis is not None:

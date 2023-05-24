@@ -271,7 +271,7 @@ class ShmArray:
 
         # type that all field values will be cast to
         # in the returned view.
-        common_dtype: np.dtype = np.float,
+        common_dtype: np.dtype = float,
 
     ) -> np.ndarray:
 
