@@ -62,7 +62,6 @@ from ._style import hcolor
 from ._fsp import (
     update_fsp_chart,
     start_fsp_displays,
-    has_vlm,
     open_vlm_displays,
 )
 from ._forms import (
@@ -1335,7 +1334,7 @@ async def display_symbol_data(
                 None | ChartPlotWidget
             ] = {}.fromkeys(feed.flumes)
             if (
-                has_vlm(ohlcv)
+                flume.has_vlm()
                 and vlm_chart is None
             ):
                 vlm_chart = vlm_charts[fqme] = await ln.start(

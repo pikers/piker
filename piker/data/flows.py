@@ -240,3 +240,23 @@ class Flume(Struct):
         )
         imx = times.shape[0] - 1
         return min(first, imx)
+
+    # only set by external msg or creator, never
+    # manually!
+    _has_vlm: bool = True
+
+    def has_vlm(self) -> bool:
+
+        if not self._has_vlm:
+            return False
+
+        # make sure that the instrument supports volume history
+        # (sometimes this is not the case for some commodities and
+        # derivatives)
+        vlm: np.ndarray = self.rt_shm.array['volume']
+        return not bool(
+            np.all(np.isin(vlm, -1))
+            or np.all(np.isnan(vlm))
+        )
+
+

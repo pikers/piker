@@ -72,14 +72,6 @@ from .._profile import Profiler
 log = get_logger(__name__)
 
 
-def has_vlm(ohlcv: ShmArray) -> bool:
-    # make sure that the instrument supports volume history
-    # (sometimes this is not the case for some commodities and
-    # derivatives)
-    vlm = ohlcv.array['volume']
-    return not bool(np.all(np.isin(vlm, -1)) or np.all(np.isnan(vlm)))
-
-
 def update_fsp_chart(
     viz,
     graphics_name: str,

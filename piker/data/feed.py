@@ -309,7 +309,7 @@ async def allocate_persistent_feed(
     init: FeedInit = validate_backend(
         mod,
         [symstr],
-        init_msgs,
+        init_msgs,  # NOTE: only 1 should be delivered for now..
     )
     mkt: MktPair = init.mkt_info
     fqme: str = mkt.fqme
@@ -355,6 +355,10 @@ async def allocate_persistent_feed(
         _hist_shm_token=hist_shm.token,
         izero_hist=izero_hist,
         izero_rt=izero_rt,
+
+        # NOTE: some instruments don't have this provided,
+        # eg. commodities and forex from ib.
+        _has_vlm=init.shm_write_opts['has_vlm'],
     )
 
     # for ambiguous names we simply register the

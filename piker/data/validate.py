@@ -25,6 +25,8 @@ from typing import (
     Any,
 )
 
+from msgspec import field
+
 from .types import Struct
 from ..accounting import (
     Asset,
@@ -52,8 +54,11 @@ class FeedInit(Struct, frozen=True):
 
     # NOTE: only field we use rn in ``.data.feed``
     # TODO: maybe make a SamplerConfig(Struct)?
-    shm_write_opts: dict[str, Any] = {}
-    # 'sum_tick_vlm': True
+    shm_write_opts: dict[str, Any] = field(
+        default_factory=lambda: {
+        'has_vlm': True,
+        'sum_tick_vlm': True,
+    })
 
 
 def validate_backend(
