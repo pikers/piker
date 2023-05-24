@@ -37,6 +37,9 @@ import pyqtgraph as pg
 from msgspec import field
 
 # from .. import brokers
+from ..accounting import (
+    MktPair,
+)
 from ..data.feed import (
     open_feed,
     Feed,
@@ -319,8 +322,8 @@ async def graphics_update_loop(
     for fqme, flume in feed.flumes.items():
         ohlcv = flume.rt_shm
         hist_ohlcv = flume.hist_shm
-        symbol = flume.mkt
-        fqme = symbol.fqme
+        mkt = flume.mkt
+        fqme = mkt.fqme
 
         # update last price sticky
         fast_viz = fast_chart._vizs[fqme]
@@ -360,13 +363,13 @@ async def graphics_update_loop(
 
         last, volume = ohlcv.array[-1][['close', 'volume']]
 
-        symbol = flume.mkt
+        mkt = flume.mkt
 
         l1 = L1Labels(
             fast_pi,
             # determine precision/decimal lengths
-            digits=symbol.tick_size_digits,
-            size_digits=symbol.lot_size_digits,
+            digits=mkt.price_tick_digits,
+            size_digits=mkt.size_tick_digits,
         )
 
         # TODO:
@@ -449,7 +452,7 @@ async def graphics_update_loop(
                 and quote_rate >= display_rate
             ):
                 pass
-                # log.warning(f'High quote rate {symbol.key}: {quote_rate}')
+                # log.warning(f'High quote rate {mkt.fqme}: {quote_rate}')
 
             last_quote_s = time.time()
 
@@ -1224,7 +1227,7 @@ async def display_symbol_data(
         # tf_key = tf_in_1s[step_size_s]
         godwidget.window.setWindowTitle(
             f'{fqmes} '
-            # f'tick:{symbol.tick_size} '
+            # f'tick:{mkt.tick_size} '
             # f'step:{tf_key} '
         )
         # generate order mode side-pane UI
@@ -1234,8 +1237,8 @@ async def display_symbol_data(
         godwidget.pp_pane = pp_pane
 
         # create top history view chart above the "main rt chart".
-        rt_linked = godwidget.rt_linked
-        hist_linked = godwidget.hist_linked
+        rt_linked: LinkedSplits = godwidget.rt_linked
+        hist_linked: LinkedSplits = godwidget.hist_linked
 
         # NOTE: here we insert the slow-history chart set into
         # the fast chart's splitter -> so it's a splitter of charts
@@ -1279,17 +1282,17 @@ async def display_symbol_data(
 
         # TODO NOTE: THIS CONTROLS WHAT SYMBOL IS USED FOR ORDER MODE
         # SUBMISSIONS, we need to make this switch based on selection.
-        rt_linked._symbol = flume.mkt
-        hist_linked._symbol = flume.mkt
+        rt_linked.set_mkt_info(flume.mkt)
+        hist_linked.set_mkt_info(flume.mkt)
 
         ohlcv: ShmArray = flume.rt_shm
         hist_ohlcv: ShmArray = flume.hist_shm
 
-        symbol = flume.mkt
-        fqme = symbol.fqme
+        mkt: MktPair = flume.mkt
+        fqme = mkt.fqme
 
         hist_chart = hist_linked.plot_ohlc_main(
-            symbol,
+            mkt,
             hist_ohlcv,
             flume,
             # in the case of history chart we explicitly set `False`
@@ -1311,7 +1314,7 @@ async def display_symbol_data(
         hist_linked.cursor.always_show_xlabel = False
 
         rt_chart = rt_linked.plot_ohlc_main(
-            symbol,
+            mkt,
             ohlcv,
             flume,
             # in the case of history chart we explicitly set `False`
@@ -1378,8 +1381,8 @@ async def display_symbol_data(
                 ohlcv: ShmArray = flume.rt_shm
                 hist_ohlcv: ShmArray = flume.hist_shm
 
-                symbol = flume.mkt
-                fqme = symbol.fqme
+                mkt = flume.mkt
+                fqme = mkt.fqme
 
                 hist_pi = hist_chart.overlay_plotitem(
                     name=fqme,

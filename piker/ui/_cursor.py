@@ -228,7 +228,7 @@ class ContentsLabel(pg.LabelItem):
                         'bar_wap',
                     ]
                 ],
-                name=name,
+                # name=name,
                 index=ix,
             )
         )
@@ -363,7 +363,7 @@ class Cursor(pg.GraphicsObject):
 
         # value used for rounding y-axis discreet tick steps
         # computing once, up front, here cuz why not
-        mkt = self.linked._symbol
+        mkt = self.linked.mkt
         self._y_tick_mult = 1/float(mkt.price_tick)
 
         # line width in view coordinates

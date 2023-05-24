@@ -907,7 +907,7 @@ async def open_feed(
 
                 for fqme, flume_msg in flumes_msg_dict.items():
                     flume = Flume.from_msg(flume_msg)
-                    # assert flume.symbol.fqme == fqme
+                    # assert flume.mkt.fqme == fqme
                     feed.flumes[fqme] = flume
 
                     # TODO: do we need this?

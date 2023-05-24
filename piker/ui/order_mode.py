@@ -36,17 +36,18 @@ import trio
 from PyQt5.QtCore import Qt
 
 from .. import config
-from ..accounting import Position
-from ..accounting._allocate import (
+from ..accounting import (
+    Allocator,
+    Position,
     mk_allocator,
+    MktPair,
+    Symbol,
 )
 from ..clearing._client import (
     open_ems,
     OrderClient,
 )
 from ._style import _font
-from ..accounting._mktinfo import Symbol
-from ..accounting import MktPair
 from ..data.feed import (
     Feed,
     Flume,
@@ -93,7 +94,7 @@ class Dialog(Struct):
     order: Order
     symbol: str
     lines: list[LevelLine]
-    last_status_close: Callable = lambda: None
+    last_status_close: Callable | None = None
     msgs: dict[str, dict] = {}
     fills: dict[str, Any] = {}
 
@@ -288,10 +289,10 @@ class OrderMode:
             # since that's illogical / a no-op.
             return
 
-        symbol = self.chart.linked.symbol
+        mkt: MktPair = self.chart.linked.mkt
 
         # NOTE : we could also use instead,
-        # symbol.quantize(price, quantity_type='price')
+        # mkt.quantize(price, quantity_type='price')
         # but it returns a Decimal and it's probably gonna
         # be slower?
         # TODO: should we be enforcing this precision
@@ -301,7 +302,7 @@ class OrderMode:
 
         price = round(
             price,
-            ndigits=symbol.tick_size_digits,
+            ndigits=mkt.size_tick_digits,
         )
 
         order = self._staged_order = Order(
@@ -309,8 +310,8 @@ class OrderMode:
             price=price,
             account=self.current_pp.alloc.account,
             size=0,
-            symbol=symbol,
-            brokers=[symbol.broker],
+            symbol=mkt.fqme,
+            brokers=[mkt.broker],
             oid='',  # filled in on submit
             exec_mode=trigger_type,  # dark or live
         )
@@ -457,10 +458,10 @@ class OrderMode:
         the EMS, adjust mirrored level line on secondary chart.
 
         '''
-        mktinfo = self.chart.linked.symbol
+        mktinfo: MktPair = self.chart.linked.mkt
         level = round(
             line.value(),
-            ndigits=mktinfo.tick_size_digits,
+            ndigits=mktinfo.size_tick_digits,
         )
         # updated by level change callback set in ``.new_line_from_order()``
         dialog = line.dialog
@@ -497,7 +498,9 @@ class OrderMode:
         # a submission is the start of a new order dialog
         dialog = self.dialogs[uuid]
         dialog.lines = lines
-        dialog.last_status_close()
+        cls: Callable | None = dialog.last_status_close
+        if cls:
+            cls()
 
         for line in lines:
 
@@ -549,7 +552,7 @@ class OrderMode:
         # XXX: seems to fail on certain types of races?
         # assert len(lines) == 2
         if lines:
-            flume: Flume = self.feed.flumes[chart.linked.symbol.fqme]
+            flume: Flume = self.feed.flumes[chart.linked.mkt.fqme]
             _, _, ratio = flume.get_ds_info()
 
             for chart, shm in [
@@ -740,15 +743,15 @@ async def open_order_mode(
         lines = LineEditor(godw=godw)
         arrows = ArrowEditor(godw=godw)
 
-        # symbol id
-        symbol = chart.linked.symbol
+        # market endpoint info
+        mkt: MktPair = chart.linked.mkt
 
         # map of per-provider account keys to position tracker instances
         trackers: dict[str, PositionTracker] = {}
 
         # load account names from ``brokers.toml``
         accounts_def = config.load_accounts(
-            providers=[symbol.broker],
+            providers=[mkt.broker],
         )
 
         # XXX: ``brokerd`` delivers a set of account names that it
@@ -771,17 +774,17 @@ async def open_order_mode(
 
             # net-zero pp
             startup_pp = Position(
-                mkt=symbol,
+                mkt=mkt,
                 size=0,
                 ppu=0,
 
                 # XXX: BLEH, do we care about this on the client side?
-                bs_mktid=symbol.key,
+                bs_mktid=mkt.key,
             )
 
             # allocator config
-            alloc = mk_allocator(
-                symbol=symbol,
+            alloc: Allocator = mk_allocator(
+                mkt=mkt,
                 account=account_name,
 
                 # if this startup size is greater the allocator limit,

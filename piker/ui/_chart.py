@@ -68,7 +68,10 @@ from ..data.feed import (
     Feed,
     Flume,
 )
-from ..accounting._mktinfo import Symbol
+from ..accounting import (
+    MktPair,
+    Symbol,
+)
 from ..log import get_logger
 from ._interaction import ChartView
 from ._forms import FieldsForm
@@ -287,7 +290,7 @@ class GodWidget(QWidget):
                     pp_nav.hide()
 
         # set window titlebar info
-        symbol = self.rt_linked.symbol
+        symbol = self.rt_linked.mkt
         if symbol is not None:
             self.window.setWindowTitle(
                 f'{symbol.fqme} '
@@ -452,7 +455,7 @@ class LinkedSplits(QWidget):
         # update the UI for a given "chart instance".
         self.display_state: DisplayState | None = None
 
-        self._symbol: Symbol = None
+        self._mkt: MktPair | Symbol = None
 
     def on_splitter_adjust(
         self,
@@ -474,9 +477,20 @@ class LinkedSplits(QWidget):
                 **kwargs,
             )
 
+    def set_mkt_info(
+        self,
+        mkt: MktPair,
+    ) -> None:
+        self._mkt = mkt
+
     @property
-    def symbol(self) -> Symbol:
-        return self._symbol
+    def mkt(self) -> MktPair:
+        return self._mkt
+
+    @property
+    def symbol(self) -> Symbol | MktPair:
+        log.warning(f'{type(self)}.symbol is now deprecated use .mkt!')
+        return self.mkt
 
     def set_split_sizes(
         self,
@@ -521,7 +535,7 @@ class LinkedSplits(QWidget):
     def plot_ohlc_main(
         self,
 
-        symbol: Symbol,
+        mkt: MktPair,
         shm: ShmArray,
         flume: Flume,
         sidepane: FieldsForm,
@@ -540,7 +554,7 @@ class LinkedSplits(QWidget):
         # add crosshairs
         self.cursor = Cursor(
             linkedsplits=self,
-            digits=symbol.tick_size_digits,
+            digits=mkt.price_tick_digits,
         )
 
         # NOTE: atm the first (and only) OHLC price chart for the symbol
@@ -548,7 +562,7 @@ class LinkedSplits(QWidget):
         # be no distinction since we will have multiple symbols per
         # view as part of "aggregate feeds".
         self.chart = self.add_plot(
-            name=symbol.fqme,
+            name=mkt.fqme,
             shm=shm,
             flume=flume,
             style=style,
@@ -1030,7 +1044,7 @@ class ChartPlotWidget(pg.PlotWidget):
         '''
         view = vb or self.view
         viz = self.main_viz
-        l, r = viz.view_range()
+        left, right = viz.view_range()
         x_shift = viz.index_step() * datums
 
         if datums >= 300:
@@ -1040,8 +1054,8 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # should trigger broadcast on all overlays right?
         view.setXRange(
-            min=l + x_shift,
-            max=r + x_shift,
+            min=left + x_shift,
+            max=right + x_shift,
 
             # TODO: holy shit, wtf dude... why tf would this not be 0 by
             # default... speechless.
@@ -1227,7 +1241,7 @@ class ChartPlotWidget(pg.PlotWidget):
                 # if the sticky is for our symbol
                 # use the tick size precision for display
                 name = name or pi.name
-                sym = self.linked.symbol
+                sym = self.linked.mkt
                 digits = None
                 if name == sym.key:
                     digits = sym.tick_size_digits

@@ -436,12 +436,12 @@ class Viz(Struct):
         else:
             if x_range is None:
                 (
-                    l,
+                    xl,
                     _,
                     lbar,
                     rbar,
                     _,
-                    r,
+                    xr,
                 ) = self.datums_range()
 
                 profiler(f'{self.name} got bars range')
@@ -585,12 +585,12 @@ class Viz(Struct):
         Return a range tuple for the datums present in view.
 
         '''
-        l, r = view_range or self.view_range()
+        xl, xr = view_range or self.view_range()
 
         index_field: str = index_field or self.index_field
         if index_field == 'index':
-            l: int = round(l)
-            r: int = round(r)
+            xl: int = round(xl)
+            xr: int = round(xr)
 
         if array is None:
             array = self.shm.array
@@ -601,12 +601,12 @@ class Viz(Struct):
 
         # invalid view state
         if (
-            r < l
-            or l < 0
-            or r < 0
+            xr < xl
+            or xl < 0
+            or xr < 0
             or (
-                l > last
-                and r > last
+                xl > last
+                and xr > last
             )
         ):
             leftmost: int = first
@@ -616,12 +616,12 @@ class Viz(Struct):
             # determine first and last datums in view determined by
             # l -> r view range.
             rightmost = max(
-                min(last, ceil(r)),
+                min(last, ceil(xr)),
                 first,
             )
 
             leftmost = min(
-                max(first, floor(l)),
+                max(first, floor(xl)),
                 last,
                 rightmost - 1,
             )
@@ -632,12 +632,12 @@ class Viz(Struct):
         self.vs.xrange = leftmost, rightmost
 
         return (
-            l,  # left x-in-view
+            xl,  # left x-in-view
             first,  # first datum
             leftmost,
             rightmost,
             last,  # last_datum
-            r,  # right-x-in-view
+            xr,  # right-x-in-view
         )
 
     def read(
@@ -665,12 +665,12 @@ class Viz(Struct):
             profiler('self.shm.array READ')
 
         (
-            l,
+            xl,
             ifirst,
             lbar,
             rbar,
             ilast,
-            r,
+            xr,
         ) = self.datums_range(
             index_field=index_field,
             array=array,
@@ -715,8 +715,8 @@ class Viz(Struct):
         # a uniform time stamp step size?
         else:
             # get read-relative indices adjusting for master shm index.
-            lbar_i = max(l, ifirst) - ifirst
-            rbar_i = min(r, ilast) - ifirst
+            lbar_i = max(xl, ifirst) - ifirst
+            rbar_i = min(xr, ilast) - ifirst
 
             # NOTE: the slice here does NOT include the extra ``+ 1``
             # BUT the ``in_view`` slice DOES..
@@ -1244,18 +1244,25 @@ class Viz(Struct):
 
         '''
         # get most recent right datum index in-view
-        l, start, datum_start, datum_stop, stop, r = self.datums_range()
+        (
+            xl,
+            start,
+            datum_start,
+            datum_stop,
+            stop,
+            xr,
+        ) = self.datums_range()
         lasts = self.shm.array[-1]
         i_step = lasts['index']  # last index-specific step.
         i_step_t = lasts['time']  # last time step.
 
-        # fqme = self.flume.symbol.fqme
+        # fqme = self.flume.mkt.fqme
 
         # check if "last (is) in view" -> is a real-time update necessary?
         if self.index_field == 'index':
-            liv = (r >= i_step)
+            liv = (xr >= i_step)
         else:
-            liv = (r >= i_step_t)
+            liv = (xr >= i_step_t)
 
         # compute the first available graphic obj's x-units-per-pixel
         # TODO: make this not loop through all vizs each time!

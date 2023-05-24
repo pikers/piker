@@ -29,7 +29,6 @@ from typing import (
     Any,
 )
 
-import numpy as np
 import msgspec
 import tractor
 import pyqtgraph as pg
@@ -428,7 +427,7 @@ class FspAdmin:
                     in self._flow_registry.items()
                 ],
 
-            ) as (ctx, last_index),
+            ) as (ctx, _),
             ctx.open_stream() as stream,
         ):
 
@@ -486,8 +485,10 @@ class FspAdmin:
             readonly=True,
         )
 
-        portal = self.cluster.get(worker_name) or self.rr_next_portal()
-        provider_tag = portal.channel.uid
+        portal: tractor.Portal = (
+            self.cluster.get(worker_name)
+            or self.rr_next_portal()
+        )
 
         # TODO: this should probably be turned into a
         # ``Cascade`` type which describes the routing
