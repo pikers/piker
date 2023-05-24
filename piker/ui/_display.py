@@ -231,7 +231,7 @@ async def increment_history_view(
 
             # l3 = ds.viz.shm.array[-3:]
             # print(
-            #     f'fast step for {ds.flume.symbol.fqme}:\n'
+            #     f'fast step for {ds.flume.mkt.fqme}:\n'
             #     f'{list(l3["time"])}\n'
             #     f'{l3}\n'
             # )
@@ -319,7 +319,7 @@ async def graphics_update_loop(
     for fqme, flume in feed.flumes.items():
         ohlcv = flume.rt_shm
         hist_ohlcv = flume.hist_shm
-        symbol = flume.symbol
+        symbol = flume.mkt
         fqme = symbol.fqme
 
         # update last price sticky
@@ -360,7 +360,7 @@ async def graphics_update_loop(
 
         last, volume = ohlcv.array[-1][['close', 'volume']]
 
-        symbol = flume.symbol
+        symbol = flume.mkt
 
         l1 = L1Labels(
             fast_pi,
@@ -1007,7 +1007,7 @@ async def link_views_with_region(
     hist_pi.addItem(region, ignoreBounds=True)
     region.setOpacity(6/16)
 
-    viz = rt_chart.get_viz(flume.symbol.fqme)
+    viz = rt_chart.get_viz(flume.mkt.fqme)
     assert viz
     index_field = viz.index_field
 
@@ -1034,7 +1034,7 @@ async def link_views_with_region(
             # HFT/real-time chart.
             rng = mn, mx = viewRange[0]
 
-            # hist_viz = hist_chart.get_viz(flume.symbol.fqme)
+            # hist_viz = hist_chart.get_viz(flume.mkt.fqme)
             # hist = hist_viz.shm.array[-3:]
             # print(
             #     f'mn: {mn}\n'
@@ -1279,13 +1279,13 @@ async def display_symbol_data(
 
         # TODO NOTE: THIS CONTROLS WHAT SYMBOL IS USED FOR ORDER MODE
         # SUBMISSIONS, we need to make this switch based on selection.
-        rt_linked._symbol = flume.symbol
-        hist_linked._symbol = flume.symbol
+        rt_linked._symbol = flume.mkt
+        hist_linked._symbol = flume.mkt
 
         ohlcv: ShmArray = flume.rt_shm
         hist_ohlcv: ShmArray = flume.hist_shm
 
-        symbol = flume.symbol
+        symbol = flume.mkt
         fqme = symbol.fqme
 
         hist_chart = hist_linked.plot_ohlc_main(
@@ -1378,7 +1378,7 @@ async def display_symbol_data(
                 ohlcv: ShmArray = flume.rt_shm
                 hist_ohlcv: ShmArray = flume.hist_shm
 
-                symbol = flume.symbol
+                symbol = flume.mkt
                 fqme = symbol.fqme
 
                 hist_pi = hist_chart.overlay_plotitem(

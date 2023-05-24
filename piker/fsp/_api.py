@@ -174,16 +174,6 @@ def fsp(
     return Fsp(wrapped, outputs=(wrapped.__name__,))
 
 
-def mk_fsp_shm_key(
-    sym: str,
-    target: Fsp
-
-) -> str:
-    actor_name, uuid = tractor.current_actor().uid
-    uuid_snip: str = uuid[:16]
-    return f'piker.{actor_name}[{uuid_snip}].{sym}.{target.name}'
-
-
 def maybe_mk_fsp_shm(
     sym: str,
     target: Fsp,
@@ -207,7 +197,10 @@ def maybe_mk_fsp_shm(
         [(field_name, float) for field_name in target.outputs]
     )
 
-    key = mk_fsp_shm_key(sym, target)
+    # (attempt to) uniquely key the fsp shm buffers
+    actor_name, uuid = tractor.current_actor().uid
+    uuid_snip: str = uuid[:16]
+    key: str = f'piker.{actor_name}[{uuid_snip}].{sym}.{target.name}'
 
     shm, opened = maybe_open_shm_array(
         key,

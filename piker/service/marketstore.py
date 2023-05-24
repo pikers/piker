@@ -762,7 +762,7 @@ async def open_tsdb_client(
 
         if fqme:
             flume = feed.flumes[fqme]
-            symbol = flume.symbol
+            symbol = flume.mkt
             if symbol:
                 fqme = symbol.fqme
 

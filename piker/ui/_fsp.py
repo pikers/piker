@@ -46,7 +46,7 @@ from ..data._sharedmem import (
     try_read,
 )
 from ..data.feed import Flume
-from ..accounting._mktinfo import Symbol
+from ..accounting import MktPair
 from ._chart import (
     ChartPlotWidget,
     LinkedSplits,
@@ -476,7 +476,8 @@ class FspAdmin:
 
     ) -> (Flume, trio.Event):
 
-        fqme = self.flume.symbol.get_fqme(delim_char='')
+        src_mkt: MktPair = self.flume.mkt
+        fqme: str = src_mkt.get_fqme(delim_char='')
 
         # allocate an output shm array
         key, dst_shm, opened = maybe_mk_fsp_shm(
@@ -488,14 +489,27 @@ class FspAdmin:
         portal = self.cluster.get(worker_name) or self.rr_next_portal()
         provider_tag = portal.channel.uid
 
-        symbol = Symbol(
-            key=key,
-            broker_info={
-                provider_tag: {'asset_type': 'fsp'},
-            },
+        # TODO: this should probably be turned into a
+        # ``Cascade`` type which describes the routing
+        # of an fsp's IO in terms of sinc -> source 
+        # shm/IPC endpoints?
+        mkt = MktPair(
+
+            # make this a couple addrs encapsing
+            # the flume routing?
+            src=src_mkt.dst,
+            dst=target.name,
+
+            # make this a precision / rounding value?
+            price_tick=src_mkt.price_tick,
+            size_tick=src_mkt.size_tick,
+
+            bs_mktid=target.name,
+            broker='piker',
+            _atype='fsp',
         )
         dst_fsp_flume = Flume(
-            mkt=symbol,
+            mkt=mkt,
             _rt_shm_token=dst_shm.token,
             first_quote={},
 

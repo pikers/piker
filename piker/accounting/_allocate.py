@@ -203,7 +203,7 @@ class Allocator(Struct):
             # compute a fractional slots size to display
             slots_used = self.slots_used(
                 Position(
-                    symbol=sym,
+                    mkt=sym,
                     size=order_size,
                     ppu=price,
                     bs_mktid=sym,

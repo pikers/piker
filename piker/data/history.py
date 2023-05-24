@@ -648,7 +648,7 @@ async def manage_history(
     # (maybe) allocate shm array for this broker/symbol which will
     # be used for fast near-term history capture and processing.
     hist_shm, opened = maybe_open_shm_array(
-        key=f'piker.{service}[{uuid[:16]}.{fqme}.hist',
+        key=f'piker.{service}[{uuid[:16]}].{fqme}.hist',
 
         # use any broker defined ohlc dtype:
         dtype=getattr(mod, '_ohlc_dtype', base_iohlc_dtype),
@@ -665,7 +665,7 @@ async def manage_history(
         )
 
     rt_shm, opened = maybe_open_shm_array(
-        key=f'piker.{service}[{uuid[:16]}.{fqme}.rt',
+        key=f'piker.{service}[{uuid[:16]}].{fqme}.rt',
 
         # use any broker defined ohlc dtype:
         dtype=getattr(mod, '_ohlc_dtype', base_iohlc_dtype),

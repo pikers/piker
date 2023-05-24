@@ -91,7 +91,7 @@ async def update_pnl_from_feed(
 
     pp: PositionTracker = order_mode.current_pp
     live: Position = pp.live_pp
-    key: str = live.symbol.fqme
+    key: str = live.mkt.fqme
 
     log.info(f'Starting pnl display for {pp.alloc.account}')
 
@@ -862,7 +862,7 @@ class PositionTracker:
         alloc = self.alloc
 
         # update allocator settings
-        asset_type = pp.symbol.type_key
+        asset_type = pp.mkt.type_key
 
         # specific configs by asset class / type
         if asset_type in _derivs:

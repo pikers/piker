@@ -22,7 +22,6 @@ real-time data processing data-structures.
 
 """
 from __future__ import annotations
-# from decimal import Decimal
 from typing import (
     TYPE_CHECKING,
 )
@@ -31,13 +30,8 @@ import tractor
 import pendulum
 import numpy as np
 
-from ..accounting._mktinfo import (
-    MktPair,
-    Symbol,
-)
-from ._util import (
-    log,
-)
+from ..accounting import MktPair
+from ._util import log
 from .types import Struct
 from ._sharedmem import (
     attach_shm_array,
@@ -94,17 +88,9 @@ class Flume(Struct):
        queuing properties.
 
     '''
-    mkt: MktPair | Symbol
+    mkt: MktPair
     first_quote: dict
     _rt_shm_token: _Token
-
-    @property
-    def symbol(self) -> MktPair | Symbol:
-        log.warning(
-            '`Flume.symbol` is deprecated!\n'
-            'Use `.mkt: MktPair` instead!'
-        )
-        return self.mkt
 
     # optional since some data flows won't have a "downsampled" history
     # buffer/stream (eg. FSPs).
@@ -208,18 +194,7 @@ class Flume(Struct):
 
         '''
         mkt_msg = msg.pop('mkt')
-
-        if 'dst' in mkt_msg:
-            mkt = MktPair.from_msg(mkt_msg)
-
-        else:
-            # XXX NOTE: ``msgspec`` can encode `Decimal`
-            # but it doesn't decide to it by default since
-            # we aren't spec-cing these msgs as structs, SO
-            # we have to ensure we do a struct type case (which `.copy()`
-            # does) to ensure we get the right type!
-            mkt = Symbol(**mkt_msg).copy()
-
+        mkt = MktPair.from_msg(mkt_msg)
         return cls(mkt=mkt, **msg)
 
     def get_index(

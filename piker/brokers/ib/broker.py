@@ -345,6 +345,7 @@ async def update_and_audit_msgs(
 ) -> list[BrokerdPosition]:
 
     msgs: list[BrokerdPosition] = []
+    p: Position
     for p in pps:
         bs_mktid = p.bs_mktid
 
@@ -427,7 +428,7 @@ async def update_and_audit_msgs(
                 # right since `.broker` is already included?
                 account=f'ib.{acctid}',
                 # XXX: the `.ib` is stripped..?
-                symbol=p.symbol.fqme,
+                symbol=p.mkt.fqme,
                 # currency=ibppmsg.currency,
                 size=p.size,
                 avg_price=p.ppu,

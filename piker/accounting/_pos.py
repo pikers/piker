@@ -79,11 +79,7 @@ class Position(Struct):
     file system (in TOML) and to interchange as a msg over IPC.
 
     '''
-    symbol: Symbol | MktPair
-
-    @property
-    def mkt(self) -> MktPair:
-        return self.symbol
+    mkt: MktPair
 
     # can be +ve or -ve for long/short
     size: float
@@ -143,37 +139,20 @@ class Position(Struct):
         # listing venue here even when the backend isn't providing
         # it via the trades ledger..
         # drop symbol obj in serialized form
-        s = d.pop('symbol')
-        fqme = s.fqme
+        mkt: MktPair = d.pop('mkt')
+        assert isinstance(mkt, MktPair)
+
+        fqme = mkt.fqme
         broker, mktep, venue, suffix = unpack_fqme(fqme)
 
-        if isinstance(s, Symbol):
-            sym_info = s.broker_info[broker]
-            d['asset_type'] = sym_info['asset_type']
-            d['price_tick'] = (
-                sym_info.get('price_tick_size')
-                or
-                s.tick_size
-            )
-            d['size_tick'] = (
-                sym_info.get('lot_tick_size')
-                or
-                s.lot_tick_size
-            )
+        # an asset resolved mkt where we have ``Asset`` info about
+        # each tradeable asset in the market.
+        if mkt.resolved:
+            dst: Asset = mkt.dst
+            d['asset_type'] = dst.atype
 
-        # the newwww wayyy B)
-        else:
-            mkt = s
-            assert isinstance(mkt, MktPair)
-
-            # an asset resolved mkt where we have ``Asset`` info about
-            # each tradeable asset in the market.
-            if mkt.resolved:
-                dst: Asset = mkt.dst
-                d['asset_type'] = dst.atype
-
-            d['price_tick'] = mkt.price_tick
-            d['size_tick'] = mkt.size_tick
+        d['price_tick'] = mkt.price_tick
+        d['size_tick'] = mkt.size_tick
 
         if self.expiry is None:
             d.pop('expiry', None)
@@ -267,12 +246,12 @@ class Position(Struct):
     ) -> None:
 
         # XXX: better place to do this?
-        symbol = self.symbol
+        mkt = self.mkt
 
         # TODO: switch to new fields..?
         # .size_tick_digits, .price_tick_digits
-        size_tick_digits = symbol.lot_size_digits
-        price_tick_digits = symbol.tick_size_digits
+        size_tick_digits = mkt.lot_size_digits
+        price_tick_digits = mkt.tick_size_digits
 
         self.ppu = round(
             # TODO: change this to ppu?
@@ -470,7 +449,7 @@ class Position(Struct):
             size = round(size * self.split_ratio)
 
         return float(
-            self.symbol.quantize(size),
+            self.mkt.quantize(size),
         )
 
     def minimize_clears(
@@ -571,7 +550,7 @@ class PpTable(Struct):
             if not pp:
                 # if no existing pp, allocate fresh one.
                 pp = pps[bs_mktid] = Position(
-                    mkt,
+                    mkt=mkt,
                     size=0.0,
                     ppu=0.0,
                     bs_mktid=bs_mktid,
@@ -583,8 +562,8 @@ class PpTable(Struct):
                 # a shorter string), instead use the one from the
                 # transaction since it likely has (more) full
                 # information from the provider.
-                if len(pp.symbol.fqme) < len(fqme):
-                    pp.symbol = mkt
+                if len(pp.mkt.fqme) < len(fqme):
+                    pp.mkt = mkt
 
             clears = pp.clears
             if clears:
@@ -735,7 +714,7 @@ class PpTable(Struct):
             if closed:
                 bs_mktid: str
                 for bs_mktid, pos in closed.items():
-                    fqme: str = pos.symbol.fqme
+                    fqme: str = pos.mkt.fqme
                     if fqme in self.conf:
                         self.conf.pop(fqme)
                     else:

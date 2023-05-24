@@ -771,7 +771,7 @@ async def open_order_mode(
 
             # net-zero pp
             startup_pp = Position(
-                symbol=symbol,
+                mkt=symbol,
                 size=0,
                 ppu=0,
 

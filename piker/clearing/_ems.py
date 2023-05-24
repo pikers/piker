@@ -1281,7 +1281,7 @@ async def process_client_order_cmds(
                 # TODO: make this configurable from our top level
                 # config, prolly in a .clearing` section?
                 spread_slap: float = 5
-                min_tick = float(flume.symbol.size_tick)
+                min_tick = float(flume.mkt.size_tick)
                 min_tick_digits = float_digits(min_tick)
 
                 if action == 'buy':

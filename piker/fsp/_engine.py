@@ -45,7 +45,7 @@ from ..data._sampling import (
     _default_delay_s,
     open_sample_stream,
 )
-from ..accounting._mktinfo import Symbol
+from ..accounting import MktPair
 from ._api import (
     Fsp,
     _load_builtins,
@@ -85,7 +85,7 @@ async def filter_quotes_by_sym(
 
 async def fsp_compute(
 
-    symbol: Symbol,
+    mkt: MktPair,
     flume: Flume,
     quote_stream: trio.abc.ReceiveChannel,
 
@@ -104,7 +104,7 @@ async def fsp_compute(
         disabled=True
     )
 
-    fqme = symbol.fqme
+    fqme = mkt.fqme
     out_stream = func(
 
         # TODO: do we even need this if we do the feed api right?
@@ -340,7 +340,7 @@ async def cascade(
     ) as feed:
 
         flume = feed.flumes[fqme]
-        symbol = flume.symbol
+        mkt = flume.mkt
         assert src.token == flume.rt_shm.token
         profiler(f'{func}: feed up')
 
@@ -352,7 +352,7 @@ async def cascade(
             fsp_target = partial(
 
                 fsp_compute,
-                symbol=symbol,
+                mkt=mkt,
                 flume=flume,
                 quote_stream=flume.stream,
 
