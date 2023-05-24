@@ -894,15 +894,14 @@ async def stream_quotes(
 
         init_msg = FeedInit(mkt_info=mkt)
 
-        has_vlm: bool = True
         if mkt.dst.atype in {
             'forex',
             'index',
             'commodity',
         }:
-            has_vlm = False
             # tell sampler config that it shouldn't do vlm summing.
             init_msg.shm_write_opts['sum_tick_vlm'] = False
+            init_msg.shm_write_opts['has_vlm'] = False
 
         init_msgs.append(init_msg)
 
@@ -977,7 +976,7 @@ async def stream_quotes(
 
                     async with aclosing(stream):
                         # if syminfo.get('no_vlm', False):
-                        if not has_vlm:
+                        if not init_msg.shm_write_opts['has_vlm']:
 
                             # generally speaking these feeds don't
                             # include vlm data.
