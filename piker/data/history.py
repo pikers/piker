@@ -41,7 +41,6 @@ import numpy as np
 from .. import config
 from ..accounting import (
     MktPair,
-    unpack_fqme,
 )
 from ._util import (
     log,
@@ -110,6 +109,7 @@ async def start_backfill(
     async with mod.open_history_client(
         mkt,
     ) as (hist, config):
+        log.info(f'{mod} history client returned backfill config: {config}')
 
         # get latest query's worth of history all the way
         # back to what is recorded in the tsdb
@@ -326,7 +326,7 @@ async def start_backfill(
                     f'{start_dt} -> {end_dt}'
                 )
 
-                if mkt.dst.atype != 'crypto':
+                if mkt.dst.atype not in {'crypto', 'crypto_currency'}:
                     # for now, our table key schema is not including
                     # the dst[/src] source asset token.
                     col_sym_key: str = mkt.get_fqme(

@@ -26,7 +26,6 @@
 from __future__ import annotations
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
-from functools import partial
 from pprint import pformat
 from typing import (
     Any,
@@ -59,6 +58,7 @@ from ._util import (
     log,  # sub-sys logger
     get_console_log,
 )
+from . import Services
 from ..data.feed import maybe_open_feed
 from .._profile import Profiler
 from .. import config
@@ -260,7 +260,7 @@ async def start_ahab_daemon(
         ep_kwargs={'user_config': conf},
         loglevel=loglevel,
     ) as (
-        ctn_ready,
+        _,
         config,
         (cid, pid),
     ):
@@ -583,6 +583,7 @@ class Storage:
         client = self.client
         syms = await client.list_symbols()
         if key not in syms:
+            await tractor.breakpoint()
             raise KeyError(f'`{key}` table key not found in\n{syms}?')
 
         tbk = mk_tbk((
@@ -743,7 +744,7 @@ async def open_tsdb_client(
         touch_if_dne=True,
     )
     tsdbconf = rootconf['network'].get('tsdb')
-    backend = tsdbconf.pop('backend')
+    # backend = tsdbconf.pop('backend')
     async with (
         open_storage_client(
             **tsdbconf,

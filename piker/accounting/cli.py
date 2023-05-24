@@ -28,6 +28,7 @@ import tractor
 import trio
 import typer
 
+from ..log import get_logger
 from ..service import (
     open_piker_runtime,
 )
@@ -102,6 +103,7 @@ def sync(
         "-l",
     ),
 ):
+    log = get_logger(loglevel)
     console = Console()
 
     try:
@@ -134,6 +136,10 @@ def sync(
 
             tractor.open_nursery() as an,
         ):
+            log.info(
+                f'Piker runtime up as {actor.uid}@{sockaddr}'
+            )
+
             portal = await an.start_actor(
                 loglevel=loglevel,
                 debug_mode=pdb,
@@ -162,9 +168,10 @@ def sync(
             async with (
                 open_trades_endpoint as (
                     brokerd_ctx,
-                    (positions, accounts,),
+                    (positions, accounts),
                 ),
             ):
+                assert len(accounts) == 1
                 summary: str = (
                     '[dim underline]Piker Position Summary[/] '
                     f'[dim blue underline]{brokername}[/]'

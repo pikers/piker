@@ -296,7 +296,7 @@ class Client:
 
         for bs_mktid, info in assets.items():
             altname = self._altnames[bs_mktid] = info['altname']
-            aclass = info['aclass']
+            aclass: str = info['aclass']
 
             self.assets[bs_mktid] = Asset(
                 name=altname.lower(),
