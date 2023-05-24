@@ -519,11 +519,11 @@ class MktPair(Struct, frozen=True):
         return self._atype
 
     @property
-    def tick_size_digits(self) -> int:
+    def price_tick_digits(self) -> int:
         return float_digits(self.price_tick)
 
     @property
-    def lot_size_digits(self) -> int:
+    def size_tick_digits(self) -> int:
         return float_digits(self.size_tick)
 
 

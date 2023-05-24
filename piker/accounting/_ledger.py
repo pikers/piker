@@ -22,9 +22,9 @@ from __future__ import annotations
 from collections import UserDict
 from contextlib import contextmanager as cm
 from pathlib import Path
-import time
 from typing import (
     Any,
+    Callable,
     Iterator,
     Union,
     Generator
@@ -158,7 +158,7 @@ class TransactionLedger(UserDict):
         for tid, txdict in self.data.items():
             # special field handling for datetimes
             # to ensure pendulum is used!
-            fqme = txdict.get('fqme', txdict['fqsn'])
+            fqme = txdict.get('fqme') or txdict['fqsn']
             dt = parse(txdict['dt'])
             expiry = txdict.get('expiry')
 
@@ -242,8 +242,6 @@ def iter_by_dt(
     datetime presumably set at the ``'dt'`` field in each entry.
 
     '''
-    txs = records.items()
-
     def dyn_parse_to_dt(
         pair: tuple[str, dict],
     ) -> DateTime:

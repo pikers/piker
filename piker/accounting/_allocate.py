@@ -24,7 +24,7 @@ from typing import Optional
 from bidict import bidict
 
 from ._pos import Position
-from ._mktinfo import Symbol
+from . import MktPair
 from ..data.types import Struct
 
 
@@ -42,7 +42,7 @@ SizeUnit = Enum(
 
 class Allocator(Struct):
 
-    symbol: Symbol
+    mkt: MktPair
 
     # TODO: if we ever want ot support non-uniform entry-slot-proportion
     # "sizes"
@@ -114,8 +114,8 @@ class Allocator(Struct):
         depending on position / order entry config.
 
         '''
-        sym = self.symbol
-        ld = sym.lot_size_digits
+        mkt: MktPair = self.mkt
+        ld: int = mkt.size_tick_digits
 
         size_unit = self.size_unit
         live_size = live_pp.size
@@ -125,13 +125,13 @@ class Allocator(Struct):
         u_per_slot, currency_per_slot = self.step_sizes()
 
         if size_unit == 'units':
-            slot_size = u_per_slot
-            l_sub_pp = self.units_limit - abs_live_size
+            slot_size: float = u_per_slot
+            l_sub_pp: float = self.units_limit - abs_live_size
 
         elif size_unit == 'currency':
-            live_cost_basis = abs_live_size * live_pp.ppu
-            slot_size = currency_per_slot / price
-            l_sub_pp = (self.currency_limit - live_cost_basis) / price
+            live_cost_basis: float = abs_live_size * live_pp.ppu
+            slot_size: float = currency_per_slot / price
+            l_sub_pp: float = (self.currency_limit - live_cost_basis) / price
 
         else:
             raise ValueError(
@@ -141,8 +141,14 @@ class Allocator(Struct):
         # an entry (adding-to or starting a pp)
         if (
             live_size == 0
-            or (action == 'buy' and live_size > 0)
-            or action == 'sell' and live_size < 0
+            or (
+                action == 'buy'
+                and live_size > 0
+            )
+            or (
+                action == 'sell'
+                and live_size < 0
+            )
         ):
             order_size = min(
                 slot_size,
@@ -178,7 +184,7 @@ class Allocator(Struct):
             order_size = max(slotted_pp, slot_size)
 
             if (
-                abs_live_size < slot_size or
+                abs_live_size < slot_size
 
                 # NOTE: front/back "loading" heurstic:
                 # if the remaining pp is in between 0-1.5x a slot's
@@ -187,14 +193,17 @@ class Allocator(Struct):
                 # **without** going past a net-zero pp. if the pp is
                 # > 1.5x a slot size, then front load: exit a slot's and
                 # expect net-zero to be acquired on the final exit.
-                slot_size < pp_size < round((1.5*slot_size), ndigits=ld) or
+                or slot_size < pp_size < round((1.5*slot_size), ndigits=ld)
+                or (
 
-                # underlying requires discrete (int) units (eg. stocks)
-                # and thus our slot size (based on our limit) would
-                # exit a fractional unit's worth so, presuming we aren't
-                # supporting a fractional-units-style broker, we need
-                # exit the final unit.
-                ld == 0 and abs_live_size == 1
+                    # underlying requires discrete (int) units (eg. stocks)
+                    # and thus our slot size (based on our limit) would
+                    # exit a fractional unit's worth so, presuming we aren't
+                    # supporting a fractional-units-style broker, we need
+                    # exit the final unit.
+                    ld == 0
+                    and abs_live_size == 1
+                )
             ):
                 order_size = abs_live_size
 
@@ -203,13 +212,14 @@ class Allocator(Struct):
             # compute a fractional slots size to display
             slots_used = self.slots_used(
                 Position(
-                    mkt=sym,
+                    mkt=mkt,
                     size=order_size,
                     ppu=price,
-                    bs_mktid=sym,
+                    bs_mktid=mkt.bs_mktid,
                 )
             )
 
+        # TODO: render an actual ``Executable`` type here?
         return {
             'size': abs(round(order_size, ndigits=ld)),
             'size_digits': ld,
@@ -249,7 +259,7 @@ class Allocator(Struct):
 
 def mk_allocator(
 
-    symbol: Symbol,
+    mkt: MktPair,
     startup_pp: Position,
 
     # default allocation settings
@@ -276,6 +286,6 @@ def mk_allocator(
     defaults.update(user_def)
 
     return Allocator(
-        symbol=symbol,
+        mkt=mkt,
         **defaults,
     )

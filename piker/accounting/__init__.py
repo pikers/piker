@@ -38,23 +38,33 @@ from ._mktinfo import (
     dec_digits,
     digits_to_dec,
     MktPair,
+    Symbol,
     unpack_fqme,
+)
+from ._allocate import (
+    mk_allocator,
+    Allocator,
 )
 
 log = get_logger(__name__)
 
 __all__ = [
+    'Allocator',
     'Asset',
-    'dec_digits',
-    'digits_to_dec',
     'MktPair',
     'Position',
     'PpTable',
+    'Symbol',
     'Transaction',
     'TransactionLedger',
+    'dec_digits',
+    'digits_to_dec',
+    'iter_by_dt',
     'load_pps_from_ledger',
+    'mk_allocator',
     'open_pps',
     'open_trade_ledger',
+    'unpack_fqme',
 ]
 
 

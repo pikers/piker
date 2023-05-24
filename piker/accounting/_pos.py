@@ -44,7 +44,6 @@ from ._ledger import (
     open_trade_ledger,
 )
 from ._mktinfo import (
-    Symbol,
     MktPair,
     Asset,
     unpack_fqme,
@@ -247,11 +246,8 @@ class Position(Struct):
 
         # XXX: better place to do this?
         mkt = self.mkt
-
-        # TODO: switch to new fields..?
-        # .size_tick_digits, .price_tick_digits
-        size_tick_digits = mkt.lot_size_digits
-        price_tick_digits = mkt.tick_size_digits
+        size_tick_digits = mkt.size_tick_digits
+        price_tick_digits = mkt.price_tick_digits
 
         self.ppu = round(
             # TODO: change this to ppu?
