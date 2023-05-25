@@ -17,4 +17,4 @@
 
 # ``tomlkit`` for account files and configs; we've
 # added some new features that need to get upstreamed:
--e git+https://github.com/pikers/tomlkit.git@writing_docs_tweaks#egg=tomlkit
+-e git+https://github.com/pikers/tomlkit.git@piker_pin#egg=tomlkit
