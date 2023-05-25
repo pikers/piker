@@ -50,16 +50,6 @@ from piker.accounting import (
 log = get_logger(__name__)
 
 
-async def open_pikerd(
-    open_test_pikerd: AsyncContextManager,
-
-) -> Services:
-    async with (
-        open_test_pikerd() as (_, _, _, services),
-    ):
-        yield services
-
-
 async def order_and_and_wait_for_ppmsg(
     client: OrderClient,
     trades_stream: tractor.MsgStream,
@@ -174,7 +164,7 @@ def test_ems_err_on_bad_broker(
     async def load_bad_fqme():
         try:
             async with (
-                open_test_pikerd() as (_, _, _, services),
+                open_test_pikerd() as (_, _, _, _),
 
                 open_ems(
                     'doggycoin.doggy',
@@ -268,7 +258,7 @@ async def submit_and_check(
             trades_stream,  # tractor.MsgStream
             startup_pps,
             accounts,
-            dialogs,
+            _,  # dialogs
         )
     ):
         # no positions on startup
@@ -370,7 +360,7 @@ def test_multi_fill_positions(
         nonlocal ppmsg, pos
 
         async with (
-            open_test_pikerd() as (_, _, _, services),
+            open_test_pikerd() as (_, _, _, _),
         ):
             ppmsg, pos = await submit_and_check(
                 fills=fills,
@@ -385,19 +375,24 @@ def test_multi_fill_positions(
         # account (i.e. a user can expect to see paper pps persist across
         # runtime sessions.
         async def just_check_pp():
+            nonlocal ppmsg
+
             async with (
-                open_test_pikerd() as (_, _, _, services),
+                open_test_pikerd() as (_, _, _, _),
             ):
                 await match_ppmsgs_on_ems_boot([ppmsg])
 
         run_and_tollerate_cancels(just_check_pp)
 
 
+# TODO: still need to implement offline storage of darks/alerts/paper
+# lives probably all the same way.. see
+# https://github.com/pikers/piker/issues/463
 def test_open_orders_reloaded(
     open_test_pikerd: AsyncContextManager,
     loglevel: str,
 
-    fills: tuple[dict],
+    # fills: tuple[dict],
 
     check_cross_session: bool = False,
 ):
