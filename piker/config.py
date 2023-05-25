@@ -241,8 +241,6 @@ def load(
     pass the ``path: Path`` explicitly.
 
     '''
-    path: Path = path or get_conf_path(conf_name)
-
     # create the $HOME/.config/piker dir if dne
     if not _config_dir.is_dir():
         _config_dir.mkdir(
@@ -250,21 +248,26 @@ def load(
             exist_ok=True,
         )
 
+    path_provided: bool = path is not None
+    path: Path = path or get_conf_path(conf_name)
+
     if (
         not path.is_file()
         and touch_if_dne
     ):
-        fn: str = _conf_fn_w_ext(conf_name)
-
-        # try to copy in a template config to the user's directory if
-        # one exists.
-        template: Path = repodir() / 'config' / fn
-        if template.is_file():
-            shutil.copyfile(template, path)
-
-        else:  # just touch an empty file with same name
+        # only do a template if no path provided,
+        # just touch an empty file with same name.
+        if path_provided:
             with path.open(mode='x'):
                 pass
+
+        # try to copy in a template config to the user's dir if one
+        # exists.
+        else:
+            fn: str = _conf_fn_w_ext(conf_name)
+            template: Path = repodir() / 'config' / fn
+            if template.is_file():
+                shutil.copyfile(template, path)
 
     with path.open(mode='r') as fp:
         config: dict = decode(
@@ -283,16 +286,24 @@ def load_account(
 ) -> tuple[dict, Path]:
     '''
     Load a accounting (with positions) file from
-    ~/.config/piker/accounting/account.<brokername>.<acctid>.toml.
+    $PIKER_CONFIG_DIR/accounting/account.<brokername>.<acctid>.toml.
+
+    Where normally $PIKER_CONFIG_DIR = ~/.config/piker/
+    and we implicitly create a accounting subdir which should
+    normally be linked to a git repo managed by the user B)
 
     '''
     legacy_fn: str = f'pps.{brokername}.{acctid}.toml'
     fn: str = f'account.{brokername}.{acctid}.toml'
 
     dirpath: Path = _config_dir / 'accounting'
+    if not dirpath.is_dir():
+        dirpath.mkdir()
+
     config, path = load(
         path=dirpath / fn,
         decode=tomlkit.parse,
+        touch_if_dne=True,
     )
 
     if not config:
@@ -303,25 +314,26 @@ def load_account(
             'Please delete the old file!\n'
             f'|-> {legacypath}\n'
         )
-        legacy_config, _ = load(
-            path=legacypath,
+        if legacypath.is_file():
+            legacy_config, _ = load(
+                path=legacypath,
 
-            # TODO: move to tomlkit:
-            # - needs to be fixed to support bidict?
-            #   https://github.com/sdispater/tomlkit/issues/289
-            # - we need to use or fork's fix to do multiline array
-            #   indenting.
-            decode=tomlkit.parse,
-        )
-        config.update(legacy_config)
+                # TODO: move to tomlkit:
+                # - needs to be fixed to support bidict?
+                #   https://github.com/sdispater/tomlkit/issues/289
+                # - we need to use or fork's fix to do multiline array
+                #   indenting.
+                decode=tomlkit.parse,
+            )
+            config.update(legacy_config)
 
-        # XXX: override the presumably previously non-existant
-        # file with legacy's contents.
-        write(
-            config,
-            path=path,
-            fail_empty=False,
-        )
+            # XXX: override the presumably previously non-existant
+            # file with legacy's contents.
+            write(
+                config,
+                path=path,
+                fail_empty=False,
+            )
 
     return config, path
 

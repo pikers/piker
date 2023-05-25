@@ -19,8 +19,6 @@
 
 """
 from __future__ import annotations
-from pprint import pformat
-from functools import partial
 import os
 from typing import (
     Optional,
@@ -35,7 +33,6 @@ import tractor
 import trio
 
 from ._util import (
-    log,  # sub-sys logger
     get_console_log,
 )
 from ._mngr import (
