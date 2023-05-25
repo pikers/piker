@@ -23,6 +23,7 @@ from pprint import pformat
 from types import ModuleType
 from typing import (
     Any,
+    Callable,
 )
 
 from msgspec import field
@@ -60,6 +61,31 @@ class FeedInit(Struct, frozen=True):
         'sum_tick_vlm': True,
     })
 
+# XXX: we group backend endpoints into 3
+# groups to determine "degrees" of functionality.
+_eps: dict[str, list[str]] = {
+
+    # basic API `Client` layer
+    'middleware': [
+        'get_client',
+    ],
+
+    # (live) data streaming / loading / search
+    'datad': [
+        'get_mkt_info',
+        'open_history_client',
+        'open_symbol_search',
+        'stream_quotes',
+    ],
+
+    # live order control and trading
+    'brokerd': [
+        'trades_dialogue',
+        # TODO: ledger normalizer helper?
+        # norm_trades(records: dict[str, Any]) -> TransactionLedger)
+    ],
+}
+
 
 def validate_backend(
     mod: ModuleType,
@@ -77,6 +103,20 @@ def validate_backend(
     that haven't been implemented by this backend yet.
 
     '''
+    for daemon_name, eps in _eps.items():
+        for name in eps:
+            ep: Callable = getattr(
+                mod,
+                name,
+                None,
+            )
+            if ep is None:
+                log.warning(
+                    f'Provider backend {mod.name} is missing '
+                    f'{daemon_name} support :(\n'
+                    f'The following endpoint is missing: {name}'
+                )
+
     inits: list[
         FeedInit | dict[str, Any]
     ] = init_msgs
@@ -128,6 +168,8 @@ def validate_backend(
     mkt: MktPair
 
     match init:
+
+        # backend is using old dict msg delivery
         case {
             'symbol_info': dict(symbol_info),
             'fqsn': bs_fqme,
@@ -164,6 +206,7 @@ def validate_backend(
                 _atype=symbol_info['asset_type']
             )
 
+        # backend is using new `MktPair` but not entirely
         case {
             'mkt_info': MktPair(
                 dst=Asset(),
@@ -182,7 +225,6 @@ def validate_backend(
         ) as init:
             name: str = mod.name
             log.info(
-                f'NICE JOB {name} BACKEND being fully up to API spec B)\n'
                 f"{name}'s `MktPair` info:\n"
                 f'{pformat(mkt.to_dict())}\n'
                 f'shm conf: {pformat(shm_opts)}\n'
@@ -203,7 +245,8 @@ def validate_backend(
     mkt = init.mkt_info
     assert mkt.type_key
 
-    # `MktPair` wish list
+    # backend is using new `MktPair` but not embedded `Asset` types
+    # for the .src/.dst..
     if not isinstance(mkt.src, Asset):
         warn_msg += (
             f'ALSO, {mod.name.upper()} should try to deliver\n'
