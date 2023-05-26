@@ -43,16 +43,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Build DB container
-        run: docker build -t piker:elastic dockering/elastic
+      # elastic only
+      # - name: Build DB container
+      #   run: docker build -t piker:elastic dockering/elastic
 
       - name: Setup python
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
+      # elastic only
+      # - name: Install dependencies
+      #   run: pip install -U .[es] -r requirements-test.txt -r requirements.txt --upgrade-strategy eager
+
       - name: Install dependencies
-        run: pip install -U .[es] -r requirements-test.txt -r requirements.txt --upgrade-strategy eager
+        run: pip install -U . -r requirements-test.txt -r requirements.txt --upgrade-strategy eager
 
       - name: Test suite
         run: pytest tests -rs
