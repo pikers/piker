@@ -563,7 +563,7 @@ class Router(Struct):
             flume = feed.flumes[fqme]
             first_quote: dict = flume.first_quote
             book: DarkBook = self.get_dark_book(broker)
-            book.lasts[fqme]: float = first_quote['last']
+            book.lasts[fqme]: float = float(first_quote['last'])
 
             async with self.maybe_open_brokerd_dialog(
                 brokermod=brokermod,
