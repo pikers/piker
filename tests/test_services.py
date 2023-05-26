@@ -33,8 +33,8 @@ def test_runtime_boot(
 ):
     '''
     Verify we can boot the `pikerd` service stack using the
-    `open_test_pikerd` fixture helper and that registry address details
-    match up.
+    `open_test_pikerd()` fixture helper and that contact-registry
+    address details match up.
 
     '''
     async def main():
@@ -54,6 +54,9 @@ def test_runtime_boot(
         ):
             assert pikerd_portal.channel.raddr == daemon_addr
             assert pikerd_portal.channel.raddr == portal.channel.raddr
+
+            # no service tasks should be started
+            assert not services.service_tasks
 
     trio.run(main)
 
@@ -121,8 +124,7 @@ def test_ensure_ems_in_paper_actors(
     async def main():
 
         # type declares
-        book: OrderClient
-        trades_stream: tractor.MsgStream
+        client: OrderClient
         pps: dict[str, list[BrokerdPosition]]
         accounts: list[str]
         dialogs: dict[str, Status]
@@ -139,8 +141,8 @@ def test_ensure_ems_in_paper_actors(
                     mode='paper',
                     loglevel=loglevel,
                 ) as (
-                    book,
-                    trades_stream,
+                    client,
+                    _,  # trades_stream: tractor.MsgStream
                     pps,
                     accounts,
                     dialogs,
@@ -151,6 +153,9 @@ def test_ensure_ems_in_paper_actors(
                 # local ledger and `pps.toml` state ;)
                 assert not pps
                 assert not dialogs
+
+                assert not client._sent_orders
+                assert accounts
 
                 pikerd_subservices = ['emsd', 'samplerd']
 
@@ -169,10 +174,13 @@ def test_ensure_ems_in_paper_actors(
                     print('ALL SERVICES STARTED, terminating..')
                     await services.cancel_service('emsd')
 
+    # ensure we receive a remote cancellation error caused by the
+    # pikerd root actor since we used the `.cancel_service()` API
+    # above B)
     with pytest.raises(
         tractor._exceptions.ContextCancelled,
     ) as exc_info:
         trio.run(main)
 
-    cancel_msg: str = '_emsd_main()` was remotely cancelled by its caller'
-    assert cancel_msg in exc_info.value.args[0]
+    cancelled_msg: str = "was remotely cancelled by remote actor (\'pikerd\'"
+    assert cancelled_msg in exc_info.value.args[0]

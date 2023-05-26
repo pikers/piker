@@ -103,6 +103,9 @@ async def _open_test_pikerd(
     a different port then the default to allow testing alongside
     a running stack.
 
+    Calls `.service._actor_runtime.maybe_open_pikerd()``
+    to boot the root actor / tractor runtime.
+
     '''
     import random
     from piker.service import maybe_open_pikerd
