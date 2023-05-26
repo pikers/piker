@@ -164,7 +164,9 @@ def tmpconfdir(
     # this top level testing process).
     from piker import config
     config._config_dir: Path = tmpconfdir
+
     conf, path = config.load(
+        conf_name='brokers',
         touch_if_dne=True,
     )
 
