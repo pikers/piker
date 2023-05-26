@@ -217,7 +217,16 @@ def repodir() -> Path:
     Return the abspath as ``Path`` to the git repo's root dir.
 
     '''
-    return Path(__file__).absolute().parent.parent
+    repodir: Path = Path(__file__).absolute().parent.parent
+    confdir: Path = repodir / 'config'
+
+    if not confdir.is_dir():
+        # prolly inside stupid GH actions CI..
+        repodir: Path = Path(os.environ.get('GITHUB_WORKSPACE'))
+        confdir: Path = repodir / 'config'
+
+    assert confdir.is_dir(), f'{confdir} DNE, {repodir} is likely incorrect!'
+    return repodir
 
 
 def load(
@@ -268,6 +277,11 @@ def load(
             template: Path = repodir() / 'config' / fn
             if template.is_file():
                 shutil.copyfile(template, path)
+
+            elif fn and template:
+                assert template.is_file(), f'{template} is not a file!?'
+
+            assert path.is_file(), f'Config file {path} not created!?'
 
     with path.open(mode='r') as fp:
         config: dict = decode(
