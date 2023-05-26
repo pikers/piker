@@ -169,6 +169,7 @@ def tmpconfdir(
         conf_name='brokers',
         touch_if_dne=True,
     )
+    assert path.is_file(), 'WTH.. `brokers.toml` not created!?'
 
     return tmpconfdir
 
