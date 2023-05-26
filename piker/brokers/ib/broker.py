@@ -438,7 +438,6 @@ async def update_and_audit_msgs(
                 log.error(
                     f'UNEXPECTED POSITION says IB => {msg.symbol}\n'
                     'Maybe they LIQUIDATED YOU or are missing ledger entries?\n'
-                    f'{pikerfmtmsg}\n\n'
                 )
             msgs.append(msg)
 
