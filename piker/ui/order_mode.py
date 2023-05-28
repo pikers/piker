@@ -302,7 +302,7 @@ class OrderMode:
 
         price = round(
             price,
-            ndigits=mkt.size_tick_digits,
+            ndigits=mkt.price_tick_digits,
         )
 
         order = self._staged_order = Order(
@@ -461,7 +461,7 @@ class OrderMode:
         mktinfo: MktPair = self.chart.linked.mkt
         level = round(
             line.value(),
-            ndigits=mktinfo.size_tick_digits,
+            ndigits=mktinfo.price_tick_digits,
         )
         # updated by level change callback set in ``.new_line_from_order()``
         dialog = line.dialog
