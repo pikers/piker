@@ -19,8 +19,6 @@
 
 """
 from __future__ import annotations
-from pprint import pformat
-from functools import partial
 import os
 from typing import (
     Optional,
@@ -34,8 +32,7 @@ from contextlib import (
 import tractor
 import trio
 
-from ..log import (
-    get_logger,
+from ._util import (
     get_console_log,
 )
 from ._mngr import (
@@ -46,8 +43,6 @@ from ._registry import (  # noqa
     _default_reg_addr,
     open_registry,
 )
-
-log = get_logger(__name__)
 
 
 def get_tractor_runtime_kwargs() -> dict[str, Any]:
@@ -135,8 +130,11 @@ _root_dname = 'pikerd'
 _root_modules = [
     __name__,
     'piker.service._daemon',
+    'piker.brokers._daemon',
+
     'piker.clearing._ems',
     'piker.clearing._client',
+
     'piker.data._sampling',
 ]
 
@@ -150,11 +148,6 @@ async def open_pikerd(
     # for data daemons when running in production.
     debug_mode: bool = False,
     registry_addr: None | tuple[str, int] = None,
-
-    # db init flags
-    tsdb: bool = False,
-    es: bool = False,
-    drop_root_perms_for_ahab: bool = True,
 
     **kwargs,
 
@@ -185,56 +178,15 @@ async def open_pikerd(
         trio.open_nursery() as service_nursery,
     ):
         if root_actor.accept_addr != reg_addr:
-            raise RuntimeError(f'Daemon failed to bind on {reg_addr}!?')
+            raise RuntimeError(
+                f'`pikerd` failed to bind on {reg_addr}!\n'
+                'Maybe you have another daemon already running?'
+            )
 
         # assign globally for future daemon/task creation
         Services.actor_n = actor_nursery
         Services.service_n = service_nursery
         Services.debug_mode = debug_mode
-
-        if tsdb:
-            from ._ahab import start_ahab
-            from .marketstore import start_marketstore
-
-            log.info('Spawning `marketstore` supervisor')
-            ctn_ready, config, (cid, pid) = await service_nursery.start(
-                partial(
-                    start_ahab,
-                    'marketstored',
-                    start_marketstore,
-                    loglevel=loglevel,
-                    drop_root_perms=drop_root_perms_for_ahab,
-                )
-
-            )
-            log.info(
-                f'`marketstored` up!\n'
-                f'pid: {pid}\n'
-                f'container id: {cid[:12]}\n'
-                f'config: {pformat(config)}'
-            )
-
-        if es:
-            from ._ahab import start_ahab
-            from .elastic import start_elasticsearch
-
-            log.info('Spawning `elasticsearch` supervisor')
-            ctn_ready, config, (cid, pid) = await service_nursery.start(
-                partial(
-                    start_ahab,
-                    'elasticsearch',
-                    start_elasticsearch,
-                    loglevel=loglevel,
-                    drop_root_perms=drop_root_perms_for_ahab,
-                )
-            )
-
-            log.info(
-                f'`elasticsearch` up!\n'
-                f'pid: {pid}\n'
-                f'container id: {cid[:12]}\n'
-                f'config: {pformat(config)}'
-            )
 
         try:
             yield Services
@@ -275,9 +227,6 @@ async def open_pikerd(
 async def maybe_open_pikerd(
     loglevel: Optional[str] = None,
     registry_addr: None | tuple = None,
-    tsdb: bool = False,
-    es: bool = False,
-    drop_root_perms_for_ahab: bool = True,
 
     **kwargs,
 
@@ -330,11 +279,6 @@ async def maybe_open_pikerd(
     async with open_pikerd(
         loglevel=loglevel,
         registry_addr=registry_addr,
-
-        # ahabd (docker super) specific controls
-        tsdb=tsdb,
-        es=es,
-        drop_root_perms_for_ahab=drop_root_perms_for_ahab,
 
         # passthrough to ``tractor`` init
         **kwargs,

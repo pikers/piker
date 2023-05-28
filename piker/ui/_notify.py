@@ -93,7 +93,7 @@ async def notify_from_ems_status_msg(
                 # TODO: add in standard fill/exec info that maybe we
                 # pack in a broker independent way?
                 f"'{msg.pformat()}'",
-            ],           
+            ],
             capture_stdout=True,
             capture_stderr=True,
             check=False,
@@ -104,4 +104,6 @@ async def notify_from_ems_status_msg(
         log.runtime(result)
 
     except FileNotFoundError:
-        log.warn('Tried to send a notification but \'notify-send\' not present')
+        log.warn(
+            'Tried to send a notification but \'notify-send\' not present'
+        )

@@ -68,7 +68,9 @@ from ..data.feed import (
     Feed,
     Flume,
 )
-from ..data._source import Symbol
+from ..accounting import (
+    MktPair,
+)
 from ..log import get_logger
 from ._interaction import ChartView
 from ._forms import FieldsForm
@@ -152,7 +154,7 @@ class GodWidget(QWidget):
 
     def set_chart_symbols(
         self,
-        group_key: tuple[str],  # of form <fqsn>.<providername>
+        group_key: tuple[str],  # of form <fqme>.<providername>
         all_linked: tuple[LinkedSplits, LinkedSplits],  # type: ignore
 
     ) -> None:
@@ -170,7 +172,7 @@ class GodWidget(QWidget):
 
     async def load_symbols(
         self,
-        fqsns: list[str],
+        fqmes: list[str],
         loglevel: str,
         reset: bool = False,
 
@@ -183,7 +185,7 @@ class GodWidget(QWidget):
         '''
         # NOTE: for now we use the first symbol in the set as the "key"
         # for the overlay of feeds on the chart.
-        group_key: tuple[str] = tuple(fqsns)
+        group_key: tuple[str] = tuple(fqmes)
 
         all_linked = self.get_chart_symbols(group_key)
         order_mode_started = trio.Event()
@@ -217,7 +219,7 @@ class GodWidget(QWidget):
             self._root_n.start_soon(
                 display_symbol_data,
                 self,
-                fqsns,
+                fqmes,
                 loglevel,
                 order_mode_started,
             )
@@ -287,11 +289,11 @@ class GodWidget(QWidget):
                     pp_nav.hide()
 
         # set window titlebar info
-        symbol = self.rt_linked.symbol
+        symbol = self.rt_linked.mkt
         if symbol is not None:
             self.window.setWindowTitle(
-                f'{symbol.front_fqsn()} '
-                f'tick:{symbol.tick_size}'
+                f'{symbol.fqme} '
+                f'tick:{symbol.size_tick}'
             )
 
         return order_mode_started
@@ -452,7 +454,7 @@ class LinkedSplits(QWidget):
         # update the UI for a given "chart instance".
         self.display_state: DisplayState | None = None
 
-        self._symbol: Symbol = None
+        self._mkt: MktPair = None
 
     def on_splitter_adjust(
         self,
@@ -474,9 +476,15 @@ class LinkedSplits(QWidget):
                 **kwargs,
             )
 
+    def set_mkt_info(
+        self,
+        mkt: MktPair,
+    ) -> None:
+        self._mkt = mkt
+
     @property
-    def symbol(self) -> Symbol:
-        return self._symbol
+    def mkt(self) -> MktPair:
+        return self._mkt
 
     def set_split_sizes(
         self,
@@ -521,7 +529,7 @@ class LinkedSplits(QWidget):
     def plot_ohlc_main(
         self,
 
-        symbol: Symbol,
+        mkt: MktPair,
         shm: ShmArray,
         flume: Flume,
         sidepane: FieldsForm,
@@ -540,7 +548,7 @@ class LinkedSplits(QWidget):
         # add crosshairs
         self.cursor = Cursor(
             linkedsplits=self,
-            digits=symbol.tick_size_digits,
+            digits=mkt.price_tick_digits,
         )
 
         # NOTE: atm the first (and only) OHLC price chart for the symbol
@@ -548,7 +556,7 @@ class LinkedSplits(QWidget):
         # be no distinction since we will have multiple symbols per
         # view as part of "aggregate feeds".
         self.chart = self.add_plot(
-            name=symbol.fqsn,
+            name=mkt.fqme,
             shm=shm,
             flume=flume,
             style=style,
@@ -1030,7 +1038,7 @@ class ChartPlotWidget(pg.PlotWidget):
         '''
         view = vb or self.view
         viz = self.main_viz
-        l, r = viz.view_range()
+        left, right = viz.view_range()
         x_shift = viz.index_step() * datums
 
         if datums >= 300:
@@ -1040,8 +1048,8 @@ class ChartPlotWidget(pg.PlotWidget):
 
         # should trigger broadcast on all overlays right?
         view.setXRange(
-            min=l + x_shift,
-            max=r + x_shift,
+            min=left + x_shift,
+            max=right + x_shift,
 
             # TODO: holy shit, wtf dude... why tf would this not be 0 by
             # default... speechless.
@@ -1222,12 +1230,12 @@ class ChartPlotWidget(pg.PlotWidget):
 
                 # TODO: UGH! just make this not here! we should
                 # be making the sticky from code which has access
-                # to the ``Symbol`` instance..
+                # to the ``MktPair`` instance..
 
                 # if the sticky is for our symbol
                 # use the tick size precision for display
                 name = name or pi.name
-                sym = self.linked.symbol
+                sym = self.linked.mkt
                 digits = None
                 if name == sym.key:
                     digits = sym.tick_size_digits

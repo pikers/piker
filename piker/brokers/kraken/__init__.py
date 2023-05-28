@@ -34,6 +34,7 @@ from .api import (
     get_client,
 )
 from .feed import (
+    get_mkt_info,
     open_history_client,
     open_symbol_search,
     stream_quotes,

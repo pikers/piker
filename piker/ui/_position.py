@@ -14,10 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""
-Position info and display
+'''
+Position (pos) info and display to track ur PnLz B)
 
-"""
+'''
 from __future__ import annotations
 from copy import copy
 from dataclasses import dataclass
@@ -45,8 +45,17 @@ from ..calc import (
     pnl,
     puterize,
 )
-from ..clearing._allocate import Allocator
-from ..pp import Position
+from ..accounting import (
+    Allocator,
+    MktPair,
+)
+from ..accounting import (
+    Position,
+)
+from ..accounting._mktinfo import (
+    _derivs,
+)
+
 from ..data._normalize import iterticks
 from ..data.feed import (
     Feed,
@@ -85,7 +94,7 @@ async def update_pnl_from_feed(
 
     pp: PositionTracker = order_mode.current_pp
     live: Position = pp.live_pp
-    key: str = live.symbol.front_fqsn()
+    key: str = live.mkt.fqme
 
     log.info(f'Starting pnl display for {pp.alloc.account}')
 
@@ -119,7 +128,7 @@ async def update_pnl_from_feed(
 
                     # watch out for wrong quote msg-data if you muck
                     # with backend feed subs code..
-                    # assert sym == quote['fqsn']
+                    # assert sym == quote['fqme']
 
                     for tick in iterticks(quote, types):
                         # print(f'{1/period} Hz')
@@ -238,7 +247,7 @@ class SettingsPane:
             # a ``brokerd`) then error and switch back to the last
             # selection.
             if tracker is None:
-                sym = old_tracker.charts[0].linked.symbol.key
+                sym: str = old_tracker.charts[0].linked.mkt.fqme
                 log.error(
                     f'Account `{account_name}` can not be set for {sym}'
                 )
@@ -409,9 +418,10 @@ class SettingsPane:
 
         '''
         mode = self.order_mode
-        sym = mode.chart.linked.symbol
+        mkt: MktPair = mode.chart.linked.mkt
         size = tracker.live_pp.size
-        flume: Feed = mode.feed.flumes[sym.fqsn]
+        fqme: str = mkt.fqme
+        flume: Feed = mode.feed.flumes[fqme]
         pnl_value = 0
 
         if size:
@@ -424,9 +434,8 @@ class SettingsPane:
 
             # maybe start update task
             global _pnl_tasks
-            fqsn = sym.front_fqsn()
-            if fqsn not in _pnl_tasks:
-                _pnl_tasks[fqsn] = True
+            if fqme not in _pnl_tasks:
+                _pnl_tasks[fqme] = True
                 self.order_mode.nursery.start_soon(
                     update_pnl_from_feed,
                     flume,
@@ -495,14 +504,6 @@ def pp_line(
     return line
 
 
-_derivs = (
-    'future',
-    'continuous_future',
-    'option',
-    'futures_option',
-)
-
-
 # TODO: move into annoate module?
 def mk_level_marker(
     chart: ChartPlotWidget,
@@ -557,7 +558,7 @@ class Nav(Struct):
 
         '''
         for key, chart in self.charts.items():
-            size_digits = size_digits or chart.linked.symbol.lot_size_digits
+            size_digits = size_digits or chart.linked.mkt.size_tick_digits
             line = self.lines.get(key)
             level_marker = self.level_markers[key]
             pp_label = self.pp_labels[key]
@@ -864,7 +865,7 @@ class PositionTracker:
         alloc = self.alloc
 
         # update allocator settings
-        asset_type = pp.symbol.type_key
+        asset_type = pp.mkt.type_key
 
         # specific configs by asset class / type
         if asset_type in _derivs:

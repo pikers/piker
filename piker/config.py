@@ -21,14 +21,21 @@ Platform configuration (files) mgmt.
 import platform
 import sys
 import os
-from os import path
-from os.path import dirname
 import shutil
-from typing import Optional
+import time
+from typing import (
+    Callable,
+    MutableMapping,
+)
 from pathlib import Path
 
 from bidict import bidict
-import toml
+import tomlkit
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
+
 
 from .log import get_logger
 
@@ -126,30 +133,33 @@ def get_app_dir(
     )
 
 
-_config_dir = _click_config_dir = get_app_dir('piker')
-_parent_user = os.environ.get('SUDO_USER')
+_click_config_dir: Path = Path(get_app_dir('piker'))
+_config_dir: Path = _click_config_dir
+_parent_user: str = os.environ.get('SUDO_USER')
 
 if _parent_user:
-    non_root_user_dir = os.path.expanduser(
-        f'~{_parent_user}'
+    non_root_user_dir = Path(
+        os.path.expanduser(f'~{_parent_user}')
     )
-    root = 'root'
+    root: str = 'root'
+    _ccds: str = str(_click_config_dir)  # click config dir string
+    i_tail: int = int(_ccds.rfind(root) + len(root))
     _config_dir = (
-        non_root_user_dir +
-        _click_config_dir[
-            _click_config_dir.rfind(root) + len(root):
-        ]
+        non_root_user_dir
+        /
+        Path(_ccds[i_tail+1:])  # +1 to capture trailing '/'
     )
+
 
 _conf_names: set[str] = {
-    'brokers',
-    'pps',
-    'trades',
-    'watchlists',
-    'paper_trades'
+    'conf',  # god config
+    'brokers',  # sec backend deatz
+    'watchlists',  # (user defined) market lists
 }
 
-_watchlists_data_path = os.path.join(_config_dir, 'watchlists.json')
+# TODO: probably drop all this super legacy, questrade specific,
+# config stuff XD ?
+_watchlists_data_path: Path = _config_dir / Path('watchlists.json')
 _context_defaults = dict(
     default_map={
         # Questrade specific quote poll rates
@@ -180,7 +190,7 @@ def _conf_fn_w_ext(
 def get_conf_path(
     conf_name: str = 'brokers',
 
-) -> str:
+) -> Path:
     '''
     Return the top-level default config path normally under
     ``~/.config/piker`` on linux for a given ``conf_name``, the config
@@ -188,7 +198,6 @@ def get_conf_path(
 
     Contains files such as:
     - brokers.toml
-    - pp.toml
     - watchlists.toml
 
     # maybe coming soon ;)
@@ -196,72 +205,187 @@ def get_conf_path(
     - strats.toml
 
     '''
-    assert conf_name in _conf_names
+    if 'account.' not in conf_name:
+        assert str(conf_name) in _conf_names
+
     fn = _conf_fn_w_ext(conf_name)
-    return os.path.join(
-        _config_dir,
-        fn,
-    )
+    return _config_dir / Path(fn)
 
 
-def repodir():
+def repodir() -> Path:
     '''
-    Return the abspath to the repo directory.
+    Return the abspath as ``Path`` to the git repo's root dir.
 
     '''
-    dirpath = path.abspath(
-        # we're 3 levels down in **this** module file
-        dirname(dirname(os.path.realpath(__file__)))
-    )
-    return dirpath
+    repodir: Path = Path(__file__).absolute().parent.parent
+    confdir: Path = repodir / 'config'
+
+    if not confdir.is_dir():
+        # prolly inside stupid GH actions CI..
+        repodir: Path = Path(os.environ.get('GITHUB_WORKSPACE'))
+        confdir: Path = repodir / 'config'
+
+    assert confdir.is_dir(), f'{confdir} DNE, {repodir} is likely incorrect!'
+    return repodir
 
 
 def load(
-    conf_name: str = 'brokers',
-    path: str = None,
+    conf_name: str = 'brokers',  # appended with .toml suffix
+    path: Path | None = None,
+
+    decode: Callable[
+        [str | bytes,],
+        MutableMapping,
+    ] = tomllib.loads,
+
+    touch_if_dne: bool = False,
 
     **tomlkws,
 
-) -> (dict, str):
+) -> tuple[dict, Path]:
     '''
     Load config file by name.
 
+    If desired config is not in the top level piker-user config path then
+    pass the ``path: Path`` explicitly.
+
     '''
-    path = path or get_conf_path(conf_name)
-
-    if not os.path.isdir(_config_dir):
-        Path(_config_dir).mkdir(parents=True, exist_ok=True)
-
-    if not os.path.isfile(path):
-        fn = _conf_fn_w_ext(conf_name)
-
-        template = os.path.join(
-            repodir(),
-            'config',
-            fn
+    # create the $HOME/.config/piker dir if dne
+    if not _config_dir.is_dir():
+        _config_dir.mkdir(
+            parents=True,
+            exist_ok=True,
         )
-        # try to copy in a template config to the user's directory
-        # if one exists.
-        if os.path.isfile(template):
-            shutil.copyfile(template, path)
-        else:
-            # create an empty file
-            with open(path, 'x'):
-                pass
-    else:
-        with open(path, 'r'):
-            pass  # touch it
 
-    config = toml.load(path, **tomlkws)
+    path_provided: bool = path is not None
+    path: Path = path or get_conf_path(conf_name)
+
+    if (
+        not path.is_file()
+        and touch_if_dne
+    ):
+        # only do a template if no path provided,
+        # just touch an empty file with same name.
+        if path_provided:
+            with path.open(mode='x'):
+                pass
+
+        # try to copy in a template config to the user's dir if one
+        # exists.
+        else:
+            fn: str = _conf_fn_w_ext(conf_name)
+            template: Path = repodir() / 'config' / fn
+            if template.is_file():
+                shutil.copyfile(template, path)
+
+            elif fn and template:
+                assert template.is_file(), f'{template} is not a file!?'
+
+            assert path.is_file(), f'Config file {path} not created!?'
+
+    with path.open(mode='r') as fp:
+        config: dict = decode(
+            fp.read(),
+            **tomlkws,
+        )
+
     log.debug(f"Read config file {path}")
     return config, path
 
 
+def load_account(
+    brokername: str,
+    acctid: str,
+
+) -> tuple[dict, Path]:
+    '''
+    Load a accounting (with positions) file from
+    $PIKER_CONFIG_DIR/accounting/account.<brokername>.<acctid>.toml.
+
+    Where normally $PIKER_CONFIG_DIR = ~/.config/piker/
+    and we implicitly create a accounting subdir which should
+    normally be linked to a git repo managed by the user B)
+
+    '''
+    legacy_fn: str = f'pps.{brokername}.{acctid}.toml'
+    fn: str = f'account.{brokername}.{acctid}.toml'
+
+    dirpath: Path = _config_dir / 'accounting'
+    if not dirpath.is_dir():
+        dirpath.mkdir()
+
+    config, path = load(
+        path=dirpath / fn,
+        decode=tomlkit.parse,
+        touch_if_dne=True,
+    )
+
+    if not config:
+        legacypath = dirpath / legacy_fn
+        log.warning(
+            f'Your account file is using the legacy `pps.` prefix..\n'
+            f'Rewriting contents to new name -> {path}\n'
+            'Please delete the old file!\n'
+            f'|-> {legacypath}\n'
+        )
+        if legacypath.is_file():
+            legacy_config, _ = load(
+                path=legacypath,
+
+                # TODO: move to tomlkit:
+                # - needs to be fixed to support bidict?
+                #   https://github.com/sdispater/tomlkit/issues/289
+                # - we need to use or fork's fix to do multiline array
+                #   indenting.
+                decode=tomlkit.parse,
+            )
+            config.update(legacy_config)
+
+            # XXX: override the presumably previously non-existant
+            # file with legacy's contents.
+            write(
+                config,
+                path=path,
+                fail_empty=False,
+            )
+
+    return config, path
+
+
+def load_ledger(
+    brokername: str,
+    acctid: str,
+
+) -> tuple[dict, Path]:
+
+    ldir: Path = _config_dir / 'accounting' / 'ledgers'
+    if not ldir.is_dir():
+        ldir.mkdir()
+
+    fname = f'trades_{brokername}_{acctid}.toml'
+    fpath: Path = ldir / fname
+
+    if not fpath.is_file():
+        log.info(
+            f'Creating new local trades ledger: {fpath}'
+        )
+        fpath.touch()
+
+    with fpath.open(mode='rb') as cf:
+        start = time.time()
+        ledger_dict = tomllib.load(cf)
+        log.debug(f'Ledger load took {time.time() - start}s')
+
+    return ledger_dict, fpath
+
+
 def write(
     config: dict,  # toml config as dict
-    name: str = 'brokers',
-    path: str = None,
+
+    name: str | None = None,
+    path: Path | None = None,
     fail_empty: bool = True,
+
     **toml_kwargs,
 
 ) -> None:
@@ -271,32 +395,37 @@ def write(
     Create a ``brokers.ini`` file if one does not exist.
 
     '''
-    path = path or get_conf_path(name)
-    dirname = os.path.dirname(path)
-    if not os.path.isdir(dirname):
-        log.debug(f"Creating config dir {_config_dir}")
-        os.makedirs(dirname)
+    if name:
+        path: Path = path or get_conf_path(name)
+        dirname: Path = path.parent
+        if not dirname.is_dir():
+            log.debug(f"Creating config dir {_config_dir}")
+            dirname.mkdir()
 
-    if not config and fail_empty:
+    if (
+        not config
+        and fail_empty
+    ):
         raise ValueError(
-            "Watch out you're trying to write a blank config!")
+            "Watch out you're trying to write a blank config!"
+        )
 
     log.debug(
         f"Writing config `{name}` file to:\n"
         f"{path}"
     )
-    with open(path, 'w') as cf:
-        return toml.dump(
+    with path.open(mode='w') as fp:
+        return tomlkit.dump(  # preserve style on write B)
             config,
-            cf,
+            fp,
             **toml_kwargs,
         )
 
 
 def load_accounts(
-    providers: Optional[list[str]] = None
+    providers: list[str] | None = None
 
-) -> bidict[str, Optional[str]]:
+) -> bidict[str, str | None]:
 
     conf, path = load()
     accounts = bidict()

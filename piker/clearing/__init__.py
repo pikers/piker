@@ -18,9 +18,17 @@
 Market machinery for order executions, book, management.
 
 """
-from ._client import open_ems
+from ..log import get_logger
+from ._client import (
+    open_ems,
+    OrderClient,
+)
 
 
 __all__ = [
     'open_ems',
+    'OrderClient',
+
 ]
+
+log = get_logger(__name__)

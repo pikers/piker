@@ -32,8 +32,6 @@ from ._registry import (  # noqa
 )
 from ._daemon import (  # noqa
     maybe_spawn_daemon,
-    spawn_brokerd,
-    maybe_spawn_brokerd,
     spawn_emsd,
     maybe_open_emsd,
 )
@@ -42,6 +40,10 @@ from ._actor_runtime import (
     maybe_open_pikerd,
     open_pikerd,
     get_tractor_runtime_kwargs,
+)
+from ..brokers._daemon import (
+    spawn_brokerd,
+    maybe_spawn_brokerd,
 )
 
 

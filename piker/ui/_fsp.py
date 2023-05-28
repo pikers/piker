@@ -29,7 +29,6 @@ from typing import (
     Any,
 )
 
-import numpy as np
 import msgspec
 import tractor
 import pyqtgraph as pg
@@ -46,7 +45,7 @@ from ..data._sharedmem import (
     try_read,
 )
 from ..data.feed import Flume
-from ..data._source import Symbol
+from ..accounting import MktPair
 from ._chart import (
     ChartPlotWidget,
     LinkedSplits,
@@ -70,14 +69,6 @@ from ..log import get_logger
 from .._profile import Profiler
 
 log = get_logger(__name__)
-
-
-def has_vlm(ohlcv: ShmArray) -> bool:
-    # make sure that the instrument supports volume history
-    # (sometimes this is not the case for some commodities and
-    # derivatives)
-    vlm = ohlcv.array['volume']
-    return not bool(np.all(np.isin(vlm, -1)) or np.all(np.isnan(vlm)))
 
 
 def update_fsp_chart(
@@ -398,7 +389,7 @@ class FspAdmin:
         portal: tractor.Portal,
         complete: trio.Event,
         started: trio.Event,
-        fqsn: str,
+        fqme: str,
         dst_fsp_flume: Flume,
         conf: dict,
         target: Fsp,
@@ -418,7 +409,7 @@ class FspAdmin:
                 cascade,
 
                 # data feed key
-                fqsn=fqsn,
+                fqme=fqme,
 
                 # TODO: pass `Flume.to_msg()`s here?
                 # mems
@@ -436,7 +427,7 @@ class FspAdmin:
                     in self._flow_registry.items()
                 ],
 
-            ) as (ctx, last_index),
+            ) as (ctx, _),
             ctx.open_stream() as stream,
         ):
 
@@ -444,7 +435,7 @@ class FspAdmin:
 
             # register output data
             self._registry[
-                (fqsn, ns_path)
+                (fqme, ns_path)
             ] = (
                 stream,
                 dst_fsp_flume.rt_shm,
@@ -484,26 +475,42 @@ class FspAdmin:
 
     ) -> (Flume, trio.Event):
 
-        fqsn = self.flume.symbol.fqsn
+        src_mkt: MktPair = self.flume.mkt
+        fqme: str = src_mkt.get_fqme(delim_char='')
 
         # allocate an output shm array
         key, dst_shm, opened = maybe_mk_fsp_shm(
-            fqsn,
+            fqme,
             target=target,
             readonly=True,
         )
 
-        portal = self.cluster.get(worker_name) or self.rr_next_portal()
-        provider_tag = portal.channel.uid
+        portal: tractor.Portal = (
+            self.cluster.get(worker_name)
+            or self.rr_next_portal()
+        )
 
-        symbol = Symbol(
-            key=key,
-            broker_info={
-                provider_tag: {'asset_type': 'fsp'},
-            },
+        # TODO: this should probably be turned into a
+        # ``Cascade`` type which describes the routing
+        # of an fsp's IO in terms of sinc -> source 
+        # shm/IPC endpoints?
+        mkt = MktPair(
+
+            # make this a couple addrs encapsing
+            # the flume routing?
+            src=src_mkt.dst,
+            dst=target.name,
+
+            # make this a precision / rounding value?
+            price_tick=src_mkt.price_tick,
+            size_tick=src_mkt.size_tick,
+
+            bs_mktid=target.name,
+            broker='piker',
+            _atype='fsp',
         )
         dst_fsp_flume = Flume(
-            symbol=symbol,
+            mkt=mkt,
             _rt_shm_token=dst_shm.token,
             first_quote={},
 
@@ -519,7 +526,7 @@ class FspAdmin:
 
         # if not opened:
         #     raise RuntimeError(
-        #         f'Already started FSP `{fqsn}:{func_name}`'
+        #         f'Already started FSP `{fqme}:{func_name}`'
         #     )
 
         complete = trio.Event()
@@ -529,7 +536,7 @@ class FspAdmin:
             portal,
             complete,
             started,
-            fqsn,
+            fqme,
             dst_fsp_flume,
             conf,
             target,

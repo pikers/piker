@@ -23,7 +23,10 @@ WARNING: this code likely doesn't work at all (yet)
 """
 import numpy as np
 import pyqtgraph as pg
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5 import (
+    QtCore,
+    QtWidgets,
+)
 
 from .quantdom.charts import CenteredTextItem
 from .quantdom.base import Quotes

@@ -2,9 +2,13 @@
 Actor tree daemon sub-service verifications
 
 '''
-from typing import AsyncContextManager
+from typing import (
+    AsyncContextManager,
+    Callable,
+)
 from contextlib import asynccontextmanager as acm
 
+from exceptiongroup import BaseExceptionGroup
 import pytest
 import trio
 import tractor
@@ -24,7 +28,7 @@ from piker.clearing._messages import (
     Status,
 )
 from piker.clearing._client import (
-    OrderBook,
+    OrderClient,
 )
 
 
@@ -33,8 +37,8 @@ def test_runtime_boot(
 ):
     '''
     Verify we can boot the `pikerd` service stack using the
-    `open_test_pikerd` fixture helper and that registry address details
-    match up.
+    `open_test_pikerd()` fixture helper and that contact-registry
+    address details match up.
 
     '''
     async def main():
@@ -55,6 +59,46 @@ def test_runtime_boot(
             assert pikerd_portal.channel.raddr == daemon_addr
             assert pikerd_portal.channel.raddr == portal.channel.raddr
 
+            # no service tasks should be started
+            assert not services.service_tasks
+
+    trio.run(main)
+
+
+def test_ensure_datafeed_actors(
+    open_test_pikerd: AsyncContextManager,
+    loglevel: str,
+    # cancel_method: str,
+
+) -> None:
+    '''
+    Verify that booting a data feed starts a `brokerd`
+    actor and a singleton global `samplerd` and opening
+    an order mode in paper opens the `paperboi` service.
+
+    '''
+    actor_name: str = 'brokerd'
+    backend: str = 'kraken'
+    brokerd_name: str = f'{actor_name}.{backend}'
+
+    async def main():
+        async with (
+            open_test_pikerd(),
+
+            open_feed(
+                ['xbtusdt.kraken'],
+                loglevel=loglevel,
+            ) as feed
+        ):
+            # halt rt quote streams since we aren't testing them
+            await feed.pause()
+
+            async with (
+                ensure_service(brokerd_name),
+                ensure_service('samplerd'),
+            ):
+                await trio.sleep(0.1)
+
     trio.run(main)
 
 
@@ -73,44 +117,68 @@ async def ensure_service(
         yield portal
 
 
-def test_ensure_datafeed_actors(
-    open_test_pikerd: AsyncContextManager,
-    loglevel: str,
+def run_test_w_cancel_method(
+    cancel_method: str,
+    main: Callable,
 
 ) -> None:
     '''
-    Verify that booting a data feed starts a `brokerd`
-    actor and a singleton global `samplerd` and opening
-    an order mode in paper opens the `paperboi` service.
+    Run our runtime under trio and expect a certain type of cancel condition
+    depending on input.
 
     '''
-    actor_name: str = 'brokerd'
-    backend: str = 'kraken'
-    brokerd_name: str = f'{actor_name}.{backend}'
+    cancelled_msg: str = (
+        "was remotely cancelled by remote actor (\'pikerd\'")
 
-    async def main():
-        async with (
-            open_test_pikerd(),
-            open_feed(
-                ['xbtusdt.kraken'],
-                loglevel=loglevel,
-            ) as feed
-        ):
-            # halt rt quote streams since we aren't testing them
-            await feed.pause()
+    if cancel_method == 'sigint':
+        with pytest.raises(
+            BaseExceptionGroup,
+        ) as exc_info:
+            trio.run(main)
 
-            async with (
-                ensure_service(brokerd_name),
-                ensure_service('samplerd'),
-            ):
-                pass
+        multi = exc_info.value
 
-    trio.run(main)
+        for suberr in multi.exceptions:
+            match suberr:
+                # ensure we receive a remote cancellation error caused
+                # by the pikerd root actor since we used the
+                # `.cancel_service()` API above B)
+                case tractor.ContextCancelled():
+                    assert cancelled_msg in suberr.args[0]
+
+                case KeyboardInterrupt():
+                    pass
+
+                case _:
+                    pytest.fail(f'Unexpected error {suberr}')
+
+    elif cancel_method == 'services':
+
+        # XXX NOTE: oddly, when you pass --pdb to pytest, i think since
+        # we also use that to enable the underlying tractor debug mode,
+        # it causes this to not raise for some reason? So if you see
+        # that while changing this test.. it's prolly that.
+
+        with pytest.raises(
+            tractor.ContextCancelled
+        ) as exc_info:
+            trio.run(main)
+
+        assert cancelled_msg in exc_info.value.args[0]
+
+    else:
+        pytest.fail(f'Test is broken due to {cancel_method}')
 
 
+@pytest.mark.parametrize(
+    'cancel_method',
+    ['services', 'sigint'],
+)
 def test_ensure_ems_in_paper_actors(
     open_test_pikerd: AsyncContextManager,
     loglevel: str,
+
+    cancel_method: str,
 
 ) -> None:
 
@@ -121,8 +189,7 @@ def test_ensure_ems_in_paper_actors(
     async def main():
 
         # type declares
-        book: OrderBook
-        trades_stream: tractor.MsgStream
+        client: OrderClient
         pps: dict[str, list[BrokerdPosition]]
         accounts: list[str]
         dialogs: dict[str, Status]
@@ -139,8 +206,8 @@ def test_ensure_ems_in_paper_actors(
                     mode='paper',
                     loglevel=loglevel,
                 ) as (
-                    book,
-                    trades_stream,
+                    client,
+                    _,  # trades_stream: tractor.MsgStream
                     pps,
                     accounts,
                     dialogs,
@@ -151,6 +218,9 @@ def test_ensure_ems_in_paper_actors(
                 # local ledger and `pps.toml` state ;)
                 assert not pps
                 assert not dialogs
+                # XXX: should be new client with no state from other tests
+                assert not client._sent_orders
+                assert accounts
 
                 pikerd_subservices = ['emsd', 'samplerd']
 
@@ -166,13 +236,13 @@ def test_ensure_ems_in_paper_actors(
                     # implicitly by the ems.
                     assert brokerd_name in services.service_tasks
 
-                    print('ALL SERVICES STARTED, terminating..')
-                    await services.cancel_service('emsd')
+                    print('ALL SERVICES STARTED, cancelling runtime with:\n'
+                          f'-> {cancel_method}')
 
-    with pytest.raises(
-        tractor._exceptions.ContextCancelled,
-    ) as exc_info:
-        trio.run(main)
+                    if cancel_method == 'services':
+                        await services.cancel_service('emsd')
 
-    cancel_msg: str = '_emsd_main()` was remotely cancelled by its caller'
-    assert cancel_msg in exc_info.value.args[0]
+                    elif cancel_method == 'sigint':
+                        raise KeyboardInterrupt
+
+    run_test_w_cancel_method(cancel_method, main)

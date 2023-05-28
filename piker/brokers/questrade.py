@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -43,10 +43,13 @@ from ..calc import humanize, percent_change
 from .._cacheables import open_cached_client, async_lifo_cache
 from .. import config
 from ._util import resproc, BrokerError, SymbolNotFound
-from ..log import get_logger, colorize_json, get_console_log
-
-
-log = get_logger(__name__)
+from ..log import (
+    colorize_json,
+)
+from ._util import (
+    log,
+    get_console_log,
+)
 
 _use_practice_account = False
 _refresh_token_ep = 'https://{}login.questrade.com/oauth2/'

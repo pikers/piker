@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -36,13 +36,18 @@ import trio
 from PyQt5.QtCore import Qt
 
 from .. import config
-from ..pp import Position
-from ..clearing._client import open_ems, OrderBook
-from ..clearing._allocate import (
+from ..accounting import (
+    Allocator,
+    Position,
     mk_allocator,
+    MktPair,
+    Symbol,
+)
+from ..clearing._client import (
+    open_ems,
+    OrderClient,
 )
 from ._style import _font
-from ..data._source import Symbol
 from ..data.feed import (
     Feed,
     Flume,
@@ -89,7 +94,7 @@ class Dialog(Struct):
     order: Order
     symbol: str
     lines: list[LevelLine]
-    last_status_close: Callable = lambda: None
+    last_status_close: Callable | None = None
     msgs: dict[str, dict] = {}
     fills: dict[str, Any] = {}
 
@@ -120,7 +125,7 @@ class OrderMode:
     chart: ChartPlotWidget  #  type: ignore # noqa
     hist_chart: ChartPlotWidget  #  type: ignore # noqa
     nursery: trio.Nursery  # used by ``ui._position`` code?
-    book: OrderBook
+    client: OrderClient
     lines: LineEditor
     arrows: ArrowEditor
     multistatus: MultiStatus
@@ -284,15 +289,29 @@ class OrderMode:
             # since that's illogical / a no-op.
             return
 
-        symbol = self.chart.linked.symbol
+        mkt: MktPair = self.chart.linked.mkt
+
+        # NOTE : we could also use instead,
+        # mkt.quantize(price, quantity_type='price')
+        # but it returns a Decimal and it's probably gonna
+        # be slower?
+        # TODO: should we be enforcing this precision
+        # at a different layer in the stack? right now
+        # any precision error will literally be relayed
+        # all the way back from the backend.
+
+        price = round(
+            price,
+            ndigits=mkt.price_tick_digits,
+        )
 
         order = self._staged_order = Order(
             action=action,
             price=price,
             account=self.current_pp.alloc.account,
             size=0,
-            symbol=symbol,
-            brokers=symbol.brokers,
+            symbol=mkt.fqme,
+            brokers=[mkt.broker],
             oid='',  # filled in on submit
             exec_mode=trigger_type,  # dark or live
         )
@@ -349,12 +368,17 @@ class OrderMode:
         '''
         if not order:
             staged: Order = self._staged_order
+
             # apply order fields for ems
             oid = str(uuid.uuid4())
-            order = staged.copy()
-            order.oid = oid
 
-        order.symbol = order.symbol.front_fqsn()
+            # NOTE: we have to str-ify `MktPair` first since we can't
+            # cast to it without being mega explicit with
+            # `msgspec.Struct`, which we're not yet..
+            order: Order = staged.copy({
+                'symbol': str(staged.symbol),
+                'oid': oid,
+            })
 
         lines = self.lines_from_order(
             order,
@@ -401,13 +425,13 @@ class OrderMode:
 
         # send order cmd to ems
         if send_msg:
-            self.book.send(order)
+            self.client.send_nowait(order)
         else:
             # just register for control over this order
             # TODO: some kind of mini-perms system here based on
             # an out-of-band tagging/auth sub-sys for multiplayer
             # order control?
-            self.book._sent_orders[order.oid] = order
+            self.client._sent_orders[order.oid] = order
 
         return dialog
 
@@ -428,14 +452,23 @@ class OrderMode:
         line: LevelLine,
 
     ) -> None:
+        '''
+        Retreive the level line's end state, compute the size
+        and price for the new price-level, send an update msg to
+        the EMS, adjust mirrored level line on secondary chart.
 
-        level = line.value()
+        '''
+        mktinfo: MktPair = self.chart.linked.mkt
+        level = round(
+            line.value(),
+            ndigits=mktinfo.price_tick_digits,
+        )
         # updated by level change callback set in ``.new_line_from_order()``
         dialog = line.dialog
         size = dialog.order.size
 
         # NOTE: sends modified order msg to EMS
-        self.book.send_update(
+        self.client.update_nowait(
             uuid=line.dialog.uuid,
             price=level,
             size=size,
@@ -465,7 +498,9 @@ class OrderMode:
         # a submission is the start of a new order dialog
         dialog = self.dialogs[uuid]
         dialog.lines = lines
-        dialog.last_status_close()
+        cls: Callable | None = dialog.last_status_close
+        if cls:
+            cls()
 
         for line in lines:
 
@@ -517,7 +552,7 @@ class OrderMode:
         # XXX: seems to fail on certain types of races?
         # assert len(lines) == 2
         if lines:
-            flume: Flume = self.feed.flumes[chart.linked.symbol.fqsn]
+            flume: Flume = self.feed.flumes[chart.linked.mkt.fqme]
             _, _, ratio = flume.get_ds_info()
 
             for chart, shm in [
@@ -551,7 +586,7 @@ class OrderMode:
 
     ) -> None:
 
-        msg = self.book._sent_orders.pop(uuid, None)
+        msg = self.client._sent_orders.pop(uuid, None)
 
         if msg is not None:
             self.lines.remove_line(uuid=uuid)
@@ -607,7 +642,7 @@ class OrderMode:
                     dialog.last_status_close = cancel_status_close
 
                     ids.append(oid)
-                    self.book.cancel(uuid=oid)
+                    self.client.cancel_nowait(uuid=oid)
 
         return ids
 
@@ -629,17 +664,21 @@ class OrderMode:
             and src not in ('dark', 'paperboi')
             and src not in symbol
         ):
-            fqsn = symbol + '.' + src
+            fqme = symbol + '.' + src
             brokername = src
         else:
-            fqsn = symbol
-            *head, brokername = fqsn.rsplit('.')
+            fqme = symbol
+            *head, brokername = fqme.rsplit('.')
 
         # fill out complex fields
         order.oid = str(order.oid)
         order.brokers = [brokername]
-        order.symbol = Symbol.from_fqsn(
-            fqsn=fqsn,
+
+        # TODO: change this over to `MktPair`, but it's
+        # gonna be tough since we don't have any such data
+        # really in our clearing msg schema..
+        order.symbol = Symbol.from_fqme(
+            fqsn=fqme,
             info={},
         )
         dialog = self.submit_order(
@@ -655,7 +694,7 @@ async def open_order_mode(
 
     feed: Feed,
     godw: GodWidget,
-    fqsn: str,
+    fqme: str,
     started: trio.Event,
     loglevel: str = 'info'
 
@@ -674,19 +713,22 @@ async def open_order_mode(
     multistatus = chart.window().status_bar
     done = multistatus.open_status('starting order mode..')
 
-    book: OrderBook
+    client: OrderClient
     trades_stream: tractor.MsgStream
 
     # The keys in this dict **must** be in set our set of "normalized"
     # symbol names (i.e. the same names you'd get back in search
     # results) in order for position msgs to correctly trigger the
     # display of a position indicator on screen.
-    position_msgs: dict[str, list[BrokerdPosition]]
+    position_msgs: dict[str, dict[str, BrokerdPosition]]
 
     # spawn EMS actor-service
     async with (
-        open_ems(fqsn, loglevel=loglevel) as (
-            book,
+        open_ems(
+            fqme,
+            loglevel=loglevel,
+        ) as (
+            client,
             trades_stream,
             position_msgs,
             brokerd_accounts,
@@ -695,21 +737,21 @@ async def open_order_mode(
         trio.open_nursery() as tn,
 
     ):
-        log.info(f'Opening order mode for {fqsn}')
+        log.info(f'Opening order mode for {fqme}')
 
         # annotations editors
         lines = LineEditor(godw=godw)
         arrows = ArrowEditor(godw=godw)
 
-        # symbol id
-        symbol = chart.linked.symbol
+        # market endpoint info
+        mkt: MktPair = chart.linked.mkt
 
         # map of per-provider account keys to position tracker instances
         trackers: dict[str, PositionTracker] = {}
 
         # load account names from ``brokers.toml``
         accounts_def = config.load_accounts(
-            providers=symbol.brokers
+            providers=[mkt.broker],
         )
 
         # XXX: ``brokerd`` delivers a set of account names that it
@@ -732,17 +774,17 @@ async def open_order_mode(
 
             # net-zero pp
             startup_pp = Position(
-                symbol=symbol,
+                mkt=mkt,
                 size=0,
                 ppu=0,
 
                 # XXX: BLEH, do we care about this on the client side?
-                bsuid=symbol,
+                bs_mktid=mkt.key,
             )
 
             # allocator config
-            alloc = mk_allocator(
-                symbol=symbol,
+            alloc: Allocator = mk_allocator(
+                mkt=mkt,
                 account=account_name,
 
                 # if this startup size is greater the allocator limit,
@@ -813,7 +855,7 @@ async def open_order_mode(
             chart,
             hist_chart,
             tn,
-            book,
+            client,
             lines,
             arrows,
             multistatus,
@@ -861,12 +903,14 @@ async def open_order_mode(
         # Pack position messages by account, should only be one-to-one.
         # NOTE: requires the backend exactly specifies
         # the expected symbol key in its positions msg.
-        for (broker, acctid), msgs in position_msgs.items():
-            for msg in msgs:
-                log.info(f'Loading pp for {acctid}@{broker}:\n{pformat(msg)}')
+        for (
+            (broker, acctid),
+            pps_by_fqme
+        ) in position_msgs.items():
+            for msg in pps_by_fqme.values():
                 await process_trade_msg(
                     mode,
-                    book,
+                    client,
                     msg,
                 )
 
@@ -900,7 +944,7 @@ async def open_order_mode(
 
                 await process_trade_msg(
                     mode,
-                    book,
+                    client,
                     msg,
                 )
 
@@ -908,7 +952,7 @@ async def open_order_mode(
                 process_trades_and_update_ui,
                 trades_stream,
                 mode,
-                book,
+                client,
             )
 
             yield mode
@@ -918,7 +962,7 @@ async def process_trades_and_update_ui(
 
     trades_stream: tractor.MsgStream,
     mode: OrderMode,
-    book: OrderBook,
+    client: OrderClient,
 
 ) -> None:
 
@@ -927,15 +971,21 @@ async def process_trades_and_update_ui(
     async for msg in trades_stream:
         await process_trade_msg(
             mode,
-            book,
+            client,
             msg,
         )
 
 
 async def process_trade_msg(
     mode: OrderMode,
-    book: OrderBook,
+    client: OrderClient,
     msg: dict,
+
+    # emit linux DE notification?
+    # XXX: currently my experience with `dunst` is that this
+    # is horrible slow and clunky and invasive and noisy so i'm
+    # disabling it for now until we find a better UX solution..
+    do_notify: bool = False,
 
 ) -> tuple[Dialog, Status]:
 
@@ -946,18 +996,24 @@ async def process_trade_msg(
     if name in (
         'position',
     ):
-        sym = mode.chart.linked.symbol
+        sym: MktPair = mode.chart.linked.mkt
         pp_msg_symbol = msg['symbol'].lower()
-        fqsn = sym.front_fqsn()
-        broker, key = sym.front_feed()
+        fqme = sym.fqme
+        broker = sym.broker
         if (
-            pp_msg_symbol == fqsn
-            or pp_msg_symbol == fqsn.removesuffix(f'.{broker}')
+            pp_msg_symbol == fqme
+            or pp_msg_symbol == fqme.removesuffix(f'.{broker}')
         ):
-            log.info(f'{fqsn} matched pp msg: {fmsg}')
+            log.info(
+                f'Loading position for `{fqme}`:\n'
+                f'{fmsg}'
+            )
             tracker = mode.trackers[msg['account']]
             tracker.live_pp.update_from_msg(msg)
-            tracker.update_from_pp(set_as_startup=True)  # status/pane UI
+            tracker.update_from_pp(
+                set_as_startup=True,
+            )
+            # status/pane UI
             mode.pane.update_status_ui(tracker)
 
             if tracker.live_pp.size:
@@ -974,7 +1030,7 @@ async def process_trade_msg(
     dialog: Dialog = mode.dialogs.get(oid)
 
     if dialog:
-        fqsn = dialog.symbol
+        fqme = dialog.symbol
 
     match msg:
         case Status(
@@ -996,17 +1052,17 @@ async def process_trade_msg(
                 )
                 assert msg.resp in ('open', 'dark_open'), f'Unknown msg: {msg}'
 
-                sym = mode.chart.linked.symbol
-                fqsn = sym.front_fqsn()
+                sym: MktPair = mode.chart.linked.mkt
+                fqme = sym.fqme
                 if (
-                    ((order.symbol + f'.{msg.src}') == fqsn)
+                    ((order.symbol + f'.{msg.src}') == fqme)
 
                     # a existing dark order for the same symbol
                     or (
-                        order.symbol == fqsn
+                        order.symbol == fqme
                         and (
                             msg.src in ('dark', 'paperboi')
-                            or (msg.src in fqsn)
+                            or (msg.src in fqme)
 
                         )
                     )
@@ -1053,7 +1109,8 @@ async def process_trade_msg(
             )
             mode.lines.remove_line(uuid=oid)
             msg.req = req
-            await notify_from_ems_status_msg(msg)
+            if do_notify:
+                await notify_from_ems_status_msg(msg)
 
         # response to completed 'dialog' for order request
         case Status(
@@ -1062,14 +1119,15 @@ async def process_trade_msg(
             req=req,
         ):
             msg.req = Order(**req)
-            await notify_from_ems_status_msg(msg)
+            if do_notify:
+                await notify_from_ems_status_msg(msg)
             mode.lines.remove_line(uuid=oid)
 
         # each clearing tick is responded individually
         case Status(resp='fill'):
 
             # handle out-of-piker fills reporting?
-            order: Order = book._sent_orders.get(oid)
+            order: Order = client._sent_orders.get(oid)
             if not order:
                 log.warning(f'order {oid} is unknown')
                 order = msg.req

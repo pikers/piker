@@ -1,19 +1,32 @@
 [questrade]
-refresh_token = ""
-access_token = ""
-api_server = "https://api06.iq.questrade.com/"
+refresh_token = ''
+access_token = ''
+api_server = 'https://api06.iq.questrade.com/'
 expires_in = 1800
-token_type = "Bearer"
+token_type = 'Bearer'
 expires_at = 1616095326.355846
 
+
+[deribit]
+key_id = ''
+key_secret = ''
+
+
 [kraken]
-key_descr = "api_0"
-api_key = ""
-secret = ""
+key_descr = ''
+api_key = ''
+secret = ''
+
+
+[kucoin]
+key_id = ''
+key_secret = ''
+key_passphrase = ''
+
 
 [ib]
 hosts = [
-    "127.0.0.1",
+    '127.0.0.1',
 ]
 # XXX: the order in which ports will be scanned
 # (by the `brokerd` daemon-actor)
@@ -30,8 +43,8 @@ ports = [
 # is not supported so you have to manually download
 # and XML report and put it in a location that can be
 # accessed by the ``brokerd.ib`` backend code for parsing.
-flex_token = '666666666666666666666666'
-flex_trades_query_id = '666666'  # live account
+flex_token = ''
+flex_trades_query_id = ''  # live account
 
 # when clients are being scanned this determines
 # which clients are preferred to be used for data
@@ -47,11 +60,6 @@ prefer_data_account = [
 # the order in which accounts will be selectable
 # in the order mode UI (if found via clients during
 # API-app scanning)when a new symbol is loaded.
-paper = "XX0000000"
-margin = "X0000000"
-ira = "X0000000"
-
-
-[deribit]
-key_id = 'XXXXXXXX'
-key_secret = 'Xx_XxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXxXx'
+paper = 'XX0000000'
+margin = 'X0000000'
+ira = 'X0000000'

@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -27,68 +27,104 @@ import trio
 import tractor
 from tractor.trionics import broadcast_receiver
 
-from ..log import get_logger
+from ._util import (
+    log,  # sub-sys logger
+)
 from ..data.types import Struct
 from ..service import maybe_open_emsd
 from ._messages import (
     Order,
     Cancel,
+    BrokerdPosition,
 )
 from ..brokers import get_brokermod
 
 if TYPE_CHECKING:
     from ._messages import (
-        BrokerdPosition,
         Status,
     )
 
 
-log = get_logger(__name__)
+class OrderClient(Struct):
+    '''
+    EMS-client-side order book ctl and tracking.
 
-
-class OrderBook(Struct):
-    '''EMS-client-side order book ctl and tracking.
-
-    A style similar to "model-view" is used here where this api is
-    provided as a supervised control for an EMS actor which does all the
-    hard/fast work of talking to brokers/exchanges to conduct
-    executions.
-
-    Currently, this is mostly for keeping local state to match the EMS
-    and use received events to trigger graphics updates.
+    (A)sync API for submitting orders and alerts to the `emsd` service;
+    this is the main control for execution management from client code.
 
     '''
+    # IPC stream to `emsd` actor
+    _ems_stream: tractor.MsgStream
+
     # mem channels used to relay order requests to the EMS daemon
-    _to_ems: trio.abc.SendChannel
-    _from_order_book: trio.abc.ReceiveChannel
+    _to_relay_task: trio.abc.SendChannel
+    _from_sync_order_client: trio.abc.ReceiveChannel
+
+    # history table
     _sent_orders: dict[str, Order] = {}
 
-    def send(
+    def send_nowait(
         self,
         msg: Order | dict,
 
-    ) -> dict:
+    ) -> dict | Order:
+        '''
+        Sync version of ``.send()``.
+
+        '''
         self._sent_orders[msg.oid] = msg
-        self._to_ems.send_nowait(msg)
+        self._to_relay_task.send_nowait(msg)
         return msg
 
-    def send_update(
+    async def send(
         self,
+        msg: Order | dict,
 
+    ) -> dict | Order:
+        '''
+        Send a new order msg async to the `emsd` service.
+
+        '''
+        self._sent_orders[msg.oid] = msg
+        await self._ems_stream.send(msg)
+        return msg
+
+    def update_nowait(
+        self,
         uuid: str,
         **data: dict,
 
     ) -> dict:
+        '''
+        Sync version of ``.update()``.
+
+        '''
         cmd = self._sent_orders[uuid]
         msg = cmd.copy(update=data)
         self._sent_orders[uuid] = msg
-        self._to_ems.send_nowait(msg)
-        return cmd
+        self._to_relay_task.send_nowait(msg)
+        return msg
 
-    def cancel(self, uuid: str) -> bool:
-        """Cancel an order (or alert) in the EMS.
+    async def update(
+        self,
+        uuid: str,
+        **data: dict,
+    ) -> dict:
+        '''
+        Update an existing order dialog with a msg updated from
+        ``update`` kwargs.
 
-        """
+        '''
+        cmd = self._sent_orders[uuid]
+        msg = cmd.copy(update=data)
+        self._sent_orders[uuid] = msg
+        await self._ems_stream.send(msg)
+        return msg
+
+    def _mk_cancel_msg(
+        self,
+        uuid: str,
+    ) -> Cancel:
         cmd = self._sent_orders.get(uuid)
         if not cmd:
             log.error(
@@ -96,77 +132,75 @@ class OrderBook(Struct):
                 f'Maybe there is a stale entry or line?\n'
                 f'You should report this as a bug!'
             )
-        msg = Cancel(
+        fqme = str(cmd.symbol)
+        return Cancel(
             oid=uuid,
-            symbol=cmd.symbol,
-        )
-        self._to_ems.send_nowait(msg)
-
-
-_orders: OrderBook = None
-
-
-def get_orders(
-    emsd_uid: tuple[str, str] = None
-) -> OrderBook:
-    """"
-    OrderBook singleton factory per actor.
-
-    """
-    if emsd_uid is not None:
-        # TODO: read in target emsd's active book on startup
-        pass
-
-    global _orders
-
-    if _orders is None:
-        size = 100
-        tx, rx = trio.open_memory_channel(size)
-        brx = broadcast_receiver(rx, size)
-
-        # setup local ui event streaming channels for request/resp
-        # streamging with EMS daemon
-        _orders = OrderBook(
-            _to_ems=tx,
-            _from_order_book=brx,
+            symbol=fqme,
         )
 
-    return _orders
+    def cancel_nowait(
+        self,
+        uuid: str,
+
+    ) -> None:
+        '''
+        Sync version of ``.cancel()``.
+
+        '''
+        self._to_relay_task.send_nowait(
+            self._mk_cancel_msg(uuid)
+        )
+
+    async def cancel(
+        self,
+        uuid: str,
+
+    ) -> bool:
+        '''
+        Cancel an already existintg order (or alert) dialog.
+
+        '''
+        await self._ems_stream.send(
+            self._mk_cancel_msg(uuid)
+        )
 
 
-# TODO: we can get rid of this relay loop once we move
-# order_mode inputs to async code!
-async def relay_order_cmds_from_sync_code(
 
+async def relay_orders_from_sync_code(
+
+    client: OrderClient,
     symbol_key: str,
     to_ems_stream: tractor.MsgStream,
 
 ) -> None:
-    """
-    Order streaming task: deliver orders transmitted from UI
-    to downstream consumers.
+    '''
+    Order submission relay task: deliver orders sent from synchronous (UI)
+    code to the EMS via ``OrderClient._from_sync_order_client``.
 
     This is run in the UI actor (usually the one running Qt but could be
     any other client service code). This process simply delivers order
-    messages to the above ``_to_ems`` send channel (from sync code using
+    messages to the above ``_to_relay_task`` send channel (from sync code using
     ``.send_nowait()``), these values are pulled from the channel here
     and relayed to any consumer(s) that called this function using
     a ``tractor`` portal.
 
     This effectively makes order messages look like they're being
     "pushed" from the parent to the EMS where local sync code is likely
-    doing the pushing from some UI.
+    doing the pushing from some non-async UI handler.
 
-    """
-    book = get_orders()
-    async with book._from_order_book.subscribe() as orders_stream:
-        async for cmd in orders_stream:
+    '''
+    async with (
+        client._from_sync_order_client.subscribe() as sync_order_cmds
+    ):
+        async for cmd in sync_order_cmds:
             sym = cmd.symbol
-            msg = pformat(cmd)
+            msg = pformat(cmd.to_dict())
+
             if sym == symbol_key:
                 log.info(f'Send order cmd:\n{msg}')
                 # send msg over IPC / wire
                 await to_ems_stream.send(cmd)
+
             else:
                 log.warning(
                     f'Ignoring unmatched order cmd for {sym} != {symbol_key}:'
@@ -176,62 +210,39 @@ async def relay_order_cmds_from_sync_code(
 
 @acm
 async def open_ems(
-    fqsn: str,
+    fqme: str,
     mode: str = 'live',
     loglevel: str = 'error',
 
 ) -> tuple[
-    OrderBook,
+    OrderClient,
     tractor.MsgStream,
     dict[
         # brokername, acctid
         tuple[str, str],
-        list[BrokerdPosition],
+        dict[str, BrokerdPosition],
     ],
     list[str],
     dict[str, Status],
 ]:
     '''
-    Spawn an EMS daemon and begin sending orders and receiving
-    alerts.
+    (Maybe) spawn an EMS-daemon (emsd), deliver an `OrderClient` for
+    requesting orders/alerts and a `trades_stream` which delivers all
+    response-msgs.
 
-    This EMS tries to reduce most broker's terrible order entry apis to
-    a very simple protocol built on a few easy to grok and/or
-    "rantsy" premises:
-
-    - most users will prefer "dark mode" where orders are not submitted
-      to a broker until and execution condition is triggered
-      (aka client-side "hidden orders")
-
-    - Brokers over-complicate their apis and generally speaking hire
-      poor designers to create them. We're better off using creating a super
-      minimal, schema-simple, request-event-stream protocol to unify all the
-      existing piles of shit (and shocker, it'll probably just end up
-      looking like a decent crypto exchange's api)
-
-    - all order types can be implemented with client-side limit orders
-
-    - we aren't reinventing a wheel in this case since none of these
-      brokers are exposing FIX protocol; it is they doing the re-invention.
-
-
-    TODO: make some fancy diagrams using mermaid.io
-
-    the possible set of responses from the stream  is currently:
-    - 'dark_submitted', 'broker_submitted'
-    - 'dark_cancelled', 'broker_cancelled'
-    - 'dark_executed', 'broker_executed'
-    - 'broker_filled'
+    This is a "client side" entrypoint which may spawn the `emsd` service
+    if it can't be discovered and generally speaking is the lowest level
+    broker control client-API.
 
     '''
-    # wait for service to connect back to us signalling
-    # ready for order commands
-    book = get_orders()
+    # TODO: prolly hand in the `MktPair` instance directly here as well!
+    from piker.accounting import unpack_fqme
+    broker, mktep, venue, suffix = unpack_fqme(fqme)
 
-    from ..data._source import unpack_fqsn
-    broker, symbol, suffix = unpack_fqsn(fqsn)
-
-    async with maybe_open_emsd(broker) as portal:
+    async with maybe_open_emsd(
+        broker,
+        loglevel=loglevel,
+    ) as portal:
 
         mod = get_brokermod(broker)
         if (
@@ -244,9 +255,8 @@ async def open_ems(
         async with (
             # connect to emsd
             portal.open_context(
-
                 _emsd_main,
-                fqsn=fqsn,
+                fqme=fqme,
                 exec_mode=mode,
                 loglevel=loglevel,
 
@@ -262,18 +272,36 @@ async def open_ems(
             # open 2-way trade command stream
             ctx.open_stream() as trades_stream,
         ):
+            size: int = 100  # what should this be?
+            tx, rx = trio.open_memory_channel(size)
+            brx = broadcast_receiver(rx, size)
+
+            # setup local ui event streaming channels for request/resp
+            # streamging with EMS daemon
+            client = OrderClient(
+                _ems_stream=trades_stream,
+                _to_relay_task=tx,
+                _from_sync_order_client=brx,
+            )
+
+            client._ems_stream = trades_stream
+
             # start sync code order msg delivery task
             async with trio.open_nursery() as n:
                 n.start_soon(
-                    relay_order_cmds_from_sync_code,
-                    fqsn,
+                    relay_orders_from_sync_code,
+                    client,
+                    fqme,
                     trades_stream
                 )
 
                 yield (
-                    book,
+                    client,
                     trades_stream,
                     positions,
                     accounts,
                     dialogs,
                 )
+
+                # stop the sync-msg-relay task on exit.
+                n.cancel_scope.cancel()

@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -41,11 +41,13 @@ import trio
 from trio_typing import TaskStatus
 import tractor
 
-from ..log import get_logger
+from ._util import (
+    log,  # sub-sys logger
+    get_console_log,
+)
 from ..data._normalize import iterticks
-from ..data._source import (
-    unpack_fqsn,
-    mk_fqsn,
+from ..accounting._mktinfo import (
+    unpack_fqme,
     float_digits,
 )
 from ..data.feed import (
@@ -67,9 +69,6 @@ from ._messages import (
     BrokerdError,
     BrokerdPosition,
 )
-
-
-log = get_logger(__name__)
 
 
 # TODO: numba all of this
@@ -157,7 +156,7 @@ async def clear_dark_triggers(
     brokerd_orders_stream: tractor.MsgStream,
     quote_stream: tractor.ReceiveMsgStream,  # noqa
     broker: str,
-    fqsn: str,
+    fqme: str,
 
     book: DarkBook,
 
@@ -232,7 +231,7 @@ async def clear_dark_triggers(
                             account=account,
                             size=size,
                         ):
-                            bfqsn: str = symbol.replace(f'.{broker}', '')
+                            bfqme: str = symbol.replace(f'.{broker}', '')
                             submit_price = price + abs_diff_away
                             resp = 'triggered'  # hidden on client-side
 
@@ -245,7 +244,7 @@ async def clear_dark_triggers(
                                 oid=oid,
                                 account=account,
                                 time_ns=time.time_ns(),
-                                symbol=bfqsn,
+                                symbol=bfqme,
                                 price=submit_price,
                                 size=size,
                             )
@@ -288,14 +287,14 @@ async def clear_dark_triggers(
 
                     # send response to client-side
                     await router.client_broadcast(
-                        fqsn,
+                        fqme,
                         status,
                     )
 
                 else:  # condition scan loop complete
                     log.debug(f'execs are {execs}')
                     if execs:
-                        book.triggers[fqsn] = execs
+                        book.triggers[fqme] = execs
 
         # print(f'execs scan took: {time.time() - start}')
 
@@ -316,9 +315,6 @@ class TradesRelay(Struct):
     # allowed account names
     accounts: tuple[str]
 
-    # count of connected ems clients for this ``brokerd``
-    consumers: int = 0
-
 
 class Router(Struct):
     '''
@@ -334,9 +330,12 @@ class Router(Struct):
     # broker to book map
     books: dict[str, DarkBook] = {}
 
+    # NOTE: disable for since stupid "dunst"
+    notify_on_order_loads: bool = False
+
     # sets of clients mapped from subscription keys
     subscribers: defaultdict[
-        str,  # sub key, default fqsn
+        str,  # sub key, default fqme
         set[tractor.MsgStream],  # unique client streams
     ] = defaultdict(set)
 
@@ -387,7 +386,7 @@ class Router(Struct):
         brokermod: ModuleType,
         portal: tractor.Portal,
         exec_mode: str,
-        symbol: str,
+        fqme: str,
         loglevel: str,
 
     ) -> None:
@@ -408,11 +407,12 @@ class Router(Struct):
             yield relay
             return
 
-        trades_endpoint = getattr(brokermod, 'trades_dialogue', None)
-        if (
-            trades_endpoint is None
-            or exec_mode == 'paper'
-        ):
+        def mk_paper_ep():
+            nonlocal brokermod, exec_mode
+
+            # for logging purposes
+            brokermod = paper
+
             # for paper mode we need to mock this trades response feed
             # so we load bidir stream to a new sub-actor running
             # a paper-simulator clearing engine.
@@ -424,26 +424,53 @@ class Router(Struct):
             # load the paper trading engine as a subactor of this emsd
             # actor to simulate the real IPC load it'll have when also
             # pulling data from feeds
-            open_trades_endpoint = paper.open_paperboi(
-                fqsn='.'.join([symbol, broker]),
+            return paper.open_paperboi(
+                fqme=fqme,
                 loglevel=loglevel,
             )
 
-        else:
+        trades_endpoint = getattr(brokermod, 'trades_dialogue', None)
+        if (
+            trades_endpoint is not None
+            or exec_mode != 'paper'
+        ):
             # open live brokerd trades endpoint
             open_trades_endpoint = portal.open_context(
                 trades_endpoint,
                 loglevel=loglevel,
             )
 
-        # open trades-dialog endpoint with backend broker
+        else:
+            exec_mode: str = 'paper'
+
+        @acm
+        async def maybe_open_paper_ep():
+            if exec_mode == 'paper':
+                async with mk_paper_ep() as msg:
+                    yield msg
+                    return
+
+            # open trades-dialog endpoint with backend broker
+            async with open_trades_endpoint as msg:
+                ctx, first = msg
+
+                # runtime indication that the backend can't support live
+                # order ctrl yet, so boot the paperboi B0
+                if first == 'paper':
+                    async with mk_paper_ep() as msg:
+                        yield msg
+                        return
+                else:
+                    # working live ep case B)
+                    yield msg
+                    return
+
         positions: list[BrokerdPosition]
         accounts: tuple[str]
-
         async with (
-            open_trades_endpoint as (
+            maybe_open_paper_ep() as (
                 brokerd_ctx,
-                (positions, accounts,),
+                (positions, accounts),
             ),
             brokerd_ctx.open_stream() as brokerd_trades_stream,
         ):
@@ -466,30 +493,31 @@ class Router(Struct):
             # client set.
 
             # locally cache and track positions per account with
-            # a table of (brokername, acctid) -> `BrokerdPosition`
-            # msgs.
-            pps = {}
-            for msg in positions:
-                log.info(f'loading pp: {msg}')
-
-                account = msg['account']
-
-                # TODO: better value error for this which
-                # dumps the account and message and states the
-                # mismatch..
-                assert account in accounts
-
-                pps.setdefault(
-                    (broker, account),
-                    [],
-                ).append(msg)
-
+            # a nested table of msgs:
+            #  tuple(brokername, acctid) ->
+            #      (fqme: str ->
+            #           `BrokerdPosition`)
             relay = TradesRelay(
                 brokerd_stream=brokerd_trades_stream,
-                positions=pps,
+                positions={},
                 accounts=accounts,
-                consumers=1,
             )
+            for msg in positions:
+
+                msg = BrokerdPosition(**msg)
+                log.info(
+                    f'loading pp for {brokermod.__name__}:\n'
+                    f'{pformat(msg.to_dict())}',
+                )
+
+                # TODO: state any mismatch here?
+                account = msg.account
+                assert account in accounts
+
+                relay.positions.setdefault(
+                    (broker, account),
+                    {},
+                )[msg.symbol] = msg
 
             self.relays[broker] = relay
 
@@ -507,7 +535,7 @@ class Router(Struct):
 
     async def open_trade_relays(
         self,
-        fqsn: str,
+        fqme: str,
         exec_mode: str,
         loglevel: str,
 
@@ -517,35 +545,33 @@ class Router(Struct):
 
     ) -> tuple[TradesRelay, Feed]:
         '''
-        Open and yield ``brokerd`` trades dialogue context-stream if
-        none already exists.
+        Maybe open a live feed to the target fqme, start `brokerd` order
+        msg relay and dark clearing tasks to run in the background
+        indefinitely.
 
         '''
-        from ..data._source import unpack_fqsn
-        broker, symbol, suffix = unpack_fqsn(fqsn)
-
         async with (
             maybe_open_feed(
-                [fqsn],
+                [fqme],
                 loglevel=loglevel,
             ) as feed,
         ):
-            brokername, _, _ = unpack_fqsn(fqsn)
+            brokername, _, _, _ = unpack_fqme(fqme)
             brokermod = feed.mods[brokername]
             broker = brokermod.name
             portal = feed.portals[brokermod]
 
             # XXX: this should be initial price quote from target provider
-            flume = feed.flumes[fqsn]
+            flume = feed.flumes[fqme]
             first_quote: dict = flume.first_quote
             book: DarkBook = self.get_dark_book(broker)
-            book.lasts[fqsn]: float = first_quote['last']
+            book.lasts[fqme]: float = float(first_quote['last'])
 
             async with self.maybe_open_brokerd_dialog(
                 brokermod=brokermod,
                 portal=portal,
                 exec_mode=exec_mode,
-                symbol=symbol,
+                fqme=fqme,
                 loglevel=loglevel,
             ) as relay:
 
@@ -558,7 +584,7 @@ class Router(Struct):
                     relay.brokerd_stream,
                     flume.stream,
                     broker,
-                    fqsn,  # form: <name>.<venue>.<suffix>.<broker>
+                    fqme,  # form: <name>.<venue>.<suffix>.<broker>
                     book
                 )
 
@@ -619,6 +645,7 @@ class Router(Struct):
 
         if (
             not sent_some
+            and self.notify_on_order_loads
             and notify_on_headless
         ):
             log.info(
@@ -638,10 +665,13 @@ _router: Router = None
 
 @tractor.context
 async def _setup_persistent_emsd(
-
     ctx: tractor.Context,
+    loglevel: str | None = None,
 
 ) -> None:
+
+    if loglevel:
+        get_console_log(loglevel)
 
     global _router
 
@@ -692,16 +722,15 @@ async def translate_and_relay_brokerd_events(
     async for brokerd_msg in brokerd_trades_stream:
         fmsg = pformat(brokerd_msg)
         log.info(
-            f'Received broker trade event:\n'
+            f'Rx brokerd trade msg:\n'
             f'{fmsg}'
         )
-        status_msg: Optional[Status] = None
+        status_msg: Status | None = None
 
         match brokerd_msg:
             # BrokerdPosition
             case {
                 'name': 'position',
-                'symbol': sym,
                 'broker': broker,
             }:
                 pos_msg = BrokerdPosition(**brokerd_msg)
@@ -712,9 +741,9 @@ async def translate_and_relay_brokerd_events(
 
                 relay.positions.setdefault(
                     # NOTE: translate to a FQSN!
-                    (broker, sym),
-                    []
-                ).append(pos_msg)
+                    (broker, pos_msg.account),
+                    {}
+                )[pos_msg.symbol] = pos_msg
 
                 # fan-out-relay position msgs immediately by
                 # broadcasting updates on all client streams
@@ -781,12 +810,11 @@ async def translate_and_relay_brokerd_events(
                 # no msg to client necessary
                 continue
 
-            # BrokerdOrderError
+            # BrokerdError
             case {
                 'name': 'error',
                 'oid': oid,  # ems order-dialog id
                 'reqid': reqid,  # brokerd generated order-request id
-                'symbol': sym,
             }:
                 status_msg = book._active.get(oid)
                 msg = BrokerdError(**brokerd_msg)
@@ -947,9 +975,9 @@ async def translate_and_relay_brokerd_events(
                     # may end up with collisions?
                     status_msg = Status(**brokerd_msg)
 
-                    # NOTE: be sure to pack an fqsn for the client side!
+                    # NOTE: be sure to pack an fqme for the client side!
                     order = Order(**status_msg.req)
-                    order.symbol = mk_fqsn(broker, order.symbol)
+                    order.symbol = f'{order.symbol}.{broker}'
 
                     assert order.price and order.size
                     status_msg.req = order
@@ -1024,7 +1052,7 @@ async def process_client_order_cmds(
     client_order_stream: tractor.MsgStream,
     brokerd_order_stream: tractor.MsgStream,
 
-    fqsn: str,
+    fqme: str,
     flume: Flume,
     dark_book: DarkBook,
     router: Router,
@@ -1051,11 +1079,11 @@ async def process_client_order_cmds(
         # backend can be routed and relayed to subscribed clients.
         subs = router.dialogs[oid]
 
-        # add all subscribed clients for this fqsn (should eventually be
+        # add all subscribed clients for this fqme (should eventually be
         # a more generalize subscription system) to received order msg
         # updates (and thus show stuff in the UI).
         subs.add(client_order_stream)
-        subs.update(router.subscribers[fqsn])
+        subs.update(router.subscribers[fqme])
 
         reqid = dark_book._ems2brokerd_ids.inverse.get(oid)
 
@@ -1113,7 +1141,7 @@ async def process_client_order_cmds(
                 and status.resp == 'dark_open'
             ):
                 # remove from dark book clearing
-                entry = dark_book.triggers[fqsn].pop(oid, None)
+                entry = dark_book.triggers[fqme].pop(oid, None)
                 if entry:
                     (
                         pred,
@@ -1129,7 +1157,7 @@ async def process_client_order_cmds(
                     status.req = cmd
 
                     await router.client_broadcast(
-                        fqsn,
+                        fqme,
                         status,
                     )
 
@@ -1139,7 +1167,7 @@ async def process_client_order_cmds(
                     dark_book._active.pop(oid)
 
                 else:
-                    log.exception(f'No dark order for {fqsn}?')
+                    log.exception(f'No dark order for {fqme}?')
 
             # TODO: eventually we should be receiving
             # this struct on the wire unpacked in a scoped protocol
@@ -1148,7 +1176,7 @@ async def process_client_order_cmds(
             # LIVE order REQUEST
             case {
                 'oid': oid,
-                'symbol': fqsn,
+                'symbol': fqme,
                 'price': trigger_price,
                 'size': size,
                 'action': ('buy' | 'sell') as action,
@@ -1161,7 +1189,7 @@ async def process_client_order_cmds(
                 # remove the broker part before creating a message
                 # to send to the specific broker since they probably
                 # aren't expectig their own name, but should they?
-                sym = fqsn.replace(f'.{broker}', '')
+                sym = fqme.replace(f'.{broker}', '')
 
                 if status is not None:
                     # if we already had a broker order id then
@@ -1218,7 +1246,7 @@ async def process_client_order_cmds(
             # DARK-order / alert REQUEST
             case {
                 'oid': oid,
-                'symbol': fqsn,
+                'symbol': fqme,
                 'price': trigger_price,
                 'size': size,
                 'exec_mode': exec_mode,
@@ -1240,7 +1268,7 @@ async def process_client_order_cmds(
                 # price received from the feed, instead of being
                 # like every other shitty tina platform that makes
                 # the user choose the predicate operator.
-                last = dark_book.lasts[fqsn]
+                last = dark_book.lasts[fqme]
 
                 # sometimes the real-time feed hasn't come up
                 # so just pull from the latest history.
@@ -1249,8 +1277,13 @@ async def process_client_order_cmds(
 
                 pred = mk_check(trigger_price, last, action)
 
+                # NOTE: for dark orders currently we submit
+                # the triggered live order at a price 5 ticks
+                # above/below the L1 prices.
+                # TODO: make this configurable from our top level
+                # config, prolly in a .clearing` section?
                 spread_slap: float = 5
-                min_tick = flume.symbol.tick_size
+                min_tick = float(flume.mkt.size_tick)
                 min_tick_digits = float_digits(min_tick)
 
                 if action == 'buy':
@@ -1282,7 +1315,7 @@ async def process_client_order_cmds(
                 # NOTE: this may result in an override of an existing
                 # dark book entry if the order id already exists
                 dark_book.triggers.setdefault(
-                    fqsn, {}
+                    fqme, {}
                 )[oid] = (
                     pred,
                     tickfilter,
@@ -1307,7 +1340,7 @@ async def process_client_order_cmds(
 
                 # broadcast status to all subscribed clients
                 await router.client_broadcast(
-                    fqsn,
+                    fqme,
                     status,
                 )
 
@@ -1318,35 +1351,36 @@ async def process_client_order_cmds(
 @acm
 async def maybe_open_trade_relays(
     router: Router,
-    fqsn: str,
+    fqme: str,
     exec_mode: str,  # ('paper', 'live')
     loglevel: str = 'info',
 
 ) -> tuple:
 
-    def cache_on_fqsn_unless_paper(
+    def cache_on_fqme_unless_paper(
         router: Router,
-        fqsn: str,
+        fqme: str,
         exec_mode: str,  # ('paper', 'live')
         loglevel: str = 'info',
     ) -> Hashable:
         if exec_mode == 'paper':
-            return f'paper_{fqsn}'
+            return f'paper_{fqme}'
         else:
-            return fqsn
+            return fqme
 
     # XXX: closure to enable below use of
     # ``tractor.trionics.maybe_open_context()``
     @acm
     async def cached_mngr(
         router: Router,
-        fqsn: str,
+        fqme: str,
         exec_mode: str,  # ('paper', 'live')
         loglevel: str = 'info',
     ):
+
         relay, feed, client_ready = await _router.nursery.start(
             _router.open_trade_relays,
-            fqsn,
+            fqme,
             exec_mode,
             loglevel,
         )
@@ -1356,24 +1390,28 @@ async def maybe_open_trade_relays(
         acm_func=cached_mngr,
         kwargs={
             'router': _router,
-            'fqsn': fqsn,
+            'fqme': fqme,
             'exec_mode': exec_mode,
             'loglevel': loglevel,
         },
-        key=cache_on_fqsn_unless_paper,
+        key=cache_on_fqme_unless_paper,
     ) as (
         cache_hit,
         (relay, feed, client_ready)
     ):
+        if cache_hit:
+            log.info(f'Reusing existing trades relay for {fqme}:\n'
+                     f'{relay}\n')
+
         yield relay, feed, client_ready
 
 
 @tractor.context
 async def _emsd_main(
     ctx: tractor.Context,
-    fqsn: str,
+    fqme: str,
     exec_mode: str,  # ('paper', 'live')
-    loglevel: str = 'info',
+    loglevel: str | None = None,
 
 ) -> tuple[
     dict[
@@ -1428,7 +1466,7 @@ async def _emsd_main(
     global _router
     assert _router
 
-    broker, symbol, suffix = unpack_fqsn(fqsn)
+    broker, _, _, _ = unpack_fqme(fqme)
 
     # TODO: would be nice if in tractor we can require either a ctx arg,
     # or a named arg with ctx in it and a type annotation of
@@ -1445,7 +1483,7 @@ async def _emsd_main(
     # few duplicate streams as necessary per ems actor.
     async with maybe_open_trade_relays(
         _router,
-        fqsn,
+        fqme,
         exec_mode,
         loglevel,
     ) as (relay, feed, client_ready):
@@ -1468,28 +1506,28 @@ async def _emsd_main(
             # register the client side before starting the
             # brokerd-side relay task to ensure the client is
             # delivered all exisiting open orders on startup.
-            # TODO: instead of by fqsn we need a subscription
+            # TODO: instead of by fqme we need a subscription
             # system/schema here to limit what each new client is
             # allowed to see in terms of broadcasted order flow
             # updates per dialog.
-            _router.subscribers[fqsn].add(client_stream)
+            _router.subscribers[fqme].add(client_stream)
             client_ready.set()
 
             # start inbound (from attached client) order request processing
             # main entrypoint, run here until cancelled.
             try:
-                flume = feed.flumes[fqsn]
+                flume = feed.flumes[fqme]
                 await process_client_order_cmds(
                     client_stream,
                     brokerd_stream,
-                    fqsn,
+                    fqme,
                     flume,
                     dark_book,
                     _router,
                 )
             finally:
                 # try to remove client from subscription registry
-                _router.subscribers[fqsn].remove(client_stream)
+                _router.subscribers[fqme].remove(client_stream)
 
                 for oid, client_streams in _router.dialogs.items():
                     client_streams.discard(client_stream)

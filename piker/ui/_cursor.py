@@ -228,7 +228,7 @@ class ContentsLabel(pg.LabelItem):
                         'bar_wap',
                     ]
                 ],
-                name=name,
+                # name=name,
                 index=ix,
             )
         )
@@ -363,7 +363,8 @@ class Cursor(pg.GraphicsObject):
 
         # value used for rounding y-axis discreet tick steps
         # computing once, up front, here cuz why not
-        self._y_incr_mult = 1 / self.linked._symbol.tick_size
+        mkt = self.linked.mkt
+        self._y_tick_mult = 1/float(mkt.price_tick)
 
         # line width in view coordinates
         self._lw = self.pixelWidth() * self.lines_pen.width()
@@ -571,9 +572,15 @@ class Cursor(pg.GraphicsObject):
         line_offset = self._lw / 2
 
         # round y value to nearest tick step
-        m = self._y_incr_mult
+        m = self._y_tick_mult
         iy = round(y * m) / m
         vl_y = iy - line_offset
+        # print(
+        #     f'tick: {self._y_tick}\n'
+        #     f'y: {y}\n'
+        #     f'iy: {iy}\n'
+        #     f'vl_y: {vl_y}\n'
+        # )
 
         # update y-range items
         if iy != last_iy:

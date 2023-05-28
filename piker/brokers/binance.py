@@ -1,5 +1,8 @@
 # piker: trading gear for hackers
-# Copyright (C) Guillermo Rodriguez (in stewardship for piker0)
+# Copyright (C)
+#   Guillermo Rodriguez
+#   Tyler Goodlet
+#   (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -18,15 +21,19 @@
 Binance backend
 
 """
-from contextlib import asynccontextmanager as acm
+from contextlib import (
+    asynccontextmanager as acm,
+    aclosing,
+)
 from datetime import datetime
+from decimal import Decimal
+import itertools
 from typing import (
     Any, Union, Optional,
     AsyncGenerator, Callable,
 )
 import time
 
-from trio_util import trio_async_generator
 import trio
 from trio_typing import TaskStatus
 import pendulum
@@ -34,25 +41,29 @@ import asks
 from fuzzywuzzy import process as fuzzy
 import numpy as np
 import tractor
-import wsproto
 
+from .._cacheables import async_lifo_cache
+from ..accounting._mktinfo import (
+    Asset,
+    MktPair,
+    digits_to_dec,
+)
 from .._cacheables import open_cached_client
 from ._util import (
     resproc,
     SymbolNotFound,
     DataUnavailable,
 )
-from ..log import (
-    get_logger,
+from ._util import (
+    log,
     get_console_log,
 )
 from ..data.types import Struct
+from ..data.validate import FeedInit
 from ..data._web_bs import (
     open_autorecon_ws,
     NoBsWs,
 )
-
-log = get_logger(__name__)
 
 
 _url = 'https://api.binance.com'
@@ -88,6 +99,9 @@ _show_wap_in_history = False
 
 
 # https://binance-docs.github.io/apidocs/spot/en/#exchange-information
+
+# TODO: make this frozen again by pre-processing the
+# filters list to a dict at init time?
 class Pair(Struct, frozen=True):
     symbol: str
     status: str
@@ -114,8 +128,23 @@ class Pair(Struct, frozen=True):
     defaultSelfTradePreventionMode: str
     allowedSelfTradePreventionModes: list[str]
 
-    filters: list[dict[str, Union[str, int, float]]]
+    filters: dict[
+        str,
+        Union[str, int, float]
+    ]
     permissions: list[str]
+
+    @property
+    def price_tick(self) -> Decimal:
+        # XXX: lul, after manually inspecting the response format we
+        # just directly pick out the info we need
+        step_size: str = self.filters['PRICE_FILTER']['tickSize'].rstrip('0')
+        return Decimal(step_size)
+
+    @property
+    def size_tick(self) -> Decimal:
+        step_size: str = self.filters['LOT_SIZE']['stepSize'].rstrip('0')
+        return Decimal(step_size)
 
 
 class OHLC(Struct):
@@ -147,6 +176,18 @@ class OHLC(Struct):
     bar_wap: float = 0.0
 
 
+class L1(Struct):
+    # https://binance-docs.github.io/apidocs/spot/en/#individual-symbol-book-ticker-streams
+
+    update_id: int
+    sym: str
+
+    bid: float
+    bsize: float
+    ask: float
+    asize: float
+
+
 # convert datetime obj timestamp to unixtime in milliseconds
 def binance_timestamp(
     when: datetime
@@ -159,7 +200,7 @@ class Client:
     def __init__(self) -> None:
         self._sesh = asks.Session(connections=4)
         self._sesh.base_location = _url
-        self._pairs: dict[str, Any] = {}
+        self._pairs: dict[str, Pair] = {}
 
     async def _api(
         self,
@@ -173,48 +214,58 @@ class Client:
         )
         return resproc(resp, log)
 
-    async def symbol_info(
+    async def exch_info(
 
         self,
-        sym: Optional[str] = None,
+        sym: str | None = None,
 
-    ) -> dict[str, Any]:
-        '''Get symbol info for the exchange.
+    ) -> dict[str, Pair] | Pair:
+        '''
+        Fresh exchange-pairs info query for symbol ``sym: str``:
+        https://binance-docs.github.io/apidocs/spot/en/#exchange-information
 
         '''
-        # TODO: we can load from our self._pairs cache
-        # on repeat calls...
+        cached_pair = self._pairs.get(sym)
+        if cached_pair:
+            return cached_pair
 
-        # will retrieve all symbols by default
+        # retrieve all symbols by default
         params = {}
-
         if sym is not None:
             sym = sym.lower()
             params = {'symbol': sym}
 
-        resp = await self._api(
-            'exchangeInfo',
-            params=params,
-        )
-
+        resp = await self._api('exchangeInfo', params=params)
         entries = resp['symbols']
         if not entries:
-            raise SymbolNotFound(f'{sym} not found')
+            raise SymbolNotFound(f'{sym} not found:\n{resp}')
 
-        syms = {item['symbol']: item for item in entries}
+        # pre-process .filters field into a table
+        pairs = {}
+        for item in entries:
+            symbol = item['symbol']
+            filters = {}
+            filters_ls: list = item.pop('filters')
+            for entry in filters_ls:
+                ftype = entry['filterType']
+                filters[ftype] = entry
+
+            pairs[symbol] = Pair(
+                filters=filters,
+                **item,
+            )
+
+        # pairs = {
+        #     item['symbol']: Pair(**item) for item in entries
+        # }
+        self._pairs.update(pairs)
 
         if sym is not None:
-            return syms[sym]
+            return pairs[sym]
         else:
-            return syms
+            return self._pairs
 
-    async def cache_symbols(
-        self,
-    ) -> dict:
-        if not self._pairs:
-            self._pairs = await self.symbol_info()
-
-        return self._pairs
+    symbol_info = exch_info
 
     async def search_symbols(
         self,
@@ -224,7 +275,7 @@ class Client:
         if self._pairs is not None:
             data = self._pairs
         else:
-            data = await self.symbol_info()
+            data = await self.exch_info()
 
         matches = fuzzy.extractBests(
             pattern,
@@ -299,7 +350,8 @@ class Client:
 @acm
 async def get_client() -> Client:
     client = Client()
-    await client.cache_symbols()
+    log.info('Caching exchange infos..')
+    await client.exch_info()
     yield client
 
 
@@ -318,67 +370,93 @@ class AggTrade(Struct):
     M: bool  # Ignore
 
 
-@trio_async_generator
 async def stream_messages(
     ws: NoBsWs,
 ) -> AsyncGenerator[NoBsWs, dict]:
 
-    timeouts = 0
-    while True:
+    # TODO: match syntax here!
+    msg: dict[str, Any]
+    async for msg in ws:
+        match msg:
+            # for l1 streams binance doesn't add an event type field so
+            # identify those messages by matching keys
+            # https://binance-docs.github.io/apidocs/spot/en/#individual-symbol-book-ticker-streams
+            case {
+                # NOTE: this is never an old value it seems, so
+                # they are always sending real L1 spread updates.
+                'u': upid,  # update id
+                's': sym,
+                'b': bid,
+                'B': bsize,
+                'a': ask,
+                'A': asize,
+            }:
+                # TODO: it would be super nice to have a `L1` piker type
+                # which "renders" incremental tick updates from a packed
+                # msg-struct:
+                # - backend msgs after packed into the type such that we
+                #   can reduce IPC usage but without each backend having
+                #   to do that incremental update logic manually B)
+                # - would it maybe be more efficient to use this instead?
+                #   https://binance-docs.github.io/apidocs/spot/en/#diff-depth-stream
+                l1 = L1(
+                    update_id=upid,
+                    sym=sym,
+                    bid=bid,
+                    bsize=bsize,
+                    ask=ask,
+                    asize=asize,
+                )
+                l1.typecast()
 
-        with trio.move_on_after(3) as cs:
-            msg = await ws.recv_msg()
+                # repack into piker's tick-quote format
+                yield 'l1', {
+                    'symbol': l1.sym,
+                    'ticks': [
+                        {
+                            'type': 'bid',
+                            'price': l1.bid,
+                            'size': l1.bsize,
+                        },
+                        {
+                            'type': 'bsize',
+                            'price': l1.bid,
+                            'size': l1.bsize,
+                        },
+                        {
+                            'type': 'ask',
+                            'price': l1.ask,
+                            'size': l1.asize,
+                        },
+                        {
+                            'type': 'asize',
+                            'price': l1.ask,
+                            'size': l1.asize,
+                        }
+                    ]
+                }
 
-        if cs.cancelled_caught:
-
-            timeouts += 1
-            if timeouts > 2:
-                log.error("binance feed seems down and slow af? rebooting...")
-                await ws._connect()
-
-            continue
-
-        # for l1 streams binance doesn't add an event type field so
-        # identify those messages by matching keys
-        # https://binance-docs.github.io/apidocs/spot/en/#individual-symbol-book-ticker-streams
-
-        if msg.get('u'):
-            sym = msg['s']
-            bid = float(msg['b'])
-            bsize = float(msg['B'])
-            ask = float(msg['a'])
-            asize = float(msg['A'])
-
-            yield 'l1', {
-                'symbol': sym,
-                'ticks': [
-                    {'type': 'bid', 'price': bid, 'size': bsize},
-                    {'type': 'bsize', 'price': bid, 'size': bsize},
-                    {'type': 'ask', 'price': ask, 'size': asize},
-                    {'type': 'asize', 'price': ask, 'size': asize}
-                ]
-            }
-
-        elif msg.get('e') == 'aggTrade':
-
-            # NOTE: this is purely for a definition, ``msgspec.Struct``
-            # does not runtime-validate until you decode/encode.
-            # see: https://jcristharif.com/msgspec/structs.html#type-validation
-            msg = AggTrade(**msg)
-
-            # TODO: type out and require this quote format
-            # from all backends!
-            yield 'trade', {
-                'symbol': msg.s,
-                'last': msg.p,
-                'brokerd_ts': time.time(),
-                'ticks': [{
-                    'type': 'trade',
-                    'price': float(msg.p),
-                    'size': float(msg.q),
-                    'broker_ts': msg.T,
-                }],
-            }
+            # https://binance-docs.github.io/apidocs/spot/en/#aggregate-trade-streams
+            case {
+                'e': 'aggTrade',
+            }:
+                # NOTE: this is purely for a definition,
+                # ``msgspec.Struct`` does not runtime-validate until you
+                # decode/encode, see:
+                # https://jcristharif.com/msgspec/structs.html#type-validation
+                msg = AggTrade(**msg)
+                msg.typecast()
+                yield 'trade', {
+                    'symbol': msg.s,
+                    'last': msg.p,
+                    'brokerd_ts': time.time(),
+                    'ticks': [{
+                        'type': 'trade',
+                        'price': msg.p,
+                        'size': msg.q,
+                        'broker_ts': msg.T,
+                    }],
+                }
 
 
 def make_sub(pairs: list[str], sub_name: str, uid: int) -> dict[str, str]:
@@ -398,9 +476,11 @@ def make_sub(pairs: list[str], sub_name: str, uid: int) -> dict[str, str]:
 
 @acm
 async def open_history_client(
-    symbol: str,
+    mkt: MktPair,
 
 ) -> tuple[Callable, int]:
+
+    symbol: str = mkt.bs_fqme
 
     # TODO implement history getter for the new storage layer.
     async with open_cached_client('binance') as client:
@@ -439,6 +519,35 @@ async def open_history_client(
         yield get_ohlc, {'erlangs': 3, 'rate': 3}
 
 
+@async_lifo_cache()
+async def get_mkt_info(
+    fqme: str,
+
+) -> tuple[MktPair, Pair]:
+
+    async with open_cached_client('binance') as client:
+
+        pair: Pair = await client.exch_info(fqme.upper())
+        mkt = MktPair(
+            dst=Asset(
+                name=pair.baseAsset,
+                atype='crypto',
+                tx_tick=digits_to_dec(pair.baseAssetPrecision),
+            ),
+            src=Asset(
+                name=pair.quoteAsset,
+                atype='crypto',
+                tx_tick=digits_to_dec(pair.quoteAssetPrecision),
+            ),
+            price_tick=pair.price_tick,
+            size_tick=pair.size_tick,
+            bs_mktid=pair.symbol,
+            broker='binance',
+        )
+        both = mkt, pair
+        return both
+
+
 async def stream_quotes(
 
     send_chan: trio.abc.SendChannel,
@@ -453,67 +562,43 @@ async def stream_quotes(
     # XXX: required to propagate ``tractor`` loglevel to piker logging
     get_console_log(loglevel or tractor.current_actor().loglevel)
 
-    sym_infos = {}
-    uid = 0
-
     async with (
-        open_cached_client('binance') as client,
         send_chan as send_chan,
     ):
-
-        # keep client cached for real-time section
-        cache = await client.cache_symbols()
-
+        init_msgs: list[FeedInit] = []
         for sym in symbols:
-            d = cache[sym.upper()]
-            syminfo = Pair(**d)  # validation
+            mkt, pair = await get_mkt_info(sym)
 
-            si = sym_infos[sym] = syminfo.to_dict()
-            filters = {}
-            for entry in syminfo.filters:
-                ftype = entry['filterType']
-                filters[ftype] = entry
-
-            # XXX: after manually inspecting the response format we
-            # just directly pick out the info we need
-            si['price_tick_size'] = float(
-                filters['PRICE_FILTER']['tickSize']
+            # build out init msgs according to latest spec
+            init_msgs.append(
+                FeedInit(mkt_info=mkt)
             )
-            si['lot_tick_size'] = float(
-                filters['LOT_SIZE']['stepSize']
-            )
-            si['asset_type'] = 'crypto'
 
-        symbol = symbols[0]
-
-        init_msgs = {
-            # pass back token, and bool, signalling if we're the writer
-            # and that history has been written
-            symbol: {
-                'symbol_info': sym_infos[sym],
-                'shm_write_opts': {'sum_tick_vml': False},
-                'fqsn': sym,
-            },
-        }
+        iter_subids = itertools.count()
 
         @acm
-        async def subscribe(ws: wsproto.WSConnection):
+        async def subscribe(ws: NoBsWs):
             # setup subs
+
+            subid: int = next(iter_subids)
 
             # trade data (aka L1)
             # https://binance-docs.github.io/apidocs/spot/en/#symbol-order-book-ticker
-            l1_sub = make_sub(symbols, 'bookTicker', uid)
+            l1_sub = make_sub(symbols, 'bookTicker', subid)
             await ws.send_msg(l1_sub)
 
             # aggregate (each order clear by taker **not** by maker)
             # trades data:
             # https://binance-docs.github.io/apidocs/spot/en/#aggregate-trade-streams
-            agg_trades_sub = make_sub(symbols, 'aggTrade', uid)
+            agg_trades_sub = make_sub(symbols, 'aggTrade', subid)
             await ws.send_msg(agg_trades_sub)
 
-            # ack from ws server
+            # might get ack from ws server, or maybe some
+            # other msg still in transit..
             res = await ws.recv_msg()
-            assert res['id'] == uid
+            subid: str | None = res.get('id')
+            if subid:
+                assert res['id'] == subid
 
             yield
 
@@ -527,7 +612,7 @@ async def stream_quotes(
                 await ws.send_msg({
                     "method": "UNSUBSCRIBE",
                     "params": subs,
-                    "id": uid,
+                    "id": subid,
                 })
 
                 # XXX: do we need to ack the unsub?
@@ -543,7 +628,7 @@ async def stream_quotes(
             ) as ws,
 
             # avoid stream-gen closure from breaking trio..
-            stream_messages(ws) as msg_gen,
+            aclosing(stream_messages(ws)) as msg_gen,
         ):
             typ, quote = await anext(msg_gen)
 
@@ -579,13 +664,13 @@ async def open_symbol_search(
     async with open_cached_client('binance') as client:
 
         # load all symbols locally for fast search
-        cache = await client.cache_symbols()
+        cache = await client.exch_info()
         await ctx.started()
 
         async with ctx.open_stream() as stream:
 
             async for pattern in stream:
-                # results = await client.symbol_info(sym=pattern.upper())
+                # results = await client.exch_info(sym=pattern.upper())
 
                 matches = fuzzy.extractBests(
                     pattern,
@@ -593,7 +678,7 @@ async def open_symbol_search(
                     score_cutoff=50,
                 )
                 # repack in dict form
-                await stream.send(
-                    {item[0]['symbol']: item[0]
-                     for item in matches}
-                )
+                await stream.send({
+                    item[0].symbol: item[0]
+                    for item in matches
+                })

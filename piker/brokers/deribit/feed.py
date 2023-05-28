@@ -62,9 +62,10 @@ log = get_logger(__name__)
 
 @acm
 async def open_history_client(
-    instrument: str,
+    mkt: MktPair,
 ) -> tuple[Callable, int]:
 
+    fnstrument: str = mkt.bs_fqme
     # TODO implement history getter for the new storage layer.
     async with open_cached_client('deribit') as client:
 

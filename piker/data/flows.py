@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-abstractions for organizing, managing and generally operating-on
+Public abstractions for organizing, managing and generally operating-on
 real-time data processing data-structures.
 
 "Streams, flumes, cascades and flows.."
@@ -30,10 +30,9 @@ import tractor
 import pendulum
 import numpy as np
 
+from ..accounting import MktPair
+from ._util import log
 from .types import Struct
-from ._source import (
-    Symbol,
-)
 from ._sharedmem import (
     attach_shm_array,
     ShmArray,
@@ -89,7 +88,7 @@ class Flume(Struct):
        queuing properties.
 
     '''
-    symbol: Symbol
+    mkt: MktPair
     first_quote: dict
     _rt_shm_token: _Token
 
@@ -172,8 +171,9 @@ class Flume(Struct):
 
     # TODO: get native msgspec decoding for these workinn
     def to_msg(self) -> dict:
+
         msg = self.to_dict()
-        msg['symbol'] = msg['symbol'].to_dict()
+        msg['mkt'] = self.mkt.to_dict()
 
         # can't serialize the stream or feed objects, it's expected
         # you'll have a ref to it since this msg should be rxed on
@@ -183,12 +183,19 @@ class Flume(Struct):
         return msg
 
     @classmethod
-    def from_msg(cls, msg: dict) -> dict:
-        symbol = Symbol(**msg.pop('symbol'))
-        return cls(
-            symbol=symbol,
-            **msg,
-        )
+    def from_msg(
+        cls,
+        msg: dict,
+
+    ) -> dict:
+        '''
+        Load from an IPC msg presumably in either `dict` or
+        `msgspec.Struct` form.
+
+        '''
+        mkt_msg = msg.pop('mkt')
+        mkt = MktPair.from_msg(mkt_msg)
+        return cls(mkt=mkt, **msg)
 
     def get_index(
         self,
@@ -208,3 +215,23 @@ class Flume(Struct):
         )
         imx = times.shape[0] - 1
         return min(first, imx)
+
+    # only set by external msg or creator, never
+    # manually!
+    _has_vlm: bool = True
+
+    def has_vlm(self) -> bool:
+
+        if not self._has_vlm:
+            return False
+
+        # make sure that the instrument supports volume history
+        # (sometimes this is not the case for some commodities and
+        # derivatives)
+        vlm: np.ndarray = self.rt_shm.array['volume']
+        return not bool(
+            np.all(np.isin(vlm, -1))
+            or np.all(np.isnan(vlm))
+        )
+
+

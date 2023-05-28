@@ -123,10 +123,10 @@ class LevelLine(pg.InfiniteLine):
         self._track_cursor: bool = False
         self.always_show_labels = always_show_labels
 
-        self._on_drag_start = lambda l: None
-        self._on_drag_end = lambda l: None
+        self._on_drag_start = lambda lvln: None
+        self._on_drag_end = lambda lvln: None
 
-        self._y_incr_mult = 1 / chart.linked.symbol.tick_size
+        self._y_incr_mult = float(1 / chart.linked.mkt.size_tick)
         self._right_end_sc: float = 0
 
         # use px caching

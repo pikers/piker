@@ -40,18 +40,21 @@ setup(
         'console_scripts': [
             'piker = piker.cli:cli',
             'pikerd = piker.cli:pikerd',
+            'ledger = piker.accounting.cli:ledger',
         ]
     },
     install_requires=[
-        'toml',
-        'tomli',  # fastest pure py reader
-        'click',
+        # 'tomlkit',  # fork & fix for now..
+        'tomli',  # for pre-3.11
+        'tomli-w',  # for fast ledger writing
         'colorlog',
         'attrs',
         'pygments',
         'colorama',  # numba traceback coloring
         'msgspec',  # performant IPC messaging and structs
         'protobuf',
+        'typer',
+        'rich',
 
         # async
         'trio',
@@ -63,8 +66,7 @@ setup(
         # normally pinned to particular git hashes..
         # 'tractor',
         # 'asyncvnc',
-        # 'pyqtgraph',
-        # anyio-marketstore  # mkts tsdb client
+        # 'anyio-marketstore',  # mkts tsdb client
 
         # brokers
         'asks',  # for non-ws rest apis

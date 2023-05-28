@@ -1,4 +1,6 @@
-# Copyright (C) Jared Goldman (in stewardship for pikers)
+# Copyright (C) (in stewardship for pikers)
+# - Jared Goldman
+# - Tyler Goodlet
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -18,34 +20,54 @@ Kucoin broker backend
 
 '''
 
-from typing import Any, Callable, Literal, AsyncGenerator
-from contextlib import asynccontextmanager as acm
+from contextlib import (
+    asynccontextmanager as acm,
+    aclosing,
+)
 from datetime import datetime
-import time
+from decimal import Decimal
 import base64
 import hmac
 import hashlib
+import time
+from functools import partial
+from pprint import pformat
+from typing import (
+    Any,
+    Callable,
+    Literal,
+    AsyncGenerator,
+)
 import wsproto
 from uuid import uuid4
 
+from fuzzywuzzy import process as fuzzy
+from trio_typing import TaskStatus
 import asks
+from bidict import bidict
+import numpy as np
+import pendulum
 import tractor
 import trio
-from trio_util import trio_async_generator
-from trio_typing import TaskStatus
-from fuzzywuzzy import process as fuzzy
-import pendulum
-import numpy as np
 
-from piker._cacheables import open_cached_client
+from piker.accounting._mktinfo import (
+    Asset,
+    digits_to_dec,
+    MktPair,
+)
+from piker.data.validate import FeedInit
+from piker import config
+from piker._cacheables import (
+    open_cached_client,
+    async_lifo_cache,
+)
 from piker.log import get_logger
-from ._util import DataUnavailable
-from piker.pp import config
-from ..data.types import Struct
-from ..data._web_bs import (
+from piker.data.types import Struct
+from piker.data._web_bs import (
     open_autorecon_ws,
     NoBsWs,
 )
+from ._util import DataUnavailable
 
 log = get_logger(__name__)
 
@@ -67,11 +89,20 @@ class KucoinMktPair(Struct, frozen=True):
     https://docs.kucoin.com/#get-symbols-list
 
     '''
-
     baseCurrency: str
     baseIncrement: float
+
+    @property
+    def price_tick(self) -> Decimal:
+        return Decimal(str(self.baseIncrement))
+
     baseMaxSize: float
     baseMinSize: float
+
+    @property
+    def size_tick(self) -> Decimal:
+        return Decimal(str(self.baseMinSize))
+
     enableTrading: bool
     feeCurrency: str
     isMarginEnabled: bool
@@ -84,7 +115,7 @@ class KucoinMktPair(Struct, frozen=True):
     quoteIncrement: float
     quoteMaxSize: float
     quoteMinSize: float
-    symbol: str
+    symbol: str  # our bs_mktid, kucoin's internal id
 
 
 class AccountTrade(Struct, frozen=True):
@@ -93,7 +124,6 @@ class AccountTrade(Struct, frozen=True):
     https://docs.kucoin.com/#get-account-ledgers
 
     '''
-
     id: str
     currency: str
     amount: float
@@ -111,7 +141,6 @@ class AccountResponse(Struct, frozen=True):
     https://docs.kucoin.com/#get-account-ledgers
 
     '''
-
     currentPage: int
     pageSize: int
     totalNum: int
@@ -125,7 +154,6 @@ class KucoinTrade(Struct, frozen=True):
     https://docs.kucoin.com/#symbol-ticker
 
     '''
-
     bestAsk: float
     bestAskSize: float
     bestBid: float
@@ -148,16 +176,24 @@ class KucoinL2(Struct, frozen=True):
     timestamp: float
 
 
-class KucoinMsg(Struct, frozen=True):
+class Currency(Struct, frozen=True):
     '''
-    Generic outer-wrapper for any Kucoin ws msg
+    Currency (asset) info:
+    https://docs.kucoin.com/#get-currencies
 
     '''
-
-    type: str
-    topic: str
-    subject: str
-    data: list[KucoinTrade | KucoinL2]
+    currency: str
+    name: str
+    fullName: str
+    precision: int
+    confirms: int
+    contractAddress: str
+    withdrawalMinSize: str
+    withdrawalMinFee: str
+    isWithdrawEnabled: bool
+    isDepositEnabled: bool
+    isMarginEnabled: bool
+    isDebitEnabled: bool
 
 
 class BrokerConfig(Struct, frozen=True):
@@ -180,15 +216,18 @@ def get_config() -> BrokerConfig | None:
 
 class Client:
     def __init__(self) -> None:
-        self._pairs: dict[str, KucoinMktPair] = {}
-        self._bars: list[list[float]] = []
         self._config: BrokerConfig | None = get_config()
+        self._pairs: dict[str, KucoinMktPair] = {}
+        self._fqmes2mktids: bidict[str, str] = bidict()
+        self._bars: list[list[float]] = []
+        self._currencies: dict[str, Currency] = {}
 
     def _gen_auth_req_headers(
         self,
         action: Literal['POST', 'GET'],
         endpoint: str,
-        api_v: str = 'v2',
+        api: str = 'v2',
+
     ) -> dict[str, str | bytes]:
         '''
         Generate authenticated request headers
@@ -202,7 +241,7 @@ class Client:
 
         str_to_sign = (
             str(int(time.time() * 1000))
-            + action + f'/api/{api_v}{endpoint}'
+            + action + f'/api/{api}/{endpoint.lstrip("/")}'
         )
 
         signature = base64.b64encode(
@@ -234,7 +273,7 @@ class Client:
         self,
         action: Literal['POST', 'GET'],
         endpoint: str,
-        api_v: str = 'v2',
+        api: str = 'v2',
         headers: dict = {},
     ) -> Any:
         '''
@@ -243,19 +282,24 @@ class Client:
         '''
         if self._config:
             headers = self._gen_auth_req_headers(
-                action, endpoint, api_v)
+                action,
+                endpoint,
+                api,
+            )
 
-        api_url = f'https://api.kucoin.com/api/{api_v}{endpoint}'
+        api_url = f'https://api.kucoin.com/api/{api}/{endpoint}'
 
         res = await asks.request(action, api_url, headers=headers)
 
-        if 'data' in res.json():
-            return res.json()['data']
+        json = res.json()
+        if 'data' in json:
+            return json['data']
         else:
             log.error(
-                f'Error making request to {api_url} -> {res.json()["msg"]}'
+                f'Error making request to {api_url} ->\n'
+                f'{pformat(res)}'
             )
-            return res.json()['msg']
+            return json['msg']
 
     async def _get_ws_token(
         self,
@@ -271,7 +315,9 @@ class Client:
         token_type = 'private' if private else 'public'
         try:
             data: dict[str, Any] | None = await self._request(
-                'POST', f'/bullet-{token_type}', 'v1'
+                'POST',
+                endpoint=f'bullet-{token_type}',
+                api='v1'
             )
         except Exception as e:
             log.error(
@@ -288,27 +334,72 @@ class Client:
                 f'{data.json()["msg"]}'
             )
 
+    async def get_currencies(
+        self,
+        update: bool = False,
+    ) -> dict[str, Currency]:
+        '''
+        Retrieve all "currency" info:
+        https://docs.kucoin.com/#get-currencies
+
+        We use this for creating piker-interal ``Asset``s.
+
+        '''
+        if (
+            not self._currencies
+            or update
+        ):
+            currencies: dict[str, Currency] = {}
+            entries: list[dict] = await self._request(
+                'GET',
+                api='v1',
+                endpoint='currencies',
+            )
+            for entry in entries:
+                curr = Currency(**entry).copy()
+                currencies[curr.name] = curr
+
+            self._currencies.update(currencies)
+
+        return self._currencies
+
     async def _get_pairs(
         self,
-    ) -> dict[str, KucoinMktPair]:
-        entries = await self._request('GET', '/symbols')
-        syms = {
-            kucoin_sym_to_fqsn(item['name']): KucoinMktPair(**item)
-            for item in entries
-        }
+    ) -> tuple[
+        dict[str, KucoinMktPair],
+        bidict[str, KucoinMktPair],
+    ]:
+        entries = await self._request('GET', 'symbols')
+        log.info(f' {len(entries)} Kucoin market pairs fetched')
 
-        log.info(f' {len(syms)} Kucoin market pairs fetched')
-        return syms
+        pairs: dict[str, KucoinMktPair] = {}
+        fqmes2mktids: bidict[str, str] = bidict()
+        for item in entries:
+            pair = pairs[item['name']] = KucoinMktPair(**item)
+            fqmes2mktids[
+                item['name'].lower().replace('-', '')
+            ] = pair.name
+
+        return pairs, fqmes2mktids
 
     async def cache_pairs(
         self,
+        update: bool = False,
+
     ) -> dict[str, KucoinMktPair]:
         '''
-        Get cached pairs and convert keyed symbols into fqsns if ya want
+        Get request all market pairs and store in a local cache.
+
+        Also create a table of piker style fqme -> kucoin symbols.
 
         '''
-        if not self._pairs:
-            self._pairs = await self._get_pairs()
+        if (
+            not self._pairs
+            or update
+        ):
+            pairs, fqmes = await self._get_pairs()
+            self._pairs.update(pairs)
+            self._fqmes2mktids.update(fqmes)
 
         return self._pairs
 
@@ -316,7 +407,12 @@ class Client:
         self,
         pattern: str,
         limit: int = 30,
+
     ) -> dict[str, KucoinMktPair]:
+        '''
+        Use fuzzy search to match against all market names.
+
+        '''
         data = await self.cache_pairs()
 
         matches = fuzzy.extractBests(
@@ -327,19 +423,23 @@ class Client:
 
     async def last_trades(self, sym: str) -> list[AccountTrade]:
         trades = await self._request(
-            'GET', f'/accounts/ledgers?currency={sym}', 'v1'
+            'GET',
+            endpoint=f'accounts/ledgers?currency={sym}',
+            api='v1'
         )
         trades = AccountResponse(**trades)
         return trades.items
 
     async def _get_bars(
         self,
-        fqsn: str,
+        fqme: str,
+
         start_dt: datetime | None = None,
         end_dt: datetime | None = None,
         limit: int = 1000,
         as_np: bool = True,
         type: str = '1min',
+
     ) -> np.ndarray:
         '''
         Get OHLC data and convert to numpy array for perffff:
@@ -381,10 +481,10 @@ class Client:
         start_dt = int(start_dt.timestamp())
         end_dt = int(end_dt.timestamp())
 
-        kucoin_sym = fqsn_to_kucoin_sym(fqsn, self._pairs)
+        kucoin_sym = self._fqmes2mktids[fqme]
 
         url = (
-            f'/market/candles?type={type}'
+            f'market/candles?type={type}'
             f'&symbol={kucoin_sym}'
             f'&startAt={start_dt}'
             f'&endAt={end_dt}'
@@ -394,7 +494,7 @@ class Client:
             data: list[list[str]] | dict = await self._request(
                 'GET',
                 url,
-                api_v='v1',
+                api='v1',
             )
 
             if not isinstance(data, list):
@@ -439,19 +539,22 @@ class Client:
         return array
 
 
-def fqsn_to_kucoin_sym(fqsn: str, pairs: dict[str, KucoinMktPair]) -> str:
-    pair_data = pairs[fqsn]
+def fqme_to_kucoin_sym(
+    fqme: str,
+    pairs: dict[str, KucoinMktPair],
+
+) -> str:
+    pair_data = pairs[fqme]
     return pair_data.baseCurrency + '-' + pair_data.quoteCurrency
-
-
-def kucoin_sym_to_fqsn(sym: str) -> str:
-    return sym.lower().replace('-', '')
 
 
 @acm
 async def get_client() -> AsyncGenerator[Client, None]:
     client = Client()
-    await client.cache_pairs()
+
+    async with trio.open_nursery() as n:
+        n.start_soon(client.cache_pairs)
+        await client.get_currencies()
 
     yield client
 
@@ -497,195 +600,268 @@ async def open_ping_task(
         n.cancel_scope.cancel()
 
 
+@async_lifo_cache()
+async def get_mkt_info(
+    fqme: str,
+
+) -> tuple[MktPair, KucoinMktPair]:
+    '''
+    Query for and return a `MktPair` and `KucoinMktPair`.
+
+    '''
+    async with open_cached_client('kucoin') as client:
+        # split off any fqme broker part
+        bs_fqme, _, broker = fqme.partition('.')
+
+        pairs: dict[str, KucoinMktPair] = await client.cache_pairs()
+
+        try:
+            # likely search result key which is already in native mkt symbol form
+            pair: KucoinMktPair = pairs[bs_fqme]
+            bs_mktid: str = bs_fqme
+
+        except KeyError:
+
+            # likely a piker-style fqme from API request or CLI
+            bs_mktid: str = client._fqmes2mktids[bs_fqme]
+            pair: KucoinMktPair = pairs[bs_mktid]
+
+        # symbology sanity
+        assert bs_mktid == pair.symbol
+
+        assets: dict[str, Currency] = client._currencies
+
+        # TODO: maybe just do this processing in
+        # a .get_assets() method (see kraken)?
+        src: Currency = assets[pair.quoteCurrency]
+        src_asset = Asset(
+            name=src.name,
+            atype='crypto_currency',
+            tx_tick=digits_to_dec(src.precision),
+            info=src.to_dict(),
+        )
+        dst: Currency = assets[pair.baseCurrency]
+        dst_asset = Asset(
+            name=dst.name,
+            atype='crypto_currency',
+            tx_tick=digits_to_dec(dst.precision),
+            info=dst.to_dict(),
+        )
+        mkt = MktPair(
+            dst=dst_asset,
+            src=src_asset,
+
+            price_tick=pair.price_tick,
+            size_tick=pair.size_tick,
+            bs_mktid=bs_mktid,
+
+            broker='kucoin',
+        )
+        return mkt, pair
+
+
 async def stream_quotes(
     send_chan: trio.abc.SendChannel,
     symbols: list[str],
     feed_is_live: trio.Event,
-    loglevel: str = '',
-    # startup sync
-    task_status: TaskStatus[tuple[dict, dict]
-                            ] = trio.TASK_STATUS_IGNORED,
+
+    task_status: TaskStatus[
+        tuple[dict, dict]
+    ] = trio.TASK_STATUS_IGNORED,
+
 ) -> None:
     '''
     Required piker api to stream real-time data.
     Where the rubber hits the road baby
 
     '''
+    init_msgs: list[FeedInit] = []
+
     async with open_cached_client('kucoin') as client:
+
+        log.info(f'Starting up quote stream(s) for {symbols}')
+        for sym_str in symbols:
+            mkt, pair = await get_mkt_info(sym_str)
+            init_msgs.append(
+                FeedInit(mkt_info=mkt)
+            )
+
+        ws: NoBsWs
         token, ping_interval = await client._get_ws_token()
         connect_id = str(uuid4())
-        pairs = await client.cache_pairs()
-        ws_url = (
-            f'wss://ws-api-spot.kucoin.com/?'
-            f'token={token}&[connectId={connect_id}]'
-        )
-
-        # open ping task
         async with (
-            open_autorecon_ws(ws_url) as ws,
+            open_autorecon_ws(
+                (
+                    f'wss://ws-api-spot.kucoin.com/?'
+                    f'token={token}&[connectId={connect_id}]'
+                ),
+                fixture=partial(
+                    subscribe,
+                    connect_id=connect_id,
+                    bs_mktid=pair.symbol,
+                ),
+            ) as ws,
             open_ping_task(ws, ping_interval, connect_id),
+            aclosing(stream_messages(ws, sym_str)) as msg_gen,
         ):
-            log.info('Starting up quote stream')
-            # loop through symbols and sub to feedz
-            for sym in symbols:
-                pair: KucoinMktPair = pairs[sym]
-                kucoin_sym = pair.symbol
+            typ, quote = await anext(msg_gen)
 
-                init_msgs = {
-                    # pass back token, and bool, signalling if we're the writer
-                    # and that history has been written
-                    sym: {
-                        'symbol_info': {
-                            'asset_type': 'crypto',
-                            'price_tick_size': float(pair.baseIncrement),
-                            'lot_tick_size': float(pair.baseMinSize),
-                        },
-                        'shm_write_opts': {'sum_tick_vml': False},
-                        'fqsn': sym,
-                    }
-                }
+            while typ != 'trade':
+                # take care to not unblock here until we get a real
+                # trade quote
+                typ, quote = await anext(msg_gen)
 
-                async with (
-                    subscribe(ws, connect_id, kucoin_sym),
-                    stream_messages(ws, sym) as msg_gen,
-                ):
-                    typ, quote = await anext(msg_gen)
-                    while typ != 'trade':
-                        # take care to not unblock here until we get a real
-                        # trade quote
-                        typ, quote = await anext(msg_gen)
+            task_status.started((init_msgs, quote))
+            feed_is_live.set()
 
-                    task_status.started((init_msgs, quote))
-                    feed_is_live.set()
-
-                    async for typ, msg in msg_gen:
-                        await send_chan.send({sym: msg})
+            async for typ, msg in msg_gen:
+                await send_chan.send({sym_str: msg})
 
 
 @acm
-async def subscribe(ws: wsproto.WSConnection, connect_id, sym) -> AsyncGenerator[None, None]:
-    # level 2 sub
-    await ws.send_msg(
-        {
-            'id': connect_id,
-            'type': 'subscribe',
-            'topic': f'/spotMarket/level2Depth5:{sym}',
-            'privateChannel': False,
-            'response': True,
-        }
-    )
+async def subscribe(
+    ws: NoBsWs,
+    connect_id,
+    bs_mktid,
 
-    # watch trades
-    await ws.send_msg(
-        {
-            'id': connect_id,
-            'type': 'subscribe',
-            'topic': f'/market/ticker:{sym}',
-            'privateChannel': False,
-            'response': True,
-        }
-    )
+    # subs are filled in with `bs_mktid` from avbove
+    topics: list[str] = [
+        '/market/ticker:{bs_mktid}',  # clearing events
+        '/spotMarket/level2Depth5:{bs_mktid}',  # level 2
+    ],
 
-    yield
+) -> AsyncGenerator[None, None]:
 
-    # unsub
-    if ws.connected():
-        log.info(f'Unsubscribing to {sym} feed')
+    eps: list[str] = []
+    for topic in topics:
+        ep: str = topic.format(bs_mktid=bs_mktid)
+        eps.append(ep)
         await ws.send_msg(
             {
                 'id': connect_id,
-                'type': 'unsubscribe',
-                'topic': f'/market/ticker:{sym}',
+                'type': 'subscribe',
+                'topic': ep,
                 'privateChannel': False,
                 'response': True,
             }
         )
 
+    welcome_msg = await ws.recv_msg()
+    log.info(f'WS welcome: {welcome_msg}')
 
-@trio_async_generator
+    for _ in topics:
+        ack_msg = await ws.recv_msg()
+        log.info(f'Sub ACK: {ack_msg}')
+
+    yield
+
+    # unsub
+    if ws.connected():
+        log.info(f'Unsubscribing to {bs_mktid} feed')
+        for ep in eps:
+            await ws.send_msg(
+                {
+                    'id': connect_id,
+                    'type': 'unsubscribe',
+                    'topic': ep,
+                    'privateChannel': False,
+                    'response': True,
+                }
+            )
+
+
 async def stream_messages(
-    ws: NoBsWs, sym: str
+    ws: NoBsWs,
+    sym: str,
+
 ) -> AsyncGenerator[tuple[str, dict], None]:
-    timeouts = 0
-    last_trade_ts = 0
+    '''
+    Core (live) feed msg handler: relay market events
+    to the piker-ized tick-stream format.
 
-    while True:
-        with trio.move_on_after(3) as cs:
-            msg = await ws.recv_msg()
-        if cs.cancelled_caught:
-            timeouts += 1
-            if timeouts > 2:
-                log.error(
-                    'kucoin feed is sh**ing the bed... rebooting...')
-                await ws._connect()
+    '''
+    last_trade_ts: float = 0
 
-            continue
-        if msg.get('subject'):
-            msg = KucoinMsg(**msg)
-            match msg.subject:
-                case 'trade.ticker':
-                    trade_data = KucoinTrade(**msg.data)
+    dict_msg: dict[str, Any]
+    async for dict_msg in ws:
+        match dict_msg:
+            case {
+                'subject': 'trade.ticker',
+                'data': trade_data_dict,
+            }:
+                trade_data = KucoinTrade(**trade_data_dict)
 
-                    # XXX: Filter for duplicate messages as ws feed will
-                    # send duplicate market state
-                    # https://docs.kucoin.com/#level2-5-best-ask-bid-orders
-                    if trade_data.time == last_trade_ts:
-                        continue
+                # XXX: Filter out duplicate messages as ws feed will
+                # send duplicate market state
+                # https://docs.kucoin.com/#level2-5-best-ask-bid-orders
+                if trade_data.time == last_trade_ts:
+                    continue
 
-                    last_trade_ts = trade_data.time
+                last_trade_ts = trade_data.time
 
-                    yield 'trade', {
-                        'symbol': sym,
-                        'last': trade_data.price,
-                        'brokerd_ts': last_trade_ts,
-                        'ticks': [
-                            {
-                                'type': 'trade',
-                                'price': float(trade_data.price),
-                                'size': float(trade_data.size),
-                                'broker_ts': last_trade_ts,
-                            }
-                        ],
-                    }
+                yield 'trade', {
+                    'symbol': sym,
+                    'last': trade_data.price,
+                    'brokerd_ts': last_trade_ts,
+                    'ticks': [
+                        {
+                            'type': 'trade',
+                            'price': float(trade_data.price),
+                            'size': float(trade_data.size),
+                            'broker_ts': last_trade_ts,
+                        }
+                    ],
+                }
 
-                case 'level2':
-                    l2_data = KucoinL2(**msg.data)
-                    first_ask = l2_data.asks[0]
-                    first_bid = l2_data.bids[0]
-                    yield 'l1', {
-                        'symbol': sym,
-                        'ticks': [
-                            {
-                                'type': 'bid',
-                                'price': float(first_bid[0]),
-                                'size': float(first_bid[1]),
-                            },
-                            {
-                                'type': 'bsize',
-                                'price': float(first_bid[0]),
-                                'size': float(first_bid[1]),
-                            },
-                            {
-                                'type': 'ask',
-                                'price': float(first_ask[0]),
-                                'size': float(first_ask[1]),
-                            },
-                            {
-                                'type': 'asize',
-                                'price': float(first_ask[0]),
-                                'size': float(first_ask[1]),
-                            },
-                        ],
-                    }
+            case {
+                'subject': 'level2',
+                'data': trade_data_dict,
+            }:
+                l2_data = KucoinL2(**trade_data_dict)
+                first_ask = l2_data.asks[0]
+                first_bid = l2_data.bids[0]
+                yield 'l1', {
+                    'symbol': sym,
+                    'ticks': [
+                        {
+                            'type': 'bid',
+                            'price': float(first_bid[0]),
+                            'size': float(first_bid[1]),
+                        },
+                        {
+                            'type': 'bsize',
+                            'price': float(first_bid[0]),
+                            'size': float(first_bid[1]),
+                        },
+                        {
+                            'type': 'ask',
+                            'price': float(first_ask[0]),
+                            'size': float(first_ask[1]),
+                        },
+                        {
+                            'type': 'asize',
+                            'price': float(first_ask[0]),
+                            'size': float(first_ask[1]),
+                        },
+                    ],
+                }
 
-                case _:
-                    log.warn(f'Unhandled message: {msg}')
+            case {'type': 'pong'}:
+                # resp to ping task req
+                continue
+
+            case _:
+                log.warn(f'Unhandled message: {dict_msg}')
 
 
 @acm
 async def open_history_client(
-    symbol: str,
+    mkt: MktPair,
+
 ) -> AsyncGenerator[Callable, None]:
+
+    symbol: str = mkt.bs_fqme
+
     async with open_cached_client('kucoin') as client:
         log.info('Attempting to open kucoin history client')
 
@@ -708,6 +884,11 @@ async def open_history_client(
             )
 
             times = array['time']
+
+            if not len(times):
+                raise DataUnavailable(
+                    f'No more history before {start_dt}?'
+                )
 
             if end_dt is None:
                 inow = round(time.time())

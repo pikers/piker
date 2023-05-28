@@ -42,10 +42,7 @@ from numba import (
     # float64, optional, int64,
 )
 
-from ..log import get_logger
-
-
-log = get_logger(__name__)
+from ._util import log
 
 
 def ds_m4(

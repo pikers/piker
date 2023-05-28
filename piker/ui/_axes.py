@@ -29,7 +29,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import QPointF
 
 from . import _pg_overrides as pgo
-from ..data._source import float_digits
+from ..accounting._mktinfo import float_digits
 from ._label import Label
 from ._style import DpiAwareFont, hcolor, _font
 from ._interaction import ChartView

@@ -32,12 +32,9 @@ from ..service.marketstore import (
 )
 from ..cli import cli
 from .. import watchlists as wl
-from ..log import (
-    get_logger,
+from ._util import (
+    log,
 )
-
-
-log = get_logger(__name__)
 
 
 @cli.command()
@@ -187,10 +184,10 @@ def storage(
             symbol = symbols[0]
             async with open_tsdb_client(symbol) as storage:
                 if delete:
-                    for fqsn in symbols:
+                    for fqme in symbols:
                         syms = await storage.client.list_symbols()
 
-                        resp60s = await storage.delete_ts(fqsn, 60)
+                        resp60s = await storage.delete_ts(fqme, 60)
 
                         msgish = resp60s.ListFields()[0][1]
                         if 'error' in str(msgish):
@@ -202,15 +199,15 @@ def storage(
                             # well, if we ever can make this work we
                             # probably want to dogsplain the real reason
                             # for the delete errurz..llululu
-                            if fqsn not in syms:
-                                log.error(f'Pair {fqsn} dne in DB')
+                            if fqme not in syms:
+                                log.error(f'Pair {fqme} dne in DB')
 
-                            log.error(f'Deletion error: {fqsn}\n{msgish}')
+                            log.error(f'Deletion error: {fqme}\n{msgish}')
 
-                        resp1s = await storage.delete_ts(fqsn, 1)
+                        resp1s = await storage.delete_ts(fqme, 1)
                         msgish = resp1s.ListFields()[0][1]
                         if 'error' in str(msgish):
-                            log.error(f'Deletion error: {fqsn}\n{msgish}')
+                            log.error(f'Deletion error: {fqme}\n{msgish}')
 
     trio.run(main)
 

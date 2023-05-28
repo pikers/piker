@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -14,19 +14,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""
-Fake trading for forward testing.
+'''
+Fake trading: a full forward testing simulation engine.
 
-"""
+We can real-time emulate any mkt conditions you want bruddr B)
+Just slide us the model que quieres..
+
+'''
 from collections import defaultdict
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager as acm
 from datetime import datetime
 from operator import itemgetter
 import itertools
 import time
 from typing import (
-    Any,
-    Optional,
     Callable,
 )
 import uuid
@@ -36,18 +37,25 @@ import pendulum
 import trio
 import tractor
 
+from ..brokers import get_brokermod
 from .. import data
 from ..data.types import Struct
-from ..data._source import Symbol
-from ..pp import (
+from ..accounting._mktinfo import (
+    MktPair,
+)
+from ..accounting import (
     Position,
+    PpTable,
     Transaction,
+    TransactionLedger,
     open_trade_ledger,
     open_pps,
 )
 from ..data._normalize import iterticks
-from ..data._source import unpack_fqsn
-from ..log import get_logger
+from ..accounting import unpack_fqme
+from ._util import (
+    log,  # sub-sys logger
+)
 from ._messages import (
     BrokerdCancel,
     BrokerdOrder,
@@ -57,10 +65,6 @@ from ._messages import (
     BrokerdPosition,
     BrokerdError,
 )
-
-from ..config import load
-
-log = get_logger(__name__)
 
 
 class PaperBoi(Struct):
@@ -75,14 +79,15 @@ class PaperBoi(Struct):
 
     ems_trades_stream: tractor.MsgStream
 
+    ppt: PpTable
+    ledger: TransactionLedger
+
     # map of paper "live" orders which be used
     # to simulate fills based on paper engine settings
     _buys: defaultdict[str, bidict]
     _sells: defaultdict[str, bidict]
     _reqids: bidict
-    _positions: dict[str, Position]
-    _trade_ledger: dict[str, Any]
-    _syms: dict[str, Symbol] = {}
+    _mkts: dict[str, MktPair] = {}
 
     # init edge case L1 spread
     last_ask: tuple[float, float] = (float('inf'), 0)  # price, size
@@ -95,7 +100,7 @@ class PaperBoi(Struct):
         price: float,
         action: str,
         size: float,
-        reqid: Optional[str],
+        reqid: str | None,
 
     ) -> int:
         '''
@@ -121,7 +126,10 @@ class PaperBoi(Struct):
         # in the broker trades event processing loop
         await trio.sleep(0.05)
 
-        if action == 'sell':
+        if (
+            action == 'sell'
+            and size > 0
+        ):
             size = -size
 
         msg = BrokerdStatus(
@@ -197,7 +205,7 @@ class PaperBoi(Struct):
     async def fake_fill(
         self,
 
-        fqsn: str,
+        fqme: str,
         price: float,
         size: float,
         action: str,  # one of {'buy', 'sell'}
@@ -250,43 +258,46 @@ class PaperBoi(Struct):
             )
             await self.ems_trades_stream.send(msg)
 
-        # lookup any existing position
-        key = fqsn.rstrip(f'.{self.broker}')
+        # NOTE: for paper we set the "bs_mktid" as just the fqme since
+        # we don't actually have any unique backend symbol ourselves
+        # other then this thing, our fqme address.
+        bs_mktid: str = fqme
         t = Transaction(
-            fqsn=fqsn,
-            sym=self._syms[fqsn],
+            fqme=fqme,
+            sym=self._mkts[fqme],
             tid=oid,
             size=size,
             price=price,
             cost=0,  # TODO: cost model
             dt=pendulum.from_timestamp(fill_time_s),
-            bsuid=key,
+            bs_mktid=bs_mktid,
         )
 
-        with (
-            open_trade_ledger(self.broker, 'paper') as ledger,
-            open_pps(self.broker, 'paper', write_on_exit=True) as table
-        ):
-            tx = t.to_dict()
-            tx.pop('sym')
-            ledger.update({oid: tx})
-            # Write to pps toml right now
-            table.update_from_trans({oid: t})
+        # update in-mem ledger and pos table
+        self.ledger.update_from_t(t)
+        self.ppt.update_from_trans({oid: t})
 
-            pp = table.pps[key]
-            pp_msg = BrokerdPosition(
-                broker=self.broker,
-                account='paper',
-                symbol=fqsn,
-                # TODO: we need to look up the asset currency from
-                # broker info. i guess for crypto this can be
-                # inferred from the pair?
-                currency=key,
-                size=pp.size,
-                avg_price=pp.ppu,
-            )
+        # transmit pp msg to ems
+        pp = self.ppt.pps[bs_mktid]
+        pp_msg = BrokerdPosition(
+            broker=self.broker,
+            account='paper',
+            symbol=fqme,
 
-            await self.ems_trades_stream.send(pp_msg)
+            size=pp.size,
+            avg_price=pp.ppu,
+
+            # TODO: we need to look up the asset currency from
+            # broker info. i guess for crypto this can be
+            # inferred from the pair?
+            # currency=bs_mktid,
+        )
+        # write all updates to filesys immediately
+        # (adds latency but that works for simulation anyway)
+        self.ledger.write_config()
+        self.ppt.write_config()
+
+        await self.ems_trades_stream.send(pp_msg)
 
 
 async def simulate_fills(
@@ -421,7 +432,7 @@ async def simulate_fills(
 
                         # clearing price would have filled entirely
                         await client.fake_fill(
-                            fqsn=sym,
+                            fqme=sym,
                             # todo slippage to determine fill price
                             price=tick_price,
                             size=size,
@@ -469,6 +480,7 @@ async def handle_order_requests(
                     BrokerdOrderAck(
                         oid=order.oid,
                         reqid=reqid,
+                        account='paper'
                     )
                 )
 
@@ -512,7 +524,6 @@ _sells: defaultdict[
         tuple[float, float, str, str],  # order info
     ]
 ] = defaultdict(bidict)
-_positions: dict[str, Position] = {}
 
 
 @tractor.context
@@ -520,33 +531,86 @@ async def trades_dialogue(
 
     ctx: tractor.Context,
     broker: str,
-    fqsn: str,
-    loglevel: str = None,
+    fqme: str | None = None,  # if empty, we only boot broker mode
+    loglevel: str = 'warning',
 
 ) -> None:
 
     tractor.log.get_console_log(loglevel)
 
-    async with (
-        data.open_feed(
-            [fqsn],
-            loglevel=loglevel,
-        ) as feed,
+    ppt: PpTable
+    ledger: TransactionLedger
+    with (
+        open_pps(
+            broker,
+            'paper',
+            write_on_exit=True,
+        ) as ppt,
 
+        open_trade_ledger(
+            broker,
+            'paper',
+        ) as ledger
     ):
+        # NOTE: retreive market(pair) info from the backend broker
+        # since ledger entries (in their backend native format) often
+        # don't contain necessary market info per trade record entry..
+        # - if no fqme was passed in, we presume we're running in
+        #   "ledger-sync-only mode" and thus we load mkt info for
+        #   each symbol found in the ledger to a ppt table manually.
 
-        with open_pps(broker, 'paper') as table:
-            # save pps in local state
-            _positions.update(table.pps)
+        # TODO: how to process ledger info from backends?
+        # - should we be rolling our own actor-cached version of these
+        # client API refs or using portal IPC to send requests to the
+        # existing brokerd daemon?
+        # - alternatively we can possibly expect and use
+        # a `.broker.norm_trade_records()` ep?
+        brokermod = get_brokermod(broker)
+        gmi = getattr(brokermod, 'get_mkt_info', None)
+
+        # update all transactions with mkt info before
+        # loading any pps
+        mkt_by_fqme: dict[str, MktPair] = {}
+        if fqme:
+            bs_fqme, _, broker = fqme.rpartition('.')
+            mkt, _ = await brokermod.get_mkt_info(bs_fqme)
+            mkt_by_fqme[fqme] = mkt
+
+        # for each sym in the ledger load it's `MktPair` info
+        for tid, txdict in ledger.data.items():
+            l_fqme: str = txdict.get('fqme') or txdict['fqsn']
+
+            if (
+                gmi
+                and l_fqme not in mkt_by_fqme
+            ):
+                mkt, pair = await brokermod.get_mkt_info(
+                    l_fqme.rstrip(f'.{broker}'),
+                )
+                mkt_by_fqme[l_fqme] = mkt
+
+            # if an ``fqme: str`` input was provided we only
+            # need a ``MktPair`` for that one market, since we're
+            # running in real simulated-clearing mode, not just ledger
+            # syncing.
+            if (
+                fqme is not None
+                and fqme in mkt_by_fqme
+            ):
+                break
+
+        # update pos table from ledger history and provide a ``MktPair``
+        # lookup for internal position accounting calcs.
+        ppt.update_from_trans(ledger.to_trans(mkt_by_fqme=mkt_by_fqme))
 
         pp_msgs: list[BrokerdPosition] = []
         pos: Position
         token: str  # f'{symbol}.{self.broker}'
-        for token, pos in _positions.items():
+        for token, pos in ppt.pps.items():
             pp_msgs.append(BrokerdPosition(
                 broker=broker,
                 account='paper',
-                symbol=pos.symbol.front_fqsn(),
+                symbol=pos.mkt.fqme,
                 size=pos.size,
                 avg_price=pos.ppu,
             ))
@@ -556,42 +620,64 @@ async def trades_dialogue(
             ['paper'],
         ))
 
+        # write new positions state in case ledger was
+        # newer then that tracked in pps.toml
+        ppt.write_config()
+
+        # exit early since no fqme was passed,
+        # normally this case is just to load
+        # positions "offline".
+        if fqme is None:
+            log.warning(
+                'Paper engine only running in position delivery mode!\n'
+                'NO SIMULATED CLEARING LOOP IS ACTIVE!'
+            )
+            await trio.sleep_forever()
+            return
+
         async with (
-            ctx.open_stream() as ems_stream,
-            trio.open_nursery() as n,
+            data.open_feed(
+                [fqme],
+                loglevel=loglevel,
+            ) as feed,
         ):
-            client = PaperBoi(
-                broker,
-                ems_stream,
-                _buys=_buys,
-                _sells=_sells,
+            # sanity check all the mkt infos
+            for fqme, flume in feed.flumes.items():
+                assert mkt_by_fqme[fqme] == flume.mkt
 
-                _reqids=_reqids,
+            async with (
+                ctx.open_stream() as ems_stream,
+                trio.open_nursery() as n,
+            ):
+                client = PaperBoi(
+                    broker=broker,
+                    ems_trades_stream=ems_stream,
+                    ppt=ppt,
+                    ledger=ledger,
 
-                _positions=_positions,
+                    _buys=_buys,
+                    _sells=_sells,
+                    _reqids=_reqids,
 
-                # TODO: load postions from ledger file
-                _trade_ledger={},
-                _syms={
-                    fqsn: flume.symbol
-                    for fqsn, flume in feed.flumes.items()
-                }
-            )
+                    _mkts=mkt_by_fqme,
 
-            n.start_soon(
-                handle_order_requests,
-                client,
-                ems_stream,
-            )
+                )
 
-            # paper engine simulator clearing task
-            await simulate_fills(feed.streams[broker], client)
+                n.start_soon(
+                    handle_order_requests,
+                    client,
+                    ems_stream,
+                )
+
+                # paper engine simulator clearing task
+                await simulate_fills(feed.streams[broker], client)
 
 
-@asynccontextmanager
+@acm
 async def open_paperboi(
-    fqsn: str,
-    loglevel: str,
+    fqme: str | None = None,
+    broker: str | None = None,
+    loglevel: str | None = None,
 
 ) -> Callable:
     '''
@@ -599,28 +685,39 @@ async def open_paperboi(
     its context.
 
     '''
-    broker, symbol, expiry = unpack_fqsn(fqsn)
+    if not fqme:
+        assert broker, 'One of `broker` or `fqme` is required siss..!'
+    else:
+        broker, _, _, _ = unpack_fqme(fqme)
+
+    we_spawned: bool = False
     service_name = f'paperboi.{broker}'
 
     async with (
         tractor.find_actor(service_name) as portal,
         tractor.open_nursery() as tn,
     ):
-        # only spawn if no paperboi already is up
-        # (we likely don't need more then one proc for basic
-        # simulated order clearing)
+        # NOTE: only spawn if no paperboi already is up since we likely
+        # don't need more then one actor for simulated order clearing
+        # per broker-backend.
         if portal is None:
             log.info('Starting new paper-engine actor')
             portal = await tn.start_actor(
                 service_name,
                 enable_modules=[__name__]
             )
+            we_spawned = True
 
         async with portal.open_context(
             trades_dialogue,
             broker=broker,
-            fqsn=fqsn,
+            fqme=fqme,
             loglevel=loglevel,
 
         ) as (ctx, first):
             yield ctx, first
+
+            # tear down connection and any spawned actor on exit
+            await ctx.cancel()
+            if we_spawned:
+                await portal.cancel_actor()

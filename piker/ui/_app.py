@@ -28,7 +28,7 @@ from ..service import maybe_spawn_brokerd
 from . import _event
 from ._exec import run_qtractor
 from ..data.feed import install_brokerd_search
-from ..data._source import unpack_fqsn
+from ..accounting import unpack_fqme
 from . import _search
 from ._chart import GodWidget
 from ..log import get_logger
@@ -100,8 +100,8 @@ async def _async_main(
     starting_done = sbar.open_status('starting ze sexy chartz')
 
     needed_brokermods: dict[str, ModuleType] = {}
-    for fqsn in syms:
-        brokername, *_ = unpack_fqsn(fqsn)
+    for fqme in syms:
+        brokername, *_ = unpack_fqme(fqme)
         needed_brokermods[brokername] = brokers[brokername]
 
     async with (
@@ -120,7 +120,7 @@ async def _async_main(
 
         # this internally starts a ``display_symbol_data()`` task above
         order_mode_ready = await godwidget.load_symbols(
-            fqsns=syms,
+            fqmes=syms,
             loglevel=loglevel,
         )
 

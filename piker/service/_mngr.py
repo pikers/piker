@@ -28,15 +28,16 @@ import trio
 from trio_typing import TaskStatus
 import tractor
 
-from ..log import (
-    get_logger,
+from ._util import (
+    log,  # sub-sys logger
 )
 
-log = get_logger(__name__)
 
-
-# TODO: factor this into a ``tractor.highlevel`` extension
-# pack for the library.
+# TODO: we need remote wrapping and a general soln:
+# - factor this into a ``tractor.highlevel`` extension # pack for the
+#   library.
+# - wrap a "remote api" wherein you can get a method proxy
+#   to the pikerd actor for starting services remotely!
 class Services:
 
     actor_n: tractor._supervise.ActorNursery
@@ -58,7 +59,8 @@ class Services:
         name: str,
         portal: tractor.Portal,
         target: Callable,
-        **kwargs,
+        allow_overruns: bool = False,
+        **ctx_kwargs,
 
     ) -> (trio.CancelScope, tractor.Context):
         '''
@@ -81,9 +83,11 @@ class Services:
         ) -> Any:
 
             with trio.CancelScope() as cs:
+
                 async with portal.open_context(
                     target,
-                    **kwargs,
+                    allow_overruns=allow_overruns,
+                    **ctx_kwargs,
 
                 ) as (ctx, first):
 

@@ -19,7 +19,11 @@ Data feed endpoints pre-wrapped and ready for use with ``tractor``/``trio``.
 """
 from __future__ import annotations
 import asyncio
-from contextlib import asynccontextmanager as acm
+from contextlib import (
+    asynccontextmanager as acm,
+    nullcontext,
+)
+from decimal import Decimal
 from dataclasses import asdict
 from datetime import datetime
 from functools import partial
@@ -46,7 +50,7 @@ from .._util import (
 )
 from .api import (
     # _adhoc_futes_set,
-    con2fqsn,
+    con2fqme,
     log,
     load_aio_clients,
     ibis,
@@ -54,10 +58,18 @@ from .api import (
     open_client_proxies,
     get_preferred_data_client,
     Ticker,
-    RequestError,
     Contract,
+    RequestError,
 )
 from ._util import data_reset_hack
+from piker._cacheables import (
+    async_lifo_cache,
+)
+from piker.accounting import (
+    Asset,
+    MktPair,
+)
+from piker.data.validate import FeedInit
 
 
 # https://interactivebrokers.github.io/tws-api/tick_types.html
@@ -108,7 +120,7 @@ async def open_data_client() -> MethodProxy:
 
 @acm
 async def open_history_client(
-    fqsn: str,
+    mkt: MktPair,
 
 ) -> tuple[Callable, int]:
     '''
@@ -116,7 +128,7 @@ async def open_history_client(
     that takes in ``pendulum.datetime`` and returns ``numpy`` arrays.
 
     '''
-    # TODO:
+    # TODO: mostly meta-data processing to drive shm and tsdb storage..
     # - add logic to handle tradable hours and only grab
     #   valid bars in the range?
     # - we want to avoid overrunning the underlying shm array buffer and
@@ -125,7 +137,32 @@ async def open_history_client(
     #   the shm size will be driven by user config and available sys
     #   memory.
 
+    # IB's internal symbology does not expect the "source asset" in
+    # the "symbol name", what we call the "market name". This is
+    # common in most legacy market brokers since it's presumed that
+    # given a certain stock exchange, listed assets are traded
+    # "from" a particular source fiat, normally something like USD.
+    if (
+        mkt.src
+        and mkt.src.atype == 'fiat'
+    ):
+        fqme_kwargs: dict[str, Any] = {}
+
+        if mkt.dst.atype == 'forex':
+
+            # XXX: for now we do need the src token kept in since
+            fqme_kwargs  = {
+                'without_src': False,  # default is True
+                'delim_char': '',  # bc they would normally use a frickin `.` smh
+            }
+
+        fqme: str = mkt.get_bs_fqme(**(fqme_kwargs))
+
+    else:
+        fqme = mkt.bs_fqme
+
     async with open_data_client() as proxy:
+
 
         max_timeout: float = 2.
         mean: float = 0
@@ -134,10 +171,10 @@ async def open_history_client(
         head_dt: None | datetime = None
         if (
             # fx cons seem to not provide this endpoint?
-            'idealpro' not in fqsn
+            'idealpro' not in fqme
         ):
             try:
-                head_dt = await proxy.get_head_time(fqsn=fqsn)
+                head_dt = await proxy.get_head_time(fqme=fqme)
             except RequestError:
                 head_dt = None
 
@@ -152,7 +189,7 @@ async def open_history_client(
             query_start = time.time()
             out, timedout = await get_bars(
                 proxy,
-                fqsn,
+                fqme,
                 timeframe,
                 end_dt=end_dt,
             )
@@ -211,7 +248,7 @@ _pacing: str = (
 async def wait_on_data_reset(
     proxy: MethodProxy,
     reset_type: str = 'data',
-    timeout: float = 16,
+    timeout: float = 16, # float('inf'),
 
     task_status: TaskStatus[
         tuple[
@@ -227,7 +264,7 @@ async def wait_on_data_reset(
         'HMDS data farm connection is OK:ushmds'
     )
 
-    # XXX: other event messages we might want to try and
+    # TODO: other event messages we might want to try and
     # wait for but i wasn't able to get any of this
     # reliable..
     # reconnect_start = proxy.status_event(
@@ -238,14 +275,21 @@ async def wait_on_data_reset(
     # )
     # try to wait on the reset event(s) to arrive, a timeout
     # will trigger a retry up to 6 times (for now).
+    client = proxy._aio_ns.ib.client
 
     done = trio.Event()
     with trio.move_on_after(timeout) as cs:
 
         task_status.started((cs, done))
 
-        log.warning('Sending DATA RESET request')
-        res = await data_reset_hack(reset_type=reset_type)
+        log.warning(
+            'Sending DATA RESET request:\n'
+            f'{client}'
+        )
+        res = await data_reset_hack(
+            vnc_host=client.host,
+            reset_type=reset_type,
+        )
 
         if not res:
             log.warning(
@@ -279,12 +323,12 @@ async def wait_on_data_reset(
 
 
 _data_resetter_task: trio.Task | None = None
-
+_failed_resets: int = 0
 
 async def get_bars(
 
     proxy: MethodProxy,
-    fqsn: str,
+    fqme: str,
     timeframe: int,
 
     # blank to start which tells ib to look up the latest datum
@@ -298,6 +342,7 @@ async def get_bars(
     # history queries for instrument, presuming that most don't
     # not trade for a week XD
     max_nodatas: int = 6,
+    max_failed_resets: int = 6,
 
     task_status: TaskStatus[trio.CancelScope] = trio.TASK_STATUS_IGNORED,
 
@@ -307,7 +352,7 @@ async def get_bars(
     a ``MethoProxy``.
 
     '''
-    global _data_resetter_task
+    global _data_resetter_task, _failed_resets
     nodatas_count: int = 0
 
     data_cs: trio.CancelScope | None = None
@@ -320,11 +365,14 @@ async def get_bars(
     result_ready = trio.Event()
 
     async def query():
+
+        global _failed_resets
         nonlocal result, data_cs, end_dt, nodatas_count
-        while True:
+
+        while _failed_resets < max_failed_resets:
             try:
                 out = await proxy.bars(
-                    fqsn=fqsn,
+                    fqme=fqme,
                     end_dt=end_dt,
                     sample_period_s=timeframe,
 
@@ -339,7 +387,10 @@ async def get_bars(
 
                 bars, bars_array, dt_duration = out
 
-                if not bars:
+                if (
+                    not bars
+                    and end_dt
+                ):
                     log.warning(
                         f'History is blank for {dt_duration} from {end_dt}'
                     )
@@ -347,7 +398,7 @@ async def get_bars(
                     continue
 
                 if bars_array is None:
-                    raise SymbolNotFound(fqsn)
+                    raise SymbolNotFound(fqme)
 
                 first_dt = pendulum.from_timestamp(
                     bars[0].date.timestamp())
@@ -378,52 +429,51 @@ async def get_bars(
                 if 'No market data permissions for' in msg:
                     # TODO: signalling for no permissions searches
                     raise NoData(
-                        f'Symbol: {fqsn}',
+                        f'Symbol: {fqme}',
                     )
 
-                elif err.code == 162:
-                    if (
-                        'HMDS query returned no data' in msg
-                    ):
-                        # XXX: this is now done in the storage mgmt
-                        # layer and we shouldn't implicitly decrement
-                        # the frame dt index since the upper layer may
-                        # be doing so concurrently and we don't want to
-                        # be delivering frames that weren't asked for.
-                        # try to decrement start point and look further back
-                        # end_dt = end_dt.subtract(seconds=2000)
-                        logmsg = "SUBTRACTING DAY from DT index"
-                        if end_dt is not None:
-                            end_dt = end_dt.subtract(days=1)
-                        elif end_dt is None:
-                            end_dt = pendulum.now().subtract(days=1)
+                elif (
+                    'HMDS query returned no data' in msg
+                ):
+                    # XXX: this is now done in the storage mgmt
+                    # layer and we shouldn't implicitly decrement
+                    # the frame dt index since the upper layer may
+                    # be doing so concurrently and we don't want to
+                    # be delivering frames that weren't asked for.
+                    # try to decrement start point and look further back
+                    # end_dt = end_dt.subtract(seconds=2000)
+                    logmsg = "SUBTRACTING DAY from DT index"
+                    if end_dt is not None:
+                        end_dt = end_dt.subtract(days=1)
+                    elif end_dt is None:
+                        end_dt = pendulum.now().subtract(days=1)
 
-                        log.warning(
-                            f'NO DATA found ending @ {end_dt}\n'
-                            + logmsg
+                    log.warning(
+                        f'NO DATA found ending @ {end_dt}\n'
+                        + logmsg
+                    )
+
+                    if nodatas_count >= max_nodatas:
+                        raise DataUnavailable(
+                            f'Presuming {fqme} has no further history '
+                            f'after {max_nodatas} tries..'
                         )
 
-                        if nodatas_count >= max_nodatas:
-                            raise DataUnavailable(
-                                f'Presuming {fqsn} has no further history '
-                                f'after {max_nodatas} tries..'
-                            )
+                    nodatas_count += 1
+                    continue
 
-                        nodatas_count += 1
-                        continue
-
-                    elif 'API historical data query cancelled' in err.message:
-                        log.warning(
-                            'Query cancelled by IB (:eyeroll:):\n'
-                            f'{err.message}'
-                        )
-                        continue
-                    elif (
-                        'Trading TWS session is connected from a different IP'
-                            in err.message
-                    ):
-                        log.warning("ignoring ip address warning")
-                        continue
+                elif 'API historical data query cancelled' in err.message:
+                    log.warning(
+                        'Query cancelled by IB (:eyeroll:):\n'
+                        f'{err.message}'
+                    )
+                    continue
+                elif (
+                    'Trading TWS session is connected from a different IP'
+                        in err.message
+                ):
+                    log.warning("ignoring ip address warning")
+                    continue
 
                 # XXX: more or less same as above timeout case
                 elif _pacing in msg:
@@ -432,8 +482,11 @@ async def get_bars(
                         'Resetting farms with `ctrl-alt-f` hack\n'
                     )
 
+                    client = proxy._aio_ns.ib.client
+
                     # cancel any existing reset task
                     if data_cs:
+                        log.cancel(f'Cancelling existing reset for {client}')
                         data_cs.cancel()
 
                     # spawn new data reset task
@@ -441,10 +494,13 @@ async def get_bars(
                         partial(
                             wait_on_data_reset,
                             proxy,
-                            timeout=float('inf'),
                             reset_type='connection'
                         )
                     )
+                    if reset_done:
+                        _failed_resets = 0
+                    else:
+                        _failed_resets += 1
                     continue
 
                 else:
@@ -481,7 +537,7 @@ async def get_bars(
                 partial(
                     wait_on_data_reset,
                     proxy,
-                    timeout=float('inf'),
+                    reset_type='data',
                 )
             )
             # sync wait on reset to complete
@@ -491,7 +547,9 @@ async def get_bars(
     return result, data_cs is not None
 
 
-asset_type_map = {
+# re-mapping to piker asset type names
+# https://github.com/erdewit/ib_insync/blob/master/ib_insync/contract.py#L113
+_asset_type_map = {
     'STK': 'stock',
     'OPT': 'option',
     'FUT': 'future',
@@ -532,7 +590,7 @@ async def _setup_quote_stream(
         '294',  # Trade rate / minute
         '295',  # Vlm rate / minute
     ),
-    contract: Optional[Contract] = None,
+    contract: Contract | None = None,
 
 ) -> trio.abc.ReceiveChannel:
     '''
@@ -618,7 +676,7 @@ async def _setup_quote_stream(
 async def open_aio_quote_stream(
 
     symbol: str,
-    contract: Optional[Contract] = None,
+    contract: Contract | None = None,
 
 ) -> trio.abc.ReceiveStream:
 
@@ -661,7 +719,7 @@ def normalize(
 
     # check for special contract types
     con = ticker.contract
-    fqsn, calc_price = con2fqsn(con)
+    fqme, calc_price = con2fqme(con)
 
     # convert named tuples to dicts so we send usable keys
     new_ticks = []
@@ -691,9 +749,9 @@ def normalize(
     # serialize for transport
     data = asdict(ticker)
 
-    # generate fqsn with possible specialized suffix
+    # generate fqme with possible specialized suffix
     # for derivatives, note the lowercase.
-    data['symbol'] = data['fqsn'] = fqsn
+    data['symbol'] = data['fqme'] = fqme
 
     # convert named tuples to dicts for transport
     tbts = data.get('tickByTicks')
@@ -711,6 +769,98 @@ def normalize(
     data.pop('rtTime')
 
     return data
+
+
+@async_lifo_cache()
+async def get_mkt_info(
+    fqme: str,
+
+    proxy: MethodProxy | None = None,
+
+) -> tuple[MktPair, ibis.ContractDetails]:
+
+    # XXX: we don't need to split off any fqme broker part?
+    # bs_fqme, _, broker = fqme.partition('.')
+
+    proxy: MethodProxy
+    get_details: bool = False
+    if proxy is not None:
+        client_ctx = nullcontext(proxy)
+    else:
+        client_ctx = open_data_client
+
+    async with client_ctx as proxy:
+        try:
+            (
+                con,  # Contract
+                details,  # ContractDetails
+            ) = await proxy.get_sym_details(symbol=fqme)
+        except ConnectionError:
+            log.exception(f'Proxy is ded {proxy._aio_ns}')
+            raise
+
+    # TODO: more consistent field translation
+    init_info: dict = {}
+    atype = _asset_type_map[con.secType]
+
+    if atype == 'commodity':
+        venue: str = 'cmdty'
+    else:
+        venue = con.primaryExchange or con.exchange
+
+    price_tick: Decimal = Decimal(str(details.minTick))
+
+    if atype == 'stock':
+        # XXX: GRRRR they don't support fractional share sizes for
+        # stocks from the API?!
+        # if con.secType == 'STK':
+        size_tick = Decimal('1')
+    else:
+        size_tick: Decimal = Decimal(str(details.minSize).rstrip('0'))
+        # |-> TODO: there is also the Contract.sizeIncrement, bt wtf is it?
+
+    # NOTE: this is duplicate from the .broker.norm_trade_records()
+    # routine, we should factor all this parsing somewhere..
+    expiry_str = str(con.lastTradeDateOrContractMonth)
+    # if expiry:
+    #     expiry_str: str = str(pendulum.parse(
+    #         str(expiry).strip(' ')
+    #     ))
+
+    # TODO: currently we can't pass the fiat src asset because
+    # then we'll get a `MNQUSD` request for history data..
+    # we need to figure out how we're going to handle this (later?)
+    # but likely we want all backends to eventually handle
+    # ``dst/src.venue.`` style !?
+    src: str | Asset = ''
+    if atype == 'forex':
+        src = Asset(
+            name=str(con.currency),
+            atype='fiat',
+            tx_tick=Decimal('0.01'),  # right?
+        )
+
+    mkt = MktPair(
+        dst=Asset(
+            name=con.symbol.lower(),
+            atype=atype,
+            tx_tick=size_tick,
+        ),
+        src=src,
+
+        price_tick=price_tick,
+        size_tick=size_tick,
+
+        bs_mktid=str(con.conId),
+        venue=str(venue),
+        expiry=expiry_str,
+        broker='ib',
+
+        # TODO: options contract info as str?
+        # contract_info=<optionsdetails>
+    )
+
+    return mkt, details
 
 
 async def stream_quotes(
@@ -735,80 +885,49 @@ async def stream_quotes(
     sym = symbols[0]
     log.info(f'request for real-time quotes: {sym}')
 
+    init_msgs: list[FeedInit] = []
+
+    proxy: MethodProxy
+    mkt: MktPair
+    details: ibis.ContractDetails
     async with open_data_client() as proxy:
+        mkt, details = await get_mkt_info(
+            sym,
+            proxy=proxy,  # passed to avoid implicit client load
+        )
 
-        con, first_ticker, details = await proxy.get_sym_details(symbol=sym)
-        first_quote = normalize(first_ticker)
-        # print(f'first quote: {first_quote}')
+        init_msg = FeedInit(mkt_info=mkt)
 
-        def mk_init_msgs() -> dict[str, dict]:
-            '''
-            Collect a bunch of meta-data useful for feed startup and
-            pack in a `dict`-msg.
+        if mkt.dst.atype in {
+            'forex',
+            'index',
+            'commodity',
+        }:
+            # tell sampler config that it shouldn't do vlm summing.
+            init_msg.shm_write_opts['sum_tick_vlm'] = False
+            init_msg.shm_write_opts['has_vlm'] = False
 
-            '''
-            # pass back some symbol info like min_tick, trading_hours, etc.
-            syminfo = asdict(details)
-            syminfo.update(syminfo['contract'])
+        init_msgs.append(init_msg)
 
-            # nested dataclass we probably don't need and that won't IPC
-            # serialize
-            syminfo.pop('secIdList')
-
-            # TODO: more consistent field translation
-            atype = syminfo['asset_type'] = asset_type_map[syminfo['secType']]
-
-            if atype in {
-                'forex',
-                'index',
-                'commodity',
-            }:
-                syminfo['no_vlm'] = True
-
-            # for stocks it seems TWS reports too small a tick size
-            # such that you can't submit orders with that granularity?
-            min_tick = 0.01 if atype == 'stock' else 0
-
-            syminfo['price_tick_size'] = max(syminfo['minTick'], min_tick)
-
-            # for "legacy" assets, volume is normally discreet, not
-            # a float
-            syminfo['lot_tick_size'] = 0.0
-
-            ibclient = proxy._aio_ns.ib.client
-            host, port = ibclient.host, ibclient.port
-
-            # TODO: for loop through all symbols passed in
-            init_msgs = {
-                # pass back token, and bool, signalling if we're the writer
-                # and that history has been written
-                sym: {
-                    'symbol_info': syminfo,
-                    'fqsn': first_quote['fqsn'],
-                },
-                'status': {
-                    'data_ep': f'{host}:{port}',
-                },
-
-            }
-            return init_msgs, syminfo
-
-        init_msgs, syminfo = mk_init_msgs()
+        con: Contract = details.contract
+        first_ticker: Ticker = await proxy.get_quote(contract=con)
+        first_quote: dict = normalize(first_ticker)
+        log.runtime(f'FIRST QUOTE: {first_quote}')
 
         # TODO: we should instead spawn a task that waits on a feed to start
         # and let it wait indefinitely..instead of this hard coded stuff.
         with trio.move_on_after(1):
-            contract, first_ticker, details = await proxy.get_quote(symbol=sym)
+            first_ticker = await proxy.get_quote(contract=con)
 
         # it might be outside regular trading hours so see if we can at
         # least grab history.
         if (
-            isnan(first_ticker.last)
-            and type(first_ticker.contract) not in (
-                ibis.Commodity,
-                ibis.Forex,
-                ibis.Crypto,
-            )
+            isnan(first_ticker.last)  # last quote price value is nan
+            and mkt.dst.atype not in {
+                'commodity',
+                'forex',
+                'crypto',
+            }
         ):
             task_status.started((init_msgs, first_quote))
 
@@ -820,7 +939,7 @@ async def stream_quotes(
             await trio.sleep_forever()
             return  # we never expect feed to come up?
 
-        cs: Optional[trio.CancelScope] = None
+        cs: trio.CancelScope | None = None
         startup: bool = True
         while (
             startup
@@ -860,13 +979,14 @@ async def stream_quotes(
                     nurse.start_soon(reset_on_feed)
 
                     async with aclosing(stream):
-                        if syminfo.get('no_vlm', False):
+                        # if syminfo.get('no_vlm', False):
+                        if not init_msg.shm_write_opts['has_vlm']:
 
                             # generally speaking these feeds don't
                             # include vlm data.
-                            atype = syminfo['asset_type']
+                            atype = mkt.dst.atype
                             log.info(
-                                f'No-vlm {sym}@{atype}, skipping quote poll'
+                                f'No-vlm {mkt.fqme}@{atype}, skipping quote poll'
                             )
 
                         else:
@@ -906,9 +1026,9 @@ async def stream_quotes(
                         # last = time.time()
                         async for ticker in stream:
                             quote = normalize(ticker)
-                            fqsn = quote['fqsn']
-                            # print(f'sending {fqsn}:\n{quote}')
-                            await send_chan.send({fqsn: quote})
+                            fqme = quote['fqme']
+                            # print(f'sending {fqme}:\n{quote}')
+                            await send_chan.send({fqme: quote})
 
                             # ugh, clear ticks since we've consumed them
                             ticker.ticks = []

@@ -14,21 +14,27 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""
-``ib`` core API client machinery; mostly sane wrapping around
-``ib_insync``.
+'''
+Core API client machinery; mostly sane/useful wrapping around `ib_insync`..
 
-"""
+'''
 from __future__ import annotations
-from contextlib import asynccontextmanager as acm
+from contextlib import (
+    asynccontextmanager as acm,
+    contextmanager as cm,
+)
 from contextlib import AsyncExitStack
 from dataclasses import asdict, astuple
 from datetime import datetime
-from functools import partial
+from functools import (
+    partial,
+    # lru_cache,
+)
 import itertools
 from math import isnan
 from typing import (
     Any,
+    Callable,
     Optional,
     Union,
 )
@@ -44,6 +50,7 @@ import trio
 import tractor
 from tractor import to_asyncio
 import pendulum
+from eventkit import Event
 import ib_insync as ibis
 from ib_insync.contract import (
     Contract,
@@ -67,11 +74,11 @@ from ib_insync.client import Client as ib_Client
 import numpy as np
 
 from piker import config
-from piker.log import get_logger
+from piker.brokers._util import (
+    log,
+    get_logger,
+)
 from piker.data._source import base_ohlc_dtype
-
-
-log = get_logger(__name__)
 
 
 _time_units = {
@@ -130,11 +137,13 @@ class NonShittyWrapper(Wrapper):
 
 
 class NonShittyIB(ibis.IB):
-    """The beginning of overriding quite a few decisions in this lib.
+    '''
+    The beginning of overriding quite a few decisions in this lib.
 
     - Don't use datetimes
     - Don't use named tuples
-    """
+
+    '''
     def __init__(self):
 
         # override `ib_insync` internal loggers so we can see wtf
@@ -172,6 +181,8 @@ _adhoc_cmdty_set = {
     'xagusd.cmdty',  # silver spot
 }
 
+# NOTE: if you aren't seeing one of these symbol's futues contracts
+# show up, it's likely the `.<venue>` part is wrong!
 _adhoc_futes_set = {
 
     # equities
@@ -183,6 +194,7 @@ _adhoc_futes_set = {
 
     # cypto$
     'brr.cme',
+    'mbt.cme',  # micro
     'ethusdrr.cme',
 
     # agriculture
@@ -197,7 +209,7 @@ _adhoc_futes_set = {
     'mgc.comex',  # micro
 
     # oil & gas
-    'cl.comex',
+    'cl.nymex',
 
     'ni.comex',  # silver futes
     'qi.comex',  # mini-silver futes
@@ -311,6 +323,22 @@ _samplings: dict[int, tuple[str, str]] = {
 }
 
 
+@cm
+def remove_handler_on_err(
+    event: Event,
+    handler: Callable,
+) -> None:
+    try:
+        yield
+    except trio.BrokenResourceError:
+        # XXX: eventkit's ``Event.emit()`` for whatever redic
+        # reason will catch and ignore regular exceptions
+        # resulting in tracebacks spammed to console..
+        # Manually do the dereg ourselves.
+        log.exception(f'Disconnected from {event} updates')
+        event.disconnect(handler)
+
+
 class Client:
     '''
     IB wrapped for our broker backend API.
@@ -330,7 +358,7 @@ class Client:
         self.ib.RaiseRequestErrors = True
 
         # contract cache
-        self._feeds: dict[str, trio.abc.SendChannel] = {}
+        self._cons: dict[str, Contract] = {}
 
         # NOTE: the ib.client here is "throttled" to 45 rps by default
 
@@ -359,7 +387,7 @@ class Client:
 
     async def bars(
         self,
-        fqsn: str,
+        fqme: str,
 
         # EST in ISO 8601 format is required... below is EPOCH
         start_dt: Union[datetime, str] = "1970-01-01T00:00:00.000000-05:00",
@@ -376,7 +404,7 @@ class Client:
 
     ) -> tuple[BarDataList, np.ndarray, pendulum.Duration]:
         '''
-        Retreive OHLCV bars for a fqsn over a range to the present.
+        Retreive OHLCV bars for a fqme over a range to the present.
 
         '''
         # See API docs here:
@@ -386,8 +414,7 @@ class Client:
         bar_size, duration, dt_duration = _samplings[sample_period_s]
 
         global _enters
-        # log.info(f'REQUESTING BARS {_enters} @ end={end_dt}')
-        print(
+        log.info(
             f"REQUESTING {duration}'s worth {bar_size} BARS\n"
             f'{_enters} @ end={end_dt}"'
         )
@@ -397,7 +424,7 @@ class Client:
 
         _enters += 1
 
-        contract = (await self.find_contracts(fqsn))[0]
+        contract = (await self.find_contracts(fqme))[0]
         bars_kwargs.update(getattr(contract, 'bars_kwargs', {}))
 
         bars = await self.ib.reqHistoricalDataAsync(
@@ -473,7 +500,7 @@ class Client:
                 # nested dataclass we probably don't need and that won't
                 # IPC serialize..
                 d.secIdList = ''
-                key, calc_price = con2fqsn(d.contract)
+                key, calc_price = con2fqme(d.contract)
                 details[key] = d
 
         return details
@@ -614,15 +641,22 @@ class Client:
 
         return con
 
+    # TODO: make this work with our `MethodProxy`..
+    # @lru_cache(maxsize=None)
     async def get_con(
         self,
         conid: int,
     ) -> Contract:
-        return await self.ib.qualifyContractsAsync(
-            ibis.Contract(conId=conid)
-        )
+        try:
+            return self._cons[conid]
+        except KeyError:
+            con: Contract = await self.ib.qualifyContractsAsync(
+                ibis.Contract(conId=conid)
+            )
+            self._cons[conid] = con
+            return con
 
-    def parse_patt2fqsn(
+    def parse_patt2fqme(
         self,
         pattern: str,
 
@@ -641,11 +675,11 @@ class Client:
 
         currency = ''
 
-        # fqsn parsing stage
+        # fqme parsing stage
         # ------------------
         if '.ib' in pattern:
-            from ..data._source import unpack_fqsn
-            _, symbol, expiry = unpack_fqsn(pattern)
+            from piker.accounting import unpack_fqme
+            _, symbol, venue, expiry = unpack_fqme(pattern)
 
         else:
             symbol = pattern
@@ -687,7 +721,7 @@ class Client:
     ) -> Contract:
 
         if pattern is not None:
-            symbol, currency, exch, expiry = self.parse_patt2fqsn(
+            symbol, currency, exch, expiry = self.parse_patt2fqme(
                 pattern,
             )
             sectype = ''
@@ -722,7 +756,7 @@ class Client:
                 )
 
         elif (
-            exch in ('IDEALPRO')
+            exch in {'IDEALPRO'}
             or sectype == 'CASH'
         ):
             # if '/' in symbol:
@@ -806,14 +840,14 @@ class Client:
 
     async def get_head_time(
         self,
-        fqsn: str,
+        fqme: str,
 
     ) -> datetime:
         '''
         Return the first datetime stamp for ``contract``.
 
         '''
-        contract = (await self.find_contracts(fqsn))[0]
+        contract = (await self.find_contracts(fqme))[0]
         return await self.ib.reqHeadTimeStampAsync(
             contract,
             whatToShow='TRADES',
@@ -825,29 +859,34 @@ class Client:
         self,
         symbol: str,
 
-    ) -> tuple[Contract, Ticker, ContractDetails]:
+    ) -> tuple[
+        Contract,
+        ContractDetails,
+    ]:
+        '''
+        Get summary (meta) data for a given symbol str including
+        ``Contract`` and its details and a (first snapshot of the)
+        ``Ticker``.
 
+        '''
         contract = (await self.find_contracts(symbol))[0]
+        details_fute = self.ib.reqContractDetailsAsync(contract)
+        details = (await details_fute)[0]
+        return contract, details
+
+    async def get_quote(
+        self,
+        contract: Contract,
+
+    ) -> Ticker:
+        '''
+        Return a single (snap) quote for symbol.
+
+        '''
         ticker: Ticker = self.ib.reqMktData(
             contract,
             snapshot=True,
         )
-        details_fute = self.ib.reqContractDetailsAsync(contract)
-        details = (await details_fute)[0]
-
-        return contract, ticker, details
-
-    async def get_quote(
-        self,
-        symbol: str,
-
-    ) -> tuple[Contract, Ticker, ContractDetails]:
-        '''
-        Return a single quote for symbol.
-
-        '''
-        contract, ticker, details = await self.get_sym_details(symbol)
-
         ready = ticker.updateEvent
 
         # ensure a last price gets filled in before we deliver quote
@@ -864,21 +903,22 @@ class Client:
                 else:
                     if not warnset:
                         log.warning(
-                            f'Quote for {symbol} timed out: market is closed?'
+                            f'Quote for {contract} timed out: market is closed?'
                         )
                         warnset = True
 
             else:
-                log.info(f'Got first quote for {symbol}')
+                log.info(f'Got first quote for {contract}')
                 break
         else:
             if not warnset:
                 log.warning(
-                    f'Symbol {symbol} is not returning a quote '
-                    'it may be outside trading hours?')
+                    f'Contract {contract} is not returning a quote '
+                    'it may be outside trading hours?'
+                )
                 warnset = True
 
-        return contract, ticker, details
+        return ticker
 
     # async to be consistent for the client proxy, and cuz why not.
     def submit_limit(
@@ -1008,6 +1048,21 @@ class Client:
 
         self.ib.errorEvent.connect(push_err)
 
+        api_err = self.ib.client.apiError
+
+        def report_api_err(msg: str) -> None:
+            with remove_handler_on_err(
+                api_err,
+                report_api_err,
+            ):
+                to_trio.send_nowait((
+                    'error',
+                    msg,
+                ))
+                api_err.clear()  # drop msg history
+
+        api_err.connect(report_api_err)
+
     def positions(
         self,
         account: str = '',
@@ -1019,13 +1074,13 @@ class Client:
         return self.ib.positions(account=account)
 
 
-def con2fqsn(
+def con2fqme(
     con: Contract,
     _cache: dict[int, (str, bool)] = {}
 
 ) -> tuple[str, bool]:
     '''
-    Convert contracts to fqsn-style strings to be used both in symbol-search
+    Convert contracts to fqme-style strings to be used both in symbol-search
     matching and as feed tokens passed to the front end data deed layer.
 
     Previously seen contracts are cached by id.
@@ -1085,12 +1140,12 @@ def con2fqsn(
     if expiry:
         suffix += f'.{expiry}'
 
-    fqsn_key = symbol.lower()
+    fqme_key = symbol.lower()
     if suffix:
-        fqsn_key = '.'.join((fqsn_key, suffix)).lower()
+        fqme_key = '.'.join((fqme_key, suffix)).lower()
 
-    _cache[con.conId] = fqsn_key, calc_price
-    return fqsn_key, calc_price
+    _cache[con.conId] = fqme_key, calc_price
+    return fqme_key, calc_price
 
 
 # per-actor API ep caching
@@ -1137,7 +1192,7 @@ async def load_aio_clients(
     # the API TCP in `ib_insync` connection can be flaky af so instead
     # retry a few times to get the client going..
     connect_retries: int = 3,
-    connect_timeout: float = 0.5,
+    connect_timeout: float = 1,
     disconnect_on_exit: bool = True,
 
 ) -> dict[str, Client]:
@@ -1191,9 +1246,14 @@ async def load_aio_clients(
     for host, port in combos:
 
         sockaddr = (host, port)
+
+        maybe_client = _client_cache.get(sockaddr)
         if (
-            sockaddr in _client_cache
-            or sockaddr in _scan_ignore
+            sockaddr in _scan_ignore
+            or (
+                maybe_client
+                and maybe_client.ib.isConnected()
+            )
         ):
             continue
 
@@ -1204,9 +1264,9 @@ async def load_aio_clients(
                 await ib.connectAsync(
                     host,
                     port,
-                    clientId=client_id,
+                    clientId=client_id + i,
 
-                    # this timeout is sensative on windows and will
+                    # this timeout is sensitive on windows and will
                     # fail without a good "timeout error" so be
                     # careful.
                     timeout=connect_timeout,
@@ -1230,15 +1290,10 @@ async def load_aio_clients(
                 OSError,
             ) as ce:
                 _err = ce
-
-                if i > 8:
-                    # cache logic to avoid rescanning if we already have all
-                    # clients loaded.
-                    _scan_ignore.add(sockaddr)
-                    raise
-
                 log.warning(
-                    f'Failed to connect on {port} for {i} time, retrying...')
+                    f'Failed to connect on {port} for {i} time with,\n'
+                    f'{ib.client.apiError.value()}\n'
+                    'retrying with a new client id..')
 
         # Pre-collect all accounts available for this
         # connection and map account names to this client
@@ -1299,18 +1354,12 @@ async def load_clients_for_trio(
     a ``tractor.to_asyncio.open_channel_from()``.
 
     '''
-    global _accounts2clients
+    async with load_aio_clients() as accts2clients:
 
-    if _accounts2clients:
-        to_trio.send_nowait(_accounts2clients)
+        to_trio.send_nowait(accts2clients)
+
+        # TODO: maybe a sync event to wait on instead?
         await asyncio.sleep(float('inf'))
-
-    else:
-        async with load_aio_clients() as accts2clients:
-            to_trio.send_nowait(accts2clients)
-
-            # TODO: maybe a sync event to wait on instead?
-            await asyncio.sleep(float('inf'))
 
 
 @acm
@@ -1400,6 +1449,14 @@ class MethodProxy:
         while not chan.closed():
             # send through method + ``kwargs: dict`` as pair
             msg = await chan.receive()
+
+            # TODO: implement reconnect functionality like
+            # in our `.data._web_bs.NoBsWs`
+            # try:
+            #     msg = await chan.receive()
+            # except ConnectionError:
+            #     self.reset()
+
             # print(f'NEXT MSG: {msg}')
 
             # TODO: py3.10 ``match:`` syntax B)
@@ -1451,6 +1508,7 @@ async def open_aio_client_method_relay(
 
 ) -> None:
 
+    # sync with `open_client_proxy()` caller
     to_trio.send_nowait(client)
 
     # TODO: separate channel for error handling?
@@ -1460,25 +1518,34 @@ async def open_aio_client_method_relay(
     # back results
     while not to_trio._closed:
         msg = await from_trio.get()
-        if msg is None:
-            print('asyncio PROXY-RELAY SHUTDOWN')
-            break
 
-        meth_name, kwargs = msg
-        meth = getattr(client, meth_name)
+        match msg:
+            case None:  # termination sentinel
+                print('asyncio PROXY-RELAY SHUTDOWN')
+                break
 
-        try:
-            resp = await meth(**kwargs)
-            # echo the msg back
-            to_trio.send_nowait({'result': resp})
+            case (meth_name, kwargs):
+                meth_name, kwargs = msg
+                meth = getattr(client, meth_name)
 
-        except (
-            RequestError,
+                try:
+                    resp = await meth(**kwargs)
+                    # echo the msg back
+                    to_trio.send_nowait({'result': resp})
 
-            # TODO: relay all errors to trio?
-            # BaseException,
-        ) as err:
-            to_trio.send_nowait({'exception': err})
+                except (
+                    RequestError,
+
+                    # TODO: relay all errors to trio?
+                    # BaseException,
+                ) as err:
+                    to_trio.send_nowait({'exception': err})
+
+            case {'error': content}:
+                to_trio.send_nowait({'exception': content})
+
+            case _:
+                raise ValueError(f'Unhandled msg {msg}')
 
 
 @acm
@@ -1509,7 +1576,8 @@ async def open_client_proxy(
 
         # mock all remote methods on ib ``Client``.
         for name, method in inspect.getmembers(
-            Client, predicate=inspect.isfunction
+            Client,
+            predicate=inspect.isfunction,
         ):
             if '_' == name[0]:
                 continue

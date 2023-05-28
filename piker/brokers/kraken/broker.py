@@ -21,7 +21,7 @@ Order api and machinery
 from collections import ChainMap, defaultdict
 from contextlib import (
     asynccontextmanager as acm,
-    contextmanager as cm,
+    aclosing,
 )
 from functools import partial
 from itertools import count
@@ -35,20 +35,23 @@ from typing import (
     Union,
 )
 
-from async_generator import aclosing
 from bidict import bidict
 import pendulum
 import trio
 import tractor
 
-from piker.pp import (
+from piker.accounting import (
     Position,
     PpTable,
     Transaction,
+    TransactionLedger,
     open_trade_ledger,
     open_pps,
+    get_likely_pair,
 )
-from piker.data._source import Symbol
+from piker.accounting._mktinfo import (
+    MktPair,
+)
 from piker.clearing._messages import (
     Order,
     Status,
@@ -67,7 +70,7 @@ from .api import (
     get_client,
 )
 from .feed import (
-    get_console_log,
+    get_mkt_info,
     open_autorecon_ws,
     NoBsWs,
     stream_messages,
@@ -367,6 +370,8 @@ def trades2pps(
     acctid: str,
     new_trans: dict[str, Transaction] = {},
 
+    write_storage: bool = True,
+
 ) -> tuple[
     list[BrokerdPosition],
     list[Transaction],
@@ -397,12 +402,19 @@ def trades2pps(
                 # right since `.broker` is already
                 # included?
                 account='kraken.' + acctid,
-                symbol=p.symbol.front_fqsn(),
+                symbol=p.mkt.fqme,
                 size=p.size,
                 avg_price=p.ppu,
                 currency='',
             )
             position_msgs.append(msg)
+
+    if write_storage:
+        # TODO: ideally this blocks the this task
+        # as little as possible. we need to either do
+        # these writes in another actor, or try out `trio`'s
+        # async file IO api?
+        table.write_config()
 
     return position_msgs
 
@@ -414,14 +426,11 @@ async def trades_dialogue(
 
 ) -> AsyncIterator[dict[str, Any]]:
 
-    # XXX: required to propagate ``tractor`` loglevel to ``piker`` logging
-    get_console_log(loglevel or tractor.current_actor().loglevel)
-
     async with get_client() as client:
 
         if not client._api_key:
-            raise RuntimeError(
-                'Missing Kraken API key in `brokers.toml`!?!?')
+            await ctx.started('paper')
+            return
 
         # TODO: make ems flip to paper mode via
         # some returned signal if the user only wants to use
@@ -467,40 +476,55 @@ async def trades_dialogue(
         # update things correctly.
         simulate_pp_update: bool = False
 
+        table: PpTable
+        ledger: TransactionLedger
         with (
             open_pps(
                 'kraken',
-                acctid
+                acctid,
+                write_on_exit=True,
             ) as table,
 
             open_trade_ledger(
                 'kraken',
-                acctid
-            ) as ledger_dict,
+                acctid,
+            ) as ledger,
         ):
             # transaction-ify the ledger entries
-            ledger_trans = norm_trade_records(ledger_dict)
+            ledger_trans = await norm_trade_records(ledger)
+
+            if not table.pps:
+                # NOTE: we can't use this since it first needs
+                # broker: str input support!
+                # table.update_from_trans(ledger.to_trans())
+                table.update_from_trans(ledger_trans)
+                table.write_config()
 
             # TODO: eventually probably only load
             # as far back as it seems is not deliverd in the
             # most recent 50 trades and assume that by ordering we
             # already have those records in the ledger.
             tids2trades = await client.get_trades()
-            ledger_dict.update(tids2trades)
-            api_trans = norm_trade_records(tids2trades)
+            ledger.update(tids2trades)
+            if tids2trades:
+                ledger.write_config()
+
+            api_trans = await norm_trade_records(tids2trades)
 
             # retrieve kraken reported balances
             # and do diff with ledger to determine
             # what amount of trades-transactions need
             # to be reloaded.
             balances = await client.get_balances()
+
             for dst, size in balances.items():
+
                 # we don't care about tracking positions
                 # in the user's source fiat currency.
                 if (
                     dst == src_fiat
                     or not any(
-                        dst in bsuid for bsuid in table.pps
+                        dst in bs_mktid for bs_mktid in table.pps
                     )
                 ):
                     log.warning(
@@ -508,45 +532,20 @@ async def trades_dialogue(
                     )
                     continue
 
-                def get_likely_pair(
-                    dst: str,
-                    bsuid: str,
-                    src_fiat: str = src_fiat
-
-                ) -> str:
-                    '''
-                    Attempt to get the likely trading pair masting
-                    a given destination asset `dst: str`.
-
-                    '''
-                    try:
-                        src_name_start = bsuid.rindex(src_fiat)
-                    except (
-                        ValueError,   # substr not found
-                    ):
-                        # TODO: handle nested positions..(i.e.
-                        # positions where the src fiat was used to
-                        # buy some other dst which was furhter used
-                        # to buy another dst..)
-                        log.warning(
-                            f'No src fiat {src_fiat} found in {bsuid}?'
-                        )
-                        return
-
-                    likely_dst = bsuid[:src_name_start]
-                    if likely_dst == dst:
-                        return bsuid
-
                 def has_pp(
                     dst: str,
                     size: float,
 
-                ) -> Position | bool:
+                ) -> Position | None:
 
                     src2dst: dict[str, str] = {}
 
-                    for bsuid in table.pps:
-                        likely_pair = get_likely_pair(dst, bsuid)
+                    for bs_mktid in table.pps:
+                        likely_pair = get_likely_pair(
+                            src_fiat,
+                            dst,
+                            bs_mktid,
+                        )
                         if likely_pair:
                             src2dst[src_fiat] = dst
 
@@ -565,7 +564,7 @@ async def trades_dialogue(
                         ):
                             log.warning(
                                 f'`kraken` account says you have  a ZERO '
-                                f'balance for {bsuid}:{pair}\n'
+                                f'balance for {bs_mktid}:{pair}\n'
                                 f'but piker seems to think `{pp.size}`\n'
                                 'This is likely a discrepancy in piker '
                                 'accounting if the above number is'
@@ -574,7 +573,7 @@ async def trades_dialogue(
                             )
                             return pp
 
-                    return False
+                    return None  # signal no entry
 
                 pos = has_pp(dst, size)
                 if not pos:
@@ -601,8 +600,12 @@ async def trades_dialogue(
                             # in the ``pps.toml`` for the necessary pair
                             # yet and thus this likely pair grabber will
                             # likely fail.
-                            for bsuid in table.pps:
-                                likely_pair = get_likely_pair(dst, bsuid)
+                            for bs_mktid in table.pps:
+                                likely_pair = get_likely_pair(
+                                    src_fiat,
+                                    dst,
+                                    bs_mktid,
+                                )
                                 if likely_pair:
                                     break
                             else:
@@ -652,6 +655,12 @@ async def trades_dialogue(
             )
             await ctx.started((ppmsgs, [acc_name]))
 
+            # TODO: ideally this blocks the this task
+            # as little as possible. we need to either do
+            # these writes in another actor, or try out `trio`'s
+            # async file IO api?
+            table.write_config()
+
             # Get websocket token for authenticated data stream
             # Assert that a token was actually received.
             resp = await client.endpoint('GetWebSocketsToken', {})
@@ -674,8 +683,6 @@ async def trades_dialogue(
                 aclosing(stream_messages(ws)) as stream,
                 trio.open_nursery() as nurse,
             ):
-                stream = stream_messages(ws)
-
                 # task for processing inbound requests from ems
                 nurse.start_soon(
                     handle_order_requests,
@@ -724,8 +731,8 @@ async def handle_order_updates(
     '''
     Main msg handling loop for all things order management.
 
-    This code is broken out to make the context explicit and state variables
-    defined in the signature clear to the reader.
+    This code is broken out to make the context explicit and state
+    variables defined in the signature clear to the reader.
 
     '''
     async for msg in ws_stream:
@@ -818,7 +825,7 @@ async def handle_order_updates(
                     )
                     await ems_stream.send(status_msg)
 
-                new_trans = norm_trade_records(trades)
+                new_trans = await norm_trade_records(trades)
                 ppmsgs = trades2pps(
                     table,
                     acctid,
@@ -826,8 +833,6 @@ async def handle_order_updates(
                 )
                 for pp_msg in ppmsgs:
                     await ems_stream.send(pp_msg)
-
-                ledger_trans.update(new_trans)
 
             # process and relay order state change events
             # https://docs.kraken.com/websockets/#message-openOrders
@@ -890,7 +895,7 @@ async def handle_order_updates(
                             ids.inverse.get(reqid) is None
                         ):
                             # parse out existing live order
-                            fqsn = pair.replace('/', '').lower()
+                            fqme = pair.replace('/', '').lower()
                             price = float(price)
                             size = float(vol)
 
@@ -917,7 +922,7 @@ async def handle_order_updates(
                                     action=action,
                                     exec_mode='live',
                                     oid=oid,
-                                    symbol=fqsn,
+                                    symbol=fqme,
                                     account=acc_name,
                                     price=price,
                                     size=size,
@@ -1182,7 +1187,7 @@ async def handle_order_updates(
                 log.warning(f'Unhandled trades update msg: {msg}')
 
 
-def norm_trade_records(
+async def norm_trade_records(
     ledger: dict[str, Any],
 
 ) -> dict[str, Transaction]:
@@ -1197,30 +1202,19 @@ def norm_trade_records(
         }[record['type']]
 
         # we normalize to kraken's `altname` always..
-        bsuid, pair_info = Client.normalize_symbol(record['pair'])
-        fqsn = f'{bsuid}.kraken'
-
-        mktpair = Symbol.from_fqsn(
-            fqsn,
-            info={
-                'lot_size_digits': pair_info.lot_decimals,
-                'tick_size_digits': pair_info.pair_decimals,
-                'asset_type': 'crypto',
-            },
-        )
+        bs_mktid = Client.normalize_symbol(record['pair'])
+        fqme = f'{bs_mktid}.kraken'
+        mkt: MktPair = (await get_mkt_info(fqme))[0]
 
         records[tid] = Transaction(
-            fqsn=fqsn,
-            sym=mktpair,
+            fqme=fqme,
+            sym=mkt,
             tid=tid,
             size=size,
             price=float(record['price']),
             cost=float(record['fee']),
             dt=pendulum.from_timestamp(float(record['time'])),
-            bsuid=bsuid,
-
-            # XXX: there are no derivs on kraken right?
-            # expiry=expiry,
+            bs_mktid=bs_mktid,
         )
 
     return records

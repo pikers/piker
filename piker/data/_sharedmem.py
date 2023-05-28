@@ -32,12 +32,9 @@ import numpy as np
 from numpy.lib import recfunctions as rfn
 import tractor
 
-from ..log import get_logger
+from ._util import log
 from ._source import base_iohlc_dtype
 from .types import Struct
-
-
-log = get_logger(__name__)
 
 
 # how  much is probably dependent on lifestyle
@@ -649,7 +646,7 @@ def maybe_open_shm_array(
         token = _known_tokens[key]
         return attach_shm_array(token=token, **kwargs), False
     except KeyError:
-        log.warning(f"Could not find {key} in shms cache")
+        log.debug(f"Could not find {key} in shms cache")
         if dtype:
             token = _make_token(
                 key,
@@ -659,7 +656,7 @@ def maybe_open_shm_array(
             try:
                 return attach_shm_array(token=token, **kwargs), False
             except FileNotFoundError:
-                log.warning(f"Could not attach to shm with token {token}")
+                log.debug(f"Could not attach to shm with token {token}")
 
         # This actor does not know about memory
         # associated with the provided "key".

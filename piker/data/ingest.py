@@ -23,7 +23,7 @@ Api layer likely in here...
 from types import ModuleType
 from importlib import import_module
 
-from ..log import get_logger
+from ._util import get_logger
 
 log = get_logger(__name__)
 

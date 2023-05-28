@@ -2,8 +2,21 @@
 # https://github.com/waytrade/ib-gateway-docker/blob/master/docker-compose.yml
 version: "3.5"
 
+
 services:
+
   ib_gw_paper:
+
+    # apparently java is a mega cukc:
+    # https://stackoverflow.com/a/56895801
+    # https://bugs.openjdk.org/browse/JDK-8150460
+    ulimits:
+      # nproc: 65535
+      nproc: 6000
+      nofile:
+        soft: 2000
+        hard: 3000
+
     # other image tags available:
     # https://github.com/waytrade/ib-gateway-docker#supported-tags
     # image: waytrade/ib-gateway:981.3j

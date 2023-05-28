@@ -12,158 +12,104 @@
 # GNU Affero General Public License for more details.
 
 # You should have received a copy of the GNU Affero General Public License
-
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 '''
 Personal/Private position parsing, calculating, summarizing in a way
 that doesn't try to cuk most humans who prefer to not lose their moneys..
+
 (looking at you `ib` and dirt-bird friends)
 
 '''
 from __future__ import annotations
 from contextlib import contextmanager as cm
-from pprint import pformat
-import os
-from os import path
+from decimal import Decimal
 from math import copysign
-import re
-import time
+from pprint import pformat
+from pathlib import Path
 from typing import (
     Any,
     Iterator,
-    Optional,
     Union,
     Generator
 )
 
 import pendulum
 from pendulum import datetime, now
-import tomli
-import toml
+import tomlkit
 
-from . import config
-from .brokers import get_brokermod
-from .clearing._messages import BrokerdPosition, Status
-from .data._source import Symbol, unpack_fqsn
-from .log import get_logger
-from .data.types import Struct
+from ._ledger import (
+    Transaction,
+    iter_by_dt,
+    open_trade_ledger,
+)
+from ._mktinfo import (
+    MktPair,
+    Asset,
+    unpack_fqme,
+)
+from .. import config
+from ..brokers import get_brokermod
+from ..clearing._messages import (
+    BrokerdPosition,
+    Status,
+)
+from ..data.types import Struct
+from ..log import get_logger
 
 log = get_logger(__name__)
 
 
-@cm
-def open_trade_ledger(
-    broker: str,
-    account: str,
-
-) -> Generator[dict, None, None]:
-    '''
-    Indempotently create and read in a trade log file from the
-    ``<configuration_dir>/ledgers/`` directory.
-
-    Files are named per broker account of the form
-    ``<brokername>_<accountname>.toml``. The ``accountname`` here is the
-    name as defined in the user's ``brokers.toml`` config.
-
-    '''
-    ldir = path.join(config._config_dir, 'ledgers')
-    if not path.isdir(ldir):
-        os.makedirs(ldir)
-
-    fname = f'trades_{broker}_{account}.toml'
-    tradesfile = path.join(ldir, fname)
-
-    if not path.isfile(tradesfile):
-        log.info(
-            f'Creating new local trades ledger: {tradesfile}'
-        )
-        with open(tradesfile, 'w') as cf:
-            pass  # touch
-    with open(tradesfile, 'rb') as cf:
-        start = time.time()
-        ledger = tomli.load(cf)
-        log.info(f'Ledger load took {time.time() - start}s')
-        cpy = ledger.copy()
-
-    try:
-        yield cpy
-    finally:
-        if cpy != ledger:
-
-            # TODO: show diff output?
-            # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
-            log.info(f'Updating ledger for {tradesfile}:\n')
-            ledger.update(cpy)
-
-            # we write on close the mutated ledger data
-            with open(tradesfile, 'w') as cf:
-                toml.dump(ledger, cf)
-
-
-class Transaction(Struct, frozen=True):
-    # TODO: should this be ``.to`` (see below)?
-    fqsn: str
-
-    sym: Symbol
-    tid: Union[str, int]  # unique transaction id
-    size: float
-    price: float
-    cost: float  # commisions or other additional costs
-    dt: datetime
-    expiry: datetime | None = None
-
-    # optional key normally derived from the broker
-    # backend which ensures the instrument-symbol this record
-    # is for is truly unique.
-    bsuid: Union[str, int] | None = None
-
-    # optional fqsn for the source "asset"/money symbol?
-    # from: Optional[str] = None
-
-
-def iter_by_dt(
-    clears: dict[str, Any],
-) -> Iterator[tuple[str, dict]]:
-    '''
-    Iterate entries of a ``clears: dict`` table sorted by entry recorded
-    datetime presumably set at the ``'dt'`` field in each entry.
-
-    '''
-    for tid, data in sorted(
-        list(clears.items()),
-        key=lambda item: item[1]['dt'],
-    ):
-        yield tid, data
-
-
 class Position(Struct):
     '''
-    Basic pp (personal/piker position) model with attached clearing
-    transaction history.
+    An asset "position" model with attached clearing transaction history.
+
+    A financial "position" in `piker` terms is a summary of accounting
+    metrics computed from a transaction ledger; generally it describes
+    some acumulative "size" and "average price" from the summarized
+    underlying transaction set.
+
+    In piker we focus on the `.ppu` (price per unit) and the `.bep`
+    (break even price) including all transaction entries and exits since
+    the last "net-zero" size of the destination asset's holding.
+
+    This interface serves as an object API for computing and tracking
+    positions as well as supports serialization for storage in the local
+    file system (in TOML) and to interchange as a msg over IPC.
 
     '''
-    symbol: Symbol
+    mkt: MktPair
 
     # can be +ve or -ve for long/short
     size: float
 
-    # "breakeven price" above or below which pnl moves above and below
-    # zero for the entirety of the current "trade state".
+    # "price-per-unit price" above or below which pnl moves above and
+    # below zero for the entirety of the current "trade state". The ppu
+    # is only modified on "increases of" the absolute size of a position
+    # in one of a long/short "direction" (i.e. abs(.size_i) > 0 after
+    # the next transaction given .size was > 0 before that tx, and vice
+    # versa for -ve sized positions).
     ppu: float
 
-    # unique backend symbol id
-    bsuid: str
+    # TODO: break-even-price support!
+    # bep: float
 
-    split_ratio: Optional[int] = None
+    # unique "backend system market id"
+    bs_mktid: str
+
+    split_ratio: int | None = None
 
     # ordered record of known constituent trade messages
     clears: dict[
         Union[str, int, Status],  # trade id
         dict[str, Any],  # transaction history summaries
     ] = {}
-    first_clear_dt: Optional[datetime] = None
+    first_clear_dt: datetime | None = None
 
-    expiry: Optional[datetime] = None
+    expiry: datetime | None = None
+
+    def __repr__(self) -> str:
+        return pformat(self.to_dict())
 
     def to_dict(self) -> dict:
         return {
@@ -192,37 +138,40 @@ class Position(Struct):
         # listing venue here even when the backend isn't providing
         # it via the trades ledger..
         # drop symbol obj in serialized form
-        s = d.pop('symbol')
-        fqsn = s.front_fqsn()
+        mkt: MktPair = d.pop('mkt')
+        assert isinstance(mkt, MktPair)
 
-        broker, key, suffix = unpack_fqsn(fqsn)
-        sym_info = s.broker_info[broker]
+        fqme = mkt.fqme
+        broker, mktep, venue, suffix = unpack_fqme(fqme)
 
-        d['asset_type'] = sym_info['asset_type']
-        d['price_tick_size'] = (
-            sym_info.get('price_tick_size')
-            or
-            s.tick_size
-        )
-        d['lot_tick_size'] = (
-            sym_info.get('lot_tick_size')
-            or
-            s.lot_tick_size
-        )
+        # an asset resolved mkt where we have ``Asset`` info about
+        # each tradeable asset in the market.
+        if mkt.resolved:
+            dst: Asset = mkt.dst
+            d['asset_type'] = dst.atype
+
+        d['price_tick'] = mkt.price_tick
+        d['size_tick'] = mkt.size_tick
 
         if self.expiry is None:
             d.pop('expiry', None)
         elif expiry:
             d['expiry'] = str(expiry)
 
-        toml_clears_list = []
+        clears_table: tomlkit.Array = tomlkit.array()
+        clears_table.multiline(
+            multiline=True,
+            indent='',
+        )
 
         # reverse sort so latest clears are at top of section?
         for tid, data in iter_by_dt(clears):
-            inline_table = toml.TomlDecoder().get_empty_inline_table()
+
+            inline_table = tomlkit.inline_table()
 
             # serialize datetime to parsable `str`
-            inline_table['dt'] = str(data['dt'])
+            dtstr = inline_table['dt'] = data['dt'].isoformat('T')
+            assert 'Datetime' not in dtstr
 
             # insert optional clear fields in column order
             for k in ['ppu', 'accum_size']:
@@ -235,11 +184,11 @@ class Position(Struct):
                 inline_table[k] = data[k]
 
             inline_table['tid'] = tid
-            toml_clears_list.append(inline_table)
+            clears_table.append(inline_table)
 
-        d['clears'] = toml_clears_list
+        d['clears'] = clears_table
 
-        return fqsn, d
+        return fqme, d
 
     def ensure_state(self) -> None:
         '''
@@ -249,7 +198,9 @@ class Position(Struct):
 
         '''
         clears = list(self.clears.values())
-        self.first_clear_dt = min(list(entry['dt'] for entry in clears))
+        self.first_clear_dt = min(
+            list(entry['dt'] for entry in clears)
+        )
         last_clear = clears[-1]
 
         csize = self.calc_size()
@@ -294,22 +245,19 @@ class Position(Struct):
     ) -> None:
 
         # XXX: better place to do this?
-        symbol = self.symbol
+        mkt = self.mkt
+        size_tick_digits = mkt.size_tick_digits
+        price_tick_digits = mkt.price_tick_digits
 
-        lot_size_digits = symbol.lot_size_digits
-        ppu, size = (
-            round(
-                msg['avg_price'],
-                ndigits=symbol.tick_size_digits
-            ),
-            round(
-                msg['size'],
-                ndigits=lot_size_digits
-            ),
+        self.ppu = round(
+            # TODO: change this to ppu?
+            msg['avg_price'],
+            ndigits=price_tick_digits,
         )
-
-        self.ppu = ppu
-        self.size = size
+        self.size = round(
+            msg['size'],
+            ndigits=size_tick_digits,
+        )
 
     @property
     def dsize(self) -> float:
@@ -337,10 +285,16 @@ class Position(Struct):
         datetime-stamped order.
 
         '''
-        return iter_by_dt(self.clears)
+        # sort on the already existing datetime that should have
+        # been generated for the entry's table
+        return iter_by_dt(
+            self.clears,
+            key=lambda entry: entry[1]['dt']
+        )
 
     def calc_ppu(
         self,
+
         # include transaction cost in breakeven price
         # and presume the worst case of the same cost
         # to exit this transaction (even though in reality
@@ -471,20 +425,28 @@ class Position(Struct):
         asset using the clears/trade event table; zero if expired.
 
         '''
-        size: float = 0
+        size: float = 0.
 
         # time-expired pps (normally derivatives) are "closed"
         # and have a zero size.
         if self.expired():
-            return 0
+            return 0.
 
         for tid, entry in self.clears.items():
             size += entry['size']
+            # XXX: do we need it every step?
+            # no right since rounding is an LT?
+            # size = self.mkt.quantize(
+            #     size + entry['size'],
+            #     quantity_type='size',
+            # )
 
         if self.split_ratio is not None:
             size = round(size * self.split_ratio)
 
-        return float(self.symbol.quantize_size(size))
+        return float(
+            self.mkt.quantize(size),
+        )
 
     def minimize_clears(
         self,
@@ -506,7 +468,9 @@ class Position(Struct):
         # scan for the last "net zero" position by iterating
         # transactions until the next net-zero size, rinse, repeat.
         for tid, clear in self.clears.items():
-            size += clear['size']
+            size = float(
+                self.mkt.quantize(size + clear['size'])
+            )
             clears_since_zero.append((tid, clear))
 
             if size == 0:
@@ -543,8 +507,8 @@ class Position(Struct):
 
         return clear
 
-    def sugest_split(self) -> float:
-        ...
+    # def sugest_split(self) -> float:
+    #     ...
 
 
 class PpTable(Struct):
@@ -552,7 +516,8 @@ class PpTable(Struct):
     brokername: str
     acctid: str
     pps: dict[str, Position]
-    conf: Optional[dict] = {}
+    conf_path: Path
+    conf: dict | None = {}
 
     def update_from_trans(
         self,
@@ -564,24 +529,38 @@ class PpTable(Struct):
         pps = self.pps
         updated: dict[str, Position] = {}
 
-        # lifo update all pps from records
-        for tid, t in trans.items():
+        # lifo update all pps from records, ensuring
+        # we compute the PPU and size sorted in time!
+        for t in sorted(
+            trans.values(),
+            key=lambda t: t.dt,
+            reverse=True,
+        ):
+            fqme = t.fqme
+            bs_mktid = t.bs_mktid
 
-            pp = pps.setdefault(
-                t.bsuid,
-
+            # template the mkt-info presuming a legacy market ticks
+            # if no info exists in the transactions..
+            mkt: MktPair = t.sys
+            pp = pps.get(bs_mktid)
+            if not pp:
                 # if no existing pp, allocate fresh one.
-                Position(
-                    Symbol.from_fqsn(
-                        t.fqsn,
-                        info={},
-                    ) if not t.sym else t.sym,
+                pp = pps[bs_mktid] = Position(
+                    mkt=mkt,
                     size=0.0,
                     ppu=0.0,
-                    bsuid=t.bsuid,
+                    bs_mktid=bs_mktid,
                     expiry=t.expiry,
                 )
-            )
+            else:
+                # NOTE: if for some reason a "less resolved" mkt pair
+                # info has been set (based on the `.fqme` being
+                # a shorter string), instead use the one from the
+                # transaction since it likely has (more) full
+                # information from the provider.
+                if len(pp.mkt.fqme) < len(fqme):
+                    pp.mkt = mkt
+
             clears = pp.clears
             if clears:
                 first_clear_dt = pp.first_clear_dt
@@ -590,7 +569,10 @@ class PpTable(Struct):
                 # included in the current pps state.
                 if (
                     t.tid in clears
-                    or first_clear_dt and t.dt < first_clear_dt
+                    or (
+                        first_clear_dt
+                        and t.dt < first_clear_dt
+                    )
                 ):
                     # NOTE: likely you'll see repeats of the same
                     # ``Transaction`` passed in here if/when you are restarting
@@ -601,12 +583,14 @@ class PpTable(Struct):
 
             # update clearing table
             pp.add_clear(t)
-            updated[t.bsuid] = pp
+            updated[t.bs_mktid] = pp
 
         # minimize clears tables and update sizing.
-        for bsuid, pp in updated.items():
+        for bs_mktid, pp in updated.items():
             pp.ensure_state()
 
+        # deliver only the position entries that were actually updated
+        # (modified the state) from the input transaction set.
         return updated
 
     def dump_active(
@@ -630,14 +614,8 @@ class PpTable(Struct):
         open_pp_objs: dict[str, Position] = {}
 
         pp_objs = self.pps
-        for bsuid in list(pp_objs):
-            pp = pp_objs[bsuid]
-
-            # XXX: debug hook for size mismatches
-            # qqqbsuid = 320227571
-            # if bsuid == qqqbsuid:
-            #     breakpoint()
-
+        for bs_mktid in list(pp_objs):
+            pp = pp_objs[bs_mktid]
             pp.ensure_state()
 
             if (
@@ -656,37 +634,42 @@ class PpTable(Struct):
                 # ignored; the closed positions won't be written to the
                 # ``pps.toml`` since ``pp_active_entries`` above is what's
                 # written.
-                closed_pp_objs[bsuid] = pp
+                closed_pp_objs[bs_mktid] = pp
 
             else:
-                open_pp_objs[bsuid] = pp
+                open_pp_objs[bs_mktid] = pp
 
         return open_pp_objs, closed_pp_objs
 
     def to_toml(
         self,
+        active: dict[str, Position] | None = None,
+
     ) -> dict[str, Any]:
 
-        active, closed = self.dump_active()
+        if active is None:
+            active, _ = self.dump_active()
 
-        # ONLY dict-serialize all active positions; those that are closed
-        # we don't store in the ``pps.toml``.
+        # ONLY dict-serialize all active positions; those that are
+        # closed we don't store in the ``pps.toml``.
         to_toml_dict = {}
 
-        for bsuid, pos in active.items():
-
-            # keep the minimal amount of clears that make up this
+        pos: Position
+        for bs_mktid, pos in active.items():
+            # NOTE: we only store the minimal amount of clears that make up this
             # position since the last net-zero state.
             pos.minimize_clears()
             pos.ensure_state()
 
             # serialize to pre-toml form
-            fqsn, asdict = pos.to_pretoml()
-            log.info(f'Updating active pp: {fqsn}')
+            fqme, asdict = pos.to_pretoml()
+
+            assert 'Datetime' not in asdict['clears'][0]['dt']
+            log.info(f'Updating active pp: {fqme}')
 
             # XXX: ugh, it's cuz we push the section under
             # the broker name.. maybe we need to rethink this?
-            brokerless_key = fqsn.removeprefix(f'{self.brokername}.')
+            brokerless_key = fqme.removeprefix(f'{self.brokername}.')
             to_toml_dict[brokerless_key] = asdict
 
         return to_toml_dict
@@ -699,33 +682,55 @@ class PpTable(Struct):
         # TODO: show diff output?
         # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
         # active, closed_pp_objs = table.dump_active()
-        pp_entries = self.to_toml()
+
+        active, closed = self.dump_active()
+        pp_entries = self.to_toml(active=active)
         if pp_entries:
-            log.info(f'Updating ``pps.toml`` for {path}:\n')
-            log.info(f'Current positions:\n{pp_entries}')
-            self.conf[self.brokername][self.acctid] = pp_entries
+            log.info(
+                f'Updating positions in ``{self.conf_path}``:\n'
+                f'n{pformat(pp_entries)}'
+            )
 
-        elif (
-            self.brokername in self.conf and
-            self.acctid in self.conf[self.brokername]
-        ):
-            del self.conf[self.brokername][self.acctid]
-            if len(self.conf[self.brokername]) == 0:
-                del self.conf[self.brokername]
+            if self.brokername in self.conf:
+                log.warning(
+                    f'Rewriting {self.conf_path} keys to drop <broker.acct>!'
+                )
+                # legacy key schema including <brokername.account>, so
+                # rewrite all entries to drop those tables since we now
+                # put that in the filename!
+                accounts = self.conf.pop(self.brokername)
+                assert len(accounts) == 1
+                entries = accounts.pop(self.acctid)
+                self.conf.update(entries)
 
-        # TODO: why tf haven't they already done this for inline
-        # tables smh..
-        enc = PpsEncoder(preserve=True)
-        # table_bs_type = type(toml.TomlDecoder().get_empty_inline_table())
-        enc.dump_funcs[
-            toml.decoder.InlineTableDict
-        ] = enc.dump_inline_table
+            self.conf.update(pp_entries)
+
+            # drop any entries that are computed as net-zero
+            # we don't care about storing in the pps file.
+            if closed:
+                bs_mktid: str
+                for bs_mktid, pos in closed.items():
+                    fqme: str = pos.mkt.fqme
+                    if fqme in self.conf:
+                        self.conf.pop(fqme)
+                    else:
+                        # TODO: we reallly need a diff set of
+                        # loglevels/colors per subsys.
+                        log.warning(
+                            f'Recent position for {fqme} was closed!'
+                        )
+
+        # if there are no active position entries according
+        # to the toml dump output above, then clear the config
+        # file of all entries.
+        elif self.conf:
+            for entry in list(self.conf):
+                del self.conf[entry]
 
         config.write(
-            self.conf,
-            'pps',
-            encoder=enc,
-            fail_empty=False
+            config=self.conf,
+            path=self.conf_path,
+            fail_empty=False,
         )
 
 
@@ -735,7 +740,7 @@ def load_pps_from_ledger(
     acctname: str,
 
     # post normalization filter on ledger entries to be processed
-    filter_by: Optional[list[dict]] = None,
+    filter_by: list[dict] | None = None,
 
 ) -> tuple[
     dict[str, Transaction],
@@ -745,7 +750,7 @@ def load_pps_from_ledger(
     Open a ledger file by broker name and account and read in and
     process any trade records into our normalized ``Transaction`` form
     and then update the equivalent ``Pptable`` and deliver the two
-    bsuid-mapped dict-sets of the transactions and pps.
+    bs_mktid-mapped dict-sets of the transactions and pps.
 
     '''
     with (
@@ -761,9 +766,9 @@ def load_pps_from_ledger(
 
         if filter_by:
             records = {}
-            bsuids = set(filter_by)
+            bs_mktids = set(filter_by)
             for tid, r in src_records.items():
-                if r.bsuid in bsuids:
+                if r.bs_mktid in bs_mktids:
                     records[tid] = r
         else:
             records = src_records
@@ -773,151 +778,33 @@ def load_pps_from_ledger(
     return records, updated
 
 
-# TODO: instead see if we can hack tomli and tomli-w to do the same:
-# - https://github.com/hukkin/tomli
-# - https://github.com/hukkin/tomli-w
-class PpsEncoder(toml.TomlEncoder):
-    '''
-    Special "styled" encoder that makes a ``pps.toml`` redable and
-    compact by putting `.clears` tables inline and everything else
-    flat-ish.
-
-    '''
-    separator = ','
-
-    def dump_list(self, v):
-        '''
-        Dump an inline list with a newline after every element and
-        with consideration for denoted inline table types.
-
-        '''
-        retval = "[\n"
-        for u in v:
-            if isinstance(u, toml.decoder.InlineTableDict):
-                out = self.dump_inline_table(u)
-            else:
-                out = str(self.dump_value(u))
-
-            retval += " " + out + "," + "\n"
-        retval += "]"
-        return retval
-
-    def dump_inline_table(self, section):
-        """Preserve inline table in its compact syntax instead of expanding
-        into subsection.
-        https://github.com/toml-lang/toml#user-content-inline-table
-        """
-        val_list = []
-        for k, v in section.items():
-            # if isinstance(v, toml.decoder.InlineTableDict):
-            if isinstance(v, dict):
-                val = self.dump_inline_table(v)
-            else:
-                val = str(self.dump_value(v))
-
-            val_list.append(k + " = " + val)
-
-        retval = "{ " + ", ".join(val_list) + " }"
-        return retval
-
-    def dump_sections(self, o, sup):
-        retstr = ""
-        if sup != "" and sup[-1] != ".":
-            sup += '.'
-        retdict = self._dict()
-        arraystr = ""
-        for section in o:
-            qsection = str(section)
-            value = o[section]
-
-            if not re.match(r'^[A-Za-z0-9_-]+$', section):
-                qsection = toml.encoder._dump_str(section)
-
-            # arrayoftables = False
-            if (
-                self.preserve
-                and isinstance(value, toml.decoder.InlineTableDict)
-            ):
-                retstr += (
-                    qsection
-                    +
-                    " = "
-                    +
-                    self.dump_inline_table(o[section])
-                    +
-                    '\n'  # only on the final terminating left brace
-                )
-
-            # XXX: this code i'm pretty sure is just blatantly bad
-            # and/or wrong..
-            # if isinstance(o[section], list):
-            #     for a in o[section]:
-            #         if isinstance(a, dict):
-            #             arrayoftables = True
-            # if arrayoftables:
-            #     for a in o[section]:
-            #         arraytabstr = "\n"
-            #         arraystr += "[[" + sup + qsection + "]]\n"
-            #         s, d = self.dump_sections(a, sup + qsection)
-            #         if s:
-            #             if s[0] == "[":
-            #                 arraytabstr += s
-            #             else:
-            #                 arraystr += s
-            #         while d:
-            #             newd = self._dict()
-            #             for dsec in d:
-            #                 s1, d1 = self.dump_sections(d[dsec], sup +
-            #                                             qsection + "." +
-            #                                             dsec)
-            #                 if s1:
-            #                     arraytabstr += ("[" + sup + qsection +
-            #                                     "." + dsec + "]\n")
-            #                     arraytabstr += s1
-            #                 for s1 in d1:
-            #                     newd[dsec + "." + s1] = d1[s1]
-            #             d = newd
-            #         arraystr += arraytabstr
-
-            elif isinstance(value, dict):
-                retdict[qsection] = o[section]
-
-            elif o[section] is not None:
-                retstr += (
-                    qsection
-                    +
-                    " = "
-                    +
-                    str(self.dump_value(o[section]))
-                )
-
-                # if not isinstance(value, dict):
-                if not isinstance(value, toml.decoder.InlineTableDict):
-                    # inline tables should not contain newlines:
-                    # https://toml.io/en/v1.0.0#inline-table
-                    retstr += '\n'
-
-            else:
-                raise ValueError(value)
-
-        retstr += arraystr
-        return (retstr, retdict)
-
-
 @cm
 def open_pps(
     brokername: str,
     acctid: str,
     write_on_exit: bool = False,
+
 ) -> Generator[PpTable, None, None]:
     '''
     Read out broker-specific position entries from
     incremental update file: ``pps.toml``.
 
     '''
-    conf, path = config.load('pps')
-    brokersection = conf.setdefault(brokername, {})
-    pps = brokersection.setdefault(acctid, {})
+    conf: dict
+    conf_path: Path
+    conf, conf_path = config.load_account(brokername, acctid)
+
+    if brokername in conf:
+        log.warning(
+            f'Rewriting {conf_path} keys to drop <broker.acct>!'
+        )
+        # legacy key schema including <brokername.account>, so
+        # rewrite all entries to drop those tables since we now
+        # put that in the filename!
+        accounts = conf.pop(brokername)
+        for acctid in accounts.copy():
+            entries = accounts.pop(acctid)
+            conf.update(entries)
 
     # TODO: ideally we can pass in an existing
     # pps state to this right? such that we
@@ -934,61 +821,72 @@ def open_pps(
         brokername,
         acctid,
         pp_objs,
+        conf_path,
         conf=conf,
     )
 
     # unmarshal/load ``pps.toml`` config entries into object form
     # and update `PpTable` obj entries.
-    for fqsn, entry in pps.items():
-        bsuid = entry['bsuid']
-        symbol = Symbol.from_fqsn(
-            fqsn,
+    for fqme, entry in conf.items():
 
-            # NOTE & TODO: right now we fill in the defaults from
-            # `.data._source.Symbol` but eventually these should always
-            # either be already written to the pos table or provided at
-            # write time to ensure always having these values somewhere
-            # and thus allowing us to get our pos sizing precision
-            # correct!
-            info={
-                'asset_type': entry.get('asset_type', '<unknown>'),
-                'price_tick_size': entry.get('price_tick_size', 0.01),
-                'lot_tick_size': entry.get('lot_tick_size', 0.0),
-            }
+        # atype = entry.get('asset_type', '<unknown>')
+
+        # unique broker market id
+        bs_mktid = str(
+            entry.get('bsuid')
+            or entry.get('bs_mktid')
         )
+        price_tick = Decimal(str(
+            entry.get('price_tick_size')
+            or entry.get('price_tick')
+            or '0.01'
+        ))
+        size_tick = Decimal(str(
+            entry.get('lot_tick_size')
+            or entry.get('size_tick')
+            or '0.0'
+        ))
+
+        # load the pair using the fqme which
+        # will make the pair "unresolved" until
+        # the backend broker actually loads
+        # the market and position info.
+        mkt = MktPair.from_fqme(
+            fqme,
+            price_tick=price_tick,
+            size_tick=size_tick,
+            bs_mktid=bs_mktid
+        )
+
+        # TODO: RE: general "events" instead of just "clears":
+        # - make this an `events` field and support more event types
+        #   such as 'split', 'name_change', 'mkt_info', etc..
+        # - should be make a ``Struct`` for clear/event entries? convert
+        #   "clear events table" from the toml config (list of a dicts)
+        #   and load it into object form for use in position processing of
+        #   new clear events.
 
         # convert clears sub-tables (only in this form
         # for toml re-presentation) back into a master table.
-        clears_list = entry['clears']
-
-        # index clears entries in "object" form by tid in a top
-        # level dict instead of a list (as is presented in our
-        # ``pps.toml``).
-        clears = pp_objs.setdefault(bsuid, {})
-
-        # TODO: should be make a ``Struct`` for clear/event entries?
-        # convert "clear events table" from the toml config (list of
-        # a dicts) and load it into object form for use in position
-        # processing of new clear events.
+        toml_clears_list: list[dict[str, Any]] = entry['clears']
         trans: list[Transaction] = []
+        for clears_table in toml_clears_list:
 
-        for clears_table in clears_list:
-            tid = clears_table.pop('tid')
+            tid = clears_table.get('tid')
             dtstr = clears_table['dt']
             dt = pendulum.parse(dtstr)
             clears_table['dt'] = dt
 
             trans.append(Transaction(
-                fqsn=bsuid,
-                sym=symbol,
-                bsuid=bsuid,
+                fqme=bs_mktid,
+                sym=mkt,
+                bs_mktid=bs_mktid,
                 tid=tid,
                 size=clears_table['size'],
                 price=clears_table['price'],
                 cost=clears_table['cost'],
                 dt=dt,
             ))
-            clears[tid] = clears_table
 
         size = entry['size']
 
@@ -1004,13 +902,13 @@ def open_pps(
         if expiry:
             expiry = pendulum.parse(expiry)
 
-        pp = pp_objs[bsuid] = Position(
-            symbol,
+        pp = pp_objs[bs_mktid] = Position(
+            mkt,
             size=size,
             ppu=ppu,
             split_ratio=split_ratio,
             expiry=expiry,
-            bsuid=entry['bsuid'],
+            bs_mktid=bs_mktid,
         )
 
         # XXX: super critical, we need to be sure to include
@@ -1029,19 +927,3 @@ def open_pps(
     finally:
         if write_on_exit:
             table.write_config()
-
-
-if __name__ == '__main__':
-    import sys
-
-    args = sys.argv
-    assert len(args) > 1, 'Specifiy account(s) from `brokers.toml`'
-    args = args[1:]
-    for acctid in args:
-        broker, name = acctid.split('.')
-        trans, updated_pps = load_pps_from_ledger(broker, name)
-        print(
-            f'Processing transactions into pps for {broker}:{acctid}\n'
-            f'{pformat(trans)}\n\n'
-            f'{pformat(updated_pps)}'
-        )

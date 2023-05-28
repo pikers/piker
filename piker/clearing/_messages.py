@@ -29,7 +29,6 @@ from typing import (
 
 from msgspec import field
 
-from ..data._source import Symbol
 from ..data.types import Struct
 
 
@@ -94,7 +93,8 @@ class Order(Struct):
 
     # internal ``emdsd`` unique "order id"
     oid: str  # uuid4
-    symbol: str | Symbol
+    # TODO: figure out how to optionally typecast this to `MktPair`?
+    symbol: str  # | MktPair
     account: str  # should we set a default as '' ?
 
     price: float
@@ -191,7 +191,7 @@ class BrokerdOrder(Struct):
     account: str
     time_ns: int
 
-    symbol: str  # fqsn
+    symbol: str  # fqme
     price: float
     size: float
 
@@ -300,10 +300,10 @@ class BrokerdError(Struct):
 
 
 class BrokerdPosition(Struct):
-    '''Position update event from brokerd.
+    '''
+    Position update event from brokerd.
 
     '''
-
     broker: str
     account: str
     symbol: str

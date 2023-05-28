@@ -13,6 +13,7 @@
 
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 """
 Order and trades endpoints for use with ``piker``'s EMS.
 
@@ -21,6 +22,7 @@ from __future__ import annotations
 from bisect import insort
 from contextlib import ExitStack
 from dataclasses import asdict
+from decimal import Decimal
 from functools import partial
 from pprint import pformat
 import time
@@ -37,6 +39,7 @@ from trio_typing import TaskStatus
 import tractor
 from ib_insync.contract import (
     Contract,
+    Option,
 )
 from ib_insync.order import (
     Trade,
@@ -51,14 +54,17 @@ from ib_insync.objects import Position as IbPosition
 import pendulum
 
 from piker import config
-from piker.pp import (
+from piker.accounting import (
+    dec_digits,
+    digits_to_dec,
     Position,
     Transaction,
     open_trade_ledger,
+    iter_by_dt,
     open_pps,
     PpTable,
 )
-from piker.log import get_console_log
+from .._util import get_console_log
 from piker.clearing._messages import (
     Order,
     Status,
@@ -70,36 +76,39 @@ from piker.clearing._messages import (
     BrokerdFill,
     BrokerdError,
 )
-from piker.data._source import (
-    Symbol,
-    float_digits,
+from piker.accounting import (
+    MktPair,
 )
 from .api import (
     _accounts2clients,
-    con2fqsn,
+    con2fqme,
     log,
     get_config,
     open_client_proxies,
     Client,
     MethodProxy,
 )
+from ._flex_reports import parse_flex_dt
 
 
 def pack_position(
     pos: IbPosition
 
-) -> dict[str, Any]:
+) -> tuple[
+    str,
+    dict[str, Any]
+]:
 
     con = pos.contract
-    fqsn, calc_price = con2fqsn(con)
+    fqme, calc_price = con2fqme(con)
 
     # TODO: options contracts into a sane format..
     return (
-        con.conId,
+        str(con.conId),
         BrokerdPosition(
             broker='ib',
             account=pos.account,
-            symbol=fqsn,
+            symbol=fqme,
             currency=con.currency,
             size=float(pos.position),
             avg_price=float(pos.avgCost) / float(con.multiplier or 1.0),
@@ -281,18 +290,21 @@ async def recv_trade_updates(
 async def update_ledger_from_api_trades(
     trade_entries: list[dict[str, Any]],
     client: Union[Client, MethodProxy],
+    accounts_def_inv: bidict[str, str],
 
 ) -> tuple[
     dict[str, Transaction],
     dict[str, dict],
 ]:
-
     # XXX; ERRGGG..
     # pack in the "primary/listing exchange" value from a
     # contract lookup since it seems this isn't available by
     # default from the `.fills()` method endpoint...
     for entry in trade_entries:
         condict = entry['contract']
+        # print(
+        #     f"{condict['symbol']}: GETTING CONTRACT INFO!\n"
+        # )
         conid = condict['conId']
         pexch = condict['primaryExchange']
 
@@ -310,9 +322,8 @@ async def update_ledger_from_api_trades(
         # pack in the ``Contract.secType``
         entry['asset_type'] = condict['secType']
 
-    conf = get_config()
     entries = api_trades_to_ledger_entries(
-        conf['accounts'].inverse,
+        accounts_def_inv,
         trade_entries,
     )
     # normalize recent session's trades to the `Transaction` type
@@ -334,15 +345,17 @@ async def update_and_audit_msgs(
 ) -> list[BrokerdPosition]:
 
     msgs: list[BrokerdPosition] = []
+    p: Position
     for p in pps:
-        bsuid = p.bsuid
+        bs_mktid = p.bs_mktid
 
         # retreive equivalent ib reported position message
         # for comparison/audit versus the piker equivalent
         # breakeven pp calcs.
-        ibppmsg = cids2pps.get((acctid, bsuid))
+        ibppmsg = cids2pps.get((acctid, bs_mktid))
 
         if ibppmsg:
+            symbol = ibppmsg.symbol
             msg = BrokerdPosition(
                 broker='ib',
 
@@ -353,12 +366,15 @@ async def update_and_audit_msgs(
                 # table..
                 account=ibppmsg.account,
                 # XXX: the `.ib` is stripped..?
-                symbol=ibppmsg.symbol,
+                symbol=symbol,
                 currency=ibppmsg.currency,
                 size=p.size,
                 avg_price=p.ppu,
             )
             msgs.append(msg)
+
+            ibfmtmsg = pformat(ibppmsg.to_dict())
+            pikerfmtmsg = pformat(msg.to_dict())
 
             if validate:
                 ibsize = ibppmsg.size
@@ -379,26 +395,24 @@ async def update_and_audit_msgs(
 
                     # raise ValueError(
                     log.error(
-                        f'POSITION MISMATCH ib <-> piker ledger:\n'
-                        f'ib: {ibppmsg}\n'
-                        f'piker: {msg}\n'
-                        f'reverse_split_ratio: {reverse_split_ratio}\n'
-                        f'split_ratio: {split_ratio}\n\n'
-                        'FIGURE OUT WHY TF YOUR LEDGER IS OFF!?!?\n\n'
+                        f'Pos mismatch in ib vs. the piker ledger!\n'
+                        f'IB:\n{ibfmtmsg}\n\n'
+                        f'PIKER:\n{pikerfmtmsg}\n\n'
                         'If you are expecting a (reverse) split in this '
-                        'instrument you should probably put the following '
-                        f'in the `pps.toml` section:\n{entry}'
+                        'instrument you should probably put the following'
+                        'in the `pps.toml` section:\n'
+                        f'{entry}\n'
+                        # f'reverse_split_ratio: {reverse_split_ratio}\n'
+                        # f'split_ratio: {split_ratio}\n\n'
                     )
                     msg.size = ibsize
 
             if ibppmsg.avg_price != msg.avg_price:
-
-                # TODO: make this a "propoganda" log level?
+                # TODO: make this a "propaganda" log level?
                 log.warning(
-                    'The mega-cucks at IB want you to believe with their '
-                    f'"FIFO" positioning for {msg.symbol}:\n'
-                    f'"ib" mega-cucker avg price: {ibppmsg.avg_price}\n'
-                    f'piker, LIFO breakeven PnL price: {msg.avg_price}'
+                    f'IB "FIFO" avg price for {msg.symbol} is DIFF:\n'
+                    f'ib: {ibppmsg.avg_price}\n'
+                    f'piker: {msg.avg_price}'
                 )
 
         else:
@@ -414,7 +428,7 @@ async def update_and_audit_msgs(
                 # right since `.broker` is already included?
                 account=f'ib.{acctid}',
                 # XXX: the `.ib` is stripped..?
-                symbol=p.symbol.front_fqsn(),
+                symbol=p.mkt.fqme,
                 # currency=ibppmsg.currency,
                 size=p.size,
                 avg_price=p.ppu,
@@ -422,14 +436,87 @@ async def update_and_audit_msgs(
             if validate and p.size:
                 # raise ValueError(
                 log.error(
-                    f'UNEXPECTED POSITION says ib:\n'
-                    f'piker: {msg}\n'
-                    'YOU SHOULD FIGURE OUT WHY TF YOUR LEDGER IS OFF!?\n'
-                    'THEY LIQUIDATED YOU OR YOUR MISSING LEDGER RECORDS!?'
+                    f'UNEXPECTED POSITION says IB => {msg.symbol}\n'
+                    'Maybe they LIQUIDATED YOU or are missing ledger entries?\n'
                 )
             msgs.append(msg)
 
     return msgs
+
+
+async def aggr_open_orders(
+    order_msgs: list[Status],
+    client: Client,
+    proxy: MethodProxy,
+    accounts_def: bidict[str, str],
+
+) -> None:
+    '''
+    Collect all open orders from client and fill in `order_msgs: list`.
+
+    '''
+    trades: list[Trade] = client.ib.openTrades()
+    for trade in trades:
+        order = trade.order
+        quant = trade.order.totalQuantity
+        action = order.action.lower()
+        size = {
+            'sell': -1,
+            'buy': 1,
+        }[action] * quant
+        con = trade.contract
+
+        # TODO: in the case of the SMART venue (aka ib's
+        # router-clearing sys) we probably should handle
+        # showing such orders overtop of the fqme for the
+        # primary exchange, how to map this easily is going
+        # to be a bit tricky though?
+        deats = await proxy.con_deats(contracts=[con])
+        fqme = list(deats)[0]
+
+        reqid = order.orderId
+
+        # TODO: maybe embed a ``BrokerdOrder`` instead
+        # since then we can directly load it on the client
+        # side in the order mode loop?
+        msg = Status(
+            time_ns=time.time_ns(),
+            resp='open',
+            oid=str(reqid),
+            reqid=reqid,
+
+            # embedded order info
+            req=Order(
+                action=action,
+                exec_mode='live',
+                oid=str(reqid),
+                symbol=fqme,
+                account=accounts_def.inverse[order.account],
+                price=order.lmtPrice,
+                size=size,
+            ),
+            src='ib',
+        )
+        order_msgs.append(msg)
+
+    return order_msgs
+
+
+# proxy wrapper for starting trade event stream
+async def open_trade_event_stream(
+    client: Client,
+    task_status: TaskStatus[
+        trio.abc.ReceiveChannel
+    ] = trio.TASK_STATUS_IGNORED,
+):
+    # each api client has a unique event stream
+    async with tractor.to_asyncio.open_channel_from(
+        recv_trade_updates,
+        client=client,
+    ) as (first, trade_event_stream):
+
+        task_status.started(trade_event_stream)
+        await trio.sleep_forever()
 
 
 @tractor.context
@@ -465,7 +552,10 @@ async def trades_dialogue(
     # we might also want to delegate a specific actor for
     # ledger writing / reading for speed?
     async with (
-        open_client_proxies() as (proxies, aioclients),
+        open_client_proxies() as (
+            proxies,
+            aioclients,
+        ),
     ):
         # Open a trade ledgers stack for appending trade records over
         # multiple accounts.
@@ -473,6 +563,9 @@ async def trades_dialogue(
         ledgers: dict[str, dict] = {}
         tables: dict[str, PpTable] = {}
         order_msgs: list[Status] = []
+        conf = get_config()
+        accounts_def_inv: bidict[str, str] = bidict(conf['accounts']).inverse
+
         with (
             ExitStack() as lstack,
         ):
@@ -489,148 +582,15 @@ async def trades_dialogue(
                     open_trade_ledger(
                         'ib',
                         acctid,
-                    )
-                )
-                table = tables[acctid] = lstack.enter_context(
-                    open_pps(
-                        'ib',
-                        acctid,
-                        write_on_exit=True,
-                    )
-                )
-
-            for account, proxy in proxies.items():
-                client = aioclients[account]
-                trades: list[Trade] = client.ib.openTrades()
-                for trade in trades:
-                    order = trade.order
-                    quant = trade.order.totalQuantity
-                    action = order.action.lower()
-                    size = {
-                        'sell': -1,
-                        'buy': 1,
-                    }[action] * quant
-                    con = trade.contract
-
-                    # TODO: in the case of the SMART venue (aka ib's
-                    # router-clearing sys) we probably should handle
-                    # showing such orders overtop of the fqsn for the
-                    # primary exchange, how to map this easily is going
-                    # to be a bit tricky though?
-                    deats = await proxy.con_deats(contracts=[con])
-                    fqsn = list(deats)[0]
-
-                    reqid = order.orderId
-
-                    # TODO: maybe embed a ``BrokerdOrder`` instead
-                    # since then we can directly load it on the client
-                    # side in the order mode loop?
-                    msg = Status(
-                        time_ns=time.time_ns(),
-                        resp='open',
-                        oid=str(reqid),
-                        reqid=reqid,
-
-                        # embedded order info
-                        req=Order(
-                            action=action,
-                            exec_mode='live',
-                            oid=str(reqid),
-                            symbol=fqsn,
-                            account=accounts_def.inverse[order.account],
-                            price=order.lmtPrice,
-                            size=size,
+                        tx_sort=partial(
+                            iter_by_dt,
+                            parsers={
+                                'dateTime': parse_flex_dt,
+                                'datetime': pendulum.parse,
+                            },
                         ),
-                        src='ib',
                     )
-                    order_msgs.append(msg)
-
-                # process pp value reported from ib's system. we only use these
-                # to cross-check sizing since average pricing on their end uses
-                # the so called (bs) "FIFO" style which more or less results in
-                # a price that's not useful for traders who want to not lose
-                # money.. xb
-                for pos in client.positions():
-
-                    # collect all ib-pp reported positions so that we can be
-                    # sure know which positions to update from the ledger if
-                    # any are missing from the ``pps.toml``
-                    bsuid, msg = pack_position(pos)
-
-                    acctid = msg.account = accounts_def.inverse[msg.account]
-                    acctid = acctid.strip('ib.')
-                    cids2pps[(acctid, bsuid)] = msg
-                    assert msg.account in accounts, (
-                        f'Position for unknown account: {msg.account}')
-
-                    ledger = ledgers[acctid]
-                    table = tables[acctid]
-
-                    pp = table.pps.get(bsuid)
-                    if (
-                        not pp
-                        or pp.size != msg.size
-                    ):
-                        trans = norm_trade_records(ledger)
-                        table.update_from_trans(trans)
-
-                        # update trades ledgers for all accounts from connected
-                        # api clients which report trades for **this session**.
-                        trades = await proxy.trades()
-                        (
-                            trans_by_acct,
-                            api_to_ledger_entries,
-                        ) = await update_ledger_from_api_trades(
-                            trades,
-                            proxy,
-                        )
-
-                        # if new trades are detected from the API, prepare
-                        # them for the ledger file and update the pptable.
-                        if api_to_ledger_entries:
-                            trade_entries = api_to_ledger_entries.get(acctid)
-
-                            if trade_entries:
-                                # write ledger with all new trades **AFTER**
-                                # we've updated the `pps.toml` from the
-                                # original ledger state! (i.e. this is
-                                # currently done on exit)
-                                ledger.update(trade_entries)
-
-                                trans = trans_by_acct.get(acctid)
-                                if trans:
-                                    table.update_from_trans(trans)
-
-                        # XXX: not sure exactly why it wouldn't be in
-                        # the updated output (maybe this is a bug?) but
-                        # if you create a pos from TWS and then load it
-                        # from the api trades it seems we get a key
-                        # error from ``update[bsuid]`` ?
-                        pp = table.pps.get(bsuid)
-                        if not pp:
-                            log.error(
-                                f'The contract id for {msg} may have '
-                                f'changed to {bsuid}\nYou may need to '
-                                'adjust your ledger for this, skipping '
-                                'for now.'
-                            )
-                            continue
-
-                        # XXX: not sure exactly why it wouldn't be in
-                        # the updated output (maybe this is a bug?) but
-                        # if you create a pos from TWS and then load it
-                        # from the api trades it seems we get a key
-                        # error from ``update[bsuid]`` ?
-                        pp = table.pps[bsuid]
-                        pairinfo = pp.symbol
-                        if msg.size != pp.size:
-                            log.error(
-                                f'Pos size mismatch {pairinfo.front_fqsn()}:\n'
-                                f'ib: {msg.size}\n'
-                                f'piker: {pp.size}\n'
-                            )
-
-                active_pps, closed_pps = table.dump_active()
+                )
 
                 # load all positions from `pps.toml`, cross check with
                 # ib's positions data, and relay re-formatted pps as
@@ -641,6 +601,105 @@ async def trades_dialogue(
                 # - no new trades yet but we want to reload and audit any
                 #   positions reported by ib's sys that may not yet be in
                 #   piker's ``pps.toml`` state-file.
+                tables[acctid] = lstack.enter_context(
+                    open_pps(
+                        'ib',
+                        acctid,
+                        write_on_exit=True,
+                    )
+                )
+
+            for account, proxy in proxies.items():
+                client = aioclients[account]
+
+                # order_msgs is filled in by this helper
+                await aggr_open_orders(
+                    order_msgs,
+                    client,
+                    proxy,
+                    accounts_def,
+                )
+                acctid: str = account.strip('ib.')
+                ledger: dict = ledgers[acctid]
+                table: PpTable = tables[acctid]
+
+                # update trades ledgers for all accounts from connected
+                # api clients which report trades for **this session**.
+                api_trades = await proxy.trades()
+                if api_trades:
+
+                    trans_by_acct: dict[str, Transaction]
+                    api_to_ledger_entries: dict[str, dict]
+                    (
+                        trans_by_acct,
+                        api_to_ledger_entries,
+                    ) = await update_ledger_from_api_trades(
+                        api_trades,
+                        proxy,
+                        accounts_def_inv,
+                    )
+
+                    # if new api_trades are detected from the API, prepare
+                    # them for the ledger file and update the pptable.
+                    if api_to_ledger_entries:
+                        trade_entries = api_to_ledger_entries.get(acctid)
+
+                        # TODO: fix this `tractor` BUG!
+                        # https://github.com/goodboy/tractor/issues/354
+                        # await tractor.breakpoint()
+
+                        if trade_entries:
+                            # write ledger with all new api_trades
+                            # **AFTER** we've updated the `pps.toml`
+                            # from the original ledger state! (i.e. this
+                            # is currently done on exit)
+                            for tid, entry in trade_entries.items():
+                                ledger.setdefault(tid, {}).update(entry)
+
+                            trans = trans_by_acct.get(acctid)
+                            if trans:
+                                table.update_from_trans(trans)
+
+                # update position table with latest ledger from all
+                # gathered transactions: ledger file + api records.
+                trans: dict[str, Transaction] = norm_trade_records(ledger)
+                table.update_from_trans(trans)
+
+                # process pp value reported from ib's system. we only
+                # use these to cross-check sizing since average pricing
+                # on their end uses the so called (bs) "FIFO" style
+                # which more or less results in a price that's not
+                # useful for traders who want to not lose money.. xb
+                # -> collect all ib-pp reported positions so that we can be
+                # sure know which positions to update from the ledger if
+                # any are missing from the ``pps.toml``
+
+                pos: IbPosition  # named tuple subtype
+                for pos in client.positions():
+
+                    # NOTE XXX: we skip options for now since we don't
+                    # yet support the symbology nor the live feeds.
+                    if isinstance(pos.contract, Option):
+                        log.warning(
+                            f'Option contracts not supported for now:\n'
+                            f'{pos._asdict()}'
+                        )
+                        continue
+
+                    bs_mktid, msg = pack_position(pos)
+                    acctid = msg.account = accounts_def.inverse[msg.account]
+                    acctid = acctid.strip('ib.')
+                    cids2pps[(acctid, bs_mktid)] = msg
+
+                    assert msg.account in accounts, (
+                        f'Position for unknown account: {msg.account}')
+
+            # iterate all (newly) updated pps tables for every
+            # client-account and build out position msgs to deliver to
+            # EMS.
+            for acctid, table in tables.items():
+                active_pps, closed_pps = table.dump_active()
+
                 for pps in [active_pps, closed_pps]:
                     msgs = await update_and_audit_msgs(
                         acctid,
@@ -660,22 +719,6 @@ async def trades_dialogue(
                 all_positions,
                 tuple(name for name in accounts_def if name in accounts),
             ))
-
-            # proxy wrapper for starting trade event stream
-            async def open_trade_event_stream(
-                client: Client,
-                task_status: TaskStatus[
-                    trio.abc.ReceiveChannel
-                ] = trio.TASK_STATUS_IGNORED,
-            ):
-                # each api client has a unique event stream
-                async with tractor.to_asyncio.open_channel_from(
-                    recv_trade_updates,
-                    client=client,
-                ) as (first, trade_event_stream):
-
-                    task_status.started(trade_event_stream)
-                    await trio.sleep_forever()
 
             async with (
                 ctx.open_stream() as ems_stream,
@@ -723,44 +766,50 @@ async def trades_dialogue(
 async def emit_pp_update(
     ems_stream: tractor.MsgStream,
     trade_entry: dict,
-    accounts_def: bidict,
+    accounts_def: bidict[str, str],
     proxies: dict,
     cids2pps: dict,
 
-    ledgers,
-    tables,
+    ledgers: dict[str, dict[str, Any]],
+    tables: dict[str, PpTable],
 
 ) -> None:
 
     # compute and relay incrementally updated piker pp
-    acctid = accounts_def.inverse[trade_entry['execution']['acctNumber']]
-    proxy = proxies[acctid]
-
-    acctid = acctid.strip('ib.')
+    accounts_def_inv: bidict[str, str] = accounts_def.inverse
+    fq_acctid = accounts_def_inv[trade_entry['execution']['acctNumber']]
+    proxy = proxies[fq_acctid]
     (
         records_by_acct,
         api_to_ledger_entries,
     ) = await update_ledger_from_api_trades(
         [trade_entry],
         proxy,
+        accounts_def_inv,
     )
-    trans = records_by_acct[acctid]
+    trans = records_by_acct[fq_acctid]
     r = list(trans.values())[0]
 
+    acctid = fq_acctid.strip('ib.')
     table = tables[acctid]
     table.update_from_trans(trans)
     active, closed = table.dump_active()
 
     # NOTE: update ledger with all new trades
-    for acctid, trades_by_id in api_to_ledger_entries.items():
+    for fq_acctid, trades_by_id in api_to_ledger_entries.items():
+        acctid = fq_acctid.strip('ib.')
         ledger = ledgers[acctid]
-        ledger.update(trades_by_id)
+
+        for tid, tdict in trades_by_id.items():
+            # NOTE: don't override flex/previous entries with new API
+            # ones, just update with new fields!
+            ledger.setdefault(tid, {}).update(tdict)
 
     # generate pp msgs and cross check with ib's positions data, relay
     # re-formatted pps as msgs to the ems.
     for pos in filter(
         bool,
-        [active.get(r.bsuid), closed.get(r.bsuid)]
+        [active.get(r.bs_mktid), closed.get(r.bs_mktid)]
     ):
         msgs = await update_and_audit_msgs(
             acctid,
@@ -859,8 +908,8 @@ async def deliver_trade_events(
                 # https://github.com/erdewit/ib_insync/issues/363
                 # acctid = accounts_def.inverse[trade.order.account]
 
-                # # double check there is no error when
-                # # cancelling.. gawwwd
+                # double check there is no error when
+                # cancelling.. gawwwd
                 # if ib_status_key == 'cancelled':
                 #     last_log = trade.log[-1]
                 #     if (
@@ -1000,6 +1049,7 @@ async def deliver_trade_events(
                         accounts_def,
                         proxies,
                         cids2pps,
+
                         ledgers,
                         tables,
                     )
@@ -1034,6 +1084,7 @@ async def deliver_trade_events(
                         accounts_def,
                         proxies,
                         cids2pps,
+
                         ledgers,
                         tables,
                     )
@@ -1095,7 +1146,7 @@ async def deliver_trade_events(
 def norm_trade_records(
     ledger: dict[str, Any],
 
-) -> list[Transaction]:
+) -> dict[str, Transaction]:
     '''
     Normalize a flex report or API retrieved executions
     ledger into our standard record format.
@@ -1110,7 +1161,6 @@ def norm_trade_records(
             comms = -1*record['ibCommission']
 
         price = record.get('price') or record['tradePrice']
-        price_tick_digits = float_digits(price)
 
         # the api doesn't do the -/+ on the quantity for you but flex
         # records do.. are you fucking serious ib...!?
@@ -1121,6 +1171,12 @@ def norm_trade_records(
 
         exch = record['exchange']
         lexch = record.get('listingExchange')
+
+        # NOTE: remove null values since `tomlkit` can't serialize
+        # them to file.
+        dnc = record.pop('deltaNeutralContract', False)
+        if dnc is not None:
+            record['deltaNeutralContract'] = dnc
 
         suffix = lexch or exch
         symbol = record['symbol']
@@ -1153,7 +1209,9 @@ def norm_trade_records(
 
         # special handling of symbol extraction from
         # flex records using some ad-hoc schema parsing.
-        asset_type: str = record.get('assetCategory') or record['secType']
+        asset_type: str = record.get(
+            'assetCategory'
+        ) or record.get('secType', 'STK')
 
         # TODO: XXX: WOA this is kinda hacky.. probably
         # should figure out the correct future pair key more
@@ -1161,58 +1219,54 @@ def norm_trade_records(
         if asset_type == 'FUT':
             # (flex) ledger entries don't have any simple 3-char key?
             symbol = record['symbol'][:3]
+            asset_type: str = 'future'
 
-        # try to build out piker fqsn from record.
-        expiry = record.get(
-            'lastTradeDateOrContractMonth') or record.get('expiry')
+        elif asset_type == 'STK':
+            asset_type: str = 'stock'
+
+        # try to build out piker fqme from record.
+        expiry = (
+            record.get('lastTradeDateOrContractMonth')
+            or record.get('expiry')
+        )
+
         if expiry:
             expiry = str(expiry).strip(' ')
             suffix = f'{exch}.{expiry}'
             expiry = pendulum.parse(expiry)
 
-        src: str = record['currency']
+        # src: str = record['currency']
+        price_tick: Decimal = digits_to_dec(dec_digits(price))
 
-        pair = Symbol.from_fqsn(
-            fqsn=f'{symbol}.{suffix}.ib',
-            info={
-                'tick_size_digits': price_tick_digits,
+        pair = MktPair.from_fqme(
+            fqme=f'{symbol}.{suffix}.ib',
+            bs_mktid=str(conid),
+            _atype=str(asset_type),  # XXX: can't serlialize `tomlkit.String`
 
-                # NOTE: for "legacy" assets, volume is normally discreet, not
-                # a float, but we keep a digit in case the suitz decide
-                # to get crazy and change it; we'll be kinda ready
-                # schema-wise..
-                'lot_size_digits': 1,
-
-                # TODO: remove when we switching from
-                # ``Symbol`` -> ``MktPair``
-                'asset_type': asset_type,
-
-                # TODO: figure out a target fin-type name
-                # set and normalize to that here!
-                'dst_type': asset_type.lower(),
-
-                # starting to use new key naming as in ``MktPair``
-                # type have drafted...
-                'src': src,
-                'src_type': 'fiat',
-            },
+            price_tick=price_tick,
+            # NOTE: for "legacy" assets, volume is normally discreet, not
+            # a float, but we keep a digit in case the suitz decide
+            # to get crazy and change it; we'll be kinda ready
+            # schema-wise..
+            size_tick='1',
         )
-        fqsn = pair.front_fqsn().rstrip('.ib')
 
-        # NOTE: for flex records the normal fields for defining an fqsn
+        fqme = pair.fqme
+
+        # NOTE: for flex records the normal fields for defining an fqme
         # sometimes won't be available so we rely on two approaches for
-        # the "reverse lookup" of piker style fqsn keys:
+        # the "reverse lookup" of piker style fqme keys:
         # - when dealing with API trade records received from
         #   `IB.trades()` we do a contract lookup at he time of processing
         # - when dealing with flex records, it is assumed the record
         #   is at least a day old and thus the TWS position reporting system
         #   should already have entries if the pps are still open, in
-        #   which case, we can pull the fqsn from that table (see
+        #   which case, we can pull the fqme from that table (see
         #   `trades_dialogue()` above).
         insort(
             records,
             Transaction(
-                fqsn=fqsn,
+                fqme=fqme,
                 sym=pair,
                 tid=tid,
                 size=size,
@@ -1220,7 +1274,7 @@ def norm_trade_records(
                 cost=comms,
                 dt=dt,
                 expiry=expiry,
-                bsuid=conid,
+                bs_mktid=str(conid),
             ),
             key=lambda t: t.dt
         )
@@ -1228,18 +1282,8 @@ def norm_trade_records(
     return {r.tid: r for r in records}
 
 
-def parse_flex_dt(
-    record: str,
-) -> pendulum.datetime:
-    date, ts = record.split(';')
-    dt = pendulum.parse(date)
-    ts = f'{ts[:2]}:{ts[2:4]}:{ts[4:]}'
-    tsdt = pendulum.parse(ts)
-    return dt.set(hour=tsdt.hour, minute=tsdt.minute, second=tsdt.second)
-
-
 def api_trades_to_ledger_entries(
-    accounts: bidict,
+    accounts: bidict[str, str],
 
     # TODO: maybe we should just be passing through the
     # ``ib_insync.order.Trade`` instance directly here
@@ -1309,148 +1353,3 @@ def api_trades_to_ledger_entries(
         ))
 
     return trades_by_account
-
-
-def flex_records_to_ledger_entries(
-    accounts: bidict,
-    trade_entries: list[object],
-
-) -> dict:
-    '''
-    Convert flex report entry objects into ``dict`` form, pretty much
-    straight up without modification except add a `pydatetime` field
-    from the parsed timestamp.
-
-    '''
-    trades_by_account = {}
-    for t in trade_entries:
-        entry = t.__dict__
-
-        # XXX: LOL apparently ``toml`` has a bug
-        # where a section key error will show up in the write
-        # if you leave a table key as an `int`? So i guess
-        # cast to strs for all keys..
-
-        # oddly for some so-called "BookTrade" entries
-        # this field seems to be blank, no cuckin clue.
-        # trade['ibExecID']
-        tid = str(entry.get('ibExecID') or entry['tradeID'])
-        # date = str(entry['tradeDate'])
-
-        # XXX: is it going to cause problems if a account name
-        # get's lost? The user should be able to find it based
-        # on the actual exec history right?
-        acctid = accounts[str(entry['accountId'])]
-
-        # probably a flex record with a wonky non-std timestamp..
-        dt = entry['pydatetime'] = parse_flex_dt(entry['dateTime'])
-        entry['datetime'] = str(dt)
-
-        if not tid:
-            # this is likely some kind of internal adjustment
-            # transaction, likely one of the following:
-            # - an expiry event that will show a "book trade" indicating
-            #   some adjustment to cash balances: zeroing or itm settle.
-            # - a manual cash balance position adjustment likely done by
-            #   the user from the accounts window in TWS where they can
-            #   manually set the avg price and size:
-            #   https://api.ibkr.com/lib/cstools/faq/web1/index.html#/tag/DTWS_ADJ_AVG_COST
-            log.warning(f'Skipping ID-less ledger entry:\n{pformat(entry)}')
-            continue
-
-        trades_by_account.setdefault(
-            acctid, {}
-        )[tid] = entry
-
-    for acctid in trades_by_account:
-        trades_by_account[acctid] = dict(sorted(
-            trades_by_account[acctid].items(),
-            key=lambda entry: entry[1]['pydatetime'],
-        ))
-
-    return trades_by_account
-
-
-def load_flex_trades(
-    path: Optional[str] = None,
-
-) -> dict[str, Any]:
-
-    from ib_insync import flexreport, util
-
-    conf = get_config()
-
-    if not path:
-        # load ``brokers.toml`` and try to get the flex
-        # token and query id that must be previously defined
-        # by the user.
-        token = conf.get('flex_token')
-        if not token:
-            raise ValueError(
-                'You must specify a ``flex_token`` field in your'
-                '`brokers.toml` in order load your trade log, see our'
-                'intructions for how to set this up here:\n'
-                'PUT LINK HERE!'
-            )
-
-        qid = conf['flex_trades_query_id']
-
-        # TODO: hack this into our logging
-        # system like we do with the API client..
-        util.logToConsole()
-
-        # TODO: rewrite the query part of this with async..httpx?
-        report = flexreport.FlexReport(
-            token=token,
-            queryId=qid,
-        )
-
-    else:
-        # XXX: another project we could potentially look at,
-        # https://pypi.org/project/ibflex/
-        report = flexreport.FlexReport(path=path)
-
-    trade_entries = report.extract('Trade')
-    ln = len(trade_entries)
-    log.info(f'Loaded {ln} trades from flex query')
-
-    trades_by_account = flex_records_to_ledger_entries(
-        conf['accounts'].inverse,  # reverse map to user account names
-        trade_entries,
-    )
-
-    ledger_dict: Optional[dict] = None
-
-    for acctid in trades_by_account:
-        trades_by_id = trades_by_account[acctid]
-
-        with open_trade_ledger('ib', acctid) as ledger_dict:
-            tid_delta = set(trades_by_id) - set(ledger_dict)
-            log.info(
-                'New trades detected\n'
-                f'{pformat(tid_delta)}'
-            )
-            if tid_delta:
-                sorted_delta = dict(sorted(
-                    {tid: trades_by_id[tid] for tid in tid_delta}.items(),
-                    key=lambda entry: entry[1].pop('pydatetime'),
-                ))
-                ledger_dict.update(sorted_delta)
-
-    return ledger_dict
-
-
-if __name__ == '__main__':
-    import sys
-    import os
-
-    args = sys.argv
-    if len(args) > 1:
-        args = args[1:]
-        for arg in args:
-            path = os.path.abspath(arg)
-            load_flex_trades(path=path)
-    else:
-        # expect brokers.toml to have an entry and
-        # pull from the web service.
-        load_flex_trades()

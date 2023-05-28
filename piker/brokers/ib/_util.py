@@ -19,14 +19,23 @@
 runnable script-programs.
 
 '''
-from typing import Literal
+from __future__ import annotations
+from functools import partial
+from typing import (
+    Literal,
+    TYPE_CHECKING,
+)
 import subprocess
 
 import tractor
 
-from piker.log import get_logger
+from .._util import log
 
-log = get_logger(__name__)
+if TYPE_CHECKING:
+    from .api import (
+        MethodProxy,
+        ib_Client
+    )
 
 
 _reset_tech: Literal[
@@ -41,7 +50,8 @@ _reset_tech: Literal[
 
 
 async def data_reset_hack(
-    reset_type: str = 'data',
+    vnc_host: str,
+    reset_type: Literal['data', 'connection'],
 
 ) -> None:
     '''
@@ -71,18 +81,40 @@ async def data_reset_hack(
           that need to be wrangle.
 
     '''
+
+    no_setup_msg:str = (
+        'No data reset hack test setup for {vnc_host}!\n'
+        'See setup @\n'
+        'https://github.com/pikers/piker/tree/master/piker/brokers/ib'
+    )
     global _reset_tech
 
     match _reset_tech:
         case 'vnc':
             try:
-                await tractor.to_asyncio.run_task(vnc_click_hack)
+                await tractor.to_asyncio.run_task(
+                    partial(
+                        vnc_click_hack,
+                        host=vnc_host,
+                    )
+                )
             except OSError:
-                _reset_tech = 'i3ipc_xdotool'
+                if vnc_host != 'localhost':
+                    log.warning(no_setup_msg)
+                    return False
+
+                try:
+                    import i3ipc
+                except ModuleNotFoundError:
+                    log.warning(no_setup_msg)
+                    return False
+
                 try:
                     i3ipc_xdotool_manual_click_hack()
+                    _reset_tech = 'i3ipc_xdotool'
                     return True
                 except OSError:
+                    log.exception(no_setup_msg)
                     return False
 
         case 'i3ipc_xdotool':
@@ -96,19 +128,32 @@ async def data_reset_hack(
 
 
 async def vnc_click_hack(
+    host: str = 'localhost',
     reset_type: str = 'data'
 ) -> None:
     '''
-    Reset the data or netowork connection for the VNC attached
+    Reset the data or network connection for the VNC attached
     ib gateway using magic combos.
 
     '''
-    key = {'data': 'f', 'connection': 'r'}[reset_type]
+    try:
+        import asyncvnc
+    except ModuleNotFoundError:
+        log.warning(
+            "In order to leverage `piker`'s built-in data reset hacks, install "
+            "the `asyncvnc` project: https://github.com/barneygale/asyncvnc"
+        )
+        return
 
-    import asyncvnc
+    # two different hot keys which trigger diff types of reset
+    # requests B)
+    key = {
+        'data': 'f',
+        'connection': 'r'
+    }[reset_type]
 
     async with asyncvnc.connect(
-        'localhost',
+        host,
         port=3003,
         # password='ibcansmbz',
     ) as client:
@@ -124,9 +169,11 @@ async def vnc_click_hack(
 
 
 def i3ipc_xdotool_manual_click_hack() -> None:
-    import i3ipc
-
     i3 = i3ipc.Connection()
+
+    # TODO: might be worth offering some kinda api for grabbing
+    # the window id from the pid?
+    # https://stackoverflow.com/a/2250879
     t = i3.get_tree()
 
     orig_win_id = t.find_focused().window

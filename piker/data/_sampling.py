@@ -38,8 +38,8 @@ from tractor.trionics import (
 import trio
 from trio_typing import TaskStatus
 
-from ..log import (
-    get_logger,
+from ._util import (
+    log,
     get_console_log,
 )
 from ..service import maybe_spawn_daemon
@@ -49,8 +49,6 @@ if TYPE_CHECKING:
         ShmArray,
     )
     from .feed import _FeedsBus
-
-log = get_logger(__name__)
 
 
 # highest frequency sample step is 1 second by default, though in
@@ -353,7 +351,9 @@ async def register_with_sampler(
 
             if open_index_stream:
                 try:
-                    async with ctx.open_stream() as stream:
+                    async with ctx.open_stream(
+                        allow_overruns=True,
+                    ) as stream:
                         if sub_for_broadcasts:
                             subs.add(stream)
 
@@ -362,7 +362,10 @@ async def register_with_sampler(
                             if msg == 'broadcast_all':
                                 await Sampler.broadcast_all()
                 finally:
-                    if sub_for_broadcasts:
+                    if (
+                        sub_for_broadcasts
+                        and subs
+                    ):
                         subs.remove(stream)
             else:
                 # if no shms are passed in we just wait until cancelled
@@ -429,7 +432,7 @@ async def spawn_samplerd(
 async def maybe_open_samplerd(
 
     loglevel: str | None = None,
-    **kwargs,
+    **pikerd_kwargs,
 
 ) -> tractor.Portal:  # noqa
     '''
@@ -442,9 +445,9 @@ async def maybe_open_samplerd(
     async with maybe_spawn_daemon(
         dname,
         service_task_target=spawn_samplerd,
-        spawn_args={'loglevel': loglevel},
+        spawn_args={},
         loglevel=loglevel,
-        **kwargs,
+        **pikerd_kwargs,
 
     ) as portal:
         yield portal
@@ -615,10 +618,10 @@ async def sample_and_broadcast(
             ] = bus.get_subs(sub_key)
 
             # NOTE: by default the broker backend doesn't append
-            # it's own "name" into the fqsn schema (but maybe it
+            # it's own "name" into the fqme schema (but maybe it
             # should?) so we have to manually generate the correct
             # key here.
-            fqsn = f'{broker_symbol}.{brokername}'
+            fqme = f'{broker_symbol}.{brokername}'
             lags: int = 0
 
             # TODO: speed up this loop in an AOT compiled lang (like
@@ -637,7 +640,7 @@ async def sample_and_broadcast(
                             # pushes to the ``uniform_rate_send()`` below.
                             try:
                                 stream.send_nowait(
-                                    (fqsn, quote)
+                                    (fqme, quote)
                                 )
                             except trio.WouldBlock:
                                 overruns[sub_key] += 1
@@ -669,7 +672,7 @@ async def sample_and_broadcast(
                                         raise trio.BrokenResourceError
                         else:
                             await stream.send(
-                                {fqsn: quote}
+                                {fqme: quote}
                             )
 
                     if cs.cancelled_caught:
@@ -782,9 +785,6 @@ async def uniform_rate_send(
     https://gist.github.com/njsmith/7ea44ec07e901cb78ebe1dd8dd846cb9
 
     '''
-    # try not to error-out on overruns of the subscribed client
-    stream._ctx._backpressure = True
-
     # TODO: compute the approx overhead latency per cycle
     left_to_sleep = throttle_period = 1/rate - 0.000616
 

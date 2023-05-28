@@ -18,12 +18,16 @@
 Real-time and historical data feed endpoints.
 
 '''
-from contextlib import asynccontextmanager as acm
+from contextlib import (
+    asynccontextmanager as acm,
+    aclosing,
+)
 from datetime import datetime
 from typing import (
     Any,
-    Optional,
+    AsyncGenerator,
     Callable,
+    Optional,
 )
 import time
 
@@ -31,18 +35,24 @@ from fuzzywuzzy import process as fuzzy
 import numpy as np
 import pendulum
 from trio_typing import TaskStatus
-from trio_util import trio_async_generator
 import tractor
 import trio
 
-from piker._cacheables import open_cached_client
+from piker.accounting._mktinfo import (
+    Asset,
+    MktPair,
+)
+from piker._cacheables import (
+    open_cached_client,
+    async_lifo_cache,
+)
 from piker.brokers._util import (
     BrokerError,
     DataThrottle,
     DataUnavailable,
 )
-from piker.log import get_console_log
 from piker.data.types import Struct
+from piker.data.validate import FeedInit
 from piker.data._web_bs import open_autorecon_ws, NoBsWs
 from . import log
 from .api import (
@@ -85,26 +95,9 @@ async def stream_messages(
     though a single async generator.
 
     '''
-    too_slow_count = last_hb = 0
+    last_hb: float = 0
 
-    while True:
-
-        with trio.move_on_after(5) as cs:
-            msg = await ws.recv_msg()
-
-        # trigger reconnection if heartbeat is laggy
-        if cs.cancelled_caught:
-
-            too_slow_count += 1
-
-            if too_slow_count > 20:
-                log.warning(
-                    "Heartbeat is too slow, resetting ws connection")
-
-                await ws._connect()
-                too_slow_count = 0
-                continue
-
+    async for msg in ws:
         match msg:
             case {'event': 'heartbeat'}:
                 now = time.time()
@@ -122,7 +115,6 @@ async def stream_messages(
                 yield msg
 
 
-@trio_async_generator
 async def process_data_feed_msgs(
     ws: NoBsWs,
 ):
@@ -130,63 +122,75 @@ async def process_data_feed_msgs(
     Parse and pack data feed messages.
 
     '''
-    async for msg in stream_messages(ws):
-        match msg:
-            case {
-                'errorMessage': errmsg
-            }:
-                raise BrokerError(errmsg)
+    async with aclosing(stream_messages(ws)) as ws_stream:
+        async for msg in ws_stream:
+            match msg:
+                case {
+                    'errorMessage': errmsg
+                }:
+                    raise BrokerError(errmsg)
 
-            case {
-                'event': 'subscriptionStatus',
-            } as sub:
-                log.info(
-                    'WS subscription is active:\n'
-                    f'{sub}'
-                )
-                continue
-
-            case [
-                chan_id,
-                *payload_array,
-                chan_name,
-                pair
-            ]:
-                if 'ohlc' in chan_name:
-                    ohlc = OHLC(
-                        chan_id,
-                        chan_name,
-                        pair,
-                        *payload_array[0]
+                case {
+                    'event': 'subscriptionStatus',
+                } as sub:
+                    log.info(
+                        'WS subscription is active:\n'
+                        f'{sub}'
                     )
-                    ohlc.typecast()
-                    yield 'ohlc', ohlc
+                    continue
 
-                elif 'spread' in chan_name:
+                case [
+                    chan_id,
+                    *payload_array,
+                    chan_name,
+                    pair
+                ]:
+                    if 'ohlc' in chan_name:
+                        ohlc = OHLC(
+                            chan_id,
+                            chan_name,
+                            pair,
+                            *payload_array[0]
+                        )
+                        ohlc.typecast()
+                        yield 'ohlc', ohlc
 
-                    bid, ask, ts, bsize, asize = map(
-                        float, payload_array[0])
+                    elif 'spread' in chan_name:
 
-                    # TODO: really makes you think IB has a horrible API...
-                    quote = {
-                        'symbol': pair.replace('/', ''),
-                        'ticks': [
-                            {'type': 'bid', 'price': bid, 'size': bsize},
-                            {'type': 'bsize', 'price': bid, 'size': bsize},
+                        bid, ask, ts, bsize, asize = map(
+                            float, payload_array[0])
 
-                            {'type': 'ask', 'price': ask, 'size': asize},
-                            {'type': 'asize', 'price': ask, 'size': asize},
-                        ],
-                    }
-                    yield 'l1', quote
+                        # TODO: really makes you think IB has a horrible API...
+                        quote = {
+                            'symbol': pair.replace('/', ''),
+                            'ticks': [
+                                {'type': 'bid', 'price': bid, 'size': bsize},
+                                {'type': 'bsize', 'price': bid, 'size': bsize},
 
-                # elif 'book' in msg[-2]:
-                #     chan_id, *payload_array, chan_name, pair = msg
-                #     print(msg)
+                                {'type': 'ask', 'price': ask, 'size': asize},
+                                {'type': 'asize', 'price': ask, 'size': asize},
+                            ],
+                        }
+                        yield 'l1', quote
 
-            case _:
-                print(f'UNHANDLED MSG: {msg}')
-                # yield msg
+                    # elif 'book' in msg[-2]:
+                    #     chan_id, *payload_array, chan_name, pair = msg
+                    #     print(msg)
+
+                case {
+                    'connectionID': conid,
+                    'event': 'systemStatus',
+                    'status': 'online',
+                    'version': ver,
+                }:
+                    log.info(
+                        f'Established {ver} ws connection with id: {conid}'
+                    )
+                    continue
+
+                case _:
+                    print(f'UNHANDLED MSG: {msg}')
+                    # yield msg
 
 
 def normalize(
@@ -211,9 +215,11 @@ def normalize(
 
 @acm
 async def open_history_client(
-    symbol: str,
+    mkt: MktPair,
 
-) -> tuple[Callable, int]:
+) -> AsyncGenerator[Callable, None]:
+
+    symbol: str = mkt.bs_fqme
 
     # TODO implement history getter for the new storage layer.
     async with open_cached_client('kraken') as client:
@@ -263,6 +269,44 @@ async def open_history_client(
         yield get_ohlc, {'erlangs': 1, 'rate': 1}
 
 
+@async_lifo_cache()
+async def get_mkt_info(
+    fqme: str,
+
+) -> tuple[MktPair, Pair]:
+    '''
+    Query for and return a `MktPair` and backend-native `Pair` (or
+    wtv else) info.
+
+    If more then one fqme is provided return a ``dict`` of native
+    key-strs to `MktPair`s.
+
+    '''
+    async with open_cached_client('kraken') as client:
+
+        # uppercase since kraken bs_mktid is always upper
+        bs_fqme, _, broker = fqme.partition('.')
+        pair_str: str = bs_fqme.upper()
+        bs_mktid: str = Client.normalize_symbol(pair_str)
+        pair: Pair = await client.pair_info(pair_str)
+
+        assets = client.assets
+        dst_asset: Asset = assets[pair.base]
+        src_asset: Asset = assets[pair.quote]
+
+        mkt = MktPair(
+            dst=dst_asset,
+            src=src_asset,
+
+            price_tick=pair.price_tick,
+            size_tick=pair.size_tick,
+            bs_mktid=bs_mktid,
+
+            broker='kraken',
+        )
+        return mkt, pair
+
+
 async def stream_quotes(
 
     send_chan: trio.abc.SendChannel,
@@ -283,45 +327,20 @@ async def stream_quotes(
     ``pairs`` must be formatted <crypto_symbol>/<fiat_symbol>.
 
     '''
-    # XXX: required to propagate ``tractor`` loglevel to piker logging
-    get_console_log(loglevel or tractor.current_actor().loglevel)
 
-    ws_pairs = {}
-    sym_infos = {}
+    ws_pairs: list[str] = []
+    init_msgs: list[FeedInit] = []
 
-    async with open_cached_client('kraken') as client, send_chan as send_chan:
+    async with (
+        send_chan as send_chan,
+    ):
+        for sym_str in symbols:
+            mkt, pair = await get_mkt_info(sym_str)
+            init_msgs.append(
+                FeedInit(mkt_info=mkt)
+            )
 
-        # keep client cached for real-time section
-        for sym in symbols:
-
-            # transform to upper since piker style is always lower
-            sym = sym.upper()
-            si: Pair = await client.symbol_info(sym)
-            # try:
-            #     si = Pair(**sym_info)  # validation
-            # except TypeError:
-            #     fields_diff = set(sym_info) - set(Pair.__struct_fields__)
-            #     raise TypeError(
-            #         f'Missing msg fields {fields_diff}'
-            #     )
-            syminfo = si.to_dict()
-            syminfo['price_tick_size'] = 1. / 10**si.pair_decimals
-            syminfo['lot_tick_size'] = 1. / 10**si.lot_decimals
-            syminfo['asset_type'] = 'crypto'
-            sym_infos[sym] = syminfo
-            ws_pairs[sym] = si.wsname
-
-        symbol = symbols[0].lower()
-
-        init_msgs = {
-            # pass back token, and bool, signalling if we're the writer
-            # and that history has been written
-            symbol: {
-                'symbol_info': sym_infos[sym],
-                'shm_write_opts': {'sum_tick_vml': False},
-                'fqsn': sym,
-            },
-        }
+            ws_pairs.append(pair.wsname)
 
         @acm
         async def subscribe(ws: NoBsWs):
@@ -332,7 +351,7 @@ async def stream_quotes(
             # https://github.com/krakenfx/kraken-wsclient-py/blob/master/kraken_wsclient_py/kraken_wsclient_py.py#L188
             ohlc_sub = {
                 'event': 'subscribe',
-                'pair': list(ws_pairs.values()),
+                'pair': ws_pairs,
                 'subscription': {
                     'name': 'ohlc',
                     'interval': 1,
@@ -348,7 +367,7 @@ async def stream_quotes(
             # trade data (aka L1)
             l1_sub = {
                 'event': 'subscribe',
-                'pair': list(ws_pairs.values()),
+                'pair': ws_pairs,
                 'subscription': {
                     'name': 'spread',
                     # 'depth': 10}
@@ -363,7 +382,7 @@ async def stream_quotes(
             # unsub from all pairs on teardown
             if ws.connected():
                 await ws.send_msg({
-                    'pair': list(ws_pairs.values()),
+                    'pair': ws_pairs,
                     'event': 'unsubscribe',
                     'subscription': ['ohlc', 'spread'],
                 })
@@ -378,21 +397,20 @@ async def stream_quotes(
             open_autorecon_ws(
                 'wss://ws.kraken.com/',
                 fixture=subscribe,
+                reset_after=20,
             ) as ws,
 
             # avoid stream-gen closure from breaking trio..
             # NOTE: not sure this actually works XD particularly
             # if we call `ws._connect()` manally in the streaming
             # async gen..
-            process_data_feed_msgs(ws) as msg_gen,
+            aclosing(process_data_feed_msgs(ws)) as msg_gen,
         ):
             # pull a first quote and deliver
             typ, ohlc_last = await anext(msg_gen)
             topic, quote = normalize(ohlc_last)
 
             task_status.started((init_msgs,  quote))
-
-            # lol, only "closes" when they're margin squeezing clients ;P
             feed_is_live.set()
 
             # keep start of last interval for volume tracking

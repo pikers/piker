@@ -26,9 +26,9 @@
 from __future__ import annotations
 from contextlib import asynccontextmanager as acm
 from datetime import datetime
+from pprint import pformat
 from typing import (
     Any,
-    Optional,
     Union,
     TYPE_CHECKING,
 )
@@ -54,12 +54,14 @@ if TYPE_CHECKING:
     import docker
     from ._ahab import DockerContainer
 
+from ._util import (
+    log,  # sub-sys logger
+    get_console_log,
+)
+from . import Services
 from ..data.feed import maybe_open_feed
-from ..log import get_logger, get_console_log
 from .._profile import Profiler
-
-
-log = get_logger(__name__)
+from .. import config
 
 
 # ahabd-supervisor and container level config
@@ -70,7 +72,7 @@ _config = {
     'startup_timeout': 2,
 }
 
-_yaml_config = '''
+_yaml_config_str: str = '''
 # piker's ``marketstore`` config.
 
 # mount this config using:
@@ -89,6 +91,12 @@ stale_threshold: 5
 enable_add: true
 enable_remove: false
 
+# SUPER DUPER CRITICAL to address a super weird issue:
+# https://github.com/pikers/piker/issues/443
+# seems like "variable compression" is possibly borked
+# or snappy compression somehow breaks easily?
+disable_variable_compression: true
+
 triggers:
   - module: ondiskagg.so
     on: "*/1Sec/OHLCV"
@@ -106,18 +114,18 @@ triggers:
     # config:
     #     filter: "nasdaq"
 
-'''.format(**_config)
+'''
 
 
 def start_marketstore(
     client: docker.DockerClient,
-
+    user_config: dict,
     **kwargs,
 
 ) -> tuple[DockerContainer, dict[str, Any]]:
     '''
-    Start and supervise a marketstore instance with its config bind-mounted
-    in from the piker config directory on the system.
+    Start and supervise a marketstore instance with its config
+    bind-mounted in from the piker config directory on the system.
 
     The equivalent cli cmd to this code is:
 
@@ -141,14 +149,16 @@ def start_marketstore(
         os.mkdir(mktsdir)
 
     yml_file = os.path.join(mktsdir, 'mkts.yml')
+    yaml_config = _yaml_config_str.format(**user_config)
+
     if not os.path.isfile(yml_file):
         log.warning(
             f'No `marketstore` config exists?: {yml_file}\n'
             'Generating new file from template:\n'
-            f'{_yaml_config}\n'
+            f'{yaml_config}\n'
         )
         with open(yml_file, 'w') as yf:
-            yf.write(_yaml_config)
+            yf.write(yaml_config)
 
     # create a mount from user's local piker config dir into container
     config_dir_mnt = docker.types.Mount(
@@ -171,6 +181,9 @@ def start_marketstore(
         type='bind',
     )
 
+    grpc_listen_port = int(user_config['grpc_listen_port'])
+    ws_listen_port = int(user_config['ws_listen_port'])
+
     dcntr: DockerContainer = client.containers.run(
         'alpacamarkets/marketstore:latest',
         # do we need this for cmds?
@@ -178,8 +191,8 @@ def start_marketstore(
 
         # '-p 5993:5993',
         ports={
-            '5993/tcp': 5993,  # jsonrpc / ws?
-            '5995/tcp': 5995,  # grpc
+            f'{ws_listen_port}/tcp': ws_listen_port,
+            f'{grpc_listen_port}/tcp': grpc_listen_port,
         },
         mounts=[
             config_dir_mnt,
@@ -199,7 +212,13 @@ def start_marketstore(
         return "launching tcp listener for all services..." in msg
 
     async def stop_matcher(msg: str):
-        return "exiting..." in msg
+        return (
+            # not sure when this happens, some kinda stop condition
+            "exiting..." in msg
+
+            # after we send SIGINT..
+            or "initiating graceful shutdown due to 'interrupt' request" in msg
+        )
 
     return (
         dcntr,
@@ -209,6 +228,49 @@ def start_marketstore(
         start_matcher,
         stop_matcher,
     )
+
+
+@acm
+async def start_ahab_daemon(
+    service_mngr: Services,
+    user_config: dict | None = None,
+    loglevel: str | None = None,
+
+) -> tuple[str, dict]:
+    '''
+    Task entrypoint to start the marketstore docker container using the
+    service manager.
+
+    '''
+    from ._ahab import start_ahab_service
+
+    # dict-merge any user settings
+    conf: dict = _config.copy()
+    if user_config:
+        conf: dict = conf | user_config
+
+    dname: str = 'marketstored'
+    log.info(f'Spawning `{dname}` supervisor')
+    async with start_ahab_service(
+        service_mngr,
+        dname,
+
+        # NOTE: docker-py client is passed at runtime
+        start_marketstore,
+        ep_kwargs={'user_config': conf},
+        loglevel=loglevel,
+    ) as (
+        _,
+        config,
+        (cid, pid),
+    ):
+        log.info(
+            f'`{dname}` up!\n'
+            f'pid: {pid}\n'
+            f'container id: {cid[:12]}\n'
+            f'config: {pformat(config)}'
+        )
+        yield dname, conf
 
 
 _tick_tbk_ids: tuple[str, str] = ('1Sec', 'TICK')
@@ -286,7 +348,7 @@ def mk_tbk(keys: tuple[str, str, str]) -> str:
 
 def quote_to_marketstore_structarray(
     quote: dict[str, Any],
-    last_fill: Optional[float]
+    last_fill: float | None,
 
 ) -> np.array:
     '''
@@ -327,8 +389,8 @@ def quote_to_marketstore_structarray(
 
 @acm
 async def get_client(
-    host: str = 'localhost',
-    port: int = _config['grpc_listen_port'],
+    host: str | None,
+    port: int | None,
 
 ) -> MarketstoreClient:
     '''
@@ -337,8 +399,8 @@ async def get_client(
 
     '''
     async with open_marketstore_client(
-        host,
-        port
+        host or 'localhost',
+        port or _config['grpc_listen_port'],
     ) as client:
         yield client
 
@@ -402,18 +464,18 @@ class Storage:
 
     async def load(
         self,
-        fqsn: str,
+        fqme: str,
         timeframe: int,
 
     ) -> tuple[
         np.ndarray,  # timeframe sampled array-series
-        Optional[datetime],  # first dt
-        Optional[datetime],  # last dt
+        datetime | None,  # first dt
+        datetime | None,  # last dt
     ]:
 
         first_tsdb_dt, last_tsdb_dt = None, None
         hist = await self.read_ohlcv(
-            fqsn,
+            fqme,
             # on first load we don't need to pull the max
             # history per request size worth.
             limit=3000,
@@ -436,9 +498,9 @@ class Storage:
 
     async def read_ohlcv(
         self,
-        fqsn: str,
+        fqme: str,
         timeframe: int | str,
-        end: Optional[int] = None,
+        end: int | None = None,
         limit: int = int(800e3),
 
     ) -> np.ndarray:
@@ -446,14 +508,14 @@ class Storage:
         client = self.client
         syms = await client.list_symbols()
 
-        if fqsn not in syms:
+        if fqme not in syms:
             return {}
 
         # use the provided timeframe or 1s by default
         tfstr = tf_in_1s.get(timeframe, tf_in_1s[1])
 
         params = Params(
-            symbols=fqsn,
+            symbols=fqme,
             timeframe=tfstr,
             attrgroup='OHLCV',
             end=end,
@@ -464,20 +526,26 @@ class Storage:
             limit=limit,
         )
 
-        try:
-            result = await client.query(params)
-        except purerpc.grpclib.exceptions.UnknownError as err:
-            # indicate there is no history for this timeframe
-            log.exception(
-                f'Unknown mkts QUERY error: {params}\n'
-                f'{err.args}'
-            )
+        for i in range(3):
+            try:
+                result = await client.query(params)
+                break
+            except purerpc.grpclib.exceptions.UnknownError as err:
+                if 'snappy' in err.args:
+                    await tractor.breakpoint()
+
+                # indicate there is no history for this timeframe
+                log.exception(
+                    f'Unknown mkts QUERY error: {params}\n'
+                    f'{err.args}'
+                )
+        else:
             return {}
 
         # TODO: it turns out column access on recarrays is actually slower:
         # https://jakevdp.github.io/PythonDataScienceHandbook/02.09-structured-data-numpy.html#RecordArrays:-Structured-Arrays-with-a-Twist
         # it might make sense to make these structured arrays?
-        data_set = result.by_symbols()[fqsn]
+        data_set = result.by_symbols()[fqme]
         array = data_set.array
 
         # XXX: ensure sample rate is as expected
@@ -492,11 +560,11 @@ class Storage:
                     'YOUR DATABASE LIKELY CONTAINS BAD DATA FROM AN OLD BUG'
                     f'WIPING HISTORY FOR {ts}s'
                 )
-                await self.delete_ts(fqsn, timeframe)
+                await self.delete_ts(fqme, timeframe)
 
                 # try reading again..
                 return await self.read_ohlcv(
-                    fqsn,
+                    fqme,
                     timeframe,
                     end,
                     limit,
@@ -507,7 +575,7 @@ class Storage:
     async def delete_ts(
         self,
         key: str,
-        timeframe: Optional[Union[int, str]] = None,
+        timeframe: Union[int, str | None] = None,
         fmt: str = 'OHLCV',
 
     ) -> bool:
@@ -515,6 +583,7 @@ class Storage:
         client = self.client
         syms = await client.list_symbols()
         if key not in syms:
+            await tractor.breakpoint()
             raise KeyError(f'`{key}` table key not found in\n{syms}?')
 
         tbk = mk_tbk((
@@ -526,7 +595,7 @@ class Storage:
 
     async def write_ohlcv(
         self,
-        fqsn: str,
+        fqme: str,
         ohlcv: np.ndarray,
         timeframe: int,
         append_and_duplicate: bool = True,
@@ -559,7 +628,7 @@ class Storage:
             # write to db
             resp = await self.client.write(
                 to_push,
-                tbk=f'{fqsn}/{tfkey}/OHLCV',
+                tbk=f'{fqme}/{tfkey}/OHLCV',
 
                 # NOTE: will will append duplicates
                 # for the same timestamp-index.
@@ -582,7 +651,7 @@ class Storage:
             # write to db
             resp = await self.client.write(
                 to_push,
-                tbk=f'{fqsn}/{tfkey}/OHLCV',
+                tbk=f'{fqme}/{tfkey}/OHLCV',
 
                 # NOTE: will will append duplicates
                 # for the same timestamp-index.
@@ -614,8 +683,8 @@ class Storage:
 
 @acm
 async def open_storage_client(
-    fqsn: str,
-    period: Optional[Union[int, str]] = None,  # in seconds
+    host: str,
+    grpc_port: int,
 
 ) -> tuple[Storage, dict[str, np.ndarray]]:
     '''
@@ -624,7 +693,10 @@ async def open_storage_client(
     '''
     async with (
         # eventually a storage backend endpoint
-        get_client() as client,
+        get_client(
+            host=host,
+            port=grpc_port,
+        ) as client,
     ):
         # slap on our wrapper api
         yield Storage(client)
@@ -632,7 +704,7 @@ async def open_storage_client(
 
 @acm
 async def open_tsdb_client(
-    fqsn: str,
+    fqme: str,
 ) -> Storage:
 
     # TODO: real-time dedicated task for ensuring
@@ -666,25 +738,34 @@ async def open_tsdb_client(
         delayed=False,
     )
 
+    # load any user service settings for connecting to
+    rootconf, path = config.load(
+        'conf',
+        touch_if_dne=True,
+    )
+    tsdbconf = rootconf['network'].get('tsdb')
+    # backend = tsdbconf.pop('backend')
     async with (
-        open_storage_client(fqsn) as storage,
+        open_storage_client(
+            **tsdbconf,
+        ) as storage,
 
         maybe_open_feed(
-            [fqsn],
+            [fqme],
             start_stream=False,
 
         ) as feed,
     ):
-        profiler(f'opened feed for {fqsn}')
+        profiler(f'opened feed for {fqme}')
 
         # to_append = feed.hist_shm.array
         # to_prepend = None
 
-        if fqsn:
-            flume = feed.flumes[fqsn]
-            symbol = flume.symbol
+        if fqme:
+            flume = feed.flumes[fqme]
+            symbol = flume.mkt
             if symbol:
-                fqsn = symbol.fqsn
+                fqme = symbol.fqme
 
             # diff db history with shm and only write the missing portions
             # ohlcv = flume.hist_shm.array
@@ -692,7 +773,7 @@ async def open_tsdb_client(
             # TODO: use pg profiler
             # for secs in (1, 60):
             #     tsdb_array = await storage.read_ohlcv(
-            #         fqsn,
+            #         fqme,
             #         timeframe=timeframe,
             #     )
             #     # hist diffing:
@@ -703,7 +784,7 @@ async def open_tsdb_client(
 
             # profiler('Finished db arrays diffs')
 
-            syms = await storage.client.list_symbols()
+            _ = await storage.client.list_symbols()
             # log.info(f'Existing tsdb symbol set:\n{pformat(syms)}')
             # profiler(f'listed symbols {syms}')
             yield storage
@@ -715,7 +796,7 @@ async def open_tsdb_client(
         #     log.info(
         #         f'Writing datums {array.size} -> to tsdb from shm\n'
         #     )
-        #     await storage.write_ohlcv(fqsn, array)
+        #     await storage.write_ohlcv(fqme, array)
 
         # profiler('Finished db writes')
 
@@ -882,3 +963,5 @@ async def stream_quotes(
 
             if quotes:
                 yield quotes
+
+

@@ -27,11 +27,12 @@ from typing import List
 from async_generator import asynccontextmanager
 import asks
 
-from ..log import get_logger
-from ._util import resproc, BrokerError
+from ._util import (
+    resproc,
+    BrokerError,
+    log,
+)
 from ..calc import percent_change
-
-log = get_logger(__name__)
 
 _service_ep = 'https://api.robinhood.com'
 
@@ -65,8 +66,10 @@ class Client:
         self.api = _API(self._sess)
 
     def _zip_in_order(self, symbols: [str], quotes: List[dict]):
-        return {quote.get('symbol', sym) if quote else sym: quote
-                for sym, quote in zip(symbols, results_dict)}
+        return {
+            quote.get('symbol', sym) if quote else sym: quote
+            for sym, quote in zip(symbols, quotes)
+        }
 
     async def quote(self, symbols: [str]):
         """Retrieve quotes for a list of ``symbols``.

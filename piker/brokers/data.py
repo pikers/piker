@@ -41,11 +41,11 @@ import tractor
 from tractor.experimental import msgpub
 from async_generator import asynccontextmanager
 
-from ..log import get_logger, get_console_log
+from ._util import (
+    log,
+    get_console_log,
+)
 from . import get_brokermod
-
-
-log = get_logger(__name__)
 
 
 async def wait_for_network(

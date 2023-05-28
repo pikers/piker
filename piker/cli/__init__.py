@@ -19,6 +19,7 @@ CLI commons.
 
 '''
 import os
+from contextlib import AsyncExitStack
 
 import click
 import trio
@@ -69,8 +70,8 @@ def pikerd(
     Spawn the piker broker-daemon.
 
     '''
+    from .. import service
 
-    from ..service import open_pikerd
     log = get_console_log(loglevel)
 
     if pdb:
@@ -90,17 +91,36 @@ def pikerd(
         )
 
     async def main():
+        service_mngr: service.Services
+
         async with (
-            open_pikerd(
-                tsdb=tsdb,
-                es=es,
+            service.open_pikerd(
                 loglevel=loglevel,
                 debug_mode=pdb,
                 registry_addr=reg_addr,
 
-            ),  # normally delivers a ``Services`` handle
+            ) as service_mngr,  # normally delivers a ``Services`` handle
             trio.open_nursery() as n,
+
+            AsyncExitStack() as stack,
         ):
+            if tsdb:
+                dname, conf = await stack.enter_async_context(
+                    service.marketstore.start_ahab_daemon(
+                        service_mngr,
+                        loglevel=loglevel,
+                    )
+                )
+                log.info(f'TSDB `{dname}` up with conf:\n{conf}')
+
+            if es:
+                dname, conf = await stack.enter_async_context(
+                    service.elastic.start_ahab_daemon(
+                        service_mngr,
+                        loglevel=loglevel,
+                    )
+                )
+                log.info(f'DB `{dname}` up with conf:\n{conf}')
 
             await trio.sleep_forever()
 
