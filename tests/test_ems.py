@@ -20,7 +20,6 @@ from typing import (
 )
 
 import trio
-# import pytest_trio
 from exceptiongroup import BaseExceptionGroup
 
 import pytest
@@ -48,6 +47,7 @@ from piker.accounting import (
 )
 
 log = get_logger(__name__)
+
 
 
 async def order_and_and_wait_for_ppmsg(
@@ -370,7 +370,10 @@ def test_multi_fill_positions(
 
     run_and_tollerate_cancels(atest)
 
-    if check_cross_session or accum_size != 0:
+    if (
+        check_cross_session
+        or accum_size != 0
+    ):
         # rerun just to check that position info is persistent for the paper
         # account (i.e. a user can expect to see paper pps persist across
         # runtime sessions.
