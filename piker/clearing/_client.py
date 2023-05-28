@@ -165,8 +165,6 @@ class OrderClient(Struct):
         )
 
 
-_client: OrderClient = None
-
 
 async def relay_orders_from_sync_code(
 
@@ -274,34 +272,31 @@ async def open_ems(
             # open 2-way trade command stream
             ctx.open_stream() as trades_stream,
         ):
-            # use any pre-existing actor singleton client.
-            global _client
-            if _client is None:
-                size = 100
-                tx, rx = trio.open_memory_channel(size)
-                brx = broadcast_receiver(rx, size)
+            size: int = 100  # what should this be?
+            tx, rx = trio.open_memory_channel(size)
+            brx = broadcast_receiver(rx, size)
 
-                # setup local ui event streaming channels for request/resp
-                # streamging with EMS daemon
-                _client = OrderClient(
-                    _ems_stream=trades_stream,
-                    _to_relay_task=tx,
-                    _from_sync_order_client=brx,
-                )
+            # setup local ui event streaming channels for request/resp
+            # streamging with EMS daemon
+            client = OrderClient(
+                _ems_stream=trades_stream,
+                _to_relay_task=tx,
+                _from_sync_order_client=brx,
+            )
 
-            _client._ems_stream = trades_stream
+            client._ems_stream = trades_stream
 
             # start sync code order msg delivery task
             async with trio.open_nursery() as n:
                 n.start_soon(
                     relay_orders_from_sync_code,
-                    _client,
+                    client,
                     fqme,
                     trades_stream
                 )
 
                 yield (
-                    _client,
+                    client,
                     trades_stream,
                     positions,
                     accounts,
