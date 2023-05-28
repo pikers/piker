@@ -408,6 +408,8 @@ class Router(Struct):
             return
 
         def mk_paper_ep():
+            nonlocal brokermod, exec_mode
+
             # for logging purposes
             brokermod = paper
 
@@ -1397,6 +1399,10 @@ async def maybe_open_trade_relays(
         cache_hit,
         (relay, feed, client_ready)
     ):
+        if cache_hit:
+            log.info(f'Reusing existing trades relay for {fqme}:\n'
+                     f'{relay}\n')
+
         yield relay, feed, client_ready
 
 
