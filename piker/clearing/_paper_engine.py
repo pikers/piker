@@ -124,7 +124,7 @@ class PaperBoi(Struct):
         # for dark orders since we want the dark_executed
         # to trigger first thus creating a lookup entry
         # in the broker trades event processing loop
-        await trio.sleep(0.05)
+        await trio.sleep(0.01)
 
         if (
             action == 'sell'
@@ -191,7 +191,7 @@ class PaperBoi(Struct):
             self._sells[symbol].pop(oid, None)
 
         # TODO: net latency model
-        await trio.sleep(0.05)
+        await trio.sleep(0.01)
 
         msg = BrokerdStatus(
             status='canceled',
@@ -224,7 +224,7 @@ class PaperBoi(Struct):
 
         '''
         # TODO: net latency model
-        await trio.sleep(0.05)
+        await trio.sleep(0.01)
         fill_time_ns = time.time_ns()
         fill_time_s = time.time()
 
