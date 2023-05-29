@@ -121,7 +121,7 @@ def storesh(
     Start an IPython shell ready to query the local marketstore db.
 
     '''
-    from piker.data.marketstore import open_tsdb_client
+    from piker.storage import open_tsdb_client
     from piker.service import open_piker_runtime
 
     async def main():
@@ -171,7 +171,7 @@ def storage(
     Start an IPython shell ready to query the local marketstore db.
 
     '''
-    from piker.service.marketstore import open_tsdb_client
+    from piker.storage import open_tsdb_client
     from piker.service import open_piker_runtime
 
     async def main():
