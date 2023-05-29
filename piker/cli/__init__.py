@@ -154,6 +154,8 @@ def cli(
         assert os.path.isdir(configdir), f"`{configdir}` is not a valid path"
         config._override_config_dir(configdir)
 
+    # TODO: for typer see
+    # https://typer.tiangolo.com/tutorial/commands/context/
     ctx.ensure_object(dict)
 
     if not brokers:
@@ -227,11 +229,14 @@ def services(config, tl, ports):
 
 def _load_clis() -> None:
     from ..service import marketstore  # noqa
-    from ..service import elastic
-    from ..data import cli  # noqa
+    from ..service import elastic  # noqa
     from ..brokers import cli  # noqa
     from ..ui import cli  # noqa
     from ..watchlists import cli  # noqa
+
+    # typer implemented
+    from ..storage import cli  # noqa
+    from ..accounting import cli  # noqa
 
 
 # load downstream cli modules

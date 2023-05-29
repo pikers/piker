@@ -61,7 +61,12 @@ get_console_log = partial(
 )
 
 
-class Storage(
+__tsdbs__: list[str] = [
+    'marketstore',
+]
+
+
+class StorageClient(
     Protocol,
 ):
     '''
@@ -69,6 +74,8 @@ class Storage(
     in order to suffice the historical data mgmt layer.
 
     '''
+    name: str
+
     @abstractmethod
     async def list_keys(self) -> list[str]:
         ...
@@ -131,7 +138,7 @@ class Storage(
         ...
 
 
-class StorageConnectionError(ConnectionError): 
+class StorageConnectionError(ConnectionError):
     '''
     Can't connect to the desired tsdb subsys/service.
 
@@ -152,12 +159,14 @@ def get_storagemod(name: str) -> ModuleType:
 async def open_storage_client(
     name: str | None = None,
 
-) -> tuple[ModuleType, Storage]:
+) -> tuple[ModuleType, StorageClient]:
     '''
-    Load the ``Storage`` client for named backend.
+    Load the ``StorageClient`` for named backend.
 
     '''
-    # load root config for tsdb
+    tsdb_host: str = 'localhost'
+
+    # load root config and any tsdb user defined settings
     conf, path = config.load('conf', touch_if_dne=True)
     net = conf.get('network')
     if net:
@@ -185,17 +194,17 @@ async def open_storage_client(
     else:
         log.info(f'Attempting to connect to remote {name}@{tsdbconf}')
 
-    try:
-        async with (
-            get_client(**tsdbconf) as client,
-        ):
-            # slap on our wrapper api
-            yield mod, client
+    # try:
+    async with (
+        get_client(**tsdbconf) as client,
+    ):
+        # slap on our wrapper api
+        yield mod, client
 
-    except Exception as err:
-        raise StorageConnectionError(
-            f'No connection to {name}'
-        ) from err
+    # except Exception as err:
+    #     raise StorageConnectionError(
+    #         f'No connection to {name}'
+    #     ) from err
 
 
 # NOTE: pretty sure right now this is only being
@@ -203,7 +212,7 @@ async def open_storage_client(
 @acm
 async def open_tsdb_client(
     fqme: str,
-) -> Storage:
+) -> StorageClient:
 
     # TODO: real-time dedicated task for ensuring
     # history consistency between the tsdb, shm and real-time feed..
