@@ -65,11 +65,13 @@ from ..log import get_logger
 log = get_logger(__name__)
 
 
-class Storage:
+class MktsStorageClient:
     '''
     High level storage api for both real-time and historical ingest.
 
     '''
+    name: str = 'marketstore'
+
     def __init__(
         self,
         client: MarketstoreClient,
@@ -214,10 +216,9 @@ class Storage:
     ) -> bool:
 
         client = self.client
-        syms = await client.list_symbols()
-        if key not in syms:
-            await tractor.breakpoint()
-            raise KeyError(f'`{key}` table key not found in\n{syms}?')
+        # syms = await client.list_symbols()
+        # if key not in syms:
+        #     raise KeyError(f'`{key}` table key not found in\n{syms}?')
 
         tbk = mk_tbk((
             key,
@@ -339,4 +340,4 @@ async def get_client(
         host or 'localhost',
         grpc_port,
     ) as client:
-        yield Storage(client)
+        yield MktsStorageClient(client)
