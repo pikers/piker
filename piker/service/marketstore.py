@@ -327,16 +327,6 @@ _ohlcv_dt = [
 ]
 
 
-ohlc_key_map = bidict({
-    'Epoch': 'time',
-    'Open': 'open',
-    'High': 'high',
-    'Low': 'low',
-    'Close': 'close',
-    'Volume': 'volume',
-})
-
-
 def mk_tbk(keys: tuple[str, str, str]) -> str:
     '''
     Generate a marketstore table key from a tuple.
@@ -388,24 +378,6 @@ def quote_to_marketstore_structarray(
     return np.array([tuple(array_input)], dtype=_quote_dt)
 
 
-@acm
-async def get_client(
-    host: str | None,
-    port: int | None,
-
-) -> MarketstoreClient:
-    '''
-    Load a ``anyio_marketstore`` grpc client connected
-    to an existing ``marketstore`` server.
-
-    '''
-    async with open_marketstore_client(
-        host or 'localhost',
-        port or _config['grpc_listen_port'],
-    ) as client:
-        yield client
-
-
 class MarketStoreError(Exception):
     "Generic marketstore client error"
 
@@ -444,6 +416,7 @@ async def ingest_quote_stream(
     Ingest a broker quote stream into a ``marketstore`` tsdb.
 
     '''
+    from piker.storage.marketstore import get_client
     async with (
         maybe_open_feed(brokername, symbols, loglevel=loglevel) as feed,
         get_client() as ms_client,

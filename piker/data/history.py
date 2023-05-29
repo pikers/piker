@@ -28,7 +28,6 @@ import time
 from types import ModuleType
 from typing import (
     Callable,
-    Optional,
     TYPE_CHECKING,
 )
 
@@ -38,15 +37,11 @@ import tractor
 import pendulum
 import numpy as np
 
-from .. import config
 from ..accounting import (
     MktPair,
 )
 from ._util import (
     log,
-)
-from ..service import (
-    check_for_service,
 )
 from ._sharedmem import (
     maybe_open_shm_array,
@@ -91,8 +86,8 @@ async def start_backfill(
     sampler_stream: tractor.MsgStream,
     feed_is_live: trio.Event,
 
-    last_tsdb_dt: Optional[datetime] = None,
-    storage: Optional[Storage] = None,
+    last_tsdb_dt: datetime | None = None,
+    storage: Storage | None = None,
     write_tsdb: bool = True,
     tsdb_is_up: bool = False,
 
@@ -391,7 +386,7 @@ async def basic_backfill(
 
 async def tsdb_backfill(
     mod: ModuleType,
-    marketstore: ModuleType,
+    storemod: ModuleType,
     bus: _FeedsBus,
     storage: Storage,
     mkt: MktPair,
@@ -542,7 +537,7 @@ async def tsdb_backfill(
                 prepend=True,
                 # update_first=False,
                 # start=prepend_start,
-                field_map=marketstore.ohlc_key_map,
+                field_map=storemod.ohlc_key_map,
             )
 
             tsdb_last_frame_start = tsdb_history['Epoch'][0]
@@ -580,7 +575,7 @@ async def tsdb_backfill(
                 shm.push(
                     to_push,
                     prepend=True,
-                    field_map=marketstore.ohlc_key_map,
+                    field_map=storemod.ohlc_key_map,
                 )
                 log.info(f'Loaded {to_push.shape} datums from storage')
 
@@ -626,12 +621,11 @@ async def manage_history(
 ) -> None:
     '''
     Load and manage historical data including the loading of any
-    available series from `marketstore` as well as conducting real-time
-    update of both that existing db and the allocated shared memory
-    buffer.
+    available series from any connected tsdb as well as conduct
+    real-time update of both that existing db and the allocated shared
+    memory buffer.
 
     '''
-
     # TODO: is there a way to make each shm file key
     # actor-tree-discovery-addr unique so we avoid collisions
     # when doing tests which also allocate shms for certain instruments
@@ -711,52 +705,17 @@ async def manage_history(
             None,
         )
         assert open_history_client
-
-        tsdb_is_up: bool = False
-        try_remote_tsdb: bool = False
-
-        conf, path = config.load('conf', touch_if_dne=True)
-        net = conf.get('network')
-        if net:
-            tsdbconf = net.get('tsdb')
-
-            # lookup backend tsdb module by name and load any user service
-            # settings for connecting to the tsdb service.
-            tsdb_backend: str = tsdbconf.pop('backend')
-            tsdb_host: str = tsdbconf['host']
-
-            # TODO: import and load storagemod by name
-            # mod = get_storagemod(tsdb_backend)
-            from ..service import marketstore
-            if tsdb_host == 'localhost':
-                log.info('Scanning for existing `{tsbd_backend}`')
-                tsdb_is_up: bool = await check_for_service(f'{tsdb_backend}d')
-
-            else:
-                try_remote_tsdb: bool = True
-
-        if (
-            tsdb_is_up
-            or try_remote_tsdb
-            and (
-                opened
-                and open_history_client
-            )
-        ):
-            log.info('Found existing `marketstored`')
-
-            async with (
-                marketstore.open_storage_client(
-                    **tsdbconf
-                ) as storage,
-            ):
+        from .. import storage
+        try:
+            async with storage.open_storage_client() as (storemod, client):
+                log.info(f'Found existing `{storemod.name}`')
                 # TODO: drop returning the output that we pass in?
                 await bus.nursery.start(
                     tsdb_backfill,
                     mod,
-                    marketstore,
+                    storemod,
                     bus,
-                    storage,
+                    client,
                     mkt,
                     {
                         1: rt_shm,
@@ -784,11 +743,11 @@ async def manage_history(
                 # what data is loaded for viewing.
                 await trio.sleep_forever()
 
-        # load less history if no tsdb can be found
-        elif (
-            not tsdb_is_up
-            and opened
-        ):
+        except storage.StorageConnectionError:
+            log.exception(
+                "Can't connect to tsdb backend!?\n"
+                'Starting basic backfille to shm..'
+            )
             await basic_backfill(
                 bus,
                 mod,
