@@ -71,17 +71,6 @@ from ._util import DataUnavailable
 
 log = get_logger(__name__)
 
-_ohlc_dtype = [
-    ('index', int),
-    ('time', int),
-    ('open', float),
-    ('high', float),
-    ('low', float),
-    ('close', float),
-    ('volume', float),
-    ('bar_wap', float),  # will be zeroed by sampler if not filled
-]
-
 
 class KucoinMktPair(Struct, frozen=True):
     '''
