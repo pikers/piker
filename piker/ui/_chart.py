@@ -1235,10 +1235,10 @@ class ChartPlotWidget(pg.PlotWidget):
                 # if the sticky is for our symbol
                 # use the tick size precision for display
                 name = name or pi.name
-                sym = self.linked.mkt
-                digits = None
-                if name == sym.key:
-                    digits = sym.tick_size_digits
+                mkt: MktPair = self.linked.mkt
+                digits: int | None = None
+                if name in mkt.fqme:
+                    digits = mkt.price_tick_digits
 
                 # anchor_at = ('top', 'left')
 
