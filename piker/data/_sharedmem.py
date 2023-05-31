@@ -33,7 +33,7 @@ from numpy.lib import recfunctions as rfn
 import tractor
 
 from ._util import log
-from ._source import base_iohlc_dtype
+from ._source import def_iohlcv_fields
 from .types import Struct
 
 
@@ -168,7 +168,7 @@ def _make_token(
     to access a shared array.
 
     '''
-    dtype = base_iohlc_dtype if dtype is None else dtype
+    dtype = def_iohlcv_fields if dtype is None else dtype
     return _Token(
         shm_name=key,
         shm_first_index_name=key + "_first",
@@ -258,7 +258,6 @@ class ShmArray:
         # to load an empty array..
         if len(a) == 0 and self._post_init:
             raise RuntimeError('Empty array race condition hit!?')
-            # breakpoint()
 
         return a
 
