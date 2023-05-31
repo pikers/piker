@@ -73,12 +73,34 @@ from ib_insync.wrapper import (
 from ib_insync.client import Client as ib_Client
 import numpy as np
 
+# TODO: in hindsight, probably all imports should be
+# non-relative for backends so that non-builting backends
+# can be easily modelled after this style B)
 from piker import config
 from piker.brokers._util import (
     log,
     get_logger,
 )
-from piker.data._source import base_ohlc_dtype
+
+# Broker specific ohlc schema which includes a vwap field
+_ohlc_dtype: list[tuple[str, type]] = [
+    ('index', int),
+
+    # NOTE XXX: only part that's diff
+    # from our default fields where
+    # time is normally an int.
+    # TODO: can we just cast to this
+    # at np.ndarray load time?
+    ('time', float),
+
+    ('open', float),
+    ('high', float),
+    ('low', float),
+    ('close', float),
+    ('volume', float),
+    ('count', int),
+    ('bar_wap', float),  # Wait do we need this?
+]
 
 
 _time_units = {
@@ -295,7 +317,7 @@ def bars_to_np(bars: list) -> np.ndarray:
 
     nparr = np.array(
         np_ready,
-        dtype=base_ohlc_dtype,
+        dtype=_ohlc_dtype,
     )
     assert nparr['time'][0] == bars[0].date.timestamp()
     assert nparr['time'][-1] == bars[-1].date.timestamp()

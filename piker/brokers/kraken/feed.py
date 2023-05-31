@@ -54,8 +54,8 @@ from piker.brokers._util import (
 from piker.data.types import Struct
 from piker.data.validate import FeedInit
 from piker.data._web_bs import open_autorecon_ws, NoBsWs
-from . import log
 from .api import (
+    log,
     Client,
     Pair,
 )

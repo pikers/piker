@@ -63,8 +63,8 @@ from piker.clearing._messages import (
     BrokerdPosition,
     BrokerdStatus,
 )
-from . import log
 from .api import (
+    log,
     Client,
     BrokerError,
     get_client,

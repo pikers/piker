@@ -41,6 +41,7 @@ import trio
 
 from piker import config
 from piker.data.types import Struct
+from piker.data import def_iohlcv_fields
 from piker.accounting._mktinfo import (
     Asset,
     digits_to_dec,
@@ -52,29 +53,15 @@ from piker.brokers._util import (
     DataThrottle,
 )
 from piker.accounting import Transaction
-from . import log
+from piker.log import get_logger
+
+log = get_logger('piker.brokers.kraken')
 
 # <uri>/<version>/
 _url = 'https://api.kraken.com/0'
-
-
-# Broker specific ohlc schema which includes a vwap field
-_ohlc_dtype = [
-    ('index', int),
-    ('time', int),
-    ('open', float),
-    ('high', float),
-    ('low', float),
-    ('close', float),
-    ('volume', float),
-    ('count', int),
-    ('bar_wap', float),
-]
-
-# UI components allow this to be declared such that additional
-# (historical) fields can be exposed.
-ohlc_dtype = np.dtype(_ohlc_dtype)
-
+# TODO: this is the only backend providing this right?
+# in which case we should drop it from the defaults and
+# instead make a custom fields descr in this module!
 _show_wap_in_history = True
 _symbol_info_translation: dict[str, str] = {
     'tick_decimals': 'pair_decimals',
@@ -622,11 +609,11 @@ class Client:
                 new_bars.append(
                     (i,) + tuple(
                         ftype(bar[j]) for j, (name, ftype) in enumerate(
-                            _ohlc_dtype[1:]
+                            def_iohlcv_fields[1:]
                         )
                     )
                 )
-            array = np.array(new_bars, dtype=_ohlc_dtype) if as_np else bars
+            array = np.array(new_bars, dtype=def_iohlcv_fields) if as_np else bars
             return array
         except KeyError:
             errmsg = json['error'][0]
