@@ -187,6 +187,15 @@ def _conf_fn_w_ext(
     return f'{name}.toml'
 
 
+def get_conf_dir() -> Path:
+    '''
+    Return the user configuration directory ``Path``
+    on the local filesystem.
+
+    '''
+    return _config_dir
+
+
 def get_conf_path(
     conf_name: str = 'brokers',
 
