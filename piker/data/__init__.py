@@ -22,9 +22,6 @@ and storing data from your brokers as well as
 sharing live streams over a network.
 
 """
-from ._util import (
-    get_console_log,
-)
 from ._normalize import iterticks
 from ._sharedmem import (
     maybe_open_shm_array,
@@ -34,8 +31,8 @@ from ._sharedmem import (
     ShmArray,
 )
 from ._source import (
-    base_iohlc_dtype,
-    base_ohlc_dtype,
+    def_iohlcv_fields,
+    def_ohlcv_fields,
 )
 from .feed import (
     open_feed,
@@ -50,6 +47,6 @@ __all__ = [
     'attach_shm_array',
     'open_shm_array',
     'get_shm_token',
-    'base_iohlc_dtype',
-    'base_ohlc_dtype',
+    'def_iohlcv_fields',
+    'def_ohlcv_fields',
 ]
