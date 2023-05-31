@@ -18,49 +18,50 @@
 Deribit backend.
 
 '''
-import json
-import time
 import asyncio
-
-from contextlib import asynccontextmanager as acm, AsyncExitStack
-from functools import partial
+from contextlib import (
+    asynccontextmanager as acm,
+)
 from datetime import datetime
-from typing import Any, Optional, Iterable, Callable
-
-import pendulum
-import asks
-import trio
-from trio_typing import Nursery, TaskStatus
-from fuzzywuzzy import process as fuzzy
-import numpy as np
-
-from piker.data.types import Struct
-from piker.data._web_bs import (
-    NoBsWs,
-    open_autorecon_ws,
-    open_jsonrpc_session
+from functools import partial
+import time
+from typing import (
+    Any,
+    Optional,
+    Callable,
 )
 
-from .._util import resproc
-
-from piker import config
-from piker.log import get_logger
-
+import pendulum
+import trio
+from trio_typing import TaskStatus
+from fuzzywuzzy import process as fuzzy
+import numpy as np
 from tractor.trionics import (
     broadcast_receiver,
-    BroadcastReceiver,
     maybe_open_context
 )
 from tractor import to_asyncio
-
+# XXX WOOPS XD
+# yeah you'll need to install it since it was removed in #489 by
+# accident; well i thought we had removed all usage..
 from cryptofeed import FeedHandler
-
 from cryptofeed.defines import (
     DERIBIT,
     L1_BOOK, TRADES,
     OPTION, CALL, PUT
 )
 from cryptofeed.symbols import Symbol
+
+from piker.data.types import Struct
+from piker.data import def_iohlcv_fields
+from piker.data._web_bs import (
+    open_jsonrpc_session
+)
+
+
+from piker import config
+from piker.log import get_logger
+
 
 log = get_logger(__name__)
 
@@ -75,26 +76,13 @@ _ws_url = 'wss://www.deribit.com/ws/api/v2'
 _testnet_ws_url = 'wss://test.deribit.com/ws/api/v2'
 
 
-# Broker specific ohlc schema (rest)
-_ohlc_dtype = [
-    ('index', int),
-    ('time', int),
-    ('open', float),
-    ('high', float),
-    ('low', float),
-    ('close', float),
-    ('volume', float),
-    ('bar_wap', float),  # will be zeroed by sampler if not filled
-]
-
-
 class JSONRPCResult(Struct):
     jsonrpc: str = '2.0'
     id: int
     result: Optional[dict] = None
     error: Optional[dict] = None
-    usIn: int 
-    usOut: int 
+    usIn: int
+    usOut: int
     usDiff: int
     testnet: bool
 
@@ -405,7 +393,7 @@ class Client:
 
             new_bars.append((i,) + tuple(row))
 
-        array = np.array(new_bars, dtype=_ohlc_dtype) if as_np else klines
+        array = np.array(new_bars, dtype=def_iohlcv_fields) if as_np else klines
         return array
 
     async def last_trades(

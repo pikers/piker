@@ -39,7 +39,6 @@ from piker.brokers._util import (
 )
 
 from cryptofeed import FeedHandler
-
 from cryptofeed.defines import (
     DERIBIT, L1_BOOK, TRADES, OPTION, CALL, PUT
 )
