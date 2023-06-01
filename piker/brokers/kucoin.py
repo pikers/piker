@@ -55,14 +55,15 @@ from piker.accounting._mktinfo import (
     digits_to_dec,
     MktPair,
 )
-from piker.data.validate import FeedInit
 from piker import config
 from piker._cacheables import (
     open_cached_client,
     async_lifo_cache,
 )
 from piker.log import get_logger
+from piker.data.validate import FeedInit
 from piker.data.types import Struct
+from piker.data import def_iohlcv_fields
 from piker.data._web_bs import (
     open_autorecon_ws,
     NoBsWs,
@@ -524,7 +525,7 @@ class Client:
             )
 
         array = np.array(
-            new_bars, dtype=_ohlc_dtype) if as_np else bars
+            new_bars, dtype=def_iohlcv_fields) if as_np else bars
         return array
 
 
