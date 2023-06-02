@@ -82,10 +82,7 @@ from piker.brokers._util import (
     get_logger,
 )
 
-# Broker specific ohlc schema which includes a vwap field
-_ohlc_dtype: list[tuple[str, type]] = [
-    ('index', int),
-
+_bar_load_dtype: list[tuple[str, type]] = [
     # NOTE XXX: only part that's diff
     # from our default fields where
     # time is normally an int.
@@ -99,8 +96,14 @@ _ohlc_dtype: list[tuple[str, type]] = [
     ('close', float),
     ('volume', float),
     ('count', int),
-    ('bar_wap', float),  # Wait do we need this?
 ]
+
+# Broker specific ohlc schema which includes a vwap field
+_ohlc_dtype: list[tuple[str, type]] = _bar_load_dtype.copy()
+_ohlc_dtype.insert(
+    0,
+    ('index', int),
+)
 
 
 _time_units = {
@@ -317,7 +320,7 @@ def bars_to_np(bars: list) -> np.ndarray:
 
     nparr = np.array(
         np_ready,
-        dtype=_ohlc_dtype,
+        dtype=_bar_load_dtype,
     )
     assert nparr['time'][0] == bars[0].date.timestamp()
     assert nparr['time'][-1] == bars[-1].date.timestamp()

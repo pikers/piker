@@ -215,8 +215,8 @@ class ContentsLabel(pg.LabelItem):
             "<b>H</b>:{}<br/>"
             "<b>L</b>:{}<br/>"
             "<b>C</b>:{}<br/>"
-            "<b>V</b>:{}<br/>"
-            "<b>wap</b>:{}".format(
+            "<b>V</b>:{}<br/>".format(
+            # "<b>wap</b>:{}".format(
                 *array[ix][
                     [
                         'time',
@@ -225,7 +225,7 @@ class ContentsLabel(pg.LabelItem):
                         'low',
                         'close',
                         'volume',
-                        'bar_wap',
+                        # 'bar_wap',
                     ]
                 ],
                 # name=name,

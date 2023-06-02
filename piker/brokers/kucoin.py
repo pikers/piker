@@ -455,7 +455,6 @@ class Client:
             ('low', float),
             ('close', float),
             ('volume', float),
-            ('bar_wap', float),  # will be zeroed by sampler if not filled
         ]
 
         '''
@@ -520,7 +519,7 @@ class Client:
                     # volume
                     float(bar[5]),
                     # bar_wap
-                    0.0,
+                    # 0.0,
                 )
             )
 
