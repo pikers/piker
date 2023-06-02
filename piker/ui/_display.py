@@ -1289,7 +1289,7 @@ async def display_symbol_data(
         hist_ohlcv: ShmArray = flume.hist_shm
 
         mkt: MktPair = flume.mkt
-        fqme = mkt.fqme
+        fqme: str = mkt.fqme
 
         hist_chart = hist_linked.plot_ohlc_main(
             mkt,
@@ -1386,7 +1386,7 @@ async def display_symbol_data(
 
                 hist_pi = hist_chart.overlay_plotitem(
                     name=fqme,
-                    axis_title=fqme,
+                    axis_title=flume.mkt.pair(),
                 )
 
                 hist_viz = hist_chart.draw_curve(
@@ -1416,7 +1416,7 @@ async def display_symbol_data(
 
                 rt_pi = rt_chart.overlay_plotitem(
                     name=fqme,
-                    axis_title=fqme,
+                    axis_title=flume.mkt.pair(),
                 )
 
                 rt_viz = rt_chart.draw_curve(

@@ -215,13 +215,17 @@ class PriceAxis(Axis):
         # self.setLabel(title)
         # self.showLabel()
 
-        label = self.title = Label(
-            view=view or self.linkedView(),
-            fmt_str=title,
-            color=color or self.text_color,
-            parent=self,
-            # update_on_range_change=False,
-        )
+        label: Label | None = self.title
+        if label is None:
+            label = self.title = Label(
+                view=view or self.linkedView(),
+                fmt_str=title,
+                color=color or self.text_color,
+                parent=self,
+                # update_on_range_change=False,
+            )
+        else:
+            label.fmt_str: str = title
 
         def below_axis() -> QPointF:
             return QPointF(

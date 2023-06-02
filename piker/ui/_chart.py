@@ -1121,8 +1121,23 @@ class ChartPlotWidget(pg.PlotWidget):
         # add axis title
         # TODO: do we want this API to still work?
         # raxis = pi.getAxis('right')
-        axis = self.pi_overlay.get_axis(pi, axis_side)
-        axis.set_title(axis_title or name, view=pi.getViewBox())
+        overlay: PlotItemOverlay = self.pi_overlay
+
+        # Whenever overlays exist always add a y-axis label to the
+        # main axis as well!
+        for name, axis_info in self.plotItem.axes.items():
+            axis = axis_info['item']
+            if isinstance(axis, PriceAxis):
+                axis.set_title(self.linked.mkt.pair())
+
+        axis: PriceAxis = overlay.get_axis(
+            pi,
+            axis_side,
+        )
+        axis.set_title(
+            axis_title or name,
+            view=pi.getViewBox(),
+        )
 
         return pi
 
@@ -1213,11 +1228,13 @@ class ChartPlotWidget(pg.PlotWidget):
 
         if add_sticky:
 
-            if pi is not self.plotItem:
+            main_pi: pgo.PlotItem = self.plotItem
+            if pi is not main_pi:
                 # overlay = self.pi_overlay
                 # assert pi in overlay.overlays
                 overlay = self.pi_overlay
                 assert pi in overlay.overlays
+                assert main_pi is overlay.root_plotitem
                 axis = overlay.get_axis(
                     pi,
                     add_sticky,
