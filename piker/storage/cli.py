@@ -93,7 +93,8 @@ async def del_ts_by_timeframe(
 
 ) -> None:
 
-    resp = await client.delete_ts(fqme, timeframe)
+    path: Path = await client.delete_ts(fqme, timeframe)
+    log.info(f'Deleted {path}')
 
     # TODO: encapsulate per backend errors..
     # - MEGA LOL, apparently the symbols don't
@@ -105,15 +106,15 @@ async def del_ts_by_timeframe(
     # for the delete errurz..llululu
     # if fqme not in syms:
     #     log.error(f'Pair {fqme} dne in DB')
-    msgish = resp.ListFields()[0][1]
-    if 'error' in str(msgish):
-        log.error(
-            f'Deletion error:\n'
-            f'backend: {client.name}\n'
-            f'fqme: {fqme}\n'
-            f'timeframe: {timeframe}s\n'
-            f'Error msg:\n\n{msgish}\n',
-        )
+    # msgish = resp.ListFields()[0][1]
+    # if 'error' in str(msgish):
+    #     log.error(
+    #         f'Deletion error:\n'
+    #         f'backend: {client.name}\n'
+    #         f'fqme: {fqme}\n'
+    #         f'timeframe: {timeframe}s\n'
+    #         f'Error msg:\n\n{msgish}\n',
+    #     )
 
 
 @store.command()
@@ -166,85 +167,106 @@ def read(
     fqme: str,
 
     limit: int = int(800e3),
-    client_type: str = 'async',
+    # client_type: str = 'async',
 
 ) -> np.ndarray:
 
-    end: int | None = None
+    # end: int | None = None
+    # import tractor
+    from .nativedb import get_client
 
-    if client_type == 'sync':
-        import pymarketstore as pymkts
-        cli = pymkts.Client()
+    async def main():
+        async with get_client() as client:
+            syms: list[str] = await client.list_keys()
 
-
-        while end != 0:
-            param = pymkts.Params(
+            (
+                history,
+                first_dt,
+                last_dt,
+            ) = await client.load(
                 fqme,
-                '1Min',
-                'OHLCV',
-                limit=limit,
-                # limit_from_start=True,
-                end=end,
+                60,
             )
-            if end is not None:
-                breakpoint()
-            reply = cli.query(param)
-            ds: pymkts.results.DataSet = reply.first()
-            array: np.ndarray = ds.array
-
-            print(f'loaded {len(array)}-len array:\n{array}')
-
-            times = array['Epoch']
-            end: float = float(times[0])
-            dt = pendulum.from_timestamp(end)
-            # end: str = dt.isoformat('T')
+            assert first_dt < last_dt
+            print(f'{fqme} SIZE -> {history.size}')
             breakpoint()
-            print(
-                f'trying to load next {limit} datums frame starting @ {dt}'
-            )
-    else:
-        from anyio_marketstore import (  # noqa
-            open_marketstore_client,
-            MarketstoreClient,
-            Params,
-        )
-        async def main():
+            # await tractor.breakpoint()
 
-            end: int | None = None
+    trio.run(main)
 
-            async with open_marketstore_client(
-                'localhost',
-                5995,
-            ) as client:
+    # if client_type == 'sync':
+    #     import pymarketstore as pymkts
+    #     cli = pymkts.Client()
 
-                while end != 0:
-                    params = Params(
-                        symbols=fqme,
-                        # timeframe=tfstr,
-                        timeframe='1Min',
-                        attrgroup='OHLCV',
-                        end=end,
-                        # limit_from_start=True,
 
-                        # TODO: figure the max limit here given the
-                        # ``purepc`` msg size limit of purerpc: 33554432
-                        limit=limit,
-                    )
+    #     while end != 0:
+    #         param = pymkts.Params(
+    #             fqme,
+    #             '1Min',
+    #             'OHLCV',
+    #             limit=limit,
+    #             # limit_from_start=True,
+    #             end=end,
+    #         )
+    #         if end is not None:
+    #             breakpoint()
+    #         reply = cli.query(param)
+    #         ds: pymkts.results.DataSet = reply.first()
+    #         array: np.ndarray = ds.array
 
-                    if end is not None:
-                        breakpoint()
-                    result = await client.query(params)
-                    data_set = result.by_symbols()[fqme]
-                    array = data_set.array
-                    times = array['Epoch']
-                    end: float = float(times[0])
-                    dt = pendulum.from_timestamp(end)
-                    breakpoint()
-                    print(
-                        f'trying to load next {limit} datums frame starting @ {dt}'
-                    )
+    #         print(f'loaded {len(array)}-len array:\n{array}')
 
-        trio.run(main)
+    #         times = array['Epoch']
+    #         end: float = float(times[0])
+    #         dt = pendulum.from_timestamp(end)
+    #         # end: str = dt.isoformat('T')
+    #         breakpoint()
+    #         print(
+    #             f'trying to load next {limit} datums frame starting @ {dt}'
+    #         )
+    # else:
+    #     from anyio_marketstore import (  # noqa
+    #         open_marketstore_client,
+    #         MarketstoreClient,
+    #         Params,
+    #     )
+    #     async def main():
+
+    #         end: int | None = None
+
+    #         async with open_marketstore_client(
+    #             'localhost',
+    #             5995,
+    #         ) as client:
+
+    #             while end != 0:
+    #                 params = Params(
+    #                     symbols=fqme,
+    #                     # timeframe=tfstr,
+    #                     timeframe='1Min',
+    #                     attrgroup='OHLCV',
+    #                     end=end,
+    #                     # limit_from_start=True,
+
+    #                     # TODO: figure the max limit here given the
+    #                     # ``purepc`` msg size limit of purerpc: 33554432
+    #                     limit=limit,
+    #                 )
+
+    #                 if end is not None:
+    #                     breakpoint()
+    #                 result = await client.query(params)
+    #                 data_set = result.by_symbols()[fqme]
+    #                 array = data_set.array
+    #                 times = array['Epoch']
+    #                 end: float = float(times[0])
+    #                 dt = pendulum.from_timestamp(end)
+    #                 breakpoint()
+    #                 print(
+    #                     f'trying to load next {limit} datums frame starting @ {dt}'
+    #                 )
+
+    #     trio.run(main)
 
 
 @store.command()
@@ -260,7 +282,7 @@ def clone(
     import polars as pl
 
     # open existing shm buffer for kucoin backend
-    key: str = 'piker.brokerd[d07c9bb7-b720-41].tlosusdt.kucoin.hist'
+    key: str = 'piker.brokerd[a9e7a4fe-39ae-44].btcusdt.binance.hist'
     shmpath: Path = Path('/dev/shm') / key
     assert shmpath.is_file()
 
