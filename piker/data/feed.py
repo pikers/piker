@@ -340,7 +340,7 @@ async def allocate_persistent_feed(
 
     # yield back control to starting nursery once we receive either
     # some history or a real-time quote.
-    log.info(f'waiting on history to load: {fqme}')
+    log.info(f'loading OHLCV history: {fqme}')
     await some_data_ready.wait()
 
     flume = Flume(
@@ -370,7 +370,8 @@ async def allocate_persistent_feed(
         mkt.bs_fqme: flume,
     })
 
-    # signal the ``open_feed_bus()`` caller task to continue
+    # signal the ``open_feed_bus()`` caller task to continue since
+    # we now have (some) history pushed to the shm buffer.
     task_status.started(init)
 
     if not start_stream:
