@@ -89,37 +89,6 @@ def ls(
     trio.run(query_all)
 
 
-async def del_ts_by_timeframe(
-    client: Storage,
-    fqme: str,
-    timeframe: int,
-
-) -> None:
-
-    path: Path = await client.delete_ts(fqme, timeframe)
-    log.info(f'Deleted {path}')
-
-    # TODO: encapsulate per backend errors..
-    # - MEGA LOL, apparently the symbols don't
-    # flush out until you refresh something or other
-    # (maybe the WALFILE)... #lelandorlulzone, classic
-    # alpaca(Rtm) design here ..
-    # well, if we ever can make this work we
-    # probably want to dogsplain the real reason
-    # for the delete errurz..llululu
-    # if fqme not in syms:
-    #     log.error(f'Pair {fqme} dne in DB')
-    # msgish = resp.ListFields()[0][1]
-    # if 'error' in str(msgish):
-    #     log.error(
-    #         f'Deletion error:\n'
-    #         f'backend: {client.name}\n'
-    #         f'fqme: {fqme}\n'
-    #         f'timeframe: {timeframe}s\n'
-    #         f'Error msg:\n\n{msgish}\n',
-    #     )
-
-
 @store.command()
 def delete(
     symbols: list[str],
@@ -128,13 +97,8 @@ def delete(
         default=None,
         help='Storage backend to update'
     ),
-
-    # delete: bool = typer.Option(False, '-d'),
-    # host: str = typer.Option(
-    #     'localhost',
-    #     '-h',
-    # ),
-    # port: int = typer.Option('5993', '-p'),
+    # TODO: expose this as flagged multi-option?
+    timeframes: list[int] = [1, 60],
 ):
     '''
     Delete a storage backend's time series for (table) keys provided as
@@ -149,15 +113,14 @@ def delete(
                 'tsdb_storage',
                 enable_modules=['piker.service._ahab']
             ),
-            open_storage_client(name=backend) as (_, storage),
+            open_storage_client(backend) as (_, client),
             trio.open_nursery() as n,
         ):
             # spawn queries as tasks for max conc!
             for fqme in symbols:
-                for tf in [1, 60]:
+                for tf in timeframes:
                     n.start_soon(
-                        del_ts_by_timeframe,
-                        storage,
+                        client.delete_ts,
                         fqme,
                         tf,
                     )

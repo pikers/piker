@@ -280,7 +280,12 @@ class NativeStorageClient:
             period=timeframe,
             datadir=self._datadir,
         )
-        path.unlink()
+        if path.is_file():
+            path.unlink()
+            log.warning(f'Deleting parquet entry:\n{path}')
+        else:
+            log.warning(f'No path exists:\n{path}')
+
         return path
 
 
