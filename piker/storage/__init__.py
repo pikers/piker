@@ -157,7 +157,7 @@ def get_storagemod(name: str) -> ModuleType:
 
 @acm
 async def open_storage_client(
-    name: str | None = None,
+    name: str = 'nativedb',
 
 ) -> tuple[ModuleType, StorageClient]:
     '''
@@ -168,6 +168,9 @@ async def open_storage_client(
 
     # load root config and any tsdb user defined settings
     conf, path = config.load('conf', touch_if_dne=True)
+
+    # TODO: maybe not under a "network" section.. since
+    # no more chitty mkts..
     net = conf.get('network')
     if net:
         tsdbconf = net.get('tsdb')

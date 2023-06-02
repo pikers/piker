@@ -44,7 +44,7 @@ from anyio_marketstore import (
     Params,
 )
 import pendulum
-import purerpc
+# import purerpc
 
 from piker.service.marketstore import (
     MarketstoreClient,

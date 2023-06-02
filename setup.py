@@ -41,6 +41,7 @@ setup(
             'piker = piker.cli:cli',
             'pikerd = piker.cli:pikerd',
             'ledger = piker.accounting.cli:ledger',
+            # 'store = piker.storage.cli:store',
         ]
     },
     install_requires=[
@@ -78,6 +79,7 @@ setup(
         'cython',
         'numpy',
         'numba',
+        'polars',  # dataframes
 
         # UI
         'PyQt5',
