@@ -505,6 +505,7 @@ async def open_sample_stream(
             },
         ) as (ctx, first)
     ):
+        assert len(first) > 1
         async with (
             ctx.open_stream() as istream,
 
@@ -591,14 +592,14 @@ async def sample_and_broadcast(
                             'high',
                             'low',
                             'close',
-                            'bar_wap',  # can be optionally provided
+                            # 'bar_wap',  # can be optionally provided
                             'volume',
                         ]][-1] = (
                             o,
                             max(high, last),
                             min(low, last),
                             last,
-                            quote.get('bar_wap', 0),
+                            # quote.get('bar_wap', 0),
                             volume,
                         )
 

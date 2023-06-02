@@ -47,7 +47,7 @@ def_iohlcv_fields: list[tuple[str, type]] = [
     # TODO: can we elim this from default field set to save on mem?
     # i think only kraken really uses this in terms of what we get from
     # their ohlc history API?
-    ('bar_wap', float),  # shouldn't be default right?
+    # ('bar_wap', float),  # shouldn't be default right?
 ]
 
 # remove index field
