@@ -62,7 +62,8 @@ get_console_log = partial(
 
 
 __tsdbs__: list[str] = [
-    'marketstore',
+    'nativedb',
+    # 'marketstore',
 ]
 
 
@@ -157,13 +158,14 @@ def get_storagemod(name: str) -> ModuleType:
 
 @acm
 async def open_storage_client(
-    name: str = 'nativedb',
+    backend: str | None = None,
 
 ) -> tuple[ModuleType, StorageClient]:
     '''
     Load the ``StorageClient`` for named backend.
 
     '''
+    def_backend: str = 'nativedb'
     tsdb_host: str = 'localhost'
 
     # load root config and any tsdb user defined settings
@@ -171,43 +173,44 @@ async def open_storage_client(
 
     # TODO: maybe not under a "network" section.. since
     # no more chitty mkts..
-    net = conf.get('network')
-    if net:
-        tsdbconf = net.get('tsdb')
+    tsdbconf: dict = {}
+    service_section = conf.get('service')
+    if (
+        not backend
+        and service_section
+    ):
+        tsdbconf = service_section.get('tsdb')
 
         # lookup backend tsdb module by name and load any user service
         # settings for connecting to the tsdb service.
-        name: str = tsdbconf.pop('backend')
+        backend: str = tsdbconf.pop('backend')
         tsdb_host: str = tsdbconf['host']
 
-    if name is None:
-        raise RuntimeError('No tsdb backend has been set!?')
+    if backend is None:
+        backend: str = def_backend
 
     # import and load storagemod by name
-    mod: ModuleType = get_storagemod(name)
+    mod: ModuleType = get_storagemod(backend)
     get_client = mod.get_client
 
     log.info('Scanning for existing `{tsbd_backend}`')
-    tsdb_is_up: bool = await check_for_service(f'{name}d')
-    if (
-        tsdb_host == 'localhost'
-        or tsdb_is_up
-    ):
-        log.info(f'Connecting to local {name}@{tsdbconf}')
+    if backend != def_backend:
+        tsdb_is_up: bool = await check_for_service(f'{backend}d')
+        if (
+            tsdb_host == 'localhost'
+            or tsdb_is_up
+        ):
+            log.info(f'Connecting to local: {backend}@{tsdbconf}')
+        else:
+            log.info(f'Attempting to connect to remote: {backend}@{tsdbconf}')
     else:
-        log.info(f'Attempting to connect to remote {name}@{tsdbconf}')
+        log.info(f'Connecting to default storage: {backend}@{tsdbconf}')
 
-    # try:
     async with (
         get_client(**tsdbconf) as client,
     ):
         # slap on our wrapper api
         yield mod, client
-
-    # except Exception as err:
-    #     raise StorageConnectionError(
-    #         f'No connection to {name}'
-    #     ) from err
 
 
 # NOTE: pretty sure right now this is only being
