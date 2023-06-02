@@ -59,7 +59,6 @@ def ls(
     if not backends:
         backends: list[str] = __tsdbs__
 
-    table = Table(title=f'Table keys for backends {backends}:')
     console = Console()
 
     async def query_all():
@@ -71,17 +70,21 @@ def ls(
                 enable_modules=['piker.service._ahab'],
             ),
         ):
-            for backend in backends:
-                async with open_storage_client(name=backend) as (
-                    mod,
-                    client,
-                ):
-                    table.add_column(f'{mod.name} fqmes')
-                    keys: list[str] = await client.list_keys()
-                    for key in keys:
-                        table.add_row(key)
+            for i, backend in enumerate(backends):
+                table = Table()
+                try:
+                    async with open_storage_client(backend=backend) as (
+                        mod,
+                        client,
+                    ):
+                        table.add_column(f'{mod.name}@{client.address}')
+                        keys: list[str] = await client.list_keys()
+                        for key in keys:
+                            table.add_row(key)
 
-            console.print(table)
+                    console.print(table)
+                except Exception:
+                    log.error(f'Unable to connect to storage engine: `{backend}`')
 
     trio.run(query_all)
 
@@ -193,80 +196,6 @@ def read(
             # await tractor.breakpoint()
 
     trio.run(main)
-
-    # if client_type == 'sync':
-    #     import pymarketstore as pymkts
-    #     cli = pymkts.Client()
-
-
-    #     while end != 0:
-    #         param = pymkts.Params(
-    #             fqme,
-    #             '1Min',
-    #             'OHLCV',
-    #             limit=limit,
-    #             # limit_from_start=True,
-    #             end=end,
-    #         )
-    #         if end is not None:
-    #             breakpoint()
-    #         reply = cli.query(param)
-    #         ds: pymkts.results.DataSet = reply.first()
-    #         array: np.ndarray = ds.array
-
-    #         print(f'loaded {len(array)}-len array:\n{array}')
-
-    #         times = array['Epoch']
-    #         end: float = float(times[0])
-    #         dt = pendulum.from_timestamp(end)
-    #         # end: str = dt.isoformat('T')
-    #         breakpoint()
-    #         print(
-    #             f'trying to load next {limit} datums frame starting @ {dt}'
-    #         )
-    # else:
-    #     from anyio_marketstore import (  # noqa
-    #         open_marketstore_client,
-    #         MarketstoreClient,
-    #         Params,
-    #     )
-    #     async def main():
-
-    #         end: int | None = None
-
-    #         async with open_marketstore_client(
-    #             'localhost',
-    #             5995,
-    #         ) as client:
-
-    #             while end != 0:
-    #                 params = Params(
-    #                     symbols=fqme,
-    #                     # timeframe=tfstr,
-    #                     timeframe='1Min',
-    #                     attrgroup='OHLCV',
-    #                     end=end,
-    #                     # limit_from_start=True,
-
-    #                     # TODO: figure the max limit here given the
-    #                     # ``purepc`` msg size limit of purerpc: 33554432
-    #                     limit=limit,
-    #                 )
-
-    #                 if end is not None:
-    #                     breakpoint()
-    #                 result = await client.query(params)
-    #                 data_set = result.by_symbols()[fqme]
-    #                 array = data_set.array
-    #                 times = array['Epoch']
-    #                 end: float = float(times[0])
-    #                 dt = pendulum.from_timestamp(end)
-    #                 breakpoint()
-    #                 print(
-    #                     f'trying to load next {limit} datums frame starting @ {dt}'
-    #                 )
-
-    #     trio.run(main)
 
 
 @store.command()

@@ -75,14 +75,21 @@ class MktsStorageClient:
     def __init__(
         self,
         client: MarketstoreClient,
+        config: dict,
 
     ) -> None:
         # TODO: eventually this should be an api/interface type that
         # ensures we can support multiple tsdb backends.
         self.client = client
+        self._config = config
 
         # series' cache from tsdb reads
         self._arrays: dict[str, np.ndarray] = {}
+
+    @property
+    def address(self) -> str:
+        conf = self._config
+        return f'grpc://{conf["host"]}:{conf["port"]}'
 
     async def list_keys(self) -> list[str]:
         return await self.client.list_symbols()
@@ -359,8 +366,8 @@ ohlc_key_map = bidict({
 
 @acm
 async def get_client(
-    grpc_port: int,  # required
-    host: str | None,
+    grpc_port: int = 5995,  # required
+    host: str = 'localhost',
 
 ) -> MarketstoreClient:
     '''
@@ -372,4 +379,7 @@ async def get_client(
         host or 'localhost',
         grpc_port,
     ) as client:
-        yield MktsStorageClient(client)
+        yield MktsStorageClient(
+            client,
+            config={'host': host, 'port': grpc_port},
+        )
