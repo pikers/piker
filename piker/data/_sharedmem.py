@@ -322,7 +322,7 @@ class ShmArray:
         field_map: Optional[dict[str, str]] = None,
         prepend: bool = False,
         update_first: bool = True,
-        start: Optional[int] = None,
+        start: int | None = None,
 
     ) -> int:
         '''
@@ -364,7 +364,11 @@ class ShmArray:
             # tries to access ``.array`` (which due to the index
             # overlap will be empty). Pretty sure we've fixed it now
             # but leaving this here as a reminder.
-            if prepend and update_first and length:
+            if (
+                prepend
+                and update_first
+                and length
+            ):
                 assert index < self._first.value
 
             if (
