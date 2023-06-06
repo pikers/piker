@@ -460,12 +460,22 @@ class Client:
         '''
         # Generate generic end and start time if values not passed
         # Currently gives us 12hrs of data
-        if end_dt is None:
+        if (
+            end_dt is None
+            and start_dt is None
+        ):
             end_dt = pendulum.now('UTC').add(minutes=1)
+            start_dt = end_dt.start_of('minute').subtract(minutes=limit)
 
-        if start_dt is None:
-            start_dt = end_dt.start_of(
-                'minute').subtract(minutes=limit)
+        if (
+            start_dt
+            and end_dt is None
+        ):
+            # just set end to limit's worth in future
+            end_dt = start_dt.start_of('minute').add(minutes=limit)
+
+        else:
+            start_dt = end_dt.start_of('minute').subtract(minutes=limit)
 
         start_dt = int(start_dt.timestamp())
         end_dt = int(end_dt.timestamp())
