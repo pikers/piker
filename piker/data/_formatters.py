@@ -222,6 +222,7 @@ class IncrementalFormatter(msgspec.Struct):
         profiler: Profiler,
 
         slice_to_inview: bool = True,
+        force_full_realloc: bool = False,
 
     ) -> tuple[
         np.ndarray,
@@ -248,7 +249,10 @@ class IncrementalFormatter(msgspec.Struct):
 
         # we first need to allocate xy data arrays
         # from the source data.
-        if self.y_nd is None:
+        if (
+            self.y_nd is None
+            or force_full_realloc
+        ):
             self.xy_nd_start = shm._first.value
             self.xy_nd_stop = shm._last.value
             self.x_nd, self.y_nd = self.allocate_xy_nd(

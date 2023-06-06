@@ -136,6 +136,7 @@ class Renderer(msgspec.Struct):
 
         do_append: bool = True,
         use_fpath: bool = True,
+        force_reformat: bool = False,
 
         # only render datums "in view" of the ``ChartView``
         use_vr: bool = True,
@@ -174,6 +175,7 @@ class Renderer(msgspec.Struct):
             profiler,
 
             slice_to_inview=use_vr,
+            force_full_realloc=force_reformat,
         )
 
         # no history in view case
@@ -222,7 +224,10 @@ class Renderer(msgspec.Struct):
             or should_redraw
         ):
             # print(f"{self.viz.name} -> REDRAWING BRUH")
-            if new_sample_rate and showing_src_data:
+            if (
+                new_sample_rate
+                and showing_src_data
+            ):
                 log.info(f'DE-downsampling -> {array_key}')
                 self._in_ds = False
 
