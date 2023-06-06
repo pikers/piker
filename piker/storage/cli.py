@@ -20,10 +20,11 @@ Storage middle-ware CLIs.
 """
 from __future__ import annotations
 from pathlib import Path
-from typing import TYPE_CHECKING
+# from typing import TYPE_CHECKING
 
+import polars as pl
 import numpy as np
-import pendulum
+# import pendulum
 from rich.console import Console
 import trio
 # from rich.markdown import Markdown
@@ -34,9 +35,10 @@ from piker.cli import cli
 from . import (
     log,
 )
-
-if TYPE_CHECKING:
-    from . import Storage
+from . import (
+    __tsdbs__,
+    open_storage_client,
+)
 
 
 store = typer.Typer()
@@ -49,11 +51,6 @@ def ls(
         help='Storage backends to query, default is all.'
     ),
 ):
-    # from piker.service import open_piker_runtime
-    from . import (
-        __tsdbs__,
-        open_storage_client,
-    )
     from rich.table import Table
 
     if not backends:
@@ -129,21 +126,18 @@ def delete(
 
 
 @store.command()
-def read(
+def anal(
     fqme: str,
-
-    limit: int = int(800e3),
-    # client_type: str = 'async',
+    period: int = 60,
 
 ) -> np.ndarray:
 
-    # end: int | None = None
     # import tractor
-    from .nativedb import get_client
 
     async def main():
-        async with get_client() as client:
+        async with open_storage_client() as (mod, client):
             syms: list[str] = await client.list_keys()
+            print(f'{len(syms)} FOUND for {mod.name}')
 
             (
                 history,
@@ -151,10 +145,16 @@ def read(
                 last_dt,
             ) = await client.load(
                 fqme,
-                60,
+                period,
             )
             assert first_dt < last_dt
-            print(f'{fqme} SIZE -> {history.size}')
+
+            src_df = await client.as_df(fqme, period)
+            df = mod.with_dts(src_df)
+            gaps: pl.DataFrame = mod.detect_time_gaps(df)
+            if gaps.is_empty():
+                breakpoint()
+
             breakpoint()
             # await tractor.breakpoint()
 
