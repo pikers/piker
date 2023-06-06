@@ -366,7 +366,12 @@ async def register_with_sampler(
                         sub_for_broadcasts
                         and subs
                     ):
-                        subs.remove(stream)
+                        try:
+                            subs.remove(stream)
+                        except KeyError:
+                            log.warning(
+                                f'{stream._ctx.chan.uid} sub already removed!?'
+                            )
             else:
                 # if no shms are passed in we just wait until cancelled
                 # by caller.
