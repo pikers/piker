@@ -152,11 +152,15 @@ def anal(
             src_df = await client.as_df(fqme, period)
             df = mod.with_dts(src_df)
             gaps: pl.DataFrame = mod.detect_time_gaps(df)
-            if gaps.is_empty():
-                breakpoint()
 
-            breakpoint()
-            # await tractor.breakpoint()
+            # TODO: something better with tab completion..
+            # is there something more minimal but nearly as
+            # functional as ipython?
+            import code
+            code.interact(
+                f'df: {df}\ngaps: {gaps}\n',
+                local=locals()
+            )
 
     trio.run(main)
 
@@ -173,8 +177,10 @@ def clone(
     )
     import polars as pl
 
+    # TODO: actually look up an existing shm buf (set) from
+    # an fqme and file name parsing..
     # open existing shm buffer for kucoin backend
-    key: str = 'piker.brokerd[a9e7a4fe-39ae-44].btcusdt.binance.hist'
+    key: str = 'piker.brokerd[3595d316-3c15-46].xmrusdt.kucoin.hist'
     shmpath: Path = Path('/dev/shm') / key
     assert shmpath.is_file()
 
