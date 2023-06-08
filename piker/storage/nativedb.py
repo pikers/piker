@@ -296,7 +296,11 @@ class NativeStorageClient:
         else:
             df = ohlcv
 
-        # TODO: use a proper profiler
+        # TODO: in terms of managing the ultra long term data
+        # - use a proper profiler to measure all this IO and
+        #   roundtripping!
+        # - try out ``fastparquet``'s append writing:
+        # https://fastparquet.readthedocs.io/en/latest/api.html#fastparquet.write
         start = time.time()
         df.write_parquet(path)
         delay: float = round(
