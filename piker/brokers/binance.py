@@ -55,7 +55,7 @@ from ._util import (
     DataUnavailable,
 )
 from ._util import (
-    log,
+    get_logger,
     get_console_log,
 )
 from piker.data.types import Struct
@@ -65,6 +65,9 @@ from piker.data._web_bs import (
     open_autorecon_ws,
     NoBsWs,
 )
+
+
+log = get_logger(__name__)
 
 
 _url = 'https://api.binance.com'
@@ -351,7 +354,7 @@ async def get_client() -> Client:
 
 
 # validation type
-class AggTrade(Struct):
+class AggTrade(Struct, frozen=True):
     e: str  # Event type
     E: int  # Event time
     s: str  # Symbol
@@ -455,10 +458,16 @@ async def stream_messages(
 
 
 def make_sub(pairs: list[str], sub_name: str, uid: int) -> dict[str, str]:
-    """Create a request subscription packet dict.
+    '''
+    Create a request subscription packet dict.
 
-    https://binance-docs.github.io/apidocs/spot/en/#live-subscribing-unsubscribing-to-streams
-    """
+    - spot:
+      https://binance-docs.github.io/apidocs/spot/en/#live-subscribing-unsubscribing-to-streams
+
+    - futes:
+      https://binance-docs.github.io/apidocs/futures/en/#websocket-market-streams
+
+    '''
     return {
         'method': 'SUBSCRIBE',
         'params': [
