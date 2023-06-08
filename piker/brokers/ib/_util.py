@@ -21,22 +21,14 @@ runnable script-programs.
 '''
 from __future__ import annotations
 from functools import partial
-from typing import (
-    Literal,
-    TYPE_CHECKING,
-)
+from typing import Literal
 import subprocess
 
 import tractor
 
-from .._util import log
+from .._util import get_logger
 
-if TYPE_CHECKING:
-    from .api import (
-        MethodProxy,
-        ib_Client
-    )
-
+log = get_logger('piker.brokers.ib')
 
 _reset_tech: Literal[
     'vnc',
