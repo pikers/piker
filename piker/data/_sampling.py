@@ -529,7 +529,9 @@ async def open_sample_stream(
             assert len(first) > 1
 
         async with (
-            ctx.open_stream() as istream,
+            ctx.open_stream(
+                allow_overruns=True,
+            ) as istream,
 
             # TODO: we DO need this task-bcasting so that
             # for eg. the history chart update loop eventually
