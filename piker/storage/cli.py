@@ -150,8 +150,9 @@ def anal(
             assert first_dt < last_dt
 
             src_df = await client.as_df(fqme, period)
-            df = mod.with_dts(src_df)
-            gaps: pl.DataFrame = mod.detect_time_gaps(df)
+            from piker.data import _timeseries as tsmod
+            df = tsmod.with_dts(src_df)
+            gaps: pl.DataFrame = tsmod.detect_time_gaps(df)
 
             # TODO: something better with tab completion..
             # is there something more minimal but nearly as
