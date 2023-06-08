@@ -194,16 +194,33 @@ def slice_from_time(
     return read_slc
 
 
-def detect_null_time_gap(shm: ShmArray) -> tuple[float, float] | None:
-    # detect if there are any zero-epoch stamped rows
+def detect_null_time_gap(
+    shm: ShmArray,
+    imargin: int = 1,
+
+) -> tuple[float, float] | None:
+    '''
+    Detect if there are any zero-epoch stamped rows in
+    the presumed 'time' field-column.
+
+    Filter to the gap and return a surrounding index range.
+
+    NOTE: for now presumes only ONE gap XD
+
+    '''
     zero_pred: np.ndarray = shm.array['time'] == 0
     zero_t: np.ndarray = shm.array[zero_pred]
     if zero_t.size:
         istart, iend = zero_t['index'][[0, -1]]
         start, end = shm._array['time'][
-            [istart - 2, iend + 2]
+            [istart - imargin, iend + imargin]
         ]
-        return istart - 2, start, end, iend + 2
+        return (
+            istart - imargin,
+            start,
+            end,
+            iend + imargin,
+        )
 
     return None
 
