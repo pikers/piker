@@ -33,7 +33,6 @@ import tractor
 import trio
 import pyqtgraph as pg
 # import pendulum
-
 from msgspec import field
 
 # from .. import brokers
@@ -208,6 +207,7 @@ class DisplayState(Struct):
 
 
 async def increment_history_view(
+    # min_istream: tractor.MsgStream,
     ds: DisplayState,
 ):
     hist_chart = ds.hist_chart
@@ -221,8 +221,16 @@ async def increment_history_view(
     #   wakeups/ctx switches verus logic checks (as normal)
     # - we need increment logic that only does the view shift
     #   call when the uppx permits/needs it
-    async with open_sample_stream(1.) as istream:
-        async for msg in istream:
+
+    async with open_sample_stream(1.) as min_istream:
+
+        # draw everything from scratch on first entry!
+        for curve_name, hist_viz in hist_chart._vizs.items():
+            log.info(f'FORCING CURVE REDRAW -> {curve_name}')
+            hist_viz.update_graphics(force_redraw=True)
+
+        async for msg in min_istream:
+            # print(f'SAMPLER MSG: {msg}')
 
             profiler = Profiler(
                 msg=f'History chart cycle for: `{ds.fqme}`',
@@ -231,6 +239,13 @@ async def increment_history_view(
                 ms_threshold=ms_slower_then,
                 # ms_threshold=4,
             )
+
+            if (
+                'backfilling' in msg
+            ):
+                # for curve_name, hist_viz in hist_chart._vizs.items():
+                print(f'FORCING REDRAW!! {hist_viz.name}')
+                hist_viz.update_graphics(force_redraw=True)
 
             # l3 = ds.viz.shm.array[-3:]
             # print(
@@ -272,7 +287,7 @@ async def increment_history_view(
                 hist_chart.increment_view(datums=append_diff)
                 profiler('hist tread view')
 
-            profiler.finish()
+        profiler.finish()
 
 
 async def graphics_update_loop(
@@ -280,6 +295,8 @@ async def graphics_update_loop(
     nurse: trio.Nursery,
     godwidget: GodWidget,
     feed: Feed,
+    # min_istream: tractor.MsgStream,
+
     pis: dict[str, list[pgo.PlotItem, pgo.PlotItem]] = {},
     wap_in_history: bool = False,
     vlm_charts: dict[str, ChartPlotWidget] = {},
@@ -429,8 +446,10 @@ async def graphics_update_loop(
 
         nurse.start_soon(
             increment_history_view,
+            # min_istream,
             ds,
         )
+        await trio.sleep(0)
 
         if ds.hist_vars['i_last'] < ds.hist_vars['i_last_append']:
             breakpoint()
@@ -1214,12 +1233,15 @@ async def display_symbol_data(
     )
 
     feed: Feed
-    async with open_feed(
-        fqmes,
-        loglevel=loglevel,
-        tick_throttle=cycles_per_feed,
+    async with (
+        # open_sample_stream(1.) as min_istream,
+        open_feed(
+            fqmes,
+            loglevel=loglevel,
+            tick_throttle=cycles_per_feed,
 
-    ) as feed:
+        ) as feed,
+    ):
 
         # use expanded contract symbols passed back from feed layer.
         fqmes = list(feed.flumes.keys())
@@ -1491,6 +1513,8 @@ async def display_symbol_data(
                 ln,
                 godwidget,
                 feed,
+                # min_istream,
+
                 pis,
                 wap_in_history,
                 vlm_charts,
