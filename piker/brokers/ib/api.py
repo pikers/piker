@@ -423,7 +423,7 @@ class Client:
 
         # optional "duration of time" equal to the
         # length of the returned history frame.
-        duration: Optional[str] = None,
+        duration: str | None = None,
 
         **kwargs,
 
@@ -475,6 +475,8 @@ class Client:
             # whatToShow='MIDPOINT',
             # whatToShow='TRADES',
         )
+
+        # tail case if no history for range or none prior.
         if not bars:
             # NOTE: there's 2 cases here to handle (and this should be
             # read alongside the implementation of
@@ -488,6 +490,32 @@ class Client:
             # TODO: we could maybe raise ``NoData`` instead if we
             # rewrite the method in the first case? right now there's no
             # way to detect a timeout.
+
+        # NOTE XXX: ensure minimum duration in bars B)
+        # => we recursively call this method until we get at least
+        # as many bars such that they sum in aggregate to the the
+        # desired total time (duration) at most.
+        elif (
+            end_dt
+            and (
+                (len(bars) * sample_period_s) < dt_duration.in_seconds()
+            )
+        ):
+            log.warning(
+                f'Recursing to get more bars from {end_dt} for {dt_duration}'
+            )
+            end_dt -= dt_duration
+            (
+                r_bars,
+                r_arr,
+                r_duration,
+            ) = await self.bars(
+                fqme,
+                start_dt=start_dt,
+                end_dt=end_dt,
+            )
+            r_bars.extend(bars)
+            bars = r_bars
 
         nparr = bars_to_np(bars)
         return bars, nparr, dt_duration
@@ -921,7 +949,7 @@ class Client:
 
                 done, pending = await asyncio.wait(
                     [ready],
-                    timeout=0.1,
+                    timeout=0.01,
                 )
                 if ready in done:
                     break
@@ -1401,7 +1429,7 @@ async def open_client_proxies() -> tuple[
             # TODO: maybe this should be the default in tractor?
             key=tractor.current_actor().uid,
 
-        ) as (cache_hit, (clients, from_aio)),
+        ) as (cache_hit, (clients, _)),
 
         AsyncExitStack() as stack
     ):
