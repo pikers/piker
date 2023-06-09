@@ -21,6 +21,7 @@
 Binance backend
 
 """
+from __future__ import annotations
 from collections import OrderedDict
 from contextlib import (
     asynccontextmanager as acm,
@@ -40,6 +41,8 @@ import hmac
 import time
 import decimal
 import hashlib
+from pathlib import Path
+
 import trio
 from trio_typing import TaskStatus
 import pendulum
@@ -87,13 +90,16 @@ log = get_logger('piker.brokers.binance')
 
 
 def get_config() -> dict:
+
+    conf: dict
+    path: Path
     conf, path = config.load()
 
-    section =  conf.get('binance')
+    section = conf.get('binance')
 
     if not section:
         log.warning(f'No config section found for binance in {path}')
-        return dict()
+        return {}
 
     return section
 
@@ -225,12 +231,12 @@ class Client:
 
     def __init__(self) -> None:
         self._sesh = asks.Session(connections=4)
-        self._sesh.base_location = _url
-        self._pairs: dict[str, Pair] = {}
+        self._sesh.base_location: str = _url
+        self._pairs: dict[str, Pair] = {}  # mkt info table
 
         conf = get_config()
-        self.api_key = conf.get('api', {}).get('key')
-        self.api_secret = conf.get('api', {}).get('secret')
+        self.api_key: str = conf.get('api_key', '')
+        self.api_secret: str = conf.get('api_secret', '')
 
         if self.api_key:
             self._sesh.headers.update({'X-MBX-APIKEY': self.api_key})
@@ -255,7 +261,7 @@ class Client:
     async def _api(
         self,
         method: str,
-        params: Union[dict, OrderedDict],
+        params: dict | OrderedDict,
         signed: bool = False,
         action: str = 'get'
     ) -> dict[str, Any]:
@@ -263,19 +269,11 @@ class Client:
         if signed:
             params['signature'] = self._get_signature(params)
 
-        if action == 'get':
-            resp = await self._sesh.get(
-                path=f'/api/v3/{method}',
-                params=params,
-                timeout=float('inf')
-            )
-
-        elif action == 'post':
-            resp = await self._sesh.post(
-                path=f'/api/v3/{method}',
-                params=params,
-                timeout=float('inf')
-            )
+        resp = await getattr(self._sesh, action)(
+            path=f'/api/v3/{method}',
+            params=params,
+            timeout=float('inf')
+        )
 
         return resproc(resp, log)
 
@@ -831,21 +829,28 @@ async def handle_order_requests(
 async def trades_dialogue(
     ctx: tractor.Context,
     loglevel: str = None
+
 ) -> AsyncIterator[dict[str, Any]]:
 
-    # XXX: required to propagate ``tractor`` loglevel to piker logging
-    get_console_log(loglevel or tractor.current_actor().loglevel)
+    async with open_cached_client('binance') as client:
+        if not client.api_key:
+            await ctx.started('paper')
+            return
 
-    positions = {}  # TODO: get already open pos
+    # table: PpTable
+    # ledger: TransactionLedger
 
-    await ctx.started(positions, {})
+    # TODO: load pps and accounts using accounting apis!
+    # positions: dict = {}
+    # accounts: set[str] = set()
+    # await ctx.started((positions, {}))
 
-    async with (
-        ctx.open_stream() as ems_stream,
-        trio.open_nursery() as n
-    ):
-        n.start_soon(handle_order_requests, ems_stream)
-        await trio.sleep_forever()
+    # async with (
+    #     ctx.open_stream() as ems_stream,
+    #     trio.open_nursery() as n
+    # ):
+    #     n.start_soon(handle_order_requests, ems_stream)
+    #     await trio.sleep_forever()
 
 
 @tractor.context
