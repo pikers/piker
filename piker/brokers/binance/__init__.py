@@ -23,16 +23,15 @@ binancial secs on the floor, in the office, behind the dumpster.
 """
 from .api import (
     get_client,
-# )
-# from .feed import (
+)
+from .feed import (
     get_mkt_info,
     open_history_client,
     open_symbol_search,
     stream_quotes,
-# )
-# from .broker import (
+)
+from .broker import (
     trades_dialogue,
-    # norm_trade_records,
 )
 
 
@@ -43,13 +42,12 @@ __all__ = [
     'open_history_client',
     'open_symbol_search',
     'stream_quotes',
-    # 'norm_trade_records',
 ]
 
 
-# tractor RPC enable arg
+# `brokerd` modules
 __enable_modules__: list[str] = [
     'api',
-    # 'feed',
-    # 'broker',
+    'feed',
+    'broker',
 ]
