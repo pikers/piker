@@ -18,7 +18,8 @@
 Built-in (extension) types.
 
 """
-import sys
+import builtins
+# import sys
 from pprint import pformat
 
 import msgspec
@@ -85,5 +86,11 @@ class Struct(
         self,
         # fields: list[str] | None = None,
     ) -> None:
-        for fname, ftype in self.__annotations__.items():
-            setattr(self, fname, ftype(getattr(self, fname)))
+        for fname, ftype_str in self.__annotations__.items():
+            ftype = getattr(builtins, ftype_str)
+            attr  = getattr(self, fname)
+            setattr(
+                self,
+                fname,
+                ftype(attr),
+            )
