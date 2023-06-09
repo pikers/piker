@@ -288,6 +288,7 @@ class Client:
         params: dict | OrderedDict,
         signed: bool = False,
         action: str = 'get'
+
     ) -> dict[str, Any]:
 
         if signed:
@@ -296,7 +297,7 @@ class Client:
         resp = await getattr(self._sesh, action)(
             path=f'/api/v3/{method}',
             params=params,
-            timeout=float('inf')
+            timeout=float('inf'),
         )
 
         return resproc(resp, log)
@@ -476,6 +477,7 @@ class Client:
     async def get_positions(
         self,
         recv_window: int = 60000
+
     ) -> tuple:
         positions = {}
         volumes = {}
@@ -509,7 +511,8 @@ class Client:
         return await self._sapi(
             'capital/deposit/hisrec',
             params=params,
-            signed=True)
+            signed=True,
+        )
 
     async def get_withdrawls(
         self,
@@ -523,7 +526,8 @@ class Client:
         return await self._sapi(
             'capital/withdraw/history',
             params=params,
-            signed=True)
+            signed=True,
+        )
 
     async def submit_limit(
         self,
@@ -732,16 +736,15 @@ async def stream_messages(
                 # ``msgspec.Struct`` does not runtime-validate until you
                 # decode/encode, see:
                 # https://jcristharif.com/msgspec/structs.html#type-validation
-                msg = AggTrade(**msg)
-                msg.typecast()
+                msg = AggTrade(**msg)  # TODO: should we .copy() ?
                 yield 'trade', {
                     'symbol': msg.s,
                     'last': msg.p,
                     'brokerd_ts': time.time(),
                     'ticks': [{
                         'type': 'trade',
-                        'price': msg.p,
-                        'size': msg.q,
+                        'price': float(msg.p),
+                        'size': float(msg.q),
                         'broker_ts': msg.T,
                     }],
                 }
