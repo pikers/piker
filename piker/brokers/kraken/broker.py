@@ -428,15 +428,11 @@ async def trades_dialogue(
 
     async with get_client() as client:
 
+        # make ems flip to paper mode when no creds setup in
+        # `brokers.toml` B0
         if not client._api_key:
             await ctx.started('paper')
             return
-
-        # TODO: make ems flip to paper mode via
-        # some returned signal if the user only wants to use
-        # the data feed or we return this?
-        # else:
-        #     await ctx.started(({}, ['paper']))
 
         # NOTE: currently we expect the user to define a "source fiat"
         # (much like the web UI let's you set an "account currency")
