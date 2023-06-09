@@ -7,6 +7,11 @@ token_type = 'Bearer'
 expires_at = 1616095326.355846
 
 
+[binance]
+api_key = ''
+api_secret = ''
+
+
 [deribit]
 key_id = ''
 key_secret = ''
