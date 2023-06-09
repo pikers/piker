@@ -194,7 +194,7 @@ def brokercheck(config, broker):
 
 @cli.command()
 @click.option('--keys', '-k', multiple=True,
-              help='Return results only for these keys')
+            help='Return results only for these keys')
 @click.argument('meth', nargs=1)
 @click.argument('kwargs', nargs=-1)
 @click.pass_obj
@@ -442,66 +442,35 @@ def search(config, pattern):
     click.echo(colorize_json(quotes))
 
 
-# @cli.command()
-# @click.argument('section', required=True)
-# @click.argument('value', required=False)
-# @click.option('--delete', '-d', flag_value=True, help='Delete section')
-# @click.pass_obj
-# def brokercfg(config, section, value, delete):
-#     from .. import config
-#     conf, path = config.load()
+@cli.command()
+@click.argument('section', required=False)
+@click.argument('value', required=False)
+@click.option('--delete', '-d', flag_value=True, help='Delete section')
+@click.pass_obj
+def brokercfg(config, section, value, delete):
+    """If invoked with no arguments, open an editor to edit broker configs file
+    or get / update an individual section.
+    """
+    from .. import config
 
-#     # XXX: Recursive getting & setting
+    if section:
+        conf, path = config.load()
 
-#     def get_value(_dict, _section):
-#         subs = _section.split('.')
-#         if len(subs) > 1:
-#             return get_value(
-#                 _dict[subs[0]],
-#                 '.'.join(subs[1:]),
-#             )
+        if not delete:
+            if value:
+                config.set_value(conf, section, value)
 
-#         else:
-#             return _dict[_section]
+            click.echo(
+                colorize_json(
+                    config.get_value(conf, section))
+            )
+        else:
+            config.del_value(conf, section)
 
-#     def set_value(_dict, _section, val):
-#         subs = _section.split('.')
-#         if len(subs) > 1:
-#             if subs[0] not in _dict:
-#                 _dict[subs[0]] = {}
+        config.write(config=conf)
 
-#             return set_value(
-#                 _dict[subs[0]],
-#                 '.'.join(subs[1:]),
-#                 val
-#             )
-
-#         else:
-#             _dict[_section] = val
-
-#     def del_value(_dict, _section):
-#         subs = _section.split('.')
-#         if len(subs) > 1:
-#             if subs[0] not in _dict:
-#                 return
-
-#             return del_value(
-#                 _dict[subs[0]],
-#                 '.'.join(subs[1:])
-#             )
-
-#         else:
-#             if _section not in _dict:
-#                 return
-
-#             del _dict[_section]
-
-#     if not delete:
-#         if value:
-#             set_value(conf, section, value)
-
-#         click.echo(colorize_json(get_value(conf, section)))
-#     else:
-#         del_value(conf, section)
-
-#     broker_conf.write(conf)
+    else:
+        conf, path = config.load(raw=True)
+        config.write(
+            raw=click.edit(text=conf)
+        )
