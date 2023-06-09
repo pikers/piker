@@ -737,9 +737,9 @@ async def stream_messages(
                 # decode/encode, see:
                 # https://jcristharif.com/msgspec/structs.html#type-validation
                 msg = AggTrade(**msg)  # TODO: should we .copy() ?
-                yield 'trade', {
+                piker_quote: dict = {
                     'symbol': msg.s,
-                    'last': msg.p,
+                    'last': float(msg.p),
                     'brokerd_ts': time.time(),
                     'ticks': [{
                         'type': 'trade',
@@ -748,6 +748,7 @@ async def stream_messages(
                         'broker_ts': msg.T,
                     }],
                 }
+                yield 'trade', piker_quote
 
 
 def make_sub(pairs: list[str], sub_name: str, uid: int) -> dict[str, str]:
@@ -948,10 +949,8 @@ async def stream_quotes(
                 # hz = 1/period if period else float('inf')
                 # if hz > 60:
                 #     log.info(f'Binance quotez : {hz}')
-            
-                if typ == 'l1':
-                    topic = msg['symbol'].lower()
-                    await send_chan.send({topic: msg})
+                topic = msg['symbol'].lower()
+                await send_chan.send({topic: msg})
                 # last = time.time()
 
 
