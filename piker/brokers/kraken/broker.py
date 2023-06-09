@@ -372,10 +372,7 @@ def trades2pps(
 
     write_storage: bool = True,
 
-) -> tuple[
-    list[BrokerdPosition],
-    list[Transaction],
-]:
+) -> list[BrokerdPosition]:
     if new_trans:
         updated = table.update_from_trans(
             new_trans,
@@ -645,7 +642,7 @@ async def trades_dialogue(
                 # stage a first reqid of `0`
                 reqids2txids[0] = last_trade_dict['ordertxid']
 
-            ppmsgs = trades2pps(
+            ppmsgs: list[BrokerdPosition] = trades2pps(
                 table,
                 acctid,
             )
