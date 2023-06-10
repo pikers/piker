@@ -27,10 +27,10 @@ from contextlib import (
     asynccontextmanager as acm,
 )
 from datetime import datetime
-from decimal import Decimal
 from typing import (
     Any,
-    Union,
+    Callable,
+    Literal,
 )
 import hmac
 import hashlib
@@ -51,6 +51,10 @@ from piker.brokers._util import (
     resproc,
     SymbolNotFound,
     get_logger,
+)
+from .schemas import (
+    SpotPair,
+    FutesPair,
 )
 
 log = get_logger('piker.brokers.binance')
@@ -74,9 +78,26 @@ def get_config() -> dict:
 log = get_logger(__name__)
 
 
-_url = 'https://api.binance.com'
-_sapi_url = 'https://api.binance.com'
-_fapi_url = 'https://testnet.binancefuture.com'
+_domain: str = 'binance.com'
+_spot_url = _url = f'https://api.{_domain}'
+_futes_url = f'https://fapi.{_domain}'
+
+# test nets
+_testnet_futes_url = 'https://testnet.binancefuture.com'
+
+# WEBsocketz
+# NOTE XXX: see api docs which show diff addr?
+# https://developers.binance.com/docs/binance-trading-api/websocket_api#general-api-information
+_spot_ws: str = 'wss://stream.binance.com/ws'
+# 'wss://ws-api.binance.com:443/ws-api/v3',
+
+# NOTE: spot test network only allows certain ep sets:
+# https://testnet.binance.vision/
+_testnet_spot_ws: str = 'wss://testnet.binance.vision/ws-api/v3'
+
+# https://binance-docs.github.io/apidocs/futures/en/#websocket-market-streams
+_futes_ws: str = f'wss://fstream.{_domain}/ws/'
+_auth_futes_ws: str = 'wss://fstream-auth.{_domain}/ws/'
 
 
 # Broker specific ohlc schema (rest)
@@ -91,61 +112,6 @@ _fapi_url = 'https://testnet.binancefuture.com'
     # ('buy_quote_vol', float),
     # ('ignore', float),
 # ]
-
-# UI components allow this to be declared such that additional
-# (historical) fields can be exposed.
-# ohlc_dtype = np.dtype(_ohlc_dtype)
-
-_show_wap_in_history = False
-
-
-# https://binance-docs.github.io/apidocs/spot/en/#exchange-information
-
-# TODO: make this frozen again by pre-processing the
-# filters list to a dict at init time?
-class Pair(Struct, frozen=True):
-    symbol: str
-    status: str
-
-    baseAsset: str
-    baseAssetPrecision: int
-    cancelReplaceAllowed: bool
-    allowTrailingStop: bool
-    quoteAsset: str
-    quotePrecision: int
-    quoteAssetPrecision: int
-
-    baseCommissionPrecision: int
-    quoteCommissionPrecision: int
-
-    orderTypes: list[str]
-
-    icebergAllowed: bool
-    ocoAllowed: bool
-    quoteOrderQtyMarketAllowed: bool
-    isSpotTradingAllowed: bool
-    isMarginTradingAllowed: bool
-
-    defaultSelfTradePreventionMode: str
-    allowedSelfTradePreventionModes: list[str]
-
-    filters: dict[
-        str,
-        Union[str, int, float]
-    ]
-    permissions: list[str]
-
-    @property
-    def price_tick(self) -> Decimal:
-        # XXX: lul, after manually inspecting the response format we
-        # just directly pick out the info we need
-        step_size: str = self.filters['PRICE_FILTER']['tickSize'].rstrip('0')
-        return Decimal(step_size)
-
-    @property
-    def size_tick(self) -> Decimal:
-        step_size: str = self.filters['LOT_SIZE']['stepSize'].rstrip('0')
-        return Decimal(step_size)
 
 
 class OHLC(Struct):
@@ -184,24 +150,43 @@ def binance_timestamp(
     return int((when.timestamp() * 1000) + (when.microsecond / 1000))
 
 
-class Client:
+MarketType: Literal[
+    'spot',
+    'margin',
+    'usd_futes',
+    'coin_futes',
+]
 
-    def __init__(self) -> None:
+
+class Client:
+    '''
+    Async ReST API client using ``trio`` + ``asks`` B)
+
+    Supports all of the spot, margin and futures endpoints depending
+    on method.
+
+    '''
+    def __init__(
+        self,
+        mkt_mode: MarketType = 'spot',
+    ) -> None:
 
         self._pairs: dict[str, Pair] = {}  # mkt info table
 
-        # live EP sesh
+        # spot EPs sesh
         self._sesh = asks.Session(connections=4)
         self._sesh.base_location: str = _url
 
-        # futes testnet rest EPs
-        self._fapi_sesh = asks.Session(connections=4)
-        self._fapi_sesh.base_location = _fapi_url
-
-        # sync rest API
+        # margin and extended spot endpoints session.
         self._sapi_sesh = asks.Session(connections=4)
-        self._sapi_sesh.base_location = _sapi_url
+        self._sapi_sesh.base_location: str = _url
 
+        # futes EPs sesh
+        self._fapi_sesh = asks.Session(connections=4)
+        self._fapi_sesh.base_location: str = _futes_url
+
+        # for creating API keys see,
+        # https://www.binance.com/en/support/faq/how-to-create-api-keys-on-binance-360002502072
         conf: dict = get_config()
         self.api_key: str = conf.get('api_key', '')
         self.api_secret: str = conf.get('api_secret', '')
@@ -211,8 +196,16 @@ class Client:
         if self.api_key:
             api_key_header = {'X-MBX-APIKEY': self.api_key}
             self._sesh.headers.update(api_key_header)
-            self._fapi_sesh.headers.update(api_key_header)
             self._sapi_sesh.headers.update(api_key_header)
+            self._fapi_sesh.headers.update(api_key_header)
+
+        self.mkt_mode: MarketType = mkt_mode
+        self.mkt_req: dict[str, Callable] = {
+            'spot': self._api,
+            'margin': self._sapi,
+            'usd_futes': self._fapi,
+            # 'futes_coin': self._dapi,  # TODO
+        }
 
     def _get_signature(self, data: OrderedDict) -> str:
 
@@ -235,6 +228,9 @@ class Client:
         )
         return msg_auth.hexdigest()
 
+    # TODO: factor all these _api methods into a single impl
+    # which looks up the parent path for eps depending on a
+    # mkt_mode: MarketType input!
     async def _api(
         self,
         method: str,
@@ -243,7 +239,15 @@ class Client:
         action: str = 'get'
 
     ) -> dict[str, Any]:
+        '''
+        Make a /api/v3/ SPOT account/market endpoint request.
 
+        For eg. rest market-data and spot-account-trade eps use
+        this endpoing parent path:
+        - https://binance-docs.github.io/apidocs/spot/en/#market-data-endpoints
+        - https://binance-docs.github.io/apidocs/spot/en/#spot-account-trade
+
+        '''
         if signed:
             params['signature'] = self._get_signature(params)
 
@@ -258,11 +262,19 @@ class Client:
     async def _fapi(
         self,
         method: str,
-        params: Union[dict, OrderedDict],
+        params: dict | OrderedDict,
         signed: bool = False,
         action: str = 'get'
-    ) -> dict[str, Any]:
 
+    ) -> dict[str, Any]:
+        '''
+        Make a /fapi/v3/ USD-M FUTURES account/market endpoint
+        request.
+
+        For all USD-M futures endpoints use this parent path:
+        https://binance-docs.github.io/apidocs/futures/en/#market-data-endpoints
+
+        '''
         if signed:
             params['signature'] = self._get_signature(params)
 
@@ -277,11 +289,21 @@ class Client:
     async def _sapi(
         self,
         method: str,
-        params: Union[dict, OrderedDict],
+        params: dict | OrderedDict,
         signed: bool = False,
         action: str = 'get'
-    ) -> dict[str, Any]:
 
+    ) -> dict[str, Any]:
+        '''
+        Make a /api/v3/ SPOT/MARGIN account/market endpoint request.
+
+        For eg. all margin and advancecd spot account eps use this
+        endpoing parent path:
+        - https://binance-docs.github.io/apidocs/spot/en/#margin-account-trade
+        - https://binance-docs.github.io/apidocs/spot/en/#listen-key-spot
+        - https://binance-docs.github.io/apidocs/spot/en/#spot-algo-endpoints
+
+        '''
         if signed:
             params['signature'] = self._get_signature(params)
 
@@ -297,10 +319,19 @@ class Client:
         self,
         sym: str | None = None,
 
+        mkt_type: MarketType = 'spot',
+
     ) -> dict[str, Pair] | Pair:
         '''
-        Fresh exchange-pairs info query for symbol ``sym: str``:
-        https://binance-docs.github.io/apidocs/spot/en/#exchange-information
+        Fresh exchange-pairs info query for symbol ``sym: str``.
+
+        Depending on `mkt_type` different api eps are used:
+        - spot:
+          https://binance-docs.github.io/apidocs/spot/en/#exchange-information
+        - usd futes:
+          https://binance-docs.github.io/apidocs/futures/en/#check-server-time
+        - coin futes:
+          https://binance-docs.github.io/apidocs/delivery/en/#exchange-information
 
         '''
         cached_pair = self._pairs.get(sym)
@@ -313,25 +344,33 @@ class Client:
             sym = sym.lower()
             params = {'symbol': sym}
 
-        resp = await self._api('exchangeInfo', params=params)
+        resp = await self.mkt_req[self.mkt_mode]('exchangeInfo', params=params)
         entries = resp['symbols']
         if not entries:
             raise SymbolNotFound(f'{sym} not found:\n{resp}')
 
-        # pre-process .filters field into a table
+        # import tractor
+        # await tractor.breakpoint()
         pairs = {}
         for item in entries:
             symbol = item['symbol']
-            filters = {}
-            filters_ls: list = item.pop('filters')
-            for entry in filters_ls:
-                ftype = entry['filterType']
-                filters[ftype] = entry
 
-            pairs[symbol] = Pair(
-                filters=filters,
-                **item,
-            )
+            # for spot mkts, pre-process .filters field into
+            # a table..
+            filters_ls: list = item.pop('filters', False)
+            if filters_ls:
+                filters = {}
+                for entry in filters_ls:
+                    ftype = entry['filterType']
+                    filters[ftype] = entry
+
+            # TODO: lookup pair schema by mkt type
+            # pair_type = mkt_type
+
+            # pairs[symbol] = SpotPair(
+                # filters=filters,
+            # )
+            pairs[symbol] = FutesPair(**item)
 
         # pairs = {
         #     item['symbol']: Pair(**item) for item in entries
@@ -342,8 +381,6 @@ class Client:
             return pairs[sym]
         else:
             return self._pairs
-
-    symbol_info = exch_info
 
     async def search_symbols(
         self,
@@ -448,7 +485,8 @@ class Client:
                 signed=True
             )
             log.info(f'done. len {len(resp)}')
-            await trio.sleep(3)
+
+            # await trio.sleep(3)
 
         return positions, volumes
 
@@ -457,6 +495,8 @@ class Client:
         recv_window: int = 60000
     ) -> list:
 
+        # TODO: can't we drop this since normal dicts are
+        # ordered implicitly in mordern python?
         params = OrderedDict([
             ('recvWindow', recv_window),
             ('timestamp', binance_timestamp(now()))
@@ -594,7 +634,7 @@ class Client:
 
 @acm
 async def get_client() -> Client:
-    client = Client()
+    client = Client(mkt_mode='usd_futes')
     log.info('Caching exchange infos..')
     await client.exch_info()
     yield client
