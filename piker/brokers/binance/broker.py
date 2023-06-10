@@ -184,5 +184,3 @@ async def trades_dialogue(
                 breakpoint()
 
             await ems_stream.send(msg.dict())
-
-

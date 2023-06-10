@@ -24,11 +24,13 @@ from contextlib import (
     aclosing,
 )
 from datetime import datetime
+from functools import partial
 import itertools
 from typing import (
     Any,
     AsyncGenerator,
     Callable,
+    Generator,
 )
 import time
 
@@ -59,11 +61,12 @@ from piker.data._web_bs import (
 from piker.brokers._util import (
     DataUnavailable,
     get_logger,
-    get_console_log,
 )
 
 from .api import (
     Client,
+)
+from .schemas import (
     Pair,
 )
 
@@ -94,7 +97,7 @@ class AggTrade(Struct, frozen=True):
     l: int  # noqa Last trade ID
     T: int  # Trade time
     m: bool  # Is the buyer the market maker?
-    M: bool  # Ignore
+    M: bool | None = None  # Ignore
 
 
 async def stream_messages(
@@ -134,7 +137,9 @@ async def stream_messages(
                     ask=ask,
                     asize=asize,
                 )
-                l1.typecast()
+                # for speed probably better to only specifically
+                # cast fields we need in numerical form?
+                # l1.typecast()
 
                 # repack into piker's tick-quote format
                 yield 'l1', {
@@ -142,23 +147,23 @@ async def stream_messages(
                     'ticks': [
                         {
                             'type': 'bid',
-                            'price': l1.bid,
-                            'size': l1.bsize,
+                            'price': float(l1.bid),
+                            'size': float(l1.bsize),
                         },
                         {
                             'type': 'bsize',
-                            'price': l1.bid,
-                            'size': l1.bsize,
+                            'price': float(l1.bid),
+                            'size': float(l1.bsize),
                         },
                         {
                             'type': 'ask',
-                            'price': l1.ask,
-                            'size': l1.asize,
+                            'price': float(l1.ask),
+                            'size': float(l1.asize),
                         },
                         {
                             'type': 'asize',
-                            'price': l1.ask,
-                            'size': l1.asize,
+                            'price': float(l1.ask),
+                            'size': float(l1.asize),
                         }
                     ]
                 }
@@ -281,6 +286,56 @@ async def get_mkt_info(
         return both
 
 
+@acm
+async def subscribe(
+    ws: NoBsWs,
+    symbols: list[str],
+
+    # defined once at import time to keep a global state B)
+    iter_subids: Generator[int, None, None] = itertools.count(),
+
+):
+    # setup subs
+
+    subid: int = next(iter_subids)
+
+    # trade data (aka L1)
+    # https://binance-docs.github.io/apidocs/spot/en/#symbol-order-book-ticker
+    l1_sub = make_sub(symbols, 'bookTicker', subid)
+    await ws.send_msg(l1_sub)
+
+    # aggregate (each order clear by taker **not** by maker)
+    # trades data:
+    # https://binance-docs.github.io/apidocs/spot/en/#aggregate-trade-streams
+    agg_trades_sub = make_sub(symbols, 'aggTrade', subid)
+    await ws.send_msg(agg_trades_sub)
+
+    # might get ack from ws server, or maybe some
+    # other msg still in transit..
+    res = await ws.recv_msg()
+    subid: str | None = res.get('id')
+    if subid:
+        assert res['id'] == subid
+
+    yield
+
+    subs = []
+    for sym in symbols:
+        subs.append("{sym}@aggTrade")
+        subs.append("{sym}@bookTicker")
+
+    # unsub from all pairs on teardown
+    if ws.connected():
+        await ws.send_msg({
+            "method": "UNSUBSCRIBE",
+            "params": subs,
+            "id": subid,
+        })
+
+        # XXX: do we need to ack the unsub?
+        # await ws.recv_msg()
+
+
 async def stream_quotes(
 
     send_chan: trio.abc.SendChannel,
@@ -292,8 +347,6 @@ async def stream_quotes(
     task_status: TaskStatus[tuple[dict, dict]] = trio.TASK_STATUS_IGNORED,
 
 ) -> None:
-    # XXX: required to propagate ``tractor`` loglevel to piker logging
-    get_console_log(loglevel or tractor.current_actor().loglevel)
 
     async with (
         send_chan as send_chan,
@@ -307,57 +360,21 @@ async def stream_quotes(
                 FeedInit(mkt_info=mkt)
             )
 
-        iter_subids = itertools.count()
 
-        @acm
-        async def subscribe(ws: NoBsWs):
-            # setup subs
-
-            subid: int = next(iter_subids)
-
-            # trade data (aka L1)
-            # https://binance-docs.github.io/apidocs/spot/en/#symbol-order-book-ticker
-            l1_sub = make_sub(symbols, 'bookTicker', subid)
-            await ws.send_msg(l1_sub)
-
-            # aggregate (each order clear by taker **not** by maker)
-            # trades data:
-            # https://binance-docs.github.io/apidocs/spot/en/#aggregate-trade-streams
-            agg_trades_sub = make_sub(symbols, 'aggTrade', subid)
-            await ws.send_msg(agg_trades_sub)
-
-            # might get ack from ws server, or maybe some
-            # other msg still in transit..
-            res = await ws.recv_msg()
-            subid: str | None = res.get('id')
-            if subid:
-                assert res['id'] == subid
-
-            yield
-
-            subs = []
-            for sym in symbols:
-                subs.append("{sym}@aggTrade")
-                subs.append("{sym}@bookTicker")
-
-            # unsub from all pairs on teardown
-            if ws.connected():
-                await ws.send_msg({
-                    "method": "UNSUBSCRIBE",
-                    "params": subs,
-                    "id": subid,
-                })
-
-                # XXX: do we need to ack the unsub?
-                # await ws.recv_msg()
+        # TODO: detect whether futes or spot contact was requested
+        from .api import (
+            _futes_ws,
+            # _spot_ws,
+        )
+        wsep: str = _futes_ws
 
         async with (
             open_autorecon_ws(
-                # XXX: see api docs which show diff addr?
-                # https://developers.binance.com/docs/binance-trading-api/websocket_api#general-api-information
-                # 'wss://ws-api.binance.com:443/ws-api/v3',
-                'wss://stream.binance.com/ws',
-                fixture=subscribe,
+                wsep,
+                fixture=partial(
+                    subscribe,
+                    symbols=symbols,
+                ),
             ) as ws,
 
             # avoid stream-gen closure from breaking trio..
@@ -387,6 +404,8 @@ async def stream_quotes(
                 topic = msg['symbol'].lower()
                 await send_chan.send({topic: msg})
                 # last = time.time()
+
+
 @tractor.context
 async def open_symbol_search(
     ctx: tractor.Context,
