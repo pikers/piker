@@ -207,6 +207,33 @@ class MktPair(Struct, frozen=True):
     <dst>/<src>.<expiry>.<con_info_1>.<con_info_2>. -> .<venue>.<broker>
           ^ -- optional tokens ------------------------------- ^
 
+
+    Notes:
+    ------
+
+    Some venues provide a different semantic (which we frankly find
+    confusing and non-general) such as "base" and "quote" asset.
+    For example this is how `binance` defines the terms:
+
+    https://binance-docs.github.io/apidocs/websocket_api/en/#public-api-definitions
+    https://binance-docs.github.io/apidocs/futures/en/#public-endpoints-info
+
+    - *base* asset refers to the asset that is the *quantity* of a symbol.
+    - *quote* asset refers to the asset that is the *price* of a symbol.
+
+    In other words the "quote" asset is the asset that the market
+    is pricing "buys" *in*, and the *base* asset it the one that the market
+    allows you to "buy" an *amount of*. Put more simply the *quote*
+    asset is our "source" asset and the *base* asset is our "destination"
+    asset.
+
+    This defintion can be further understood reading our
+    `.brokers.binance.api.Pair` type wherein the
+    `Pair.[quote/base]AssetPrecision` field determines the (transfer)
+    transaction precision available per asset; i.e. the satoshis
+    unit in bitcoin for representing the minimum size of a
+    transaction that can take place on the blockchain.
+
     '''
     dst: str | Asset
     # "destination asset" (name) used to buy *to*
