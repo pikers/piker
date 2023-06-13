@@ -19,8 +19,9 @@ CLI front end for trades ledger and position tracking management.
 
 '''
 from typing import (
-    Any,
+    AsyncContextManager,
 )
+from types import ModuleType
 
 from rich.console import Console
 from rich.markdown import Markdown
@@ -45,7 +46,11 @@ def broker_init(
 
     **start_actor_kwargs,
 
-) -> dict:
+) -> tuple[
+    ModuleType,
+    dict,
+    AsyncContextManager,
+]:
     '''
     Given an input broker name, load all named arguments
     which can be passed to a daemon + context spawn for
@@ -83,13 +88,9 @@ def broker_init(
     from ..brokers._daemon import _setup_persistent_brokerd
 
     return (
+        brokermod,
         start_actor_kwargs,  # to `ActorNursery.start_actor()`
-        _setup_persistent_brokerd,  # service task ep
-        getattr(  # trades endpoint
-            brokermod,
-            'trades_dialogue',
-            None,
-        ),
+        _setup_persistent_brokerd,  # deamon service task ep
     )
 
 
@@ -119,10 +120,11 @@ def sync(
         console.print(md)
         return
 
-    start_kwargs, _, trades_ep = broker_init(
+    brokermod, start_kwargs, deamon_ep = broker_init(
         brokername,
         loglevel=loglevel,
     )
+    brokername: str = brokermod.name
 
     async def main():
 
@@ -136,96 +138,112 @@ def sync(
 
             tractor.open_nursery() as an,
         ):
-            log.info(
-                f'Piker runtime up as {actor.uid}@{sockaddr}'
-            )
+            try:
+                log.info(
+                    f'Piker runtime up as {actor.uid}@{sockaddr}'
+                )
 
-            portal = await an.start_actor(
-                loglevel=loglevel,
-                debug_mode=pdb,
-                **start_kwargs,
-            )
-
-            if (
-                brokername == 'paper'
-                or trades_ep is None
-            ):
-                from ..clearing import _paper_engine as paper
-                open_trades_endpoint = paper.open_paperboi(
-                    fqme=None,  # tell paper to not start clearing loop
-                    broker=brokername,
+                portal = await an.start_actor(
                     loglevel=loglevel,
+                    debug_mode=pdb,
+                    **start_kwargs,
                 )
-            else:
-                # open live brokerd trades endpoint
-                open_trades_endpoint = portal.open_context(
-                    trades_ep,
+
+                from ..clearing import (
+                    open_brokerd_dialog,
+                )
+                brokerd_stream: tractor.MsgStream
+
+                async with open_brokerd_dialog(
+                    brokermod,
+                    portal,
+                    exec_mode=(
+                        'paper' if account == 'paper'
+                        else 'live'
+                    ),
                     loglevel=loglevel,
-                )
+                ) as (
+                    brokerd_stream,
+                    pp_msg_table,
+                    accounts,
+                ):
+                    try:
+                        assert len(accounts) == 1
+                        if (
+                            not pp_msg_table
+                            and account == 'paper'
+                        ):
+                            console.print(
+                                '[yellow underline]'
+                                f'No pps found for `{brokername}.paper` account!\n'
+                                'Do you even have any paper ledger files?'
+                            )
+                            return
 
-            positions: dict[str, Any]
-            accounts: list[str]
-            async with (
-                open_trades_endpoint as (
-                    brokerd_ctx,
-                    (positions, accounts),
-                ),
-            ):
-                assert len(accounts) == 1
-                summary: str = (
-                    '[dim underline]Piker Position Summary[/] '
-                    f'[dim blue underline]{brokername}[/]'
-                    '[dim].[/]'
-                    f'[blue underline]{account}[/]'
-                    f'[dim underline] -> total pps: [/]'
-                    f'[green]{len(positions)}[/]\n'
-                )
-                for ppdict in positions:
-                    ppmsg = BrokerdPosition(**ppdict)
-                    size = ppmsg.size
-                    if size:
-                        ppu: float = round(
-                            ppmsg.avg_price,
-                            ndigits=2,
+                        pps_by_symbol: dict[str, BrokerdPosition] = pp_msg_table[
+                            brokername,
+                            account,
+                        ]
+
+                        summary: str = (
+                            '[dim underline]Piker Position Summary[/] '
+                            f'[dim blue underline]{brokername}[/]'
+                            '[dim].[/]'
+                            f'[blue underline]{account}[/]'
+                            f'[dim underline] -> total pps: [/]'
+                            f'[green]{len(pps_by_symbol)}[/]\n'
                         )
-                        cost_basis: str = humanize(size * ppu)
-                        h_size: str = humanize(size)
+                        # for ppdict in positions:
+                        for fqme, ppmsg in pps_by_symbol.items():
+                            # ppmsg = BrokerdPosition(**ppdict)
+                            size = ppmsg.size
+                            if size:
+                                ppu: float = round(
+                                    ppmsg.avg_price,
+                                    ndigits=2,
+                                )
+                                cost_basis: str = humanize(size * ppu)
+                                h_size: str = humanize(size)
 
-                        if size < 0:
-                            pcolor = 'red'
-                        else:
-                            pcolor = 'green'
+                                if size < 0:
+                                    pcolor = 'red'
+                                else:
+                                    pcolor = 'green'
 
-                        # sematic-highlight of fqme
-                        fqme = ppmsg.symbol
-                        tokens = fqme.split('.')
-                        styled_fqme = f'[blue underline]{tokens[0]}[/]'
-                        for tok in tokens[1:]:
-                            styled_fqme += '[dim].[/]'
-                            styled_fqme += f'[dim blue underline]{tok}[/]'
+                                # sematic-highlight of fqme
+                                fqme = ppmsg.symbol
+                                tokens = fqme.split('.')
+                                styled_fqme = f'[blue underline]{tokens[0]}[/]'
+                                for tok in tokens[1:]:
+                                    styled_fqme += '[dim].[/]'
+                                    styled_fqme += f'[dim blue underline]{tok}[/]'
 
-                        # TODO: instead display in a ``rich.Table``?
-                        summary += (
-                            styled_fqme +
-                            '[dim]: [/]'
-                            f'[{pcolor}]{h_size}[/]'
-                            '[dim blue]u @[/]'
-                            f'[{pcolor}]{ppu}[/]'
-                            '[dim blue] = [/]'
-                            f'[{pcolor}]$ {cost_basis}\n[/]'
-                        )
+                                # TODO: instead display in a ``rich.Table``?
+                                summary += (
+                                    styled_fqme +
+                                    '[dim]: [/]'
+                                    f'[{pcolor}]{h_size}[/]'
+                                    '[dim blue]u @[/]'
+                                    f'[{pcolor}]{ppu}[/]'
+                                    '[dim blue] = [/]'
+                                    f'[{pcolor}]$ {cost_basis}\n[/]'
+                                )
 
-                console.print(summary)
+                        console.print(summary)
 
-                # exit via ctx cancellation.
-                await brokerd_ctx.cancel(timeout=1)
-                # TODO: once ported to newer tractor branch we should
-                # be able to do a loop like this:
-                # while brokerd_ctx.cancel_called_remote is None:
-                #     await trio.sleep(0.01)
-                #     await brokerd_ctx.cancel()
+                    finally:
+                        # exit via ctx cancellation.
+                        brokerd_ctx: tractor.Context = brokerd_stream._ctx
+                        await brokerd_ctx.cancel(timeout=1)
 
-            await portal.cancel_actor()
+                    # TODO: once ported to newer tractor branch we should
+                    # be able to do a loop like this:
+                    # while brokerd_ctx.cancel_called_remote is None:
+                    #     await trio.sleep(0.01)
+                    #     await brokerd_ctx.cancel()
+
+            finally:
+                await portal.cancel_actor()
 
     trio.run(main)
 
