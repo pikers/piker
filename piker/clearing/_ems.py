@@ -569,10 +569,11 @@ class Router(Struct):
             return
 
         async with open_brokerd_dialog(
-            brokermod,
-            portal,
-            exec_mode,
-            loglevel,
+            brokermod=brokermod,
+            portal=portal,
+            exec_mode=exec_mode,
+            fqme=fqme,
+            loglevel=loglevel,
 
         ) as (
             brokerd_stream,
