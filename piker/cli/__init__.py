@@ -20,6 +20,7 @@ CLI commons.
 '''
 import os
 from contextlib import AsyncExitStack
+from types import ModuleType
 
 import click
 import trio
@@ -100,7 +101,6 @@ def pikerd(
                 registry_addr=reg_addr,
 
             ) as service_mngr,  # normally delivers a ``Services`` handle
-            trio.open_nursery() as n,
 
             AsyncExitStack() as stack,
         ):
@@ -163,7 +163,9 @@ def cli(
         from piker.brokers import __brokers__
         brokers = __brokers__
 
-    brokermods = [get_brokermod(broker) for broker in brokers]
+    brokermods: dict[str, ModuleType] = {
+        broker: get_brokermod(broker) for broker in brokers
+    }
     assert brokermods
 
     reg_addr: None | tuple[str, int] = None
