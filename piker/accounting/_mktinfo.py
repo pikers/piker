@@ -39,6 +39,7 @@ from typing import (
 from ..data.types import Struct
 
 
+# TODO: make these literals..
 _underlyings: list[str] = [
     'stock',
     'bond',
@@ -52,6 +53,7 @@ _derivs: list[str] = [
     'swap',
     'future',
     'continuous_future',
+    'perpetual_future',
     'option',
     'futures_option',
 
@@ -540,10 +542,15 @@ class MktPair(Struct, frozen=True):
     # TODO: BACKWARD COMPAT, TO REMOVE?
     @property
     def type_key(self) -> str:
+
+        # if set explicitly then use it!
+        if self._atype:
+            return self._atype
+
         if isinstance(self.dst, Asset):
             return str(self.dst.atype)
 
-        return self._atype
+        return 'unknown'
 
     @property
     def price_tick_digits(self) -> int:
