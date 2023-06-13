@@ -110,6 +110,8 @@ def async_lifo_cache(
 @acm
 async def open_cached_client(
     brokername: str,
+    **kwargs,
+
 ) -> 'Client':  # noqa
     '''
     Get a cached broker client from the current actor's local vars.
@@ -120,5 +122,11 @@ async def open_cached_client(
     brokermod = get_brokermod(brokername)
     async with maybe_open_context(
         acm_func=brokermod.get_client,
+        kwargs=kwargs,
+
     ) as (cache_hit, client):
+
+        if cache_hit:
+            log.info(f'Reusing existing {client}')
+
         yield client
