@@ -56,8 +56,10 @@ from piker.accounting._mktinfo import (
     MktPair,
 )
 from piker import config
-from piker._cacheables import (
+from piker.brokers import (
     open_cached_client,
+)
+from piker._cacheables import (
     async_lifo_cache,
 )
 from piker.log import get_logger

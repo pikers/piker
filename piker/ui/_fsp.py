@@ -30,14 +30,14 @@ from typing import (
 )
 
 import msgspec
-import tractor
 import pyqtgraph as pg
+import tractor
+from tractor.trionics import maybe_open_context
 import trio
 from trio_typing import TaskStatus
 
 from piker.data.types import Struct
 from ._axes import PriceAxis
-from .._cacheables import maybe_open_context
 from ..calc import humanize
 from ..data._sharedmem import (
     ShmArray,

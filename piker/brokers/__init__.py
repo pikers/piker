@@ -17,10 +17,34 @@
 """
 Broker clients, daemons and general back end machinery.
 """
+from contextlib import (
+    asynccontextmanager as acm,
+)
 from importlib import import_module
 from types import ModuleType
 
-__brokers__ = [
+from tractor.trionics import maybe_open_context
+
+from ._util import (
+    log,
+    BrokerError,
+    SymbolNotFound,
+    NoData,
+    DataUnavailable,
+    DataThrottle,
+    resproc,
+)
+
+__all__: list[str] = [
+    'BrokerError',
+    'SymbolNotFound',
+    'NoData',
+    'DataUnavailable',
+    'DataThrottle',
+    'resproc',
+]
+
+__brokers__: list[str] = [
     'binance',
     'ib',
     'kraken',
@@ -58,3 +82,28 @@ def iter_brokermods():
     '''
     for name in __brokers__:
         yield get_brokermod(name)
+
+
+@acm
+async def open_cached_client(
+    brokername: str,
+    **kwargs,
+
+) -> 'Client':  # noqa
+    '''
+    Get a cached broker client from the current actor's local vars.
+
+    If one has not been setup do it and cache it.
+
+    '''
+    brokermod = get_brokermod(brokername)
+    async with maybe_open_context(
+        acm_func=brokermod.get_client,
+        kwargs=kwargs,
+
+    ) as (cache_hit, client):
+
+        if cache_hit:
+            log.info(f'Reusing existing {client}')
+
+        yield client

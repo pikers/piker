@@ -29,7 +29,7 @@ import trio
 from ._util import log
 from . import get_brokermod
 from ..service import maybe_spawn_brokerd
-from .._cacheables import open_cached_client
+from . import open_cached_client
 from ..accounting import MktPair
 
 
