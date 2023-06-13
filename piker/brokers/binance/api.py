@@ -30,7 +30,6 @@ from datetime import datetime
 from typing import (
     Any,
     Callable,
-    Literal,
 )
 import hmac
 import hashlib
@@ -53,8 +52,9 @@ from piker.brokers._util import (
     get_logger,
 )
 from .schemas import (
-    SpotPair,
-    FutesPair,
+    PAIRTYPES,
+    Pair,
+    MarketType,
 )
 
 log = get_logger('piker.brokers.binance')
@@ -148,14 +148,6 @@ def binance_timestamp(
     when: datetime
 ) -> int:
     return int((when.timestamp() * 1000) + (when.microsecond / 1000))
-
-
-MarketType: Literal[
-    'spot',
-    'margin',
-    'usd_futes',
-    'coin_futes',
-]
 
 
 class Client:
@@ -319,7 +311,7 @@ class Client:
         self,
         sym: str | None = None,
 
-        mkt_type: MarketType = 'spot',
+        mkt_type: MarketType | None = None,
 
     ) -> dict[str, Pair] | Pair:
         '''
@@ -334,7 +326,10 @@ class Client:
           https://binance-docs.github.io/apidocs/delivery/en/#exchange-information
 
         '''
-        cached_pair = self._pairs.get(sym)
+        mkt_type: MarketType = mkt_type or self.mkt_mode
+        cached_pair = self._pairs.get(
+            (sym, mkt_type)
+        )
         if cached_pair:
             return cached_pair
 
@@ -344,16 +339,15 @@ class Client:
             sym = sym.lower()
             params = {'symbol': sym}
 
-        resp = await self.mkt_req[self.mkt_mode]('exchangeInfo', params=params)
+        resp = await self.mkt_req[mkt_type]('exchangeInfo', params=params)
         entries = resp['symbols']
         if not entries:
             raise SymbolNotFound(f'{sym} not found:\n{resp}')
 
         # import tractor
         # await tractor.breakpoint()
-        pairs = {}
+        pairs: dict[str, Pair] = {}
         for item in entries:
-            symbol = item['symbol']
 
             # for spot mkts, pre-process .filters field into
             # a table..
@@ -364,17 +358,14 @@ class Client:
                     ftype = entry['filterType']
                     filters[ftype] = entry
 
-            # TODO: lookup pair schema by mkt type
-            # pair_type = mkt_type
+                item['filters'] = filters
 
-            # pairs[symbol] = SpotPair(
-                # filters=filters,
-            # )
-            pairs[symbol] = FutesPair(**item)
+            symbol = item['symbol']
+            pair_type: Pair = PAIRTYPES[mkt_type or self.mkt_mode]
+            pairs[(symbol, mkt_type)] = pair_type(
+                **item,
+            )
 
-        # pairs = {
-        #     item['symbol']: Pair(**item) for item in entries
-        # }
         self._pairs.update(pairs)
 
         if sym is not None:
@@ -633,8 +624,12 @@ class Client:
 
 
 @acm
-async def get_client() -> Client:
-    client = Client(mkt_mode='usd_futes')
-    log.info('Caching exchange infos..')
+async def get_client(
+    mkt_mode: str = 'spot',
+) -> Client:
+    client = Client(mkt_mode=mkt_mode)
+
+    log.info(f'{client} in {mkt_mode} mode: caching exchange infos..')
     await client.exch_info()
+
     yield client

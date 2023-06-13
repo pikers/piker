@@ -104,6 +104,7 @@ async def trades_dialogue(
 ) -> AsyncIterator[dict[str, Any]]:
 
     async with open_cached_client('binance') as client:
+        await tractor.breakpoint()
         if not client.api_key:
             await ctx.started('paper')
             return
