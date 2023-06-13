@@ -21,9 +21,14 @@
 Per market data-type definitions and schemas types.
 
 """
+from __future__ import annotations
+from typing import (
+    Literal,
+)
 from decimal import Decimal
 
 from piker.data.types import Struct
+
 
 class Pair(Struct, frozen=True):
     symbol: str
@@ -38,8 +43,25 @@ class Pair(Struct, frozen=True):
     baseAsset: str
     baseAssetPrecision: int
 
+    filters: dict[
+        str,
+        str | int | float,
+    ]
 
-class SpotPair(Struct, frozen=True):
+    @property
+    def price_tick(self) -> Decimal:
+        # XXX: lul, after manually inspecting the response format we
+        # just directly pick out the info we need
+        step_size: str = self.filters['PRICE_FILTER']['tickSize'].rstrip('0')
+        return Decimal(step_size)
+
+    @property
+    def size_tick(self) -> Decimal:
+        step_size: str = self.filters['LOT_SIZE']['stepSize'].rstrip('0')
+        return Decimal(step_size)
+
+
+class SpotPair(Pair, frozen=True):
 
     cancelReplaceAllowed: bool
     allowTrailingStop: bool
@@ -56,24 +78,8 @@ class SpotPair(Struct, frozen=True):
 
     defaultSelfTradePreventionMode: str
     allowedSelfTradePreventionModes: list[str]
-
-    filters: dict[
-        str,
-        str | int | float,
-    ]
     permissions: list[str]
 
-    @property
-    def price_tick(self) -> Decimal:
-        # XXX: lul, after manually inspecting the response format we
-        # just directly pick out the info we need
-        step_size: str = self.filters['PRICE_FILTER']['tickSize'].rstrip('0')
-        return Decimal(step_size)
-
-    @property
-    def size_tick(self) -> Decimal:
-        step_size: str = self.filters['LOT_SIZE']['stepSize'].rstrip('0')
-        return Decimal(step_size)
 
 
 class FutesPair(Pair):
@@ -105,10 +111,16 @@ class FutesPair(Pair):
     def quoteAssetPrecision(self) -> int:
         return self.quotePrecision
 
-    @property
-    def price_tick(self) -> Decimal:
-        return Decimal(self.pricePrecision)
 
-    @property
-    def size_tick(self) -> Decimal:
-        return Decimal(self.quantityPrecision)
+MarketType = Literal[
+    'spot',
+    'margin',
+    'usd_futes',
+    'coin_futes',
+]
+
+
+PAIRTYPES: dict[MarketType, Pair] = {
+    'spot': SpotPair,
+    'usd_futes': FutesPair,
+}
