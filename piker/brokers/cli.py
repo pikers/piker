@@ -409,11 +409,11 @@ def mkt_info(
         async with open_piker_runtime(
             name='mkt_info_query',
             # loglevel=loglevel,
-            # debug_mode=True,
+            debug_mode=True,
 
         ) as (_, _):
             for fqme in tickers:
-                bs_fqme, _, broker = fqme.partition('.')
+                bs_fqme, _, broker = fqme.rpartition('.')
                 brokermod: ModuleType = brokermods[broker]
                 mkt, bs_pair = await core.mkt_info(
                     brokermod,
