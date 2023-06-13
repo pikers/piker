@@ -6,12 +6,22 @@ stdenv.mkDerivation {
     # System requirements.
     readline
 
-    # Python requirements (enough to get a virtualenv going).
-    python310Full
+    # TODO: hacky non-poetry install stuff we need to get rid of!!
     virtualenv
     setuptools
-    pyqt5
     pip
+
+    # obviously, and see below for hacked linking
+    pyqt5
+
+    # Python requirements (enough to get a virtualenv going).
+    python310Full
+
+    # numerics deps
+    python310Packages.python-Levenshtein
+    python310Packages.fastparquet
+    python310Packages.polars
+
   ];
   src = null;
   shellHook = ''
