@@ -50,6 +50,7 @@ from piker._cacheables import (
 from piker.accounting._mktinfo import (
     Asset,
     MktPair,
+    unpack_fqme,
     digits_to_dec,
 )
 from piker.data.types import Struct
@@ -263,9 +264,27 @@ async def get_mkt_info(
 
 ) -> tuple[MktPair, Pair]:
 
-    async with open_cached_client('binance') as client:
+    # uppercase since kraken bs_mktid is always upper
+    if 'binance' not in fqme:
+        fqme += '.binance'
 
-        pair: Pair = await client.exch_info(fqme.upper())
+    bs_fqme, _, broker = fqme.rpartition('.')
+    broker, mkt_ep, venue, suffix = unpack_fqme(fqme)
+    # bs_fqme, _, broker = fqme.partition('.')
+
+    mkt_mode: str = 'spot'
+    if 'perp' in bs_fqme:
+        mkt_mode = 'usd_futes'
+
+    async with open_cached_client(
+        'binance',
+        mkt_mode=mkt_mode,
+    ) as client:
+
+        pair_str: str = mkt_ep.upper()
+        pair: Pair = await client.exch_info(pair_str)
+
+        await tractor.breakpoint()
         mkt = MktPair(
             dst=Asset(
                 name=pair.baseAsset,
