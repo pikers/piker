@@ -638,7 +638,10 @@ class Client:
         the 'AssetPairs' endpoint, see methods above.
 
         '''
-        return cls._ntable[ticker].lower()
+        try:
+            return cls._ntable[ticker].lower()
+        except KeyError as ke:
+            raise SymbolNotFound(f'kraken has no {ke.args[0]}')
 
 
 @acm
