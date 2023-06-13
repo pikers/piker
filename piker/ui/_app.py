@@ -185,7 +185,7 @@ def _main(
         func=_async_main,
         args=(
             syms,
-            {mod.name: mod for mod in brokermods},
+            brokermods,
             piker_loglevel,
         ),
         main_widget_type=GodWidget,
