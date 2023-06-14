@@ -373,8 +373,8 @@ async def open_brokerd_dialog(
     # TODO: ideally choose only one of these ep names..
     trades_endpoint: Callable
     for ep_name in [
-        'trades_dialogue',
-        'open_trade_dialog',
+        'trades_dialogue',  # legacy
+        'open_trade_dialog',  # probably final name?
     ]:
         trades_endpoint = getattr(
             brokermod,
@@ -390,7 +390,6 @@ async def open_brokerd_dialog(
         # open live brokerd trades endpoint
         open_trades_endpoint = portal.open_context(
             trades_endpoint,
-            loglevel=loglevel,
         )
 
     else:

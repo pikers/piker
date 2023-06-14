@@ -58,6 +58,10 @@ async def _setup_persistent_brokerd(
     the broker backend as needed.
 
     '''
+    # NOTE: we only need to setup logging once (and only) here
+    # since all hosted daemon tasks will reference this same
+    # log instance's (actor local) state and thus don't require
+    # any further (level) configuration on their own B)
     log = _util.get_console_log(
         loglevel or tractor.current_actor().loglevel,
         name=f'{_util.subsys}.{brokername}',

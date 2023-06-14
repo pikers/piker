@@ -64,7 +64,6 @@ from piker.accounting import (
     open_pps,
     PpTable,
 )
-from .._util import get_console_log
 from piker.clearing._messages import (
     Order,
     Status,
@@ -217,7 +216,7 @@ async def recv_trade_updates(
     client.inline_errors(to_trio)
 
     # sync with trio task
-    to_trio.send_nowait(None)
+    to_trio.send_nowait(client.ib)
 
     def push_tradesies(
         eventkit_obj,
@@ -513,8 +512,9 @@ async def open_trade_event_stream(
     async with tractor.to_asyncio.open_channel_from(
         recv_trade_updates,
         client=client,
-    ) as (first, trade_event_stream):
+    ) as (ibclient, trade_event_stream):
 
+        assert ibclient is client.ib
         task_status.started(trade_event_stream)
         await trio.sleep_forever()
 
@@ -523,12 +523,9 @@ async def open_trade_event_stream(
 async def trades_dialogue(
 
     ctx: tractor.Context,
-    loglevel: str = None,
+    # loglevel: str = None,
 
 ) -> AsyncIterator[dict[str, Any]]:
-
-    # XXX: required to propagate ``tractor`` loglevel to piker logging
-    get_console_log(loglevel or tractor.current_actor().loglevel)
 
     accounts_def = config.load_accounts(['ib'])
 

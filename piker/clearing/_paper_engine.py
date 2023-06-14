@@ -527,7 +527,7 @@ _sells: defaultdict[
 
 
 @tractor.context
-async def trades_dialogue(
+async def open_trade_dialog(
 
     ctx: tractor.Context,
     broker: str,
@@ -695,21 +695,21 @@ async def open_paperboi(
 
     async with (
         tractor.find_actor(service_name) as portal,
-        tractor.open_nursery() as tn,
+        tractor.open_nursery() as an,
     ):
         # NOTE: only spawn if no paperboi already is up since we likely
         # don't need more then one actor for simulated order clearing
         # per broker-backend.
         if portal is None:
             log.info('Starting new paper-engine actor')
-            portal = await tn.start_actor(
+            portal = await an.start_actor(
                 service_name,
                 enable_modules=[__name__]
             )
             we_spawned = True
 
         async with portal.open_context(
-            trades_dialogue,
+            open_trade_dialog,
             broker=broker,
             fqme=fqme,
             loglevel=loglevel,
