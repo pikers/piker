@@ -22,7 +22,10 @@ Binance clients for http and ws APIs.
 
 """
 from __future__ import annotations
-from collections import OrderedDict
+from collections import (
+    OrderedDict,
+    ChainMap,
+)
 from contextlib import (
     asynccontextmanager as acm,
 )
@@ -30,6 +33,7 @@ from datetime import datetime
 from typing import (
     Any,
     Callable,
+    Type,
 )
 import hmac
 import hashlib
@@ -138,10 +142,6 @@ class OHLC(Struct):
     buy_quote_vol: float
     ignore: int
 
-    # null the place holder for `bar_wap` until we
-    # figure out what to extract for this.
-    bar_wap: float = 0.0
-
 
 # convert datetime obj timestamp to unixtime in milliseconds
 def binance_timestamp(
@@ -160,10 +160,24 @@ class Client:
     '''
     def __init__(
         self,
+
+        # TODO: change this to `Client.[mkt_]venue: MarketType`?
         mkt_mode: MarketType = 'spot',
+
     ) -> None:
 
-        self._pairs: dict[str, Pair] = {}  # mkt info table
+        # build out pair info tables for each market type
+        # and wrap in a chain-map view for search / query.
+        self._spot_pairs: dict[str, Pair] = {}  # spot info table
+        self._ufutes_pairs: dict[str, Pair] = {}  # usd-futures table
+        self._mkt2pairs: dict[str, dict] = {
+            'spot': self._spot_pairs,
+            'usdtm_futes': self._ufutes_pairs,
+        }
+        # NOTE: only stick in the spot table for now until exchange info
+        # is loaded, since at that point we'll suffix all the futes
+        # market symbols for use by search. See `.exch_info()`.
+        self._pairs: ChainMap[str, Pair] = ChainMap()
 
         # spot EPs sesh
         self._sesh = asks.Session(connections=4)
@@ -192,10 +206,10 @@ class Client:
             self._fapi_sesh.headers.update(api_key_header)
 
         self.mkt_mode: MarketType = mkt_mode
-        self.mkt_req: dict[str, Callable] = {
+        self.mkt_mode_req: dict[str, Callable] = {
             'spot': self._api,
             'margin': self._sapi,
-            'usd_futes': self._fapi,
+            'usdtm_futes': self._fapi,
             # 'futes_coin': self._dapi,  # TODO
         }
 
@@ -307,6 +321,37 @@ class Client:
 
         return resproc(resp, log)
 
+    async def _cache_pairs(
+        self,
+        mkt_type: str,
+
+    ) -> None:
+        # lookup internal mkt-specific pair table to update
+        pair_table: dict[str, Pair] = self._mkt2pairs[mkt_type]
+
+        # make API request(s)
+        resp = await self.mkt_mode_req[mkt_type](
+            'exchangeInfo',
+            params={},  # NOTE: retrieve all symbols by default
+        )
+        entries = resp['symbols']
+        if not entries:
+            raise SymbolNotFound(f'No market pairs found!?:\n{resp}')
+
+        for item in entries:
+            filters_ls: list = item.pop('filters', False)
+            if filters_ls:
+                filters = {}
+                for entry in filters_ls:
+                    ftype = entry['filterType']
+                    filters[ftype] = entry
+
+                item['filters'] = filters
+
+            pair_type: Type = PAIRTYPES[mkt_type]
+            pair: Pair = pair_type(**item)
+            pair_table[pair.symbol.upper()] = pair
+
     async def exch_info(
         self,
         sym: str | None = None,
@@ -326,66 +371,51 @@ class Client:
           https://binance-docs.github.io/apidocs/delivery/en/#exchange-information
 
         '''
-        mkt_type: MarketType = mkt_type or self.mkt_mode
-        cached_pair = self._pairs.get(
-            (sym, mkt_type)
-        )
-        if cached_pair:
+        pair_table: dict[str, Pair] = self._mkt2pairs[
+            mkt_type or self.mkt_mode
+        ]
+        if cached_pair := pair_table.get(sym):
             return cached_pair
 
-        # retrieve all symbols by default
-        params = {}
-        if sym is not None:
-            sym = sym.lower()
-            params = {'symbol': sym}
+        # params = {}
+        # if sym is not None:
+        #     params = {'symbol': sym}
 
-        resp = await self.mkt_req[mkt_type]('exchangeInfo', params=params)
-        entries = resp['symbols']
-        if not entries:
-            raise SymbolNotFound(f'{sym} not found:\n{resp}')
+        mkts: list[str] = ['spot', 'usdtm_futes']
+        if mkt_type:
+            mkts: list[str] = [mkt_type]
 
-        # import tractor
-        # await tractor.breakpoint()
-        pairs: dict[str, Pair] = {}
-        for item in entries:
+        async with trio.open_nursery() as rn:
+            for mkt_type in mkts:
+                rn.start_soon(
+                    self._cache_pairs,
+                    mkt_type,
+                )
 
-            # for spot mkts, pre-process .filters field into
-            # a table..
-            filters_ls: list = item.pop('filters', False)
-            if filters_ls:
-                filters = {}
-                for entry in filters_ls:
-                    ftype = entry['filterType']
-                    filters[ftype] = entry
-
-                item['filters'] = filters
-
-            symbol = item['symbol']
-            pair_type: Pair = PAIRTYPES[mkt_type or self.mkt_mode]
-            pairs[(symbol, mkt_type)] = pair_type(
-                **item,
+        # make merged view of all market-type pairs but
+        # use market specific `Pair.bs_fqme` for keys!
+        for venue, venue_pairs_table in self._mkt2pairs.items():
+            self._pairs.maps.append(
+                {pair.bs_fqme: pair
+                 for pair in venue_pairs_table.values()}
             )
 
-        self._pairs.update(pairs)
-
-        if sym is not None:
-            return pairs[sym]
-        else:
-            return self._pairs
+        return pair_table[sym] if sym else self._pairs
 
     async def search_symbols(
         self,
         pattern: str,
         limit: int = None,
     ) -> dict[str, Any]:
-        if self._pairs is not None:
-            data = self._pairs
-        else:
-            data = await self.exch_info()
+
+        # if self._spot_pairs is not None:
+        #     data = self._spot_pairs
+        # else:
+        fq_pairs: dict = await self.exch_info()
 
         matches = fuzzy.extractBests(
             pattern,
-            data,
+            fq_pairs,
             score_cutoff=50,
         )
         # repack in dict form
@@ -395,12 +425,24 @@ class Client:
     async def bars(
         self,
         symbol: str,
+
         start_dt: datetime | None = None,
         end_dt: datetime | None = None,
-        limit: int = 1000,  # <- max allowed per query
+
         as_np: bool = True,
 
-    ) -> dict:
+    ) -> list[tuple] | np.ndarray:
+
+        # NOTE: diff market-venues have diff datums limits:
+        # - spot max is 1k
+        #   https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
+        # - usdm futes max is 1500
+        #   https://binance-docs.github.io/apidocs/futures/en/#kline-candlestick-data
+        limits: dict[str, int] = {
+            'spot': 1000,
+            'usdtm_futes': 1500,
+        }
+        limit = limits[self.mkt_mode]
 
         if end_dt is None:
             end_dt = now('UTC').add(minutes=1)
@@ -413,7 +455,8 @@ class Client:
         end_time = binance_timestamp(end_dt)
 
         # https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
-        bars = await self._api(
+        bars = await self.mkt_mode_req[self.mkt_mode](
+        # bars = await self._api(
             'klines',
             params={
                 'symbol': symbol.upper(),
@@ -423,13 +466,7 @@ class Client:
                 'limit': limit
             }
         )
-
-        # TODO: pack this bars scheme into a ``pydantic`` validator type:
-        # https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
-
-        # TODO: we should port this to ``pydantic`` to avoid doing
-        # manual validation ourselves..
-        new_bars = []
+        new_bars: list[tuple] = []
         for i, bar in enumerate(bars):
 
             bar = OHLC(*bar)
@@ -449,11 +486,13 @@ class Client:
 
             new_bars.append((i,) + tuple(row))
 
-        array = np.array(
+        if not as_np:
+            return bars
+
+        return np.array(
             new_bars,
             dtype=def_iohlcv_fields,
-        ) if as_np else bars
-        return array
+        )
 
     async def get_positions(
         self,
@@ -476,7 +515,6 @@ class Client:
                 signed=True
             )
             log.info(f'done. len {len(resp)}')
-
             # await trio.sleep(3)
 
         return positions, volumes
@@ -530,7 +568,7 @@ class Client:
 
         await self.cache_symbols()
 
-        # asset_precision = self._pairs[symbol]['baseAssetPrecision']
+        # asset_precision = self._spot_pairs[symbol]['baseAssetPrecision']
         # quote_precision = self._pairs[symbol]['quoteAssetPrecision']
 
         params = OrderedDict([
@@ -624,12 +662,16 @@ class Client:
 
 
 @acm
-async def get_client(
-    mkt_mode: str = 'spot',
-) -> Client:
-    client = Client(mkt_mode=mkt_mode)
+async def get_client() -> Client:
 
-    log.info(f'{client} in {mkt_mode} mode: caching exchange infos..')
+    client = Client()
     await client.exch_info()
+    log.info(
+        f'{client} in {client.mkt_mode} mode: caching exchange infos..\n'
+        'Cached multi-market pairs:\n'
+        f'spot: {len(client._spot_pairs)}\n'
+        f'usdtm_futes: {len(client._ufutes_pairs)}\n'
+        f'Total: {len(client._pairs)}\n'
+    )
 
     yield client

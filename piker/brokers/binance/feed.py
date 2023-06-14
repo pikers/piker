@@ -43,12 +43,15 @@ from fuzzywuzzy import process as fuzzy
 import numpy as np
 import tractor
 
-from piker._cacheables import (
-    async_lifo_cache,
+from piker.brokers import (
     open_cached_client,
 )
-from piker.accounting._mktinfo import (
+from piker._cacheables import (
+    async_lifo_cache,
+)
+from piker.accounting import (
     Asset,
+    DerivTypes,
     MktPair,
     unpack_fqme,
     digits_to_dec,
@@ -69,6 +72,7 @@ from .api import (
 )
 from .schemas import (
     Pair,
+    FutesPair,
 )
 
 log = get_logger('piker.brokers.binance')
@@ -219,8 +223,6 @@ async def open_history_client(
 
 ) -> tuple[Callable, int]:
 
-    symbol: str = mkt.bs_fqme
-
     # TODO implement history getter for the new storage layer.
     async with open_cached_client('binance') as client:
 
@@ -237,8 +239,20 @@ async def open_history_client(
             if timeframe != 60:
                 raise DataUnavailable('Only 1m bars are supported')
 
+            # TODO: better wrapping for venue / mode?
+            # - eventually logic for usd vs. coin settled futes
+            #   based on `MktPair.src` type/value?
+            # - maybe something like `async with
+            # Client.use_venue('usdtm_futes')`
+            if mkt.type_key in DerivTypes:
+                client.mkt_mode = 'usdtm_futes'
+            else:
+                client.mkt_mode = 'spot'
+
+            # NOTE: always query using their native symbology!
+            mktid: str = mkt.bs_mktid
             array = await client.bars(
-                symbol,
+                mktid,
                 start_dt=start_dt,
                 end_dt=end_dt,
             )
@@ -269,22 +283,42 @@ async def get_mkt_info(
         fqme += '.binance'
 
     bs_fqme, _, broker = fqme.rpartition('.')
-    broker, mkt_ep, venue, suffix = unpack_fqme(fqme)
-    # bs_fqme, _, broker = fqme.partition('.')
+    broker, mkt_ep, venue, expiry = unpack_fqme(fqme)
 
-    mkt_mode: str = 'spot'
-    if 'perp' in bs_fqme:
-        mkt_mode = 'usd_futes'
+    # NOTE: see the `FutesPair.bs_fqme: str` implementation
+    # to understand the reverse market info lookup below.
+    venue: str = venue or 'spot'
+    mkt_mode: str = venue or 'spot'
+    _atype: str = ''
+    if (
+        venue
+        and 'spot' not in venue.lower()
+
+        # XXX: catch all in case user doesn't know which
+        # venue they want (usdtm vs. coinm) and we can choose
+        # a default (via config?) once we support coin-m APIs.
+        or 'perp' in bs_fqme.lower()
+    ):
+        mkt_mode: str = f'{venue.lower()}_futes'
+        if 'perp' in expiry:
+            _atype = 'perpetual_future'
+
+        else:
+            _atype = 'future'
 
     async with open_cached_client(
         'binance',
-        mkt_mode=mkt_mode,
     ) as client:
+
+        # switch mode depending on input pattern parsing
+        client.mkt_mode = mkt_mode
 
         pair_str: str = mkt_ep.upper()
         pair: Pair = await client.exch_info(pair_str)
 
-        await tractor.breakpoint()
+        if 'futes' in mkt_mode:
+            assert isinstance(pair, FutesPair)
+
         mkt = MktPair(
             dst=Asset(
                 name=pair.baseAsset,
@@ -299,7 +333,10 @@ async def get_mkt_info(
             price_tick=pair.price_tick,
             size_tick=pair.size_tick,
             bs_mktid=pair.symbol,
+            expiry=expiry,
+            venue=venue,
             broker='binance',
+            _atype=_atype,
         )
         both = mkt, pair
         return both
@@ -379,26 +416,33 @@ async def stream_quotes(
                 FeedInit(mkt_info=mkt)
             )
 
-
         # TODO: detect whether futes or spot contact was requested
         from .api import (
             _futes_ws,
-            # _spot_ws,
+            _spot_ws,
         )
-        wsep: str = _futes_ws
+
+        async with open_cached_client(
+            'binance',
+        ) as client:
+            wsep: str = {
+                'usdtm_futes': _futes_ws,
+                'spot': _spot_ws,
+            }[client.mkt_mode]
 
         async with (
             open_autorecon_ws(
                 wsep,
                 fixture=partial(
                     subscribe,
-                    symbols=symbols,
+                    symbols=[mkt.bs_mktid],
                 ),
             ) as ws,
 
             # avoid stream-gen closure from breaking trio..
             aclosing(stream_messages(ws)) as msg_gen,
         ):
+            # log.info('WAITING ON FIRST LIVE QUOTE..')
             typ, quote = await anext(msg_gen)
 
             # pull a first quote and deliver
@@ -413,15 +457,20 @@ async def stream_quotes(
             # import time
             # last = time.time()
 
+            # XXX NOTE: can't include the `.binance` suffix
+            # or the sampling loop will not broadcast correctly
+            # since `bus._subscribers.setdefault(bs_fqme, set())`
+            # is used inside `.data.open_feed_bus()` !!!
+            topic: str = mkt.bs_fqme
+
             # start streaming
-            async for typ, msg in msg_gen:
+            async for typ, quote in msg_gen:
 
                 # period = time.time() - last
                 # hz = 1/period if period else float('inf')
                 # if hz > 60:
                 #     log.info(f'Binance quotez : {hz}')
-                topic = msg['symbol'].lower()
-                await send_chan.send({topic: msg})
+                await send_chan.send({topic: quote})
                 # last = time.time()
 
 
@@ -429,10 +478,11 @@ async def stream_quotes(
 async def open_symbol_search(
     ctx: tractor.Context,
 ) -> Client:
+
     async with open_cached_client('binance') as client:
 
         # load all symbols locally for fast search
-        cache = await client.exch_info()
+        fqpairs_cache = await client.exch_info()
         await ctx.started()
 
         async with ctx.open_stream() as stream:
@@ -442,11 +492,11 @@ async def open_symbol_search(
 
                 matches = fuzzy.extractBests(
                     pattern,
-                    cache,
+                    fqpairs_cache,
                     score_cutoff=50,
                 )
                 # repack in dict form
                 await stream.send({
-                    item[0].symbol: item[0]
+                    item[0].bs_fqme: item[0]
                     for item in matches
                 })
