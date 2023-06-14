@@ -145,8 +145,7 @@ class _FeedsBus(Struct):
         key: str,
     ) -> set[
         tuple[
-            Union[tractor.MsgStream, trio.MemorySendChannel],
-            # tractor.Context,
+            tractor.MsgStream | trio.MemorySendChannel,
             float | None,  # tick throttle in Hz
         ]
     ]:
@@ -161,7 +160,6 @@ class _FeedsBus(Struct):
         key: str,
         subs: set[tuple[
             tractor.MsgStream | trio.MemorySendChannel,
-            # tractor.Context,
             float | None,  # tick throttle in Hz
         ]],
     ) -> set[tuple]:
@@ -169,7 +167,7 @@ class _FeedsBus(Struct):
         Add a ``set`` of consumer subscription entries for the given key.
 
         '''
-        _subs = self._subscribers[key]
+        _subs: set[tuple] = self._subscribers[key]
         _subs.update(subs)
         return _subs
 
@@ -183,7 +181,7 @@ class _FeedsBus(Struct):
         Remove a ``set`` of consumer subscription entries for key.
 
         '''
-        _subs = self.get_subs(key)
+        _subs: set[tuple] = self.get_subs(key)
         _subs.difference_update(subs)
         return _subs
 
