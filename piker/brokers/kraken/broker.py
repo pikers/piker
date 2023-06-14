@@ -417,7 +417,7 @@ def trades2pps(
 
 
 @tractor.context
-async def trades_dialogue(
+async def open_trade_dialog(
     ctx: tractor.Context,
     loglevel: str = None,
 
