@@ -58,6 +58,7 @@ async def handle_order_requests(
     ems_order_stream: tractor.MsgStream
 ) -> None:
     async with open_cached_client('binance') as client:
+
         async for request_msg in ems_order_stream:
             log.info(f'Received order request {request_msg}')
 
@@ -79,11 +80,14 @@ async def handle_order_requests(
                 # deliver ack that order has been submitted to broker routing
                 await ems_order_stream.send(
                     BrokerdOrderAck(
+
                         # ems order request id
                         oid=order.oid,
+
                         # broker specific request id
                         reqid=reqid,
                         time_ns=time.time_ns(),
+
                     ).dict()
                 )
 
@@ -97,7 +101,7 @@ async def handle_order_requests(
 
 
 @tractor.context
-async def trades_dialogue(
+async def open_trade_dialog(
     ctx: tractor.Context,
     loglevel: str = None
 
@@ -123,7 +127,6 @@ async def trades_dialogue(
         client.manage_listen_key() as listen_key,
     ):
         n.start_soon(handle_order_requests, ems_stream)
-        # await trio.sleep_forever()
 
         ws: NoBsWs
         async with open_autorecon_ws(
