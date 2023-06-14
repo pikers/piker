@@ -70,7 +70,7 @@ from piker.brokers._util import (
 from .api import (
     Client,
 )
-from .schemas import (
+from .venues import (
     Pair,
     FutesPair,
 )

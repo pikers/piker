@@ -55,7 +55,7 @@ from piker.brokers._util import (
     SymbolNotFound,
     get_logger,
 )
-from .schemas import (
+from .venues import (
     PAIRTYPES,
     Pair,
     MarketType,
