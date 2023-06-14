@@ -30,6 +30,55 @@ from decimal import Decimal
 from piker.data.types import Struct
 
 
+# API endpoint paths by venue / sub-API
+_domain: str = 'binance.com'
+_spot_url = f'https://api.{_domain}'
+_futes_url = f'https://fapi.{_domain}'
+
+# WEBsocketz
+# NOTE XXX: see api docs which show diff addr?
+# https://developers.binance.com/docs/binance-trading-api/websocket_api#general-api-information
+_spot_ws: str = 'wss://stream.binance.com/ws'
+# 'wss://ws-api.binance.com:443/ws-api/v3',
+
+# NOTE: spot test network only allows certain ep sets:
+# https://testnet.binance.vision/
+_testnet_spot_ws: str = 'wss://testnet.binance.vision/ws-api/v3'
+
+# https://binance-docs.github.io/apidocs/futures/en/#websocket-market-streams
+_futes_ws: str = f'wss://fstream.{_domain}/ws/'
+_auth_futes_ws: str = 'wss://fstream-auth.{_domain}/ws/'
+
+# test nets
+_testnet_futes_url: str = 'https://testnet.binancefuture.com'
+_testnet_futes_ws: str = 'wss://stream.binancefuture.com'
+
+
+MarketType = Literal[
+    'spot',
+    # 'margin',
+    'usdtm_futes',
+    # 'coin_futes',
+]
+
+
+def get_api_eps(venue: MarketType) -> tuple[str, str]:
+    '''
+    Return API ep root paths per venue.
+
+    '''
+    return {
+        'spot': (
+            _spot_url,
+            _spot_ws,
+        ),
+        'usdtm_futes': (
+            _futes_url,
+            _futes_ws,
+        ),
+    }[venue]
+
+
 class Pair(Struct, frozen=True):
     symbol: str
     status: str
@@ -142,14 +191,6 @@ class FutesPair(Pair):
         breakpoint()
         return f'{symbol}.WTFPWNEDBBQ'
 
-
-
-MarketType = Literal[
-    'spot',
-    # 'margin',
-    'usdtm_futes',
-    # 'coin_futes',
-]
 
 
 PAIRTYPES: dict[MarketType, Pair] = {
