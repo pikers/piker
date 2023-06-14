@@ -35,7 +35,7 @@ from .feed import (
     stream_quotes,
 )
 from .broker import (
-    trades_dialogue,
+    open_trade_dialog,
     norm_trade_records,
 )
 
@@ -43,7 +43,7 @@ from .broker import (
 __all__ = [
     'get_client',
     'get_mkt_info',
-    'trades_dialogue',
+    'open_trade_dialog',
     'open_history_client',
     'open_symbol_search',
     'stream_quotes',
