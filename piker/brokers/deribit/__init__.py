@@ -21,8 +21,6 @@ Deribit backend.
 
 from piker.log import get_logger
 
-log = get_logger(__name__)
-
 from .api import (
     get_client,
 )
@@ -30,12 +28,14 @@ from .feed import (
     open_history_client,
     open_symbol_search,
     stream_quotes,
-    backfill_bars
+    # backfill_bars,
 )
 # from .broker import (
-    # trades_dialogue,
+    # open_trade_dialog,
     # norm_trade_records,
 # )
+
+log = get_logger(__name__)
 
 __all__ = [
     'get_client',

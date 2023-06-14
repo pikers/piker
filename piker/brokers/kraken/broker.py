@@ -419,7 +419,6 @@ def trades2pps(
 @tractor.context
 async def open_trade_dialog(
     ctx: tractor.Context,
-    loglevel: str = None,
 
 ) -> AsyncIterator[dict[str, Any]]:
 
