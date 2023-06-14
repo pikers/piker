@@ -288,8 +288,7 @@ async def get_mkt_info(
 
     # NOTE: see the `FutesPair.bs_fqme: str` implementation
     # to understand the reverse market info lookup below.
-    venue: str = venue or 'spot'
-    mkt_mode: str = venue or 'spot'
+    mkt_mode = venue = venue.lower() or 'spot'
     _atype: str = ''
     if (
         venue
