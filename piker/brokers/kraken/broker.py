@@ -1194,8 +1194,8 @@ async def norm_trade_records(
         }[record['type']]
 
         # we normalize to kraken's `altname` always..
-        bs_mktid = Client.normalize_symbol(record['pair'])
-        fqme = f'{bs_mktid}.kraken'
+        bs_mktid: str = Client.normalize_symbol(record['pair'])
+        fqme = f'{bs_mktid.lower()}.kraken'
         mkt: MktPair = (await get_mkt_info(fqme))[0]
 
         records[tid] = Transaction(
