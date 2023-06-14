@@ -153,6 +153,10 @@ class Pair(Struct):
     def size_tick(self) -> Decimal:
         return digits_to_dec(self.lot_decimals)
 
+    @property
+    def bs_fqme(self) -> str:
+        return f'{self.symbol}.SPOT'
+
 
 class Client:
 
@@ -639,7 +643,7 @@ class Client:
 
         '''
         try:
-            return cls._ntable[ticker].lower()
+            return cls._ntable[ticker]
         except KeyError as ke:
             raise SymbolNotFound(f'kraken has no {ke.args[0]}')
 
