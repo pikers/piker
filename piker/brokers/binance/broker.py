@@ -38,7 +38,7 @@ from piker.data._web_bs import (
     open_autorecon_ws,
     NoBsWs,
 )
-from piker._cacheables import (
+from piker.brokers import (
     open_cached_client,
 )
 from piker.clearing._messages import (
@@ -104,7 +104,6 @@ async def trades_dialogue(
 ) -> AsyncIterator[dict[str, Any]]:
 
     async with open_cached_client('binance') as client:
-        await tractor.breakpoint()
         if not client.api_key:
             await ctx.started('paper')
             return

@@ -60,6 +60,10 @@ class Pair(Struct, frozen=True):
         step_size: str = self.filters['LOT_SIZE']['stepSize'].rstrip('0')
         return Decimal(step_size)
 
+    @property
+    def bs_fqme(self) -> str:
+        return self.symbol
+
 
 class SpotPair(Pair, frozen=True):
 
@@ -79,6 +83,10 @@ class SpotPair(Pair, frozen=True):
     defaultSelfTradePreventionMode: str
     allowedSelfTradePreventionModes: list[str]
     permissions: list[str]
+
+    @property
+    def bs_fqme(self) -> str:
+        return f'{self.symbol}.SPOT'
 
 
 
@@ -111,16 +119,44 @@ class FutesPair(Pair):
     def quoteAssetPrecision(self) -> int:
         return self.quotePrecision
 
+    @property
+    def bs_fqme(self) -> str:
+        symbol: str = self.symbol
+        ctype: str = self.contractType
+        margin: str = self.marginAsset
+
+        match ctype:
+            case 'PERPETUAL':
+                return f'{symbol}.{margin}M.PERP'
+
+            case 'CURRENT_QUARTER':
+                pair, _, expiry = symbol.partition('_')
+                return f'{pair}.{margin}M.{expiry}'
+
+            case '':
+                subtype: str = self.underlyingSubType[0]
+                match subtype:
+                    case 'DEFI':
+                        return f'{symbol}.{subtype}.PERP'
+
+        breakpoint()
+        return f'{symbol}.WTFPWNEDBBQ'
+
+
 
 MarketType = Literal[
     'spot',
-    'margin',
-    'usd_futes',
-    'coin_futes',
+    # 'margin',
+    'usdtm_futes',
+    # 'coin_futes',
 ]
 
 
 PAIRTYPES: dict[MarketType, Pair] = {
     'spot': SpotPair,
-    'usd_futes': FutesPair,
+    'usdtm_futes': FutesPair,
+
+    # TODO: support coin-margined venue:
+    # https://binance-docs.github.io/apidocs/delivery/en/#change-log
+    # 'coinm_futes': CoinFutesPair,
 }
