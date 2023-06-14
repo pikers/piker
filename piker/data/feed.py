@@ -39,7 +39,6 @@ from typing import (
     Optional,
     Awaitable,
     Sequence,
-    Union,
 )
 
 import trio
