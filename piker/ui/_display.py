@@ -203,7 +203,6 @@ class DisplayState(Struct):
 
     vlm_chart: ChartPlotWidget | None = None
     vlm_sticky: YAxisLabel | None = None
-    wap_in_history: bool = False
 
 
 async def increment_history_view(
@@ -298,7 +297,6 @@ async def graphics_update_loop(
     # min_istream: tractor.MsgStream,
 
     pis: dict[str, list[pgo.PlotItem, pgo.PlotItem]] = {},
-    wap_in_history: bool = False,
     vlm_charts: dict[str, ChartPlotWidget] = {},
 
 ) -> None:
@@ -452,7 +450,7 @@ async def graphics_update_loop(
         await trio.sleep(0)
 
         if ds.hist_vars['i_last'] < ds.hist_vars['i_last_append']:
-            breakpoint()
+            await tractor.breakpoint()
 
     # main real-time quotes update loop
     stream: tractor.MsgStream
@@ -478,7 +476,6 @@ async def graphics_update_loop(
             for fqme, quote in quotes.items():
                 ds = dss[fqme]
                 ds.quotes = quote
-
                 rt_pi, hist_pi = pis[fqme]
 
                 # chart isn't active/shown so skip render cycle and
@@ -509,7 +506,6 @@ def graphics_update_cycle(
     ds: DisplayState,
     quote: dict,
 
-    wap_in_history: bool = False,
     trigger_all: bool = False,  # flag used by prepend history updates
     prepend_update_index: int | None = None,
 
@@ -673,10 +669,6 @@ def graphics_update_cycle(
             ]]
             ds.last_price_sticky.update_from_data(*end_ic)
             ds.hist_last_price_sticky.update_from_data(*end_ic)
-
-            # update vwap overlay line
-            # if wap_in_history:
-            #     chart.get_viz('bar_wap').update_graphics()
 
             # update OHLC chart last bars
             # TODO: fix the only last uppx stuff....
@@ -1378,21 +1370,6 @@ async def display_symbol_data(
                 loglevel,
             )
 
-            # XXX: FOR SOME REASON THIS IS CAUSING HANGZ!?!
-            # plot historical vwap if available
-            wap_in_history = False
-            # if (
-            #     brokermod._show_wap_in_history
-            #     and 'bar_wap' in bars.dtype.fields
-            # ):
-            #     wap_in_history = True
-            #     rt_chart.draw_curve(
-            #         name='bar_wap',
-            #         shm=ohlcv,
-            #         color='default_light',
-            #         add_label=False,
-            #     )
-
             godwidget.resize_all()
             await trio.sleep(0)
 
@@ -1516,7 +1493,6 @@ async def display_symbol_data(
                 # min_istream,
 
                 pis,
-                wap_in_history,
                 vlm_charts,
             )
 
