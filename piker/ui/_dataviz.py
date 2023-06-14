@@ -371,8 +371,8 @@ class Viz(Struct):
         # the source data.
         if self._index_step is None:
 
-            index = self.shm.array[self.index_field]
-            isample = index[:16]
+            index: np.ndarray = self.shm.array[self.index_field]
+            isample: np.ndarray = index[-16:]
 
             mxdiff: None | float = None
             for step in np.diff(isample):
