@@ -19,6 +19,7 @@ Overlay (aka multi-chart) UX machinery.
 
 '''
 from __future__ import annotations
+from operator import itemgetter
 from typing import (
     Any,
     Literal,
@@ -197,15 +198,17 @@ def overlay_viewlists(
 
 ) -> None:
     '''
-    Calculate and apply y-domain (axis y-range) multi-curve overlay adjustments
-    a set of ``plots`` based on the requested ``method``.
+    Calculate and apply y-domain (axis y-range) multi-curve overlay
+    adjustments a set of ``plots`` based on the requested
+    ``method``.
 
     '''
     chart_name: str
     chart: ChartPlotWidget
+
     for chart_name, chart in plots.items():
 
-        overlay_viz_items = chart._vizs.items()
+        overlay_viz_items: dict = chart._vizs
 
         # Common `PlotItem` maxmin table; presumes that some path
         # graphics (and thus their backing data sets) are in the
@@ -271,6 +274,7 @@ def overlay_viewlists(
         # determine auto-ranging input for `._set_yrange()`.
         # this is primarly used for our so called "log-linearized
         # multi-plot" overlay technique.
+        # vizs_by_disp: list[tuple[float, Viz]] = []
         overlay_table: dict[
             float,
             tuple[
@@ -288,7 +292,7 @@ def overlay_viewlists(
         ] = {}
 
         # multi-curve overlay processing stage
-        for name, viz in overlay_viz_items:
+        for name, viz in overlay_viz_items.items():
 
             out = _maybe_calc_yrange(
                 viz,
@@ -356,7 +360,7 @@ def overlay_viewlists(
                 # returns scalars
                 r_up = (ymx - y_ref) / y_ref
                 r_down = (ymn - y_ref) / y_ref
-                disp = r_up - r_down
+                disp = round(r_up - r_down, ndigits=16)
 
                 msg = (
                     f'Viz[{viz.name}][{key}]: @{chart_name}\n'
@@ -489,7 +493,15 @@ def overlay_viewlists(
                 # register curves by a "full" dispersion metric for
                 # later sort order in the overlay (technique
                 # ) application loop below.
-                overlay_table[disp] = (
+                pair: tuple[float, Viz] = (disp, viz)
+
+                # time series are so similar they have same
+                # dispersion with `float` precision..
+                if entry := overlay_table.get(pair):
+                    raise RuntimeError('Duplicate entry!? -> {entry}')
+
+                # vizs_by_disp.append(pair)
+                overlay_table[pair] = (
                     viz.plot.vb,
                     viz,
                     y_ref,
@@ -540,6 +552,7 @@ def overlay_viewlists(
             mxmns_by_common_pi
             and not overlay_table
         ):
+            print("WAATT THE FUCK")
             # move to next chart in linked set since
             # no overlay transforming is needed.
             continue
@@ -548,7 +561,7 @@ def overlay_viewlists(
 
         r_up_mx: float
         r_dn_mn: float
-        mx_disp = max(overlay_table)
+        mx_pair: tuple = max(overlay_table, key=itemgetter(0))
 
         if debug_print:
             # print overlay table in descending dispersion order
@@ -564,11 +577,11 @@ def overlay_viewlists(
             )
 
         if method == 'loglin_ref_to_curve':
-            mx_entry = overlay_table.pop(mx_disp)
+            mx_entry = overlay_table.pop(mx_pair)
         else:
-            # TODO: for pin to first-in-view we need to no pop this from the
+            # TODO: for pin to first-in-view we need to NOT pop this from the
             # table, but can we simplify below code even more?
-            mx_entry = overlay_table[mx_disp]
+            mx_entry = overlay_table[mx_pair]
 
         (
             mx_view,  # viewbox
@@ -599,7 +612,11 @@ def overlay_viewlists(
             tuple[Viz, float, float, float, float]
         ] = {}
 
-        for full_disp in reversed(overlay_table):
+        for pair in sorted(
+            overlay_table,
+            key=itemgetter(0),
+            reverse=True,
+        ):
             (
                 view,
                 viz,
@@ -610,7 +627,7 @@ def overlay_viewlists(
                 minor_in_view,
                 r_up,
                 r_dn,
-            ) = overlay_table[full_disp]
+            ) = overlay_table[pair]
 
             key = 'open' if viz.is_ohlc else viz.name
             xref = minor_in_view[0]['time']
@@ -839,7 +856,7 @@ def overlay_viewlists(
                 print(
                     'SCALING PHASE' + '-'*100 + '\n\n'
                     '_________MAJOR INFO___________\n'
-                    f'SIGMA MAJOR C: {mx_viz.name} -> {mx_disp}\n'
+                    f'SIGMA MAJOR C: {mx_viz.name} -> {mx_pair[0]}\n'
                     f'UP MAJOR C: {upt.viz.name} with disp: {upt.rng}\n'
                     f'DOWN MAJOR C: {dnt.viz.name} with disp: {dnt.rng}\n'
                     f'xref: {mx_xref}\n'
