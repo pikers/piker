@@ -73,6 +73,7 @@ from .api import (
 from .venues import (
     Pair,
     FutesPair,
+    get_api_eps,
 )
 
 log = get_logger('piker.brokers.binance')
@@ -416,23 +417,10 @@ async def stream_quotes(
                 FeedInit(mkt_info=mkt)
             )
 
-        # TODO: detect whether futes or spot contact was requested
-        from .api import (
-            _futes_ws,
-            _spot_ws,
-        )
-
-        async with open_cached_client(
-            'binance',
-        ) as client:
-            wsep: str = {
-                'usdtm_futes': _futes_ws,
-                'spot': _spot_ws,
-            }[client.mkt_mode]
-
         async with (
+            open_cached_client('binance') as client,
             open_autorecon_ws(
-                wsep,
+                url=get_api_eps(client.mkt_mode)[1],  # 2nd elem is wss url
                 fixture=partial(
                     subscribe,
                     symbols=[mkt.bs_mktid],

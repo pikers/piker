@@ -59,6 +59,8 @@ from .venues import (
     PAIRTYPES,
     Pair,
     MarketType,
+    _spot_url,
+    _futes_url,
 )
 
 log = get_logger('piker.brokers.binance')
@@ -80,29 +82,6 @@ def get_config() -> dict:
 
 
 log = get_logger(__name__)
-
-
-_domain: str = 'binance.com'
-_spot_url = _url = f'https://api.{_domain}'
-_futes_url = f'https://fapi.{_domain}'
-
-# test nets
-_testnet_futes_url = 'https://testnet.binancefuture.com'
-
-# WEBsocketz
-# NOTE XXX: see api docs which show diff addr?
-# https://developers.binance.com/docs/binance-trading-api/websocket_api#general-api-information
-_spot_ws: str = 'wss://stream.binance.com/ws'
-# 'wss://ws-api.binance.com:443/ws-api/v3',
-
-# NOTE: spot test network only allows certain ep sets:
-# https://testnet.binance.vision/
-_testnet_spot_ws: str = 'wss://testnet.binance.vision/ws-api/v3'
-
-# https://binance-docs.github.io/apidocs/futures/en/#websocket-market-streams
-_futes_ws: str = f'wss://fstream.{_domain}/ws/'
-_auth_futes_ws: str = 'wss://fstream-auth.{_domain}/ws/'
-
 
 # Broker specific ohlc schema (rest)
 # XXX TODO? some additional fields are defined in the docs:
@@ -181,11 +160,11 @@ class Client:
 
         # spot EPs sesh
         self._sesh = asks.Session(connections=4)
-        self._sesh.base_location: str = _url
+        self._sesh.base_location: str = _spot_url
 
         # margin and extended spot endpoints session.
         self._sapi_sesh = asks.Session(connections=4)
-        self._sapi_sesh.base_location: str = _url
+        self._sapi_sesh.base_location: str = _spot_url
 
         # futes EPs sesh
         self._fapi_sesh = asks.Session(connections=4)
@@ -193,7 +172,9 @@ class Client:
 
         # for creating API keys see,
         # https://www.binance.com/en/support/faq/how-to-create-api-keys-on-binance-360002502072
-        conf: dict = get_config()
+        root_conf: dict = get_config()
+        conf: dict = root_conf['futes']
+
         self.api_key: str = conf.get('api_key', '')
         self.api_secret: str = conf.get('api_secret', '')
 
@@ -213,7 +194,7 @@ class Client:
             # 'futes_coin': self._dapi,  # TODO
         }
 
-    def _get_signature(self, data: OrderedDict) -> str:
+    def _mk_sig(self, data: OrderedDict) -> str:
 
         # XXX: Info on security and authentification
         # https://binance-docs.github.io/apidocs/#endpoint-security-type
@@ -226,7 +207,9 @@ class Client:
         query_str = '&'.join([
             f'{_key}={value}'
             for _key, value in data.items()])
+
         log.info(query_str)
+
         msg_auth = hmac.new(
             self.api_secret.encode('utf-8'),
             query_str.encode('utf-8'),
@@ -255,7 +238,7 @@ class Client:
 
         '''
         if signed:
-            params['signature'] = self._get_signature(params)
+            params['signature'] = self._mk_sig(params)
 
         resp = await getattr(self._sesh, action)(
             path=f'/api/v3/{method}',
@@ -282,7 +265,7 @@ class Client:
 
         '''
         if signed:
-            params['signature'] = self._get_signature(params)
+            params['signature'] = self._mk_sig(params)
 
         resp = await getattr(self._fapi_sesh, action)(
             path=f'/fapi/v1/{method}',
@@ -311,7 +294,7 @@ class Client:
 
         '''
         if signed:
-            params['signature'] = self._get_signature(params)
+            params['signature'] = self._mk_sig(params)
 
         resp = await getattr(self._sapi_sesh, action)(
             path=f'/sapi/v1/{method}',
@@ -539,6 +522,7 @@ class Client:
     async def get_withdrawls(
         self,
         recv_window: int = 60000
+
     ) -> list:
 
         params = OrderedDict([
