@@ -132,6 +132,8 @@ class OrderClient(Struct):
                 f'Maybe there is a stale entry or line?\n'
                 f'You should report this as a bug!'
             )
+            return
+
         fqme = str(cmd.symbol)
         return Cancel(
             oid=uuid,
