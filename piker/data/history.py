@@ -396,9 +396,15 @@ async def start_backfill(
                     end_dt=end_dt,
                 )
 
+                # XXX TODO: pretty sure if i plot tsla, btcusdt.binance
+                # and mnq.cme.ib this causes a Qt crash XXDDD
+
+                # make sure we don't overrun the buffer start
+                len_to_push: int = min(iend, array.size)
+                to_push: np.ndarray = array[-len_to_push:]
                 await shm_push_in_between(
                     shm,
-                    array,
+                    to_push,
                     prepend_index=iend,
                     update_start_on_prepend=False,
                 )
