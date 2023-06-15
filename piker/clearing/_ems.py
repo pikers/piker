@@ -381,7 +381,12 @@ async def open_brokerd_dialog(
             ep_name,
             None,
         )
-        break
+        if trades_endpoint:
+            break
+    else:
+        raise RuntimeError(
+            f'No live trading EP found: {brokermod.name}?'
+        )
 
     if (
         trades_endpoint is not None
