@@ -177,6 +177,7 @@ def fsp(
 def maybe_mk_fsp_shm(
     sym: str,
     target: Fsp,
+    size: int,
     readonly: bool = True,
 
 ) -> (str, ShmArray, bool):
@@ -185,7 +186,8 @@ def maybe_mk_fsp_shm(
     exists, otherwise load the shm already existing for that token.
 
     '''
-    assert isinstance(sym, str), '`sym` should be file-name-friendly `str`'
+    if not isinstance(sym, str):
+        raise ValueError('`sym: str` should be file-name-friendly')
 
     # TODO: load output types from `Fsp`
     # - should `index` be a required internal field?
@@ -204,7 +206,7 @@ def maybe_mk_fsp_shm(
 
     shm, opened = maybe_open_shm_array(
         key,
-        # TODO: create entry for each time frame
+        size=size,
         dtype=fsp_dtype,
         readonly=True,
     )
