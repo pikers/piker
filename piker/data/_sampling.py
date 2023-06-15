@@ -296,7 +296,11 @@ class Sampler:
         self,
         info: dict | None = None,
     ) -> None:
-        for period_s in self.subscribers:
+
+        # NOTE: take a copy of subs since removals can happen
+        # during the broadcast checkpoint which can cause
+        # a `RuntimeError` on interation of the underlying `dict`.
+        for period_s in list(self.subscribers):
             await self.broadcast(
                 period_s,
                 info=info,

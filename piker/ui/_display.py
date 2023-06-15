@@ -209,9 +209,11 @@ async def increment_history_view(
     # min_istream: tractor.MsgStream,
     ds: DisplayState,
 ):
-    hist_chart = ds.hist_chart
-    hist_viz = ds.hist_viz
+    hist_chart: ChartPlotWidget = ds.hist_chart
+    hist_viz: Viz = ds.hist_viz
+    viz: Viz = ds.viz
     assert 'hist' in hist_viz.shm.token['shm_name']
+    name: str = hist_viz.name
 
     # TODO: seems this is more reliable at keeping the slow
     # chart incremented in view more correctly?
@@ -221,15 +223,13 @@ async def increment_history_view(
     # - we need increment logic that only does the view shift
     #   call when the uppx permits/needs it
 
+    # draw everything from scratch on first entry!
+    for curve_name, hist_viz in hist_chart._vizs.items():
+        log.info(f'Forcing hard redraw -> {curve_name}')
+        hist_viz.update_graphics(force_redraw=True)
+
     async with open_sample_stream(1.) as min_istream:
-
-        # draw everything from scratch on first entry!
-        for curve_name, hist_viz in hist_chart._vizs.items():
-            log.info(f'FORCING CURVE REDRAW -> {curve_name}')
-            hist_viz.update_graphics(force_redraw=True)
-
         async for msg in min_istream:
-            # print(f'SAMPLER MSG: {msg}')
 
             profiler = Profiler(
                 msg=f'History chart cycle for: `{ds.fqme}`',
@@ -239,19 +239,28 @@ async def increment_history_view(
                 # ms_threshold=4,
             )
 
+            # NOTE: when a backfill msg is broadcast from the
+            # history mgmt layer, we match against the equivalent
+            # `Viz` and "hard re-render" (i.e. re-allocate the
+            # in-mem xy-array formats managed in
+            # `.data._formatters) its curve graphics to fill
+            # on-chart gaps.
+            # TODO: specifically emit/handle range tuples?
+            # - samplerd could emit the actual update range via
+            #   tuple and then we only enter the below block if that
+            #   range is detected as in-view?
             if (
-                'backfilling' in msg
+                (bf_wut := msg.get('backfilling', False))
             ):
-                # for curve_name, hist_viz in hist_chart._vizs.items():
-                print(f'FORCING REDRAW!! {hist_viz.name}')
-                hist_viz.update_graphics(force_redraw=True)
+                viz_name, timeframe = bf_wut
+                if viz_name == name:
+                    log.info(f'Forcing hard redraw -> {name}@{timeframe}')
+                    match timeframe:
+                        case 60:
+                            hist_viz.update_graphics(force_redraw=True)
+                        case 1:
+                            viz.update_graphics(force_redraw=True)
 
-            # l3 = ds.viz.shm.array[-3:]
-            # print(
-            #     f'fast step for {ds.flume.mkt.fqme}:\n'
-            #     f'{list(l3["time"])}\n'
-            #     f'{l3}\n'
-            # )
             # check if slow chart needs an x-domain shift and/or
             # y-range resize.
             (
