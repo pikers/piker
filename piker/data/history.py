@@ -49,7 +49,6 @@ from ._util import (
 from ._sharedmem import (
     maybe_open_shm_array,
     ShmArray,
-    _secs_in_day,
 )
 from ._source import def_iohlcv_fields
 from ._sampling import (
@@ -63,6 +62,26 @@ if TYPE_CHECKING:
     from bidict import bidict
     from ..service.marketstore import StorageClient
     from .feed import _FeedsBus
+
+
+# `ShmArray` buffer sizing configuration:
+_mins_in_day = int(60 * 24)
+# how much is probably dependent on lifestyle
+# but we reco a buncha times (but only on a
+# run-every-other-day kinda week).
+_secs_in_day = int(60 * _mins_in_day)
+_days_in_week: int = 7
+
+_days_worth: int = 3
+_default_hist_size: int = 6 * 365 * _mins_in_day
+_hist_buffer_start = int(
+    _default_hist_size - round(7 * _mins_in_day)
+)
+
+_default_rt_size: int = _days_worth * _secs_in_day
+# NOTE: start the append index in rt buffer such that 1 day's worth
+# can be appenened before overrun.
+_rt_buffer_start = int((_days_worth - 1) * _secs_in_day)
 
 
 def diff_history(
@@ -812,6 +831,9 @@ async def manage_history(
     # (maybe) allocate shm array for this broker/symbol which will
     # be used for fast near-term history capture and processing.
     hist_shm, opened = maybe_open_shm_array(
+        size=_default_hist_size,
+        append_start_index=_hist_buffer_start,
+
         key=f'piker.{service}[{uuid[:16]}].{fqme}.hist',
 
         # use any broker defined ohlc dtype:
@@ -829,6 +851,8 @@ async def manage_history(
         )
 
     rt_shm, opened = maybe_open_shm_array(
+        size=_default_rt_size,
+        append_start_index=_rt_buffer_start,
         key=f'piker.{service}[{uuid[:16]}].{fqme}.rt',
 
         # use any broker defined ohlc dtype:
@@ -836,7 +860,6 @@ async def manage_history(
 
         # we expect the sub-actor to write
         readonly=False,
-        size=3*_secs_in_day,
     )
 
     # (for now) set the rt (hft) shm array with space to prepend

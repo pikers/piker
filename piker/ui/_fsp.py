@@ -377,7 +377,7 @@ class FspAdmin:
         # TODO: make this a `.src_flume` and add
         # a `dst_flume`?
         # (=> but then wouldn't this be the most basic `Viz`?)
-        self.flume = flume
+        self.flume: Flume = flume
 
     def rr_next_portal(self) -> tractor.Portal:
         name, portal = next(self._rr_next_actor)
@@ -479,9 +479,15 @@ class FspAdmin:
         fqme: str = src_mkt.get_fqme(delim_char='')
 
         # allocate an output shm array
+
+        # NOTE: rn we assume the HFT 1s period chart
+        # is always used!
+        src_shm: ShmArray = self.flume._rt_shm
+
         key, dst_shm, opened = maybe_mk_fsp_shm(
             fqme,
             target=target,
+            size=src_shm._token.size,
             readonly=True,
         )
 
