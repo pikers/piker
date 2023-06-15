@@ -294,7 +294,7 @@ async def start_backfill(
                 )
                 await sampler_stream.send({
                     'broadcast_all': {
-                        'backfilling': True
+                        'backfilling': (mkt.fqme, timeframe),
                     },
                 })
 
@@ -323,7 +323,7 @@ async def start_backfill(
                 )
                 await sampler_stream.send({
                     'broadcast_all': {
-                        'backfilling': True
+                        'backfilling': (mkt.fqme, timeframe),
                     },
                 })
 
@@ -417,7 +417,7 @@ async def start_backfill(
                 #   loop
                 await sampler_stream.send({
                     'broadcast_all': {
-                        'backfilling': True
+                        'backfilling': (mkt.fqme, timeframe),
                     },
                 })
                 gap_indices: tuple | None = detect_null_time_gap(shm)
