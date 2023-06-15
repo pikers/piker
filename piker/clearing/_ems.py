@@ -353,7 +353,6 @@ async def open_brokerd_dialog(
         # a paper-simulator clearing engine.
 
         # load the paper trading engine
-        exec_mode = 'paper'
         log.info(f'{broker}: Entering `paper` trading mode')
 
         # load the paper trading engine as a subactor of this emsd
@@ -370,11 +369,12 @@ async def open_brokerd_dialog(
             loglevel=loglevel,
         )
 
-    # TODO: ideally choose only one of these ep names..
+    # take the first supported ep we detect
+    # on the backend mod.
     trades_endpoint: Callable
     for ep_name in [
-        'trades_dialogue',  # legacy
         'open_trade_dialog',  # probably final name?
+        'trades_dialogue',  # legacy
     ]:
         trades_endpoint = getattr(
             brokermod,
