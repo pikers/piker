@@ -51,9 +51,18 @@ import tractor
 from tractor import to_asyncio
 import pendulum
 from eventkit import Event
-import ib_insync as ibis
-from ib_insync.contract import (
+from ib_insync import (
+    client as ib_client,
+    IB,
     Contract,
+    Crypto,
+    Commodity,
+    Forex,
+    Future,
+    ContFuture,
+    Stock,
+)
+from ib_insync.contract import (
     ContractDetails,
     Option,
 )
@@ -70,7 +79,6 @@ from ib_insync.wrapper import (
     Wrapper,
     RequestError,
 )
-from ib_insync.client import Client as ib_Client
 import numpy as np
 
 # TODO: in hindsight, probably all imports should be
@@ -161,7 +169,7 @@ class NonShittyWrapper(Wrapper):
         return super().execDetails(reqId, contract, execu)
 
 
-class NonShittyIB(ibis.IB):
+class NonShittyIB(IB):
     '''
     The beginning of overriding quite a few decisions in this lib.
 
@@ -180,7 +188,7 @@ class NonShittyIB(ibis.IB):
 
         # XXX: just to override this wrapper
         self.wrapper = NonShittyWrapper(self)
-        self.client = ib_Client(self.wrapper)
+        self.client = ib_client.Client(self.wrapper)
         self.client._logger = get_logger(
             'ib_insync.client',
         )
@@ -376,7 +384,7 @@ class Client:
     def __init__(
         self,
 
-        ib: ibis.IB,
+        ib: IB,
 
     ) -> None:
         self.ib = ib
@@ -633,7 +641,7 @@ class Client:
 
                     # try get all possible contracts for symbol as per,
                     # https://interactivebrokers.github.io/tws-api/basic_contracts.html#fut
-                    con = ibis.Future(
+                    con = Future(
                         symbol=sym,
                         exchange=exch,
                     )
@@ -681,11 +689,11 @@ class Client:
         # it's the "front" contract returned here
         if front:
             con = (await self.ib.qualifyContractsAsync(
-                ibis.ContFuture(symbol, exchange=exchange)
+                ContFuture(symbol, exchange=exchange)
             ))[0]
         else:
             con = (await self.ib.qualifyContractsAsync(
-                ibis.Future(
+                Future(
                     symbol,
                     exchange=exchange,
                     lastTradeDateOrContractMonth=expiry,
@@ -704,7 +712,7 @@ class Client:
             return self._cons[conid]
         except KeyError:
             con: Contract = await self.ib.qualifyContractsAsync(
-                ibis.Contract(conId=conid)
+                Contract(conId=conid)
             )
             self._cons[conid] = con
             return con
@@ -815,7 +823,7 @@ class Client:
             # if '/' in symbol:
             #     currency = ''
             #     symbol, currency = symbol.split('/')
-            con = ibis.Forex(
+            con = Forex(
                 pair=''.join((symbol, currency)),
                 currency=currency,
             )
@@ -824,12 +832,12 @@ class Client:
         # commodities
         elif exch == 'CMDTY':  # eg. XAUUSD.CMDTY
             con_kwargs, bars_kwargs = _adhoc_symbol_map[symbol]
-            con = ibis.Commodity(**con_kwargs)
+            con = Commodity(**con_kwargs)
             con.bars_kwargs = bars_kwargs
 
         # crypto$
         elif exch == 'PAXOS':  # btc.paxos
-            con = ibis.Crypto(
+            con = Crypto(
                 symbol=symbol,
                 currency=currency,
             )
@@ -851,7 +859,7 @@ class Client:
                 primaryExchange = exch
                 exch = 'SMART'
 
-            con = ibis.Stock(
+            con = Stock(
                 symbol=symbol,
                 exchange=exch,
                 primaryExchange=primaryExchange,
@@ -1157,9 +1165,9 @@ def con2fqme(
             symbol = con.localSymbol.replace(' ', '')
 
         case (
-            ibis.Commodity()
+            Commodity()
             # search API endpoint returns std con box..
-            | ibis.Contract(secType='CMDTY')
+            | Contract(secType='CMDTY')
         ):
             # commodities and forex don't have an exchange name and
             # no real volume so we have to calculate the price
@@ -1168,7 +1176,7 @@ def con2fqme(
             # no real volume on this tract
             calc_price = True
 
-        case ibis.Forex() | ibis.Contract(secType='CASH'):
+        case Forex() | Contract(secType='CASH'):
             dst, src = con.localSymbol.split('.')
             symbol = ''.join([dst, src])
             suffix = con.exchange or 'idealpro'
@@ -1245,7 +1253,7 @@ async def load_aio_clients(
     # the API TCP in `ib_insync` connection can be flaky af so instead
     # retry a few times to get the client going..
     connect_retries: int = 3,
-    connect_timeout: float = 1,
+    connect_timeout: float = 10,
     disconnect_on_exit: bool = True,
 
 ) -> dict[str, Client]:
@@ -1310,7 +1318,7 @@ async def load_aio_clients(
         ):
             continue
 
-        ib = NonShittyIB()
+        ib: IB = NonShittyIB()
 
         for i in range(connect_retries):
             try:
@@ -1344,7 +1352,7 @@ async def load_aio_clients(
             ) as ce:
                 _err = ce
                 log.warning(
-                    f'Failed to connect on {port} for {i} time with,\n'
+                    f'Failed to connect on {host}:{port} for {i} time with,\n'
                     f'{ib.client.apiError.value()}\n'
                     'retrying with a new client id..')
 
