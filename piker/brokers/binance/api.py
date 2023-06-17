@@ -655,7 +655,7 @@ class Client:
             'Submitting ReST order request:\n'
             f'{pformat(params)}'
         )
-        resp = await self._api(
+        resp = await self.mkt_mode_req[self.mkt_mode](
             'order',
             params=params,
             signed=True,
@@ -687,7 +687,7 @@ class Client:
             'Submitting ReST order cancel: {oid}\n'
             f'{pformat(params)}'
         )
-        return await self._api(
+        await self.mkt_mode_req[self.mkt_mode](
             'order',
             params=params,
             signed=True,
