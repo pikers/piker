@@ -183,10 +183,10 @@ async def handle_order_requests(
 
                 # logic from old `Client.submit_limit()`
                 if order.oid in ids:
-                    ep = 'editOrder'
-                    reqid = ids[order.oid]  # integer not txid
+                    ep: str = 'editOrder'
+                    reqid: int = ids[order.oid]  # integer not txid
                     try:
-                        txid = reqids2txids[reqid]
+                        txid: str = reqids2txids[reqid]
                     except KeyError:
                         # XXX: not sure if this block ever gets hit now?
                         log.error('TOO FAST EDIT')
@@ -208,7 +208,7 @@ async def handle_order_requests(
                         }
 
                 else:
-                    ep = 'addOrder'
+                    ep: str = 'addOrder'
 
                     reqid = BrokerClient.new_reqid()
                     ids[order.oid] = reqid
@@ -221,8 +221,8 @@ async def handle_order_requests(
                         'type': order.action,
                     }
 
-                    psym = order.symbol.upper()
-                    pair = f'{psym[:3]}/{psym[3:]}'
+                    psym: str = order.symbol.upper()
+                    pair: str = f'{psym[:3]}/{psym[3:]}'
 
                 # XXX: ACK the request **immediately** before sending
                 # the api side request to ensure the ems maps the oid ->
@@ -423,7 +423,6 @@ async def open_trade_dialog(
 ) -> AsyncIterator[dict[str, Any]]:
 
     async with get_client() as client:
-
         # make ems flip to paper mode when no creds setup in
         # `brokers.toml` B0
         if not client._api_key:
@@ -867,8 +866,9 @@ async def handle_order_updates(
                     # 'vol_exec': exec_vlm}  # 0.0000
                     match update_msg:
 
-                        # EMS-unknown LIVE order that needs to be
-                        # delivered and loaded on the client-side.
+                        # EMS-unknown pre-exising-submitted LIVE
+                        # order that needs to be delivered and
+                        # loaded on the client-side.
                         case {
                             'userref': reqid,
                             'descr': {
