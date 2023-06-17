@@ -48,6 +48,7 @@ from piker.data._web_bs import (
 )
 from piker.brokers import (
     open_cached_client,
+    BrokerError,
 )
 from piker.clearing._messages import (
     BrokerdOrder,
@@ -91,7 +92,8 @@ async def handle_order_requests(
                     )
                     await ems_order_stream.send(BrokerdError(
                         oid=cancel.oid,
-                        symbol=cancel.symbol,
+                        # TODO: do we need the symbol?
+                        symbol='unknown',
                         reason=(
                             'Invalid `binance` order request dialog oid',
                         )
@@ -100,12 +102,12 @@ async def handle_order_requests(
 
                 else:
                     await client.submit_cancel(
-                        cancel.symbol,
+                        existing.symbol,
                         cancel.oid,
                     )
 
             case {
-                'account': ('binance.futes' | 'binance.spot') as account,
+                'account': ('binance.usdtm' | 'binance.spot') as account,
                 'action': action,
             } if action in {'buy', 'sell'}:
 
@@ -131,19 +133,34 @@ async def handle_order_requests(
                 )
                 await ems_order_stream.send(resp)
 
-                # call our client api to submit the order
-                reqid = await client.submit_limit(
-                    symbol=order.symbol,
-                    side=order.action,
-                    quantity=order.size,
-                    price=order.price,
-                    oid=order.oid
-                )
-                # thank god at least someone lets us do this XD
-                assert reqid == order.oid
+                # lookup the binance-native symbol
+                bs_mktid: str = client._pairs[order.symbol.upper()].symbol
 
-                # track latest request state
-                dialogs[reqid].maps.append(msg)
+                # call our client api to submit the order
+                try:
+                    reqid = await client.submit_limit(
+                        symbol=bs_mktid,
+                        side=order.action,
+                        quantity=order.size,
+                        price=order.price,
+                        oid=order.oid
+                    )
+                    # thank god at least someone lets us do this XD
+                    assert reqid == order.oid
+
+                    # track latest request state
+                    dialogs[reqid].maps.append(msg)
+                except BrokerError as be:
+                    await ems_order_stream.send(
+                        BrokerdError(
+                            oid=msg['oid'],
+                            symbol=msg['symbol'],
+                            reason=(
+                                '`binance` request failed:\n'
+                                f'{be}'
+                            ))
+                    )
+                    continue
 
             case _:
                 account = msg.get('account')
@@ -157,7 +174,7 @@ async def handle_order_requests(
                         oid=msg['oid'],
                         symbol=msg['symbol'],
                         reason=(
-                            'Invalid `binance` broker request msg:\n{msg}'
+                            f'Invalid `binance` broker request msg:\n{msg}'
                         ))
                 )
 
@@ -230,7 +247,7 @@ async def open_trade_dialog(
                 #  'feeTier': 0}
                 if 'account' in req:
                     alias: str = resp['accountAlias']
-                    accounts['binance.usdtm_futes'] = alias
+                    accounts['binance.usdtm'] = alias
 
                 # @balance response:
                 # {'accountAlias': 'sRFzFzAuuXsR',
