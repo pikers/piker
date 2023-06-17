@@ -637,8 +637,10 @@ class Client:
         Submit a live limit order to ze binance.
 
         '''
+        # lookup the binance-native symbol from search table
+        bs_mktid: str = self._pairs[symbol.upper()].symbol
         params: dict = OrderedDict([
-            ('symbol', symbol.upper()),
+            ('symbol', bs_mktid),
             ('side', side.upper()),
             ('type', 'LIMIT'),
             ('timeInForce', tif),
@@ -677,10 +679,11 @@ class Client:
         recv_window: int = 60000
 
     ) -> None:
-        symbol = symbol.upper()
+        bs_mktid: str = self._pairs[symbol.upper()].symbol
         params = OrderedDict([
-            ('symbol', symbol),
-            ('orderId', oid),
+            ('symbol', bs_mktid),
+            # ('orderId', oid),
+            ('origClientOrderId', oid),
             ('recvWindow', recv_window),
             ('timestamp', binance_timestamp(now()))
         ])
