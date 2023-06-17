@@ -2,10 +2,12 @@
 # ---- CEXY ----
 ################
 [binance]
+accounts.usdtm = 'futes'
 futes.use_testnet = true
 futes.api_key = ''
 futes.api_secret = ''
 
+accounts.spot = 'spot'
 spot.use_testnet = true
 spot.api_key = ''
 spot.api_secret = ''
