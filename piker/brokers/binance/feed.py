@@ -470,18 +470,22 @@ async def open_symbol_search(
 
         # load all symbols locally for fast search
         fqpairs_cache = await client.exch_info()
+        # TODO: maybe we should deliver the cache
+        # so that client's can always do a local-lookup-first
+        # style try and then update async as (new) match results
+        # are delivered from here?
         await ctx.started()
 
         async with ctx.open_stream() as stream:
 
+            pattern: str
             async for pattern in stream:
-                # results = await client.exch_info(sym=pattern.upper())
-
                 matches = fuzzy.extractBests(
                     pattern,
                     fqpairs_cache,
                     score_cutoff=50,
                 )
+
                 # repack in dict form
                 await stream.send({
                     item[0].bs_fqme: item[0]
