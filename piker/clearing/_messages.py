@@ -242,7 +242,8 @@ class BrokerdStatus(Struct):
         'closed',
     ]
 
-    account: str
+    # TODO: do we need this?
+    account: str | None = None,
     name: str = 'status'
     filled: float = 0.0
     reason: str = ''
@@ -287,8 +288,10 @@ class BrokerdError(Struct):
 
     '''
     oid: str
-    symbol: str
     reason: str
+
+    # TODO: drop this right?
+    symbol: str | None = None
 
     # if no brokerd order request was actually submitted (eg. we errored
     # at the ``pikerd`` layer) then there will be ``reqid`` allocated.
