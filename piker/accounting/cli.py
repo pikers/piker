@@ -34,6 +34,7 @@ from ..service import (
     open_piker_runtime,
 )
 from ..clearing._messages import BrokerdPosition
+from ..config import load_ledger
 from ..calc import humanize
 
 
@@ -169,14 +170,18 @@ def sync(
                 ):
                     try:
                         assert len(accounts) == 1
-                        if (
-                            not pp_msg_table
-                            and account == 'paper'
-                        ):
+                        if not pp_msg_table:
+                            ld, fpath = load_ledger(brokername, account)
+                            assert not ld, f'WTF did we fail to parse ledger:\n{ld}'
+
                             console.print(
-                                '[yellow underline]'
-                                f'No pps found for `{brokername}.paper` account!\n'
-                                'Do you even have any paper ledger files?'
+                                '[yellow]'
+                                'No pps found for '
+                                f'`{brokername}.{account}` '
+                                'account!\n\n'
+                                '[/][underline]'
+                                'None of the following ledger files exist:\n\n[/]'
+                                f'{fpath.as_uri()}\n'
                             )
                             return
 
