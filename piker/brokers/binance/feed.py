@@ -406,6 +406,7 @@ async def stream_quotes(
 
     async with (
         send_chan as send_chan,
+        open_cached_client('binance') as client,
     ):
         init_msgs: list[FeedInit] = []
         for sym in symbols:
@@ -416,10 +417,15 @@ async def stream_quotes(
                 FeedInit(mkt_info=mkt)
             )
 
+        wss_url: str = get_api_eps(client.mkt_mode)[1]  # 2nd elem is wss url
+
+        # TODO: for sanity, but remove eventually Xp
+        if 'future' in mkt.type_key:
+            assert 'fstream' in wss_url
+
         async with (
-            open_cached_client('binance') as client,
             open_autorecon_ws(
-                url=get_api_eps(client.mkt_mode)[1],  # 2nd elem is wss url
+                url=wss_url,
                 fixture=partial(
                     subscribe,
                     symbols=[mkt.bs_mktid],
