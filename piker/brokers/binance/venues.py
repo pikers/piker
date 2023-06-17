@@ -27,6 +27,8 @@ from typing import (
 )
 from decimal import Decimal
 
+from msgspec import field
+
 from piker.data.types import Struct
 
 
@@ -50,6 +52,9 @@ _futes_ws: str = f'wss://fstream.{_domain}/ws/'
 _auth_futes_ws: str = 'wss://fstream-auth.{_domain}/ws/'
 
 # test nets
+_testnet_spot_url: str = 'https://testnet.binance.vision/api'
+_testnet_spot_ws: str = 'wss://testnet.binance.vision/ws'
+
 _testnet_futes_url: str = 'https://testnet.binancefuture.com'
 _testnet_futes_ws: str = 'wss://stream.binancefuture.com'
 
@@ -79,7 +84,7 @@ def get_api_eps(venue: MarketType) -> tuple[str, str]:
     }[venue]
 
 
-class Pair(Struct, frozen=True):
+class Pair(Struct, frozen=True, kw_only=True):
     symbol: str
     status: str
     orderTypes: list[str]
@@ -95,7 +100,7 @@ class Pair(Struct, frozen=True):
     filters: dict[
         str,
         str | int | float,
-    ]
+    ] = field(default_factory=dict)
 
     @property
     def price_tick(self) -> Decimal:
@@ -183,13 +188,17 @@ class FutesPair(Pair):
                 return f'{pair}.{margin}M.{expiry}'
 
             case '':
-                subtype: str = self.underlyingSubType[0]
-                match subtype:
+                subtype: list[str] = self.underlyingSubType
+                if not subtype:
+                    if self.status == 'PENDING_TRADING':
+                        return f'{symbol}.{margin}M.PENDING'
+
+                match subtype[0]:
                     case 'DEFI':
                         return f'{symbol}.{subtype}.PERP'
 
-        breakpoint()
-        return f'{symbol}.WTFPWNEDBBQ'
+        # XXX: yeah no clue then..
+        return f'{symbol}.WTF.PWNED.BBQ'
 
 
 
