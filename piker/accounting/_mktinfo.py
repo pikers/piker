@@ -48,12 +48,15 @@ _underlyings: list[str] = [
     'commodity',
 ]
 
+_crypto_derivs: list[str] = [
+    'perpetual_future',
+    'crypto_future',
+]
 
 _derivs: list[str] = [
     'swap',
     'future',
     'continuous_future',
-    'perpetual_future',
     'option',
     'futures_option',
 
@@ -68,6 +71,8 @@ AssetTypeName: Literal[
     _underlyings
     +
     _derivs
+    +
+    _crypto_derivs
 ]
 
 # egs. stock, futer, option, bond etc.
