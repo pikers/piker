@@ -661,10 +661,12 @@ class Client:
             signed=True,
             action='post'
         )
-        reqid: str = resp['orderId']
-        if oid:
-            assert oid == reqid
 
+        # ensure our id is tracked by them
+        if oid:
+            assert oid == resp['clientOrderId']
+
+        reqid: str = resp['orderId']
         return reqid
 
     async def submit_cancel(
