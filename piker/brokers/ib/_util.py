@@ -21,12 +21,19 @@ runnable script-programs.
 '''
 from __future__ import annotations
 from functools import partial
-from typing import Literal
+from typing import (
+    Literal,
+    TYPE_CHECKING,
+)
 import subprocess
 
 import tractor
 
 from .._util import get_logger
+
+if TYPE_CHECKING:
+    from .api import Client
+    from ib_insync import IB
 
 log = get_logger('piker.brokers.ib')
 
@@ -42,7 +49,8 @@ _reset_tech: Literal[
 
 
 async def data_reset_hack(
-    vnc_host: str,
+    # vnc_host: str,
+    client: Client,
     reset_type: Literal['data', 'connection'],
 
 ) -> None:

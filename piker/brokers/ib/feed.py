@@ -37,6 +37,7 @@ from typing import (
 
 from async_generator import aclosing
 from fuzzywuzzy import process as fuzzy
+import ib_insync as ibis
 import numpy as np
 import pendulum
 import tractor
@@ -50,10 +51,10 @@ from .._util import (
 )
 from .api import (
     # _adhoc_futes_set,
+    Client,
     con2fqme,
     log,
     load_aio_clients,
-    ibis,
     MethodProxy,
     open_client_proxies,
     get_preferred_data_client,
@@ -276,7 +277,8 @@ async def wait_on_data_reset(
     # )
     # try to wait on the reset event(s) to arrive, a timeout
     # will trigger a retry up to 6 times (for now).
-    client = proxy._aio_ns.ib.client
+    client: Client = proxy._aio_ns
+    ib_client: ibis.IB = client.ib
 
     done = trio.Event()
     with trio.move_on_after(timeout) as cs:
@@ -285,10 +287,11 @@ async def wait_on_data_reset(
 
         log.warning(
             'Sending DATA RESET request:\n'
-            f'{client}'
+            f'{ib_client.client}'
         )
         res = await data_reset_hack(
-            vnc_host=client.host,
+            # vnc_host=client.host,
+            ib_client=ib_client,
             reset_type=reset_type,
         )
 

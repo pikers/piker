@@ -512,9 +512,9 @@ async def open_trade_event_stream(
     async with tractor.to_asyncio.open_channel_from(
         recv_trade_updates,
         client=client,
-    ) as (ibclient, trade_event_stream):
+    ) as (_, trade_event_stream):
 
-        assert ibclient is client.ib
+        # assert ibclient is client.ib
         task_status.started(trade_event_stream)
         await trio.sleep_forever()
 
