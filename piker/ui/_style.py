@@ -28,6 +28,8 @@ from qdarkstyle import DarkPalette
 
 from ..log import get_logger
 
+from .. import config
+
 log = get_logger(__name__)
 
 _magic_inches = 0.0666 * (1 + 6/16)
@@ -49,11 +51,25 @@ class DpiAwareFont:
 
     def __init__(
         self,
-        # TODO: move to config
         name: str = 'Hack',
         font_size: str = 'default',
 
     ) -> None:
+        self._custom_ui = False
+        # Read preferred font size from main config file if it exists
+        conf, path = config.load('conf', touch_if_dne=True)
+        ui_section = conf.get('ui')
+        if ui_section:
+            self._custom_ui = True
+
+            font_size = ui_section.get('font_size')
+            if not font_size:
+                font_size = 'default'
+
+            name = ui_section.get('name')
+            if not name:
+                name = 'Hack'
+
         self.name = name
         self._qfont = QtGui.QFont(name)
         self._font_size: str = font_size
@@ -99,6 +115,10 @@ class DpiAwareFont:
         listed in the script in ``snippets/qt_screen_info.py``.
 
         '''
+        if self._custom_ui:
+            self._set_qfont_px_size(self._font_size)
+            return
+
         if screen is None:
             screen = self.screen
 
