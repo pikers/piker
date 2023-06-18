@@ -628,13 +628,24 @@ class Client:
 
         oid: int | None = None,
         tif: str = 'GTC',
-        recv_window: int = 60000
+        recv_window: int = 60000,
+
         # iceberg_quantity: float | None = None,
-        # order_resp_type: str | None = None,
+        resp_type: str = 'ACK',
+
+        # TODO: this is probably useful for doing stops, maybe we
+        # can set it only on dark-stops?
+        # close_all: bool = False,
+
+        modify: bool = False,
 
     ) -> str:
         '''
-        Submit a live limit order to ze binance.
+        Submit or modify a live limit order to ze binance.
+
+        For modify see:
+        - spot: 
+        - futes https://binance-docs.github.io/apidocs/futures/en/#modify-order-trade
 
         '''
         # lookup the binance-native symbol from search table
@@ -647,10 +658,22 @@ class Client:
             ('quantity', quantity),
             ('price', price),
             ('recvWindow', recv_window),
-            ('newOrderRespType', 'ACK'),
+            ('newOrderRespType', resp_type),
             ('timestamp', binance_timestamp(now()))
+
+            # ('closeAll', close_all),
         ])
-        if oid:
+
+        action: str = 'post'
+
+        # NOTE: modifies only require diff key for user oid:
+        # https://binance-docs.github.io/apidocs/futures/en/#modify-order-trade
+        if modify:
+            assert oid
+            params['origClientOrderId'] = oid
+            action: str = 'put'
+
+        elif oid:
             params['newClientOrderId'] = oid
 
         log.info(
@@ -661,11 +684,14 @@ class Client:
             'order',
             params=params,
             signed=True,
-            action='post'
+            action=action,
         )
 
         # ensure our id is tracked by them
-        if oid:
+        if (
+            oid
+            and not modify
+        ):
             assert oid == resp['clientOrderId']
 
         reqid: str = resp['orderId']

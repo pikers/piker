@@ -43,8 +43,6 @@ _futes_url = f'https://fapi.{_domain}'
 _spot_ws: str = 'wss://stream.binance.com/ws'
 # 'wss://ws-api.binance.com:443/ws-api/v3',
 
-# NOTE: spot test network only allows certain ep sets:
-# https://testnet.binance.vision/
 _testnet_spot_ws: str = 'wss://testnet.binance.vision/ws-api/v3'
 
 # https://binance-docs.github.io/apidocs/futures/en/#websocket-market-streams
@@ -52,6 +50,9 @@ _futes_ws: str = f'wss://fstream.{_domain}/ws/'
 _auth_futes_ws: str = 'wss://fstream-auth.{_domain}/ws/'
 
 # test nets
+# NOTE: spot test network only allows certain ep sets:
+# https://testnet.binance.vision/
+# https://www.binance.com/en/support/faq/how-to-test-my-functions-on-binance-testnet-ab78f9a1b8824cf0a106b4229c76496d
 _testnet_spot_url: str = 'https://testnet.binance.vision/api'
 _testnet_spot_ws: str = 'wss://testnet.binance.vision/ws'
 
