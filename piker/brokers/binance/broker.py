@@ -164,6 +164,7 @@ async def handle_order_requests(
                 # validate
                 order = BrokerdOrder(**msg)
                 oid: str = order.oid  # emsd order id
+                modify: bool = False
 
                 # NOTE: check and report edits
                 if existing := dialogs.get(order.oid):
@@ -171,25 +172,31 @@ async def handle_order_requests(
                         f'Existing order for {oid} updated:\n'
                         f'{pformat(existing.maps[-1])} -> {pformat(msg)}'
                     )
-                    # TODO: figure out what special params we have to send?
-                    # https://binance-docs.github.io/apidocs/futures/en/#modify-order-trade
+                    modify = True
 
-                # track latest request state such that map
-                # lookups start at the most recent msg and then
-                # scan reverse-chronologically.
-                dialogs.add_msg(oid, msg)
+                    # only add new msg AFTER the existing check
+                    dialogs.add_msg(oid, msg)
 
-                # XXX: ACK the request **immediately** before sending
-                # the api side request to ensure the ems maps the oid ->
-                # reqid correctly!
-                resp = BrokerdOrderAck(
-                    oid=oid,  # ems order request id
-                    reqid=oid,  # our custom int mapping
-                    account='binance',  # piker account
-                )
-                await ems_order_stream.send(resp)
+                else:
+                    # XXX NOTE: update before the ack!
+                    # track latest request state such that map
+                    # lookups start at the most recent msg and then
+                    # scan reverse-chronologically.
+                    dialogs.add_msg(oid, msg)
+
+                    # XXX: ACK the request **immediately** before sending
+                    # the api side request to ensure the ems maps the oid ->
+                    # reqid correctly!
+                    resp = BrokerdOrderAck(
+                        oid=oid,  # ems order request id
+                        reqid=oid,  # our custom int mapping
+                        account='binance',  # piker account
+                    )
+                    await ems_order_stream.send(resp)
 
                 # call our client api to submit the order
+                # NOTE: modifies only require diff key for user oid:
+                # https://binance-docs.github.io/apidocs/futures/en/#modify-order-trade
                 try:
                     reqid = await client.submit_limit(
                         symbol=order.symbol,
@@ -197,6 +204,7 @@ async def handle_order_requests(
                         quantity=order.size,
                         price=order.price,
                         oid=oid,
+                        modify=modify,
                     )
 
                     # SMH they do gen their own order id: ints.. 
