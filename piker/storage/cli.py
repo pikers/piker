@@ -132,10 +132,16 @@ def anal(
 
 ) -> np.ndarray:
 
-    # import tractor
+    import tractor
 
     async def main():
-        async with open_storage_client() as (mod, client):
+        async with (
+            open_piker_runtime(
+                'tsdb_polars_anal',
+                # enable_modules=['piker.service._ahab']
+            ),
+            open_storage_client() as (mod, client),
+        ):
             syms: list[str] = await client.list_keys()
             print(f'{len(syms)} FOUND for {mod.name}')
 
@@ -154,14 +160,13 @@ def anal(
             df = tsmod.with_dts(src_df)
             gaps: pl.DataFrame = tsmod.detect_time_gaps(df)
 
+            if gaps:
+                print(f'Gaps found:\n{gaps}')
+
             # TODO: something better with tab completion..
             # is there something more minimal but nearly as
             # functional as ipython?
-            import code
-            code.interact(
-                f'df: {df}\ngaps: {gaps}\n',
-                local=locals()
-            )
+            await tractor.breakpoint()
 
     trio.run(main)
 
