@@ -22,10 +22,6 @@ Live order control B)
 
 '''
 from __future__ import annotations
-from collections import (
-    ChainMap,
-    defaultdict,
-)
 from pprint import pformat
 from typing import (
     Any,
@@ -45,7 +41,6 @@ from piker.accounting import (
 from piker.brokers._util import (
     get_logger,
 )
-from piker.data.types import Struct
 from piker.data._web_bs import (
     open_autorecon_ws,
     NoBsWs,
@@ -54,6 +49,7 @@ from piker.brokers import (
     open_cached_client,
     BrokerError,
 )
+from piker.clearing import OrderDialogs
 from piker.clearing._messages import (
     BrokerdOrder,
     BrokerdOrderAck,
@@ -69,65 +65,6 @@ from .venues import Pair
 from .api import Client
 
 log = get_logger('piker.brokers.binance')
-
-
-# TODO: factor this into `.clearing._util` (or something)
-# and use in other backends like kraken which currently has
-# a less formalized version more or less:
-# `apiflows[reqid].maps.append(status_msg.to_dict())`
-class OrderDialogs(Struct):
-    '''
-    Order control dialog (and thus transaction) tracking via
-    message recording.
-
-    Allows easily recording messages associated with a given set of
-    order control transactions and looking up the latest field
-    state using the entire (reverse chronological) msg flow.
-
-    '''
-    _flows: dict[str, ChainMap] = {}
-
-    def add_msg(
-        self,
-        oid: str,
-        msg: dict,
-    ) -> None:
-
-        # NOTE: manually enter a new map on the first msg add to
-        # avoid creating one with an empty dict first entry in
-        # `ChainMap.maps` which is the default if none passed at
-        # init.
-        cm: ChainMap = self._flows.get(oid)
-        if cm:
-            cm.maps.insert(0, msg)
-        else:
-            cm = ChainMap(msg)
-            self._flows[oid] = cm
-
-    # TODO: wrap all this in the `collections.abc.Mapping` interface?
-    def get(
-        self,
-        oid: str,
-
-    ) -> ChainMap[str, Any]:
-        '''
-        Return the dialog `ChainMap` for provided id.
-
-        '''
-        return self._flows.get(oid, None)
-
-    def pop(
-        self,
-        oid: str,
-
-    ) -> ChainMap[str, Any]:
-        '''
-        Pop and thus remove the `ChainMap` containing the msg flow
-        for the given order id.
-
-        '''
-        return self._flows.pop(oid)
-
 
 
 async def handle_order_requests(
