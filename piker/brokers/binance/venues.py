@@ -44,7 +44,6 @@ _spot_ws: str = 'wss://stream.binance.com/ws'
 # or this one? ..
 # 'wss://ws-api.binance.com:443/ws-api/v3',
 
-
 # https://binance-docs.github.io/apidocs/futures/en/#websocket-market-streams
 _futes_ws: str = f'wss://fstream.{_domain}/ws/'
 _auth_futes_ws: str = 'wss://fstream-auth.{_domain}/ws/'

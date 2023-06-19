@@ -37,7 +37,6 @@ import hmac
 import hashlib
 from pathlib import Path
 
-from bidict import bidict
 import trio
 from pendulum import (
     now,
@@ -220,14 +219,14 @@ class Client:
 
         # lookup for going from `.mkt_mode: str` to the config
         # subsection `key: str`
-        self.venue2configkey: bidict[str, str] = {
+        self.venue2configkey: dict[str, str] = {
             'spot': 'spot',
             'margin': 'spot',
             'usdtm_futes': 'futes',
             # 'coinm_futes': 'futes',
         }
         self.confkey2venuekeys: dict[str, list[str]] = {
-            'spot': ['spot', 'margin'],
+            'spot': ['spot'], # 'margin'],
             'futes': ['usdtm_futes'],
         }
 
@@ -314,7 +313,7 @@ class Client:
         method: str = 'get',
         venue: str | None = None,  # if None use `.mkt_mode` state
         signed: bool = False,
-        testnet: bool = True,
+        allow_testnet: bool = False,
 
     ) -> dict[str, Any]:
         '''
@@ -358,10 +357,12 @@ class Client:
 
         # Check if we're configured to route order requests to the
         # venue equivalent's testnet.
-        use_testnet: bool = False
         section_name: str = self.venue2configkey[venue_key]
         if subconf := self.conf.get(section_name):
-            use_testnet = subconf.get('use_testnet', False)
+            use_testnet = (
+                subconf.get('use_testnet', False)
+                and allow_testnet
+            )
 
         if (
             use_testnet
@@ -404,6 +405,7 @@ class Client:
             # don't know the routing mode but want to cache market
             # infos across all venues
             venue=venue,
+            allow_testnet=False,  # XXX: never use testnet for symbol lookups
         )
         mkt_pairs = resp['symbols']
         if not mkt_pairs:
@@ -559,7 +561,8 @@ class Client:
                 'startTime': start_time,
                 'endTime': end_time,
                 'limit': limit
-            }
+            },
+            allow_testnet=False,
         )
         new_bars: list[tuple] = []
         for i, bar in enumerate(bars):
@@ -675,6 +678,7 @@ class Client:
             params=params,
             signed=True,
             method='get',
+            allow_testnet=True,
         )
         # figure out which venue (in FQME terms) we're using
         # since that normally maps 1-to-1 with the account (right?)
@@ -780,6 +784,7 @@ class Client:
             signed=True,
             method=method,
             venue=self.mkt_mode,
+            allow_testnet=True,
         )
 
         # ensure our id is tracked by them
@@ -817,7 +822,8 @@ class Client:
             'order',
             params=params,
             signed=True,
-            method='delete'
+            method='delete',
+            allow_testnet=True,
         )
 
     async def get_listen_key(self) -> str:
@@ -828,6 +834,7 @@ class Client:
             params={},
             method='post',
             signed=True,
+            allow_testnet=True,
         )
         return resp['listenKey']
 
@@ -836,7 +843,8 @@ class Client:
             # 'userDataStream',
             'listenKey',
             params={'listenKey': listen_key},
-            method='put'
+            method='put',
+            allow_testnet=True,
         )
 
     async def close_listen_key(self, listen_key: str) -> None:
@@ -844,7 +852,8 @@ class Client:
             # 'userDataStream',
             'listenKey',
             params={'listenKey': listen_key},
-            method='delete'
+            method='delete',
+            allow_testnet=True,
         )
 
     @acm
