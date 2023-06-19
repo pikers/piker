@@ -62,6 +62,8 @@ from piker.clearing._messages import (
     BrokerdFill,
     BrokerdCancel,
     BrokerdError,
+    Status,
+    Order,
 )
 from .venues import Pair
 from .api import Client
@@ -69,6 +71,10 @@ from .api import Client
 log = get_logger('piker.brokers.binance')
 
 
+# TODO: factor this into `.clearing._util` (or something)
+# and use in other backends like kraken which currently has
+# a less formalized version more or less:
+# `apiflows[reqid].maps.append(status_msg.to_dict())`
 class OrderDialogs(Struct):
     '''
     Order control dialog (and thus transaction) tracking via
@@ -79,25 +85,49 @@ class OrderDialogs(Struct):
     state using the entire (reverse chronological) msg flow.
 
     '''
-    _dialogs: defaultdict[str, ChainMap] = defaultdict(ChainMap)
+    _flows: dict[str, ChainMap] = {}
 
     def add_msg(
         self,
         oid: str,
         msg: dict,
     ) -> None:
-        self._dialogs[oid].maps.insert(0, msg)
+
+        # NOTE: manually enter a new map on the first msg add to
+        # avoid creating one with an empty dict first entry in
+        # `ChainMap.maps` which is the default if none passed at
+        # init.
+        cm: ChainMap = self._flows.get(oid)
+        if cm:
+            cm.maps.insert(0, msg)
+        else:
+            cm = ChainMap(msg)
+            self._flows[oid] = cm
 
     # TODO: wrap all this in the `collections.abc.Mapping` interface?
     def get(
         self,
         oid: str,
+
     ) -> ChainMap[str, Any]:
         '''
         Return the dialog `ChainMap` for provided id.
 
         '''
-        return self._dialogs.get(oid, None)
+        return self._flows.get(oid, None)
+
+    def pop(
+        self,
+        oid: str,
+
+    ) -> ChainMap[str, Any]:
+        '''
+        Pop and thus remove the `ChainMap` containing the msg flow
+        for the given order id.
+
+        '''
+        return self._flows.pop(oid)
+
 
 
 async def handle_order_requests(
@@ -277,11 +307,15 @@ async def open_trade_dialog(
                     f"{listen_key}@account",
                     f"{listen_key}@balance",
                     f"{listen_key}@position",
+
+                    # TODO: does this even work!? seems to cause
+                    # a hang on the first msg..? lelelel.
+                    # f"{listen_key}@order",
                 ],
                 "id": nsid
             })
 
-            with trio.fail_after(1):
+            with trio.fail_after(6):
                 msg = await wss.recv_msg()
                 assert msg['id'] == nsid
 
@@ -401,6 +435,24 @@ async def open_trade_dialog(
                 trio.open_nursery() as tn,
                 ctx.open_stream() as ems_stream,
             ):
+                # deliver all pre-exist open orders to EMS thus syncing
+                # state with the binance existing live limit set.
+                open_orders: list[Order] = await client.get_open_orders()
+
+                # fill out `Status` with boxed `Order`s and sync the EMS.
+                for order in open_orders:
+                    status_msg = Status(
+                        time_ns=time.time_ns(),
+                        resp='open',
+                        oid=order.oid,
+                        reqid=order.oid,
+
+                        # embedded order info
+                        req=order,
+                        src='binance',
+                    )
+                    dialogs.add_msg(order.oid, order.to_dict())
+                    await ems_stream.send(status_msg)
 
                 tn.start_soon(
                     handle_order_requests,
@@ -565,16 +617,14 @@ async def handle_order_updates(
 
                         if accum_size_filled == req_size:
                             status = 'closed'
-                            del dialogs._dialogs[oid]
+                            dialogs.pop(oid)
 
                     case 'NEW':
                         status = 'open'
 
                     case 'EXPIRED':
                         status = 'canceled'
-                        del dialogs._dialogs[oid]
-
-                    # case 'TRADE':
+                        dialogs.pop(oid)
 
                     case _:
                         status = status.lower()
