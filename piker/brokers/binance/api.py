@@ -49,6 +49,9 @@ from fuzzywuzzy import process as fuzzy
 import numpy as np
 
 from piker import config
+from piker.clearing._messages import (
+    Order,
+)
 from piker.accounting import (
     Asset,
     digits_to_dec,
@@ -378,9 +381,6 @@ class Client:
             raise SymbolNotFound(f'No market pairs found!?:\n{resp}')
 
         pairs_view_subtable: dict[str, Pair] = {}
-        # if venue == 'spot':
-        #     import tractor
-        #     await tractor.breakpoint()
 
         for item in mkt_pairs:
             filters_ls: list = item.pop('filters', False)
@@ -618,6 +618,68 @@ class Client:
             params=params,
             signed=True,
         )
+
+    async def get_open_orders(
+        self,
+        symbol: str | None = None,
+
+    ) -> list[Order]:
+        '''
+        Get all open orders for venue-account.
+
+        WARNING: apparently not specifying the symbol is given
+        a much heavier API "weight" meaning you shouldn't call it
+        often to avoid getting throttled as per:
+
+        'https://binance-docs.github.io/apidocs/futures/en/#current-all-open-orders-user_data
+
+
+        '''
+        params: dict[str, Any] = {
+            'timestamp': binance_timestamp(now()),
+        }
+        if symbol is not None:
+            params['symbol'] = symbol
+
+        resp = await self.mkt_mode_req[self.mkt_mode](
+            'openOrders',
+            params=params,
+            signed=True,
+            action='get',
+        )
+        orders: list[Order] = []
+        for entry in resp:
+            oid: str = entry['clientOrderId']
+
+            # XXX TODO XXX: it appears as though entries have no
+            # indicator from the symbology system which market
+            # / venue the order is from.. which normally isn't
+            # a huge deal since you could assume based on the
+            # endpoint you made the request to, BUT the futes USD-M
+            # endpoints have multiple contracts for the same
+            # symbols (eg. BTCUSDT.PERP, BTCUSDT.230630.. etc.)
+            # NOTE: for now until we have a better system we're
+            # going to assume orders that don't have some kind of
+            # further info in the order resp dict are perps though
+            # likely this will need to change in the future..
+            venue: str = self.mkt_mode.rstrip('_futes')
+            bs_mktid: str = entry['symbol']
+            fqme: str = f'{bs_mktid.lower()}.{venue}.perp'
+
+            orders.append(
+                Order(
+                    oid=oid,
+                    symbol=fqme,
+
+                    action=entry['side'].lower(),
+                    price=float(entry['price']),
+                    size=float(entry['origQty']),
+
+                    exec_mode='live',
+                    account=f'binance.{venue}',
+                )
+            )
+        return orders
 
     async def submit_limit(
         self,
