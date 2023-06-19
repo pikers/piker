@@ -33,6 +33,7 @@ from ._util import (
     DataUnavailable,
     DataThrottle,
     resproc,
+    get_logger,
 )
 
 __all__: list[str] = [
@@ -42,6 +43,7 @@ __all__: list[str] = [
     'DataUnavailable',
     'DataThrottle',
     'resproc',
+    'get_logger',
 ]
 
 __brokers__: list[str] = [

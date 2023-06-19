@@ -41,9 +41,9 @@ _futes_url = f'https://fapi.{_domain}'
 # NOTE XXX: see api docs which show diff addr?
 # https://developers.binance.com/docs/binance-trading-api/websocket_api#general-api-information
 _spot_ws: str = 'wss://stream.binance.com/ws'
+# or this one? ..
 # 'wss://ws-api.binance.com:443/ws-api/v3',
 
-_testnet_spot_ws: str = 'wss://testnet.binance.vision/ws-api/v3'
 
 # https://binance-docs.github.io/apidocs/futures/en/#websocket-market-streams
 _futes_ws: str = f'wss://fstream.{_domain}/ws/'
@@ -55,6 +55,8 @@ _auth_futes_ws: str = 'wss://fstream-auth.{_domain}/ws/'
 # https://www.binance.com/en/support/faq/how-to-test-my-functions-on-binance-testnet-ab78f9a1b8824cf0a106b4229c76496d
 _testnet_spot_url: str = 'https://testnet.binance.vision/api'
 _testnet_spot_ws: str = 'wss://testnet.binance.vision/ws'
+# or this one? ..
+# 'wss://testnet.binance.vision/ws-api/v3'
 
 _testnet_futes_url: str = 'https://testnet.binancefuture.com'
 _testnet_futes_ws: str = 'wss://stream.binancefuture.com'

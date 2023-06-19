@@ -37,6 +37,7 @@ import hmac
 import hashlib
 from pathlib import Path
 
+from bidict import bidict
 import trio
 from pendulum import (
     now,
@@ -55,7 +56,7 @@ from piker.accounting import (
 )
 from piker.data.types import Struct
 from piker.data import def_iohlcv_fields
-from piker.brokers._util import (
+from piker.brokers import (
     resproc,
     SymbolNotFound,
     get_logger,
@@ -67,8 +68,8 @@ from .venues import (
 
     _spot_url,
     _futes_url,
-
     _testnet_futes_url,
+    _testnet_spot_url,
 )
 
 log = get_logger('piker.brokers.binance')
@@ -181,6 +182,9 @@ class Client:
         # spot EPs sesh
         self._sesh = asks.Session(connections=4)
         self._sesh.base_location: str = _spot_url
+        # spot testnet
+        self._test_sesh: asks.Session = asks.Session(connections=4)
+        self._test_sesh.base_location: str = _testnet_spot_url
 
         # margin and extended spot endpoints session.
         self._sapi_sesh = asks.Session(connections=4)
@@ -189,54 +193,100 @@ class Client:
         # futes EPs sesh
         self._fapi_sesh = asks.Session(connections=4)
         self._fapi_sesh.base_location: str = _futes_url
+        # futes testnet
+        self._test_fapi_sesh: asks.Session = asks.Session(connections=4)
+        self._test_fapi_sesh.base_location: str = _testnet_futes_url
 
-        # for creating API keys see,
-        # https://www.binance.com/en/support/faq/how-to-create-api-keys-on-binance-360002502072
-        root_conf: dict = get_config()
-        conf: dict = root_conf['futes']
-
-        self.api_key: str = conf.get('api_key', '')
-        self.api_secret: str = conf.get('api_secret', '')
-        self.use_testnet: bool = conf.get('use_testnet', False)
-
-        if self.use_testnet:
-            self._test_fapi_sesh = asks.Session(connections=4)
-            self._test_fapi_sesh.base_location: str = _testnet_futes_url
-
-        self.watchlist = conf.get('watchlist', [])
-
-        if self.api_key:
-            api_key_header: dict = {
-                # taken from official:
-                # https://github.com/binance/binance-futures-connector-python/blob/main/binance/api.py#L47
-                "Content-Type": "application/json;charset=utf-8",
-
-                # TODO: prolly should just always query and copy
-                # in the real latest ver?
-                "User-Agent": "binance-connector/6.1.6smbz6",
-                "X-MBX-APIKEY": self.api_key,
-            }
-            self._sesh.headers.update(api_key_header)
-            self._sapi_sesh.headers.update(api_key_header)
-            self._fapi_sesh.headers.update(api_key_header)
-
-            if self.use_testnet:
-                self._test_fapi_sesh.headers.update(api_key_header)
-
+        # global client "venue selection" mode.
+        # set this when you want to switch venues and not have to
+        # specify the venue for the next request.
         self.mkt_mode: MarketType = mkt_mode
-        self.mkt_mode_req: dict[str, Callable] = {
-            'spot': self._api,
-            'margin': self._sapi,
-            'usdtm_futes': self._fapi,
+
+        # per 8
+        self.venue_sesh: dict[
+            str,  # venue key
+            tuple[asks.Session, str]  # session, eps path
+        ] = {
+            'spot': (self._sesh, '/api/v3/'),
+            'spot_testnet': (self._test_sesh, '/fapi/v1/'),
+
+            'margin': (self._sapi_sesh, '/sapi/v1/'),
+
+            'usdtm_futes': (self._fapi_sesh, '/fapi/v1/'),
+            'usdtm_futes_testnet': (self._test_fapi_sesh, '/fapi/v1/'),
+
             # 'futes_coin': self._dapi,  # TODO
         }
 
-    def _mk_sig(self, data: dict) -> str:
+        # lookup for going from `.mkt_mode: str` to the config
+        # subsection `key: str`
+        self.venue2configkey: bidict[str, str] = {
+            'spot': 'spot',
+            'margin': 'spot',
+            'usdtm_futes': 'futes',
+            # 'coinm_futes': 'futes',
+        }
+        self.confkey2venuekeys: dict[str, list[str]] = {
+            'spot': ['spot', 'margin'],
+            'futes': ['usdtm_futes'],
+        }
+
+        # for creating API keys see,
+        # https://www.binance.com/en/support/faq/how-to-create-api-keys-on-binance-360002502072
+        self.conf: dict = get_config()
+
+        for key, subconf in self.conf.items():
+            if api_key := subconf.get('api_key', ''):
+                venue_keys: list[str] = self.confkey2venuekeys[key]
+
+                venue_key: str
+                sesh: asks.Session
+                for venue_key in venue_keys:
+                    sesh, _ = self.venue_sesh[venue_key]
+
+                    api_key_header: dict = {
+                        # taken from official:
+                        # https://github.com/binance/binance-futures-connector-python/blob/main/binance/api.py#L47
+                        "Content-Type": "application/json;charset=utf-8",
+
+                        # TODO: prolly should just always query and copy
+                        # in the real latest ver?
+                        "User-Agent": "binance-connector/6.1.6smbz6",
+                        "X-MBX-APIKEY": api_key,
+                    }
+                    sesh.headers.update(api_key_header)
+
+                    # if `.use_tesnet = true` in the config then
+                    # also add headers for the testnet session which
+                    # will be used for all order control
+                    if subconf.get('use_testnet', False):
+                        testnet_sesh, _ = self.venue_sesh[
+                            venue_key + '_testnet'
+                        ]
+                        testnet_sesh.headers.update(api_key_header)
+
+    def _mk_sig(
+        self,
+        data: dict,
+        venue: str,
+
+    ) -> str:
+
+        # look up subconfig (spot or futes) section using 
+        # venue specific key lookup to figure out which mkt
+        # we need a key for.
+        section_name: str = self.venue2configkey[venue]
+        subconf: dict | None = self.conf.get(section_name)
+        if subconf is None:
+            raise config.ConfigurationError(
+                f'binance configuration is missing a `{section_name}` section '
+                'to define the creds for auth-ed endpoints!?'
+            )
+
 
         # XXX: Info on security and authentification
         # https://binance-docs.github.io/apidocs/#endpoint-security-type
-
-        if not self.api_secret:
+        if not (api_secret := subconf.get('api_secret')):
             raise config.NoSignature(
                 "Can't generate a signature without setting up credentials"
             )
@@ -246,10 +296,8 @@ class Client:
             for key, value in data.items()
         ])
 
-        # log.info(query_str)
-
         msg_auth = hmac.new(
-            self.api_secret.encode('utf-8'),
+            api_secret.encode('utf-8'),
             query_str.encode('utf-8'),
             hashlib.sha256
         )
@@ -260,103 +308,83 @@ class Client:
     # mkt_mode: MarketType input!
     async def _api(
         self,
-        method: str,
+        endpoint: str,  # ReST endpoint key
         params: dict,
+
+        method: str = 'get',
+        venue: str | None = None,  # if None use `.mkt_mode` state
         signed: bool = False,
-        action: str = 'get'
-
-    ) -> dict[str, Any]:
-        '''
-        Make a /api/v3/ SPOT account/market endpoint request.
-
-        For eg. rest market-data and spot-account-trade eps use
-        this endpoing parent path:
-        - https://binance-docs.github.io/apidocs/spot/en/#market-data-endpoints
-        - https://binance-docs.github.io/apidocs/spot/en/#spot-account-trade
-
-        '''
-        if signed:
-            params['signature'] = self._mk_sig(params)
-
-        resp = await getattr(self._sesh, action)(
-            path=f'/api/v3/{method}',
-            params=params,
-            timeout=float('inf'),
-        )
-
-        return resproc(resp, log)
-
-    async def _fapi(
-        self,
-        method: str,
-        params: dict,
-        signed: bool = False,
-        action: str = 'get',
         testnet: bool = True,
 
     ) -> dict[str, Any]:
         '''
-        Make a /fapi/v3/ USD-M FUTURES account/market endpoint
-        request.
+        Make a ReST API request via
+        - a /api/v3/ SPOT, or
+        - /fapi/v3/ USD-M FUTURES, or
+        - /api/v3/ SPOT/MARGIN
 
-        For all USD-M futures endpoints use this parent path:
-        https://binance-docs.github.io/apidocs/futures/en/#market-data-endpoints
+        account/market endpoint request depending on either passed in `venue: str`
+        or the current setting `.mkt_mode: str` setting, default `'spot'`.
+
+
+        Docs per venue API:
+
+        SPOT: market-data and spot-account-trade eps use this
+        ----  endpoing parent path:
+        - https://binance-docs.github.io/apidocs/spot/en/#market-data-endpoints
+        - https://binance-docs.github.io/apidocs/spot/en/#spot-account-trade
+
+        MARGIN: and advancecd spot account eps:
+        ------
+        - https://binance-docs.github.io/apidocs/spot/en/#margin-account-trade
+        - https://binance-docs.github.io/apidocs/spot/en/#listen-key-spot
+        - https://binance-docs.github.io/apidocs/spot/en/#spot-algo-endpoints
+
+        USD-M FUTES:
+        -----------
+        - https://binance-docs.github.io/apidocs/futures/en/#market-data-endpoints
 
         '''
-        if signed:
-            params['signature'] = self._mk_sig(params)
+        venue_key: str = venue or self.mkt_mode
 
-        # NOTE: only use testnet if user set brokers.toml config
-        # var to true **and** it's not one of the market data
-        # endpoints since we basically never want to display the
-        # test net feeds, we only are using it for testing order
-        # ctl machinery B)
+        if signed:
+            params['signature'] = self._mk_sig(
+                params,
+                venue=venue_key,
+            )
+
+        sesh: asks.Session
+        path: str
+
+        # Check if we're configured to route order requests to the
+        # venue equivalent's testnet.
+        use_testnet: bool = False
+        section_name: str = self.venue2configkey[venue_key]
+        if subconf := self.conf.get(section_name):
+            use_testnet = subconf.get('use_testnet', False)
+
         if (
-            self.use_testnet
+            use_testnet
             and method not in {
                 'klines',
                 'exchangeInfo',
             }
         ):
-            meth = getattr(self._test_fapi_sesh, action)
-        else:
-            meth = getattr(self._fapi_sesh, action)
+            # NOTE: only use testnet if user set brokers.toml config
+            # var to true **and** it's not one of the market data
+            # endpoints since we basically never want to display the
+            # test net feeds, we only are using it for testing order
+            # ctl machinery B)
+            venue_key += '_testnet'
 
+        sesh, path = self.venue_sesh[venue_key]
+
+        meth: Callable = getattr(sesh, method)
         resp = await meth(
-            path=f'/fapi/v1/{method}',
+            path=path + endpoint,
             params=params,
-            timeout=float('inf')
+            timeout=float('inf'),
         )
-
-        return resproc(resp, log)
-
-    async def _sapi(
-        self,
-        method: str,
-        params: dict,
-        signed: bool = False,
-        action: str = 'get'
-
-    ) -> dict[str, Any]:
-        '''
-        Make a /api/v3/ SPOT/MARGIN account/market endpoint request.
-
-        For eg. all margin and advancecd spot account eps use this
-        endpoing parent path:
-        - https://binance-docs.github.io/apidocs/spot/en/#margin-account-trade
-        - https://binance-docs.github.io/apidocs/spot/en/#listen-key-spot
-        - https://binance-docs.github.io/apidocs/spot/en/#spot-algo-endpoints
-
-        '''
-        if signed:
-            params['signature'] = self._mk_sig(params)
-
-        resp = await getattr(self._sapi_sesh, action)(
-            path=f'/sapi/v1/{method}',
-            params=params,
-            timeout=float('inf')
-        )
-
         return resproc(resp, log)
 
     async def _cache_pairs(
@@ -369,9 +397,13 @@ class Client:
         asset_table: dict[str, Asset] = self._venue2assets[venue]
 
         # make API request(s)
-        resp = await self.mkt_mode_req[venue](
+        resp = await self._api(
             'exchangeInfo',
             params={},  # NOTE: retrieve all symbols by default
+            # XXX: MUST explicitly pass the routing venue since we
+            # don't know the routing mode but want to cache market
+            # infos across all venues
+            venue=venue,
         )
         mkt_pairs = resp['symbols']
         if not mkt_pairs:
@@ -519,8 +551,7 @@ class Client:
         end_time = binance_timestamp(end_dt)
 
         # https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
-        bars = await self.mkt_mode_req[self.mkt_mode](
-        # bars = await self._api(
+        bars = await self._api(
             'klines',
             params={
                 'symbol': symbol.upper(),
@@ -558,30 +589,31 @@ class Client:
             dtype=def_iohlcv_fields,
         )
 
-    async def get_positions(
-        self,
-        recv_window: int = 60000
+    # TODO: maybe drop? Do we need this if we can simply request it
+    # over the user stream wss?
+    # async def get_positions(
+    #     self,
+    #     symbol: str,
+    #     recv_window: int = 60000
 
-    ) -> tuple:
-        positions = {}
-        volumes = {}
+    # ) -> tuple:
 
-        for sym in self.watchlist:
-            log.info(f'doing {sym}...')
-            params = dict([
-                ('symbol', sym),
-                ('recvWindow', recv_window),
-                ('timestamp', binance_timestamp(now()))
-            ])
-            resp = await self._api(
-                'allOrders',
-                params=params,
-                signed=True
-            )
-            log.info(f'done. len {len(resp)}')
-            # await trio.sleep(3)
+    #     positions = {}
+    #     volumes = {}
 
-        return positions, volumes
+    #     params = dict([
+    #         ('symbol', symbol),
+    #         ('recvWindow', recv_window),
+    #         ('timestamp', binance_timestamp(now()))
+    #     ])
+    #     resp = await self._api(
+    #         'allOrders',
+    #         params=params,
+    #         signed=True
+    #     )
+    #     log.info(f'done. len {len(resp)}')
+
+    #     return positions, volumes
 
     async def get_deposits(
         self,
@@ -638,11 +670,11 @@ class Client:
         if symbol is not None:
             params['symbol'] = symbol
 
-        resp = await self.mkt_mode_req[self.mkt_mode](
+        resp = await self._api(
             'openOrders',
             params=params,
             signed=True,
-            action='get',
+            method='get',
         )
         # figure out which venue (in FQME terms) we're using
         # since that normally maps 1-to-1 with the account (right?)
@@ -726,14 +758,14 @@ class Client:
             # ('closeAll', close_all),
         ])
 
-        action: str = 'post'
+        method: str = 'post'
 
         # NOTE: modifies only require diff key for user oid:
         # https://binance-docs.github.io/apidocs/futures/en/#modify-order-trade
         if modify:
             assert oid
             params['origClientOrderId'] = oid
-            action: str = 'put'
+            method: str = 'put'
 
         elif oid:
             params['newClientOrderId'] = oid
@@ -742,11 +774,12 @@ class Client:
             'Submitting ReST order request:\n'
             f'{pformat(params)}'
         )
-        resp = await self.mkt_mode_req[self.mkt_mode](
+        resp = await self._api(
             'order',
             params=params,
             signed=True,
-            action=action,
+            method=method,
+            venue=self.mkt_mode,
         )
 
         # ensure our id is tracked by them
@@ -780,41 +813,38 @@ class Client:
             'Submitting ReST order cancel: {oid}\n'
             f'{pformat(params)}'
         )
-        await self.mkt_mode_req[self.mkt_mode](
+        await self._api(
             'order',
             params=params,
             signed=True,
-            action='delete'
+            method='delete'
         )
 
     async def get_listen_key(self) -> str:
 
-        # resp = await self._api(
-        resp = await self.mkt_mode_req[self.mkt_mode](
+        resp = await self._api(
             # 'userDataStream',  # spot
             'listenKey',
             params={},
-            action='post',
+            method='post',
             signed=True,
         )
         return resp['listenKey']
 
     async def keep_alive_key(self, listen_key: str) -> None:
-        # await self._fapi(
-        await self.mkt_mode_req[self.mkt_mode](
+        await self._api(
             # 'userDataStream',
             'listenKey',
             params={'listenKey': listen_key},
-            action='put'
+            method='put'
         )
 
     async def close_listen_key(self, listen_key: str) -> None:
-        # await self._fapi(
-        await self.mkt_mode_req[self.mkt_mode](
+        await self._api(
             # 'userDataStream',
             'listenKey',
             params={'listenKey': listen_key},
-            action='delete'
+            method='delete'
         )
 
     @acm

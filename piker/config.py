@@ -173,7 +173,11 @@ _context_defaults = dict(
 )
 
 
-class NoSignature(Exception):
+class ConfigurationError(Exception):
+    'Misconfigured settings, likely in a TOML file.'
+
+
+class NoSignature(ConfigurationError):
     'No credentials setup for broker backend!'
 
 

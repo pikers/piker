@@ -214,7 +214,13 @@ async def open_trade_dialog(
 ) -> AsyncIterator[dict[str, Any]]:
 
     async with open_cached_client('binance') as client:
-        if not client.api_key:
+        for key, subconf in client.conf.items():
+            if subconf.get('api_key'):
+                break
+
+        # XXX: if no futes.api_key or spot.api_key has been set we
+        # always fall back to the paper engine!
+        else:
             await ctx.started('paper')
             return
 
