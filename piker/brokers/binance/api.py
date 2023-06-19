@@ -647,29 +647,32 @@ class Client:
             signed=True,
             action='get',
         )
+        # figure out which venue (in FQME terms) we're using
+        # since that normally maps 1-to-1 with the account (right?)
+        venue: str = self.mkt_mode.rstrip('_futes')
+
         orders: list[Order] = []
         for entry in resp:
             oid: str = entry['clientOrderId']
+            symbol: str = entry['symbol']
 
-            # XXX TODO XXX: it appears as though entries have no
-            # indicator from the symbology system which market
-            # / venue the order is from.. which normally isn't
-            # a huge deal since you could assume based on the
-            # endpoint you made the request to, BUT the futes USD-M
-            # endpoints have multiple contracts for the same
-            # symbols (eg. BTCUSDT.PERP, BTCUSDT.230630.. etc.)
-            # NOTE: for now until we have a better system we're
-            # going to assume orders that don't have some kind of
-            # further info in the order resp dict are perps though
-            # likely this will need to change in the future..
-            venue: str = self.mkt_mode.rstrip('_futes')
-            bs_mktid: str = entry['symbol']
-            fqme: str = f'{bs_mktid.lower()}.{venue}.perp'
+            # build out a fqme-styled key that should map to a pair
+            # entry in `._pairs` cross-venue table.
+            bs_mktid, _, expiry = entry['symbol'].partition('_')
+            bs_mktid += f'.{venue.upper()}'
+
+            if expiry:
+                bs_mktid += f'.{expiry}'
+            else:
+                bs_mktid += '.PERP'
+
+            # should never key error if we've got it right B)
+            pair: Pair = self._pairs[bs_mktid]
 
             orders.append(
                 Order(
                     oid=oid,
-                    symbol=fqme,
+                    symbol=pair.bs_fqme.lower(),
 
                     action=entry['side'].lower(),
                     price=float(entry['price']),

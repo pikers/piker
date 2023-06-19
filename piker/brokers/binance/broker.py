@@ -373,11 +373,9 @@ async def open_trade_dialog(
                 ctx.open_stream() as ems_stream,
             ):
                 # deliver all pre-exist open orders to EMS thus syncing
-                # state with the binance existing live limit set.
-                open_orders: list[Order] = await client.get_open_orders()
-
-                # fill out `Status` with boxed `Order`s and sync the EMS.
-                for order in open_orders:
+                # state with existing live limits reported by them.
+                order: Order
+                for order in await client.get_open_orders():
                     status_msg = Status(
                         time_ns=time.time_ns(),
                         resp='open',
