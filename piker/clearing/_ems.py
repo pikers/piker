@@ -24,6 +24,7 @@ from collections import (
     # ChainMap,
 )
 from contextlib import asynccontextmanager as acm
+from decimal import Decimal
 from math import isnan
 from pprint import pformat
 import time
@@ -49,7 +50,7 @@ from ._util import (
 from ..data._normalize import iterticks
 from ..accounting._mktinfo import (
     unpack_fqme,
-    float_digits,
+    dec_digits,
 )
 from ..ui._notify import notify_from_ems_status_msg
 from ..data.types import Struct
@@ -130,11 +131,16 @@ class DarkBook(Struct):
     triggers: dict[
         str,  # symbol
         dict[
-            str,  # uuid
+            str,  # uuid for triggerable execution
             tuple[
                 Callable[[float], bool],  # predicate
-                str,  # name
-                dict,  # cmd / msg type
+                tuple[str, ...],  # tickfilter
+                dict | Order,  # cmd / msg type
+
+                # live submission constraint parameters
+                float,  # percent_away max price diff
+                float,  # abs_diff_away max price diff
+                int,  # min_tick_digits to round the clearable price
             ]
         ]
     ] = {}
@@ -177,7 +183,8 @@ async def clear_dark_triggers(
     async for quotes in quote_stream:
         # start = time.time()
         for sym, quote in quotes.items():
-            execs = book.triggers.get(sym, {})
+            # TODO: make this a msg-compat struct
+            execs: tuple = book.triggers.get(sym, {})
             for tick in iterticks(
                 quote,
                 # dark order price filter(s)
@@ -200,7 +207,8 @@ async def clear_dark_triggers(
                     # TODO: send this msg instead?
                     cmd,
                     percent_away,
-                    abs_diff_away
+                    abs_diff_away,
+                    price_tick_digits,
                 ) in (
                     tuple(execs.items())
                 ):
@@ -233,8 +241,11 @@ async def clear_dark_triggers(
                             size=size,
                         ):
                             bfqme: str = symbol.replace(f'.{broker}', '')
-                            submit_price = price + abs_diff_away
-                            resp = 'triggered'  # hidden on client-side
+                            submit_price: float = round(
+                                price + abs_diff_away,
+                                ndigits=price_tick_digits,
+                            )
+                            resp: str = 'triggered'  # hidden on client-side
 
                             log.info(
                                 f'Dark order triggered for price {price}\n'
@@ -264,11 +275,11 @@ async def clear_dark_triggers(
                     )
 
                     # remove exec-condition from set
-                    log.info(f'removing pred for {oid}')
-                    pred = execs.pop(oid, None)
-                    if not pred:
+                    log.info(f'Removing trigger for {oid}')
+                    trigger: tuple | None = execs.pop(oid, None)
+                    if not trigger:
                         log.warning(
-                            f'pred for {oid} was already removed!?'
+                            f'trigger for {oid} was already removed!?'
                         )
 
                     # update actives
@@ -1215,14 +1226,15 @@ async def process_client_order_cmds(
                 and status.resp == 'dark_open'
             ):
                 # remove from dark book clearing
-                entry = dark_book.triggers[fqme].pop(oid, None)
+                entry: tuple | None = dark_book.triggers[fqme].pop(oid, None)
                 if entry:
                     (
                         pred,
                         tickfilter,
                         cmd,
                         percent_away,
-                        abs_diff_away
+                        abs_diff_away,
+                        min_tick_digits,
                     ) = entry
 
                     # tell client side that we've cancelled the
@@ -1357,33 +1369,36 @@ async def process_client_order_cmds(
                 # TODO: make this configurable from our top level
                 # config, prolly in a .clearing` section?
                 spread_slap: float = 5
-                min_tick = float(flume.mkt.size_tick)
-                min_tick_digits = float_digits(min_tick)
+                min_tick = Decimal(flume.mkt.price_tick)
+                min_tick_digits: int = dec_digits(min_tick)
+
+                tickfilter: tuple[str, ...]
+                percent_away: float
 
                 if action == 'buy':
                     tickfilter = ('ask', 'last', 'trade')
-                    percent_away = 0.005
+                    percent_away: float = 0.005
 
                     # TODO: we probably need to scale this based
                     # on some near term historical spread
                     # measure?
-                    abs_diff_away = round(
+                    abs_diff_away = float(round(
                         spread_slap * min_tick,
                         ndigits=min_tick_digits,
-                    )
+                    ))
 
                 elif action == 'sell':
                     tickfilter = ('bid', 'last', 'trade')
-                    percent_away = -0.005
-                    abs_diff_away = round(
+                    percent_away: float = -0.005
+                    abs_diff_away: float = float(round(
                         -spread_slap * min_tick,
                         ndigits=min_tick_digits,
-                    )
+                    ))
 
                 else:  # alert
                     tickfilter = ('trade', 'utrade', 'last')
-                    percent_away = 0
-                    abs_diff_away = 0
+                    percent_away: float = 0
+                    abs_diff_away: float = 0
 
                 # submit execution/order to EMS scan loop
                 # NOTE: this may result in an override of an existing
@@ -1395,7 +1410,8 @@ async def process_client_order_cmds(
                     tickfilter,
                     req,
                     percent_away,
-                    abs_diff_away
+                    abs_diff_away,
+                    min_tick_digits,
                 )
                 resp = 'dark_open'
 
