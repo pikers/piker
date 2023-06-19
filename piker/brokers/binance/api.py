@@ -22,10 +22,7 @@ Binance clients for http and ws APIs.
 
 """
 from __future__ import annotations
-from collections import (
-    OrderedDict,
-    ChainMap,
-)
+from collections import ChainMap
 from contextlib import (
     asynccontextmanager as acm,
 )
@@ -234,7 +231,7 @@ class Client:
             # 'futes_coin': self._dapi,  # TODO
         }
 
-    def _mk_sig(self, data: OrderedDict) -> str:
+    def _mk_sig(self, data: dict) -> str:
 
         # XXX: Info on security and authentification
         # https://binance-docs.github.io/apidocs/#endpoint-security-type
@@ -264,7 +261,7 @@ class Client:
     async def _api(
         self,
         method: str,
-        params: dict | OrderedDict,
+        params: dict,
         signed: bool = False,
         action: str = 'get'
 
@@ -292,7 +289,7 @@ class Client:
     async def _fapi(
         self,
         method: str,
-        params: dict | OrderedDict,
+        params: dict,
         signed: bool = False,
         action: str = 'get',
         testnet: bool = True,
@@ -336,7 +333,7 @@ class Client:
     async def _sapi(
         self,
         method: str,
-        params: dict | OrderedDict,
+        params: dict,
         signed: bool = False,
         action: str = 'get'
 
@@ -571,7 +568,7 @@ class Client:
 
         for sym in self.watchlist:
             log.info(f'doing {sym}...')
-            params = OrderedDict([
+            params = dict([
                 ('symbol', sym),
                 ('recvWindow', recv_window),
                 ('timestamp', binance_timestamp(now()))
@@ -593,7 +590,7 @@ class Client:
 
         # TODO: can't we drop this since normal dicts are
         # ordered implicitly in mordern python?
-        params = OrderedDict([
+        params = dict([
             ('recvWindow', recv_window),
             ('timestamp', binance_timestamp(now()))
         ])
@@ -609,7 +606,7 @@ class Client:
 
     ) -> list:
 
-        params = OrderedDict([
+        params = dict([
             ('recvWindow', recv_window),
             ('timestamp', binance_timestamp(now()))
         ])
@@ -715,7 +712,7 @@ class Client:
         '''
         # lookup the binance-native symbol from search table
         bs_mktid: str = self._pairs[symbol.upper()].symbol
-        params: dict = OrderedDict([
+        params: dict = dict([
             ('symbol', bs_mktid),
             ('side', side.upper()),
             ('type', 'LIMIT'),
@@ -771,7 +768,7 @@ class Client:
 
     ) -> None:
         bs_mktid: str = self._pairs[symbol.upper()].symbol
-        params = OrderedDict([
+        params = dict([
             ('symbol', bs_mktid),
             # ('orderId', oid),
             ('origClientOrderId', oid),
