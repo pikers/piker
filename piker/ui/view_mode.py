@@ -358,9 +358,9 @@ def overlay_viewlists(
                 start_t = row_start['time']
 
                 # returns scalars
-                r_up = (ymx - y_ref) / y_ref
-                r_down = (ymn - y_ref) / y_ref
-                disp = round(r_up - r_down, ndigits=16)
+                r_up: float = (ymx - y_ref) / y_ref
+                r_down: float = (ymn - y_ref) / y_ref
+                disp: float = r_up - r_down
 
                 msg = (
                     f'Viz[{viz.name}][{key}]: @{chart_name}\n'
@@ -552,7 +552,6 @@ def overlay_viewlists(
             mxmns_by_common_pi
             and not overlay_table
         ):
-            print("WAATT THE FUCK")
             # move to next chart in linked set since
             # no overlay transforming is needed.
             continue
