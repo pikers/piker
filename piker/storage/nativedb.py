@@ -137,6 +137,14 @@ def mk_ohlcv_shm_keyed_filepath(
     return path
 
 
+def unpack_fqme_from_parquet_filepath(path: Path) -> str:
+
+    filename: str = str(path.name)
+    fqme, fmt_descr, suffix = filename.split('.')
+    assert suffix == 'parquet'
+    return fqme
+
+
 ohlc_key_map = None
 
 
@@ -347,9 +355,26 @@ class NativeStorageClient:
             path.unlink()
             log.warning(f'Deleting parquet entry:\n{path}')
         else:
-            log.warning(f'No path exists:\n{path}')
+            log.error(f'No path exists:\n{path}')
 
         return path
+
+    # TODO: allow wiping and refetching a segment of the OHLCV timeseries
+    # data.
+    # def clear_range(
+    #     self,
+    #     key: str,
+    #     start_dt: datetime,
+    #     end_dt: datetime,
+    #     timeframe: int | None = None,
+    # ) -> pl.DataFrame:
+    #     '''
+    #     Clear and re-fetch a range of datums for the OHLCV time series.
+
+    #     Useful for series editing from a chart B)
+
+    #     '''
+    #     ...
 
 
 @acm
