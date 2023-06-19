@@ -81,9 +81,20 @@ async def data_reset_hack(
           that need to be wrangle.
 
     '''
+    ib_client: IB = client.ib
+
+    # look up any user defined vnc socket address mapped from
+    # a particular API socket port.
+    api_port: str = str(ib_client.client.port)
+    vnc_host: str
+    vnc_port: int
+    vnc_host, vnc_port = client.conf['vnc_addrs'].get(
+        api_port,
+        ('localhost', 3003)
+    )
 
     no_setup_msg:str = (
-        'No data reset hack test setup for {vnc_host}!\n'
+        f'No data reset hack test setup for {vnc_host}!\n'
         'See setup @\n'
         'https://github.com/pikers/piker/tree/master/piker/brokers/ib'
     )
@@ -96,6 +107,7 @@ async def data_reset_hack(
                     partial(
                         vnc_click_hack,
                         host=vnc_host,
+                        port=vnc_port,
                     )
                 )
             except OSError:
@@ -104,7 +116,7 @@ async def data_reset_hack(
                     return False
 
                 try:
-                    import i3ipc
+                    import i3ipc  # noqa  (since a deps dynamic check)
                 except ModuleNotFoundError:
                     log.warning(no_setup_msg)
                     return False
@@ -128,7 +140,8 @@ async def data_reset_hack(
 
 
 async def vnc_click_hack(
-    host: str = 'localhost',
+    host: str,
+    port: int,
     reset_type: str = 'data'
 ) -> None:
     '''
@@ -154,8 +167,12 @@ async def vnc_click_hack(
 
     async with asyncvnc.connect(
         host,
-        port=3003,
+        port=port,
+
+        # TODO: doesn't work see:
+        # https://github.com/barneygale/asyncvnc/issues/7
         # password='ibcansmbz',
+
     ) as client:
 
         # move to middle of screen
@@ -169,6 +186,11 @@ async def vnc_click_hack(
 
 
 def i3ipc_xdotool_manual_click_hack() -> None:
+    '''
+    Do the data reset hack but expecting a local X-window using `xdotool`.
+
+    '''
+    import i3ipc
     i3 = i3ipc.Connection()
 
     # TODO: might be worth offering some kinda api for grabbing

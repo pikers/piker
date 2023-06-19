@@ -385,8 +385,14 @@ class Client:
         self,
 
         ib: IB,
+        config: dict[str, Any],
 
     ) -> None:
+
+        # stash `brokers.toml` config on client for user settings
+        # as needed throughout this backend (eg. vnc sockaddr).
+        self.conf = config
+
         self.ib = ib
         self.ib.RaiseRequestErrors = True
 
@@ -1267,7 +1273,7 @@ async def load_aio_clients(
     '''
     global _accounts2clients, _client_cache, _scan_ignore
 
-    conf = get_config()
+    conf: dict[str, Any] = get_config()
     ib = None
     client = None
 
@@ -1333,7 +1339,7 @@ async def load_aio_clients(
                     timeout=connect_timeout,
                 )
                 # create and cache client
-                client = Client(ib)
+                client = Client(ib=ib, config=conf)
 
                 # update all actor-global caches
                 log.info(f"Caching client for {sockaddr}")
@@ -1466,7 +1472,7 @@ def get_preferred_data_client(
 
     '''
     conf = get_config()
-    data_accounts = conf['prefer_data_account']
+    data_accounts: list[str] = conf['prefer_data_account']
 
     for name in data_accounts:
         client = clients.get(f'ib.{name}')

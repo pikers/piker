@@ -278,7 +278,6 @@ async def wait_on_data_reset(
     # try to wait on the reset event(s) to arrive, a timeout
     # will trigger a retry up to 6 times (for now).
     client: Client = proxy._aio_ns
-    ib_client: ibis.IB = client.ib
 
     done = trio.Event()
     with trio.move_on_after(timeout) as cs:
@@ -287,11 +286,10 @@ async def wait_on_data_reset(
 
         log.warning(
             'Sending DATA RESET request:\n'
-            f'{ib_client.client}'
+            f'{client.ib.client}'
         )
         res = await data_reset_hack(
-            # vnc_host=client.host,
-            ib_client=ib_client,
+            client=client,
             reset_type=reset_type,
         )
 
