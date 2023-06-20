@@ -164,7 +164,9 @@ def test_ems_err_on_bad_broker(
     async def load_bad_fqme():
         try:
             async with (
-                open_test_pikerd() as (_, _, _, _),
+                open_test_pikerd(
+                    debug_mode=False,
+                ) as (_, _, _, _),
 
                 open_ems(
                     'doggycoin.doggy',
@@ -173,8 +175,11 @@ def test_ems_err_on_bad_broker(
                 ) as _
             ):
                 pytest.fail('EMS is working on non-broker!?')
-        except ModuleNotFoundError:
-            pass
+
+        # NOTE: emsd should error on the actor's enabled modules
+        # import phase, when looking for a backend named `doggy`.
+        except tractor.RemoteActorError as re:
+            assert re.type == ModuleNotFoundError
 
     run_and_tollerate_cancels(load_bad_fqme)
 
@@ -241,8 +246,9 @@ async def submit_and_check(
 
     '''
     broker: str = 'kraken'
+    venue: str = 'spot'
     mkt_key: str = 'xbtusdt'
-    fqme: str = f'{mkt_key}.{broker}'
+    fqme: str = f'{mkt_key}.{venue}.{broker}'
 
     startup_pps: dict[
         tuple[str, str],  # brokername, acctid
