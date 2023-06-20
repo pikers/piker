@@ -48,11 +48,11 @@ from ..accounting._mktinfo import (
     MktPair,
     digits_to_dec,
 )
-from .._cacheables import open_cached_client
-from ._util import (
+from . import (
     resproc,
     SymbolNotFound,
     DataUnavailable,
+    open_cached_client,
 )
 from ._util import (
     get_logger,
@@ -443,15 +443,14 @@ async def stream_messages(
                 # decode/encode, see:
                 # https://jcristharif.com/msgspec/structs.html#type-validation
                 msg = AggTrade(**msg)
-                msg.typecast()
                 yield 'trade', {
                     'symbol': msg.s,
                     'last': msg.p,
                     'brokerd_ts': time.time(),
                     'ticks': [{
                         'type': 'trade',
-                        'price': msg.p,
-                        'size': msg.q,
+                        'price': float(msg.p),
+                        'size': float(msg.q),
                         'broker_ts': msg.T,
                     }],
                 }
