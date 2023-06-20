@@ -190,7 +190,7 @@ _bus: _FeedsBus = None
 
 def get_feed_bus(
     brokername: str,
-    nursery: Optional[trio.Nursery] = None,
+    nursery: trio.Nursery | None = None,
 
 ) -> _FeedsBus:
     '''
