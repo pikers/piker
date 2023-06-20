@@ -740,12 +740,20 @@ async def sample_and_broadcast(
                     )
 
 
-# a working tick-type-classes template
+# tick-type-classes template for all possible "lowest level" events
+# that can can be emitted by the "top of book" L1 queues and
+# price-matching (with eventual clearing) in a double auction
+# market (queuing) system.
 _tick_groups = {
     'clears': {'trade', 'dark_trade', 'last'},
     'bids': {'bid', 'bsize'},
     'asks': {'ask', 'asize'},
 }
+
+# XXX alo define the flattened set of all such "fundamental ticks"
+# so that it can be used as filter, eg. in the graphics display
+# loop to compute running windowed y-ranges B)
+_auction_ticks: set[str] = set.union(*_tick_groups.values())
 
 
 def frame_ticks(
