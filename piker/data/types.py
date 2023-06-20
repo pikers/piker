@@ -22,11 +22,15 @@ import builtins
 # import sys
 from pprint import pformat
 
-import msgspec
+from msgspec import (
+    msgpack,
+    Struct,
+    structs,
+)
 
 
 class Struct(
-    msgspec.Struct,
+    Struct,
 
     # https://jcristharif.com/msgspec/structs.html#tagged-unions
     # tag='pikerstruct',
@@ -37,10 +41,14 @@ class Struct(
 
     '''
     def to_dict(self) -> dict:
-        return {
-            f: getattr(self, f)
-            for f in self.__struct_fields__
-        }
+        '''
+        Like it sounds.. direct delegation to:
+        https://jcristharif.com/msgspec/api.html#msgspec.structs.asdict
+
+        TODO: probably just drop this method since it's now a built-int method?
+
+        '''
+        return structs.asdict(self)
 
     def pformat(self) -> str:
         return f'Struct({pformat(self.to_dict())})'
@@ -49,7 +57,7 @@ class Struct(
         self,
         update: dict | None = None,
 
-    ) -> msgspec.Struct:
+    ) -> Struct:
         '''
         Validate-typecast all self defined fields, return a copy of
         us with all such fields.
@@ -66,15 +74,15 @@ class Struct(
         # NOTE: roundtrip serialize to validate
         # - enode to msgpack binary format,
         # - decode that back to a struct.
-        return msgspec.msgpack.Decoder(
-            type=type(self)
-        ).decode(
-            msgspec.msgpack.Encoder().encode(self)
+        return msgpack.Decoder(type=type(self)).decode(
+            msgpack.Encoder().encode(self)
         )
 
     def typecast(
         self,
-        # fields: list[str] | None = None,
+
+        # TODO: allow only casting a named subset?
+        # fields: set[str] | None = None,
 
     ) -> None:
         '''
@@ -85,15 +93,11 @@ class Struct(
         ``.copy()`` above in such cases.
 
         '''
-        annots: dict = self.__annotations__
-        for fname, ftype in annots.items():
-            if isinstance(ftype, str):
-                print(f'{self} has `str` annotations!?\n{annots}\n')
-                ftype = getattr(builtins, ftype)
-
-            attr  = getattr(self, fname)
+        # https://jcristharif.com/msgspec/api.html#msgspec.structs.fields
+        fi: structs.FieldInfo
+        for fi in structs.fields(self):
             setattr(
                 self,
-                fname,
-                ftype(attr),
+                fi.name,
+                fi.type(getattr(self, fi.name)),
             )
