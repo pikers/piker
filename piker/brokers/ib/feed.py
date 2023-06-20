@@ -73,6 +73,7 @@ from piker.accounting import (
 from piker.data.validate import FeedInit
 
 
+# XXX NOTE: See available types table docs:
 # https://interactivebrokers.github.io/tws-api/tick_types.html
 tick_types = {
     77: 'trade',
@@ -92,9 +93,9 @@ tick_types = {
 
     # ``ib_insync`` already packs these into
     # quotes under the following fields.
-    # 55: 'trades_per_min',  # `'tradeRate'`
-    # 56: 'vlm_per_min',  # `'volumeRate'`
-    # 89: 'shortable',  # `'shortableShares'`
+    55: 'trades_per_min',  # `'tradeRate'`
+    56: 'vlm_per_min',  # `'volumeRate'`
+    89: 'shortable_units',  # `'shortableShares'`
 }
 
 
@@ -1048,7 +1049,6 @@ async def stream_quotes(
                         async for ticker in stream:
                             quote = normalize(ticker)
                             fqme = quote['fqme']
-                            # print(f'sending {fqme}:\n{quote}')
                             await send_chan.send({fqme: quote})
 
                             # ugh, clear ticks since we've consumed them
