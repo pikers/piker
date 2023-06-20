@@ -42,18 +42,6 @@ class Struct(
             for f in self.__struct_fields__
         }
 
-    # Lul, doesn't seem to work that well..
-    # def __repr__(self):
-    #     # only turn on pprint when we detect a python REPL
-    #     # at runtime B)
-    #     if (
-    #         hasattr(sys, 'ps1')
-    #         # TODO: check if we're in pdb
-    #     ):
-    #         return self.pformat()
-
-    #     return super().__repr__()
-
     def pformat(self) -> str:
         return f'Struct({pformat(self.to_dict())})'
 
@@ -63,31 +51,46 @@ class Struct(
 
     ) -> msgspec.Struct:
         '''
-        Validate-typecast all self defined fields, return a copy of us
-        with all such fields.
+        Validate-typecast all self defined fields, return a copy of
+        us with all such fields.
 
-        This is kinda like the default behaviour in `pydantic.BaseModel`.
+        NOTE: This is kinda like the default behaviour in
+        `pydantic.BaseModel` except a copy of the object is
+        returned making it compat with `frozen=True`.
 
         '''
         if update:
             for k, v in update.items():
                 setattr(self, k, v)
 
-        # roundtrip serialize to validate
+        # NOTE: roundtrip serialize to validate
+        # - enode to msgpack binary format,
+        # - decode that back to a struct.
         return msgspec.msgpack.Decoder(
             type=type(self)
         ).decode(
             msgspec.msgpack.Encoder().encode(self)
         )
 
-    # NOTE XXX: this won't work on frozen types!
-    # use ``.copy()`` above in such cases.
     def typecast(
         self,
         # fields: list[str] | None = None,
+
     ) -> None:
-        for fname, ftype_str in self.__annotations__.items():
-            ftype = getattr(builtins, ftype_str)
+        '''
+        Cast all fields using their declared type annotations
+        (kinda like what `pydantic` does by default).
+
+        NOTE: this of course won't work on frozen types, use
+        ``.copy()`` above in such cases.
+
+        '''
+        annots: dict = self.__annotations__
+        for fname, ftype in annots.items():
+            if isinstance(ftype, str):
+                print(f'{self} has `str` annotations!?\n{annots}\n')
+                ftype = getattr(builtins, ftype)
+
             attr  = getattr(self, fname)
             setattr(
                 self,
