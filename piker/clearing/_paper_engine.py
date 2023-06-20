@@ -574,7 +574,7 @@ async def open_trade_dialog(
         if fqme:
             bs_fqme, _, broker = fqme.rpartition('.')
             mkt, _ = await brokermod.get_mkt_info(bs_fqme)
-            mkt_by_fqme[fqme] = mkt
+            mkt_by_fqme[mkt.fqme] = mkt
 
         # for each sym in the ledger load it's `MktPair` info
         for tid, txdict in ledger.data.items():
