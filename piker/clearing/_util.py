@@ -91,6 +91,3 @@ class OrderDialogs(Struct):
 
         '''
         return self._flows.pop(oid)
-
-
-
