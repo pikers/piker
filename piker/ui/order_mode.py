@@ -1143,13 +1143,17 @@ async def process_trade_msg(
         case Status(resp='fill'):
 
             # handle out-of-piker fills reporting?
-            order: Order = client._sent_orders.get(oid)
-            if not order:
+            order: Order | None
+            if not (order := client._sent_orders.get(oid)):
+
+                # set it from last known request msg
                 log.warning(f'order {oid} is unknown')
                 order = msg.req
 
-            action = order.action
-            details = msg.brokerd_msg
+            # XXX TODO: have seen order be a dict here!?
+            # that should never happen tho?
+            action: str = order.action
+            details: dict = msg.brokerd_msg
 
             # TODO: state tracking:
             # - put the actual exchange timestamp?
