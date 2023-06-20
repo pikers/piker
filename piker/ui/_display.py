@@ -50,6 +50,7 @@ from ..data._sharedmem import (
 )
 from ..data._sampling import (
     _tick_groups,
+    _auction_ticks,
     open_sample_stream,
 )
 from ._axes import YAxisLabel
@@ -518,15 +519,21 @@ def graphics_update_cycle(
     trigger_all: bool = False,  # flag used by prepend history updates
     prepend_update_index: int | None = None,
 
+    # NOTE: this has to be manually turned on in code (or by
+    # caller) to get profiling since by default we never want the
+    # overhead!
+    debug_n_trace: bool = False,
+
 ) -> None:
 
-    profiler = Profiler(
-        msg=f'Graphics loop cycle for: `{ds.fqme}`',
-        disabled=not pg_profile_enabled(),
-        ms_threshold=ms_slower_then,
-        delayed=True,
-        # ms_threshold=4,
-    )
+    if debug_n_trace:
+        profiler = Profiler(
+            msg=f'Graphics loop cycle for: `{ds.fqme}`',
+            disabled=not pg_profile_enabled(),
+            ms_threshold=ms_slower_then,
+            delayed=True,
+            # ms_threshold=4,
+        )
 
     # TODO: SPEEDing this all up..
     # - optimize this whole graphics stack with ``numba`` hopefully
@@ -558,7 +565,8 @@ def graphics_update_cycle(
         do_rt_update,
         should_tread,
     ) = main_viz.incr_info(ds=ds)
-    profiler('`.incr_info()`')
+    if debug_n_trace:
+        profiler('`.incr_info()`')
 
     # TODO: we should only run mxmn when we know
     # an update is due via ``do_px_step`` above.
@@ -596,7 +604,8 @@ def graphics_update_cycle(
         # since .interact_graphics_cycle() also calls it?
         # I guess we can add a guard in there?
         _, i_read_range, _ = main_viz.update_graphics()
-        profiler('`Viz.update_graphics()` call')
+        if debug_n_trace:
+            profiler('`Viz.update_graphics()` call')
 
         # don't real-time "shift" the curve to the
         # left unless we get one of the following:
@@ -611,7 +620,8 @@ def graphics_update_cycle(
             # if vlm_chart:
             #     vlm_chart.increment_view(datums=append_diff)
 
-            profiler('view incremented')
+            if debug_n_trace:
+                profiler('view incremented')
 
         # NOTE: do this **after** the tread to ensure we take the yrange
         # from the most current view x-domain.
@@ -623,15 +633,24 @@ def graphics_update_cycle(
             i_read_range,
             main_viz,
             ds.vlm_viz,
-            profiler,
+            profiler if debug_n_trace else None,
         )
 
-        profiler(f'{fqme} `multi_maxmin()` call')
+        if debug_n_trace:
+            profiler(f'{fqme} `multi_maxmin()` call')
 
     # iterate frames of ticks-by-type such that we only update graphics
     # using the last update per type where possible.
     ticks_by_type = quote.get('tbt', {})
     for typ, ticks in ticks_by_type.items():
+
+        if typ not in _auction_ticks:
+            if debug_n_trace:
+                log.warning(
+                    'Skipping non-auction-native `{typ}` ticks:\n'
+                    f'{ticks}\n'
+                )
+            continue
 
         # NOTE: ticks are `.append()`-ed to the `ticks_by_type: dict` by the
         # `._sampling.uniform_rate_send()` loop
@@ -652,16 +671,18 @@ def graphics_update_cycle(
             if (
                 price < mn
             ):
+                if debug_n_trace:
+                    log.info(f'{this_viz.name} new MN from TICK {mn} -> {price}')
                 mn = price
                 yrange_margin = 0.16
-            #     # print(f'{this_viz.name} new MN from TICK {mn}')
 
             if (
                 price > mx
             ):
+                if debug_n_trace:
+                    log.info(f'{this_viz.name} new MX from TICK {mx} -> {price}')
                 mx = price
                 yrange_margin = 0.16
-            #     # print(f'{this_viz.name} new MX from TICK {mx}')
 
             # mx = max(price, mx)
             # mn = min(price, mn)
@@ -719,7 +740,8 @@ def graphics_update_cycle(
         ):
             l1.bid_label.update_fields({'level': price, 'size': size})
 
-    profiler('L1 labels updates')
+    if debug_n_trace:
+        profiler('L1 labels updates')
 
     # Y-autoranging: adjust y-axis limits based on state tracking
     # of previous "last" L1 values which are in view.
@@ -737,9 +759,14 @@ def graphics_update_cycle(
         # complain about out-of-range outliers which can show up
         # in certain annoying feeds (like ib)..
         if (
-            abs(mx_diff) > .25 * lmx
-            or
-            abs(mn_diff) > .25 * lmn
+            lmx
+            and lmn
+            and (
+                abs(mx_diff) > .25 * lmx
+                or
+                abs(mn_diff) > .25 * lmn
+            )
+            and debug_n_trace
         ):
             log.error(
                 f'WTF MN/MX IS WAY OFF:\n'
@@ -750,6 +777,9 @@ def graphics_update_cycle(
                 f'mx_diff: {mx_diff}\n'
                 f'mn_diff: {mn_diff}\n'
             )
+            chart.pause_all_feeds()
+            breakpoint()
+            chart.resume_all_feeds()
 
         # TODO: track local liv maxmin without doing a recompute all the
         # time..plus, just generally the user is more likely to be
@@ -792,7 +822,8 @@ def graphics_update_cycle(
                         },
                     }
                 )
-                profiler('main vb y-autorange')
+                if debug_n_trace:
+                    profiler('main vb y-autorange')
 
         # SLOW CHART y-auto-range resize casd
         # (NOTE: still is still inside the y-range
@@ -820,7 +851,8 @@ def graphics_update_cycle(
         #         f'datetime: {dt}\n'
         #     )
 
-        # profiler('hist `Viz.incr_info()`')
+        # if debug_n_trace:
+        #     profiler('hist `Viz.incr_info()`')
 
         # hist_chart = ds.hist_chart
         # if (
@@ -876,8 +908,8 @@ def graphics_update_cycle(
                     # `draw_last_datum()` ..
                     only_last_uppx=True,
                 )
-
-    profiler('overlays updates')
+    if debug_n_trace:
+        profiler('overlays updates')
 
     # volume chart logic..
     # TODO: can we unify this with the above loop?
@@ -925,7 +957,8 @@ def graphics_update_cycle(
                 # connected to update accompanying overlay
                 # graphics..
             )
-            profiler('`main_vlm_viz.update_graphics()`')
+            if debug_n_trace:
+                profiler('`main_vlm_viz.update_graphics()`')
 
             if (
                 mx_vlm_in_view
@@ -948,7 +981,8 @@ def graphics_update_cycle(
                         },
                     },
                 )
-                profiler('`vlm_chart.view.interact_graphics_cycle()`')
+                if debug_n_trace:
+                    profiler('`vlm_chart.view.interact_graphics_cycle()`')
 
         # update all downstream FSPs
         for curve_name, viz in vlm_vizs.items():
@@ -968,7 +1002,8 @@ def graphics_update_cycle(
                     curve_name,
                     array_key=curve_name,
                 )
-                profiler(f'vlm `Viz[{viz.name}].update_graphics()`')
+                if debug_n_trace:
+                    profiler(f'vlm `Viz[{viz.name}].update_graphics()`')
 
                 # is this even doing anything?
                 # (pretty sure it's the real-time
@@ -980,9 +1015,10 @@ def graphics_update_cycle(
                 #     do_linked_charts=False,
                 #     do_overlay_scaling=False,
                 # )
-                profiler(
-                    f'Viz[{viz.name}].plot.vb.interact_graphics_cycle()`'
-                )
+                if debug_n_trace:
+                    profiler(
+                        f'Viz[{viz.name}].plot.vb.interact_graphics_cycle()`'
+                    )
 
             # even if we're downsampled bigly
             # draw the last datum in the final
@@ -996,11 +1032,14 @@ def graphics_update_cycle(
                 # always update the last datum-element
                 # graphic for all vizs
                 viz.draw_last(array_key=curve_name)
-                profiler(f'vlm `Viz[{viz.name}].draw_last()`')
+                if debug_n_trace:
+                    profiler(f'vlm `Viz[{viz.name}].draw_last()`')
 
-        profiler('vlm Viz all updates complete')
+        if debug_n_trace:
+            profiler('vlm Viz all updates complete')
 
-    profiler.finish()
+    if debug_n_trace:
+        profiler.finish()
 
 
 async def link_views_with_region(
