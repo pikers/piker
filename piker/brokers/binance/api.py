@@ -113,7 +113,7 @@ class OHLC(Struct):
     https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-streams
 
     '''
-    time: int
+    time: int  # epoch in ms
 
     open: float
     high: float
@@ -565,9 +565,9 @@ class Client:
             allow_testnet=False,
         )
         new_bars: list[tuple] = []
-        for i, bar in enumerate(bars):
+        for i, bar_list in enumerate(bars):
 
-            bar = OHLC(*bar)
+            bar = OHLC(*bar_list)
             bar.typecast()
 
             row = []
