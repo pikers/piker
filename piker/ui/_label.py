@@ -84,7 +84,7 @@ class Label:
 
         # configure font size based on DPI
         dpi_font = DpiAwareFont(
-            font_size=font_size,
+            _font_size_key=font_size,
         )
         dpi_font.configure_to_dpi()
         txt.setFont(dpi_font.font)

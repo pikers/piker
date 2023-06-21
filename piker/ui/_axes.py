@@ -418,7 +418,7 @@ class AxisLabel(pg.GraphicsObject):
 
         self._txt_br: QtCore.QRect = None
 
-        self._dpifont = DpiAwareFont(font_size=font_size)
+        self._dpifont = DpiAwareFont(_font_size_key=font_size)
         self._dpifont.configure_to_dpi()
 
         self.bg_color = pg.mkColor(hcolor(bg_color))
