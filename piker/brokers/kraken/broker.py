@@ -136,10 +136,8 @@ async def handle_order_requests(
     and deliver acks or errors.
 
     '''
-    # XXX: UGH, let's unify this.. with ``msgspec``.
-    msg: dict[str, Any]
-    order: BrokerdOrder
-
+    # XXX: UGH, let's unify this.. with ``msgspec``!!!
+    msg: dict | Order
     async for msg in ems_order_stream:
         log.info(f'Rx order msg:\n{pformat(msg)}')
         match msg:
@@ -227,7 +225,7 @@ async def handle_order_requests(
                     # XXX strip any .<venue> token which should
                     # ONLY ever be '.spot' rn, until we support
                     # futes.
-                    bs_fqme: str = order.symbol.rstrip('.spot')
+                    bs_fqme: str = order.symbol.replace('.spot', '')
                     psym: str = bs_fqme.upper()
                     pair: str = f'{psym[:3]}/{psym[3:]}'
 
@@ -891,7 +889,7 @@ async def handle_order_updates(
                             ids.inverse.get(reqid) is None
                         ):
                             # parse out existing live order
-                            fqme = pair.replace('/', '').lower()
+                            fqme = pair.replace('/', '').lower() + '.spot'
                             price = float(price)
                             size = float(vol)
 
