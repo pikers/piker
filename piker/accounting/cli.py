@@ -18,11 +18,6 @@
 CLI front end for trades ledger and position tracking management.
 
 '''
-from typing import (
-    AsyncContextManager,
-)
-from types import ModuleType
-
 from rich.console import Console
 from rich.markdown import Markdown
 import tractor
@@ -36,63 +31,30 @@ from ..service import (
 from ..clearing._messages import BrokerdPosition
 from ..config import load_ledger
 from ..calc import humanize
+from ..brokers._daemon import broker_init
 
 
 ledger = typer.Typer()
 
 
-def broker_init(
-    brokername: str,
-    loglevel: str | None = None,
-
-    **start_actor_kwargs,
-
-) -> tuple[
-    ModuleType,
-    dict,
-    AsyncContextManager,
-]:
-    '''
-    Given an input broker name, load all named arguments
-    which can be passed to a daemon + context spawn for
-    the relevant `brokerd` service endpoint.
-
-    '''
-    from ..brokers import get_brokermod
-    brokermod = get_brokermod(brokername)
-    modpath = brokermod.__name__
-
-    start_actor_kwargs['name'] = f'brokerd.{brokername}'
-    start_actor_kwargs.update(
-        getattr(
-            brokermod,
-            '_spawn_kwargs',
-            {},
-        )
-    )
-
-    # lookup actor-enabled modules declared by the backend offering the
-    # `brokerd` endpoint(s).
-    enabled = start_actor_kwargs['enable_modules'] = [modpath]
-    for submodname in getattr(
-        brokermod,
-        '__enable_modules__',
-        [],
-    ):
-        subpath = f'{modpath}.{submodname}'
-        enabled.append(subpath)
-
-        # TODO XXX: DO WE NEED THIS?
-        # enabled.append('piker.data.feed')
-
-    # non-blocking setup of brokerd service nursery
-    from ..brokers._daemon import _setup_persistent_brokerd
-
-    return (
-        brokermod,
-        start_actor_kwargs,  # to `ActorNursery.start_actor()`
-        _setup_persistent_brokerd,  # deamon service task ep
-    )
+def unpack_fqan(
+    fully_qualified_account_name: str,
+    console: Console | None,
+) -> tuple | bool:
+    try:
+        brokername, account = fully_qualified_account_name.split('.')
+        return brokername, account
+    except ValueError:
+        if console is not None:
+            md = Markdown(
+                f'=> `{fully_qualified_account_name}` <=\n\n'
+                'is not a valid '
+                '__fully qualified account name?__\n\n'
+                'Your account name needs to be of the form '
+                '`<brokername>.<account_name>`\n'
+            )
+            console.print(md)
+        return False
 
 
 @ledger.command()
@@ -108,18 +70,14 @@ def sync(
     log = get_logger(loglevel)
     console = Console()
 
-    try:
-        brokername, account = fully_qualified_account_name.split('.')
-    except ValueError:
-        md = Markdown(
-            f'=> `{fully_qualified_account_name}` <=\n\n'
-            'is not a valid '
-            '__fully qualified account name?__\n\n'
-            'Your account name needs to be of the form '
-            '`<brokername>.<account_name>`\n'
-        )
-        console.print(md)
+    pair: tuple[str, str]
+    if not (pair := unpack_fqan(
+        fully_qualified_account_name,
+        console,
+    )):
         return
+
+    brokername, account = pair
 
     brokermod, start_kwargs, deamon_ep = broker_init(
         brokername,
@@ -155,18 +113,30 @@ def sync(
                 )
                 brokerd_stream: tractor.MsgStream
 
-                async with open_brokerd_dialog(
-                    brokermod,
-                    portal,
-                    exec_mode=(
-                        'paper' if account == 'paper'
-                        else 'live'
+                async with (
+                    # engage the brokerd daemon context
+                    portal.open_context(
+                        deamon_ep,
+                        brokername=brokername,
+                        loglevel=loglevel,
                     ),
-                    loglevel=loglevel,
-                ) as (
-                    brokerd_stream,
-                    pp_msg_table,
-                    accounts,
+
+                    # manually open the brokerd trade dialog EP
+                    # (what the EMS normally does internall) B)
+                    open_brokerd_dialog(
+                        brokermod,
+                        portal,
+                        exec_mode=(
+                            'paper'
+                            if account == 'paper'
+                            else 'live'
+                        ),
+                        loglevel=loglevel,
+                    ) as (
+                        brokerd_stream,
+                        pp_msg_table,
+                        accounts,
+                    ),
                 ):
                     try:
                         assert len(accounts) == 1
@@ -251,6 +221,24 @@ def sync(
                 await portal.cancel_actor()
 
     trio.run(main)
+
+
+@ledger.command()
+def disect(
+    fully_qualified_account_name: str,
+    bs_mktid: int,  # for ib
+    pdb: bool = False,
+
+    loglevel: str = typer.Option(
+        'error',
+        "-l",
+    ),
+):
+    pair: tuple[str, str]
+    if not (pair := unpack_fqan(
+        fully_qualified_account_name,
+    )):
+        return
 
 
 if __name__ == "__main__":

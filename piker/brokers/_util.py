@@ -32,6 +32,8 @@ from ..log import (
 subsys: str = 'piker.brokers'
 
 # NOTE: level should be reset by any actor that is spawned
+# as well as given a (more) explicit name/key such
+# as `piker.brokers.binance` matching the subpkg.
 log = get_logger(subsys)
 
 get_console_log = partial(

@@ -23,7 +23,11 @@ from __future__ import annotations
 from contextlib import (
     asynccontextmanager as acm,
 )
-from typing import TYPE_CHECKING
+from types import ModuleType
+from typing import (
+    TYPE_CHECKING,
+    AsyncContextManager,
+)
 import exceptiongroup as eg
 
 import tractor
@@ -39,7 +43,7 @@ if TYPE_CHECKING:
 # TODO: move this def to the `.data` subpkg..
 # NOTE: keeping this list as small as possible is part of our caps-sec
 # model and should be treated with utmost care!
-_data_mods = [
+_data_mods: str = [
     'piker.brokers.core',
     'piker.brokers.data',
     'piker.brokers._daemon',
@@ -72,8 +76,12 @@ async def _setup_persistent_brokerd(
         loglevel or tractor.current_actor().loglevel,
         name=f'{_util.subsys}.{brokername}',
     )
+
     # set global for this actor to this new process-wide instance B)
     _util.log = log
+
+    # further, set the log level on any broker broker specific
+    # logger instance.
 
     from piker.data import feed
     assert not feed._bus
@@ -111,6 +119,79 @@ async def _setup_persistent_brokerd(
         raise
 
 
+def broker_init(
+    brokername: str,
+    loglevel: str | None = None,
+
+    **start_actor_kwargs,
+
+) -> tuple[
+    ModuleType,
+    dict,
+    AsyncContextManager,
+]:
+    '''
+    Given an input broker name, load all named arguments
+    which can be passed for daemon endpoint + context spawn
+    as required in every `brokerd` (actor) service.
+
+    This includes:
+    - load the appropriate <brokername>.py pkg module,
+    - reads any declared `__enable_modules__: listr[str]` which will be
+      passed to `tractor.ActorNursery.start_actor(enabled_modules=<this>)`
+      at actor start time,
+    - deliver a references to the daemon lifetime fixture, which
+      for now is always the `_setup_persistent_brokerd()` context defined
+      above.
+
+    '''
+    from ..brokers import get_brokermod
+    brokermod = get_brokermod(brokername)
+    modpath: str = brokermod.__name__
+
+    start_actor_kwargs['name'] = f'brokerd.{brokername}'
+    start_actor_kwargs.update(
+        getattr(
+            brokermod,
+            '_spawn_kwargs',
+            {},
+        )
+    )
+
+    # XXX TODO: make this not so hacky/monkeypatched..
+    # -> we need a sane way to configure the logging level for all
+    # code running in brokerd.
+    # if utilmod := getattr(brokermod, '_util', False):
+    #     utilmod.log.setLevel(loglevel.upper())
+
+    # lookup actor-enabled modules declared by the backend offering the
+    # `brokerd` endpoint(s).
+    enabled: list[str]
+    enabled = start_actor_kwargs['enable_modules'] = [
+        __name__,  # so that eps from THIS mod can be invoked
+        modpath,
+    ]
+    for submodname in getattr(
+        brokermod,
+        '__enable_modules__',
+        [],
+    ):
+        subpath: str = f'{modpath}.{submodname}'
+        enabled.append(subpath)
+
+        # TODO XXX: DO WE NEED THIS?
+        # enabled.append('piker.data.feed')
+
+    return (
+        brokermod,
+        start_actor_kwargs,  # to `ActorNursery.start_actor()`
+
+        # XXX see impl above; contains all (actor global)
+        # setup/teardown expected in all `brokerd` actor instances.
+        _setup_persistent_brokerd,
+    )
+
+
 async def spawn_brokerd(
 
     brokername: str,
@@ -120,44 +201,44 @@ async def spawn_brokerd(
 
 ) -> bool:
 
-    from piker.service import Services
     from piker.service._util import log  # use service mngr log
-
     log.info(f'Spawning {brokername} broker daemon')
 
-    brokermod = get_brokermod(brokername)
-    dname = f'brokerd.{brokername}'
+    (
+        brokermode,
+        tractor_kwargs,
+        daemon_fixture_ep,
+    ) = broker_init(
+        brokername,
+        loglevel,
+        **tractor_kwargs,
+    )
 
+    brokermod = get_brokermod(brokername)
     extra_tractor_kwargs = getattr(brokermod, '_spawn_kwargs', {})
     tractor_kwargs.update(extra_tractor_kwargs)
 
     # ask `pikerd` to spawn a new sub-actor and manage it under its
     # actor nursery
-    modpath = brokermod.__name__
-    broker_enable = [modpath]
-    for submodname in getattr(
-        brokermod,
-        '__enable_modules__',
-        [],
-    ):
-        subpath = f'{modpath}.{submodname}'
-        broker_enable.append(subpath)
+    from piker.service import Services
 
+    dname: str = tractor_kwargs.pop('name')  # f'brokerd.{brokername}'
     portal = await Services.actor_n.start_actor(
         dname,
-        enable_modules=_data_mods + broker_enable,
-        loglevel=loglevel,
+        enable_modules=_data_mods + tractor_kwargs.pop('enable_modules'),
         debug_mode=Services.debug_mode,
         **tractor_kwargs
     )
 
-    # non-blocking setup of brokerd service nursery
+    # NOTE: the service mngr expects an already spawned actor + its
+    # portal ref in order to do non-blocking setup of brokerd
+    # service nursery.
     await Services.start_service_task(
         dname,
         portal,
 
         # signature of target root-task endpoint
-        _setup_persistent_brokerd,
+        daemon_fixture_ep,
         brokername=brokername,
         loglevel=loglevel,
     )
@@ -174,8 +255,11 @@ async def maybe_spawn_brokerd(
 
 ) -> tractor.Portal:
     '''
-    Helper to spawn a brokerd service *from* a client
-    who wishes to use the sub-actor-daemon.
+    Helper to spawn a brokerd service *from* a client who wishes to
+    use the sub-actor-daemon but is fine with re-using any existing
+    and contactable `brokerd`.
+
+    Mas o menos, acts as a cached-actor-getter factory.
 
     '''
     from piker.service import maybe_spawn_daemon
