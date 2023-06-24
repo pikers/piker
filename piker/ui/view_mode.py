@@ -488,7 +488,8 @@ def overlay_viewlists(
                             upt.rng = r_up
                             upt.y_val = new_major_ymx
                             profiler(msg)
-                            print(msg)
+                            if debug_print:
+                                print(msg)
 
                 # register curves by a "full" dispersion metric for
                 # later sort order in the overlay (technique
