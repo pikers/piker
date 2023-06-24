@@ -39,7 +39,7 @@ from ..service import (
 from .. import config
 
 
-log = get_logger('cli')
+log = get_logger('piker.cli')
 
 
 @click.command()
@@ -71,16 +71,14 @@ def pikerd(
     Spawn the piker broker-daemon.
 
     '''
-    from .. import service
-
-    log = get_console_log(loglevel)
+    log = get_console_log(loglevel, name='cli')
 
     if pdb:
         log.warning((
             "\n"
-            "!!! You have enabled daemon DEBUG mode !!!\n"
-            "If a daemon crashes it will likely block"
-            " the service until resumed from console!\n"
+            "!!! YOU HAVE ENABLED DAEMON DEBUG MODE !!!\n"
+            "When a `piker` daemon crashes it will block the "
+            "task-thread until resumed from console!\n"
             "\n"
         ))
 
@@ -90,6 +88,8 @@ def pikerd(
             host or _default_registry_host,
             int(port) or _default_registry_port,
         )
+
+    from .. import service
 
     async def main():
         service_mngr: service.Services
