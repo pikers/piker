@@ -24,7 +24,6 @@ from contextlib import (
 )
 from datetime import datetime
 from typing import (
-    Any,
     AsyncGenerator,
     Callable,
     Optional,
@@ -460,12 +459,16 @@ async def stream_quotes(
                         last = quote.close
 
                         quote = normalize(quote)
+                        ticks = quote.setdefault(
+                            'ticks',
+                            [],
+                        )
                         if tick_volume:
-                            quote['ticks'] = [{
+                            ticks.append({
                                 'type': 'trade',
                                 'price': last,
                                 'size': tick_volume,
-                            }]
+                            })
 
                     case 'l1':
                         # passthrough quote msg
