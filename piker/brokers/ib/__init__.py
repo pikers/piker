@@ -34,12 +34,12 @@ from .feed import (
     stream_quotes,
 )
 from .broker import (
-    trades_dialogue,
+    open_trade_dialog,
 )
 
 __all__ = [
     'get_client',
-    'trades_dialogue',
+    'open_trade_dialog',
     'open_history_client',
     'open_symbol_search',
     'stream_quotes',
