@@ -35,10 +35,12 @@ from .feed import (
 )
 from .broker import (
     open_trade_dialog,
+    norm_trade_records,
 )
 
 __all__ = [
     'get_client',
+    'norm_trade_records',
     'open_trade_dialog',
     'open_history_client',
     'open_symbol_search',
