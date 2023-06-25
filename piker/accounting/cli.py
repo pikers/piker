@@ -18,6 +18,7 @@
 CLI front end for trades ledger and position tracking management.
 
 '''
+from __future__ import annotations
 from rich.console import Console
 from rich.markdown import Markdown
 import tractor
@@ -29,9 +30,18 @@ from ..service import (
     open_piker_runtime,
 )
 from ..clearing._messages import BrokerdPosition
-from ..config import load_ledger
 from ..calc import humanize
 from ..brokers._daemon import broker_init
+from ._ledger import (
+    load_ledger,
+    # open_trade_ledger,
+    TransactionLedger,
+)
+from ._pos import (
+    PpTable,
+    load_pps_from_ledger,
+    # load_account,
+)
 
 
 ledger = typer.Typer()
@@ -39,7 +49,7 @@ ledger = typer.Typer()
 
 def unpack_fqan(
     fully_qualified_account_name: str,
-    console: Console | None,
+    console: Console | None = None,
 ) -> tuple | bool:
     try:
         brokername, account = fully_qualified_account_name.split('.')
@@ -225,7 +235,8 @@ def sync(
 
 @ledger.command()
 def disect(
-    fully_qualified_account_name: str,
+    # "fully_qualified_account_name"
+    fqan: str,
     bs_mktid: int,  # for ib
     pdb: bool = False,
 
@@ -235,10 +246,28 @@ def disect(
     ),
 ):
     pair: tuple[str, str]
-    if not (pair := unpack_fqan(
-        fully_qualified_account_name,
-    )):
-        return
+    if not (pair := unpack_fqan(fqan)):
+        raise ValueError('{fqan} malformed!?')
+
+    brokername, account = pair
+
+    ledger: TransactionLedger
+    table: PpTable
+    records, table = load_pps_from_ledger(
+        brokername,
+        account,
+        # filter_by_id = {568549458},
+        filter_by_ids={bs_mktid},
+    )
+    breakpoint()
+    # tractor.pause_from_sync()
+    # with open_trade_ledger(
+    #     brokername,
+    #     account,
+    # ) as ledger:
+    #     for tid, rec in ledger.items():
+    #         bs_mktid: str = rec['bs_mktid']
+
 
 
 if __name__ == "__main__":

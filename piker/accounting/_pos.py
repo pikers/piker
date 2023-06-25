@@ -42,6 +42,7 @@ from ._ledger import (
     Transaction,
     iter_by_dt,
     open_trade_ledger,
+    TransactionLedger,
 )
 from ._mktinfo import (
     MktPair,
@@ -49,7 +50,6 @@ from ._mktinfo import (
     unpack_fqme,
 )
 from .. import config
-from ..brokers import get_brokermod
 from ..clearing._messages import (
     BrokerdPosition,
     Status,
@@ -327,7 +327,8 @@ class Position(Struct):
         entry: dict[str, Any]
         for (tid, entry) in self.iter_clears():
             clear_size = entry['size']
-            clear_price = entry['price']
+            clear_price: str | float = entry['price']
+            is_clear: bool = not isinstance(clear_price, str)
 
             last_accum_size = asize_h[-1] if asize_h else 0
             accum_size = last_accum_size + clear_size
@@ -340,9 +341,18 @@ class Position(Struct):
                 asize_h.append(0)
                 continue
 
-            if accum_size == 0:
-                ppu_h.append(0)
-                asize_h.append(0)
+            # on transfers we normally write some non-valid
+            # price since withdrawal to another account/wallet
+            # has nothing to do with inter-asset-market prices.
+            # TODO: this should be better handled via a `type: 'tx'`
+            # field as per existing issue surrounding all this:
+            # https://github.com/pikers/piker/issues/510
+            if isinstance(clear_price, str):
+                # TODO: we can't necessarily have this commit to
+                # the overall pos size since we also need to
+                # include other positions contributions to this
+                # balance or we might end up with a -ve balance for
+                # the position..
                 continue
 
             # test if the pp somehow went "passed" a net zero size state
@@ -375,7 +385,10 @@ class Position(Struct):
             # abs_clear_size = abs(clear_size)
             abs_new_size = abs(accum_size)
 
-            if abs_diff > 0:
+            if (
+                abs_diff > 0
+                and is_clear
+            ):
 
                 cost_basis = (
                     # cost basis for this clear
@@ -397,6 +410,12 @@ class Position(Struct):
                 asize_h.append(accum_size)
 
             else:
+                # TODO: for PPU we should probably handle txs out
+                # (aka withdrawals) similarly by simply not having
+                # them contrib to the running PPU calc and only
+                # when the next entry clear comes in (which will
+                # then have a higher weighting on the PPU).
+
                 # on "exit" clears from a given direction,
                 # only the size changes not the price-per-unit
                 # need to be updated since the ppu remains constant
@@ -734,48 +753,63 @@ class PpTable(Struct):
         )
 
 
-def load_pps_from_ledger(
-
+def load_account(
     brokername: str,
-    acctname: str,
+    acctid: str,
 
-    # post normalization filter on ledger entries to be processed
-    filter_by: list[dict] | None = None,
-
-) -> tuple[
-    dict[str, Transaction],
-    dict[str, Position],
-]:
+) -> tuple[dict, Path]:
     '''
-    Open a ledger file by broker name and account and read in and
-    process any trade records into our normalized ``Transaction`` form
-    and then update the equivalent ``Pptable`` and deliver the two
-    bs_mktid-mapped dict-sets of the transactions and pps.
+    Load a accounting (with positions) file from
+    $CONFIG_DIR/accounting/account.<brokername>.<acctid>.toml
+
+    Where normally $CONFIG_DIR = ~/.config/piker/
+    and we implicitly create a accounting subdir which should
+    normally be linked to a git repo managed by the user B)
 
     '''
-    with (
-        open_trade_ledger(brokername, acctname) as ledger,
-        open_pps(brokername, acctname) as table,
-    ):
-        if not ledger:
-            # null case, no ledger file with content
-            return {}
+    legacy_fn: str = f'pps.{brokername}.{acctid}.toml'
+    fn: str = f'account.{brokername}.{acctid}.toml'
 
-        mod = get_brokermod(brokername)
-        src_records: dict[str, Transaction] = mod.norm_trade_records(ledger)
+    dirpath: Path = config._config_dir / 'accounting'
+    if not dirpath.is_dir():
+        dirpath.mkdir()
 
-        if filter_by:
-            records = {}
-            bs_mktids = set(filter_by)
-            for tid, r in src_records.items():
-                if r.bs_mktid in bs_mktids:
-                    records[tid] = r
-        else:
-            records = src_records
+    conf, path = config.load(
+        path=dirpath / fn,
+        decode=tomlkit.parse,
+        touch_if_dne=True,
+    )
 
-        updated = table.update_from_trans(records)
+    if not conf:
+        legacypath = dirpath / legacy_fn
+        log.warning(
+            f'Your account file is using the legacy `pps.` prefix..\n'
+            f'Rewriting contents to new name -> {path}\n'
+            'Please delete the old file!\n'
+            f'|-> {legacypath}\n'
+        )
+        if legacypath.is_file():
+            legacy_config, _ = config.load(
+                path=legacypath,
 
-    return records, updated
+                # TODO: move to tomlkit:
+                # - needs to be fixed to support bidict?
+                #   https://github.com/sdispater/tomlkit/issues/289
+                # - we need to use or fork's fix to do multiline array
+                #   indenting.
+                decode=tomlkit.parse,
+            )
+            conf.update(legacy_config)
+
+            # XXX: override the presumably previously non-existant
+            # file with legacy's contents.
+            config.write(
+                conf,
+                path=path,
+                fail_empty=False,
+            )
+
+    return conf, path
 
 
 @cm
@@ -792,7 +826,7 @@ def open_pps(
     '''
     conf: dict
     conf_path: Path
-    conf, conf_path = config.load_account(brokername, acctid)
+    conf, conf_path = load_account(brokername, acctid)
 
     if brokername in conf:
         log.warning(
@@ -927,3 +961,56 @@ def open_pps(
     finally:
         if write_on_exit:
             table.write_config()
+
+
+def load_pps_from_ledger(
+
+    brokername: str,
+    acctname: str,
+
+    # post normalization filter on ledger entries to be processed
+    filter_by_ids: list[str] | None = None,
+
+) -> tuple[
+    dict[str, Transaction],
+    PpTable,
+]:
+    '''
+    Open a ledger file by broker name and account and read in and
+    process any trade records into our normalized ``Transaction`` form
+    and then update the equivalent ``Pptable`` and deliver the two
+    bs_mktid-mapped dict-sets of the transactions and pps.
+
+    '''
+    ledger: TransactionLedger
+    table: PpTable
+    with (
+        open_trade_ledger(brokername, acctname) as ledger,
+        open_pps(brokername, acctname) as table,
+    ):
+        if not ledger:
+            # null case, no ledger file with content
+            return {}
+
+        from ..brokers import get_brokermod
+        mod = get_brokermod(brokername)
+        src_records: dict[str, Transaction] = mod.norm_trade_records(
+            ledger
+        )
+
+        if not filter_by_ids:
+            # records = src_records
+            records = ledger
+
+        else:
+            records = {}
+            bs_mktids = set(map(str, filter_by_ids))
+
+            # for tid, recdict in ledger.items():
+            for tid, r in src_records.items():
+                if r.bs_mktid in bs_mktids:
+                    records[tid] = r.to_dict()
+
+        # updated = table.update_from_trans(records)
+
+    return records, table

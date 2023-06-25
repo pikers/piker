@@ -22,7 +22,6 @@ import platform
 import sys
 import os
 import shutil
-import time
 from typing import (
     Callable,
     MutableMapping,
@@ -308,98 +307,6 @@ def load(
 
     log.debug(f"Read config file {path}")
     return config, path
-
-
-def load_account(
-    brokername: str,
-    acctid: str,
-
-) -> tuple[dict, Path]:
-    '''
-    Load a accounting (with positions) file from
-    $CONFIG_DIR/accounting/account.<brokername>.<acctid>.toml
-
-    Where normally $CONFIG_DIR = ~/.config/piker/
-    and we implicitly create a accounting subdir which should
-    normally be linked to a git repo managed by the user B)
-
-    '''
-    legacy_fn: str = f'pps.{brokername}.{acctid}.toml'
-    fn: str = f'account.{brokername}.{acctid}.toml'
-
-    dirpath: Path = _config_dir / 'accounting'
-    if not dirpath.is_dir():
-        dirpath.mkdir()
-
-    config, path = load(
-        path=dirpath / fn,
-        decode=tomlkit.parse,
-        touch_if_dne=True,
-    )
-
-    if not config:
-        legacypath = dirpath / legacy_fn
-        log.warning(
-            f'Your account file is using the legacy `pps.` prefix..\n'
-            f'Rewriting contents to new name -> {path}\n'
-            'Please delete the old file!\n'
-            f'|-> {legacypath}\n'
-        )
-        if legacypath.is_file():
-            legacy_config, _ = load(
-                path=legacypath,
-
-                # TODO: move to tomlkit:
-                # - needs to be fixed to support bidict?
-                #   https://github.com/sdispater/tomlkit/issues/289
-                # - we need to use or fork's fix to do multiline array
-                #   indenting.
-                decode=tomlkit.parse,
-            )
-            config.update(legacy_config)
-
-            # XXX: override the presumably previously non-existant
-            # file with legacy's contents.
-            write(
-                config,
-                path=path,
-                fail_empty=False,
-            )
-
-    return config, path
-
-
-def load_ledger(
-    brokername: str,
-    acctid: str,
-
-) -> tuple[dict, Path]:
-    '''
-    Load a ledger (TOML) file from user's config directory:
-    $CONFIG_DIR/accounting/ledgers/trades_<brokername>_<acctid>.toml
-
-    Return its `dict`-content and file path.
-
-    '''
-    ldir: Path = _config_dir / 'accounting' / 'ledgers'
-    if not ldir.is_dir():
-        ldir.mkdir()
-
-    fname = f'trades_{brokername}_{acctid}.toml'
-    fpath: Path = ldir / fname
-
-    if not fpath.is_file():
-        log.info(
-            f'Creating new local trades ledger: {fpath}'
-        )
-        fpath.touch()
-
-    with fpath.open(mode='rb') as cf:
-        start = time.time()
-        ledger_dict = tomllib.load(cf)
-        log.debug(f'Ledger load took {time.time() - start}s')
-
-    return ledger_dict, fpath
 
 
 def write(
