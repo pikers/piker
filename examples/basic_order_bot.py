@@ -22,10 +22,12 @@ from piker.data import (
     Flume,
     open_feed,
     Feed,
-    ShmArray,
+    # ShmArray,
 )
 
 
+# TODO: handle other statuses:
+# - fills, errors, and 
 async def wait_for_order_status(
     trades_stream: tractor.MsgStream,
     oid: str,
@@ -139,9 +141,9 @@ async def bot_main():
         async def trailer(
             order: Order,
         ):
-            # ref shm OHLCV array
-            s_shm: ShmArray = flume.rt_shm
-            m_shm: ShmArray = flume.hist_shm
+            # ref shm OHLCV array history, if you want
+            # s_shm: ShmArray = flume.rt_shm
+            # m_shm: ShmArray = flume.hist_shm
 
             # NOTE: if you wanted to frame ticks by type like the
             # the quote throttler does.
@@ -149,12 +151,15 @@ async def bot_main():
 
             async for quotes in quote_stream:
                 for fqme, quote in quotes.items():
-                    for tick in quote.get('ticks', ()):
-                        print(
-                            f'{fqme} ticks:\n{pformat(tick)}\n\n'
-                            f'last 1s OHLC:\n{s_shm.array[-1]}\n'
-                            f'last 1m OHLC:\n{m_shm.array[-1]}\n'
-                        )
+                    # print(quote['symbol'])
+                    for tick in reversed(
+                        quote.get('ticks', ())
+                    ):
+                        # print(
+                        #     f'{fqme} ticks:\n{pformat(tick)}\n\n'
+                        #     # f'last 1s OHLC:\n{s_shm.array[-1]}\n'
+                        #     # f'last 1m OHLC:\n{m_shm.array[-1]}\n'
+                        # )
 
                         # always keep live limit 2% below last
                         # clearing price
@@ -172,6 +177,9 @@ async def bot_main():
                                 oid,
                                 'open'
                             )
+                            # if multiple clears per quote just
+                            # skip to the next quote?
+                            break
 
 
         # setup order dialog via first msg
