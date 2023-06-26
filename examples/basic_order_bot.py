@@ -64,9 +64,7 @@ async def bot_main():
     '''
     from piker.service import maybe_open_pikerd
 
-    port: int = 6666  # non-default pikerd addr
     ll: str = 'info'
-    reg_addr: tuple[str, int] = ('127.0.0.1', port)
 
     # open an order ctl client
     client: OrderClient
@@ -79,19 +77,18 @@ async def bot_main():
 
         # init and sync actor-service runtime
         maybe_open_pikerd(
-            # registry_addr=reg_addr,
             loglevel=ll,
             debug_mode=False,
 
         ),
         tractor.wait_for_actor(
             'pikerd',
-            # arbiter_sockaddr=reg_addr,
         ),
 
         open_ems(
             fqme,
             mode='paper',  # {'live', 'paper'}
+            # mode='live',  # for real-brokerd submissions
             loglevel=ll,
 
         ) as (
@@ -113,6 +110,7 @@ async def bot_main():
             action='buy',  # TODO: remove this from our schema?
             oid=oid,
             account='paper',  # use binance.usdtm for binance futes
+            # account='binance.usdtm',  # for live binance futes
             size=size,
             symbol=fqme,
             price=price,
