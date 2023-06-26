@@ -79,14 +79,14 @@ async def bot_main():
 
         # init and sync actor-service runtime
         maybe_open_pikerd(
-            registry_addr=reg_addr,
+            # registry_addr=reg_addr,
             loglevel=ll,
             debug_mode=False,
 
         ),
         tractor.wait_for_actor(
             'pikerd',
-            arbiter_sockaddr=reg_addr,
+            # arbiter_sockaddr=reg_addr,
         ),
 
         open_ems(
@@ -104,7 +104,7 @@ async def bot_main():
     ):
         print(f'Loaded binance accounts: {accounts}')
 
-        price: float = 10e3  # non-clearable
+        price: float = 30e3  # non-clearable
         size: float = 0.01
         oid: str = str(uuid4())
 
@@ -129,14 +129,17 @@ async def bot_main():
         assert not pps
         assert msgs[-1].oid == oid
 
-        # cancel the open order
-        await client.cancel(oid)
-        msgs, pps = await wait_for_order_status(
-            trades_stream,
-            oid,
-            'canceled'
-        )
-
+        try:
+            # wait for ctl-c from user..
+            await trio.sleep_forever()
+        except KeyboardInterrupt:
+            # cancel the open order
+            await client.cancel(oid)
+            msgs, pps = await wait_for_order_status(
+                trades_stream,
+                oid,
+                'canceled'
+            )
 
 
 if __name__ == '__main__':
