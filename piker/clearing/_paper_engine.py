@@ -55,6 +55,7 @@ from ..data._normalize import iterticks
 from ..accounting import unpack_fqme
 from ._util import (
     log,  # sub-sys logger
+    get_console_log,
 )
 from ._messages import (
     BrokerdCancel,
@@ -536,7 +537,8 @@ async def open_trade_dialog(
 
 ) -> None:
 
-    tractor.log.get_console_log(loglevel)
+    # enable piker.clearing console log for *this* subactor
+    get_console_log(loglevel)
 
     ppt: PpTable
     ledger: TransactionLedger
