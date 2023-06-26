@@ -90,4 +90,7 @@ class OrderDialogs(Struct):
         for the given order id.
 
         '''
-        return self._flows.pop(oid)
+        if (flow := self._flows.pop(oid, None)) is None:
+            log.warning(f'No flow found for oid: {oid}')
+
+        return flow
