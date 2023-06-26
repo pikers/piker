@@ -1529,30 +1529,34 @@ async def _emsd_main(
     received in a stream from that client actor and then responses are
     streamed back up to the original calling task in the same client.
 
-    The primary ``emsd`` task trees are:
+    The primary ``emsd`` task tree is:
 
     - ``_setup_persistent_emsd()``:
-      is the ``emsd`` actor's primary root task which sets up an
-      actor-global ``Router`` instance and starts a relay loop task
-      which lives until the backend broker is shutdown or the ems is
-      terminated.
-       |
-        - (maybe) ``translate_and_relay_brokerd_events()``:
-          accept normalized trades responses from brokerd, process and
-          relay to ems client(s); this is a effectively a "trade event
-          reponse" proxy-broker.
-
-    - ``_emsd_main()``:
-      attaches a brokerd real-time quote feed and trades dialogue with
-      brokderd trading api for every connecting client.
-       |
-        - ``clear_dark_triggers()``:
-          run (dark order) conditions on inputs and trigger brokerd "live"
-          order submissions.
-       |
-        - ``process_client_order_cmds()``:
-          accepts order cmds from requesting clients, registers dark orders and
-          alerts with clearing loop.
+      is the ``emsd`` actor's primary *service-fixture* task which
+      is opened by the `pikerd` service manager and sets up
+      a process-global (actor-local) ``Router`` instance and opens
+      a service nursery which lives until the backend broker is
+      shutdown or the ems is terminated; all tasks are
+      *dynamically* started (and persisted) within this service
+      nursery when the below endpoint context is opened:
+        |
+        - ``_emsd_main()``:
+          attaches a real-time quote feed and trades dialogue with
+          a `brokerd` actor which connects to the backend broker's
+          trading api for every connecting client.
+           |
+            - ``clear_dark_triggers()``:
+              run (dark order) conditions on inputs and trigger brokerd
+              "live" order submissions.
+           |
+            - ``process_client_order_cmds()``:
+              accepts order cmds from requesting clients, registers
+              dark orders and alerts with above (dark) clearing loop.
+           |
+            - (maybe) ``translate_and_relay_brokerd_events()``:
+              accept normalized trades responses from brokerd, process and
+              relay to ems client(s); this is a effectively a "trade event
+              reponse" proxy-broker.
 
     '''
     global _router
@@ -1560,9 +1564,9 @@ async def _emsd_main(
 
     broker, _, _, _ = unpack_fqme(fqme)
 
-    # TODO: would be nice if in tractor we can require either a ctx arg,
-    # or a named arg with ctx in it and a type annotation of
-    # tractor.Context instead of strictly requiring a ctx arg.
+    # TODO: would be nice if in tractor we can require either a ctx
+    # arg, or a named arg with ctx in it and a type annotation of
+    # `tractor.Context` instead of strictly requiring a ctx arg.
     ems_ctx = ctx
 
     # spawn one task per broker feed

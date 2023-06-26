@@ -216,8 +216,8 @@ async def open_ems(
     loglevel: str = 'error',
 
 ) -> tuple[
-    OrderClient,
-    tractor.MsgStream,
+    OrderClient,  # client
+    tractor.MsgStream,  # order ctl stream
     dict[
         # brokername, acctid
         tuple[str, str],
