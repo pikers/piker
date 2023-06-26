@@ -1,4 +1,4 @@
-from pprint import pformat
+# from pprint import pformat
 from functools import partial
 from decimal import Decimal
 from typing import Callable
@@ -7,6 +7,7 @@ import tractor
 import trio
 from uuid import uuid4
 
+from piker.service import maybe_open_pikerd
 from piker.accounting import dec_digits
 from piker.clearing import (
     open_ems,
@@ -19,6 +20,7 @@ from piker.clearing._messages import (
     BrokerdPosition,
 )
 from piker.data import (
+    iterticks,
     Flume,
     open_feed,
     Feed,
@@ -75,8 +77,6 @@ async def bot_main():
     and process orders statuses in real-time.
 
     '''
-    from piker.service import maybe_open_pikerd
-
     ll: str = 'info'
 
     # open an order ctl client, live data feed, trio nursery for
@@ -123,6 +123,7 @@ async def bot_main():
 
         trio.open_nursery() as tn,
     ):
+        assert accounts
         print(f'Loaded binance accounts: {accounts}')
 
         flume: Flume = feed.flumes[fqme]
@@ -136,7 +137,9 @@ async def bot_main():
         quote_stream: trio.abc.ReceiveChannel = feed.streams['binance']
 
 
-        clear_margin: float = 0.9995
+        # always keep live limit 0.003% below last
+        # clearing price
+        clear_margin: float = 0.9997
 
         async def trailer(
             order: Order,
@@ -146,14 +149,19 @@ async def bot_main():
             # m_shm: ShmArray = flume.hist_shm
 
             # NOTE: if you wanted to frame ticks by type like the
-            # the quote throttler does.
+            # the quote throttler does.. and this is probably
+            # faster in terms of getting the latest tick type
+            # embedded value of interest?
             # from piker.data._sampling import frame_ticks
 
             async for quotes in quote_stream:
                 for fqme, quote in quotes.items():
                     # print(quote['symbol'])
-                    for tick in reversed(
-                        quote.get('ticks', ())
+                    for tick in iterticks(
+                        quote,
+
+                        # default are already this
+                        # types=('trade', 'dark_trade'),
                     ):
                         # print(
                         #     f'{fqme} ticks:\n{pformat(tick)}\n\n'
@@ -161,57 +169,78 @@ async def bot_main():
                         #     # f'last 1m OHLC:\n{m_shm.array[-1]}\n'
                         # )
 
-                        # always keep live limit 2% below last
-                        # clearing price
-                        if tick['type'] == 'trade':
-                            await client.update(
-                                uuid=order.oid,
-                                price=price_round(
-                                    clear_margin
-                                    *
-                                    tick['price']
-                                ),
-                            )
-                            msgs, pps = await wait_for_order_status(
-                                trades_stream,
-                                oid,
-                                'open'
-                            )
-                            # if multiple clears per quote just
-                            # skip to the next quote?
-                            break
+                        await client.update(
+                            uuid=order.oid,
+                            price=price_round(
+                                clear_margin
+                                *
+                                tick['price']
+                            ),
+                        )
+                        msgs, pps = await wait_for_order_status(
+                            trades_stream,
+                            order.oid,
+                            'open'
+                        )
+                        # if multiple clears per quote just
+                        # skip to the next quote?
+                        break
 
+
+        # get first live quote to be sure we submit the initial
+        # live buy limit low enough that it doesn't clear due to
+        # a stale initial price from the data feed layer!
+        first_ask_price: float | None = None
+        async for quotes in quote_stream:
+            for fqme, quote in quotes.items():
+                # print(quote['symbol'])
+                for tick in iterticks(quote, types=('ask')):
+                    first_ask_price: float = tick['price']
+                    break
+
+            if first_ask_price:
+                break
 
         # setup order dialog via first msg
-        size: float = 0.01
         price: float = price_round(
                 clear_margin
                 *
-                flume.first_quote['last']
+                first_ask_price,
         )
-        oid: str = str(uuid4())
+
+        # compute a 1k USD sized pos
+        size: float = round(1e3/price, ndigits=3)
+
         order = Order(
-            exec_mode='live',  # {'dark', 'live', 'alert'}
-            action='buy',  # TODO: remove this from our schema?
-            oid=oid,
-            account='paper',  # use binance.usdtm for binance futes
+
+            # docs on how this all works, bc even i'm not entirely
+            # clear XD. also we probably want to figure  out how to
+            # offer both the paper engine running and the brokerd
+            # order ctl tasks with the ems choosing which stream to
+            # route msgs on given the account value!
+            account='paper',  # use built-in paper clearing engine and .accounting
             # account='binance.usdtm',  # for live binance futes
+
+            oid=str(uuid4()),
+            exec_mode='live',  # {'dark', 'live', 'alert'}
+
+            action='buy',  # TODO: remove this from our schema?
+
             size=size,
             symbol=fqme,
             price=price,
             brokers=['binance'],
         )
-
         await client.send(order)
 
         msgs, pps = await wait_for_order_status(
             trades_stream,
-            oid,
-            'open'
+            order.oid,
+            'open',
         )
 
         assert not pps
-        assert msgs[-1].oid == oid
+        assert msgs[-1].oid == order.oid
 
         # start "trailer task" which tracks rt quote stream
         tn.start_soon(trailer, order)
@@ -221,10 +250,11 @@ async def bot_main():
             await trio.sleep_forever()
         except KeyboardInterrupt:
             # cancel the open order
-            await client.cancel(oid)
+            await client.cancel(order.oid)
+
             msgs, pps = await wait_for_order_status(
                 trades_stream,
-                oid,
+                order.oid,
                 'canceled'
             )
             raise
