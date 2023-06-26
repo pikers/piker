@@ -35,11 +35,15 @@ from ._source import (
     def_ohlcv_fields,
 )
 from .feed import (
+    Feed,
     open_feed,
 )
+from .flows import Flume
 
 
 __all__ = [
+    'Flume',
+    'Feed',
     'open_feed',
     'ShmArray',
     'iterticks',

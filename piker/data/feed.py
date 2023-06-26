@@ -642,9 +642,12 @@ class Feed(Struct):
     '''
     mods: dict[str, ModuleType] = {}
     portals: dict[ModuleType, tractor.Portal] = {}
-    flumes: dict[str, Flume] = {}
+    flumes: dict[
+        str,  # FQME
+        Flume,
+    ] = {}
     streams: dict[
-        str,
+        str,  # broker name
         trio.abc.ReceiveChannel[dict[str, Any]],
     ] = {}
 
