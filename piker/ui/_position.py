@@ -56,8 +56,8 @@ from ..accounting._mktinfo import (
     _derivs,
 )
 
-from ..data._normalize import iterticks
-from ..data.feed import (
+from ..data import (
+    iterticks,
     Feed,
     Flume,
 )

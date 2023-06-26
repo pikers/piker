@@ -24,7 +24,7 @@ import numpy as np
 from numba import jit, float64, optional, int64
 
 from ._api import fsp
-from ..data._normalize import iterticks
+from ..data import iterticks
 from ..data._sharedmem import ShmArray
 
 

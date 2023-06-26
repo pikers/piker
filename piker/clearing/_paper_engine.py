@@ -51,7 +51,7 @@ from ..accounting import (
     open_trade_ledger,
     open_pps,
 )
-from ..data._normalize import iterticks
+from ..data import iterticks
 from ..accounting import unpack_fqme
 from ._util import (
     log,  # sub-sys logger
