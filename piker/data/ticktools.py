@@ -19,7 +19,25 @@ Stream format enforcement.
 
 '''
 from itertools import chain
-from typing import AsyncIterator
+from typing import (
+    Any,
+    AsyncIterator,
+)
+
+# tick-type-classes template for all possible "lowest level" events
+# that can can be emitted by the "top of book" L1 queues and
+# price-matching (with eventual clearing) in a double auction
+# market (queuing) system.
+_tick_groups: dict[str, set[str]] = {
+    'clears': {'trade', 'dark_trade', 'last'},
+    'bids': {'bid', 'bsize'},
+    'asks': {'ask', 'asize'},
+}
+
+# XXX alo define the flattened set of all such "fundamental ticks"
+# so that it can be used as filter, eg. in the graphics display
+# loop to compute running windowed y-ranges B)
+_auction_ticks: set[str] = set.union(*_tick_groups.values())
 
 
 def iterticks(
@@ -80,3 +98,58 @@ def iterticks(
             ttype = tick.get('type')
             if ttype in types:
                 yield tick
+
+
+def frame_ticks(
+    quote: dict[str, Any],
+
+    ticks_by_type: dict[str, list[dict[str, Any]]] = {},
+    ticks_in_order: list[dict[str, Any]] | None = None
+
+) -> dict:
+
+    # append quotes since last iteration into the last quote's
+    # tick array/buffer.
+    # TODO: once we decide to get fancy really we should
+    # have a shared mem tick buffer that is just
+    # continually filled and the UI just ready from it
+    # at it's display rate.
+
+    if ticks := quote.get('ticks'):
+
+        # XXX: build a tick-by-type table of lists
+        # of tick messages. This allows for less
+        # iteration on the receiver side by allowing for
+        # a single "latest tick event" look up by
+        # indexing the last entry in each sub-list.
+        # tbt = {
+        #     'types': ['bid', 'asize', 'last', .. '<type_n>'],
+
+        #     'bid': [tick0, tick1, tick2, .., tickn],
+        #     'asize': [tick0, tick1, tick2, .., tickn],
+        #     'last': [tick0, tick1, tick2, .., tickn],
+        #     ...
+        #     '<type_n>': [tick0, tick1, tick2, .., tickn],
+        # }
+
+        # append in reverse FIFO order for in-order iteration on
+        # receiver side.
+        tick: dict[str, Any]
+        for tick in ticks:
+            ticks_by_type.setdefault(
+                tick['type'],
+                [],
+            ).append(tick)
+
+        # TODO: do we need this any more or can we just
+        # expect the receiver to unwind the below
+        # `ticks_by_type: dict`?
+        # => undwinding would potentially require a
+        # `dict[str, set | list]` instead with an
+        # included `'types' field which is an (ordered)
+        # set of tick type fields in the order which
+        # types arrived?
+        if ticks_in_order:
+            ticks_in_order.extend(ticks)
+
+    return ticks_by_type
