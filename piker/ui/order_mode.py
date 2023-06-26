@@ -587,7 +587,7 @@ class OrderMode:
 
     ) -> None:
 
-        msg = self.client._sent_orders.pop(uuid, None)
+        msg: Order = self.client._sent_orders.pop(uuid, None)
 
         if msg is not None:
             self.lines.remove_line(uuid=uuid)
@@ -715,7 +715,8 @@ async def open_order_mode(
     loglevel: str = 'info'
 
 ) -> None:
-    '''Activate chart-trader order mode loop:
+    '''
+    Activate chart-trader order mode loop:
 
       - connect to emsd
       - load existing positions
@@ -769,14 +770,19 @@ async def open_order_mode(
         accounts_def: bidict[str, str | None] = config.load_accounts(
             providers=[mkt.broker],
         )
+        # await tractor.pause()
 
         # XXX: ``brokerd`` delivers a set of account names that it
         # allows use of but the user also can define the accounts they'd
         # like to use, in order, in their `brokers.toml` file.
-        accounts = {}
+        accounts: dict[str, str] = {}
         for name in brokerd_accounts:
             # ensure name is in ``brokers.toml``
             accounts[name] = accounts_def[name]
+
+        # always add a paper entry so that paper cleared
+        # order dialogs can be tracked in the order mode UIs.
+        accounts['paper'] = 'paper'
 
         # first account listed is the one we select at startup
         # (aka order based selection).
