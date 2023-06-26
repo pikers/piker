@@ -198,8 +198,11 @@ async def handle_order_requests(
                 account = msg.get('account')
                 if account not in {'binance.spot', 'binance.futes'}:
                     log.error(
-                        'This is a binance account, \
-                        only a `binance.spot/.futes` selection is valid'
+                        'Order request does not have a valid binance account name?\n'
+                        'Only one of\n'
+                        '- `binance.spot` or,\n'
+                        '- `binance.usdtm`\n'
+                        'is currently valid!'
                     )
                 await ems_order_stream.send(
                     BrokerdError(
@@ -277,7 +280,7 @@ async def open_trade_dialog(
             # TODO: load other market wide data / statistics:
             # - OI: https://binance-docs.github.io/apidocs/futures/en/#open-interest
             # - OI stats: https://binance-docs.github.io/apidocs/futures/en/#open-interest-statistics
-            accounts: bidict[str, str] = bidict()
+            accounts: bidict[str, str] = bidict({'binance.usdtm': None})
             balances: dict[Asset, float] = {}
             positions: list[BrokerdPosition] = []
 
@@ -292,6 +295,8 @@ async def open_trade_dialog(
                 #  'canWithdraw': True,
                 #  'feeTier': 0}
                 if 'account' in req:
+                    # NOTE: fill in the hash-like key/alias binance
+                    # provides for the account.
                     alias: str = resp['accountAlias']
                     accounts['binance.usdtm'] = alias
 
@@ -369,7 +374,10 @@ async def open_trade_dialog(
                                 f'{pformat(entry)}\n'
                             )
 
-            await ctx.started((positions, list(accounts)))
+            await ctx.started((
+                positions,
+                list(accounts)
+            ))
 
             # TODO: package more state tracking into the dialogs API?
             # - hmm maybe we could include `OrderDialogs.dids:
