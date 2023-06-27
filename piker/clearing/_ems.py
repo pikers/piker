@@ -47,12 +47,12 @@ from ._util import (
     log,  # sub-sys logger
     get_console_log,
 )
-from ..data._normalize import iterticks
 from ..accounting._mktinfo import (
     unpack_fqme,
     dec_digits,
 )
 from ..ui._notify import notify_from_ems_status_msg
+from ..data import iterticks
 from ..data.types import Struct
 from ._messages import (
     Order,
@@ -67,7 +67,7 @@ from ._messages import (
 )
 
 if TYPE_CHECKING:
-    from ..data.feed import (
+    from ..data import (
         Feed,
         Flume,
     )

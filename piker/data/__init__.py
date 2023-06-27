@@ -22,7 +22,7 @@ and storing data from your brokers as well as
 sharing live streams over a network.
 
 """
-from ._normalize import iterticks
+from .ticktools import iterticks
 from ._sharedmem import (
     maybe_open_shm_array,
     attach_shm_array,

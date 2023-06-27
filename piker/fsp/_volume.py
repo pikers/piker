@@ -20,7 +20,7 @@ import numpy as np
 from tractor.trionics._broadcast import AsyncReceiver
 
 from ._api import fsp
-from ..data._normalize import iterticks
+from ..data import iterticks
 from ..data._sharedmem import ShmArray
 from ._momo import _wma
 from ..log import get_logger

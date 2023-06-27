@@ -39,20 +39,23 @@ from msgspec import field
 from ..accounting import (
     MktPair,
 )
-from ..data.feed import (
+from ..data import (
     open_feed,
     Feed,
     Flume,
+)
+from ..data.ticktools import (
+    _tick_groups,
+    _auction_ticks,
 )
 from ..data.types import Struct
 from ..data._sharedmem import (
     ShmArray,
 )
 from ..data._sampling import (
-    _tick_groups,
-    _auction_ticks,
     open_sample_stream,
 )
+# from ..data._source import tf_in_1s
 from ._axes import YAxisLabel
 from ._chart import (
     ChartPlotWidget,
@@ -72,7 +75,6 @@ from ._forms import (
     mk_order_pane_layout,
 )
 from . import _pg_overrides as pgo
-# from ..data._source import tf_in_1s
 from .order_mode import (
     open_order_mode,
     OrderMode,
