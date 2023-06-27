@@ -1,5 +1,7 @@
 # piker: trading gear for hackers
-# Copyright (C) Guillermo Rodriguez (in stewardship for piker0)
+# Copyright (C) (in stewardship for pikers)
+#  - Tyler Goodlet
+#  - Guillermo Rodriguez
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -14,12 +16,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""
-Built-in (extension) types.
+'''
+Extensions to built-in or (heavily used but 3rd party) friend-lib
+types.
 
-"""
-import builtins
-# import sys
+'''
 from pprint import pformat
 
 from msgspec import (
