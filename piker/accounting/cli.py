@@ -19,8 +19,11 @@ CLI front end for trades ledger and position tracking management.
 
 '''
 from __future__ import annotations
+
+
 from rich.console import Console
 from rich.markdown import Markdown
+import polars as pl
 import tractor
 import trio
 import typer
@@ -35,7 +38,7 @@ from ..brokers._daemon import broker_init
 from ._ledger import (
     load_ledger,
     # open_trade_ledger,
-    TransactionLedger,
+    # TransactionLedger,
 )
 from ._pos import (
     PpTable,
@@ -237,7 +240,7 @@ def sync(
 def disect(
     # "fully_qualified_account_name"
     fqan: str,
-    bs_mktid: int,  # for ib
+    bs_mktid: str,  # for ib
     pdb: bool = False,
 
     loglevel: str = typer.Option(
@@ -251,14 +254,35 @@ def disect(
 
     brokername, account = pair
 
-    ledger: TransactionLedger
+    # ledger: TransactionLedger
+    records: dict[str, dict]
     table: PpTable
     records, table = load_pps_from_ledger(
         brokername,
         account,
-        # filter_by_id = {568549458},
         filter_by_ids={bs_mktid},
     )
+    df = pl.DataFrame(
+        list(records.values()),
+        # schema=[
+        #     ('tid', str),
+        #     ('fqme', str),
+        #     ('dt', str),
+        #     ('size', pl.Float64),
+        #     ('price', pl.Float64),
+        #     ('cost', pl.Float64),
+        #     ('expiry', str),
+        #     ('bs_mktid', str),
+        # ],
+    ).select([
+        pl.col('fqme'),
+        pl.col('dt').str.to_datetime(),
+        # pl.col('expiry').dt.datetime(),
+        pl.col('size'),
+        pl.col('price'),
+    ])
+
+    assert not df.is_empty()
     breakpoint()
     # tractor.pause_from_sync()
     # with open_trade_ledger(
@@ -267,8 +291,3 @@ def disect(
     # ) as ledger:
     #     for tid, rec in ledger.items():
     #         bs_mktid: str = rec['bs_mktid']
-
-
-
-if __name__ == "__main__":
-    ledger()  # this is called from ``>> ledger <accountname>``
