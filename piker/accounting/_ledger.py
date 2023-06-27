@@ -160,15 +160,16 @@ class TransactionLedger(UserDict):
             # normer = mod.norm_trade_record(txdict)
 
         # TODO: use tx_sort here yah?
-        for tid, txdict in self.data.items():
+        for txdict in self.tx_sort(self.data.values()):
+        # for tid, txdict in self.data.items():
             # special field handling for datetimes
             # to ensure pendulum is used!
-            fqme = txdict.get('fqme') or txdict['fqsn']
-            dt = parse(txdict['dt'])
-            expiry = txdict.get('expiry')
+            tid: str = txdict['tid']
+            fqme: str = txdict.get('fqme') or txdict['fqsn']
+            dt: DateTime = parse(txdict['dt'])
+            expiry: str | None = txdict.get('expiry')
 
-            mkt = mkt_by_fqme.get(fqme)
-            if not mkt:
+            if not (mkt := mkt_by_fqme.get(fqme)):
                 # we can't build a trans if we don't have
                 # the ``.sys: MktPair`` info, so skip.
                 continue
@@ -229,7 +230,7 @@ class TransactionLedger(UserDict):
 
 
 def iter_by_dt(
-    records: dict[str, Any],
+    records: dict[str, dict[str, Any]] | list[dict],
 
     # NOTE: parsers are looked up in the insert order
     # so if you know that the record stats show some field
@@ -247,21 +248,20 @@ def iter_by_dt(
     datetime presumably set at the ``'dt'`` field in each entry.
 
     '''
-    def dyn_parse_to_dt(
-        pair: tuple[str, dict],
-    ) -> DateTime:
-        _, txdict = pair
+    def dyn_parse_to_dt(txdict: dict[str, Any]) -> DateTime:
         k, v, parser = next(
             (k, txdict[k], parsers[k]) for k in parsers if k in txdict
         )
-
         return parser(v) if parser else v
 
-    for tid, data in sorted(
-        records.items(),
+    if isinstance(records, dict):
+        records = records.values()
+
+    for entry in sorted(
+        records,
         key=key or dyn_parse_to_dt,
     ):
-        yield tid, data
+        yield entry
 
 
 def load_ledger(
