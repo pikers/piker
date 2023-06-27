@@ -29,7 +29,7 @@ from piker.data import (
 
 
 # TODO: handle other statuses:
-# - fills, errors, and 
+# - fills, errors, and position tracking
 async def wait_for_order_status(
     trades_stream: tractor.MsgStream,
     oid: str,
@@ -156,18 +156,17 @@ async def bot_main():
 
             async for quotes in quote_stream:
                 for fqme, quote in quotes.items():
-                    # print(quote['symbol'])
+                    # print(
+                    #     f'{quote["symbol"]} -> {quote["ticks"]}\n'
+                    #     f'last 1s OHLC:\n{s_shm.array[-1]}\n'
+                    #     f'last 1m OHLC:\n{m_shm.array[-1]}\n'
+                    # )
+
                     for tick in iterticks(
                         quote,
-
-                        # default are already this
-                        # types=('trade', 'dark_trade'),
+                        reverse=True,
+                        # types=('trade', 'dark_trade'), # defaults
                     ):
-                        # print(
-                        #     f'{fqme} ticks:\n{pformat(tick)}\n\n'
-                        #     # f'last 1s OHLC:\n{s_shm.array[-1]}\n'
-                        #     # f'last 1m OHLC:\n{m_shm.array[-1]}\n'
-                        # )
 
                         await client.update(
                             uuid=order.oid,
