@@ -2,3 +2,11 @@
 tsdb.backend = 'marketstore'
 tsdb.host = 'localhost'
 tsdb.grpc_port = 5995
+
+[ui]
+# set custom font + size which will scale entire UI
+# font_size = 16
+# font_name = 'Monospaced'
+
+# colorscheme = 'default'  # UNUSED
+# graphics.update_throttle = 60  # Hz  # TODO

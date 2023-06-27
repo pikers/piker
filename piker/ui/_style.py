@@ -28,6 +28,8 @@ from qdarkstyle import DarkPalette
 
 from ..log import get_logger
 
+from .. import config
+
 log = get_logger(__name__)
 
 _magic_inches = 0.0666 * (1 + 6/16)
@@ -49,15 +51,27 @@ class DpiAwareFont:
 
     def __init__(
         self,
-        # TODO: move to config
         name: str = 'Hack',
-        font_size: str = 'default',
+        _font_size_key: str = 'default',
 
     ) -> None:
+
+        self._font_size_calc_key: str = _font_size_key
+        self._font_size: int | None = None
+
+        # Read preferred font size from main config file if it exists
+        conf, path = config.load('conf', touch_if_dne=True)
+        if ui_section := conf.get('ui'):
+            if font_size := ui_section.get('font_size'):
+                self._font_size = int(font_size)
+
+            if not (name := ui_section.get('font_name')):
+                name: str = 'Hack'
+
         self.name = name
         self._qfont = QtGui.QFont(name)
-        self._font_size: str = font_size
         self._qfm = QtGui.QFontMetrics(self._qfont)
+
         self._font_inches: float = None
         self._screen = None
 
@@ -99,6 +113,14 @@ class DpiAwareFont:
         listed in the script in ``snippets/qt_screen_info.py``.
 
         '''
+        if self._font_size is not None:
+            self._set_qfont_px_size(self._font_size)
+            return
+
+        # NOTE: if no font size set either in the [ui] section of the
+        # config or not yet computed from our magic scaling calcs,
+        # then attempt to caculate it here!
+
         if screen is None:
             screen = self.screen
 
@@ -116,10 +138,10 @@ class DpiAwareFont:
         scale = round(ldpi/pdpi, ndigits=2)
 
         if mx_dpi <= 97:  # for low dpi use larger font sizes
-            inches = _font_sizes['lo'][self._font_size]
+            inches = _font_sizes['lo'][self._font_size_calc_key]
 
         else:  # hidpi use smaller font sizes
-            inches = _font_sizes['hi'][self._font_size]
+            inches = _font_sizes['hi'][self._font_size_calc_key]
 
         dpi = mn_dpi
 
@@ -128,7 +150,7 @@ class DpiAwareFont:
         # No implicit DPI scaling was done by the DE so let's engage
         # some hackery ad-hoc scaling shiat.
         # dpi is likely somewhat scaled down so use slightly larger font size
-        if scale >= 1.1 and self._font_size:
+        if scale >= 1.1 and self._font_size_calc_key:
 
             # no idea why
             if 1.2 <= scale:
@@ -184,7 +206,7 @@ class DpiAwareFont:
 
 # use inches size to be cross-resolution compatible?
 _font = DpiAwareFont()
-_font_small = DpiAwareFont(font_size='small')
+_font_small = DpiAwareFont(_font_size_key='small')
 
 
 def _config_fonts_to_screen() -> None:
