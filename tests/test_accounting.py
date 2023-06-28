@@ -8,6 +8,7 @@
 from pathlib import Path
 
 from piker import config
+from piker.accounting import load_account
 
 
 def test_root_conf_networking_section(
@@ -23,7 +24,7 @@ def test_root_conf_networking_section(
 def test_account_file_default_empty(
     tmpconfdir: Path,
 ):
-    conf, path = config.load_account(
+    conf, path = load_account(
         'kraken',
         'paper',
     )
