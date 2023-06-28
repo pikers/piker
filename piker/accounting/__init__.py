@@ -28,6 +28,7 @@ from ._ledger import (
     open_trade_ledger,
 )
 from ._pos import (
+    load_account,
     load_pps_from_ledger,
     open_pps,
     Position,
@@ -61,6 +62,7 @@ __all__ = [
     'dec_digits',
     'digits_to_dec',
     'iter_by_dt',
+    'load_account',
     'load_pps_from_ledger',
     'mk_allocator',
     'open_pps',
