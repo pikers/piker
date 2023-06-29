@@ -301,6 +301,8 @@ class BrokerdError(Struct):
     broker_details: dict = {}
 
 
+# TODO: yeah, so we REALLY need to completely deprecate
+# this and use the `.accounting.Position` msg-type instead..
 class BrokerdPosition(Struct):
     '''
     Position update event from brokerd.
