@@ -103,9 +103,13 @@ class Position(Struct):
     _clears: list[
         dict[str, Any],  # transaction history summaries
     ] = []
+    _events: dict[str, dict] = {}
     first_clear_dt: datetime | None = None
 
-    expiry: datetime | None = None
+    @property
+    def expiry(self) -> datetime | None:
+        if exp := self.mkt.expiry:
+            return pendulum.parse(exp)
 
     def __repr__(self) -> str:
         return pformat(self.to_dict())
@@ -121,7 +125,7 @@ class Position(Struct):
         '''
         asdict = self.to_dict()
         clears: list[dict] = asdict.pop('_clears')
-        expiry = asdict.pop('expiry')
+        events: dict[str, Transaction] = asdict.pop('_events')
 
         if self.split_ratio is None:
             asdict.pop('split_ratio')
@@ -148,10 +152,8 @@ class Position(Struct):
         asdict['price_tick'] = mkt.price_tick
         asdict['size_tick'] = mkt.size_tick
 
-        if self.expiry is None:
-            asdict.pop('expiry', None)
-        elif expiry:
-            asdict['expiry'] = str(expiry)
+        if exp := self.expiry:
+            asdict['expiry'] = exp.isoformat('T')
 
         clears_table: tomlkit.Array = tomlkit.array()
         clears_table.multiline(
@@ -165,8 +167,8 @@ class Position(Struct):
             inline_table = tomlkit.inline_table()
 
             # serialize datetime to parsable `str`
-            dtstr = inline_table['dt'] = entry['dt'].isoformat('T')
-            assert 'Datetime' not in dtstr
+            inline_table['dt'] = entry['dt'].isoformat('T')
+            # assert 'Datetime' not in inline_table['dt']
 
             # insert optional clear fields in column order
             for k in ['ppu', 'accum_size']:
@@ -177,11 +179,13 @@ class Position(Struct):
             for k in ['price', 'size', 'cost']:
                 inline_table[k] = entry[k]
 
-            inline_table['tid'] = entry['tid']
+            tid: str = entry['tid']
+            events.pop(tid)
+            inline_table['tid'] = tid
             clears_table.append(inline_table)
 
+        assert not events
         asdict['clears'] = clears_table
-
         return fqme, asdict
 
     def ensure_state(self) -> None:
@@ -502,6 +506,11 @@ class Position(Struct):
         Inserts are always done in datetime sorted order.
 
         '''
+        tid: str = t.tid
+        if tid in self._events:
+            log.warning(f'{t} is already added?!')
+            return {}
+
         clear: dict[str, float | str | int] = {
             'tid': t.tid,
             'cost': t.cost,
@@ -509,6 +518,7 @@ class Position(Struct):
             'size': t.size,
             'dt': t.dt
         }
+        self._events[tid] = t
 
         insort(
             self._clears,
@@ -525,6 +535,8 @@ class Position(Struct):
         # ``.calc_size()``.
         self.size = clear['accum_size'] = self.calc_size()
         self.ppu = clear['ppu'] = self.calc_ppu()
+
+        assert len(self._events) == len(self._clears)
 
         return clear
 
@@ -580,7 +592,6 @@ class PpTable(Struct):
                     size=0.0,
                     ppu=0.0,
                     bs_mktid=bs_mktid,
-                    expiry=t.expiry,
                 )
             else:
                 # NOTE: if for some reason a "less resolved" mkt pair
@@ -683,7 +694,7 @@ class PpTable(Struct):
 
         # ONLY dict-serialize all active positions; those that are
         # closed we don't store in the ``pps.toml``.
-        to_toml_dict = {}
+        to_toml_dict: dict[str, Any] = {}
 
         pos: Position
         for bs_mktid, pos in active.items():
@@ -919,10 +930,14 @@ def open_pps(
         for clears_table in toml_clears_list:
 
             tid = clears_table.get('tid')
-            dtstr = clears_table['dt']
-            dt = pendulum.parse(dtstr)
-            clears_table['dt'] = dt
+            dt: tomlkit.items.DateTime | str = clears_table['dt']
 
+            # woa cool, `tomlkit` will actually load datetimes into
+            # native form B)
+            if isinstance(dt, str):
+                dt = pendulum.parse(dt)
+
+            clears_table['dt'] = dt
             trans.append(Transaction(
                 fqme=bs_mktid,
                 sym=mkt,
@@ -944,8 +959,7 @@ def open_pps(
 
         split_ratio = entry.get('split_ratio')
 
-        expiry = entry.get('expiry')
-        if expiry:
+        if expiry := entry.get('expiry'):
             expiry = pendulum.parse(expiry)
 
         pp = pp_objs[bs_mktid] = Position(
@@ -953,7 +967,6 @@ def open_pps(
             size=size,
             ppu=ppu,
             split_ratio=split_ratio,
-            expiry=expiry,
             bs_mktid=bs_mktid,
         )
 
