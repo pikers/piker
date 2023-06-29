@@ -366,7 +366,13 @@ async def start_backfill(
                     f'{next_start_dt} -> {last_start_dt}'
                 )
 
-                if mkt.dst.atype not in {'crypto', 'crypto_currency'}:
+                # always drop the src asset token for
+                # non-currency-pair like market types (for now)
+                if mkt.dst.atype not in {
+                    'crypto',
+                    'crypto_currency',
+                    'fiat',  # a "forex pair"
+                }:
                     # for now, our table key schema is not including
                     # the dst[/src] source asset token.
                     col_sym_key: str = mkt.get_fqme(
