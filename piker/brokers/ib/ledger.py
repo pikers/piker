@@ -29,6 +29,7 @@ from bidict import bidict
 import pendulum
 
 from piker.accounting import (
+    Asset,
     dec_digits,
     digits_to_dec,
     Transaction,
@@ -43,10 +44,12 @@ def norm_trade_records(
 
 ) -> dict[str, Transaction]:
     '''
-    Normalize a flex report or API retrieved executions
-    ledger into our standard record format.
+    Normalize (xml) flex-report or (recent) API trade records into
+    our ledger format with parsing for `MktPair` and `Asset`
+    extraction to fill in the `Transaction.sys: MktPair` field.
 
     '''
+    # select: list[transactions] = []
     records: list[Transaction] = []
 
     for tid, record in ledger.items():
@@ -64,26 +67,25 @@ def norm_trade_records(
             'SLD': -1,
         }[record['side']]
 
-        exch = record['exchange']
-        lexch = record.get('listingExchange')
+        symbol: str = record['symbol']
+        exch: str = record.get('listingExchange') or record['exchange']
 
         # NOTE: remove null values since `tomlkit` can't serialize
         # them to file.
-        dnc = record.pop('deltaNeutralContract', False)
-        if dnc is not None:
+        if dnc := record.pop('deltaNeutralContract', None):
             record['deltaNeutralContract'] = dnc
-
-        suffix = lexch or exch
-        symbol = record['symbol']
 
         # likely an opts contract record from a flex report..
         # TODO: no idea how to parse ^ the strike part from flex..
         # (00010000 any, or 00007500 tsla, ..)
         # we probably must do the contract lookup for this?
-        if '   ' in symbol or '--' in exch:
+        if (
+            '   ' in symbol
+            or '--' in exch
+        ):
             underlying, _, tail = symbol.partition('   ')
-            suffix = exch = 'opt'
-            expiry = tail[:6]
+            exch: str = 'opt'
+            expiry: str = tail[:6]
             # otype = tail[6]
             # strike = tail[7:]
 
@@ -108,45 +110,107 @@ def norm_trade_records(
             'assetCategory'
         ) or record.get('secType', 'STK')
 
-        # TODO: XXX: WOA this is kinda hacky.. probably
-        # should figure out the correct future pair key more
-        # explicitly and consistently?
-        if asset_type == 'FUT':
-            # (flex) ledger entries don't have any simple 3-char key?
-            symbol = record['symbol'][:3]
-            asset_type: str = 'future'
+        if (expiry := (
+                record.get('lastTradeDateOrContractMonth')
+                or record.get('expiry')
+            )
+        ):
+            expiry: str = str(expiry).strip(' ')
+            # NOTE: we directly use the (simple and usually short)
+            # date-string expiry token when packing the `MktPair`
+            # since we want the fqme to contain *that* token.
+            # It might make sense later to instead parse and then
+            # render different output str format(s) for this same
+            # purpose depending on asset-type-market down the road.
+            # Eg. for derivs we use the short token only for fqme
+            # but use the isoformat('T') for transactions and
+            # account file position entries?
+            # dt_str: str = pendulum.parse(expiry).isoformat('T')
 
-        elif asset_type == 'STK':
-            asset_type: str = 'stock'
-
-        # try to build out piker fqme from record.
-        expiry = (
-            record.get('lastTradeDateOrContractMonth')
-            or record.get('expiry')
+        # XXX: pretty much all legacy market assets have a fiat
+        # currency (denomination) determined by their venue.
+        currency: str = record['currency']
+        src = Asset(
+            name=currency.lower(),
+            atype='fiat',
+            tx_tick=Decimal('0.01'),
         )
 
-        if expiry:
-            expiry = str(expiry).strip(' ')
-            suffix = f'{exch}.{expiry}'
-            expiry = pendulum.parse(expiry)
+        match asset_type:
+            case 'FUT':
+                # (flex) ledger entries don't have any simple 3-char key?
+                # TODO: XXX: WOA this is kinda hacky.. probably
+                # should figure out the correct future pair key more
+                # explicitly and consistently?
+                symbol: str = symbol[:3]
+                dst = Asset(
+                    name=symbol.lower(),
+                    atype='future',
+                    tx_tick=Decimal('1'),
+                )
 
+            case 'STK':
+                dst = Asset(
+                    name=symbol.lower(),
+                    atype='stock',
+                    tx_tick=Decimal('1'),
+                )
+
+            case 'CASH':
+                if currency not in symbol:
+                    # likely a dict-casted `Forex` contract which
+                    # has .symbol as the dst and .currency as the
+                    # src.
+                    name: str = symbol.lower()
+                else:
+                    # likely a flex-report record which puts
+                    # EUR.USD as the symbol field and just USD in
+                    # the currency field.
+                    name: str = symbol.lower().replace(f'.{src.name}', '')
+
+                dst = Asset(
+                    name=name,
+                    atype='fiat',
+                    tx_tick=Decimal('0.01'),
+                )
+
+            case 'OPT':
+                dst = Asset(
+                    name=symbol.lower(),
+                    atype='option',
+                    tx_tick=Decimal('1'),
+                )
+
+        # try to build out piker fqme from record.
         # src: str = record['currency']
         price_tick: Decimal = digits_to_dec(dec_digits(price))
 
-        pair = MktPair.from_fqme(
-            fqme=f'{symbol}.{suffix}.ib',
+        # NOTE: can't serlialize `tomlkit.String` so cast to native
+        atype: str = str(dst.atype)
+
+        pair = MktPair(
             bs_mktid=str(conid),
-            _atype=str(asset_type),  # XXX: can't serlialize `tomlkit.String`
+            dst=dst,
 
             price_tick=price_tick,
             # NOTE: for "legacy" assets, volume is normally discreet, not
             # a float, but we keep a digit in case the suitz decide
             # to get crazy and change it; we'll be kinda ready
             # schema-wise..
-            size_tick='1',
+            size_tick=Decimal('1'),
+
+            src=src,  # XXX: normally always a fiat
+
+            _atype=atype,
+
+            venue=exch,
+            expiry=expiry,
+            broker='ib',
+
+            _fqme_without_src=(atype != 'fiat'),
         )
 
-        fqme = pair.fqme
+        fqme: str = pair.fqme
 
         # NOTE: for flex records the normal fields for defining an fqme
         # sometimes won't be available so we rely on two approaches for
@@ -158,21 +222,31 @@ def norm_trade_records(
         #   should already have entries if the pps are still open, in
         #   which case, we can pull the fqme from that table (see
         #   `trades_dialogue()` above).
+        trans = Transaction(
+            fqme=fqme,
+            sym=pair,
+            tid=tid,
+            size=size,
+            price=price,
+            cost=comms,
+            dt=dt,
+            expiry=expiry,
+            bs_mktid=str(conid),
+        )
         insort(
             records,
-            Transaction(
-                fqme=fqme,
-                sym=pair,
-                tid=tid,
-                size=size,
-                price=price,
-                cost=comms,
-                dt=dt,
-                expiry=expiry,
-                bs_mktid=str(conid),
-            ),
+            trans,
             key=lambda t: t.dt
         )
+
+        # if (
+        #     atype == 'fiat'
+        #     or atype == 'option'
+        # ):
+        #     select.append(trans)
+
+    # if select:
+    #     breakpoint()
 
     return {r.tid: r for r in records}
 
