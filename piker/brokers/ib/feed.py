@@ -140,32 +140,21 @@ async def open_history_client(
     #   memory.
 
     # IB's internal symbology does not expect the "source asset" in
-    # the "symbol name", what we call the "market name". This is
+    # the "symbol name", what we call the "market pair name". This is
     # common in most legacy market brokers since it's presumed that
     # given a certain stock exchange, listed assets are traded
-    # "from" a particular source fiat, normally something like USD.
-    if (
-        mkt.src
-        and mkt.src.atype == 'fiat'
-    ):
-        fqme_kwargs: dict[str, Any] = {}
+    # "from" a particular source fiat, normally something like USD
+    # on the given venue-provider, eg. nasdaq, nyse, etc.
+    fqme_kwargs: dict[str, Any] = {}
+    if mkt.dst.atype != 'fiat':
+        fqme_kwargs  = {
+            'without_src': True,  # default is True
+            'delim_char': '',  # bc they would normally use a frickin `.` smh
+        }
 
-        if mkt.dst.atype == 'forex':
-
-            # XXX: for now we do need the src token kept in since
-            fqme_kwargs  = {
-                'without_src': False,  # default is True
-                'delim_char': '',  # bc they would normally use a frickin `.` smh
-            }
-
-        fqme: str = mkt.get_bs_fqme(**(fqme_kwargs))
-
-    else:
-        fqme = mkt.bs_fqme
+    fqme: str = mkt.get_bs_fqme(**(fqme_kwargs))
 
     async with open_data_client() as proxy:
-
-
         max_timeout: float = 2.
         mean: float = 0
         count: int = 0
@@ -178,7 +167,8 @@ async def open_history_client(
             try:
                 head_dt = await proxy.get_head_time(fqme=fqme)
             except RequestError:
-                head_dt = None
+                log.warning(f'Unable to get head time: {fqme} ?')
+                pass
 
         async def get_hist(
             timeframe: float,
@@ -576,7 +566,7 @@ _asset_type_map = {
     'OPT': 'option',
     'FUT': 'future',
     'CONTFUT': 'continuous_future',
-    'CASH': 'forex',
+    'CASH': 'fiat',
     'IND': 'index',
     'CFD': 'cfd',
     'BOND': 'bond',
@@ -837,7 +827,9 @@ async def get_mkt_info(
         # if con.secType == 'STK':
         size_tick = Decimal('1')
     else:
-        size_tick: Decimal = Decimal(str(details.minSize).rstrip('0'))
+        size_tick: Decimal = Decimal(
+            str(details.minSize).rstrip('0')
+        )
         # |-> TODO: there is also the Contract.sizeIncrement, bt wtf is it?
 
     # NOTE: this is duplicate from the .broker.norm_trade_records()
@@ -853,13 +845,11 @@ async def get_mkt_info(
     # we need to figure out how we're going to handle this (later?)
     # but likely we want all backends to eventually handle
     # ``dst/src.venue.`` style !?
-    src: str | Asset = ''
-    if atype == 'forex':
-        src = Asset(
-            name=str(con.currency),
-            atype='fiat',
-            tx_tick=Decimal('0.01'),  # right?
-        )
+    src = Asset(
+        name=str(con.currency).lower(),
+        atype='fiat',
+        tx_tick=Decimal('0.01'),  # right?
+    )
 
     mkt = MktPair(
         dst=Asset(
@@ -879,6 +869,7 @@ async def get_mkt_info(
 
         # TODO: options contract info as str?
         # contract_info=<optionsdetails>
+        _fqme_without_src=(atype != 'fiat'),
     )
 
     return mkt, details
@@ -920,7 +911,7 @@ async def stream_quotes(
         init_msg = FeedInit(mkt_info=mkt)
 
         if mkt.dst.atype in {
-            'forex',
+            'fiat',
             'index',
             'commodity',
         }:
@@ -947,7 +938,7 @@ async def stream_quotes(
             isnan(first_ticker.last)  # last quote price value is nan
             and mkt.dst.atype not in {
                 'commodity',
-                'forex',
+                'fiat',
                 'crypto',
             }
         ):
