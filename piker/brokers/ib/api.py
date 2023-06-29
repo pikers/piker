@@ -24,7 +24,10 @@ from contextlib import (
     contextmanager as cm,
 )
 from contextlib import AsyncExitStack
-from dataclasses import asdict, astuple
+from dataclasses import (
+    asdict,
+    astuple,
+)
 from datetime import datetime
 from functools import (
     partial,
@@ -402,13 +405,13 @@ class Client:
 
         # NOTE: the ib.client here is "throttled" to 45 rps by default
 
-    async def trades(self) -> dict[str, Any]:
+    async def trades(self) -> list[dict]:
         '''
         Return list of trade-fills from current session in ``dict``.
 
         '''
-        fills: list[Fill] = self.ib.fills()
         norm_fills: list[dict] = []
+        fills: list[Fill] = self.ib.fills()
         for fill in fills:
             fill = fill._asdict()  # namedtuple
             for key, val in fill.items():
