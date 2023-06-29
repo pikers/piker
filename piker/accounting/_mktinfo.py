@@ -290,6 +290,10 @@ class MktPair(Struct, frozen=True):
 
     _atype: str = ''
 
+    # allow explicit disable of the src part of the market
+    # pair name -> useful for legacy markets like qqq.nasdaq.ib
+    _fqme_without_src: bool = False
+
     # NOTE: when cast to `str` return fqme
     def __str__(self) -> str:
         return self.fqme
@@ -486,7 +490,7 @@ class MktPair(Struct, frozen=True):
         '''
         key: str = (
             self.pair(delim_char=delim_char)
-            if not without_src
+            if not (without_src or self._fqme_without_src)
             else str(self.dst)
         )
 
