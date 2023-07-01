@@ -357,7 +357,7 @@ class Client:
 
         # Check if we're configured to route order requests to the
         # venue equivalent's testnet.
-        use_testnet: bool = allow_testnet
+        use_testnet: bool = False
         section_name: str = self.venue2configkey[venue_key]
         if subconf := self.conf.get(section_name):
             use_testnet = (
