@@ -118,9 +118,9 @@ class Allocator(Struct):
         ld: int = mkt.size_tick_digits
 
         size_unit = self.size_unit
-        live_size = live_pp.size
+        live_size = live_pp.cumsize
         abs_live_size = abs(live_size)
-        abs_startup_size = abs(startup_pp.size)
+        abs_startup_size = abs(startup_pp.cumsize)
 
         u_per_slot, currency_per_slot = self.step_sizes()
 
@@ -213,8 +213,6 @@ class Allocator(Struct):
             slots_used = self.slots_used(
                 Position(
                     mkt=mkt,
-                    size=order_size,
-                    ppu=price,
                     bs_mktid=mkt.bs_mktid,
                 )
             )
@@ -241,7 +239,7 @@ class Allocator(Struct):
         Calc and return the number of slots used by this ``Position``.
 
         '''
-        abs_pp_size = abs(pp.size)
+        abs_pp_size = abs(pp.cumsize)
 
         if self.size_unit == 'currency':
             # live_currency_size = size or (abs_pp_size * pp.ppu)

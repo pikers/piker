@@ -240,9 +240,13 @@ def sync(
 def disect(
     # "fully_qualified_account_name"
     fqan: str,
-    bs_mktid: str,  # for ib
+    fqme: str,  # for ib
     pdb: bool = False,
 
+    bs_mktid: str = typer.Option(
+        None,
+        "-bid",
+    ),
     loglevel: str = typer.Option(
         'error',
         "-l",
@@ -255,36 +259,24 @@ def disect(
     brokername, account = pair
 
     # ledger: TransactionLedger
-    records: dict[str, dict]
+    # records: dict[str, dict]
     table: PpTable
-    records, table = load_pps_from_ledger(
+    df: pl.DataFrame  # legder df
+    ppt: pl.DataFrame  # piker position table
+    df, ppt, table = load_pps_from_ledger(
         brokername,
         account,
-        filter_by_ids={bs_mktid},
+        filter_by_ids={'fqme': [fqme]},
     )
-    df = pl.DataFrame(
-        list(records.values()),
-        # schema=[
-        #     ('tid', str),
-        #     ('fqme', str),
-        #     ('dt', str),
-        #     ('size', pl.Float64),
-        #     ('price', pl.Float64),
-        #     ('cost', pl.Float64),
-        #     ('expiry', str),
-        #     ('bs_mktid', str),
-        # ],
-    ).select([
-        pl.col('fqme'),
-        pl.col('dt').str.to_datetime(),
-        # pl.col('expiry').dt.datetime(),
-        pl.col('size'),
-        pl.col('price'),
-    ])
-
+    # sers = [
+    #     pl.Series(e['fqme'], e['cumsum'])
+    #     for e in ppt.to_dicts()
+    # ]
+    # ppt_by_id: pl.DataFrame = ppt.filter(
+    #     pl.col('fqme') == fqme,
+    # )
     assert not df.is_empty()
     breakpoint()
-    # tractor.pause_from_sync()
     # with open_trade_ledger(
     #     brokername,
     #     account,

@@ -21,8 +21,10 @@ for tendiez.
 '''
 from ..log import get_logger
 
-from ._ledger import (
+from .calc import (
     iter_by_dt,
+)
+from ._ledger import (
     Transaction,
     TransactionLedger,
     open_trade_ledger,
@@ -100,20 +102,3 @@ def get_likely_pair(
     likely_dst = bs_mktid[:src_name_start]
     if likely_dst == dst:
         return bs_mktid
-
-
-if __name__ == '__main__':
-    import sys
-    from pprint import pformat
-
-    args = sys.argv
-    assert len(args) > 1, 'Specifiy account(s) from `brokers.toml`'
-    args = args[1:]
-    for acctid in args:
-        broker, name = acctid.split('.')
-        trans, updated_pps = load_pps_from_ledger(broker, name)
-        print(
-            f'Processing transactions into pps for {broker}:{acctid}\n'
-            f'{pformat(trans)}\n\n'
-            f'{pformat(updated_pps)}'
-        )
