@@ -239,40 +239,6 @@ def open_symcache(
             data: dict[str, dict] = tomllib.load(existing_fp)
             log.runtime(f'SYMCACHE TOML LOAD TIME: {time.time() - now}')
 
-            # load `dict` -> `Asset`
-            assettable = data.pop('assets')
-            for name, asdict in assettable.items():
-                cache.assets[name] = Asset.from_msg(asdict)
-
-            # load `dict` -> `MktPair`
-            dne: list[str] = []
-            mkttable = data.pop('mktmaps')
-            for fqme, mktdict in mkttable.items():
-
-                # pull asset refs from (presumably) now previously
-                # loaded asset set above B)
-                src_k: str = mktdict.pop('src')
-                dst_k: str = mktdict.pop('dst')
-                src: Asset = cache.assets[src_k]
-
-                dst: Asset
-                if not (dst := cache.assets.get(dst_k)):
-                    dne.append(dst_k)
-                    continue
-
-                mkt = MktPair(
-                    src=src,
-                    dst=dst,
-                    **mktdict,
-                )
-                assert mkt.fqme == fqme
-                cache.mktmaps[fqme] = mkt
-
-            log.warning(
-                f'These `MktPair.dst: Asset`s DNE says `{mod.name}` ?\n'
-                f'{pformat(dne)}'
-            )
-
             # copy in backend specific pairs table directly without
             # struct loading for now..
             pairtable = data.pop('pairs')
@@ -283,6 +249,38 @@ def open_symcache(
             # for key, pairtable in pairtable.items():
             #     pair: Struct = cache.mod.load_pair(pairtable)
             #     cache.pairs[key] = pair
+
+            # load `dict` -> `Asset`
+            assettable = data.pop('assets')
+            for name, asdict in assettable.items():
+                cache.assets[name] = Asset.from_msg(asdict)
+
+            # load `dict` -> `MktPair`
+            dne: list[str] = []
+            mkttable = data.pop('mktmaps')
+            for fqme, mktdict in mkttable.items():
+
+                mkt = MktPair.from_msg(mktdict)
+                assert mkt.fqme == fqme
+
+                # sanity check asset refs from those (presumably)
+                # loaded asset set above.
+                # src_k: str = pairtable.get('bs_src_asset,
+                src: Asset = cache.assets[mkt.src.name]
+                assert src == mkt.src
+                dst: Asset
+                if not (dst := cache.assets.get(mkt.dst.name)):
+                    dne.append(mkt.dst.name)
+                    continue
+                else:
+                    assert dst.name == mkt.dst.name
+
+                cache.mktmaps[fqme] = mkt
+
+            log.warning(
+                f'These `MktPair.dst: Asset`s DNE says `{mod.name}` ?\n'
+                f'{pformat(dne)}'
+            )
 
         # TODO: use a real profiling sys..
         # https://github.com/pikers/piker/issues/337
@@ -307,9 +305,13 @@ def get_symcache(
     '''
     from ..brokers import get_brokermod
 
-    with open_symcache(
-        get_brokermod(provider),
-        reload=force_reload,
+    try:
+        with open_symcache(
+            get_brokermod(provider),
+            reload=force_reload,
 
-    ) as symcache:
-        return symcache
+        ) as symcache:
+            return symcache
+    except BaseException:
+        import pdbp
+        pdbp.xpm()
