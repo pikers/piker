@@ -323,6 +323,9 @@ class MktPair(Struct, frozen=True):
         d['src'] = self.src.to_dict()
         d['dst'] = self.dst.to_dict()
 
+        d['price_tick'] = str(self.price_tick)
+        d['size_tick'] = str(self.price_tick)
+
         if self.contract_info is None:
             d.pop('contract_info')
 
@@ -346,14 +349,20 @@ class MktPair(Struct, frozen=True):
         src_asset_msg = msg.pop('src')
         src = Asset.from_msg(src_asset_msg)  # .copy()
 
-        # XXX NOTE: ``msgspec`` can encode `Decimal`
-        # but it doesn't decide to it by default since
-        # we aren't spec-cing these msgs as structs, SO
-        # we have to ensure we do a struct type case (which `.copy()`
-        # does) to ensure we get the right type!
+        # XXX NOTE: ``msgspec`` can encode `Decimal` but it doesn't
+        # decide to it by default since we aren't spec-cing these
+        # msgs as structs proper to get them to decode implictily
+        # (yet) as per,
+        # - https://github.com/pikers/piker/pull/354
+        # - https://github.com/goodboy/tractor/pull/311
+        # SO we have to ensure we do a struct type
+        # case (which `.copy()` does) to ensure we get the right
+        # type!
         return cls(
             dst=dst,
             src=src,
+            price_tick=Decimal(msg.pop('price_tick')),
+            size_tick=Decimal(msg.pop('size_tick')),
             **msg,
         ).copy()
 
