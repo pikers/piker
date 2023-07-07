@@ -324,7 +324,7 @@ class MktPair(Struct, frozen=True):
         d['dst'] = self.dst.to_dict()
 
         d['price_tick'] = str(self.price_tick)
-        d['size_tick'] = str(self.price_tick)
+        d['size_tick'] = str(self.size_tick)
 
         if self.contract_info is None:
             d.pop('contract_info')
@@ -416,8 +416,9 @@ class MktPair(Struct, frozen=True):
         # which we expect to be filled in by some
         # backend client with access to that data-info.
         return cls(
-            # XXX: not resolved to ``Asset`` :(
             dst=dst,
+            # XXX: not resolved to ``Asset`` :(
+            #src=src,
 
             broker=broker,
             venue=venue,
