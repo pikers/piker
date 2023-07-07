@@ -29,9 +29,14 @@ from contextlib import (
     contextmanager as cm,
 )
 from pathlib import Path
-from typing import Any
+from pprint import pformat
+from typing import (
+    Any,
+    TYPE_CHECKING,
+)
 from types import ModuleType
 
+from fuzzywuzzy import process as fuzzy
 import tomli_w  # for fast symbol cache writing
 try:
     import tomllib
@@ -43,10 +48,12 @@ from ..log import get_logger
 from .. import config
 from ..brokers import open_cached_client
 from .types import Struct
-from ..accounting import (
-    Asset,
-    MktPair,
-)
+
+if TYPE_CHECKING:
+    from ..accounting import (
+        Asset,
+        MktPair,
+    )
 
 log = get_logger('data.cache')
 
@@ -79,7 +86,6 @@ class SymbologyCache(Struct):
         for key, attr in {
             'assets': self.assets,
             'pairs': self.pairs,
-            # 'mktmaps': self.mktmaps,
         }.items():
             if not attr:
                 log.warning(
@@ -88,6 +94,11 @@ class SymbologyCache(Struct):
                 continue
 
             cachedict[key] = attr
+
+        # serialize mkts
+        mktmapsdict = cachedict['mktmaps'] = {}
+        for fqme, mkt in self.mktmaps.items():
+            mktmapsdict[fqme] = mkt.to_dict()
 
         try:
             with self.fp.open(mode='wb') as fp:
@@ -131,6 +142,24 @@ class SymbologyCache(Struct):
                 )
 
         return self
+
+    def search(
+        self,
+        pattern: str,
+
+    ) -> dict[str, Struct]:
+
+        matches = fuzzy.extractBests(
+            pattern,
+            self.mktmaps,
+            score_cutoff=50,
+        )
+
+        # repack in dict[fqme, MktPair] form
+        return {
+            item[0].fqme: item[0]
+            for item in matches
+        }
 
 
 # actor-process-local in-mem-cache of symcaches (by backend).
@@ -200,18 +229,60 @@ def open_symcache(
             f'> {cache.fp}'
         )
         import time
+        from ..accounting import (
+            Asset,
+            MktPair,
+        )
+
         now = time.time()
         with cachefile.open('rb') as existing_fp:
             data: dict[str, dict] = tomllib.load(existing_fp)
             log.runtime(f'SYMCACHE TOML LOAD TIME: {time.time() - now}')
 
-            for key, table in data.items():
-                attr: dict[str, Any] = getattr(cache, key)
-                assert not attr
-                # if attr != table:
-                #     log.info(f'OUT-OF-SYNC symbology cache: {key}')
+            # load `dict` -> `Asset`
+            assettable = data.pop('assets')
+            for name, asdict in assettable.items():
+                cache.assets[name] = Asset.from_msg(asdict)
 
-                setattr(cache, key, table)
+            # load `dict` -> `MktPair`
+            dne: list[str] = []
+            mkttable = data.pop('mktmaps')
+            for fqme, mktdict in mkttable.items():
+
+                # pull asset refs from (presumably) now previously
+                # loaded asset set above B)
+                src_k: str = mktdict.pop('src')
+                dst_k: str = mktdict.pop('dst')
+                src: Asset = cache.assets[src_k]
+
+                dst: Asset
+                if not (dst := cache.assets.get(dst_k)):
+                    dne.append(dst_k)
+                    continue
+
+                mkt = MktPair(
+                    src=src,
+                    dst=dst,
+                    **mktdict,
+                )
+                assert mkt.fqme == fqme
+                cache.mktmaps[fqme] = mkt
+
+            log.warning(
+                f'These `MktPair.dst: Asset`s DNE says `{mod.name}` ?\n'
+                f'{pformat(dne)}'
+            )
+
+            # copy in backend specific pairs table directly without
+            # struct loading for now..
+            pairtable = data.pop('pairs')
+            cache.pairs = pairtable
+
+            # TODO: some kinda way to allow the backend
+            # to provide a struct-loader per entry?
+            # for key, pairtable in pairtable.items():
+            #     pair: Struct = cache.mod.load_pair(pairtable)
+            #     cache.pairs[key] = pair
 
         # TODO: use a real profiling sys..
         # https://github.com/pikers/piker/issues/337
