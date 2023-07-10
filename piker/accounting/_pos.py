@@ -520,7 +520,7 @@ class Account(Struct):
                 if len(pos.mkt.fqme) < len(fqme):
                     pos.mkt = mkt
 
-            # update clearing table!
+            # update clearing acnt!
             # NOTE: likely you'll see repeats of the same
             # ``Transaction`` passed in here if/when you are restarting
             # a ``brokerd.ib`` where the API will re-report trades from
@@ -618,7 +618,7 @@ class Account(Struct):
         '''
         # TODO: show diff output?
         # https://stackoverflow.com/questions/12956957/print-diff-of-python-dictionaries
-        # active, closed_pp_objs = table.dump_active()
+        # active, closed_pp_objs = acnt.dump_active()
 
         active, closed = self.dump_active()
         pp_entries = self.prep_toml(active=active)
@@ -734,6 +734,9 @@ def load_account(
     return conf, path
 
 
+# TODO: make this async and offer a `get_account()` that
+# can be used from sync code which does the same thing as
+# open_trade_ledger()!
 @cm
 def open_account(
     brokername: str,
@@ -775,7 +778,7 @@ def open_account(
     mod: ModuleType = get_brokermod(brokername)
 
     pp_objs: dict[str, Position] = {}
-    table = Account(
+    acnt = Account(
         mod,
         acctid,
         pp_objs,
@@ -877,10 +880,10 @@ def open_account(
             pp.add_clear(t)
 
     try:
-        yield table
+        yield acnt
     finally:
         if write_on_exit:
-            table.write_config()
+            acnt.write_config()
 
 
 # TODO: drop the old name and THIS!
