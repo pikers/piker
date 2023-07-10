@@ -78,7 +78,7 @@ def get_config() -> dict:
 
     conf: dict
     path: Path
-    conf, path = config.load()
+    conf, path = config.load(touch_if_dne=True)
 
     section = conf.get('binance')
 
@@ -396,7 +396,6 @@ class Client:
     ) -> None:
         # lookup internal mkt-specific pair table to update
         pair_table: dict[str, Pair] = self._venue2pairs[venue]
-        asset_table: dict[str, Asset] = self._venue2assets[venue]
 
         # make API request(s)
         resp = await self._api(
@@ -408,6 +407,7 @@ class Client:
             venue=venue,
             allow_testnet=False,  # XXX: never use testnet for symbol lookups
         )
+
         mkt_pairs = resp['symbols']
         if not mkt_pairs:
             raise SymbolNotFound(f'No market pairs found!?:\n{resp}')
@@ -432,21 +432,45 @@ class Client:
             # `._pairs: ChainMap` for search B0
             pairs_view_subtable[pair.bs_fqme] = pair
 
+            # XXX WOW: TURNS OUT THIS ISN'T TRUE !?
+            # > (populate `Asset` table for spot mkts only since it
+            # > should be a superset of any other venues such as
+            # > futes or margin)
             if venue == 'spot':
-                if (name := pair.quoteAsset) not in asset_table:
-                    asset_table[name] = Asset(
-                        name=name,
-                        atype='crypto_currency',
-                        tx_tick=digits_to_dec(pair.quoteAssetPrecision),
-                    )
+                dst_sectype: str = 'crypto_currency'
 
-                if (name := pair.baseAsset) not in asset_table:
-                    asset_table[name] = Asset(
-                        name=name,
-                        atype='crypto_currency',
-                        tx_tick=digits_to_dec(pair.baseAssetPrecision),
-                    )
+            elif venue in {'usdtm_futes'}:
+                dst_sectype: str = 'future'
+                if pair.contractType == 'PERPETUAL':
+                    dst_sectype: str = 'perpetual_future'
 
+            spot_asset_table: dict[str, Asset] = self._venue2assets['spot']
+            ven_asset_table: dict[str, Asset] = self._venue2assets[venue]
+
+            if (
+                (name := pair.quoteAsset) not in spot_asset_table
+            ):
+                spot_asset_table[pair.bs_src_asset] = Asset(
+                    name=name,
+                    atype='crypto_currency',
+                    tx_tick=digits_to_dec(pair.quoteAssetPrecision),
+                )
+
+            if (
+                (name := pair.baseAsset) not in ven_asset_table
+            ):
+                if venue != 'spot':
+                    assert dst_sectype != 'crypto_currency'
+
+                ven_asset_table[pair.bs_dst_asset] = Asset(
+                    name=name,
+                    atype=dst_sectype,
+                    tx_tick=digits_to_dec(pair.baseAssetPrecision),
+                )
+
+        # log.warning(
+        #     f'Assets not YET found in spot set: `{pformat(dne)}`!?'
+        # )
         # NOTE: make merged view of all market-type pairs but
         # use market specific `Pair.bs_fqme` for keys!
         # this allows searching for market pairs with different
@@ -458,16 +482,29 @@ class Client:
         if venue == 'spot':
             return
 
-        assets: list[dict] = resp.get('assets', ())
-        for entry in assets:
-            name: str = entry['asset']
-            asset_table[name] = self._venue2assets['spot'].get(name)
+        # TODO: maybe use this assets response for non-spot venues?
+        # -> issue is we do the exch_info queries conc, so we can't
+        # guarantee order for inter-table lookups..
+        # if venue ep delivers an explicit set of assets copy just
+        # ensure they are also already listed in the spot equivs.
+        # assets: list[dict] = resp.get('assets', ())
+        # for entry in assets:
+        #     name: str = entry['asset']
+        #     spot_asset_table: dict[str, Asset] = self._venue2assets['spot']
+        #     if name not in spot_asset_table:
+        #         log.warning(
+        #             f'COULDNT FIND ASSET {name}\n{entry}\n'
+        #             f'ADDING AS FUTES ONLY!?'
+        #         )
+        #     asset_table: dict[str, Asset] = self._venue2assets[venue]
+        #     asset_table[name] = spot_asset_table.get(name)
 
     async def exch_info(
         self,
         sym: str | None = None,
 
         venue: MarketType | None = None,
+        expiry: str | None = None,
 
     ) -> dict[str, Pair] | Pair:
         '''
@@ -485,7 +522,16 @@ class Client:
         pair_table: dict[str, Pair] = self._venue2pairs[
             venue or self.mkt_mode
         ]
-        if cached_pair := pair_table.get(sym):
+        if (
+            expiry
+            and 'perp' not in expiry.lower()
+        ):
+            sym: str = f'{sym}_{expiry}'
+
+        if (
+            sym
+            and (cached_pair := pair_table.get(sym))
+        ):
             return cached_pair
 
         venues: list[str] = ['spot', 'usdtm_futes']
@@ -500,7 +546,45 @@ class Client:
                     ven,
                 )
 
-        return pair_table[sym] if sym else self._pairs
+        if sym:
+            return pair_table[sym]
+        else:
+            self._pairs
+
+    async def get_assets(
+        self,
+        venue: str | None = None,
+
+    ) -> dict[str, Asset]:
+        if (
+            venue
+            and venue != 'spot'
+        ):
+            venues = [venue]
+        else:
+            venues = ['usdtm_futes']
+
+        ass_table: dict[str, Asset] = self._venue2assets['spot']
+
+        # merge in futes contracts with a sectype suffix
+        for venue in venues:
+            ass_table |= self._venue2assets[venue]
+
+        return ass_table
+
+
+    async def get_mkt_pairs(self) -> dict[str, Pair]:
+        '''
+        Flatten the multi-venue (chain) map of market pairs
+        to a fqme indexed table for data layer caching.
+
+        '''
+        flat: dict[str, Pair] = {}
+        for venmap in self._pairs.maps:
+            for bs_fqme, pair in venmap.items():
+                flat[pair.bs_fqme] = pair
+
+        return flat
 
     # TODO: unused except by `brokers.core.search_symbols()`?
     async def search_symbols(
