@@ -140,9 +140,7 @@ async def shm_push_in_between(
     # memory...
     array = shm.array
     zeros = array[array['low'] == 0]
-    if (
-        0 < zeros.size < 1000
-    ):
+    if 0 < zeros.size < 1000:
         tractor.breakpoint()
 
 
@@ -637,20 +635,21 @@ async def tsdb_backfill(
             task_status.started()
             return
 
-        times: np.ndarray = array['time']
+        # NOTE: removed for now since it'll always break
+        # on the first 60s of the venue open..
+        # times: np.ndarray = array['time']
+        # # sample period step size in seconds
+        # step_size_s = (
+        #     from_timestamp(times[-1])
+        #     - from_timestamp(times[-2])
+        # ).seconds
 
-        # sample period step size in seconds
-        step_size_s = (
-            from_timestamp(times[-1])
-            - from_timestamp(times[-2])
-        ).seconds
-
-        if step_size_s not in (1, 60):
-            log.error(f'Last 2 sample period is off!? -> {step_size_s}')
-            step_size_s = (
-                from_timestamp(times[-2])
-                - from_timestamp(times[-3])
-            ).seconds
+        # if step_size_s not in (1, 60):
+        #     log.error(f'Last 2 sample period is off!? -> {step_size_s}')
+        #     step_size_s = (
+        #         from_timestamp(times[-2])
+        #         - from_timestamp(times[-3])
+        #     ).seconds
 
         # NOTE: on the first history, most recent history
         # frame we PREPEND from the current shm ._last index
