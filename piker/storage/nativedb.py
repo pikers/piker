@@ -187,7 +187,7 @@ class NativeStorageClient:
 
     def index_files(self):
         for path in self._datadir.iterdir():
-            if 'borked' in path.name:
+            if path.name in {'borked', 'expired',}:
                 continue
 
             key: str = path.name.rstrip('.parquet')
