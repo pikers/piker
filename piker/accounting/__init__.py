@@ -30,11 +30,11 @@ from ._ledger import (
     open_trade_ledger,
 )
 from ._pos import (
+    Account,
     load_account,
-    load_pps_from_ledger,
+    load_account_from_ledger,
     open_pps,
     Position,
-    PpTable,
 )
 from ._mktinfo import (
     Asset,
@@ -53,11 +53,11 @@ from ._allocate import (
 log = get_logger(__name__)
 
 __all__ = [
+    'Account',
     'Allocator',
     'Asset',
     'MktPair',
     'Position',
-    'PpTable',
     'Symbol',
     'Transaction',
     'TransactionLedger',
@@ -65,7 +65,7 @@ __all__ = [
     'digits_to_dec',
     'iter_by_dt',
     'load_account',
-    'load_pps_from_ledger',
+    'load_account_from_ledger',
     'mk_allocator',
     'open_pps',
     'open_trade_ledger',
