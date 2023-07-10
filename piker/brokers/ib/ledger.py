@@ -224,7 +224,6 @@ def norm_trade_records(
         #   `trades_dialogue()` above).
         trans = Transaction(
             fqme=fqme,
-            sym=pair,
             tid=tid,
             size=size,
             price=price,
