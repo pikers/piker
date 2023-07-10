@@ -106,6 +106,6 @@ async def open_cached_client(
     ) as (cache_hit, client):
 
         if cache_hit:
-            log.info(f'Reusing existing {client}')
+            log.runtime(f'Reusing existing {client}')
 
         yield client
