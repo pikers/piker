@@ -400,7 +400,7 @@ async def open_trade_dialog(
             #   and comparison with binance's own position calcs.
             # - load pps and accounts using accounting apis, write
             #   the ledger and account files
-            #   - table: PpTable
+            #   - table: Account
             #   - ledger: TransactionLedger
 
             async with (
