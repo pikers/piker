@@ -34,6 +34,7 @@ from ._pos import (
     load_account,
     load_account_from_ledger,
     open_pps,
+    open_account,
     Position,
 )
 from ._mktinfo import (
@@ -67,6 +68,7 @@ __all__ = [
     'load_account',
     'load_account_from_ledger',
     'mk_allocator',
+    'open_account',
     'open_pps',
     'open_trade_ledger',
     'unpack_fqme',
