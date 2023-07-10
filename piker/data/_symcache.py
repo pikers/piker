@@ -25,8 +25,7 @@ offline usage.
 '''
 from __future__ import annotations
 from contextlib import (
-    # asynccontextmanager as acm,
-    contextmanager as cm,
+    asynccontextmanager as acm,
 )
 from pathlib import Path
 from pprint import pformat
@@ -38,15 +37,20 @@ from types import ModuleType
 
 from fuzzywuzzy import process as fuzzy
 import tomli_w  # for fast symbol cache writing
+import tractor
+import trio
 try:
     import tomllib
 except ModuleNotFoundError:
     import tomli as tomllib
 from msgspec import field
 
-from ..log import get_logger
-from .. import config
-from ..brokers import open_cached_client
+from piker.log import get_logger
+from piker import config
+from piker.brokers import (
+    open_cached_client,
+    get_brokermod,
+)
 from .types import Struct
 
 if TYPE_CHECKING:
@@ -166,12 +170,18 @@ class SymbologyCache(Struct):
 _caches: dict[str, SymbologyCache] = {}
 
 
-@cm
-def open_symcache(
-    mod: ModuleType,
+@acm
+async def open_symcache(
+    mod_or_name: ModuleType | str,
     reload: bool = False,
+    only_from_memcache: bool = False,
 
 ) -> SymbologyCache:
+
+    if isinstance(mod_or_name, str):
+        mod = get_brokermod(mod_or_name)
+    else:
+        mod: ModuleType = mod_or_name
 
     provider: str = mod.name
 
@@ -181,8 +191,13 @@ def open_symcache(
         try:
             yield _caches[provider]
         except KeyError:
-            log.warning('No asset info cache exists yet for '
-                        f'`{provider}`')
+            msg: str = (
+                f'No asset info cache exists yet for `{provider}`'
+            )
+            if only_from_memcache:
+                raise RuntimeError(msg)
+            else:
+                log.warning(msg)
 
     cachedir: Path = config.get_conf_dir() / '_cache'
     if not cachedir.is_dir():
@@ -204,23 +219,9 @@ def open_symcache(
         or not cachefile.is_file()
     ):
         log.info(f'GENERATING symbology cache for `{mod.name}`')
+        await cache.load()
 
-        import tractor
-        import trio
-
-        # spawn tractor runtime and generate cache
-        # if not existing.
-        async def sched_gen_symcache():
-
-            async with (
-                # only for runtime
-                tractor.open_nursery(debug_mode=True),
-            ):
-                return await cache.load()
-
-        cache: SymbologyCache = trio.run(sched_gen_symcache)
-
-        # only (re-)write if explicit reload or non-existing
+        # NOTE: only (re-)write if explicit reload or non-existing
         cache.write_config()
 
     else:
@@ -265,7 +266,6 @@ def open_symcache(
 
                 # sanity check asset refs from those (presumably)
                 # loaded asset set above.
-                # src_k: str = pairtable.get('bs_src_asset,
                 src: Asset = cache.assets[mkt.src.name]
                 assert src == mkt.src
                 dst: Asset
@@ -299,19 +299,28 @@ def get_symcache(
 
 ) -> SymbologyCache:
     '''
-    Get any available symbology/assets cache from
-    sync code by manually running `trio` to do the work.
+    Get any available symbology/assets cache from sync code by
+    (maybe) manually running `trio` to do the work.
 
     '''
-    from ..brokers import get_brokermod
+    # spawn tractor runtime and generate cache
+    # if not existing.
+    async def sched_gen_symcache():
+        async with (
+            # only for runtime's debug mode
+            tractor.open_nursery(debug_mode=True),
+
+            open_symcache(
+                get_brokermod(provider),
+                reload=force_reload,
+            ) as symcache,
+        ):
+            return symcache
 
     try:
-        with open_symcache(
-            get_brokermod(provider),
-            reload=force_reload,
-
-        ) as symcache:
-            return symcache
+        cache: SymbologyCache = trio.run(sched_gen_symcache)
     except BaseException:
         import pdbp
         pdbp.xpm()
+
+    return cache
