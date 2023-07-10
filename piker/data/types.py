@@ -21,13 +21,44 @@ Extensions to built-in or (heavily used but 3rd party) friend-lib
 types.
 
 '''
-from pprint import pformat
+from collections import UserList
+from pprint import (
+    pformat,
+)
+from typing import Any
 
 from msgspec import (
     msgpack,
     Struct,
     structs,
 )
+
+
+class DiffDump(UserList):
+    '''
+    Very simple list delegator that repr() dumps (presumed) tuple
+    elements of the form `tuple[str, Any, Any]` in a nice
+    multi-line readable form for analyzing `Struct` diffs.
+
+    '''
+    def __repr__(self) -> str:
+        if not len(self):
+            return super().__repr__()
+
+        # format by displaying item pair's ``repr()`` on multiple,
+        # indented lines such that they are more easily visually
+        # comparable when printed to console when printed to
+        # console.
+        repstr: str = '[\n'
+        for k, left, right in self:
+            repstr += (
+                f'({k},\n'
+                f'\t{repr(left)},\n'
+                f'\t{repr(right)},\n'
+                ')\n'
+            )
+        repstr += ']\n'
+        return repstr
 
 
 class Struct(
@@ -102,3 +133,27 @@ class Struct(
                 fi.name,
                 fi.type(getattr(self, fi.name)),
             )
+
+    def __sub__(
+        self,
+        other: Struct,
+
+    ) -> DiffDump[tuple[str, Any, Any]]:
+        '''
+        Compare fields/items key-wise and return a ``DiffDump``
+        for easy visual REPL comparison B)
+
+        '''
+        diffs: DiffDump[tuple[str, Any, Any]] = DiffDump()
+        for fi in structs.fields(self):
+            attr_name: str = fi.name
+            ours: Any = getattr(self, attr_name)
+            theirs: Any = getattr(other, attr_name)
+            if ours != theirs:
+                diffs.append((
+                    attr_name,
+                    ours,
+                    theirs,
+                ))
+
+        return diffs
