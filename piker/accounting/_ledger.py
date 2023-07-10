@@ -209,17 +209,41 @@ class TransactionLedger(UserDict):
             ):
                 txdict['expiry'] = ''
 
-            # re-write old acro-key
-
+            # (maybe) re-write old acro-key
             fqme: str = txdict.pop('fqsn', None) or txdict['fqme']
+            bs_mktid: str | None = txdict.get('bs_mktid')
 
-            if fqme not in self._symcache.mktmaps:
-                best_fqme: str = list(self._symcache.search(fqme))[0]
-                log.warning(
-                    f'Could not find FQME: {fqme} in qualified set?\n'
-                    f'Qualifying and expanding {fqme} -> {best_fqme}'
+            if (
+                fqme not in self._symcache.mktmaps
+                or (
+                    # also try to see if this is maybe a paper
+                    # engine ledger in which case the bs_mktid
+                    # should be the fqme as well!
+                    self.account == 'paper'
+                    and bs_mktid
+                    and fqme != bs_mktid
                 )
-                fqme = best_fqme
+            ):
+                # always take any (paper) bs_mktid if defined and
+                # in the backend's cache key set.
+                if bs_mktid in self._symcache.mktmaps:
+                    fqme: str = bs_mktid
+                else:
+                    best_fqme: str = list(self._symcache.search(fqme))[0]
+                    log.warning(
+                        f'Could not find FQME: {fqme} in qualified set?\n'
+                        f'Qualifying and expanding {fqme} -> {best_fqme}'
+                    )
+                    fqme = best_fqme
+
+            if (
+                self.account == 'paper'
+                and bs_mktid
+                and bs_mktid != fqme
+            ):
+                # in paper account case always make sure both the
+                # fqme and bs_mktid are fully qualified..
+                txdict['bs_mktid'] = fqme
 
             txdict['fqme'] = fqme
             towrite[tid] = txdict
@@ -272,6 +296,9 @@ def open_trade_ledger(
     broker: str,
     account: str,
 
+    allow_from_sync_code: bool = False,
+    symcache: SymbologyCache | None = None,
+
     # default is to sort by detected datetime-ish field
     tx_sort: Callable = iter_by_dt,
     rewrite: bool = False,
@@ -292,10 +319,27 @@ def open_trade_ledger(
     ledger_dict, fpath = load_ledger(broker, account)
     cpy = ledger_dict.copy()
 
-    from ..data._symcache import (
-        get_symcache,
-    )
-    symcache: SymbologyCache = get_symcache(broker)
+    # XXX NOTE: if not provided presume we are being called from
+    # sync code and need to maybe run `trio` to generate..
+    if symcache is None:
+
+        # XXX: be mega pendantic and ensure the caller knows what
+        # they're doing..
+        if not allow_from_sync_code:
+            raise RuntimeError(
+                'You MUST set `allow_from_sync_code=True` when '
+                'calling `open_trade_ledger()` from sync code! '
+                'If you are calling from async code you MUST '
+                'instead pass a `symcache: SymbologyCache`!'
+            )
+
+        from ..data._symcache import (
+            get_symcache,
+        )
+        symcache: SymbologyCache = get_symcache(broker)
+
+    assert symcache
+
     ledger = TransactionLedger(
         ledger_dict=cpy,
         file_path=fpath,

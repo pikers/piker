@@ -31,7 +31,6 @@ from typing import (
 
 import polars as pl
 from pendulum import (
-    # datetime,
     DateTime,
     from_timestamp,
     parse,
@@ -354,16 +353,13 @@ def open_ledger_dfs(
             brokername,
             acctname,
             rewrite=True,
+            allow_from_sync_code=True,
         ) as ledger,
     ):
         if not ledger:
             raise ValueError(f'No ledger for {acctname}@{brokername} exists?')
 
         print(f'LEDGER LOAD TIME: {time.time() - now}')
-        # if acctname == 'paper':
-        #     txns: dict[str, Transaction] = ledger.to_trans()
-        # else:
-
         # process raw TOML ledger into txns using the
         # appropriate backend normalizer.
         # cache: AssetsInfo = get_symcache(
