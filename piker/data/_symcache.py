@@ -318,9 +318,10 @@ def get_symcache(
             return symcache
 
     try:
-        cache: SymbologyCache = trio.run(sched_gen_symcache)
+        symcache: SymbologyCache = trio.run(sched_gen_symcache)
+        assert symcache
     except BaseException:
         import pdbp
         pdbp.xpm()
 
-    return cache
+    return symcache
