@@ -254,7 +254,7 @@ async def open_trade_dialog(
         wss: NoBsWs
         async with (
             client.manage_listen_key() as listen_key,
-            open_autorecon_ws(f'{wss_url}/ws/{listen_key}') as wss,
+            open_autorecon_ws(f'{wss_url}/?listenKey={listen_key}') as wss,
         ):
             nsid: int = time_ns()
             await wss.send_msg({
