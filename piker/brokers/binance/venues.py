@@ -45,8 +45,8 @@ _spot_ws: str = 'wss://stream.binance.com/ws'
 # 'wss://ws-api.binance.com:443/ws-api/v3',
 
 # https://binance-docs.github.io/apidocs/futures/en/#websocket-market-streams
-_futes_ws: str = f'wss://fstream.{_domain}/ws/'
-_auth_futes_ws: str = 'wss://fstream-auth.{_domain}/ws/'
+_futes_ws: str = f'wss://fstream.{_domain}/ws'
+_auth_futes_ws: str = 'wss://fstream-auth.{_domain}/ws'
 
 # test nets
 # NOTE: spot test network only allows certain ep sets:
@@ -58,7 +58,7 @@ _testnet_spot_ws: str = 'wss://testnet.binance.vision/ws'
 # 'wss://testnet.binance.vision/ws-api/v3'
 
 _testnet_futes_url: str = 'https://testnet.binancefuture.com'
-_testnet_futes_ws: str = 'wss://stream.binancefuture.com'
+_testnet_futes_ws: str = 'wss://stream.binancefuture.com/ws'
 
 
 MarketType = Literal[
