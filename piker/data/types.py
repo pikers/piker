@@ -72,15 +72,31 @@ class Struct(
     A "human friendlier" (aka repl buddy) struct subtype.
 
     '''
-    def to_dict(self) -> dict:
+    def to_dict(
+        self,
+        include_non_members: bool = False,
+    ) -> dict:
         '''
         Like it sounds.. direct delegation to:
         https://jcristharif.com/msgspec/api.html#msgspec.structs.asdict
 
-        TODO: probably just drop this method since it's now a built-int method?
+        BUT, by default we pop all non-member (aka not defined as
+        struct fields) fields by default.
 
         '''
-        return structs.asdict(self)
+        asdict: dict = structs.asdict(self)
+        if include_non_members:
+            return asdict
+
+        # only return a dict of the struct members
+        # which were provided as input, NOT anything
+        # added as `@properties`!
+        sin_props: dict = {}
+        for fi in structs.fields(self):
+            key: str = fi.name
+            sin_props[key] = asdict[key]
+
+        return sin_props
 
     def pformat(self) -> str:
         return f'Struct({pformat(self.to_dict())})'
