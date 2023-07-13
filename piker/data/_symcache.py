@@ -79,6 +79,9 @@ class SymbologyCache(Struct):
     # backend-system pairs loaded in provider (schema) specific
     # structs.
     pairs: dict[str, Struct] = field(default_factory=dict)
+    # serialized namespace path to the backend's pair-info-`Struct`
+    # defn B)
+    pair_ns_path: tractor.msg.NamespacePath | None = None
 
     # TODO: piker-normalized `.accounting.MktPair` table?
     # loaded from the `.pairs` and a normalizer
@@ -86,23 +89,28 @@ class SymbologyCache(Struct):
     mktmaps: dict[str, MktPair] = field(default_factory=dict)
 
     def write_config(self) -> None:
-        cachedict: dict[str, Any] = {}
-        for key, attr in {
+
+        # put the backend's pair-struct type ref at the top
+        # of file if possible.
+        cachedict: dict[str, Any] = {
+            'pair_ns_path': str(self.pair_ns_path) or '',
+        }
+
+        # serialize all tables as dicts for TOML.
+        for key, table in {
             'assets': self.assets,
             'pairs': self.pairs,
+            'mktmaps': self.mktmaps,
         }.items():
-            if not attr:
+            if not table:
                 log.warning(
                     f'Asset cache table for `{key}` is empty?'
                 )
                 continue
 
-            cachedict[key] = attr
-
-        # serialize mkts
-        mktmapsdict = cachedict['mktmaps'] = {}
-        for fqme, mkt in self.mktmaps.items():
-            mktmapsdict[fqme] = mkt.to_dict()
+            dct = cachedict[key] = {}
+            for key, struct in table.items():
+                dct[key] = struct.to_dict(include_non_members=False)
 
         try:
             with self.fp.open(mode='wb') as fp:
@@ -112,12 +120,27 @@ class SymbologyCache(Struct):
             raise
 
     async def load(self) -> None:
+        '''
+        Explicitly load the "symbology set" for this provider by using
+        2 required `Client` methods:
+
+          - `.get_assets()`: returning a table of `Asset`s
+          - `.get_mkt_pairs()`: returning a table of pair-`Struct`
+            types, custom defined by the particular backend.
+
+        AND, the required `.get_mkt_info()` module-level endpoint which
+        maps `fqme: str` -> `MktPair`s.
+
+        These tables are then used to fill out the `.assets`, `.pairs` and
+        `.mktmaps` tables on this cache instance, respectively.
+
+        '''
         async with open_cached_client(self.mod.name) as client:
 
             if get_assets := getattr(client, 'get_assets', None):
                 assets: dict[str, Asset] = await get_assets()
                 for bs_mktid, asset in assets.items():
-                    self.assets[bs_mktid] = asset.to_dict()
+                    self.assets[bs_mktid] = asset
             else:
                 log.warning(
                     'No symbology cache `Asset` support for `{provider}`..\n'
@@ -125,8 +148,19 @@ class SymbologyCache(Struct):
                 )
 
             if get_mkt_pairs := getattr(client, 'get_mkt_pairs', None):
+
                 pairs: dict[str, Struct] = await get_mkt_pairs()
                 for bs_fqme, pair in pairs.items():
+
+                    # NOTE: every backend defined pair should
+                    # declare it's ns path for roundtrip
+                    # serialization lookup.
+                    if not getattr(pair, 'ns_path', None):
+                        raise TypeError(
+                            f'Pair-struct for {self.mod.name} MUST define a '
+                            '`.ns_path: str`!\n'
+                            f'{pair}'
+                        )
 
                     entry = await self.mod.get_mkt_info(pair.bs_fqme)
                     if not entry:
@@ -135,9 +169,29 @@ class SymbologyCache(Struct):
                     mkt: MktPair
                     pair: Struct
                     mkt, _pair = entry
-                    assert _pair is pair
-                    self.pairs[pair.bs_fqme] = pair.to_dict()
+                    assert _pair is pair, (
+                        f'`{self.mod.name}` backend probably has a '
+                        'keying-symmetry problem between the pair-`Struct` '
+                        'returned from `Client.get_mkt_pairs()`and the '
+                        'module level endpoint: `.get_mkt_info()`\n\n'
+                        "Here's the struct diff:\n"
+                        f'{_pair - pair}'
+                    )
+                    # NOTE XXX: this means backends MUST implement
+                    # a `Struct.bs_mktid: str` field to provide
+                    # a native-keyed map to their own symbol
+                    # set(s).
+                    self.pairs[pair.bs_mktid] = pair
+
+                    # NOTE: `MktPair`s are keyed here using piker's
+                    # internal FQME schema so that search,
+                    # accounting and feed init can be accomplished
+                    # a sane, uniform, normalized basis.
                     self.mktmaps[mkt.fqme] = mkt
+
+                self.pair_ns_path: str = tractor.msg.NamespacePath.from_ref(
+                    pair,
+                )
 
             else:
                 log.warning(
@@ -147,15 +201,94 @@ class SymbologyCache(Struct):
 
         return self
 
+    @classmethod
+    def from_dict(
+        cls: type,
+        data: dict,
+        **kwargs,
+    ) -> SymbologyCache:
+
+        # normal init inputs
+        cache = cls(**kwargs)
+
+        # XXX WARNING: this may break if backend namespacing
+        # changes (eg. `Pair` class def is moved to another
+        # module) in which case you can manually update the
+        # `pair_ns_path` in the symcache file and try again.
+        # TODO: probably a verbose error about this?
+        Pair: type = tractor.msg.NamespacePath(
+            str(data['pair_ns_path'])
+        ).load_ref()
+
+        pairtable = data.pop('pairs')
+        for key, pairtable in pairtable.items():
+
+            # allow each serialized pair-dict-table to declare its
+            # specific struct type's path in cases where a backend
+            # supports multiples (normally with different
+            # schemas..) and we are storing them in a flat `.pairs`
+            # table.
+            ThisPair = Pair
+            if this_pair_type := pairtable.get('ns_path'):
+                ThisPair: type = tractor.msg.NamespacePath(
+                    str(this_pair_type)
+                ).load_ref()
+
+            pair: Struct = ThisPair(**pairtable)
+            cache.pairs[key] = pair
+
+        from ..accounting import (
+            Asset,
+            MktPair,
+        )
+
+        # load `dict` -> `Asset`
+        assettable = data.pop('assets')
+        for name, asdict in assettable.items():
+            cache.assets[name] = Asset.from_msg(asdict)
+
+        # load `dict` -> `MktPair`
+        dne: list[str] = []
+        mkttable = data.pop('mktmaps')
+        for fqme, mktdict in mkttable.items():
+
+            mkt = MktPair.from_msg(mktdict)
+            assert mkt.fqme == fqme
+
+            # sanity check asset refs from those (presumably)
+            # loaded asset set above.
+            src: Asset = cache.assets[mkt.src.name]
+            assert src == mkt.src
+            dst: Asset
+            if not (dst := cache.assets.get(mkt.dst.name)):
+                dne.append(mkt.dst.name)
+                continue
+            else:
+                assert dst.name == mkt.dst.name
+
+            cache.mktmaps[fqme] = mkt
+
+        log.warning(
+            f'These `MktPair.dst: Asset`s DNE says `{cache.mod.name}`?\n'
+            f'{pformat(dne)}'
+        )
+        return cache
+
     def search(
         self,
         pattern: str,
+        table: str = 'mktmaps'
 
     ) -> dict[str, Struct]:
+        '''
+        (Fuzzy) search this cache's `.mktmaps` table, which is
+        keyed by FQMEs, for `pattern: str` and return the best
+        matches in a `dict` including the `MktPair` values.
 
+        '''
         matches = fuzzy.extractBests(
             pattern,
-            self.mktmaps,
+            getattr(self, table),
             score_cutoff=50,
         )
 
@@ -206,11 +339,6 @@ async def open_symcache(
 
     cachefile: Path = cachedir / f'{str(provider)}.symcache.toml'
 
-    cache = SymbologyCache(
-        mod=mod,
-        fp=cachefile,
-    )
-
     # if no cache exists or an explicit reload is requested, load
     # the provider API and call appropriate endpoints to populate
     # the mkt and asset tables.
@@ -218,6 +346,11 @@ async def open_symcache(
         reload
         or not cachefile.is_file()
     ):
+        cache = SymbologyCache(
+            mod=mod,
+            fp=cachefile,
+        )
+
         log.info(f'GENERATING symbology cache for `{mod.name}`')
         await cache.load()
 
@@ -227,59 +360,18 @@ async def open_symcache(
     else:
         log.info(
             f'Loading EXISTING `{mod.name}` symbology cache:\n'
-            f'> {cache.fp}'
+            f'> {cachefile}'
         )
         import time
-        from ..accounting import (
-            Asset,
-            MktPair,
-        )
-
         now = time.time()
         with cachefile.open('rb') as existing_fp:
             data: dict[str, dict] = tomllib.load(existing_fp)
             log.runtime(f'SYMCACHE TOML LOAD TIME: {time.time() - now}')
 
-            # copy in backend specific pairs table directly without
-            # struct loading for now..
-            pairtable = data.pop('pairs')
-            cache.pairs = pairtable
-
-            # TODO: some kinda way to allow the backend
-            # to provide a struct-loader per entry?
-            # for key, pairtable in pairtable.items():
-            #     pair: Struct = cache.mod.load_pair(pairtable)
-            #     cache.pairs[key] = pair
-
-            # load `dict` -> `Asset`
-            assettable = data.pop('assets')
-            for name, asdict in assettable.items():
-                cache.assets[name] = Asset.from_msg(asdict)
-
-            # load `dict` -> `MktPair`
-            dne: list[str] = []
-            mkttable = data.pop('mktmaps')
-            for fqme, mktdict in mkttable.items():
-
-                mkt = MktPair.from_msg(mktdict)
-                assert mkt.fqme == fqme
-
-                # sanity check asset refs from those (presumably)
-                # loaded asset set above.
-                src: Asset = cache.assets[mkt.src.name]
-                assert src == mkt.src
-                dst: Asset
-                if not (dst := cache.assets.get(mkt.dst.name)):
-                    dne.append(mkt.dst.name)
-                    continue
-                else:
-                    assert dst.name == mkt.dst.name
-
-                cache.mktmaps[fqme] = mkt
-
-            log.warning(
-                f'These `MktPair.dst: Asset`s DNE says `{mod.name}` ?\n'
-                f'{pformat(dne)}'
+            cache = SymbologyCache.from_dict(
+                data,
+                mod=mod,
+                fp=cachefile,
             )
 
         # TODO: use a real profiling sys..
