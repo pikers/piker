@@ -1,0 +1,1358 @@
+[da16f46a-f964-470a-9813-120a86ac26da]
+tid = "da16f46a-f964-470a-9813-120a86ac26da"
+size = 0.04
+price = 28374.85
+cost = 0
+dt = "2023-03-29T21:14:52.646556+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[067395c6-85c2-434c-93a2-c31489a09aec]
+tid = "067395c6-85c2-434c-93a2-c31489a09aec"
+size = 0.04
+price = 28372.65
+cost = 0
+dt = "2023-03-29T21:16:01.511379+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[63a189b6-bf51-478f-b0b8-6c886a086a74]
+tid = "63a189b6-bf51-478f-b0b8-6c886a086a74"
+size = 0.04
+price = 28369.51
+cost = 0
+dt = "2023-03-29T21:45:00.458763+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[162b7db2-96b0-47fb-9089-e8c03b12722b]
+tid = "162b7db2-96b0-47fb-9089-e8c03b12722b"
+size = 0.04
+price = 28354.82
+cost = 0
+dt = "2023-03-29T22:46:28.238625+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[599c6fbb-6d14-4001-9692-2bee1f231df1]
+tid = "599c6fbb-6d14-4001-9692-2bee1f231df1"
+size = 0.04
+price = 28033.54
+cost = 0
+dt = "2023-04-04T15:39:31.976073+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[8a271269-af69-4459-a171-fa3b7f477f4f]
+tid = "8a271269-af69-4459-a171-fa3b7f477f4f"
+size = -0.04
+price = 28179.99
+cost = 0
+dt = "2023-04-04T17:52:02.527852+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[f1050a08-1a4d-4892-b6b7-8d510b385718]
+tid = "f1050a08-1a4d-4892-b6b7-8d510b385718"
+size = -0.06
+price = 28175.87
+cost = 0
+dt = "2023-04-04T17:56:05.186869+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[0647fe16-24e3-40cd-8250-4cfc887923b6]
+tid = "0647fe16-24e3-40cd-8250-4cfc887923b6"
+size = -0.06
+price = 28176.34
+cost = 0
+dt = "2023-04-04T17:56:08.396636+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[f11501e5-3cab-40e3-9b4c-152fa80df5bb]
+tid = "f11501e5-3cab-40e3-9b4c-152fa80df5bb"
+size = 0.04
+price = 28184.0
+cost = 0
+dt = "2023-04-04T17:56:27.584848+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[9f695411-58f6-43da-9938-53091045f022]
+tid = "9f695411-58f6-43da-9938-53091045f022"
+size = -0.04
+price = 28223.13
+cost = 0
+dt = "2023-04-04T18:02:12.212835+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[3f3b78c3-1119-44ef-ba6f-4716d06c14ad]
+tid = "3f3b78c3-1119-44ef-ba6f-4716d06c14ad"
+size = 0.04
+price = 28223.2
+cost = 0
+dt = "2023-04-04T18:04:20.074750+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[34929c46-5638-4ccd-b6fd-e92101d3cb3d]
+tid = "34929c46-5638-4ccd-b6fd-e92101d3cb3d"
+size = -0.04
+price = 28125.43
+cost = 0
+dt = "2023-04-04T18:30:05.102752+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[8ba9d494-160a-4aa3-b5cb-b9fd042a0cfc]
+tid = "8ba9d494-160a-4aa3-b5cb-b9fd042a0cfc"
+size = 0.04
+price = 28128.5
+cost = 0
+dt = "2023-04-04T18:30:10.218444+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[e396489a-97b8-425e-a54a-b0280f2a5536]
+tid = "e396489a-97b8-425e-a54a-b0280f2a5536"
+size = -0.04
+price = 28141.53
+cost = 0
+dt = "2023-04-04T18:30:37.234646+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[90f2ddad-8499-4120-ad18-ce5f57ab932c]
+tid = "90f2ddad-8499-4120-ad18-ce5f57ab932c"
+size = 0.04
+price = 28071.37
+cost = 0
+dt = "2023-04-05T15:46:59.901329+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[f6d3256c-cb46-4327-84fb-7e110e79d26e]
+tid = "f6d3256c-cb46-4327-84fb-7e110e79d26e"
+size = 0.04
+price = 28081.6
+cost = 0
+dt = "2023-04-05T15:47:44.639526+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[14cb023c-26cd-4cc7-9130-d12e62ee37bd]
+tid = "14cb023c-26cd-4cc7-9130-d12e62ee37bd"
+size = 0.04
+price = 28082.76
+cost = 0
+dt = "2023-04-05T15:48:00.508908+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[42bc2ffd-e35c-4065-8324-712c3ae46cfa]
+tid = "42bc2ffd-e35c-4065-8324-712c3ae46cfa"
+size = 0.04
+price = 28083.48
+cost = 0
+dt = "2023-04-05T15:48:02.809801+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[b3d9edda-bf38-4abf-88d2-a29074043d52]
+tid = "b3d9edda-bf38-4abf-88d2-a29074043d52"
+size = 0.06
+price = 27961.14
+cost = 0
+dt = "2023-04-08T23:22:15.773099+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[394f7457-02d4-452f-89a3-03568bc88b0e]
+tid = "394f7457-02d4-452f-89a3-03568bc88b0e"
+size = -0.04
+price = 28049.99
+cost = 0
+dt = "2023-04-09T05:12:41.854395+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[f7a13de5-ce7f-473d-bb18-53de25f2b856]
+tid = "f7a13de5-ce7f-473d-bb18-53de25f2b856"
+size = 0.04
+price = 30171.94
+cost = 0
+dt = "2023-04-11T01:54:58.572656+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[315ce8c7-dd6f-4757-ad36-290403de9670]
+tid = "315ce8c7-dd6f-4757-ad36-290403de9670"
+size = 0.04
+price = 30184.59
+cost = 0
+dt = "2023-04-11T01:55:02.615316+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[da085e7d-410b-460c-92ff-9b4638cdd284]
+tid = "da085e7d-410b-460c-92ff-9b4638cdd284"
+size = 0.05
+price = 30133.42
+cost = 0
+dt = "2023-04-11T01:56:52.587397+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[dfa8b778-3dfb-43af-be84-ec889456d729]
+tid = "dfa8b778-3dfb-43af-be84-ec889456d729"
+size = 0.06
+price = 30171.41
+cost = 0
+dt = "2023-04-11T01:57:07.416095+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[5687f9f1-c08f-4b42-8d1e-326718776510]
+tid = "5687f9f1-c08f-4b42-8d1e-326718776510"
+size = 0.07
+price = 30148.46
+cost = 0
+dt = "2023-04-11T01:57:15.266236+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[35b8618f-2574-43e2-a33d-c702914729a3]
+tid = "35b8618f-2574-43e2-a33d-c702914729a3"
+size = 0.08
+price = 30177.95
+cost = 0
+dt = "2023-04-11T01:57:48.189842+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[3cbeb052-a9b9-45d4-acba-144b6e578973]
+tid = "3cbeb052-a9b9-45d4-acba-144b6e578973"
+size = 0.08
+price = 30203.06
+cost = 0
+dt = "2023-04-11T01:58:30.402790+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[4ce70b6f-0024-4fb3-9ca5-e83f1b6b0cee]
+tid = "4ce70b6f-0024-4fb3-9ca5-e83f1b6b0cee"
+size = -0.11
+price = 30164.65
+cost = 0
+dt = "2023-04-11T02:02:26.019689+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[88b8c744-4638-4d79-9053-93c0a288745a]
+tid = "88b8c744-4638-4d79-9053-93c0a288745a"
+size = -0.11
+price = 30168.04
+cost = 0
+dt = "2023-04-11T02:02:29.355363+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[0bc425f9-295d-4802-bc07-719ee7037940]
+tid = "0bc425f9-295d-4802-bc07-719ee7037940"
+size = -0.11
+price = 30174.1
+cost = 0
+dt = "2023-04-11T02:02:37.043544+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[943ee11a-1bd2-4214-87aa-c5b56ba2bda9]
+tid = "943ee11a-1bd2-4214-87aa-c5b56ba2bda9"
+size = -0.11
+price = 30168.0
+cost = 0
+dt = "2023-04-11T02:02:47.892358+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[c8ebfbde-04ac-4d01-b8c6-a839c56f4ba0]
+tid = "c8ebfbde-04ac-4d01-b8c6-a839c56f4ba0"
+size = 0.03
+price = 30306.56
+cost = 0
+dt = "2023-04-11T02:11:00.453998+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[2de0a5c2-f549-430b-818b-3914007f7ec1]
+tid = "2de0a5c2-f549-430b-818b-3914007f7ec1"
+size = 0.03
+price = 30283.54
+cost = 0
+dt = "2023-04-11T02:11:42.311480+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[bb38a7b6-f8da-42c6-b164-57c4009412b1]
+tid = "bb38a7b6-f8da-42c6-b164-57c4009412b1"
+size = 0.03
+price = 30253.75
+cost = 0
+dt = "2023-04-11T02:12:42.932552+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[b1e2cbae-0dc9-4673-b3a7-319c261b8a81]
+tid = "b1e2cbae-0dc9-4673-b3a7-319c261b8a81"
+size = 0.03
+price = 30240.19
+cost = 0
+dt = "2023-04-11T02:12:47.395634+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[b096e756-3248-4cc6-99cd-40485336d195]
+tid = "b096e756-3248-4cc6-99cd-40485336d195"
+size = 0.52
+price = 1905.72
+cost = 0
+dt = "2023-04-12T20:35:18.281216+00:00"
+bs_mktid = "ethusdt.spot.binance"
+fqme = "ethusdt.spot.binance"
+
+[4344de3d-0cc2-4f1b-8ac4-2bd8cc4bf125]
+tid = "4344de3d-0cc2-4f1b-8ac4-2bd8cc4bf125"
+size = 0.52
+price = 1905.48
+cost = 0
+dt = "2023-04-12T20:36:00.443722+00:00"
+bs_mktid = "ethusdt.spot.binance"
+fqme = "ethusdt.spot.binance"
+
+[0140e3a8-e18d-434a-b6f4-9b3efb70196b]
+tid = "0140e3a8-e18d-434a-b6f4-9b3efb70196b"
+size = 0.53
+price = 1900.5
+cost = 0
+dt = "2023-04-13T02:16:37.227338+00:00"
+bs_mktid = "ethusdt.spot.binance"
+fqme = "ethusdt.spot.binance"
+
+[f9a19a35-b2cc-4932-88da-91083b6aca6d]
+tid = "f9a19a35-b2cc-4932-88da-91083b6aca6d"
+size = -0.53
+price = 2007.36
+cost = 0
+dt = "2023-04-13T17:32:46.535299+00:00"
+bs_mktid = "ethusdt.spot.binance"
+fqme = "ethusdt.spot.binance"
+
+[2d863698-7859-414c-87c2-42d1ded745f4]
+tid = "2d863698-7859-414c-87c2-42d1ded745f4"
+size = -0.53
+price = 2014.0
+cost = 0
+dt = "2023-04-13T17:46:04.990016+00:00"
+bs_mktid = "ethusdt.spot.binance"
+fqme = "ethusdt.spot.binance"
+
+[931efb4a-caa5-4ea3-b54d-ce90154be855]
+tid = "931efb4a-caa5-4ea3-b54d-ce90154be855"
+size = -0.05
+price = 30746.78
+cost = 0
+dt = "2023-04-14T02:28:53.163397+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[6e51dfc3-3cd1-4226-b70a-1e98f795382d]
+tid = "6e51dfc3-3cd1-4226-b70a-1e98f795382d"
+size = -0.05
+price = 30746.78
+cost = 0
+dt = "2023-04-14T02:28:54.017720+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[8d14a805-fa96-4d93-83c2-7f94d4dffb05]
+tid = "8d14a805-fa96-4d93-83c2-7f94d4dffb05"
+size = -0.05
+price = 30746.78
+cost = 0
+dt = "2023-04-14T02:28:55.241175+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[be7a7034-d81c-47f5-b135-2b3bb3295d56]
+tid = "be7a7034-d81c-47f5-b135-2b3bb3295d56"
+size = -0.05
+price = 30746.78
+cost = 0
+dt = "2023-04-14T02:28:55.718444+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[01f95d36-65c5-446e-8699-4b898ce2720b]
+tid = "01f95d36-65c5-446e-8699-4b898ce2720b"
+size = 0.48
+price = 2101.72
+cost = 0
+dt = "2023-04-14T03:08:02.545597+00:00"
+bs_mktid = "ethusdt.spot.binance"
+fqme = "ethusdt.spot.binance"
+
+[8f58d467-57e0-4600-8778-288adea396db]
+tid = "8f58d467-57e0-4600-8778-288adea396db"
+size = 0.47
+price = 2115.66
+cost = 0
+dt = "2023-04-14T06:21:36.461680+00:00"
+bs_mktid = "ethusdt.spot.binance"
+fqme = "ethusdt.spot.binance"
+
+[291efdb8-2693-4e08-a18a-b146fbf5b50a]
+tid = "291efdb8-2693-4e08-a18a-b146fbf5b50a"
+size = -0.49
+price = 2115.99
+cost = 0
+dt = "2023-04-14T06:23:13.773674+00:00"
+bs_mktid = "ethusdt.spot.binance"
+fqme = "ethusdt.spot.binance"
+
+[c14497b4-416a-4856-a0e8-378ae1df262e]
+tid = "c14497b4-416a-4856-a0e8-378ae1df262e"
+size = -0.03
+price = 30789.24
+cost = 0
+dt = "2023-04-14T10:36:42.537868+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[9ca0a022-62db-4a31-b0b2-42f80e7ae3b1]
+tid = "9ca0a022-62db-4a31-b0b2-42f80e7ae3b1"
+size = -0.03
+price = 30789.24
+cost = 0
+dt = "2023-04-14T10:36:43.120034+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[b1357083-fb1f-4edf-84ab-64121fda61d2]
+tid = "b1357083-fb1f-4edf-84ab-64121fda61d2"
+size = -0.03
+price = 30789.24
+cost = 0
+dt = "2023-04-14T10:36:44.133592+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[6afc03f4-9aa5-4578-b381-a4ba132fbd54]
+tid = "6afc03f4-9aa5-4578-b381-a4ba132fbd54"
+size = -0.03
+price = 30789.24
+cost = 0
+dt = "2023-04-14T10:36:44.684864+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[fef31da2-3986-4924-8ef1-c7b544dddcfa]
+tid = "fef31da2-3986-4924-8ef1-c7b544dddcfa"
+size = -0.03
+price = 30789.24
+cost = 0
+dt = "2023-04-14T10:36:45.458349+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[03aa594f-e3e1-485a-9db1-7732bda7af17]
+tid = "03aa594f-e3e1-485a-9db1-7732bda7af17"
+size = 0.03
+price = 30228.86
+cost = 0
+dt = "2023-04-14T17:11:02.406640+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[b690b879-4b06-4e8f-ac7b-c60317de92d1]
+tid = "b690b879-4b06-4e8f-ac7b-c60317de92d1"
+size = 0.03
+price = 30500.95
+cost = 0
+dt = "2023-04-16T19:23:36.271889+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[23fa4b76-cd54-4ec9-8e2e-5aabb3391699]
+tid = "23fa4b76-cd54-4ec9-8e2e-5aabb3391699"
+size = -0.03
+price = 30500.27
+cost = 0
+dt = "2023-04-16T19:39:09.810500+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[f8870880-e269-4ccb-b398-9e124b525b63]
+tid = "f8870880-e269-4ccb-b398-9e124b525b63"
+size = 10988.0
+price = 0.09101
+cost = 0
+dt = "2023-04-16T21:53:42.143462+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[88f46b6a-bd55-4629-99c6-5394d17c4988]
+tid = "88f46b6a-bd55-4629-99c6-5394d17c4988"
+size = 10975.0
+price = 0.0911
+cost = 0
+dt = "2023-04-16T21:53:59.399611+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[4888fb24-9519-47f3-b286-7c7befc047aa]
+tid = "4888fb24-9519-47f3-b286-7c7befc047aa"
+size = 10997.0
+price = 0.09092
+cost = 0
+dt = "2023-04-16T21:57:31.874822+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[62f897d8-3c1a-4747-9081-42a6c5f555d6]
+tid = "62f897d8-3c1a-4747-9081-42a6c5f555d6"
+size = 0.03303
+price = 30278.85
+cost = 0
+dt = "2023-04-16T23:43:13.080764+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[367eb5b6-aa1f-4146-a374-8295e026c066]
+tid = "367eb5b6-aa1f-4146-a374-8295e026c066"
+size = 0.03303
+price = 30278.85
+cost = 0
+dt = "2023-04-16T23:43:22.070691+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[196a4635-d15e-41af-87e7-1919ee5eff2a]
+tid = "196a4635-d15e-41af-87e7-1919ee5eff2a"
+size = 0.03303
+price = 30276.37
+cost = 0
+dt = "2023-04-16T23:44:02.957427+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[f91497d5-c1c3-41a8-ab29-88c61b2397f8]
+tid = "f91497d5-c1c3-41a8-ab29-88c61b2397f8"
+size = -0.03303
+price = 30284.58
+cost = 0
+dt = "2023-04-16T23:47:21.460961+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[9cc32645-56ef-44b2-b668-1904fe427012]
+tid = "9cc32645-56ef-44b2-b668-1904fe427012"
+size = -0.03303
+price = 30284.58
+cost = 0
+dt = "2023-04-16T23:47:22.236516+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[19d22aab-a867-447c-b076-a33f3d6f5c20]
+tid = "19d22aab-a867-447c-b076-a33f3d6f5c20"
+size = 11074.0
+price = 0.09023
+cost = 0
+dt = "2023-04-16T23:49:02.920133+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[f3fc9aa5-dfad-40d3-a047-a9e4b33ae02d]
+tid = "f3fc9aa5-dfad-40d3-a047-a9e4b33ae02d"
+size = 0.03399
+price = 29414.08
+cost = 0
+dt = "2023-04-17T14:01:12.830647+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[28f5bd07-dd16-4432-8112-5cca53e5d4ef]
+tid = "28f5bd07-dd16-4432-8112-5cca53e5d4ef"
+size = -0.03351
+price = 29416.59
+cost = 0
+dt = "2023-04-17T14:01:32.258945+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[9b742c45-13dd-47a1-be56-15286013e91a]
+tid = "9b742c45-13dd-47a1-be56-15286013e91a"
+size = -0.03403
+price = 29393.09
+cost = 0
+dt = "2023-04-17T14:03:18.843163+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[cbc47a9c-2f75-497c-8d2b-d04f37a0996d]
+tid = "cbc47a9c-2f75-497c-8d2b-d04f37a0996d"
+size = 0.00052
+price = 29468.3
+cost = 0
+dt = "2023-04-17T16:57:48.705291+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[7838e4bc-d47c-4e55-ae38-213190f48831]
+tid = "7838e4bc-d47c-4e55-ae38-213190f48831"
+size = 0.03391
+price = 29491.86
+cost = 0
+dt = "2023-04-17T17:36:21.179290+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[96a35aac-e62e-402f-bbda-730015f20e40]
+tid = "96a35aac-e62e-402f-bbda-730015f20e40"
+size = -0.03391
+price = 29491.85
+cost = 0
+dt = "2023-04-17T17:36:35.450594+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[13fd7381-a3d1-48fb-9e6d-46c35e183b29]
+tid = "13fd7381-a3d1-48fb-9e6d-46c35e183b29"
+size = 0.03388
+price = 29473.94
+cost = 0
+dt = "2023-04-17T17:47:20.546197+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[33cbd9ab-57b4-49d0-a073-f2d3e60e4b1b]
+tid = "33cbd9ab-57b4-49d0-a073-f2d3e60e4b1b"
+size = 0.03394
+price = 29464.89
+cost = 0
+dt = "2023-04-17T18:02:35.629646+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[60fbb741-5d42-4014-b401-baf625c41291]
+tid = "60fbb741-5d42-4014-b401-baf625c41291"
+size = -0.03393
+price = 29471.26
+cost = 0
+dt = "2023-04-17T18:03:18.073573+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[e8bcf4af-cad5-44e4-a334-a4115fafd1ae]
+tid = "e8bcf4af-cad5-44e4-a334-a4115fafd1ae"
+size = -0.03389
+price = 29490.2
+cost = 0
+dt = "2023-04-17T18:10:22.962523+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[ef9013c2-4528-4737-a1fc-68ccbe476ef5]
+tid = "ef9013c2-4528-4737-a1fc-68ccbe476ef5"
+size = 0.03378
+price = 29498.73
+cost = 0
+dt = "2023-04-17T18:21:23.274963+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[9f517173-e1f2-4da6-b04b-976ebdbcca66]
+tid = "9f517173-e1f2-4da6-b04b-976ebdbcca66"
+size = 0.03389
+price = 29498.73
+cost = 0
+dt = "2023-04-17T18:21:30.536279+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[51a83ca9-989b-42b0-9d05-7dfc5f290123]
+tid = "51a83ca9-989b-42b0-9d05-7dfc5f290123"
+size = -0.0339
+price = 29498.72
+cost = 0
+dt = "2023-04-17T18:21:34.442889+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[6a8dcf05-ec15-4b44-9ea2-36adeb2027c9]
+tid = "6a8dcf05-ec15-4b44-9ea2-36adeb2027c9"
+size = -0.03377
+price = 29498.72
+cost = 0
+dt = "2023-04-17T18:21:37.542549+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[afc93855-f789-4f70-a590-5f942aa58f59]
+tid = "afc93855-f789-4f70-a590-5f942aa58f59"
+size = 0.03389
+price = 29502.21
+cost = 0
+dt = "2023-04-17T18:21:44.781152+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[d22f8a1d-d042-44ee-bf1d-b49bba80bca3]
+tid = "d22f8a1d-d042-44ee-bf1d-b49bba80bca3"
+size = 0.03388
+price = 29502.21
+cost = 0
+dt = "2023-04-17T18:21:45.308326+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[9c9bea6f-6ff0-4f6b-9931-ccca407ef4d1]
+tid = "9c9bea6f-6ff0-4f6b-9931-ccca407ef4d1"
+size = -0.06776
+price = 29482.8
+cost = 0
+dt = "2023-04-17T18:24:38.219727+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[dcf7f751-3ad0-45ae-ab89-f00da370c58c]
+tid = "dcf7f751-3ad0-45ae-ab89-f00da370c58c"
+size = 0.2035
+price = 29482.81
+cost = 0
+dt = "2023-04-17T18:24:48.920473+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[51747be8-52ef-4715-9430-2685e3ea649b]
+tid = "51747be8-52ef-4715-9430-2685e3ea649b"
+size = -11012.0
+price = 0.09189
+cost = 0
+dt = "2023-04-17T20:20:36.964602+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[1cbc3e34-70e4-44ff-9046-b80791af771e]
+tid = "1cbc3e34-70e4-44ff-9046-b80791af771e"
+size = -11012.0
+price = 0.09188
+cost = 0
+dt = "2023-04-17T20:21:04.670850+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[bbb5b48b-574b-425b-973e-5c0e120aba65]
+tid = "bbb5b48b-574b-425b-973e-5c0e120aba65"
+size = -0.03392
+price = 29446.0
+cost = 0
+dt = "2023-04-17T20:29:38.301074+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[14128cb8-c808-4146-9876-f0ec7c1d6063]
+tid = "14128cb8-c808-4146-9876-f0ec7c1d6063"
+size = 10683.0
+price = 0.09353
+cost = 0
+dt = "2023-04-18T13:58:26.651674+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[5b4e7150-511f-4fdf-9424-cbb37cc98725]
+tid = "5b4e7150-511f-4fdf-9424-cbb37cc98725"
+size = 0.4825
+price = 2072.18
+cost = 0
+dt = "2023-04-18T18:09:37.059497+00:00"
+bs_mktid = "ethusdt.spot.binance"
+fqme = "ethusdt.spot.binance"
+
+[7352ff1f-d410-494f-9e8e-b4d26851b78e]
+tid = "7352ff1f-d410-494f-9e8e-b4d26851b78e"
+size = 0.4785
+price = 2089.95
+cost = 0
+dt = "2023-04-18T22:27:53.598061+00:00"
+bs_mktid = "ethusdt.spot.binance"
+fqme = "ethusdt.spot.binance"
+
+[7b4a9235-14e3-427f-9d83-d3d0c543b0a2]
+tid = "7b4a9235-14e3-427f-9d83-d3d0c543b0a2"
+size = 0.4791
+price = 2087.32
+cost = 0
+dt = "2023-04-19T05:08:18.480609+00:00"
+bs_mktid = "ethusdt.spot.binance"
+fqme = "ethusdt.spot.binance"
+
+[60f39579-6cd0-45a5-9672-941e24a0c70f]
+tid = "60f39579-6cd0-45a5-9672-941e24a0c70f"
+size = 0.5044
+price = 1981.1
+cost = 0
+dt = "2023-04-19T11:57:32.481811+00:00"
+bs_mktid = "ethusdt.spot.binance"
+fqme = "ethusdt.spot.binance"
+
+[ed9a0b53-881f-4374-be7a-dc8a91244d91]
+tid = "ed9a0b53-881f-4374-be7a-dc8a91244d91"
+size = 11047.0
+price = 0.09052
+cost = 0
+dt = "2023-04-19T16:54:37.057912+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[460f4925-fa21-499f-ac3b-f9e404139740]
+tid = "460f4925-fa21-499f-ac3b-f9e404139740"
+size = 11275.0
+price = 0.0887
+cost = 0
+dt = "2023-04-19T18:27:46.280795+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[aca0f432-fa18-4162-8f1e-e3d35b51d6c2]
+tid = "aca0f432-fa18-4162-8f1e-e3d35b51d6c2"
+size = 0.03534
+price = 28250.01
+cost = 0
+dt = "2023-04-21T01:29:55.826173+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[0f6e41f2-e465-477a-ab18-bf204f3da59f]
+tid = "0f6e41f2-e465-477a-ab18-bf204f3da59f"
+size = 12127.0
+price = 0.08243
+cost = 0
+dt = "2023-04-21T17:18:36.014107+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[e047e65e-645c-49d3-9172-ced13210f7c1]
+tid = "e047e65e-645c-49d3-9172-ced13210f7c1"
+size = 121227.0
+price = 0.08247
+cost = 0
+dt = "2023-04-21T17:18:46.985975+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[a78b8bd2-38fa-4396-8974-7a50acb74a64]
+tid = "a78b8bd2-38fa-4396-8974-7a50acb74a64"
+size = 121183.0
+price = 0.08248
+cost = 0
+dt = "2023-04-21T17:18:57.689595+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[f9bf8d41-58e0-4682-a76a-65854e60de7e]
+tid = "f9bf8d41-58e0-4682-a76a-65854e60de7e"
+size = 126984.0
+price = 0.07803
+cost = 0
+dt = "2023-04-21T20:15:14.565627+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[2de50a4b-2530-46fa-a500-3c20633d3696]
+tid = "2de50a4b-2530-46fa-a500-3c20633d3696"
+size = 126630.0
+price = 0.0785
+cost = 0
+dt = "2023-04-21T23:19:52.333093+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[b90abfe1-ec43-4a9c-8051-daedb4726fc9]
+tid = "b90abfe1-ec43-4a9c-8051-daedb4726fc9"
+size = 126614.0
+price = 0.07851
+cost = 0
+dt = "2023-04-21T23:19:54.462741+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[b8c53b69-d952-4535-9ddf-8f2837f0f72e]
+tid = "b8c53b69-d952-4535-9ddf-8f2837f0f72e"
+size = 127000.0
+price = 0.07851
+cost = 0
+dt = "2023-04-21T23:19:57.180902+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[610348ca-ec3c-46f7-89b9-9d5aa551d4d4]
+tid = "610348ca-ec3c-46f7-89b9-9d5aa551d4d4"
+size = 127065.0
+price = 0.07851
+cost = 0
+dt = "2023-04-21T23:19:59.112348+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[e6fa2a64-055c-4285-a298-762d84660480]
+tid = "e6fa2a64-055c-4285-a298-762d84660480"
+size = -157308.0
+price = 0.08027
+cost = 0
+dt = "2023-04-22T17:06:37.652613+00:00"
+bs_mktid = "dogeusdt.spot.binance"
+fqme = "dogeusdt.spot.binance"
+
+[49b65271-bd84-45e1-a1af-06b698b36cc7]
+tid = "49b65271-bd84-45e1-a1af-06b698b36cc7"
+size = 0.35262
+price = 28337.54
+cost = 0
+dt = "2023-04-25T22:07:28.093084+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[7bff12ad-e9e9-4dde-b50e-ad03cf08cc6f]
+tid = "7bff12ad-e9e9-4dde-b50e-ad03cf08cc6f"
+size = 0.34518
+price = 28339.62
+cost = 0
+dt = "2023-04-25T22:07:32.859565+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[fb5c8b78-b2c1-406b-923b-c0efea30ef53]
+tid = "fb5c8b78-b2c1-406b-923b-c0efea30ef53"
+size = -0.15045
+price = 29478.78
+cost = 0
+dt = "2023-04-27T23:29:04.872409+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[1475ed80-2745-489a-a6fa-42a42e04f195]
+tid = "1475ed80-2745-489a-a6fa-42a42e04f195"
+size = -0.15045
+price = 29478.78
+cost = 0
+dt = "2023-04-27T23:29:05.489196+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[0c973666-5ae8-432c-9bdf-329126977912]
+tid = "0c973666-5ae8-432c-9bdf-329126977912"
+size = -0.15045
+price = 29478.78
+cost = 0
+dt = "2023-04-27T23:29:06.611542+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[b50f1982-b22e-470c-b282-d4da5ef1eb22]
+tid = "b50f1982-b22e-470c-b282-d4da5ef1eb22"
+size = -0.15045
+price = 29478.78
+cost = 0
+dt = "2023-04-27T23:29:16.148062+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[0d3c6fb6-bbb4-473f-a122-791d8edc16c7]
+tid = "0d3c6fb6-bbb4-473f-a122-791d8edc16c7"
+size = -0.05015
+price = 28603.61
+cost = 0
+dt = "2023-05-02T18:31:40.693023+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[ad1481e9-82cc-47ea-b535-af20382cb16b]
+tid = "ad1481e9-82cc-47ea-b535-af20382cb16b"
+size = -0.05015
+price = 28603.61
+cost = 0
+dt = "2023-05-02T18:31:44.812848+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[cbfae60b-ab1a-44ad-8f15-f01346e883e6]
+tid = "cbfae60b-ab1a-44ad-8f15-f01346e883e6"
+size = -0.05015
+price = 28603.61
+cost = 0
+dt = "2023-05-02T18:31:51.127774+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[66fe7ae9-3486-431e-b15f-d9db16a4867e]
+tid = "66fe7ae9-3486-431e-b15f-d9db16a4867e"
+size = -0.05015
+price = 28748.06
+cost = 0
+dt = "2023-05-02T19:34:36.341881+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[b890dcb0-f126-4a96-9baf-15506b8e001d]
+tid = "b890dcb0-f126-4a96-9baf-15506b8e001d"
+size = 0.03712
+price = 26874.4
+cost = 0
+dt = "2023-05-15T01:23:33.891746+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[bfab2bc0-1ed9-44d5-be5b-21db23e20cf1]
+tid = "bfab2bc0-1ed9-44d5-be5b-21db23e20cf1"
+size = 0.36831
+price = 27143.83
+cost = 0
+dt = "2023-05-17T17:54:09.287428+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[097816ff-eadd-4e8d-a002-9f94def56670]
+tid = "097816ff-eadd-4e8d-a002-9f94def56670"
+size = -0.09666
+price = 26968.92
+cost = 0
+dt = "2023-05-20T21:03:20.255178+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[1760b767-c08b-4726-81df-85be82629400]
+tid = "1760b767-c08b-4726-81df-85be82629400"
+size = -0.09666
+price = 26967.18
+cost = 0
+dt = "2023-05-20T21:03:25.320027+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[749dd12b-1039-470d-8025-9780424a4149]
+tid = "749dd12b-1039-470d-8025-9780424a4149"
+size = -0.06444
+price = 27163.75
+cost = 0
+dt = "2023-05-21T02:01:37.085808+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[3d1d28e2-d929-4a53-9d25-4c77ce37ec87]
+tid = "3d1d28e2-d929-4a53-9d25-4c77ce37ec87"
+size = -0.06444
+price = 27191.03
+cost = 0
+dt = "2023-05-21T02:07:11.383516+00:00"
+bs_mktid = "btcusdt.spot.binance"
+fqme = "btcusdt.spot.binance"
+
+[a2a81c3c-2e85-471f-ba30-3ab81ce59dac]
+fqme = "btcusdt.spot.binance"
+tid = "a2a81c3c-2e85-471f-ba30-3ab81ce59dac"
+size = 0.3689
+price = 27103.27
+cost = 0
+dt = "2023-06-01T01:05:47.320495+00:00"
+bs_mktid = "btcusdt.spot.binance"
+
+[8cfdcc1f-b5e9-49a8-8aaa-2aec7b12962b]
+fqme = "btcusdt.usdtm.perp.binance"
+tid = "8cfdcc1f-b5e9-49a8-8aaa-2aec7b12962b"
+size = 0.01
+price = 30398.3
+cost = 0
+dt = "2023-06-26T16:08:41.048560+00:00"
+bs_mktid = "btcusdt.usdtm.perp.binance"
+
+[10e737a8-79d6-4f30-a153-fed0d2df8854]
+fqme = "btcusdt.usdtm.perp.binance"
+tid = "10e737a8-79d6-4f30-a153-fed0d2df8854"
+size = 0.01
+price = 30387.6
+cost = 0
+dt = "2023-06-26T16:09:39.252859+00:00"
+bs_mktid = "btcusdt.usdtm.perp.binance"
+
+[51a19796-e838-475a-8afb-df80b7de13ba]
+fqme = "btcusdt.usdtm.perp.binance"
+tid = "51a19796-e838-475a-8afb-df80b7de13ba"
+size = 0.01
+price = 30176.9
+cost = 0
+dt = "2023-06-26T19:35:38.105972+00:00"
+bs_mktid = "btcusdt.usdtm.perp.binance"
+
+[6fdd9378-5de4-423e-9de1-ad478813be45]
+fqme = "btcusdt.usdtm.perp.binance"
+tid = "6fdd9378-5de4-423e-9de1-ad478813be45"
+size = 0.01
+price = 30190.2
+cost = 0
+dt = "2023-06-26T19:44:01.091792+00:00"
+bs_mktid = "btcusdt.usdtm.perp.binance"
+
+[3e867581-8387-472b-b51f-bd84ff902ee4]
+fqme = "btcusdt.usdtm.perp.binance"
+tid = "3e867581-8387-472b-b51f-bd84ff902ee4"
+size = -0.04
+price = 30214.8
+cost = 0
+dt = "2023-06-26T19:44:50.363897+00:00"
+bs_mktid = "btcusdt.usdtm.perp.binance"
+
+[6ab96a1d-84ba-4869-affb-e002a98e3f1b]
+fqme = "btcusdt.usdtm.perp.binance"
+tid = "6ab96a1d-84ba-4869-affb-e002a98e3f1b"
+size = 0.033
+price = 30174.3
+cost = 0
+dt = "2023-06-26T20:43:28.156740+00:00"
+bs_mktid = "btcusdt.usdtm.perp.binance"
+
+[1dcb3d09-ea2f-4bd0-997d-1481d9a32f0f]
+fqme = "btcusdt.usdtm.perp.binance"
+tid = "1dcb3d09-ea2f-4bd0-997d-1481d9a32f0f"
+size = 0.033
+price = 30221.7
+cost = 0
+dt = "2023-06-26T23:43:43.779369+00:00"
+bs_mktid = "btcusdt.usdtm.perp.binance"
+
+[9cf964bc-e405-4183-848a-e67a1e6a7f03]
+fqme = "btcusdt.usdtm.perp.binance"
+tid = "9cf964bc-e405-4183-848a-e67a1e6a7f03"
+size = 0.033
+price = 30226.3
+cost = 0
+dt = "2023-06-27T00:06:19.118681+00:00"
+bs_mktid = "btcusdt.usdtm.perp.binance"
+
+[badad1df-264e-496c-896d-9495a9cfa20f]
+fqme = "btcusdt.usdtm.perp.binance"
+tid = "badad1df-264e-496c-896d-9495a9cfa20f"
+size = 0.033
+price = 30634.4
+cost = 0
+dt = "2023-06-27T13:04:16.259238+00:00"
+bs_mktid = "btcusdt.usdtm.perp.binance"
+
+[0ad35909-2cd9-4d40-b6ee-60c8649a6906]
+fqme = "btcusdt.usdtm.perp.binance"
+tid = "0ad35909-2cd9-4d40-b6ee-60c8649a6906"
+size = 0.033
+price = 30684.7
+cost = 0
+dt = "2023-06-27T18:03:59.570289+00:00"
+bs_mktid = "btcusdt.usdtm.perp.binance"
+
+[70ae2b8d-3e1e-4f5f-9f80-e4d6ed57eef0]
+fqme = "btcusdt.usdtm.perp.binance"
+tid = "70ae2b8d-3e1e-4f5f-9f80-e4d6ed57eef0"
+size = 0.033
+price = 30307.5
+cost = 0
+dt = "2023-07-10T17:27:55.549956+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "btcusdt.usdtm.perp.binance"
+
+[5f629852-21b6-4a2a-93f5-6fa3c72aa9d9]
+fqme = "btcusdt.usdtm.perp.binance"
+tid = "5f629852-21b6-4a2a-93f5-6fa3c72aa9d9"
+size = -0.033
+price = 30702.1
+cost = 0
+dt = "2023-07-12T11:24:13.718896+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "btcusdt.usdtm.perp.binance"
+
+[364da263-d8c4-4ac9-a534-c4fd000ae6c6]
+fqme = "xrpusdt.spot.binance"
+tid = "364da263-d8c4-4ac9-a534-c4fd000ae6c6"
+size = 1229.0
+price = 0.8133
+cost = 0
+dt = "2023-07-13T22:46:45.549324+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "xrpusdt.spot.binance"
+
+[a98f8f05-6b90-4f46-bee2-c053e1046e86]
+fqme = "xrpusdt.spot.binance"
+tid = "a98f8f05-6b90-4f46-bee2-c053e1046e86"
+size = -1229.0
+price = 0.8124
+cost = 0
+dt = "2023-07-13T22:47:20.693038+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "xrpusdt.spot.binance"
+
+[b4672728-df3a-49d1-a9f5-7e23bf431bf9]
+fqme = "xrpusdt.spot.binance"
+tid = "b4672728-df3a-49d1-a9f5-7e23bf431bf9"
+size = -1229.0
+price = 0.8122
+cost = 0
+dt = "2023-07-13T22:47:31.410600+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "xrpusdt.spot.binance"
+
+[5cee625d-c2ad-461c-b1b4-373483a4e9a0]
+fqme = "xrpusdt.spot.binance"
+tid = "5cee625d-c2ad-461c-b1b4-373483a4e9a0"
+size = -1229.0
+price = 0.8121
+cost = 0
+dt = "2023-07-13T22:47:34.330811+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "xrpusdt.spot.binance"
+
+[0be50de2-2098-48fb-bea2-48fb8a33e660]
+fqme = "xrpusdt.spot.binance"
+tid = "0be50de2-2098-48fb-bea2-48fb8a33e660"
+size = -1229.0
+price = 0.812
+cost = 0
+dt = "2023-07-13T22:47:35.276521+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "xrpusdt.spot.binance"
+
+[a5679bfd-05ee-4654-aef8-6b7161efe742]
+fqme = "xrpusdt.spot.binance"
+tid = "a5679bfd-05ee-4654-aef8-6b7161efe742"
+size = -1229.0
+price = 0.8121
+cost = 0
+dt = "2023-07-13T22:47:35.903756+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "xrpusdt.spot.binance"
+
+[f620ca65-f878-46ba-b900-aaabae9fd3ce]
+fqme = "xrpusdt.spot.binance"
+tid = "f620ca65-f878-46ba-b900-aaabae9fd3ce"
+size = -1229.0
+price = 0.8121
+cost = 0
+dt = "2023-07-13T22:47:36.578845+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "xrpusdt.spot.binance"
+
+[38f7e712-06fa-4551-b235-875d440d369f]
+fqme = "xrpusdt.spot.binance"
+tid = "38f7e712-06fa-4551-b235-875d440d369f"
+size = -1229.0
+price = 0.8122
+cost = 0
+dt = "2023-07-13T22:47:37.144106+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "xrpusdt.spot.binance"
+
+[465fd8b0-f303-4bb9-9af3-1162599c9b53]
+fqme = "xrpusdt.spot.binance"
+tid = "465fd8b0-f303-4bb9-9af3-1162599c9b53"
+size = -1229.0
+price = 0.8135
+cost = 0
+dt = "2023-07-13T22:48:10.259883+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "xrpusdt.spot.binance"
+
+[0fe0529a-e8f5-412e-9759-ffd75e9c9ba4]
+fqme = "xrpusdt.spot.binance"
+tid = "0fe0529a-e8f5-412e-9759-ffd75e9c9ba4"
+size = 1434.0
+price = 0.784
+cost = 0
+dt = "2023-07-14T12:40:42.517435+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "xrpusdt.spot.binance"
+
+[d4483864-e99c-436a-a60d-9be443ce5bcc]
+fqme = "xrpusdt.spot.binance"
+tid = "d4483864-e99c-436a-a60d-9be443ce5bcc"
+size = 1434.0
+price = 0.783
+cost = 0
+dt = "2023-07-14T12:41:55.922400+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "xrpusdt.spot.binance"
+
+[741ced15-a467-4e00-8dab-3b3046aff47c]
+fqme = "xrpusdt.spot.binance"
+tid = "741ced15-a467-4e00-8dab-3b3046aff47c"
+size = 1434.0
+price = 0.7837
+cost = 0
+dt = "2023-07-14T12:42:32.102345+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "xrpusdt.spot.binance"
+
+[6441275d-0acd-4637-ace9-0d9e0ac1df13]
+fqme = "xrpusdt.spot.binance"
+tid = "6441275d-0acd-4637-ace9-0d9e0ac1df13"
+size = 1434.0
+price = 0.784
+cost = 0
+dt = "2023-07-14T12:44:38.961470+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "xrpusdt.spot.binance"
+
+[1c4dc51d-7235-4024-aef4-153b5e42c828]
+fqme = "xrpusdt.spot.binance"
+tid = "1c4dc51d-7235-4024-aef4-153b5e42c828"
+size = 1434.0
+price = 0.7854
+cost = 0
+dt = "2023-07-14T12:45:06.612540+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "xrpusdt.spot.binance"
+
+[d5045d2b-14e4-4054-a032-2bbece37f751]
+fqme = "xrpusdt.spot.binance"
+tid = "d5045d2b-14e4-4054-a032-2bbece37f751"
+size = 1434.0
+price = 0.7852
+cost = 0
+dt = "2023-07-14T12:45:12.194136+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "xrpusdt.spot.binance"
+
+[a8a05b59-83f9-4941-89bb-96f7fc94887b]
+fqme = "xrpusdt.spot.binance"
+tid = "a8a05b59-83f9-4941-89bb-96f7fc94887b"
+size = -1.0
+price = 0.7824
+cost = 0
+dt = "2023-07-14T12:46:21.073564+00:00"
+etype = "clear"
+expiry = ""
+bs_mktid = "xrpusdt.spot.binance"
