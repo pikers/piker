@@ -37,8 +37,8 @@ from ..calc import humanize
 from ..brokers._daemon import broker_init
 from ._ledger import (
     load_ledger,
+    TransactionLedger,
     # open_trade_ledger,
-    # TransactionLedger,
 )
 from .calc import (
     open_ledger_dfs,
@@ -263,20 +263,17 @@ def disect(
 
     # ledger dfs groupby-partitioned by fqme
     dfs: dict[str, pl.DataFrame]
+    # actual ledger ref filled in with all txns
+    ldgr: TransactionLedger
+
     with open_ledger_dfs(
         brokername,
         account,
-    ) as dfs:
+    ) as (dfs, ldgr):
 
-        for key in dfs:
-            df = dfs[key]
-            dfs[key] = df.with_columns([
-                pl.cumsum('size').alias('cumsum'),
-            ])
-
-        ppt = dfs[fqme]
+        # look up specific frame for fqme-selected asset
+        df = dfs[fqme]
         assert not df.is_empty()
-        assert not ppt.is_empty()
 
         # TODO: we REALLY need a better console REPL for this
         # kinda thing..
