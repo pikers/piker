@@ -281,7 +281,8 @@ class PaperBoi(Struct):
         )
 
         # transmit pp msg to ems
-        pp = self.acnt.pps[bs_mktid]
+        pp: Position = self.acnt.pps[bs_mktid]
+
         pp_msg = BrokerdPosition(
             broker=self.broker,
             account='paper',
@@ -327,6 +328,7 @@ async def simulate_fills(
     # this stream may eventually contain multiple symbols
     async for quotes in quote_stream:
         for sym, quote in quotes.items():
+            # print(sym)
             for tick in iterticks(
                 quote,
                 # dark order price filter(s)
@@ -617,6 +619,7 @@ async def open_trade_dialog(
             pos: Position
             token: str  # f'{symbol}.{self.broker}'
             for token, pos in acnt.pps.items():
+
                 pp_msgs.append(BrokerdPosition(
                     broker=broker,
                     account='paper',
@@ -735,7 +738,9 @@ async def open_paperboi(
 
 
 def norm_trade(
+    tid: str,
     txdict: dict,
+    pairs: dict[str, Struct],
 
 ) -> Transaction:
     from pendulum import (
