@@ -132,8 +132,11 @@ class Asset(Struct, frozen=True):
 
     # `None` is not toml-compat so drop info
     # if no extra data added..
-    def to_dict(self) -> dict:
-        dct = super().to_dict()
+    def to_dict(
+        self,
+        **kwargs,
+    ) -> dict:
+        dct = super().to_dict(**kwargs)
         if (info := dct.pop('info', None)):
             dct['info'] = info
 
@@ -145,7 +148,7 @@ class Asset(Struct, frozen=True):
         cls,
         msg: dict[str, Any],
     ) -> Asset:
-        return Asset(
+        return cls(
             tx_tick=Decimal(str(msg.pop('tx_tick'))),
             info=msg.pop('info', None),
             **msg,
@@ -318,10 +321,13 @@ class MktPair(Struct, frozen=True):
     def __str__(self) -> str:
         return self.fqme
 
-    def to_dict(self) -> dict:
-        d = super().to_dict()
-        d['src'] = self.src.to_dict()
-        d['dst'] = self.dst.to_dict()
+    def to_dict(
+        self,
+        **kwargs,
+    ) -> dict:
+        d = super().to_dict(**kwargs)
+        d['src'] = self.src.to_dict(**kwargs)
+        d['dst'] = self.dst.to_dict(**kwargs)
 
         d['price_tick'] = str(self.price_tick)
         d['size_tick'] = str(self.size_tick)
