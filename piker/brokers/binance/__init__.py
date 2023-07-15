@@ -33,11 +33,16 @@ from .feed import (
 from .broker import (
     open_trade_dialog,
 )
-
+from .venues import (
+    SpotPair,
+    FutesPair,
+)
 
 __all__ = [
     'get_client',
     'get_mkt_info',
+    'SpotPair',
+    'FutesPair',
     'open_trade_dialog',
     'open_history_client',
     'open_symbol_search',

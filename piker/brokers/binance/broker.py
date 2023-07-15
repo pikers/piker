@@ -36,7 +36,6 @@ import trio
 
 from piker.accounting import (
     Asset,
-    # MktPair,
 )
 from piker.brokers._util import (
     get_logger,
@@ -232,6 +231,9 @@ async def open_trade_dialog(
     account_name: str = 'usdtm'
     use_testnet: bool = False
 
+    # TODO: if/when we add .accounting support we need to
+    # do a open_symcache() call.. though maybe we can hide
+    # this in a new async version of open_account()?
     async with open_cached_client('binance') as client:
         subconf: dict = client.conf[venue_name]
         use_testnet = subconf.get('use_testnet', False)

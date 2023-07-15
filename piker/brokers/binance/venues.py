@@ -84,6 +84,7 @@ def get_api_eps(venue: MarketType) -> tuple[str, str]:
 
 
 class Pair(Struct, frozen=True, kw_only=True):
+
     symbol: str
     status: str
     orderTypes: list[str]
@@ -117,6 +118,10 @@ class Pair(Struct, frozen=True, kw_only=True):
     def bs_fqme(self) -> str:
         return self.symbol
 
+    @property
+    def bs_mktid(self) -> str:
+        return f'{self.symbol}.{self.venue}'
+
 
 class SpotPair(Pair, frozen=True):
 
@@ -136,6 +141,13 @@ class SpotPair(Pair, frozen=True):
     defaultSelfTradePreventionMode: str
     allowedSelfTradePreventionModes: list[str]
     permissions: list[str]
+
+    # NOTE: see `.data._symcache.SymbologyCache.load()` for why
+    ns_path: str = 'piker.brokers.binance:SpotPair'
+
+    @property
+    def venue(self) -> str:
+        return 'SPOT'
 
     @property
     def bs_fqme(self) -> str:
@@ -172,6 +184,9 @@ class FutesPair(Pair):
     triggerProtect: float  # '0.0500',
     underlyingSubType: list[str]  # ['PoW'],
     underlyingType: str  # 'COIN'
+
+    # NOTE: see `.data._symcache.SymbologyCache.load()` for why
+    ns_path: str = 'piker.brokers.binance:FutesPair'
 
     # NOTE: for compat with spot pairs and `MktPair.src: Asset`
     # processing..
