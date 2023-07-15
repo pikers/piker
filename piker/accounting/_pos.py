@@ -51,7 +51,7 @@ from ._mktinfo import (
 )
 from .calc import (
     ppu,
-    iter_by_dt,
+    # iter_by_dt,
 )
 from .. import config
 from ..clearing._messages import (
@@ -145,6 +145,7 @@ class Position(Struct):
     def iter_by_type(
         self,
         etype: str,
+
     ) -> Iterator[dict | Transaction]:
         '''
         Iterate the internally managed ``._events: dict`` table in
@@ -152,15 +153,15 @@ class Position(Struct):
 
         '''
         # sort on the expected datetime field
-        for event in iter_by_dt(
+        # for event in iter_by_dt(
+        for event in sorted(
             self._events.values(),
-            key=lambda entry:
-                getattr(entry, 'dt', None)
-                or entry.get('dt'),
+            key=lambda entry: entry.dt
         ):
+            # if event.etype == etype:
             match event:
                 case (
-                    { 'etype': _etype} |
+                    {'etype': _etype} |
                     Transaction(etype=str(_etype))
                 ):
                     assert _etype == etype
@@ -465,7 +466,7 @@ class Account(Struct):
 
     def update_from_ledger(
         self,
-        ledger: TransactionLedger,
+        ledger: TransactionLedger | dict[str, Transaction],
         cost_scalar: float = 2,
         symcache: SymbologyCache | None = None,
 
@@ -478,31 +479,34 @@ class Account(Struct):
         '''
         if (
             not isinstance(ledger, TransactionLedger)
-            and symcache is None
         ):
-            raise RuntimeError(
-                'No ledger provided!\n'
-                'We can not determine the `MktPair`s without a symcache..\n'
-                'Please provide `symcache: SymbologyCache` when '
-                'processing NEW positions!'
+            if symcache is None:
+                raise RuntimeError(
+                    'No ledger provided!\n'
+                    'We can not determine the `MktPair`s without a symcache..\n'
+                    'Please provide `symcache: SymbologyCache` when '
+                    'processing NEW positions!'
+                )
+            itertxns = sorted(
+                ledger.values(),
+                key=lambda t: t.dt,
             )
+        else:
+            itertxns = ledger.iter_txns()
+            symcache = ledger.symcache
 
         pps = self.pps
         updated: dict[str, Position] = {}
 
         # lifo update all pps from records, ensuring
         # we compute the PPU and size sorted in time!
-        for tid, txn in ledger.iter_txns():
-        # for t in sorted(
-        #     trans.values(),
-        #     key=lambda t: t.dt,
-        # ):
+        for txn in itertxns:
             fqme: str = txn.fqme
             bs_mktid: str = txn.bs_mktid
 
             # template the mkt-info presuming a legacy market ticks
             # if no info exists in the transactions..
-            mkt: MktPair = ledger._symcache.mktmaps[fqme]
+            mkt: MktPair = symcache.mktmaps[fqme]
 
             if not (pos := pps.get(bs_mktid)):
 
@@ -522,12 +526,13 @@ class Account(Struct):
 
             # update clearing acnt!
             # NOTE: likely you'll see repeats of the same
-            # ``Transaction`` passed in here if/when you are restarting
-            # a ``brokerd.ib`` where the API will re-report trades from
-            # the current session, so we need to make sure we don't
-            # "double count" these in pp calculations;
-            # `Position.add_clear()` stores txs in a `dict[tid,
-            # tx]` which should always ensure this is true B)
+            # ``Transaction`` passed in here if/when you are
+            # restarting a ``brokerd.ib`` where the API will
+            # re-report trades from the current session, so we need
+            # to make sure we don't "double count" these in pp
+            # calculations; `Position.add_clear()` stores txs in
+            # a `._events: dict[tid, tx]` which should always
+            # ensure this is true!
             pos.add_clear(txn)
             updated[txn.bs_mktid] = pos
 
@@ -679,6 +684,8 @@ def load_account(
     brokername: str,
     acctid: str,
 
+    dirpath: Path | None = None,
+
 ) -> tuple[dict, Path]:
     '''
     Load a accounting (with positions) file from
@@ -692,7 +699,7 @@ def load_account(
     legacy_fn: str = f'pps.{brokername}.{acctid}.toml'
     fn: str = f'account.{brokername}.{acctid}.toml'
 
-    dirpath: Path = config._config_dir / 'accounting'
+    dirpath: Path = dirpath or (config._config_dir / 'accounting')
     if not dirpath.is_dir():
         dirpath.mkdir()
 
@@ -743,6 +750,9 @@ def open_account(
     acctid: str,
     write_on_exit: bool = False,
 
+    # for testing or manual load from file
+    _fp: Path | None = None,
+
 ) -> Generator[Account, None, None]:
     '''
     Read out broker-specific position entries from
@@ -751,7 +761,11 @@ def open_account(
     '''
     conf: dict
     conf_path: Path
-    conf, conf_path = load_account(brokername, acctid)
+    conf, conf_path = load_account(
+        brokername,
+        acctid,
+        dirpath=_fp,
+    )
 
     if brokername in conf:
         log.warning(
@@ -909,6 +923,7 @@ def load_account_from_ledger(
     filter_by_ids: dict[str, list[str]] | None = None,
 
     ledger: TransactionLedger | None = None,
+    **kwargs,
 
 ) -> Account:
     '''
@@ -919,9 +934,10 @@ def load_account_from_ledger(
 
     '''
     acnt: Account
-    with open_pps(
+    with open_account(
         brokername,
         acctname,
+        **kwargs,
     ) as acnt:
         if ledger is not None:
             acnt.update_from_ledger(ledger)
