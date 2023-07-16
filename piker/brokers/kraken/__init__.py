@@ -25,17 +25,27 @@ Sub-modules within break into the core functionalities:
   wrapping around ``ib_insync``.
 
 '''
+from .symbols import Pair  # for symcache
+# required by `.brokers`
 from .api import (
     get_client,
 )
 from .feed import (
+    # required by `.accounting`, `.data`
     get_mkt_info,
-    open_history_client,
+
+    # required by `.data`
     open_symbol_search,
     stream_quotes,
+    open_history_client,
 )
 from .broker import (
+    # required by `.clearing`
     open_trade_dialog,
+)
+from .ledger import (
+    # required by `.accounting`
+    norm_trade,
     norm_trade_records,
 )
 
@@ -43,11 +53,13 @@ from .broker import (
 __all__ = [
     'get_client',
     'get_mkt_info',
+    'Pair',
     'open_trade_dialog',
     'open_history_client',
     'open_symbol_search',
     'stream_quotes',
     'norm_trade_records',
+    'norm_trade',
 ]
 
 

@@ -282,11 +282,13 @@ async def get_mkt_info(
     '''
     venue: str = 'spot'
     expiry: str = ''
-    if '.kraken' in fqme:
-        broker, pair, venue, expiry = unpack_fqme(fqme)
-        venue: str = venue or 'spot'
+    if '.kraken' not in fqme:
+        fqme += '.kraken'
 
-    if venue != 'spot':
+    broker, pair, venue, expiry = unpack_fqme(fqme)
+    venue: str = venue or 'spot'
+
+    if venue.lower() != 'spot':
         raise SymbolNotFound(
             'kraken only supports spot markets right now!\n'
             f'{fqme}\n'
@@ -295,14 +297,20 @@ async def get_mkt_info(
     async with open_cached_client('kraken') as client:
 
         # uppercase since kraken bs_mktid is always upper
-        bs_fqme, _, broker = fqme.partition('.')
-        pair_str: str = bs_fqme.upper()
-        bs_mktid: str = Client.normalize_symbol(pair_str)
-        pair: Pair = await client.pair_info(pair_str)
+        # bs_fqme, _, broker = fqme.partition('.')
+        # pair_str: str = bs_fqme.upper()
+        pair_str: str = f'{pair}.{venue}'
 
-        assets = client.assets
-        dst_asset: Asset = assets[pair.base]
-        src_asset: Asset = assets[pair.quote]
+        pair: Pair | None = client._pairs.get(pair_str.upper())
+        if not pair:
+            bs_fqme: str = Client.to_bs_fqme(pair_str)
+            pair: Pair = client._pairs[bs_fqme]
+
+        if not (assets := client._assets):
+            assets: dict[str, Asset] = await client.get_assets()
+
+        dst_asset: Asset = assets[pair.bs_dst_asset]
+        src_asset: Asset = assets[pair.bs_src_asset]
 
         mkt = MktPair(
             dst=dst_asset,
@@ -310,7 +318,7 @@ async def get_mkt_info(
 
             price_tick=pair.price_tick,
             size_tick=pair.size_tick,
-            bs_mktid=bs_mktid,
+            bs_mktid=pair.bs_mktid,
 
             expiry=expiry,
             venue=venue or 'spot',
@@ -488,7 +496,7 @@ async def open_symbol_search(
     async with open_cached_client('kraken') as client:
 
         # load all symbols locally for fast search
-        cache = await client.cache_symbols()
+        cache = await client.get_mkt_pairs()
         await ctx.started(cache)
 
         async with ctx.open_stream() as stream:
@@ -497,7 +505,7 @@ async def open_symbol_search(
 
                 matches = fuzzy.extractBests(
                     pattern,
-                    cache,
+                    client._pairs,
                     score_cutoff=50,
                 )
                 # repack in dict form

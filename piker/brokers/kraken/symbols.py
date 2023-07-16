@@ -1,0 +1,114 @@
+# piker: trading gear for hackers
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+'''
+Symbology defs and deats!
+
+'''
+from decimal import Decimal
+
+from piker.accounting._mktinfo import (
+    digits_to_dec,
+)
+from piker.data.types import Struct
+
+
+# https://www.kraken.com/features/api#get-tradable-pairs
+class Pair(Struct):
+    respname: str  # idiotic bs_mktid equiv i guess?
+    altname: str  # alternate pair name
+    wsname: str  # WebSocket pair name (if available)
+    aclass_base: str  # asset class of base component
+    base: str  # asset id of base component
+    aclass_quote: str  # asset class of quote component
+    quote: str  # asset id of quote component
+    lot: str  # volume lot size
+
+    cost_decimals: int
+    costmin: float
+    pair_decimals: int  # scaling decimal places for pair
+    lot_decimals: int  # scaling decimal places for volume
+
+    # amount to multiply lot volume by to get currency volume
+    lot_multiplier: float
+
+    # array of leverage amounts available when buying
+    leverage_buy: list[int]
+    # array of leverage amounts available when selling
+    leverage_sell: list[int]
+
+    # fee schedule array in [volume, percent fee] tuples
+    fees: list[tuple[int, float]]
+
+    # maker fee schedule array in [volume, percent fee] tuples (if on
+    # maker/taker)
+    fees_maker: list[tuple[int, float]]
+
+    fee_volume_currency: str  # volume discount currency
+    margin_call: str  # margin call level
+    margin_stop: str  # stop-out/liquidation margin level
+    ordermin: float  # minimum order volume for pair
+    tick_size: float  # min price step size
+    status: str
+
+    short_position_limit: float = 0
+    long_position_limit: float = float('inf')
+
+    # TODO: should we make this a literal NamespacePath ref?
+    ns_path: str = 'piker.brokers.kraken:Pair'
+
+    @property
+    def bs_mktid(self) -> str:
+        '''
+        Kraken seems to index it's market symbol sets in
+        transaction ledgers using the key returned from rest
+        queries.. so use that since apparently they can't
+        make up their minds on a better key set XD
+
+        '''
+        return self.respname
+
+    @property
+    def price_tick(self) -> Decimal:
+        return digits_to_dec(self.pair_decimals)
+
+    @property
+    def size_tick(self) -> Decimal:
+        return digits_to_dec(self.lot_decimals)
+
+    @property
+    def bs_dst_asset(self) -> str:
+        dst, _ = self.wsname.split('/')
+        return dst
+
+    @property
+    def bs_src_asset(self) -> str:
+        _, src = self.wsname.split('/')
+        return src
+
+    @property
+    def bs_fqme(self) -> str:
+        '''
+        Basically the `.altname` but with special '.' handling and
+        `.SPOT` suffix appending (for future multi-venue support).
+
+        '''
+        dst, src = self.wsname.split('/')
+        # XXX: omg for stupid shite like ETH2.S/ETH..
+        dst = dst.replace('.', '-')
+        return f'{dst}{src}.SPOT'
+
+
