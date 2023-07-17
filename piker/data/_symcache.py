@@ -303,11 +303,25 @@ class SymbologyCache(Struct):
 _caches: dict[str, SymbologyCache] = {}
 
 
+def mk_cachefile(
+    provider: str,
+) -> Path:
+    cachedir: Path = config.get_conf_dir() / '_cache'
+    if not cachedir.is_dir():
+        log.info(f'Creating `nativedb` director: {cachedir}')
+        cachedir.mkdir()
+
+    cachefile: Path = cachedir / f'{str(provider)}.symcache.toml'
+    cachefile.touch()
+    return cachefile
+
+
 @acm
 async def open_symcache(
     mod_or_name: ModuleType | str,
+
     reload: bool = False,
-    only_from_memcache: bool = False,
+    only_from_memcache: bool = False,  # no API req
 
 ) -> SymbologyCache:
 
@@ -317,6 +331,18 @@ async def open_symcache(
         mod: ModuleType = mod_or_name
 
     provider: str = mod.name
+    cachefile: Path = mk_cachefile(provider)
+
+    # NOTE: certain backends might not support a symbology cache
+    # (easily) and thus we allow for an empty instance to be loaded
+    # and manually filled in at the whim of the caller presuming
+    # the backend pkg-module is annotated appropriately.
+    if getattr(mod, '_no_symcache', False):
+        yield SymbologyCache(
+            mod=mod,
+            fp=cachefile,
+        )
+        return
 
     # actor-level cache-cache XD
     global _caches
@@ -331,13 +357,6 @@ async def open_symcache(
                 raise RuntimeError(msg)
             else:
                 log.warning(msg)
-
-    cachedir: Path = config.get_conf_dir() / '_cache'
-    if not cachedir.is_dir():
-        log.info(f'Creating `nativedb` director: {cachedir}')
-        cachedir.mkdir()
-
-    cachefile: Path = cachedir / f'{str(provider)}.symcache.toml'
 
     # if no cache exists or an explicit reload is requested, load
     # the provider API and call appropriate endpoints to populate
