@@ -88,7 +88,7 @@ def get_likely_pair(
 
     '''
     try:
-        src_name_start = bs_mktid.rindex(src)
+        src_name_start: str = bs_mktid.rindex(src)
     except (
         ValueError,   # substr not found
     ):
@@ -99,8 +99,8 @@ def get_likely_pair(
         # log.warning(
         #     f'No src fiat {src} found in {bs_mktid}?'
         # )
-        return
+        return None
 
-    likely_dst = bs_mktid[:src_name_start]
+    likely_dst: str = bs_mktid[:src_name_start]
     if likely_dst == dst:
         return bs_mktid

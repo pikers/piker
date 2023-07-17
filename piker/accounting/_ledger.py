@@ -28,6 +28,7 @@ from typing import (
     Any,
     Callable,
     Generator,
+    Literal,
     TYPE_CHECKING,
 )
 
@@ -51,6 +52,18 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
+TxnType = Literal[
+    'clear',
+    'transfer',
+
+    # TODO: see https://github.com/pikers/piker/issues/510
+    # 'split',
+    # 'rename',
+    # 'resize',
+    # 'removal',
+]
+
+
 class Transaction(Struct, frozen=True):
 
     # NOTE: this is a unified acronym also used in our `MktPair`
@@ -70,10 +83,9 @@ class Transaction(Struct, frozen=True):
     cost: float  # commisions or other additional costs
     dt: DateTime
 
-    # the "event type" in terms of "market events" see
-    # https://github.com/pikers/piker/issues/510 for where we're
-    # probably going with this.
-    etype: str = 'clear'
+    # the "event type" in terms of "market events" see above and
+    # https://github.com/pikers/piker/issues/510
+    etype: TxnType = 'clear'
 
     # TODO: we can drop this right since we
     # can instead expect the backend to provide this
