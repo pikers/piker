@@ -19,23 +19,26 @@ Kraken backend.
 
 Sub-modules within break into the core functionalities:
 
-- ``broker.py`` part for orders / trading endpoints
-- ``feed.py`` for real-time data feed endpoints
-- ``api.py`` for the core API machinery which is ``trio``-ized
-  wrapping around ``ib_insync``.
+- .api: for the core API machinery which generally
+        a ``asks``/``trio-websocket`` implemented ``Client``.
+- .broker: part for orders / trading endpoints.
+- .feed: for real-time and historical data query endpoints.
+- .ledger: for transaction processing as it pertains to accounting.
+- .symbols: for market (name) search and symbology meta-defs.
 
 '''
-from .symbols import Pair  # for symcache
+from .symbols import (
+    Pair,  # for symcache
+    open_symbol_search,
+    # required by `.accounting`, `.data`
+    get_mkt_info,
+)
 # required by `.brokers`
 from .api import (
     get_client,
 )
 from .feed import (
-    # required by `.accounting`, `.data`
-    get_mkt_info,
-
     # required by `.data`
-    open_symbol_search,
     stream_quotes,
     open_history_client,
 )
@@ -66,6 +69,7 @@ __all__ = [
 # tractor RPC enable arg
 __enable_modules__: list[str] = [
     'api',
-    'feed',
     'broker',
+    'feed',
+    'symbols',
 ]

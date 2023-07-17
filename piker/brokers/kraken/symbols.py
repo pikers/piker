@@ -15,15 +15,30 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 '''
-Symbology defs and deats!
+Symbology defs and search.
 
 '''
 from decimal import Decimal
 
+import tractor
+from fuzzywuzzy import process as fuzzy
+
+from piker._cacheables import (
+    async_lifo_cache,
+)
 from piker.accounting._mktinfo import (
     digits_to_dec,
 )
+from piker.brokers import (
+    open_cached_client,
+    SymbolNotFound,
+)
 from piker.data.types import Struct
+from piker.accounting._mktinfo import (
+    Asset,
+    MktPair,
+    unpack_fqme,
+)
 
 
 # https://www.kraken.com/features/api#get-tradable-pairs
@@ -112,3 +127,89 @@ class Pair(Struct):
         return f'{dst}{src}.SPOT'
 
 
+@tractor.context
+async def open_symbol_search(ctx: tractor.Context) -> None:
+    async with open_cached_client('kraken') as client:
+
+        # load all symbols locally for fast search
+        cache = await client.get_mkt_pairs()
+        await ctx.started(cache)
+
+        async with ctx.open_stream() as stream:
+
+            async for pattern in stream:
+
+                matches = fuzzy.extractBests(
+                    pattern,
+                    client._pairs,
+                    score_cutoff=50,
+                )
+                # repack in dict form
+                await stream.send({
+                    pair[0].altname: pair[0]
+                    for pair in matches
+                })
+
+
+@async_lifo_cache()
+async def get_mkt_info(
+    fqme: str,
+
+) -> tuple[MktPair, Pair]:
+    '''
+    Query for and return a `MktPair` and backend-native `Pair` (or
+    wtv else) info.
+
+    If more then one fqme is provided return a ``dict`` of native
+    key-strs to `MktPair`s.
+
+    '''
+    venue: str = 'spot'
+    expiry: str = ''
+    if '.kraken' not in fqme:
+        fqme += '.kraken'
+
+    broker, pair, venue, expiry = unpack_fqme(fqme)
+    venue: str = venue or 'spot'
+
+    if venue.lower() != 'spot':
+        raise SymbolNotFound(
+            'kraken only supports spot markets right now!\n'
+            f'{fqme}\n'
+        )
+
+    async with open_cached_client('kraken') as client:
+
+        # uppercase since kraken bs_mktid is always upper
+        # bs_fqme, _, broker = fqme.partition('.')
+        # pair_str: str = bs_fqme.upper()
+        pair_str: str = f'{pair}.{venue}'
+
+        pair: Pair | None = client._pairs.get(pair_str.upper())
+        if not pair:
+            bs_fqme: str = client.to_bs_fqme(pair_str)
+            pair: Pair = client._pairs[bs_fqme]
+
+        if not (assets := client._assets):
+            assets: dict[str, Asset] = await client.get_assets()
+
+        dst_asset: Asset = assets[pair.bs_dst_asset]
+        src_asset: Asset = assets[pair.bs_src_asset]
+
+        mkt = MktPair(
+            dst=dst_asset,
+            src=src_asset,
+
+            price_tick=pair.price_tick,
+            size_tick=pair.size_tick,
+            bs_mktid=pair.bs_mktid,
+
+            expiry=expiry,
+            venue=venue or 'spot',
+
+            # TODO: futes
+            # _atype=_atype,
+
+            broker='kraken',
+        )
+        return mkt, pair

@@ -30,24 +30,16 @@ from typing import (
 )
 import time
 
-from fuzzywuzzy import process as fuzzy
 import numpy as np
 import pendulum
 from trio_typing import TaskStatus
-import tractor
 import trio
 
 from piker.accounting._mktinfo import (
-    Asset,
     MktPair,
-    unpack_fqme,
 )
 from piker.brokers import (
     open_cached_client,
-    SymbolNotFound,
-)
-from piker._cacheables import (
-    async_lifo_cache,
 )
 from piker.brokers._util import (
     BrokerError,
@@ -59,9 +51,8 @@ from piker.data.validate import FeedInit
 from piker.data._web_bs import open_autorecon_ws, NoBsWs
 from .api import (
     log,
-    Client,
-    Pair,
 )
+from .symbols import get_mkt_info
 
 
 class OHLC(Struct, frozen=True):
@@ -267,70 +258,6 @@ async def open_history_client(
         yield get_ohlc, {'erlangs': 1, 'rate': 1}
 
 
-@async_lifo_cache()
-async def get_mkt_info(
-    fqme: str,
-
-) -> tuple[MktPair, Pair]:
-    '''
-    Query for and return a `MktPair` and backend-native `Pair` (or
-    wtv else) info.
-
-    If more then one fqme is provided return a ``dict`` of native
-    key-strs to `MktPair`s.
-
-    '''
-    venue: str = 'spot'
-    expiry: str = ''
-    if '.kraken' not in fqme:
-        fqme += '.kraken'
-
-    broker, pair, venue, expiry = unpack_fqme(fqme)
-    venue: str = venue or 'spot'
-
-    if venue.lower() != 'spot':
-        raise SymbolNotFound(
-            'kraken only supports spot markets right now!\n'
-            f'{fqme}\n'
-        )
-
-    async with open_cached_client('kraken') as client:
-
-        # uppercase since kraken bs_mktid is always upper
-        # bs_fqme, _, broker = fqme.partition('.')
-        # pair_str: str = bs_fqme.upper()
-        pair_str: str = f'{pair}.{venue}'
-
-        pair: Pair | None = client._pairs.get(pair_str.upper())
-        if not pair:
-            bs_fqme: str = Client.to_bs_fqme(pair_str)
-            pair: Pair = client._pairs[bs_fqme]
-
-        if not (assets := client._assets):
-            assets: dict[str, Asset] = await client.get_assets()
-
-        dst_asset: Asset = assets[pair.bs_dst_asset]
-        src_asset: Asset = assets[pair.bs_src_asset]
-
-        mkt = MktPair(
-            dst=dst_asset,
-            src=src_asset,
-
-            price_tick=pair.price_tick,
-            size_tick=pair.size_tick,
-            bs_mktid=pair.bs_mktid,
-
-            expiry=expiry,
-            venue=venue or 'spot',
-
-            # TODO: futes
-            # _atype=_atype,
-
-            broker='kraken',
-        )
-        return mkt, pair
-
-
 async def stream_quotes(
 
     send_chan: trio.abc.SendChannel,
@@ -486,30 +413,3 @@ async def stream_quotes(
                         log.warning(f'Unknown WSS message: {typ}, {quote}')
 
                 await send_chan.send({topic: quote})
-
-
-@tractor.context
-async def open_symbol_search(
-    ctx: tractor.Context,
-
-) -> Client:
-    async with open_cached_client('kraken') as client:
-
-        # load all symbols locally for fast search
-        cache = await client.get_mkt_pairs()
-        await ctx.started(cache)
-
-        async with ctx.open_stream() as stream:
-
-            async for pattern in stream:
-
-                matches = fuzzy.extractBests(
-                    pattern,
-                    client._pairs,
-                    score_cutoff=50,
-                )
-                # repack in dict form
-                await stream.send({
-                    pair[0].altname: pair[0]
-                    for pair in matches
-                })
