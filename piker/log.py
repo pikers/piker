@@ -40,7 +40,10 @@ def get_logger(
     Return the package log or a sub-log for `name` if provided.
 
     '''
-    return tractor.log.get_logger(name=name, _root_name=_proj_name)
+    return tractor.log.get_logger(
+        name=name,
+        _root_name=_proj_name,
+    )
 
 
 def get_console_log(

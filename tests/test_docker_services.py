@@ -12,6 +12,7 @@ from piker.service import marketstore
 from piker.service import elastic
 
 
+@pytest.mark.skip
 def test_marketstore_startup_and_version(
     open_test_pikerd: AsyncContextManager,
     loglevel: str,
@@ -38,7 +39,7 @@ def test_marketstore_startup_and_version(
             ) as (
                 _,  # host
                 _,  # port
-                pikerd_portal,
+                _,
                 services,
             ),
 

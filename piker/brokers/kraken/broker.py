@@ -18,7 +18,6 @@
 Order api and machinery
 
 '''
-from collections import ChainMap, defaultdict
 from contextlib import (
     asynccontextmanager as acm,
     aclosing,
@@ -51,6 +50,9 @@ from piker.accounting import (
 )
 from piker.accounting._mktinfo import (
     MktPair,
+)
+from piker.clearing import(
+    OrderDialogs,
 )
 from piker.clearing._messages import (
     Order,
@@ -124,7 +126,7 @@ async def handle_order_requests(
     client: Client,
     ems_order_stream: tractor.MsgStream,
     token: str,
-    apiflows: dict[int, ChainMap[dict[str, dict]]],
+    apiflows: OrderDialogs,
     ids: bidict[str, int],
     reqids2txids: dict[int, str],
 
@@ -134,10 +136,8 @@ async def handle_order_requests(
     and deliver acks or errors.
 
     '''
-    # XXX: UGH, let's unify this.. with ``msgspec``.
-    msg: dict[str, Any]
-    order: BrokerdOrder
-
+    # XXX: UGH, let's unify this.. with ``msgspec``!!!
+    msg: dict | Order
     async for msg in ems_order_stream:
         log.info(f'Rx order msg:\n{pformat(msg)}')
         match msg:
@@ -183,11 +183,12 @@ async def handle_order_requests(
 
                 # logic from old `Client.submit_limit()`
                 if order.oid in ids:
-                    ep = 'editOrder'
-                    reqid = ids[order.oid]  # integer not txid
+                    ep: str = 'editOrder'
+                    reqid: int = ids[order.oid]  # integer not txid
                     try:
-                        txid = reqids2txids[reqid]
+                        txid: str = reqids2txids[reqid]
                     except KeyError:
+
                         # XXX: not sure if this block ever gets hit now?
                         log.error('TOO FAST EDIT')
                         reqids2txids[reqid] = TooFastEdit(reqid)
@@ -208,7 +209,7 @@ async def handle_order_requests(
                         }
 
                 else:
-                    ep = 'addOrder'
+                    ep: str = 'addOrder'
 
                     reqid = BrokerClient.new_reqid()
                     ids[order.oid] = reqid
@@ -221,8 +222,12 @@ async def handle_order_requests(
                         'type': order.action,
                     }
 
-                    psym = order.symbol.upper()
-                    pair = f'{psym[:3]}/{psym[3:]}'
+                    # XXX strip any .<venue> token which should
+                    # ONLY ever be '.spot' rn, until we support
+                    # futes.
+                    bs_fqme: str = order.symbol.replace('.spot', '')
+                    psym: str = bs_fqme.upper()
+                    pair: str = f'{psym[:3]}/{psym[3:]}'
 
                 # XXX: ACK the request **immediately** before sending
                 # the api side request to ensure the ems maps the oid ->
@@ -260,7 +265,7 @@ async def handle_order_requests(
                 await ws.send_msg(req)
 
                 # placehold for sanity checking in relay loop
-                apiflows[reqid].maps.append(msg)
+                apiflows.add_msg(reqid, msg)
 
             case _:
                 account = msg.get('account')
@@ -372,10 +377,7 @@ def trades2pps(
 
     write_storage: bool = True,
 
-) -> tuple[
-    list[BrokerdPosition],
-    list[Transaction],
-]:
+) -> list[BrokerdPosition]:
     if new_trans:
         updated = table.update_from_trans(
             new_trans,
@@ -420,22 +422,17 @@ def trades2pps(
 
 
 @tractor.context
-async def trades_dialogue(
+async def open_trade_dialog(
     ctx: tractor.Context,
 
 ) -> AsyncIterator[dict[str, Any]]:
 
     async with get_client() as client:
-
+        # make ems flip to paper mode when no creds setup in
+        # `brokers.toml` B0
         if not client._api_key:
             await ctx.started('paper')
             return
-
-        # TODO: make ems flip to paper mode via
-        # some returned signal if the user only wants to use
-        # the data feed or we return this?
-        # else:
-        #     await ctx.started(({}, ['paper']))
 
         # NOTE: currently we expect the user to define a "source fiat"
         # (much like the web UI let's you set an "account currency")
@@ -448,10 +445,7 @@ async def trades_dialogue(
         acc_name = 'kraken.' + acctid
 
         # task local msg dialog tracking
-        apiflows: defaultdict[
-            int,
-            ChainMap[dict[str, dict]],
-        ] = defaultdict(ChainMap)
+        apiflows = OrderDialogs()
 
         # 2way map for ems ids to kraken int reqids..
         ids: bidict[str, int] = bidict()
@@ -648,7 +642,7 @@ async def trades_dialogue(
                 # stage a first reqid of `0`
                 reqids2txids[0] = last_trade_dict['ordertxid']
 
-            ppmsgs = trades2pps(
+            ppmsgs: list[BrokerdPosition] = trades2pps(
                 table,
                 acctid,
             )
@@ -714,7 +708,7 @@ async def handle_order_updates(
     ws: NoBsWs,
     ws_stream: AsyncIterator,
     ems_stream: tractor.MsgStream,
-    apiflows: dict[int, ChainMap[dict[str, dict]]],
+    apiflows: OrderDialogs,
     ids: bidict[str, int],
     reqids2txids: bidict[int, str],
     table: PpTable,
@@ -874,8 +868,9 @@ async def handle_order_updates(
                     # 'vol_exec': exec_vlm}  # 0.0000
                     match update_msg:
 
-                        # EMS-unknown LIVE order that needs to be
-                        # delivered and loaded on the client-side.
+                        # EMS-unknown pre-exising-submitted LIVE
+                        # order that needs to be delivered and
+                        # loaded on the client-side.
                         case {
                             'userref': reqid,
                             'descr': {
@@ -894,7 +889,7 @@ async def handle_order_updates(
                             ids.inverse.get(reqid) is None
                         ):
                             # parse out existing live order
-                            fqme = pair.replace('/', '').lower()
+                            fqme = pair.replace('/', '').lower() + '.spot'
                             price = float(price)
                             size = float(vol)
 
@@ -928,7 +923,7 @@ async def handle_order_updates(
                                 ),
                                 src='kraken',
                             )
-                            apiflows[reqid].maps.append(status_msg.to_dict())
+                            apiflows.add_msg(reqid, status_msg.to_dict())
                             await ems_stream.send(status_msg)
                             continue
 
@@ -1064,7 +1059,7 @@ async def handle_order_updates(
                                 ),
                             )
 
-                            apiflows[reqid].maps.append(update_msg)
+                            apiflows.add_msg(reqid, update_msg)
                             await ems_stream.send(resp)
 
                         # fill msg.
@@ -1143,9 +1138,8 @@ async def handle_order_updates(
                     )
                     continue
 
-                # update the msg chain
-                chain = apiflows[reqid]
-                chain.maps.append(event)
+                # update the msg history
+                apiflows.add_msg(reqid, event)
 
                 if status == 'error':
                     # any of ``{'add', 'edit', 'cancel'}``
@@ -1155,11 +1149,16 @@ async def handle_order_updates(
                         f'Failed to {action} order {reqid}:\n'
                         f'{errmsg}'
                     )
+
+                    symbol: str = 'N/A'
+                    if chain := apiflows.get(reqid):
+                        symbol: str = chain.get('symbol', 'N/A')
+
                     await ems_stream.send(BrokerdError(
                         oid=oid,
                         # XXX: use old reqid in case it changed?
                         reqid=reqid,
-                        symbol=chain.get('symbol', 'N/A'),
+                        symbol=symbol,
 
                         reason=f'Failed {action}:\n{errmsg}',
                         broker_details=event
@@ -1201,8 +1200,8 @@ async def norm_trade_records(
         }[record['type']]
 
         # we normalize to kraken's `altname` always..
-        bs_mktid = Client.normalize_symbol(record['pair'])
-        fqme = f'{bs_mktid}.kraken'
+        bs_mktid: str = Client.normalize_symbol(record['pair'])
+        fqme = f'{bs_mktid.lower()}.kraken'
         mkt: MktPair = (await get_mkt_info(fqme))[0]
 
         records[tid] = Transaction(

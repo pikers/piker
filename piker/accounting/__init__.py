@@ -40,6 +40,7 @@ from ._mktinfo import (
     MktPair,
     Symbol,
     unpack_fqme,
+    _derivs as DerivTypes,
 )
 from ._allocate import (
     mk_allocator,
@@ -65,6 +66,7 @@ __all__ = [
     'open_pps',
     'open_trade_ledger',
     'unpack_fqme',
+    'DerivTypes',
 ]
 
 

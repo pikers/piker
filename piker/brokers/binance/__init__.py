@@ -1,5 +1,8 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for pikers)
+# Copyright (C)
+#   Guillermo Rodriguez (aka ze jefe)
+#   Tyler Goodlet
+#   (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -15,61 +18,36 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """
-Interactive Brokers API backend.
-
-Sub-modules within break into the core functionalities:
-
-- ``broker.py`` part for orders / trading endpoints
-- ``feed.py`` for real-time data feed endpoints
-- ``api.py`` for the core API machinery which is ``trio``-ized
-  wrapping around ``ib_insync``.
+binancial secs on the floor, in the office, behind the dumpster.
 
 """
 from .api import (
     get_client,
 )
 from .feed import (
+    get_mkt_info,
     open_history_client,
     open_symbol_search,
     stream_quotes,
 )
 from .broker import (
     open_trade_dialog,
-    norm_trade_records,
 )
+
 
 __all__ = [
     'get_client',
-    'norm_trade_records',
+    'get_mkt_info',
     'open_trade_dialog',
     'open_history_client',
     'open_symbol_search',
     'stream_quotes',
 ]
 
-_brokerd_mods: list[str] = [
+
+# `brokerd` modules
+__enable_modules__: list[str] = [
     'api',
+    'feed',
     'broker',
 ]
-
-_datad_mods: list[str] = [
-    'feed',
-]
-
-
-# tractor RPC enable arg
-__enable_modules__: list[str] = (
-    _brokerd_mods
-    +
-    _datad_mods
-)
-
-# passed to ``tractor.ActorNursery.start_actor()``
-_spawn_kwargs = {
-    'infect_asyncio': True,
-}
-
-# annotation to let backend agnostic code
-# know if ``brokerd`` should be spawned with
-# ``tractor``'s aio mode.
-_infect_asyncio: bool = True

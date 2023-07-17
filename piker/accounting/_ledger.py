@@ -123,6 +123,11 @@ class TransactionLedger(UserDict):
         self,
         t: Transaction,
     ) -> None:
+        '''
+        Given an input `Transaction`, cast to `dict` and update
+        from it's transaction id.
+
+        '''
         self.data[t.tid] = t.to_dict()
 
     def iter_trans(
@@ -259,6 +264,45 @@ def iter_by_dt(
         yield tid, data
 
 
+def load_ledger(
+    brokername: str,
+    acctid: str,
+
+) -> tuple[dict, Path]:
+    '''
+    Load a ledger (TOML) file from user's config directory:
+    $CONFIG_DIR/accounting/ledgers/trades_<brokername>_<acctid>.toml
+
+    Return its `dict`-content and file path.
+
+    '''
+    import time
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        import tomli as tomllib
+
+    ldir: Path = config._config_dir / 'accounting' / 'ledgers'
+    if not ldir.is_dir():
+        ldir.mkdir()
+
+    fname = f'trades_{brokername}_{acctid}.toml'
+    fpath: Path = ldir / fname
+
+    if not fpath.is_file():
+        log.info(
+            f'Creating new local trades ledger: {fpath}'
+        )
+        fpath.touch()
+
+    with fpath.open(mode='rb') as cf:
+        start = time.time()
+        ledger_dict = tomllib.load(cf)
+        log.debug(f'Ledger load took {time.time() - start}s')
+
+    return ledger_dict, fpath
+
+
 @cm
 def open_trade_ledger(
     broker: str,
@@ -267,7 +311,7 @@ def open_trade_ledger(
     # default is to sort by detected datetime-ish field
     tx_sort: Callable = iter_by_dt,
 
-) -> Generator[dict, None, None]:
+) -> Generator[TransactionLedger, None, None]:
     '''
     Indempotently create and read in a trade log file from the
     ``<configuration_dir>/ledgers/`` directory.
@@ -277,7 +321,7 @@ def open_trade_ledger(
     name as defined in the user's ``brokers.toml`` config.
 
     '''
-    ledger_dict, fpath = config.load_ledger(broker, account)
+    ledger_dict, fpath = load_ledger(broker, account)
     cpy = ledger_dict.copy()
     ledger = TransactionLedger(
         ledger_dict=cpy,

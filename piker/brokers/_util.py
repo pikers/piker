@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) 2018-present  Tyler Goodlet (in stewardship of piker0)
+# Copyright (C) 2018-present Tyler Goodlet (in stewardship of pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -32,6 +32,8 @@ from ..log import (
 subsys: str = 'piker.brokers'
 
 # NOTE: level should be reset by any actor that is spawned
+# as well as given a (more) explicit name/key such
+# as `piker.brokers.binance` matching the subpkg.
 log = get_logger(subsys)
 
 get_console_log = partial(

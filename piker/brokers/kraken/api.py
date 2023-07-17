@@ -153,6 +153,10 @@ class Pair(Struct):
     def size_tick(self) -> Decimal:
         return digits_to_dec(self.lot_decimals)
 
+    @property
+    def bs_fqme(self) -> str:
+        return f'{self.symbol}.SPOT'
+
 
 class Client:
 
@@ -638,7 +642,10 @@ class Client:
         the 'AssetPairs' endpoint, see methods above.
 
         '''
-        return cls._ntable[ticker].lower()
+        try:
+            return cls._ntable[ticker]
+        except KeyError as ke:
+            raise SymbolNotFound(f'kraken has no {ke.args[0]}')
 
 
 @acm

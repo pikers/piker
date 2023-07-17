@@ -17,12 +17,15 @@
 Sub-sys module commons.
 
 """
+from collections import ChainMap
 from functools import partial
+from typing import Any
 
 from ..log import (
     get_logger,
     get_console_log,
 )
+from piker.data.types import Struct
 subsys: str = 'piker.clearing'
 
 log = get_logger(subsys)
@@ -31,3 +34,63 @@ get_console_log = partial(
     get_console_log,
     name=subsys,
 )
+
+
+# TODO: use this in other backends like kraken which currently has
+# a less formalized version more or less:
+# `apiflows[reqid].maps.append(status_msg.to_dict())`
+class OrderDialogs(Struct):
+    '''
+    Order control dialog (and thus transaction) tracking via
+    message recording.
+
+    Allows easily recording messages associated with a given set of
+    order control transactions and looking up the latest field
+    state using the entire (reverse chronological) msg flow.
+
+    '''
+    _flows: dict[str, ChainMap] = {}
+
+    def add_msg(
+        self,
+        oid: str,
+        msg: dict,
+    ) -> None:
+
+        # NOTE: manually enter a new map on the first msg add to
+        # avoid creating one with an empty dict first entry in
+        # `ChainMap.maps` which is the default if none passed at
+        # init.
+        cm: ChainMap = self._flows.get(oid)
+        if cm:
+            cm.maps.insert(0, msg)
+        else:
+            cm = ChainMap(msg)
+            self._flows[oid] = cm
+
+    # TODO: wrap all this in the `collections.abc.Mapping` interface?
+    def get(
+        self,
+        oid: str,
+
+    ) -> ChainMap[str, Any]:
+        '''
+        Return the dialog `ChainMap` for provided id.
+
+        '''
+        return self._flows.get(oid, None)
+
+    def pop(
+        self,
+        oid: str,
+
+    ) -> ChainMap[str, Any]:
+        '''
+        Pop and thus remove the `ChainMap` containing the msg flow
+        for the given order id.
+
+        '''
+        if (flow := self._flows.pop(oid, None)) is None:
+            log.warning(f'No flow found for oid: {oid}')
+
+        return flow

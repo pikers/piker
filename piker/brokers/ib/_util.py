@@ -29,7 +29,7 @@ import subprocess
 
 import tractor
 
-from .._util import get_logger
+from piker.brokers._util import get_logger
 
 if TYPE_CHECKING:
     from .api import Client

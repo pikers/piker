@@ -195,7 +195,7 @@ def brokercheck(config, broker):
 
 @cli.command()
 @click.option('--keys', '-k', multiple=True,
-              help='Return results only for these keys')
+            help='Return results only for these keys')
 @click.argument('meth', nargs=1)
 @click.argument('kwargs', nargs=-1)
 @click.pass_obj
@@ -485,3 +485,37 @@ def search(config, pattern):
         return
 
     click.echo(colorize_json(quotes))
+
+
+@cli.command()
+@click.argument('section', required=False)
+@click.argument('value', required=False)
+@click.option('--delete', '-d', flag_value=True, help='Delete section')
+@click.pass_obj
+def brokercfg(config, section, value, delete):
+    """If invoked with no arguments, open an editor to edit broker configs file
+    or get / update an individual section.
+    """
+    from .. import config
+
+    if section:
+        conf, path = config.load()
+
+        if not delete:
+            if value:
+                config.set_value(conf, section, value)
+
+            click.echo(
+                colorize_json(
+                    config.get_value(conf, section))
+            )
+        else:
+            config.del_value(conf, section)
+
+        config.write(config=conf)
+
+    else:
+        conf, path = config.load(raw=True)
+        config.write(
+            raw=click.edit(text=conf)
+        )

@@ -24,7 +24,6 @@ from contextlib import (
 )
 from datetime import datetime
 from typing import (
-    Any,
     AsyncGenerator,
     Callable,
     Optional,
@@ -41,9 +40,11 @@ import trio
 from piker.accounting._mktinfo import (
     Asset,
     MktPair,
+    unpack_fqme,
 )
 from piker.brokers import (
     open_cached_client,
+    SymbolNotFound,
 )
 from piker._cacheables import (
     async_lifo_cache,
@@ -63,7 +64,7 @@ from .api import (
 )
 
 
-class OHLC(Struct):
+class OHLC(Struct, frozen=True):
     '''
     Description of the flattened OHLC quote format.
 
@@ -74,6 +75,8 @@ class OHLC(Struct):
     chan_id: int  # internal kraken id
     chan_name: str  # eg. ohlc-1  (name-interval)
     pair: str  # fx pair
+
+    # unpacked from array
     time: float  # Begin time of interval, in seconds since epoch
     etime: float  # End time of interval, in seconds since epoch
     open: float  # Open price of interval
@@ -83,8 +86,6 @@ class OHLC(Struct):
     vwap: float  # Volume weighted average price within interval
     volume: float  # Accumulated volume **within interval**
     count: int  # Number of trades within interval
-    # (sampled) generated tick data
-    ticks: list[Any] = []
 
 
 async def stream_messages(
@@ -148,14 +149,15 @@ async def process_data_feed_msgs(
                     pair
                 ]:
                     if 'ohlc' in chan_name:
+                        array: list = payload_array[0]
                         ohlc = OHLC(
                             chan_id,
                             chan_name,
                             pair,
-                            *payload_array[0]
+                            *map(float, array[:-1]),
+                            count=array[-1],
                         )
-                        ohlc.typecast()
-                        yield 'ohlc', ohlc
+                        yield 'ohlc', ohlc.copy()
 
                     elif 'spread' in chan_name:
 
@@ -195,24 +197,18 @@ async def process_data_feed_msgs(
                     # yield msg
 
 
-def normalize(
-    ohlc: OHLC,
+def normalize(ohlc: OHLC) -> dict:
+    '''
+    Norm an `OHLC` msg to piker's minimal (live-)quote schema.
 
-) -> dict:
+    '''
     quote = ohlc.to_dict()
     quote['broker_ts'] = quote['time']
     quote['brokerd_ts'] = time.time()
     quote['symbol'] = quote['pair'] = quote['pair'].replace('/', '')
     quote['last'] = quote['close']
     quote['bar_wap'] = ohlc.vwap
-
-    # seriously eh? what's with this non-symmetry everywhere
-    # in subscription systems...
-    # XXX: piker style is always lowercases symbols.
-    topic = quote['pair'].replace('/', '').lower()
-
-    # print(quote)
-    return topic, quote
+    return quote
 
 
 @acm
@@ -221,7 +217,7 @@ async def open_history_client(
 
 ) -> AsyncGenerator[Callable, None]:
 
-    symbol: str = mkt.bs_fqme
+    symbol: str = mkt.bs_mktid
 
     # TODO implement history getter for the new storage layer.
     async with open_cached_client('kraken') as client:
@@ -284,6 +280,18 @@ async def get_mkt_info(
     key-strs to `MktPair`s.
 
     '''
+    venue: str = 'spot'
+    expiry: str = ''
+    if '.kraken' in fqme:
+        broker, pair, venue, expiry = unpack_fqme(fqme)
+        venue: str = venue or 'spot'
+
+    if venue != 'spot':
+        raise SymbolNotFound(
+            'kraken only supports spot markets right now!\n'
+            f'{fqme}\n'
+        )
+
     async with open_cached_client('kraken') as client:
 
         # uppercase since kraken bs_mktid is always upper
@@ -303,6 +311,12 @@ async def get_mkt_info(
             price_tick=pair.price_tick,
             size_tick=pair.size_tick,
             bs_mktid=bs_mktid,
+
+            expiry=expiry,
+            venue=venue or 'spot',
+
+            # TODO: futes
+            # _atype=_atype,
 
             broker='kraken',
         )
@@ -410,50 +424,58 @@ async def stream_quotes(
         ):
             # pull a first quote and deliver
             typ, ohlc_last = await anext(msg_gen)
-            topic, quote = normalize(ohlc_last)
+            quote = normalize(ohlc_last)
 
             task_status.started((init_msgs,  quote))
             feed_is_live.set()
 
             # keep start of last interval for volume tracking
-            last_interval_start = ohlc_last.etime
+            last_interval_start: float = ohlc_last.etime
 
             # start streaming
-            async for typ, ohlc in msg_gen:
-
-                if typ == 'ohlc':
+            topic: str = mkt.bs_fqme
+            async for typ, quote in msg_gen:
+                match typ:
 
                     # TODO: can get rid of all this by using
-                    # ``trades`` subscription...
+                    # ``trades`` subscription..? Not sure why this
+                    # wasn't used originally? (music queues) zoltannn..
+                    # https://docs.kraken.com/websockets/#message-trade
+                    case 'ohlc':
+                        # generate tick values to match time & sales pane:
+                        # https://trade.kraken.com/charts/KRAKEN:BTC-USD?period=1m
+                        volume = quote.volume
 
-                    # generate tick values to match time & sales pane:
-                    # https://trade.kraken.com/charts/KRAKEN:BTC-USD?period=1m
-                    volume = ohlc.volume
+                        # new OHLC sample interval
+                        if quote.etime > last_interval_start:
+                            last_interval_start: float = quote.etime
+                            tick_volume: float = volume
 
-                    # new OHLC sample interval
-                    if ohlc.etime > last_interval_start:
-                        last_interval_start = ohlc.etime
-                        tick_volume = volume
+                        else:
+                            # this is the tick volume *within the interval*
+                            tick_volume: float = volume - ohlc_last.volume
 
-                    else:
-                        # this is the tick volume *within the interval*
-                        tick_volume = volume - ohlc_last.volume
+                        ohlc_last = quote
+                        last = quote.close
 
-                    ohlc_last = ohlc
-                    last = ohlc.close
+                        quote = normalize(quote)
+                        ticks = quote.setdefault(
+                            'ticks',
+                            [],
+                        )
+                        if tick_volume:
+                            ticks.append({
+                                'type': 'trade',
+                                'price': last,
+                                'size': tick_volume,
+                            })
 
-                    if tick_volume:
-                        ohlc.ticks.append({
-                            'type': 'trade',
-                            'price': last,
-                            'size': tick_volume,
-                        })
+                    case 'l1':
+                        # passthrough quote msg
+                        pass
 
-                    topic, quote = normalize(ohlc)
-
-                elif typ == 'l1':
-                    quote = ohlc
-                    topic = quote['symbol'].lower()
+                    case _:
+                        log.warning(f'Unknown WSS message: {typ}, {quote}')
 
                 await send_chan.send({topic: quote})
 

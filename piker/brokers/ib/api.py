@@ -85,8 +85,9 @@ import numpy as np
 # non-relative for backends so that non-builting backends
 # can be easily modelled after this style B)
 from piker import config
-from piker.brokers._util import (
+from ._util import (
     log,
+    # only for the ib_sync internal logging
     get_logger,
 )
 
