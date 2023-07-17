@@ -2,13 +2,15 @@
 # ---- CEXY ----
 ################
 [binance]
+accounts.paper = 'paper'
+
 accounts.usdtm = 'futes'
-futes.use_testnet = true
+futes.use_testnet = false
 futes.api_key = ''
 futes.api_secret = ''
 
 accounts.spot = 'spot'
-spot.use_testnet = true
+spot.use_testnet = false
 spot.api_key = ''
 spot.api_secret = ''
 
