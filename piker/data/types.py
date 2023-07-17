@@ -74,7 +74,7 @@ class Struct(
     '''
     def to_dict(
         self,
-        include_non_members: bool = False,
+        include_non_members: bool = True,
     ) -> dict:
         '''
         Like it sounds.. direct delegation to:
