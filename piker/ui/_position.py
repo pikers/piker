@@ -1,5 +1,5 @@
 # piker: trading gear for hackers
-# Copyright (C) Tyler Goodlet (in stewardship for piker0)
+# Copyright (C) Tyler Goodlet (in stewardship for pikers)
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
@@ -15,7 +15,9 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 '''
-Position (pos) info and display to track ur PnLz B)
+UI components to display real-time and historical
+`.accounting.Position` cross-asset PnL(s) as well as manage market
+agnostic asset ownership state.
 
 '''
 from __future__ import annotations

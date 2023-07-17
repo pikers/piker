@@ -59,7 +59,10 @@ async def load_provider_search(
         ),
         open_symcache(brokermod) as symcache,
     ):
-        assert symcache
+        if not symcache.mktmaps:
+            log.warning(
+                f'BACKEND DOES NOT (yet) support symcaching: `{brokermod.name}`'
+            )
 
         # keep search engine stream up until cancelled
         await trio.sleep_forever()
