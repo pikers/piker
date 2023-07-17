@@ -60,8 +60,12 @@ from piker.accounting import (
     open_trade_ledger,
     TransactionLedger,
     iter_by_dt,
-    open_pps,
+    open_account,
     Account,
+)
+from piker.data._symcache import (
+    open_symcache,
+    SymbologyCache,
 )
 from piker.clearing._messages import (
     Order,
@@ -295,6 +299,10 @@ async def update_ledger_from_api_trades(
     client: Union[Client, MethodProxy],
     accounts_def_inv: bidict[str, str],
 
+    # provided for ad-hoc insertions "as transactions are
+    # processed"
+    symcache: SymbologyCache | None = None,
+
 ) -> tuple[
     dict[str, Transaction],
     dict[str, dict],
@@ -325,7 +333,7 @@ async def update_ledger_from_api_trades(
         # pack in the ``Contract.secType``
         entry['asset_type'] = condict['secType']
 
-    entries = api_trades_to_ledger_entries(
+    entries: dict[str, dict] = api_trades_to_ledger_entries(
         accounts_def_inv,
         trade_entries,
     )
@@ -334,7 +342,10 @@ async def update_ledger_from_api_trades(
 
     for acctid, trades_by_id in entries.items():
         # normalize to transaction form
-        trans_by_acct[acctid] = norm_trade_records(trades_by_id)
+        trans_by_acct[acctid] = norm_trade_records(
+            trades_by_id,
+            symcache=symcache,
+        )
 
     return trans_by_acct, entries
 
@@ -547,10 +558,10 @@ async def open_trade_dialog(
 
 ) -> AsyncIterator[dict[str, Any]]:
 
+    # from piker.brokers import (
+    #     get_brokermod,
+    # )
     accounts_def = config.load_accounts(['ib'])
-
-    # TODO: do this as part of `open_account()`!?
-    from piker.data._symcache import open_symcache
 
     global _client_cache
 
@@ -565,12 +576,14 @@ async def open_trade_dialog(
             proxies,
             aioclients,
         ),
+
+        # TODO: do this as part of `open_account()`!?
         open_symcache('ib', only_from_memcache=True) as symcache,
     ):
         # Open a trade ledgers stack for appending trade records over
         # multiple accounts.
         # TODO: we probably want to generalize this into a "ledgers" api..
-        ledgers: dict[str, dict] = {}
+        ledgers: dict[str, TransactionLedger] = {}
         tables: dict[str, Account] = {}
         order_msgs: list[Status] = []
         conf = get_config()
@@ -617,7 +630,7 @@ async def open_trade_dialog(
                 #   positions reported by ib's sys that may not yet be in
                 #   piker's ``pps.toml`` state-file.
                 tables[acctid] = lstack.enter_context(
-                    open_pps(
+                    open_account(
                         'ib',
                         acctid,
                         write_on_exit=True,
@@ -640,7 +653,10 @@ async def open_trade_dialog(
 
                 # update position table with latest ledger from all
                 # gathered transactions: ledger file + api records.
-                trans: dict[str, Transaction] = norm_trade_records(ledger)
+                trans: dict[str, Transaction] = norm_trade_records(
+                    ledger,
+                    symcache=symcache,
+                )
 
                 # update trades ledgers for all accounts from connected
                 # api clients which report trades for **this session**.
@@ -655,6 +671,7 @@ async def open_trade_dialog(
                         api_trades,
                         proxy,
                         accounts_def_inv,
+                        symcache=symcache,
                     )
 
                     # if new api_trades are detected from the API, prepare
@@ -797,7 +814,11 @@ async def emit_pp_update(
     acnts: dict[str, Account],
 
 ) -> None:
+    '''
+    Extract trade record from an API event, convert it into a `Transaction`,
+    update the backing ledger and finally emit a position update to the EMS.
 
+    '''
     accounts_def_inv: bidict[str, str] = accounts_def.inverse
     accnum: str = trade_entry['execution']['acctNumber']
     fq_acctid: str = accounts_def_inv[accnum]
