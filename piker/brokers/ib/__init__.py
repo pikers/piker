@@ -31,8 +31,6 @@ from .api import (
 from .feed import (
     open_history_client,
     stream_quotes,
-    get_mkt_info,
-    open_symbol_search,
 )
 from .broker import (
     open_trade_dialog,
@@ -41,11 +39,11 @@ from .ledger import (
     norm_trade,
     norm_trade_records,
 )
-# TODO:
-# from .symbols import (
-#     get_mkt_info,
-#     open_symbol_search,
-# )
+from .symbols import (
+    get_mkt_info,
+    open_symbol_search,
+    _search_conf,
+)
 
 __all__ = [
     'get_client',
@@ -56,6 +54,7 @@ __all__ = [
     'open_history_client',
     'open_symbol_search',
     'stream_quotes',
+    '_search_conf',
 ]
 
 _brokerd_mods: list[str] = [
@@ -65,6 +64,7 @@ _brokerd_mods: list[str] = [
 
 _datad_mods: list[str] = [
     'feed',
+    'symbols',
 ]
 
 

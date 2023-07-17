@@ -21,9 +21,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import (
     asynccontextmanager as acm,
-    nullcontext,
 )
-from decimal import Decimal
 from dataclasses import asdict
 from datetime import datetime
 from functools import partial
@@ -32,11 +30,9 @@ import time
 from typing import (
     Any,
     Callable,
-    Awaitable,
 )
 
 from async_generator import aclosing
-from fuzzywuzzy import process as fuzzy
 import ib_insync as ibis
 import numpy as np
 import pendulum
@@ -44,6 +40,10 @@ import tractor
 import trio
 from trio_typing import TaskStatus
 
+from piker.accounting import (
+    MktPair,
+)
+from piker.data.validate import FeedInit
 from .._util import (
     NoData,
     DataUnavailable,
@@ -63,14 +63,7 @@ from .api import (
     RequestError,
 )
 from ._util import data_reset_hack
-from piker._cacheables import (
-    async_lifo_cache,
-)
-from piker.accounting import (
-    Asset,
-    MktPair,
-)
-from piker.data.validate import FeedInit
+from .symbols import get_mkt_info
 
 
 # XXX NOTE: See available types table docs:
@@ -559,28 +552,6 @@ async def get_bars(
     return result, data_cs is not None
 
 
-# re-mapping to piker asset type names
-# https://github.com/erdewit/ib_insync/blob/master/ib_insync/contract.py#L113
-_asset_type_map = {
-    'STK': 'stock',
-    'OPT': 'option',
-    'FUT': 'future',
-    'CONTFUT': 'continuous_future',
-    'CASH': 'fiat',
-    'IND': 'index',
-    'CFD': 'cfd',
-    'BOND': 'bond',
-    'CMDTY': 'commodity',
-    'FOP': 'futures_option',
-    'FUND': 'mutual_fund',
-    'WAR': 'warrant',
-    'IOPT': 'warran',
-    'BAG': 'bag',
-    'CRYPTO': 'crypto',  # bc it's diff then fiat?
-    # 'NEWS': 'news',
-}
-
-
 _quote_streams: dict[str, trio.abc.ReceiveStream] = {}
 
 
@@ -784,97 +755,6 @@ def normalize(
     return data
 
 
-@async_lifo_cache()
-async def get_mkt_info(
-    fqme: str,
-
-    proxy: MethodProxy | None = None,
-
-) -> tuple[MktPair, ibis.ContractDetails]:
-
-    # XXX: we don't need to split off any fqme broker part?
-    # bs_fqme, _, broker = fqme.partition('.')
-
-    proxy: MethodProxy
-    if proxy is not None:
-        client_ctx = nullcontext(proxy)
-    else:
-        client_ctx = open_data_client
-
-    async with client_ctx as proxy:
-        try:
-            (
-                con,  # Contract
-                details,  # ContractDetails
-            ) = await proxy.get_sym_details(symbol=fqme)
-        except ConnectionError:
-            log.exception(f'Proxy is ded {proxy._aio_ns}')
-            raise
-
-    # TODO: more consistent field translation
-    atype = _asset_type_map[con.secType]
-
-    if atype == 'commodity':
-        venue: str = 'cmdty'
-    else:
-        venue = con.primaryExchange or con.exchange
-
-    price_tick: Decimal = Decimal(str(details.minTick))
-
-    if atype == 'stock':
-        # XXX: GRRRR they don't support fractional share sizes for
-        # stocks from the API?!
-        # if con.secType == 'STK':
-        size_tick = Decimal('1')
-    else:
-        size_tick: Decimal = Decimal(
-            str(details.minSize).rstrip('0')
-        )
-        # |-> TODO: there is also the Contract.sizeIncrement, bt wtf is it?
-
-    # NOTE: this is duplicate from the .broker.norm_trade_records()
-    # routine, we should factor all this parsing somewhere..
-    expiry_str = str(con.lastTradeDateOrContractMonth)
-    # if expiry:
-    #     expiry_str: str = str(pendulum.parse(
-    #         str(expiry).strip(' ')
-    #     ))
-
-    # TODO: currently we can't pass the fiat src asset because
-    # then we'll get a `MNQUSD` request for history data..
-    # we need to figure out how we're going to handle this (later?)
-    # but likely we want all backends to eventually handle
-    # ``dst/src.venue.`` style !?
-    src = Asset(
-        name=str(con.currency).lower(),
-        atype='fiat',
-        tx_tick=Decimal('0.01'),  # right?
-    )
-
-    mkt = MktPair(
-        dst=Asset(
-            name=con.symbol.lower(),
-            atype=atype,
-            tx_tick=size_tick,
-        ),
-        src=src,
-
-        price_tick=price_tick,
-        size_tick=size_tick,
-
-        bs_mktid=str(con.conId),
-        venue=str(venue),
-        expiry=expiry_str,
-        broker='ib',
-
-        # TODO: options contract info as str?
-        # contract_info=<optionsdetails>
-        _fqme_without_src=(atype != 'fiat'),
-    )
-
-    return mkt, details
-
-
 async def stream_quotes(
 
     send_chan: trio.abc.SendChannel,
@@ -1045,141 +925,3 @@ async def stream_quotes(
                             # ugh, clear ticks since we've consumed them
                             ticker.ticks = []
                             # last = time.time()
-
-
-@tractor.context
-async def open_symbol_search(
-    ctx: tractor.Context,
-
-) -> None:
-
-    # TODO: load user defined symbol set locally for fast search?
-    await ctx.started({})
-
-    async with (
-        open_client_proxies() as (proxies, _),
-        open_data_client() as data_proxy,
-    ):
-        async with ctx.open_stream() as stream:
-
-            # select a non-history client for symbol search to lighten
-            # the load in the main data node.
-            proxy = data_proxy
-            for name, proxy in proxies.items():
-                if proxy is data_proxy:
-                    continue
-                break
-
-            ib_client = proxy._aio_ns.ib
-            log.info(f'Using {ib_client} for symbol search')
-
-            last = time.time()
-            async for pattern in stream:
-                log.info(f'received {pattern}')
-                now = time.time()
-
-                # this causes tractor hang...
-                # assert 0
-
-                assert pattern, 'IB can not accept blank search pattern'
-
-                # throttle search requests to no faster then 1Hz
-                diff = now - last
-                if diff < 1.0:
-                    log.debug('throttle sleeping')
-                    await trio.sleep(diff)
-                    try:
-                        pattern = stream.receive_nowait()
-                    except trio.WouldBlock:
-                        pass
-
-                if (
-                    not pattern
-                    or pattern.isspace()
-
-                    # XXX: not sure if this is a bad assumption but it
-                    # seems to make search snappier?
-                    or len(pattern) < 1
-                ):
-                    log.warning('empty pattern received, skipping..')
-
-                    # TODO: *BUG* if nothing is returned here the client
-                    # side will cache a null set result and not showing
-                    # anything to the use on re-searches when this query
-                    # timed out. We probably need a special "timeout" msg
-                    # or something...
-
-                    # XXX: this unblocks the far end search task which may
-                    # hold up a multi-search nursery block
-                    await stream.send({})
-
-                    continue
-
-                log.info(f'searching for {pattern}')
-
-                last = time.time()
-
-                # async batch search using api stocks endpoint and module
-                # defined adhoc symbol set.
-                stock_results = []
-
-                async def stash_results(target: Awaitable[list]):
-                    try:
-                        results = await target
-                    except tractor.trionics.Lagged:
-                        print("IB SYM-SEARCH OVERRUN?!?")
-                        return
-
-                    stock_results.extend(results)
-
-                for i in range(10):
-                    with trio.move_on_after(3) as cs:
-                        async with trio.open_nursery() as sn:
-                            sn.start_soon(
-                                stash_results,
-                                proxy.search_symbols(
-                                    pattern=pattern,
-                                    upto=5,
-                                ),
-                            )
-
-                            # trigger async request
-                            await trio.sleep(0)
-
-                    if cs.cancelled_caught:
-                        log.warning(
-                            f'Search timeout? {proxy._aio_ns.ib.client}'
-                        )
-                        continue
-                    else:
-                        break
-
-                    # # match against our ad-hoc set immediately
-                    # adhoc_matches = fuzzy.extractBests(
-                    #     pattern,
-                    #     list(_adhoc_futes_set),
-                    #     score_cutoff=90,
-                    # )
-                    # log.info(f'fuzzy matched adhocs: {adhoc_matches}')
-                    # adhoc_match_results = {}
-                    # if adhoc_matches:
-                    #     # TODO: do we need to pull contract details?
-                    #     adhoc_match_results = {i[0]: {} for i in
-                    #     adhoc_matches}
-
-                log.debug(f'fuzzy matching stocks {stock_results}')
-                stock_matches = fuzzy.extractBests(
-                    pattern,
-                    stock_results,
-                    score_cutoff=50,
-                )
-
-                # matches = adhoc_match_results | {
-                matches = {
-                    item[0]: {} for item in stock_matches
-                }
-                # TODO: we used to deliver contract details
-                # {item[2]: item[0] for item in stock_matches}
-
-                log.debug(f"sending matches: {matches.keys()}")
-                await stream.send(matches)
