@@ -39,9 +39,15 @@ from .feed import (
     open_feed,
 )
 from .flows import Flume
+from ._symcache import (
+    SymbologyCache,
+    open_symcache,
+    get_symcache,
+)
+from .types import Struct
 
 
-__all__ = [
+__all__: list[str] = [
     'Flume',
     'Feed',
     'open_feed',
@@ -53,4 +59,8 @@ __all__ = [
     'get_shm_token',
     'def_iohlcv_fields',
     'def_ohlcv_fields',
+    'open_symcache',
+    'get_symcache',
+    'SymbologyCache',
+    'Struct',
 ]

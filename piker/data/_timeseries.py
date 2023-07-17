@@ -225,7 +225,7 @@ def detect_null_time_gap(
     return None
 
 
-t_unit: Literal[
+t_unit: Literal = Literal[
     'days',
     'hours',
     'minutes',

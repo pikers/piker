@@ -31,7 +31,6 @@ import pendulum
 import numpy as np
 
 from ..accounting import MktPair
-from ._util import log
 from .types import Struct
 from ._sharedmem import (
     attach_shm_array,
@@ -233,5 +232,3 @@ class Flume(Struct):
             np.all(np.isin(vlm, -1))
             or np.all(np.isnan(vlm))
         )
-
-
