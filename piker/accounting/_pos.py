@@ -109,8 +109,17 @@ class Position(Struct):
 
     @property
     def expiry(self) -> datetime | None:
-        exp: str = self.mkt.expiry.lower()
-        match exp:
+        '''
+        Security expiry if it has a limited lifetime.
+
+        For non-derivative markets this is normally `None`.
+
+        '''
+        exp: str | None = self.mkt.expiry
+        if exp is None:
+            return None
+
+        match exp.lower():
             # empty str, 'perp' (contract) or simply a null
             # signifies instrument with NO expiry.
             case 'perp' | '' | None:
