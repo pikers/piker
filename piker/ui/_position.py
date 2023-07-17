@@ -85,23 +85,25 @@ async def update_pnl_from_feed(
 
 ) -> None:
     '''
-    Real-time display the current pp's PnL in the appropriate label.
+    Real-time display the current pp's PnL in the appropriate
+    label.
 
-    ``ValueError`` if this task is spawned where there is a net-zero pp.
+    ``ValueError`` if this task is spawned where there is
+    a net-zero pp.
 
     '''
     global _pnl_tasks
 
-    pp: PositionTracker = order_mode.current_pp
-    live: Position = pp.live_pp
+    pt: PositionTracker = order_mode.current_pp
+    live: Position = pt.live_pp
     key: str = live.mkt.fqme
 
-    log.info(f'Starting pnl display for {pp.alloc.account}')
+    log.info(f'Starting pnl display for {pt.alloc.account}')
 
-    if live.size < 0:
+    if live.cumsize < 0:
         types = ('ask', 'last', 'last', 'dark_trade')
 
-    elif live.size > 0:
+    elif live.cumsize > 0:
         types = ('bid', 'last', 'last', 'dark_trade')
 
     else:
@@ -133,10 +135,10 @@ async def update_pnl_from_feed(
                     for tick in iterticks(quote, types):
                         # print(f'{1/period} Hz')
 
-                        size = order_mode.current_pp.live_pp.size
+                        size = order_mode.current_pp.live_pp.cumsize
                         if size == 0:
                             # terminate this update task since we're
-                            # no longer in a pp
+                            # no longer in a pt
                             order_mode.pane.pnl_label.format(pnl=0)
                             return
 
@@ -266,7 +268,7 @@ class SettingsPane:
             # load the new account's allocator
             alloc = tracker.alloc
 
-        # WRITE any settings to current pp's allocator
+        # WRITE any settings to current pos-tracker's allocator
         if key == 'size_unit':
             # implicit re-write of value if input
             # is the "text name" of the units.
@@ -285,10 +287,10 @@ class SettingsPane:
                     log.error('limit must be > 0')
                     return False
 
-                pp = mode.current_pp.live_pp
+                lpos = mode.current_pp.live_pp
 
                 if alloc.size_unit == 'currency':
-                    dsize = pp.dsize
+                    dsize = lpos.dsize
                     if dsize > value:
                         log.error(
                             f'limit must > then current pp: {dsize}'
@@ -303,7 +305,7 @@ class SettingsPane:
                     alloc.currency_limit = value
 
                 else:
-                    size = pp.size
+                    size = lpos.cumsize
                     if size > value:
                         log.error(
                             f'limit must > then current pp: {size}'
@@ -342,7 +344,7 @@ class SettingsPane:
         alloc = tracker.alloc
         slots = alloc.slots
         used = alloc.slots_used(tracker.live_pp)
-        size = tracker.live_pp.size
+        size = tracker.live_pp.cumsize
         dsize = tracker.live_pp.dsize
 
         # READ out settings and update the status UI / settings widgets
@@ -397,12 +399,12 @@ class SettingsPane:
         form = self.form
         accounts = form.fields['account']
 
-        for account_name, pp in pps.items():
+        for account_name, pos in pps.items():
             icon_name = None
 
-            if pp.size > 0:
+            if pos.cumsize > 0:
                 icon_name = 'long_pp'
-            elif pp.size < 0:
+            elif pos.cumsize < 0:
                 icon_name = 'short_pp'
 
             accounts.set_icon(account_name, icon_name)
@@ -422,7 +424,7 @@ class SettingsPane:
         '''
         mode = self.order_mode
         mkt: MktPair = mode.chart.linked.mkt
-        size = tracker.live_pp.size
+        size = tracker.live_pp.cumsize
         fqme: str = mkt.fqme
         flume: Feed = mode.feed.flumes[fqme]
         pnl_value = 0
@@ -860,15 +862,15 @@ class PositionTracker:
 
         '''
         # live pp updates
-        pp = position or self.live_pp
+        lpos = position or self.live_pp
         if set_as_startup:
-            startup_pp = pp
+            startup_pp = lpos
         else:
             startup_pp = self.startup_pp
         alloc = self.alloc
 
         # update allocator settings
-        asset_type = pp.mkt.type_key
+        asset_type = lpos.mkt.type_key
 
         # specific configs by asset class / type
         if asset_type in _derivs:
@@ -886,13 +888,13 @@ class PositionTracker:
         # if the current position is already greater then the limit
         # settings, increase the limit to the current position
         if alloc.size_unit == 'currency':
-            startup_size = self.startup_pp.size * startup_pp.ppu
+            startup_size = self.startup_pp.cumsize * startup_pp.ppu
 
             if startup_size > alloc.currency_limit:
                 alloc.currency_limit = round(startup_size, ndigits=2)
 
         else:
-            startup_size = abs(startup_pp.size)
+            startup_size = abs(startup_pp.cumsize)
 
             if startup_size > alloc.units_limit:
                 alloc.units_limit = startup_size
@@ -902,16 +904,16 @@ class PositionTracker:
 
         self.nav.update_ui(
             self.alloc.account,
-            pp.ppu,
-            pp.size,
-            round(alloc.slots_used(pp), ndigits=1),  # slots used
+            lpos.ppu,
+            lpos.cumsize,
+            round(alloc.slots_used(lpos), ndigits=1),  # slots used
         )
 
-        if self.live_pp.size:
+        if self.live_pp.cumsize:
             # print("SHOWING NAV")
             self.nav.show()
 
-        # if pp.size == 0:
+        # if lpos.cumsize == 0:
         else:
             # print("HIDING NAV")
             self.nav.hide()

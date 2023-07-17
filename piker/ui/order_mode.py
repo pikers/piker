@@ -770,7 +770,6 @@ async def open_order_mode(
         accounts_def: bidict[str, str | None] = config.load_accounts(
             providers=[mkt.broker],
         )
-        # await tractor.pause()
 
         # XXX: ``brokerd`` delivers a set of account names that it
         # allows use of but the user also can define the accounts they'd
@@ -797,8 +796,6 @@ async def open_order_mode(
             # net-zero pp
             startup_pp = Position(
                 mkt=mkt,
-                size=0,
-                ppu=0,
 
                 # XXX: BLEH, do we care about this on the client side?
                 bs_mktid=mkt.key,
@@ -822,7 +819,7 @@ async def open_order_mode(
             pp_tracker.nav.hide()
             trackers[account_name] = pp_tracker
 
-            assert pp_tracker.startup_pp.size == pp_tracker.live_pp.size
+            assert pp_tracker.startup_pp.cumsize == pp_tracker.live_pp.cumsize
 
             # TODO: do we even really need the "startup pp" or can we
             # just take the max and pass that into the some state / the
@@ -830,7 +827,7 @@ async def open_order_mode(
             pp_tracker.update_from_pp()
 
             # on existing position, show pp tracking graphics
-            if pp_tracker.startup_pp.size != 0:
+            if pp_tracker.startup_pp.cumsize != 0:
                 pp_tracker.nav.show()
                 pp_tracker.nav.hide_info()
 
@@ -1038,7 +1035,7 @@ async def process_trade_msg(
             # status/pane UI
             mode.pane.update_status_ui(tracker)
 
-            if tracker.live_pp.size:
+            if tracker.live_pp.cumsize:
                 # display pnl
                 mode.pane.display_pnl(tracker)
 
