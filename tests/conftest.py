@@ -174,13 +174,14 @@ def tmpconfdir(
     )
     assert path.is_file(), 'WTH.. `brokers.toml` not created!?'
 
-    return tmpconfdir
+    yield tmpconfdir
 
     # NOTE: the `tmp_dir` fixture will wipe any files older then 3 test
     # sessions by default:
     # https://docs.pytest.org/en/6.2.x/tmpdir.html#the-default-base-temporary-directory
     # BUT, if we wanted to always wipe conf dir and all contained files,
-    # rmtree(str(tmp_path))
+    from shutil import rmtree
+    rmtree(str(tmp_path))
 
 
 @pytest.fixture
