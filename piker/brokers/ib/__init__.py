@@ -38,6 +38,7 @@ from .broker import (
 from .ledger import (
     norm_trade,
     norm_trade_records,
+    tx_sort,
 )
 from .symbols import (
     get_mkt_info,
@@ -55,6 +56,7 @@ __all__ = [
     'open_symbol_search',
     'stream_quotes',
     '_search_conf',
+    'tx_sort',
 ]
 
 _brokerd_mods: list[str] = [

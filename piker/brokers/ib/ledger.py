@@ -20,9 +20,11 @@ Trade transaction accounting and normalization.
 '''
 from bisect import insort
 from decimal import Decimal
+from functools import partial
 from pprint import pformat
 from typing import (
     Any,
+    Callable,
 )
 
 from bidict import bidict
@@ -38,9 +40,22 @@ from piker.accounting import (
     digits_to_dec,
     Transaction,
     MktPair,
+    iter_by_dt,
 )
 from ._flex_reports import parse_flex_dt
 from ._util import log
+
+
+tx_sort: Callable = partial(
+    iter_by_dt,
+    parsers={
+        'dateTime': parse_flex_dt,
+        'datetime': pendulum.parse,
+        # for some some fucking 2022 and
+        # back options records...fuck me.
+        'date': pendulum.parse,
+    }
+)
 
 
 def norm_trade(
