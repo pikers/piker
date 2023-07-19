@@ -211,9 +211,16 @@ class TransactionLedger(UserDict):
         Return entire output from ``.iter_txns()`` in a ``dict``.
 
         '''
-        return {
-            t.tid: t for t in self.iter_txns(symcache=symcache)
-        }
+        txns: dict[str, Transaction] = {}
+        for t in self.iter_txns(symcache=symcache):
+
+            if not t:
+                log.warning(f'{self.mod.name}:{self.account} TXN is -> {t}')
+                continue
+
+            txns[t.tid] = t
+
+        return txns
 
     def write_config(self) -> None:
         '''
@@ -386,7 +393,7 @@ def open_trade_ledger(
         account=account,
         mod=mod,
         symcache=symcache,
-        tx_sort=tx_sort,
+        tx_sort=getattr(mod, 'tx_sort', tx_sort),
     )
     try:
         yield ledger

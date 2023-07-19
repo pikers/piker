@@ -144,12 +144,11 @@ class Position(Struct):
     # def bep() -> float:
     #     ...
 
-    def clearsdict(self) -> dict[str, dict]:
-        clears: dict[str, dict] = ppu(
+    def clearsitems(self) -> list[(str, dict)]:
+        return ppu(
             self.iter_by_type('clear'),
             as_ledger=True
         )
-        return clears
 
     def iter_by_type(
         self,
@@ -195,7 +194,7 @@ class Position(Struct):
         cumsize: float = 0
         clears_since_zero: list[dict] = []
 
-        for tid, cleardict in self.clearsdict().items():
+        for tid, cleardict in self.clearsitems():
             cumsize = float(
                 # self.mkt.quantize(cumsize + cleardict['tx'].size
                 self.mkt.quantize(cleardict['cumsize'])
@@ -295,6 +294,8 @@ class Position(Struct):
     ) -> None:
 
         mkt: MktPair = self.mkt
+        now_dt: pendulum.DateTime = now()
+        now_str: str = str(now_dt)
 
         # NOTE WARNING XXX: we summarize the pos with a single
         # summary transaction (for now) until we either pass THIS
@@ -303,13 +304,16 @@ class Position(Struct):
         t = Transaction(
             fqme=mkt.fqme,
             bs_mktid=mkt.bs_mktid,
-            tid='unknown',
             size=msg['size'],
             price=msg['avg_price'],
             cost=0,
 
+            # NOTE: special provisions required!
+            # - tid needs to be unique or this txn will be ignored!!
+            tid=now_str,
+
             # TODO: also figure out how to avoid this!
-            dt=now(),
+            dt=now_dt,
         )
         self.add_clear(t)
 
@@ -342,11 +346,11 @@ class Position(Struct):
         Inserts are always done in datetime sorted order.
 
         '''
-        added: bool = False
+        # added: bool = False
         tid: str = t.tid
         if tid in self._events:
             log.warning(f'{t} is already added?!')
-            return added
+            # return added
 
         # TODO: apparently this IS possible with a dict but not
         # common and probably not that beneficial unless we're also
@@ -390,9 +394,9 @@ class Position(Struct):
         if self.expired():
             return 0.
 
-        clears: list[dict] = list(self.clearsdict().values())
+        clears: list[(str, dict)] = self.clearsitems()
         if clears:
-            return clears[-1]['cumsize']
+            return clears[-1][1]['cumsize']
         else:
             return 0.
 

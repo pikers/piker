@@ -43,6 +43,7 @@ if TYPE_CHECKING:
         TransactionLedger,
     )
 
+
 def ppu(
     clears: Iterator[Transaction],
 
@@ -56,7 +57,7 @@ def ppu(
     # new position fields inserted alongside each entry.
     as_ledger: bool = False,
 
-) -> float:
+) -> float | list[(str, dict)]:
     '''
     Compute the "price-per-unit" price for the given non-zero sized
     rolling position.
@@ -86,7 +87,8 @@ def ppu(
     '''
     asize_h: list[float] = []  # historical accumulative size
     ppu_h: list[float] = []  # historical price-per-unit
-    ledger: dict[str, dict] = {}
+    # ledger: dict[str, dict] = {}
+    ledger: list[dict] = []
 
     t: Transaction
     for t in clears:
@@ -95,15 +97,9 @@ def ppu(
         is_clear: bool = not isinstance(clear_price, str)
 
         last_accum_size = asize_h[-1] if asize_h else 0
-        accum_size = last_accum_size + clear_size
+        accum_size: float = last_accum_size + clear_size
         accum_sign = copysign(1, accum_size)
-
         sign_change: bool = False
-
-        if accum_size == 0:
-            ppu_h.append(0)
-            asize_h.append(0)
-            continue
 
         # on transfers we normally write some non-valid
         # price since withdrawal to another account/wallet
@@ -170,9 +166,6 @@ def ppu(
             else:
                 ppu = cost_basis / abs_new_size
 
-            # ppu_h.append(ppu)
-            # asize_h.append(accum_size)
-
         else:
             # TODO: for PPU we should probably handle txs out
             # (aka withdrawals) similarly by simply not having
@@ -185,8 +178,6 @@ def ppu(
             # need to be updated since the ppu remains constant
             # and gets weighted by the new size.
             ppu: float = ppu_h[-1]  # set to previous value
-            # ppu_h.append(ppu_h[-1])
-            # asize_h.append(accum_size)
 
         # extend with new rolling metric for this step
         ppu_h.append(ppu)
@@ -194,13 +185,17 @@ def ppu(
 
         # ledger[t.tid] = {
             # 'txn': t,
-        ledger[t.tid] = t.to_dict() | {
-            'ppu': ppu,
-            'cumsize': accum_size,
-            'sign_change': sign_change,
+        # ledger[t.tid] = t.to_dict() | {
+        ledger.append((
+            t.tid,
+            t.to_dict() | {
+                'ppu': ppu,
+                'cumsize': accum_size,
+                'sign_change': sign_change,
 
-            # TODO: cum_pnl, bep
-        }
+                # TODO: cum_pnl, bep
+            }
+        ))
 
     final_ppu = ppu_h[-1] if ppu_h else 0
     # TODO: once we have etypes in all ledger entries..
