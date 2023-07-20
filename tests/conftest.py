@@ -180,8 +180,8 @@ def tmpconfdir(
     # sessions by default:
     # https://docs.pytest.org/en/6.2.x/tmpdir.html#the-default-base-temporary-directory
     # BUT, if we wanted to always wipe conf dir and all contained files,
-    from shutil import rmtree
-    rmtree(str(tmp_path))
+    # from shutil import rmtree
+    # rmtree(str(tmp_path))
 
 
 @pytest.fixture
