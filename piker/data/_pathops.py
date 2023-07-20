@@ -17,11 +17,6 @@
 Super fast ``QPainterPath`` generation related operator routines.
 
 """
-from math import (
-    ceil,
-    floor,
-)
-
 import numpy as np
 from numpy.lib import recfunctions as rfn
 from numba import (
@@ -35,11 +30,6 @@ from numba import (
 # TODO: for ``numba`` typing..
 # from ._source import numba_ohlc_dtype
 from ._m4 import ds_m4
-from .._profile import (
-    Profiler,
-    pg_profile_enabled,
-    ms_slower_then,
-)
 
 
 def xy_downsample(
@@ -135,7 +125,7 @@ def path_arrays_from_ohlc(
     half_w: float = bar_w/2
 
     # TODO: report bug for assert @
-    # /home/goodboy/repos/piker/env/lib/python3.8/site-packages/numba/core/typing/builtins.py:991
+    # ../piker/env/lib/python3.8/site-packages/numba/core/typing/builtins.py:991
     for i, q in enumerate(data[start:], start):
 
         open = q['open']
@@ -237,20 +227,20 @@ def trace_hl(
 
     for i in range(hl.size):
         row = hl[i]
-        l, h = row['low'], row['high']
+        lo, hi = row['low'], row['high']
 
-        up_diff = h - last_l
-        down_diff = last_h - l
+        up_diff = hi - last_l
+        down_diff = last_h - lo
 
         if up_diff > down_diff:
-            out[2*i + 1] = h
+            out[2*i + 1] = hi
             out[2*i] = last_l
         else:
-            out[2*i + 1] = l
+            out[2*i + 1] = lo
             out[2*i] = last_h
 
-        last_l = l
-        last_h = h
+        last_l = lo
+        last_h = hi
 
         x[2*i] = int(i) - margin
         x[2*i + 1] = int(i) + margin
