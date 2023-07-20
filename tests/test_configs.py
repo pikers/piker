@@ -1,6 +1,6 @@
 '''
  testing the creation of brokers.toml if it doesn't exist,
- issue was found when trying to run piker chart on windows.
+ FileNotFoundError was found when trying to run piker chart on windows.
  
 '''
 from pathlib import Path
