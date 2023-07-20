@@ -34,10 +34,13 @@ from PyQt5.QtGui import (
     QPainter,
     QPainterPath,
 )
-from .._profile import pg_profile_enabled, ms_slower_then
 from ._style import hcolor
 from ..log import get_logger
-from .._profile import Profiler
+from ..toolz.profile import (
+    Profiler,
+    pg_profile_enabled,
+    ms_slower_then,
+)
 
 
 log = get_logger(__name__)

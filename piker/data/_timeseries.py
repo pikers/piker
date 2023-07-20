@@ -32,7 +32,7 @@ import numpy as np
 import polars as pl
 
 from ._sharedmem import ShmArray
-from .._profile import (
+from ..toolz.profile import (
     Profiler,
     pg_profile_enabled,
     ms_slower_then,

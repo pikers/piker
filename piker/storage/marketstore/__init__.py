@@ -59,7 +59,6 @@ from anyio_marketstore import (  # noqa
     Params,
 )
 from piker.log import get_logger
-# from .._profile import Profiler
 
 
 log = get_logger(__name__)

@@ -31,9 +31,12 @@ from PyQt5.QtCore import (
 from PyQt5.QtGui import QPainterPath
 
 from ._curve import FlowGraphic
-from .._profile import pg_profile_enabled, ms_slower_then
+from ..toolz import (
+    Profiler,
+    pg_profile_enabled,
+    ms_slower_then,
+)
 from ..log import get_logger
-from .._profile import Profiler
 
 
 log = get_logger(__name__)

@@ -66,7 +66,7 @@ from ..fsp._volume import (
     flow_rates,
 )
 from ..log import get_logger
-from .._profile import Profiler
+from ..toolz import Profiler
 
 log = get_logger(__name__)
 

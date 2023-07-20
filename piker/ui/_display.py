@@ -79,12 +79,12 @@ from .order_mode import (
     open_order_mode,
     OrderMode,
 )
-from .._profile import (
+from ..toolz import (
     pg_profile_enabled,
     ms_slower_then,
+    Profiler,
 )
 from ..log import get_logger
-from .._profile import Profiler
 
 if TYPE_CHECKING:
     from ._interaction import ChartView

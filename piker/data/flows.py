@@ -37,10 +37,6 @@ from ._sharedmem import (
     ShmArray,
     _Token,
 )
-# from .._profile import (
-#     Profiler,
-#     pg_profile_enabled,
-# )
 
 if TYPE_CHECKING:
     # from pyqtgraph import PlotItem

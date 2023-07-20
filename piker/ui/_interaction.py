@@ -39,8 +39,11 @@ import numpy as np
 import trio
 
 from ..log import get_logger
-from .._profile import Profiler
-from .._profile import pg_profile_enabled, ms_slower_then
+from ..toolz import (
+    Profiler,
+    pg_profile_enabled,
+    ms_slower_then,
+)
 from .view_mode import overlay_viewlists
 # from ._style import _min_points_to_show
 from ._editors import SelectRect

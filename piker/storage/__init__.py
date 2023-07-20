@@ -246,7 +246,7 @@ async def open_tsdb_client(
     #   * the original data feed arch blurb:
     #     - https://github.com/pikers/piker/issues/98
     #
-    from .._profile import Profiler
+    from ..toolz import Profiler
     profiler = Profiler(
         disabled=True,  # not pg_profile_enabled(),
         delayed=False,

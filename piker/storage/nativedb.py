@@ -67,7 +67,6 @@ from piker import config
 from piker.data import def_iohlcv_fields
 from piker.data import ShmArray
 from piker.log import get_logger
-# from .._profile import Profiler
 
 
 log = get_logger('storage.nativedb')
