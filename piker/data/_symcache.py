@@ -322,6 +322,7 @@ async def open_symcache(
 
     reload: bool = False,
     only_from_memcache: bool = False,  # no API req
+    _no_symcache: bool = False,  # no backend support
 
 ) -> SymbologyCache:
 
@@ -337,11 +338,15 @@ async def open_symcache(
     # (easily) and thus we allow for an empty instance to be loaded
     # and manually filled in at the whim of the caller presuming
     # the backend pkg-module is annotated appropriately.
-    if getattr(mod, '_no_symcache', False):
+    if (
+        getattr(mod, '_no_symcache', False)
+        or _no_symcache
+    ):
         yield SymbologyCache(
             mod=mod,
             fp=cachefile,
         )
+        # don't do nuttin
         return
 
     # actor-level cache-cache XD
