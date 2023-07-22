@@ -324,7 +324,7 @@ class Position(Struct):
         (fiat) units.
 
         '''
-        return self.ppu * self.size
+        return self.ppu * self.cumsize
 
     def expired(self) -> bool:
         '''
@@ -483,6 +483,8 @@ class Account(Struct):
         cost_scalar: float = 2,
         symcache: SymbologyCache | None = None,
 
+        _mktmap_table: dict[str, MktPair] | None = None,
+
     ) -> dict[str, Position]:
         '''
         Update the internal `.pps[str, Position]` table from input
@@ -519,7 +521,14 @@ class Account(Struct):
 
             # template the mkt-info presuming a legacy market ticks
             # if no info exists in the transactions..
-            mkt: MktPair = symcache.mktmaps[fqme]
+            try:
+                mkt: MktPair = symcache.mktmaps[fqme]
+            except KeyError:
+                # XXX: caller is allowed to provide a fallback
+                # mktmap table for the case where a new position is
+                # being added and the preloaded symcache didn't
+                # have this entry prior (eg. with frickin IB..)
+                mkt = _mktmap_table[fqme]
 
             if not (pos := pps.get(bs_mktid)):
 

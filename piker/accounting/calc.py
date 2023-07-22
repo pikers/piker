@@ -361,8 +361,8 @@ def open_ledger_dfs(
     if not ledger:
         import time
         from tractor._debug import open_crash_handler
-        now = time.time()
 
+        now = time.time()
         with (
             open_crash_handler(),
 
@@ -390,26 +390,29 @@ def open_ledger_dfs(
             # )
 
     txns: dict[str, Transaction] = ledger.to_txns()
-    ldf = pl.DataFrame(
+    # ldf = pl.DataFrame(
+    #     list(txn.to_dict() for txn in txns.values()),
+    ldf = pl.from_dicts(
         list(txn.to_dict() for txn in txns.values()),
-        # schema=[
-        #     ('tid', str),
-        #     ('fqme', str),
-        #     ('dt', str),
-        #     ('size', pl.Float64),
-        #     ('price', pl.Float64),
-        #     ('cost', pl.Float64),
-        #     ('expiry', str),
-        #     ('bs_mktid', str),
-        # ],
-    # ).sort('dt').select([
-    ).sort('dt').with_columns([
-        # pl.col('fqme'),
+
+        # only for ordering the cols
+        schema=[
+            ('fqme', str),
+            ('tid', str),
+            ('bs_mktid', str),
+            ('expiry', str),
+            ('etype', str),
+            ('dt', str),
+            ('size', pl.Float64),
+            ('price', pl.Float64),
+            ('cost', pl.Float64),
+        ],
+    ).sort(  # chronological order
+        'dt'
+    ).with_columns([
         pl.col('dt').str.to_datetime(),
-        # pl.col('expiry').dt.datetime(),
-        # pl.col('bs_mktid'),
-        # pl.col('size'),
-        # pl.col('price'),
+        # pl.col('expiry').str.to_datetime(),
+        # pl.col('expiry').dt.date(),
     ])
 
     # filter out to the columns matching values filter passed
@@ -423,20 +426,24 @@ def open_ledger_dfs(
 
     #     fdf = df.filter(pred)
 
-        # bs_mktid: str = fdf[0]['bs_mktid']
-        # pos: Position = acnt.pps[bs_mktid]
-
-    # TODO: not sure if this is even possible but..
-    # ppt = df.groupby('fqme').agg([
-    #     # TODO: ppu and bep !!
-    #     pl.cumsum('size').alias('cumsum'),
-    # ])
+    # break up into a frame per mkt / fqme
     dfs: dict[str, pl.DataFrame] = ldf.partition_by(
         'fqme',
         as_dict=True,
     )
+
+    # TODO: not sure if this is even possible but..
+    # - it'd be more ideal to use `ppt = df.groupby('fqme').agg([`
+    # - ppu and bep calcs!
     for key in dfs:
         df = dfs[key]
+
+        # TODO: pass back the current `Position` object loaded from
+        # the account as well? Would provide incentive to do all
+        # this ledger loading inside a new async open_account().
+        # bs_mktid: str = df[0]['bs_mktid']
+        # pos: Position = acnt.pps[bs_mktid]
+
         dfs[key] = df.with_columns([
             pl.cumsum('size').alias('cumsize'),
         ])

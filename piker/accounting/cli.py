@@ -253,6 +253,7 @@ def disect(
     ),
 ):
     from piker.log import get_console_log
+    from piker.toolz import open_crash_handler
     get_console_log(loglevel)
 
     pair: tuple[str, str]
@@ -266,10 +267,14 @@ def disect(
     # actual ledger ref filled in with all txns
     ldgr: TransactionLedger
 
-    with open_ledger_dfs(
-        brokername,
-        account,
-    ) as (dfs, ldgr):
+    pl.Config.set_tbl_cols(16)
+    with (
+        open_crash_handler(),
+        open_ledger_dfs(
+            brokername,
+            account,
+        ) as (dfs, ldgr),
+    ):
 
         # look up specific frame for fqme-selected asset
         df = dfs[fqme]
