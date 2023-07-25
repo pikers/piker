@@ -37,6 +37,7 @@ import trio
 from piker.accounting import (
     Asset,
     MktPair,
+    unpack_fqme,
 )
 from piker._cacheables import (
     async_lifo_cache,
@@ -49,6 +50,7 @@ from ._util import (
 if TYPE_CHECKING:
     from .api import (
         MethodProxy,
+        Client,
     )
 
 _futes_venues = (
@@ -358,24 +360,23 @@ def parse_patt2fqme(
     # fqme parsing stage
     # ------------------
     if '.ib' in pattern:
-        from piker.accounting import unpack_fqme
         _, symbol, venue, expiry = unpack_fqme(pattern)
 
     else:
         symbol = pattern
         expiry = ''
 
-    # another hack for forex pairs lul.
-    if (
-        '.idealpro' in symbol
-        # or '/' in symbol
-    ):
-        exch = 'IDEALPRO'
-        symbol = symbol.removesuffix('.idealpro')
-        if '/' in symbol:
-            symbol, currency = symbol.split('/')
+        # # another hack for forex pairs lul.
+        # if (
+        #     '.idealpro' in symbol
+        #     # or '/' in symbol
+        # ):
+        #     exch: str = 'IDEALPRO'
+        #     symbol = symbol.removesuffix('.idealpro')
+        #     if '/' in symbol:
+        #         symbol, currency = symbol.split('/')
 
-    else:
+        # else:
         # TODO: yes, a cache..
         # try:
         #     # give the cache a go
@@ -387,9 +388,9 @@ def parse_patt2fqme(
             symbol, _, expiry = symbol.rpartition('.')
 
         # use heuristics to figure out contract "type"
-        symbol, exch = symbol.upper().rsplit('.', maxsplit=1)
+        symbol, venue = symbol.upper().rsplit('.', maxsplit=1)
 
-    return symbol, currency, exch, expiry
+    return symbol, currency, venue, expiry
 
 
 def con2fqme(
@@ -406,9 +407,12 @@ def con2fqme(
 
     '''
     # should be real volume for this contract by default
-    calc_price = False
+    calc_price: bool = False
     if con.conId:
         try:
+            # TODO: LOL so apparently IB just changes the contract
+            # ID (int) on a whim.. so we probably need to use an
+            # FQME style key after all...
             return _cache[con.conId]
         except KeyError:
             pass
@@ -475,8 +479,9 @@ async def get_mkt_info(
 
 ) -> tuple[MktPair, ibis.ContractDetails]:
 
-    # XXX: we don't need to split off any fqme broker part?
-    # bs_fqme, _, broker = fqme.partition('.')
+    if '.ib' not in fqme:
+        fqme += '.ib'
+    broker, pair, venue, expiry = unpack_fqme(fqme)
 
     proxy: MethodProxy
     if proxy is not None:
@@ -492,7 +497,7 @@ async def get_mkt_info(
             (
                 con,  # Contract
                 details,  # ContractDetails
-            ) = await proxy.get_sym_details(symbol=fqme)
+            ) = await proxy.get_sym_details(fqme=fqme)
         except ConnectionError:
             log.exception(f'Proxy is ded {proxy._aio_ns}')
             raise
@@ -557,5 +562,15 @@ async def get_mkt_info(
         # contract_info=<optionsdetails>
         _fqme_without_src=(atype != 'fiat'),
     )
+
+    # if possible register the bs_mktid to the just-built
+    # mkt so that it can be retreived by order mode tasks later.
+    # TODO NOTE: this is going to be problematic if/when we split
+    # out the datatd vs. brokerd actors since the mktmap lookup
+    # table will now be inaccessible..
+    if proxy is not None:
+        client: Client = proxy._aio_ns
+        client._contracts[mkt.bs_fqme] = con
+        client._cons2mkts[con] = mkt
 
     return mkt, details
