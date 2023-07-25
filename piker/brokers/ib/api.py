@@ -34,16 +34,15 @@ from functools import (
 )
 import itertools
 from math import isnan
-from typing import (
-    Any,
-    Callable,
-    Optional,
-    Union,
-)
 import asyncio
 from pprint import pformat
 import inspect
 import time
+from typing import (
+    Any,
+    Callable,
+    Union,
+)
 from types import SimpleNamespace
 
 from bidict import bidict
@@ -56,26 +55,20 @@ from ib_insync import (
     client as ib_client,
     IB,
     Contract,
+    ContractDetails,
     Crypto,
     Commodity,
     Forex,
     Future,
     ContFuture,
     Stock,
-)
-from ib_insync.contract import (
-    ContractDetails,
-)
-from ib_insync.order import Order
-from ib_insync.ticker import Ticker
-from ib_insync.objects import (
+    Order,
+    Ticker,
     BarDataList,
     Position,
     Fill,
-    Execution,
-    CommissionReport,
-)
-from ib_insync.wrapper import (
+    # Execution,
+    # CommissionReport,
     Wrapper,
     RequestError,
 )
@@ -85,6 +78,7 @@ import numpy as np
 # non-relative for backends so that non-builting backends
 # can be easily modelled after this style B)
 from piker import config
+from piker.accounting import MktPair
 from .symbols import (
     con2fqme,
     parse_patt2fqme,
@@ -264,7 +258,13 @@ class Client:
     Note: this client requires running inside an ``asyncio`` loop.
 
     '''
+    # keyed by fqmes
     _contracts: dict[str, Contract] = {}
+    # keyed by conId
+    _cons: dict[str, Contract] = {}
+
+    # for going between ib and piker types
+    _cons2mkts: bidict[Contract, MktPair] = bidict({})
 
     def __init__(
         self,
@@ -282,26 +282,16 @@ class Client:
         self.ib = ib
         self.ib.RaiseRequestErrors: bool = True
 
-        # contract cache
-        self._cons: dict[str, Contract] = {}
-
-    async def trades(self) -> list[dict]:
+    async def get_fills(self) -> list[Fill]:
         '''
-        Return list of trade-fills from current session in ``dict``.
+        Return list of rents `Fills` from trading session.
+
+        In theory this can be configured for dumping clears from multiple
+        days but can't member where to set that..
 
         '''
-        norm_fills: list[dict] = []
         fills: list[Fill] = self.ib.fills()
-        for fill in fills:
-            fill = fill._asdict()  # namedtuple
-            for key, val in fill.items():
-                match val:
-                    case Contract() | Execution() | CommissionReport():
-                        fill[key] = asdict(val)
-
-            norm_fills.append(fill)
-
-        return norm_fills
+        return fills
 
     async def orders(self) -> list[Order]:
         return await self.ib.reqAllOpenOrdersAsync(
@@ -347,7 +337,7 @@ class Client:
 
         _enters += 1
 
-        contract = (await self.find_contracts(fqme))[0]
+        contract: Contract = (await self.find_contracts(fqme))[0]
         bars_kwargs.update(getattr(contract, 'bars_kwargs', {}))
 
         bars = await self.ib.reqHistoricalDataAsync(
@@ -575,7 +565,8 @@ class Client:
 
     ) -> Contract:
         '''
-        Get an unqualifed contract for the current "continous" future.
+        Get an unqualifed contract for the current "continous"
+        future.
 
         '''
         # it's the "front" contract returned here
@@ -606,13 +597,13 @@ class Client:
             con: Contract = await self.ib.qualifyContractsAsync(
                 Contract(conId=conid)
             )
-            self._cons[conid] = con
+            self._cons[str(conid)] = con[0]
             return con
 
     async def find_contracts(
         self,
-        pattern: Optional[str] = None,
-        contract: Optional[Contract] = None,
+        pattern: str | None = None,
+        contract: Contract | None = None,
         qualify: bool = True,
         err_on_qualify: bool = True,
 
@@ -622,21 +613,23 @@ class Client:
             symbol, currency, exch, expiry = parse_patt2fqme(
                 pattern,
             )
-            sectype = ''
+            sectype: str = ''
+            exch: str = exch.upper()
 
         else:
             assert contract
-            symbol = contract.symbol
-            sectype = contract.secType
-            exch = contract.exchange or contract.primaryExchange
-            expiry = contract.lastTradeDateOrContractMonth
-            currency = contract.currency
+            symbol: str = contract.symbol
+            sectype: str = contract.secType
+            exch: str = contract.exchange or contract.primaryExchange
+            expiry: str = contract.lastTradeDateOrContractMonth
+            currency: str = contract.currency
 
         # contract searching stage
         # ------------------------
 
-        # futes
-        if exch in _futes_venues:
+        # futes, ensure exch/venue is uppercase for matching
+        # our adhoc set.
+        if exch.upper() in _futes_venues:
             if expiry:
                 # get the "front" contract
                 con = await self.get_fute(
@@ -704,10 +697,12 @@ class Client:
             )
             exch = 'SMART' if not exch else exch
 
-        contracts = [con]
+        contracts: list[Contract] = [con]
         if qualify:
             try:
-                contracts = await self.ib.qualifyContractsAsync(con)
+                contracts: list[Contract] = (
+                    await self.ib.qualifyContractsAsync(con)
+                )
             except RequestError as err:
                 msg = err.message
                 if (
@@ -725,14 +720,21 @@ class Client:
 
         # pack all contracts into cache
         for tract in contracts:
-            exch: str = tract.primaryExchange or tract.exchange or exch
-            pattern = f'{symbol}.{exch}'
-            expiry = tract.lastTradeDateOrContractMonth
+            exch: str = (
+                tract.primaryExchange
+                or tract.exchange
+                or exch
+            )
+            pattern: str = f'{symbol}.{exch}'
+            expiry: str = tract.lastTradeDateOrContractMonth
             # add an entry with expiry suffix if available
             if expiry:
                 pattern += f'.{expiry}'
 
-            self._contracts[pattern.lower()] = tract
+            # directly cache the input pattern to the output
+            # contract match as well as by the IB-internal conId.
+            self._contracts[pattern] = tract
+            self._cons[str(tract.conId)] = tract
 
         return contracts
 
@@ -755,21 +757,21 @@ class Client:
 
     async def get_sym_details(
         self,
-        symbol: str,
+        fqme: str,
 
     ) -> tuple[
         Contract,
         ContractDetails,
     ]:
         '''
-        Get summary (meta) data for a given symbol str including
-        ``Contract`` and its details and a (first snapshot of the)
-        ``Ticker``.
+        Return matching contracts for a given ``fqme: str`` including
+        ``Contract`` and matching ``ContractDetails``.
 
         '''
-        contract = (await self.find_contracts(symbol))[0]
-        details_fute = self.ib.reqContractDetailsAsync(contract)
-        details = (await details_fute)[0]
+        contract: Contract = (await self.find_contracts(fqme))[0]
+        details: ContractDetails = (
+            await self.ib.reqContractDetailsAsync(contract)
+        )[0]
         return contract, details
 
     async def get_quote(
@@ -842,7 +844,7 @@ class Client:
 
         '''
         try:
-            contract = self._contracts[symbol]
+            con: Contract = self._contracts[symbol]
         except KeyError:
             # require that the symbol has been previously cached by
             # a data feed request - ensure we aren't making orders
@@ -851,7 +853,7 @@ class Client:
 
         try:
             trade = self.ib.placeOrder(
-                contract,
+                con,
                 Order(
                     orderId=reqid or 0,  # stupid api devs..
                     action=action.upper(),  # BUY/SELL
@@ -908,7 +910,7 @@ class Client:
             reqId: int,
             errorCode: int,
             errorString: str,
-            contract: Contract,
+            con: Contract,
 
         ) -> None:
 
@@ -933,7 +935,7 @@ class Client:
                         'reqid': reqId,
                         'reason': reason,
                         'error_code': errorCode,
-                        'contract': contract,
+                        'contract': con,
                     }
                 ))
             except trio.BrokenResourceError:
