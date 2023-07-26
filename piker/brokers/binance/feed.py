@@ -287,7 +287,15 @@ async def get_mkt_info(
 
     mkt_mode: str = ''
     broker, mkt_ep, venue, expiry = unpack_fqme(fqme)
-    venue: str = venue.lower()
+
+    # NOTE: we always upper case all tokens to be consistent with
+    # binance's symbology style for pairs, like `BTCUSDT`, but in
+    # theory we could also just keep things lower case; as long as
+    # we're consistent and the symcache matches whatever this func
+    # returns, always!
+    expiry: str = expiry.upper()
+    venue: str = venue.upper()
+    venue_lower: str = venue.lower()
 
     # XXX TODO: we should change the usdtm_futes name to just
     # usdm_futes (dropping the tether part) since it turns out that
@@ -295,42 +303,37 @@ async def get_mkt_info(
     # the margin assets.. it's going to require a wholesale
     # (variable/key) rename as well as file name adjustments to any
     # existing tsdb set..
-    if 'usd' in venue:
+    if 'usd' in venue_lower:
         mkt_mode: str = 'usdtm_futes'
 
     # NO IDEA what these contracts (some kinda DEX-ish futes?) are
     # but we're masking them for now..
     elif (
-        'defi' in venue
+        'defi' in venue_lower
 
         # TODO: handle coinm futes which have a margin asset that
         # is some crypto token!
         # https://binance-docs.github.io/apidocs/delivery/en/#exchange-information
-        or 'btc' in venue
+        or 'btc' in venue_lower
     ):
         return None
 
     else:
         # NOTE: see the `FutesPair.bs_fqme: str` implementation
         # to understand the reverse market info lookup below.
-        mkt_mode = venue or 'spot'
+        mkt_mode = venue_lower or 'spot'
 
-    sectype: str = ''
     if (
         venue
-        and 'spot' not in venue
+        and 'spot' not in venue_lower
 
         # XXX: catch all in case user doesn't know which
         # venue they want (usdtm vs. coinm) and we can choose
         # a default (via config?) once we support coin-m APIs.
-        or 'perp' in venue
+        or 'perp' in venue_lower
     ):
         if not mkt_mode:
-            mkt_mode: str = f'{venue}_futes'
-
-        sectype: str = 'future'
-        if 'perp' in expiry:
-            sectype = 'perpetual_future'
+            mkt_mode: str = f'{venue_lower}_futes'
 
     async with open_cached_client(
         'binance',
@@ -377,7 +380,10 @@ async def get_mkt_info(
             expiry=expiry,
             venue=venue,
             broker='binance',
-            _atype=sectype,
+
+            # NOTE: sectype is always taken from dst, see
+            # `MktPair.type_key` and `Client._cache_pairs()`
+            # _atype=sectype,
         )
         return mkt, pair
 
