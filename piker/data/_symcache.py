@@ -274,6 +274,28 @@ class SymbologyCache(Struct):
         )
         return cache
 
+    @staticmethod
+    async def from_scratch(
+        mod: ModuleType,
+        fp: Path,
+        **kwargs,
+
+    ) -> SymbologyCache:
+        '''
+        Generate (a) new symcache (contents) entirely from scratch
+        including all (TOML) serialized data and file.
+
+        '''
+        log.info(f'GENERATING symbology cache for `{mod.name}`')
+        cache = SymbologyCache(
+            mod=mod,
+            fp=fp,
+            **kwargs,
+        )
+        await cache.load()
+        cache.write_config()
+        return cache
+
     def search(
         self,
         pattern: str,
@@ -370,16 +392,10 @@ async def open_symcache(
         reload
         or not cachefile.is_file()
     ):
-        cache = SymbologyCache(
+        cache = await SymbologyCache.from_scratch(
             mod=mod,
             fp=cachefile,
         )
-
-        log.info(f'GENERATING symbology cache for `{mod.name}`')
-        await cache.load()
-
-        # NOTE: only (re-)write if explicit reload or non-existing
-        cache.write_config()
 
     else:
         log.info(
@@ -392,11 +408,20 @@ async def open_symcache(
             data: dict[str, dict] = tomllib.load(existing_fp)
             log.runtime(f'SYMCACHE TOML LOAD TIME: {time.time() - now}')
 
-            cache = SymbologyCache.from_dict(
-                data,
-                mod=mod,
-                fp=cachefile,
-            )
+            # if there's an empty file for some reason we need
+            # to do a full reload as well!
+            if not data:
+                cache = await SymbologyCache.from_scratch(
+                    mod=mod,
+                    fp=cachefile,
+                )
+            else:
+                cache = SymbologyCache.from_dict(
+                    data,
+                    mod=mod,
+                    fp=cachefile,
+                )
+
 
         # TODO: use a real profiling sys..
         # https://github.com/pikers/piker/issues/337
