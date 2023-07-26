@@ -140,8 +140,18 @@ async def shm_push_in_between(
     # memory...
     array = shm.array
     zeros = array[array['low'] == 0]
-    if 0 < zeros.size < 1000:
-        await tractor.pause()
+
+    # always backfill gaps with the earliest (price) datum's
+    # value to avoid the y-ranger including zeros and completely
+    # stretching the y-axis..
+    if 0 < zeros.size:
+        zeros[[
+            'open',
+            'high',
+            'low',
+            'close',
+        ]] = shm._array[zeros['index'][0] - 1]['close']
+        # await tractor.pause()
 
 
 async def start_backfill(
