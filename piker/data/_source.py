@@ -23,26 +23,42 @@ from bidict import bidict
 import numpy as np
 
 
-ohlc_fields = [
-    ('time', float),
+def_iohlcv_fields: list[tuple[str, type]] = [
+
+    # YES WE KNOW, this isn't needed in polars but we use it for doing
+    # ring-buffer like pre/append ops our our `ShmArray` real-time
+    # numpy-array buffering system such that there is a master index
+    # that can be used for index-arithmetic when write data to the
+    # "middle" of the array. See the ``tractor.ipc.shm`` pkg for more
+    # details.
+    ('index', int),
+
+    # presume int for epoch stamps since it's most common
+    # and makes the most sense to avoid float rounding issues.
+    # TODO: if we want higher reso we should use the new
+    # ``time.time_ns()`` in python 3.10+
+    ('time', int),
     ('open', float),
     ('high', float),
     ('low', float),
     ('close', float),
     ('volume', float),
-    ('bar_wap', float),
+
+    # TODO: can we elim this from default field set to save on mem?
+    # i think only kraken really uses this in terms of what we get from
+    # their ohlc history API?
+    # ('bar_wap', float),  # shouldn't be default right?
 ]
 
-ohlc_with_index = ohlc_fields.copy()
-ohlc_with_index.insert(0, ('index', int))
-
-# our minimum structured array layout for ohlc data
-base_iohlc_dtype = np.dtype(ohlc_with_index)
-base_ohlc_dtype = np.dtype(ohlc_fields)
+# remove index field
+def_ohlcv_fields: list[tuple[str, type]] = def_iohlcv_fields.copy()
+def_ohlcv_fields.pop(0)
+assert (len(def_iohlcv_fields) - len(def_ohlcv_fields)) == 1
 
 # TODO: for now need to construct this manually for readonly arrays, see
 # https://github.com/numba/numba/issues/4511
 # from numba import from_dtype
+# base_ohlc_dtype = np.dtype(def_ohlc_fields)
 # numba_ohlc_dtype = from_dtype(base_ohlc_dtype)
 
 # map time frame "keys" to seconds values

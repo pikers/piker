@@ -124,7 +124,7 @@ class PaperBoi(Struct):
         # for dark orders since we want the dark_executed
         # to trigger first thus creating a lookup entry
         # in the broker trades event processing loop
-        await trio.sleep(0.05)
+        await trio.sleep(0.01)
 
         if (
             action == 'sell'
@@ -191,7 +191,7 @@ class PaperBoi(Struct):
             self._sells[symbol].pop(oid, None)
 
         # TODO: net latency model
-        await trio.sleep(0.05)
+        await trio.sleep(0.01)
 
         msg = BrokerdStatus(
             status='canceled',
@@ -224,7 +224,7 @@ class PaperBoi(Struct):
 
         '''
         # TODO: net latency model
-        await trio.sleep(0.05)
+        await trio.sleep(0.01)
         fill_time_ns = time.time_ns()
         fill_time_s = time.time()
 
@@ -527,7 +527,7 @@ _sells: defaultdict[
 
 
 @tractor.context
-async def trades_dialogue(
+async def open_trade_dialog(
 
     ctx: tractor.Context,
     broker: str,
@@ -574,7 +574,7 @@ async def trades_dialogue(
         if fqme:
             bs_fqme, _, broker = fqme.rpartition('.')
             mkt, _ = await brokermod.get_mkt_info(bs_fqme)
-            mkt_by_fqme[fqme] = mkt
+            mkt_by_fqme[mkt.fqme] = mkt
 
         # for each sym in the ledger load it's `MktPair` info
         for tid, txdict in ledger.data.items():
@@ -695,21 +695,21 @@ async def open_paperboi(
 
     async with (
         tractor.find_actor(service_name) as portal,
-        tractor.open_nursery() as tn,
+        tractor.open_nursery() as an,
     ):
         # NOTE: only spawn if no paperboi already is up since we likely
         # don't need more then one actor for simulated order clearing
         # per broker-backend.
         if portal is None:
             log.info('Starting new paper-engine actor')
-            portal = await tn.start_actor(
+            portal = await an.start_actor(
                 service_name,
                 enable_modules=[__name__]
             )
             we_spawned = True
 
         async with portal.open_context(
-            trades_dialogue,
+            open_trade_dialog,
             broker=broker,
             fqme=fqme,
             loglevel=loglevel,

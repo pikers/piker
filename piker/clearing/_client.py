@@ -37,7 +37,6 @@ from ._messages import (
     Cancel,
     BrokerdPosition,
 )
-from ..brokers import get_brokermod
 
 if TYPE_CHECKING:
     from ._messages import (
@@ -132,6 +131,8 @@ class OrderClient(Struct):
                 f'Maybe there is a stale entry or line?\n'
                 f'You should report this as a bug!'
             )
+            return
+
         fqme = str(cmd.symbol)
         return Cancel(
             oid=uuid,
@@ -243,13 +244,6 @@ async def open_ems(
         broker,
         loglevel=loglevel,
     ) as portal:
-
-        mod = get_brokermod(broker)
-        if (
-            not getattr(mod, 'trades_dialogue', None)
-            or mode == 'paper'
-        ):
-            mode = 'paper'
 
         from ._ems import _emsd_main
         async with (

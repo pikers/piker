@@ -31,6 +31,7 @@ from typing import (
 )
 import uuid
 
+from bidict import bidict
 import tractor
 import trio
 from PyQt5.QtCore import Qt
@@ -601,50 +602,65 @@ class OrderMode:
             )
 
     def cancel_orders_under_cursor(self) -> list[str]:
-        return self.cancel_orders_from_lines(
-            self.lines.lines_under_cursor()
+        return self.cancel_orders(
+            self.oids_from_lines(
+                self.lines.lines_under_cursor()
+            )
         )
 
-    def cancel_all_orders(self) -> list[str]:
-        '''
-        Cancel all orders for the current chart.
-
-        '''
-        return self.cancel_orders_from_lines(
-            self.lines.all_lines()
-        )
-
-    def cancel_orders_from_lines(
+    def oids_from_lines(
         self,
         lines: list[LevelLine],
 
-    ) -> list[str]:
+    ) -> list[Dialog]:
 
-        ids: list = []
-        if lines:
-            key = self.multistatus.open_status(
-                f'cancelling {len(lines)} orders',
-                final_msg=f'cancelled {len(lines)} orders',
-                group_key=True
+        oids: set[str] = set()
+        for line in lines:
+            dialog: Dialog = getattr(line, 'dialog', None)
+            oid: str = dialog.uuid
+            if (
+                dialog
+                and oid not in oids
+            ):
+                oids.add(oid)
+
+        return oids
+
+    def cancel_orders(
+        self,
+        oids: list[str],
+
+    ) -> None:
+        '''
+        Cancel all orders from a list of order ids: `oids`.
+
+        '''
+        key = self.multistatus.open_status(
+            f'cancelling {len(oids)} orders',
+            final_msg=f'cancelled orders:\n{oids}',
+            group_key=True
+        )
+        for oid in oids:
+            dialog: Dialog = self.dialogs[oid]
+            self.client.cancel_nowait(uuid=oid)
+            cancel_status_close = self.multistatus.open_status(
+                f'cancelling order {oid}',
+                group_key=key,
             )
+            dialog.last_status_close = cancel_status_close
 
-            # cancel all active orders and triggers
-            for line in lines:
-                dialog = getattr(line, 'dialog', None)
+    def cancel_all_orders(self) -> None:
+        '''
+        Cancel all unique orders / executions by extracting unique
+        order ids from all order lines and then submitting cancel
+        requests for each dialog.
 
-                if dialog:
-                    oid = dialog.uuid
-
-                    cancel_status_close = self.multistatus.open_status(
-                        f'cancelling order {oid}',
-                        group_key=key,
-                    )
-                    dialog.last_status_close = cancel_status_close
-
-                    ids.append(oid)
-                    self.client.cancel_nowait(uuid=oid)
-
-        return ids
+        '''
+        return self.cancel_orders(
+            self.oids_from_lines(
+                self.lines.all_lines()
+            )
+        )
 
     def load_unknown_dialog_from_msg(
         self,
@@ -750,7 +766,7 @@ async def open_order_mode(
         trackers: dict[str, PositionTracker] = {}
 
         # load account names from ``brokers.toml``
-        accounts_def = config.load_accounts(
+        accounts_def: bidict[str, str | None] = config.load_accounts(
             providers=[mkt.broker],
         )
 
@@ -1127,16 +1143,21 @@ async def process_trade_msg(
         case Status(resp='fill'):
 
             # handle out-of-piker fills reporting?
-            order: Order = client._sent_orders.get(oid)
-            if not order:
+            order: Order | None
+            if not (order := client._sent_orders.get(oid)):
+
+                # set it from last known request msg
                 log.warning(f'order {oid} is unknown')
                 order = msg.req
 
-            action = order.action
-            details = msg.brokerd_msg
+            # XXX TODO: have seen order be a dict here!?
+            # that should never happen tho?
+            action: str = order.action
+            details: dict = msg.brokerd_msg
 
-            # TODO: put the actual exchange timestamp?
-            # TODO: some kinda progress system?
+            # TODO: state tracking:
+            # - put the actual exchange timestamp?
+            # - some kinda progress system?
 
             # NOTE: currently the ``kraken`` openOrders sub
             # doesn't deliver their engine timestamp as part of

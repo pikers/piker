@@ -48,52 +48,47 @@ from ..accounting._mktinfo import (
     MktPair,
     digits_to_dec,
 )
-from .._cacheables import open_cached_client
-from ._util import (
+from . import (
     resproc,
     SymbolNotFound,
     DataUnavailable,
+    open_cached_client,
 )
 from ._util import (
-    log,
+    get_logger,
     get_console_log,
 )
-from ..data.types import Struct
-from ..data.validate import FeedInit
-from ..data._web_bs import (
+from piker.data.types import Struct
+from piker.data.validate import FeedInit
+from piker.data import def_iohlcv_fields
+from piker.data._web_bs import (
     open_autorecon_ws,
     NoBsWs,
 )
+
+
+log = get_logger(__name__)
 
 
 _url = 'https://api.binance.com'
 
 
 # Broker specific ohlc schema (rest)
-_ohlc_dtype = [
-    ('index', int),
-    ('time', int),
-    ('open', float),
-    ('high', float),
-    ('low', float),
-    ('close', float),
-    ('volume', float),
-    ('bar_wap', float),  # will be zeroed by sampler if not filled
+# XXX TODO? some additional fields are defined in the docs:
+# https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
 
-    # XXX: some additional fields are defined in the docs:
-    # https://binance-docs.github.io/apidocs/spot/en/#kline-candlestick-data
-
+# _ohlc_dtype = [
     # ('close_time', int),
     # ('quote_vol', float),
     # ('num_trades', int),
     # ('buy_base_vol', float),
     # ('buy_quote_vol', float),
     # ('ignore', float),
-]
+# ]
 
 # UI components allow this to be declared such that additional
 # (historical) fields can be exposed.
-ohlc_dtype = np.dtype(_ohlc_dtype)
+# ohlc_dtype = np.dtype(_ohlc_dtype)
 
 _show_wap_in_history = False
 
@@ -330,7 +325,7 @@ class Client:
             bar.typecast()
 
             row = []
-            for j, (name, ftype) in enumerate(_ohlc_dtype[1:]):
+            for j, (name, ftype) in enumerate(def_iohlcv_fields[1:]):
 
                 # TODO: maybe we should go nanoseconds on all
                 # history time stamps?
@@ -343,7 +338,10 @@ class Client:
 
             new_bars.append((i,) + tuple(row))
 
-        array = np.array(new_bars, dtype=_ohlc_dtype) if as_np else bars
+        array = np.array(
+            new_bars,
+            dtype=def_iohlcv_fields,
+        ) if as_np else bars
         return array
 
 
@@ -356,7 +354,7 @@ async def get_client() -> Client:
 
 
 # validation type
-class AggTrade(Struct):
+class AggTrade(Struct, frozen=True):
     e: str  # Event type
     E: int  # Event time
     s: str  # Symbol
@@ -445,25 +443,30 @@ async def stream_messages(
                 # decode/encode, see:
                 # https://jcristharif.com/msgspec/structs.html#type-validation
                 msg = AggTrade(**msg)
-                msg.typecast()
                 yield 'trade', {
                     'symbol': msg.s,
                     'last': msg.p,
                     'brokerd_ts': time.time(),
                     'ticks': [{
                         'type': 'trade',
-                        'price': msg.p,
-                        'size': msg.q,
+                        'price': float(msg.p),
+                        'size': float(msg.q),
                         'broker_ts': msg.T,
                     }],
                 }
 
 
 def make_sub(pairs: list[str], sub_name: str, uid: int) -> dict[str, str]:
-    """Create a request subscription packet dict.
+    '''
+    Create a request subscription packet dict.
 
-    https://binance-docs.github.io/apidocs/spot/en/#live-subscribing-unsubscribing-to-streams
-    """
+    - spot:
+      https://binance-docs.github.io/apidocs/spot/en/#live-subscribing-unsubscribing-to-streams
+
+    - futes:
+      https://binance-docs.github.io/apidocs/futures/en/#websocket-market-streams
+
+    '''
     return {
         'method': 'SUBSCRIBE',
         'params': [

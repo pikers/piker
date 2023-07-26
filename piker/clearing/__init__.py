@@ -23,11 +23,15 @@ from ._client import (
     open_ems,
     OrderClient,
 )
+from ._ems import (
+    open_brokerd_dialog,
+)
 
 
 __all__ = [
     'open_ems',
     'OrderClient',
+    'open_brokerd_dialog',
 
 ]
 

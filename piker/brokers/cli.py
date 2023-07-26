@@ -21,6 +21,7 @@ import os
 from functools import partial
 from operator import attrgetter
 from operator import itemgetter
+from types import ModuleType
 
 import click
 import trio
@@ -241,7 +242,7 @@ def quote(config, tickers):
 
     '''
     # global opts
-    brokermod = config['brokermods'][0]
+    brokermod = list(config['brokermods'].values())[0]
 
     quotes = trio.run(partial(core.stocks_quote, brokermod, tickers))
     if not quotes:
@@ -268,7 +269,7 @@ def bars(config, symbol, count):
 
     '''
     # global opts
-    brokermod = config['brokermods'][0]
+    brokermod = list(config['brokermods'].values())[0]
 
     # broker backend should return at the least a
     # list of candle dictionaries
@@ -303,7 +304,7 @@ def record(config, rate, name, dhost, filename):
 
     '''
     # global opts
-    brokermod = config['brokermods'][0]
+    brokermod = list(config['brokermods'].values())[0]
     loglevel = config['loglevel']
     log = config['log']
 
@@ -368,7 +369,7 @@ def optsquote(config, symbol, date):
 
     '''
     # global opts
-    brokermod = config['brokermods'][0]
+    brokermod = list(config['brokermods'].values())[0]
 
     quotes = trio.run(
         partial(
@@ -385,26 +386,70 @@ def optsquote(config, symbol, date):
 @cli.command()
 @click.argument('tickers', nargs=-1, required=True)
 @click.pass_obj
-def symbol_info(config, tickers):
+def mkt_info(
+    config: dict,
+    tickers: list[str],
+):
     '''
     Print symbol quotes to the console
 
     '''
-    # global opts
-    brokermod = config['brokermods'][0]
+    from msgspec.json import encode, decode
+    from ..accounting import MktPair
+    from ..service import (
+        open_piker_runtime,
+    )
 
-    quotes = trio.run(partial(core.symbol_info, brokermod, tickers))
-    if not quotes:
-        log.error(f"No quotes could be found for {tickers}?")
+    # global opts
+    brokermods: dict[str, ModuleType] = config['brokermods']
+
+    mkts: list[MktPair] = []
+    async def main():
+
+        async with open_piker_runtime(
+            name='mkt_info_query',
+            # loglevel=loglevel,
+            debug_mode=True,
+
+        ) as (_, _):
+            for fqme in tickers:
+                bs_fqme, _, broker = fqme.rpartition('.')
+                brokermod: ModuleType = brokermods[broker]
+                mkt, bs_pair = await core.mkt_info(
+                    brokermod,
+                    bs_fqme,
+                )
+                mkts.append((mkt, bs_pair))
+
+    trio.run(main)
+
+    if not mkts:
+        log.error(
+            f'No market info could be found for {tickers}'
+        )
         return
 
-    if len(quotes) < len(tickers):
-        syms = tuple(map(itemgetter('symbol'), quotes))
+    if len(mkts) < len(tickers):
+        syms = tuple(map(itemgetter('fqme'), mkts))
         for ticker in tickers:
             if ticker not in syms:
-                brokermod.log.warn(f"Could not find symbol {ticker}?")
+                log.warn(f"Could not find symbol {ticker}?")
 
-    click.echo(colorize_json(quotes))
+
+    # TODO: use ``rich.Table`` intead here!
+    for mkt, bs_pair in mkts:
+        click.echo(
+            '\n'
+            '----------------------------------------------------\n'
+            f'{type(bs_pair)}\n'
+            '----------------------------------------------------\n'
+            f'{colorize_json(bs_pair.to_dict())}\n'
+            '----------------------------------------------------\n'
+            f'as piker `MktPair` with fqme: {mkt.fqme}\n'
+            '----------------------------------------------------\n'
+            # NOTE: roundtrip to json codec for console print
+            f'{colorize_json(decode(encode(mkt)))}'
+        )
 
 
 @cli.command()
@@ -416,7 +461,7 @@ def search(config, pattern):
 
     '''
     # global opts
-    brokermods = config['brokermods']
+    brokermods = list(config['brokermods'].values())
 
     # define tractor entrypoint
     async def main(func):

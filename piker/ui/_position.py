@@ -294,7 +294,10 @@ class SettingsPane:
                             f'limit must > then current pp: {dsize}'
                         )
                         # reset position size value
-                        alloc.currency_limit = dsize
+                        alloc.currency_limit = round(
+                            dsize,
+                            ndigits=3,
+                        )
                         return False
 
                     alloc.currency_limit = value

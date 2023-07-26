@@ -20,9 +20,6 @@ Cacheing apis and toolz.
 '''
 
 from collections import OrderedDict
-from contextlib import (
-    asynccontextmanager as acm,
-)
 from typing import (
     Awaitable,
     Callable,
@@ -30,11 +27,7 @@ from typing import (
     TypeVar,
 )
 
-from tractor.trionics import maybe_open_context
-
-from .brokers import get_brokermod
 from .log import get_logger
-
 
 log = get_logger(__name__)
 
@@ -104,21 +97,3 @@ def async_lifo_cache(
         return decorated
 
     return decorator
-
-
-# TODO: move this to `.brokers.utils`..
-@acm
-async def open_cached_client(
-    brokername: str,
-) -> 'Client':  # noqa
-    '''
-    Get a cached broker client from the current actor's local vars.
-
-    If one has not been setup do it and cache it.
-
-    '''
-    brokermod = get_brokermod(brokername)
-    async with maybe_open_context(
-        acm_func=brokermod.get_client,
-    ) as (cache_hit, client):
-        yield client

@@ -121,7 +121,7 @@ class Asset(Struct, frozen=True):
 
     # NOTE: additional info optionally packed in by the backend, but
     # should not be explicitly required in our generic API.
-    info: dict = {}  # make it frozen?
+    info: dict | None = None
 
     # TODO?
     # _to_dict_skip = {'info'}

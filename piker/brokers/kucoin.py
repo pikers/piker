@@ -55,14 +55,17 @@ from piker.accounting._mktinfo import (
     digits_to_dec,
     MktPair,
 )
-from piker.data.validate import FeedInit
 from piker import config
-from piker._cacheables import (
+from piker.brokers import (
     open_cached_client,
+)
+from piker._cacheables import (
     async_lifo_cache,
 )
 from piker.log import get_logger
+from piker.data.validate import FeedInit
 from piker.data.types import Struct
+from piker.data import def_iohlcv_fields
 from piker.data._web_bs import (
     open_autorecon_ws,
     NoBsWs,
@@ -70,17 +73,6 @@ from piker.data._web_bs import (
 from ._util import DataUnavailable
 
 log = get_logger(__name__)
-
-_ohlc_dtype = [
-    ('index', int),
-    ('time', int),
-    ('open', float),
-    ('high', float),
-    ('low', float),
-    ('close', float),
-    ('volume', float),
-    ('bar_wap', float),  # will be zeroed by sampler if not filled
-]
 
 
 class KucoinMktPair(Struct, frozen=True):
@@ -465,18 +457,27 @@ class Client:
             ('low', float),
             ('close', float),
             ('volume', float),
-            ('bar_wap', float),  # will be zeroed by sampler if not filled
         ]
 
         '''
         # Generate generic end and start time if values not passed
         # Currently gives us 12hrs of data
-        if end_dt is None:
+        if (
+            end_dt is None
+            and start_dt is None
+        ):
             end_dt = pendulum.now('UTC').add(minutes=1)
+            start_dt = end_dt.start_of('minute').subtract(minutes=limit)
 
-        if start_dt is None:
-            start_dt = end_dt.start_of(
-                'minute').subtract(minutes=limit)
+        if (
+            start_dt
+            and end_dt is None
+        ):
+            # just set end to limit's worth in future
+            end_dt = start_dt.start_of('minute').add(minutes=limit)
+
+        else:
+            start_dt = end_dt.start_of('minute').subtract(minutes=limit)
 
         start_dt = int(start_dt.timestamp())
         end_dt = int(end_dt.timestamp())
@@ -530,12 +531,12 @@ class Client:
                     # volume
                     float(bar[5]),
                     # bar_wap
-                    0.0,
+                    # 0.0,
                 )
             )
 
         array = np.array(
-            new_bars, dtype=_ohlc_dtype) if as_np else bars
+            new_bars, dtype=def_iohlcv_fields) if as_np else bars
         return array
 
 

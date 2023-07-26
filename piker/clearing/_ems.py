@@ -24,6 +24,7 @@ from collections import (
     # ChainMap,
 )
 from contextlib import asynccontextmanager as acm
+from decimal import Decimal
 from math import isnan
 from pprint import pformat
 import time
@@ -34,6 +35,7 @@ from typing import (
     Callable,
     Hashable,
     Optional,
+    TYPE_CHECKING,
 )
 
 from bidict import bidict
@@ -48,16 +50,10 @@ from ._util import (
 from ..data._normalize import iterticks
 from ..accounting._mktinfo import (
     unpack_fqme,
-    float_digits,
-)
-from ..data.feed import (
-    Feed,
-    Flume,
-    maybe_open_feed,
+    dec_digits,
 )
 from ..ui._notify import notify_from_ems_status_msg
 from ..data.types import Struct
-from . import _paper_engine as paper
 from ._messages import (
     Order,
     Status,
@@ -69,6 +65,12 @@ from ._messages import (
     BrokerdError,
     BrokerdPosition,
 )
+
+if TYPE_CHECKING:
+    from ..data.feed import (
+        Feed,
+        Flume,
+    )
 
 
 # TODO: numba all of this
@@ -129,11 +131,16 @@ class DarkBook(Struct):
     triggers: dict[
         str,  # symbol
         dict[
-            str,  # uuid
+            str,  # uuid for triggerable execution
             tuple[
                 Callable[[float], bool],  # predicate
-                str,  # name
-                dict,  # cmd / msg type
+                tuple[str, ...],  # tickfilter
+                dict | Order,  # cmd / msg type
+
+                # live submission constraint parameters
+                float,  # percent_away max price diff
+                float,  # abs_diff_away max price diff
+                int,  # min_tick_digits to round the clearable price
             ]
         ]
     ] = {}
@@ -176,7 +183,8 @@ async def clear_dark_triggers(
     async for quotes in quote_stream:
         # start = time.time()
         for sym, quote in quotes.items():
-            execs = book.triggers.get(sym, {})
+            # TODO: make this a msg-compat struct
+            execs: tuple = book.triggers.get(sym, {})
             for tick in iterticks(
                 quote,
                 # dark order price filter(s)
@@ -199,7 +207,8 @@ async def clear_dark_triggers(
                     # TODO: send this msg instead?
                     cmd,
                     percent_away,
-                    abs_diff_away
+                    abs_diff_away,
+                    price_tick_digits,
                 ) in (
                     tuple(execs.items())
                 ):
@@ -232,8 +241,11 @@ async def clear_dark_triggers(
                             size=size,
                         ):
                             bfqme: str = symbol.replace(f'.{broker}', '')
-                            submit_price = price + abs_diff_away
-                            resp = 'triggered'  # hidden on client-side
+                            submit_price: float = round(
+                                price + abs_diff_away,
+                                ndigits=price_tick_digits,
+                            )
+                            resp: str = 'triggered'  # hidden on client-side
 
                             log.info(
                                 f'Dark order triggered for price {price}\n'
@@ -263,11 +275,11 @@ async def clear_dark_triggers(
                     )
 
                     # remove exec-condition from set
-                    log.info(f'removing pred for {oid}')
-                    pred = execs.pop(oid, None)
-                    if not pred:
+                    log.info(f'Removing trigger for {oid}')
+                    trigger: tuple | None = execs.pop(oid, None)
+                    if not trigger:
                         log.warning(
-                            f'pred for {oid} was already removed!?'
+                            f'trigger for {oid} was already removed!?'
                         )
 
                     # update actives
@@ -307,13 +319,175 @@ class TradesRelay(Struct):
 
     # map of symbols to dicts of accounts to pp msgs
     positions: dict[
-        # brokername, acctid
+        # brokername, acctid ->
         tuple[str, str],
-        list[BrokerdPosition],
+        # fqme -> msg
+        dict[str, BrokerdPosition],
     ]
 
     # allowed account names
     accounts: tuple[str]
+
+
+@acm
+async def open_brokerd_dialog(
+    brokermod: ModuleType,
+    portal: tractor.Portal,
+    exec_mode: str,
+    fqme: str | None = None,
+    loglevel: str | None = None,
+
+) -> tuple[
+    tractor.MsgStream,
+    # {(brokername, accountname) -> {fqme -> msg}}
+    dict[(str, str), dict[str, BrokerdPosition]],
+    list[str],
+]:
+    '''
+    Open either a live trades control dialog or a dialog with a new
+    paper engine instance depending on live trading support for the
+    broker backend, configuration, or client code usage.
+
+    '''
+    broker: str = brokermod.name
+
+    def mk_paper_ep():
+        from . import _paper_engine as paper_mod
+
+        nonlocal brokermod, exec_mode
+
+        # for logging purposes
+        brokermod = paper_mod
+
+        # for paper mode we need to mock this trades response feed
+        # so we load bidir stream to a new sub-actor running
+        # a paper-simulator clearing engine.
+
+        # load the paper trading engine
+        log.info(f'{broker}: Entering `paper` trading mode')
+
+        # load the paper trading engine as a subactor of this emsd
+        # actor to simulate the real IPC load it'll have when also
+        # pulling data from feeds
+        if not fqme:
+            log.warning(
+                f'Paper engine activate for {broker} but no fqme provided?'
+            )
+
+        return paper_mod.open_paperboi(
+            fqme=fqme,
+            broker=broker,
+            loglevel=loglevel,
+        )
+
+    # take the first supported ep we detect
+    # on the backend mod.
+    trades_endpoint: Callable
+    for ep_name in [
+        'open_trade_dialog',  # probably final name?
+        'trades_dialogue',  # legacy
+    ]:
+        trades_endpoint = getattr(
+            brokermod,
+            ep_name,
+            None,
+        )
+        if trades_endpoint:
+            break
+    else:
+        log.warning(
+            f'No live trading EP found: {brokermod.name}?'
+        )
+        exec_mode: str = 'paper'
+
+    if (
+        trades_endpoint is not None
+        or exec_mode != 'paper'
+    ):
+        # open live brokerd trades endpoint
+        open_trades_endpoint = portal.open_context(
+            trades_endpoint,
+        )
+
+    @acm
+    async def maybe_open_paper_ep():
+        if exec_mode == 'paper':
+            async with mk_paper_ep() as msg:
+                yield msg
+                return
+
+        # open trades-dialog endpoint with backend broker
+        async with open_trades_endpoint as msg:
+            ctx, first = msg
+
+            # runtime indication that the backend can't support live
+            # order ctrl yet, so boot the paperboi B0
+            if first == 'paper':
+                async with mk_paper_ep() as msg:
+                    yield msg
+                    return
+            else:
+                # working live ep case B)
+                yield msg
+                return
+
+    pps_by_broker_account: dict[(str, str), BrokerdPosition] = {}
+
+    async with (
+        maybe_open_paper_ep() as (
+            brokerd_ctx,
+            (position_msgs, accounts),
+        ),
+        brokerd_ctx.open_stream() as brokerd_trades_stream,
+    ):
+        # XXX: really we only want one stream per `emsd`
+        # actor to relay global `brokerd` order events
+        # unless we're going to expect each backend to
+        # relay only orders affiliated with a particular
+        # ``trades_dialogue()`` session (seems annoying
+        # for implementers). So, here we cache the relay
+        # task and instead of running multiple tasks
+        # (which will result in multiples of the same
+        # msg being relayed for each EMS client) we just
+        # register each client stream to this single
+        # relay loop in the dialog table.
+
+        # begin processing order events from the target
+        # brokerd backend by receiving order submission
+        # response messages, normalizing them to EMS
+        # messages and relaying back to the piker order
+        # client set.
+
+        # locally cache and track positions per account with
+        # a nested table of msgs:
+        #  tuple(brokername, acctid) ->
+        #      (fqme: str ->
+        #           `BrokerdPosition`)
+        for msg in position_msgs:
+
+            msg = BrokerdPosition(**msg)
+            log.info(
+                f'loading pp for {brokermod.__name__}:\n'
+                f'{pformat(msg.to_dict())}',
+            )
+
+            # TODO: state any mismatch here?
+            account: str = msg.account
+            assert account in accounts
+
+            pps_by_broker_account.setdefault(
+                (broker, account),
+                {},
+            )[msg.symbol] = msg
+
+        # should be unique entries, verdad!
+        assert len(set(accounts)) == len(accounts)
+
+        yield (
+            brokerd_trades_stream,
+            pps_by_broker_account,
+            accounts,
+        )
 
 
 class Router(Struct):
@@ -347,6 +521,7 @@ class Router(Struct):
     ] = defaultdict(set)
 
     # TODO: mapping of ems dialog ids to msg flow history
+    # - use the new ._util.OrderDialogs?
     # msgflows: defaultdict[
     #     str,
     #     ChainMap[dict[str, dict]],
@@ -407,118 +582,25 @@ class Router(Struct):
             yield relay
             return
 
-        def mk_paper_ep():
-            nonlocal brokermod, exec_mode
+        async with open_brokerd_dialog(
+            brokermod=brokermod,
+            portal=portal,
+            exec_mode=exec_mode,
+            fqme=fqme,
+            loglevel=loglevel,
 
-            # for logging purposes
-            brokermod = paper
-
-            # for paper mode we need to mock this trades response feed
-            # so we load bidir stream to a new sub-actor running
-            # a paper-simulator clearing engine.
-
-            # load the paper trading engine
-            exec_mode = 'paper'
-            log.info(f'{broker}: Entering `paper` trading mode')
-
-            # load the paper trading engine as a subactor of this emsd
-            # actor to simulate the real IPC load it'll have when also
-            # pulling data from feeds
-            return paper.open_paperboi(
-                fqme=fqme,
-                loglevel=loglevel,
-            )
-
-        trades_endpoint = getattr(brokermod, 'trades_dialogue', None)
-        if (
-            trades_endpoint is not None
-            or exec_mode != 'paper'
+        ) as (
+            brokerd_stream,
+            pp_msg_table,
+            accounts,
         ):
-            # open live brokerd trades endpoint
-            open_trades_endpoint = portal.open_context(
-                trades_endpoint,
-                loglevel=loglevel,
-            )
-
-        else:
-            exec_mode: str = 'paper'
-
-        @acm
-        async def maybe_open_paper_ep():
-            if exec_mode == 'paper':
-                async with mk_paper_ep() as msg:
-                    yield msg
-                    return
-
-            # open trades-dialog endpoint with backend broker
-            async with open_trades_endpoint as msg:
-                ctx, first = msg
-
-                # runtime indication that the backend can't support live
-                # order ctrl yet, so boot the paperboi B0
-                if first == 'paper':
-                    async with mk_paper_ep() as msg:
-                        yield msg
-                        return
-                else:
-                    # working live ep case B)
-                    yield msg
-                    return
-
-        positions: list[BrokerdPosition]
-        accounts: tuple[str]
-        async with (
-            maybe_open_paper_ep() as (
-                brokerd_ctx,
-                (positions, accounts),
-            ),
-            brokerd_ctx.open_stream() as brokerd_trades_stream,
-        ):
-            # XXX: really we only want one stream per `emsd`
-            # actor to relay global `brokerd` order events
-            # unless we're going to expect each backend to
-            # relay only orders affiliated with a particular
-            # ``trades_dialogue()`` session (seems annoying
-            # for implementers). So, here we cache the relay
-            # task and instead of running multiple tasks
-            # (which will result in multiples of the same
-            # msg being relayed for each EMS client) we just
-            # register each client stream to this single
-            # relay loop in the dialog table.
-
-            # begin processing order events from the target
-            # brokerd backend by receiving order submission
-            # response messages, normalizing them to EMS
-            # messages and relaying back to the piker order
-            # client set.
-
-            # locally cache and track positions per account with
-            # a nested table of msgs:
-            #  tuple(brokername, acctid) ->
-            #      (fqme: str ->
-            #           `BrokerdPosition`)
+            # create a new relay and sync it's state according
+            # to brokerd-backend reported position msgs.
             relay = TradesRelay(
-                brokerd_stream=brokerd_trades_stream,
-                positions={},
-                accounts=accounts,
+                brokerd_stream=brokerd_stream,
+                positions=pp_msg_table,
+                accounts=tuple(accounts),
             )
-            for msg in positions:
-
-                msg = BrokerdPosition(**msg)
-                log.info(
-                    f'loading pp for {brokermod.__name__}:\n'
-                    f'{pformat(msg.to_dict())}',
-                )
-
-                # TODO: state any mismatch here?
-                account = msg.account
-                assert account in accounts
-
-                relay.positions.setdefault(
-                    (broker, account),
-                    {},
-                )[msg.symbol] = msg
-
             self.relays[broker] = relay
 
             # this context should block here indefinitely until
@@ -550,12 +632,17 @@ class Router(Struct):
         indefinitely.
 
         '''
+        from ..data.feed import maybe_open_feed
+
         async with (
             maybe_open_feed(
                 [fqme],
                 loglevel=loglevel,
             ) as feed,
         ):
+            # extract expanded fqme in case input was of a less
+            # qualified form, eg. xbteur.kraken -> xbteur.spot.kraken
+            fqme: str = list(feed.flumes.keys())[0]
             brokername, _, _, _ = unpack_fqme(fqme)
             brokermod = feed.mods[brokername]
             broker = brokermod.name
@@ -590,7 +677,7 @@ class Router(Struct):
 
                 client_ready = trio.Event()
                 task_status.started(
-                    (relay, feed, client_ready)
+                    (fqme, relay, feed, client_ready)
                 )
 
                 # sync to the client side by waiting for the stream
@@ -1141,14 +1228,15 @@ async def process_client_order_cmds(
                 and status.resp == 'dark_open'
             ):
                 # remove from dark book clearing
-                entry = dark_book.triggers[fqme].pop(oid, None)
+                entry: tuple | None = dark_book.triggers[fqme].pop(oid, None)
                 if entry:
                     (
                         pred,
                         tickfilter,
                         cmd,
                         percent_away,
-                        abs_diff_away
+                        abs_diff_away,
+                        min_tick_digits,
                     ) = entry
 
                     # tell client side that we've cancelled the
@@ -1283,33 +1371,36 @@ async def process_client_order_cmds(
                 # TODO: make this configurable from our top level
                 # config, prolly in a .clearing` section?
                 spread_slap: float = 5
-                min_tick = float(flume.mkt.size_tick)
-                min_tick_digits = float_digits(min_tick)
+                min_tick = Decimal(flume.mkt.price_tick)
+                min_tick_digits: int = dec_digits(min_tick)
+
+                tickfilter: tuple[str, ...]
+                percent_away: float
 
                 if action == 'buy':
                     tickfilter = ('ask', 'last', 'trade')
-                    percent_away = 0.005
+                    percent_away: float = 0.005
 
                     # TODO: we probably need to scale this based
                     # on some near term historical spread
                     # measure?
-                    abs_diff_away = round(
+                    abs_diff_away = float(round(
                         spread_slap * min_tick,
                         ndigits=min_tick_digits,
-                    )
+                    ))
 
                 elif action == 'sell':
                     tickfilter = ('bid', 'last', 'trade')
-                    percent_away = -0.005
-                    abs_diff_away = round(
+                    percent_away: float = -0.005
+                    abs_diff_away: float = float(round(
                         -spread_slap * min_tick,
                         ndigits=min_tick_digits,
-                    )
+                    ))
 
                 else:  # alert
                     tickfilter = ('trade', 'utrade', 'last')
-                    percent_away = 0
-                    abs_diff_away = 0
+                    percent_away: float = 0
+                    abs_diff_away: float = 0
 
                 # submit execution/order to EMS scan loop
                 # NOTE: this may result in an override of an existing
@@ -1321,7 +1412,8 @@ async def process_client_order_cmds(
                     tickfilter,
                     req,
                     percent_away,
-                    abs_diff_away
+                    abs_diff_away,
+                    min_tick_digits,
                 )
                 resp = 'dark_open'
 
@@ -1378,13 +1470,13 @@ async def maybe_open_trade_relays(
         loglevel: str = 'info',
     ):
 
-        relay, feed, client_ready = await _router.nursery.start(
+        fqme, relay, feed, client_ready = await _router.nursery.start(
             _router.open_trade_relays,
             fqme,
             exec_mode,
             loglevel,
         )
-        yield relay, feed, client_ready
+        yield fqme, relay, feed, client_ready
 
     async with tractor.trionics.maybe_open_context(
         acm_func=cached_mngr,
@@ -1397,13 +1489,13 @@ async def maybe_open_trade_relays(
         key=cache_on_fqme_unless_paper,
     ) as (
         cache_hit,
-        (relay, feed, client_ready)
+        (fqme, relay, feed, client_ready)
     ):
         if cache_hit:
             log.info(f'Reusing existing trades relay for {fqme}:\n'
                      f'{relay}\n')
 
-        yield relay, feed, client_ready
+        yield fqme, relay, feed, client_ready
 
 
 @tractor.context
@@ -1486,7 +1578,7 @@ async def _emsd_main(
         fqme,
         exec_mode,
         loglevel,
-    ) as (relay, feed, client_ready):
+    ) as (fqme, relay, feed, client_ready):
 
         brokerd_stream = relay.brokerd_stream
         dark_book = _router.get_dark_book(broker)

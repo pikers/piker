@@ -30,7 +30,7 @@ from fuzzywuzzy import process as fuzzy
 import numpy as np
 import tractor
 
-from piker._cacheables import open_cached_client
+from piker.brokers import open_cached_client
 from piker.log import get_logger, get_console_log
 from piker.data import ShmArray
 from piker.brokers._util import (
@@ -39,7 +39,6 @@ from piker.brokers._util import (
 )
 
 from cryptofeed import FeedHandler
-
 from cryptofeed.defines import (
     DERIBIT, L1_BOOK, TRADES, OPTION, CALL, PUT
 )

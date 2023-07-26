@@ -23,7 +23,6 @@ Clearing sub-system message and protocols.
 #     deque,
 # )
 from typing import (
-    Optional,
     Literal,
 )
 
@@ -140,7 +139,7 @@ class Status(Struct):
 
     # this maps normally to the ``BrokerdOrder.reqid`` below, an id
     # normally allocated internally by the backend broker routing system
-    reqid: Optional[int | str] = None
+    reqid: int | str | None = None
 
     # the (last) source order/request msg if provided
     # (eg. the Order/Cancel which causes this msg) and
@@ -153,7 +152,7 @@ class Status(Struct):
     # event that wasn't originated by piker's emsd (eg. some external
     # trading system which does it's own order control but that you
     # might want to "track" using piker UIs/systems).
-    src: Optional[str] = None
+    src: str | None = None
 
     # set when a cancel request msg was set for this order flow dialog
     # but the brokerd dialog isn't yet in a cancelled state.
@@ -181,7 +180,7 @@ class BrokerdCancel(Struct):
     # for setting a unique order id then this value will be relayed back
     # on the emsd order request stream as the ``BrokerdOrderAck.reqid``
     # field
-    reqid: Optional[int | str] = None
+    reqid: int | str | None = None
     action: str = 'cancel'
 
 
@@ -205,7 +204,7 @@ class BrokerdOrder(Struct):
     # for setting a unique order id then this value will be relayed back
     # on the emsd order request stream as the ``BrokerdOrderAck.reqid``
     # field
-    reqid: Optional[int | str] = None
+    reqid: int | str | None = None
 
 
 # ---------------
@@ -233,17 +232,18 @@ class BrokerdOrderAck(Struct):
 
 class BrokerdStatus(Struct):
 
-    reqid: int | str
     time_ns: int
+    reqid: int | str
     status: Literal[
         'open',
         'canceled',
-        'fill',
         'pending',
         'error',
+        'closed',
     ]
 
-    account: str
+    # TODO: do we need this?
+    account: str | None = None,
     name: str = 'status'
     filled: float = 0.0
     reason: str = ''
@@ -259,24 +259,24 @@ class BrokerdStatus(Struct):
 
 class BrokerdFill(Struct):
     '''
-    A single message indicating a "fill-details" event from the broker
-    if avaiable.
+    A single message indicating a "fill-details" event from the
+    broker if avaiable.
 
     '''
     # brokerd timestamp required for order mode arrow placement on x-axis
     # TODO: maybe int if we force ns?
     # we need to normalize this somehow since backends will use their
     # own format and likely across many disparate epoch clocks...
+    time_ns: int
     broker_time: float
     reqid: int | str
-    time_ns: int
 
     # order exeuction related
     size: float
     price: float
 
     name: str = 'fill'
-    action: Optional[str] = None
+    action: str | None = None
     broker_details: dict = {}  # meta-data (eg. commisions etc.)
 
 
@@ -288,12 +288,14 @@ class BrokerdError(Struct):
 
     '''
     oid: str
-    symbol: str
     reason: str
+
+    # TODO: drop this right?
+    symbol: str | None = None
 
     # if no brokerd order request was actually submitted (eg. we errored
     # at the ``pikerd`` layer) then there will be ``reqid`` allocated.
-    reqid: Optional[int | str] = None
+    reqid: int | str | None = None
 
     name: str = 'error'
     broker_details: dict = {}

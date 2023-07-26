@@ -33,7 +33,6 @@ import tractor
 import trio
 import pyqtgraph as pg
 # import pendulum
-
 from msgspec import field
 
 # from .. import brokers
@@ -51,6 +50,7 @@ from ..data._sharedmem import (
 )
 from ..data._sampling import (
     _tick_groups,
+    _auction_ticks,
     open_sample_stream,
 )
 from ._axes import YAxisLabel
@@ -204,15 +204,17 @@ class DisplayState(Struct):
 
     vlm_chart: ChartPlotWidget | None = None
     vlm_sticky: YAxisLabel | None = None
-    wap_in_history: bool = False
 
 
 async def increment_history_view(
+    # min_istream: tractor.MsgStream,
     ds: DisplayState,
 ):
-    hist_chart = ds.hist_chart
-    hist_viz = ds.hist_viz
+    hist_chart: ChartPlotWidget = ds.hist_chart
+    hist_viz: Viz = ds.hist_viz
+    viz: Viz = ds.viz
     assert 'hist' in hist_viz.shm.token['shm_name']
+    name: str = hist_viz.name
 
     # TODO: seems this is more reliable at keeping the slow
     # chart incremented in view more correctly?
@@ -221,8 +223,14 @@ async def increment_history_view(
     #   wakeups/ctx switches verus logic checks (as normal)
     # - we need increment logic that only does the view shift
     #   call when the uppx permits/needs it
-    async with open_sample_stream(1.) as istream:
-        async for msg in istream:
+
+    # draw everything from scratch on first entry!
+    for curve_name, hist_viz in hist_chart._vizs.items():
+        log.info(f'Forcing hard redraw -> {curve_name}')
+        hist_viz.update_graphics(force_redraw=True)
+
+    async with open_sample_stream(1.) as min_istream:
+        async for msg in min_istream:
 
             profiler = Profiler(
                 msg=f'History chart cycle for: `{ds.fqme}`',
@@ -232,12 +240,28 @@ async def increment_history_view(
                 # ms_threshold=4,
             )
 
-            # l3 = ds.viz.shm.array[-3:]
-            # print(
-            #     f'fast step for {ds.flume.mkt.fqme}:\n'
-            #     f'{list(l3["time"])}\n'
-            #     f'{l3}\n'
-            # )
+            # NOTE: when a backfill msg is broadcast from the
+            # history mgmt layer, we match against the equivalent
+            # `Viz` and "hard re-render" (i.e. re-allocate the
+            # in-mem xy-array formats managed in
+            # `.data._formatters) its curve graphics to fill
+            # on-chart gaps.
+            # TODO: specifically emit/handle range tuples?
+            # - samplerd could emit the actual update range via
+            #   tuple and then we only enter the below block if that
+            #   range is detected as in-view?
+            if (
+                (bf_wut := msg.get('backfilling', False))
+            ):
+                viz_name, timeframe = bf_wut
+                if viz_name == name:
+                    log.info(f'Forcing hard redraw -> {name}@{timeframe}')
+                    match timeframe:
+                        case 60:
+                            hist_viz.update_graphics(force_redraw=True)
+                        case 1:
+                            viz.update_graphics(force_redraw=True)
+
             # check if slow chart needs an x-domain shift and/or
             # y-range resize.
             (
@@ -272,7 +296,7 @@ async def increment_history_view(
                 hist_chart.increment_view(datums=append_diff)
                 profiler('hist tread view')
 
-            profiler.finish()
+        profiler.finish()
 
 
 async def graphics_update_loop(
@@ -280,8 +304,9 @@ async def graphics_update_loop(
     nurse: trio.Nursery,
     godwidget: GodWidget,
     feed: Feed,
+    # min_istream: tractor.MsgStream,
+
     pis: dict[str, list[pgo.PlotItem, pgo.PlotItem]] = {},
-    wap_in_history: bool = False,
     vlm_charts: dict[str, ChartPlotWidget] = {},
 
 ) -> None:
@@ -429,11 +454,13 @@ async def graphics_update_loop(
 
         nurse.start_soon(
             increment_history_view,
+            # min_istream,
             ds,
         )
+        await trio.sleep(0)
 
         if ds.hist_vars['i_last'] < ds.hist_vars['i_last_append']:
-            breakpoint()
+            await tractor.breakpoint()
 
     # main real-time quotes update loop
     stream: tractor.MsgStream
@@ -459,7 +486,6 @@ async def graphics_update_loop(
             for fqme, quote in quotes.items():
                 ds = dss[fqme]
                 ds.quotes = quote
-
                 rt_pi, hist_pi = pis[fqme]
 
                 # chart isn't active/shown so skip render cycle and
@@ -490,19 +516,24 @@ def graphics_update_cycle(
     ds: DisplayState,
     quote: dict,
 
-    wap_in_history: bool = False,
     trigger_all: bool = False,  # flag used by prepend history updates
     prepend_update_index: int | None = None,
 
+    # NOTE: this has to be manually turned on in code (or by
+    # caller) to get profiling since by default we never want the
+    # overhead!
+    debug_n_trace: bool = False,
+
 ) -> None:
 
-    profiler = Profiler(
-        msg=f'Graphics loop cycle for: `{ds.fqme}`',
-        disabled=not pg_profile_enabled(),
-        ms_threshold=ms_slower_then,
-        delayed=True,
-        # ms_threshold=4,
-    )
+    if debug_n_trace:
+        profiler = Profiler(
+            msg=f'Graphics loop cycle for: `{ds.fqme}`',
+            disabled=not pg_profile_enabled(),
+            ms_threshold=ms_slower_then,
+            delayed=True,
+            # ms_threshold=4,
+        )
 
     # TODO: SPEEDing this all up..
     # - optimize this whole graphics stack with ``numba`` hopefully
@@ -534,7 +565,8 @@ def graphics_update_cycle(
         do_rt_update,
         should_tread,
     ) = main_viz.incr_info(ds=ds)
-    profiler('`.incr_info()`')
+    if debug_n_trace:
+        profiler('`.incr_info()`')
 
     # TODO: we should only run mxmn when we know
     # an update is due via ``do_px_step`` above.
@@ -572,7 +604,8 @@ def graphics_update_cycle(
         # since .interact_graphics_cycle() also calls it?
         # I guess we can add a guard in there?
         _, i_read_range, _ = main_viz.update_graphics()
-        profiler('`Viz.update_graphics()` call')
+        if debug_n_trace:
+            profiler('`Viz.update_graphics()` call')
 
         # don't real-time "shift" the curve to the
         # left unless we get one of the following:
@@ -587,7 +620,8 @@ def graphics_update_cycle(
             # if vlm_chart:
             #     vlm_chart.increment_view(datums=append_diff)
 
-            profiler('view incremented')
+            if debug_n_trace:
+                profiler('view incremented')
 
         # NOTE: do this **after** the tread to ensure we take the yrange
         # from the most current view x-domain.
@@ -599,15 +633,24 @@ def graphics_update_cycle(
             i_read_range,
             main_viz,
             ds.vlm_viz,
-            profiler,
+            profiler if debug_n_trace else None,
         )
 
-        profiler(f'{fqme} `multi_maxmin()` call')
+        if debug_n_trace:
+            profiler(f'{fqme} `multi_maxmin()` call')
 
     # iterate frames of ticks-by-type such that we only update graphics
     # using the last update per type where possible.
     ticks_by_type = quote.get('tbt', {})
     for typ, ticks in ticks_by_type.items():
+
+        if typ not in _auction_ticks:
+            if debug_n_trace:
+                log.warning(
+                    'Skipping non-auction-native `{typ}` ticks:\n'
+                    f'{ticks}\n'
+                )
+            continue
 
         # NOTE: ticks are `.append()`-ed to the `ticks_by_type: dict` by the
         # `._sampling.uniform_rate_send()` loop
@@ -628,16 +671,18 @@ def graphics_update_cycle(
             if (
                 price < mn
             ):
+                if debug_n_trace:
+                    log.info(f'{this_viz.name} new MN from TICK {mn} -> {price}')
                 mn = price
                 yrange_margin = 0.16
-            #     # print(f'{this_viz.name} new MN from TICK {mn}')
 
             if (
                 price > mx
             ):
+                if debug_n_trace:
+                    log.info(f'{this_viz.name} new MX from TICK {mx} -> {price}')
                 mx = price
                 yrange_margin = 0.16
-            #     # print(f'{this_viz.name} new MX from TICK {mx}')
 
             # mx = max(price, mx)
             # mn = min(price, mn)
@@ -654,10 +699,6 @@ def graphics_update_cycle(
             ]]
             ds.last_price_sticky.update_from_data(*end_ic)
             ds.hist_last_price_sticky.update_from_data(*end_ic)
-
-            # update vwap overlay line
-            # if wap_in_history:
-            #     chart.get_viz('bar_wap').update_graphics()
 
             # update OHLC chart last bars
             # TODO: fix the only last uppx stuff....
@@ -699,7 +740,8 @@ def graphics_update_cycle(
         ):
             l1.bid_label.update_fields({'level': price, 'size': size})
 
-    profiler('L1 labels updates')
+    if debug_n_trace:
+        profiler('L1 labels updates')
 
     # Y-autoranging: adjust y-axis limits based on state tracking
     # of previous "last" L1 values which are in view.
@@ -717,9 +759,14 @@ def graphics_update_cycle(
         # complain about out-of-range outliers which can show up
         # in certain annoying feeds (like ib)..
         if (
-            abs(mx_diff) > .25 * lmx
-            or
-            abs(mn_diff) > .25 * lmn
+            lmx
+            and lmn
+            and (
+                abs(mx_diff) > .25 * lmx
+                or
+                abs(mn_diff) > .25 * lmn
+            )
+            and debug_n_trace
         ):
             log.error(
                 f'WTF MN/MX IS WAY OFF:\n'
@@ -730,6 +777,9 @@ def graphics_update_cycle(
                 f'mx_diff: {mx_diff}\n'
                 f'mn_diff: {mn_diff}\n'
             )
+            chart.pause_all_feeds()
+            breakpoint()
+            chart.resume_all_feeds()
 
         # TODO: track local liv maxmin without doing a recompute all the
         # time..plus, just generally the user is more likely to be
@@ -772,7 +822,8 @@ def graphics_update_cycle(
                         },
                     }
                 )
-                profiler('main vb y-autorange')
+                if debug_n_trace:
+                    profiler('main vb y-autorange')
 
         # SLOW CHART y-auto-range resize casd
         # (NOTE: still is still inside the y-range
@@ -800,7 +851,8 @@ def graphics_update_cycle(
         #         f'datetime: {dt}\n'
         #     )
 
-        # profiler('hist `Viz.incr_info()`')
+        # if debug_n_trace:
+        #     profiler('hist `Viz.incr_info()`')
 
         # hist_chart = ds.hist_chart
         # if (
@@ -856,8 +908,8 @@ def graphics_update_cycle(
                     # `draw_last_datum()` ..
                     only_last_uppx=True,
                 )
-
-    profiler('overlays updates')
+    if debug_n_trace:
+        profiler('overlays updates')
 
     # volume chart logic..
     # TODO: can we unify this with the above loop?
@@ -905,7 +957,8 @@ def graphics_update_cycle(
                 # connected to update accompanying overlay
                 # graphics..
             )
-            profiler('`main_vlm_viz.update_graphics()`')
+            if debug_n_trace:
+                profiler('`main_vlm_viz.update_graphics()`')
 
             if (
                 mx_vlm_in_view
@@ -928,7 +981,8 @@ def graphics_update_cycle(
                         },
                     },
                 )
-                profiler('`vlm_chart.view.interact_graphics_cycle()`')
+                if debug_n_trace:
+                    profiler('`vlm_chart.view.interact_graphics_cycle()`')
 
         # update all downstream FSPs
         for curve_name, viz in vlm_vizs.items():
@@ -948,7 +1002,8 @@ def graphics_update_cycle(
                     curve_name,
                     array_key=curve_name,
                 )
-                profiler(f'vlm `Viz[{viz.name}].update_graphics()`')
+                if debug_n_trace:
+                    profiler(f'vlm `Viz[{viz.name}].update_graphics()`')
 
                 # is this even doing anything?
                 # (pretty sure it's the real-time
@@ -960,9 +1015,10 @@ def graphics_update_cycle(
                 #     do_linked_charts=False,
                 #     do_overlay_scaling=False,
                 # )
-                profiler(
-                    f'Viz[{viz.name}].plot.vb.interact_graphics_cycle()`'
-                )
+                if debug_n_trace:
+                    profiler(
+                        f'Viz[{viz.name}].plot.vb.interact_graphics_cycle()`'
+                    )
 
             # even if we're downsampled bigly
             # draw the last datum in the final
@@ -976,11 +1032,14 @@ def graphics_update_cycle(
                 # always update the last datum-element
                 # graphic for all vizs
                 viz.draw_last(array_key=curve_name)
-                profiler(f'vlm `Viz[{viz.name}].draw_last()`')
+                if debug_n_trace:
+                    profiler(f'vlm `Viz[{viz.name}].draw_last()`')
 
-        profiler('vlm Viz all updates complete')
+        if debug_n_trace:
+            profiler('vlm Viz all updates complete')
 
-    profiler.finish()
+    if debug_n_trace:
+        profiler.finish()
 
 
 async def link_views_with_region(
@@ -1214,12 +1273,15 @@ async def display_symbol_data(
     )
 
     feed: Feed
-    async with open_feed(
-        fqmes,
-        loglevel=loglevel,
-        tick_throttle=cycles_per_feed,
+    async with (
+        # open_sample_stream(1.) as min_istream,
+        open_feed(
+            fqmes,
+            loglevel=loglevel,
+            tick_throttle=cycles_per_feed,
 
-    ) as feed:
+        ) as feed,
+    ):
 
         # use expanded contract symbols passed back from feed layer.
         fqmes = list(feed.flumes.keys())
@@ -1289,7 +1351,7 @@ async def display_symbol_data(
         hist_ohlcv: ShmArray = flume.hist_shm
 
         mkt: MktPair = flume.mkt
-        fqme = mkt.fqme
+        fqme: str = mkt.fqme
 
         hist_chart = hist_linked.plot_ohlc_main(
             mkt,
@@ -1356,21 +1418,6 @@ async def display_symbol_data(
                 loglevel,
             )
 
-            # XXX: FOR SOME REASON THIS IS CAUSING HANGZ!?!
-            # plot historical vwap if available
-            wap_in_history = False
-            # if (
-            #     brokermod._show_wap_in_history
-            #     and 'bar_wap' in bars.dtype.fields
-            # ):
-            #     wap_in_history = True
-            #     rt_chart.draw_curve(
-            #         name='bar_wap',
-            #         shm=ohlcv,
-            #         color='default_light',
-            #         add_label=False,
-            #     )
-
             godwidget.resize_all()
             await trio.sleep(0)
 
@@ -1386,7 +1433,7 @@ async def display_symbol_data(
 
                 hist_pi = hist_chart.overlay_plotitem(
                     name=fqme,
-                    axis_title=fqme,
+                    axis_title=flume.mkt.pair(),
                 )
 
                 hist_viz = hist_chart.draw_curve(
@@ -1416,7 +1463,7 @@ async def display_symbol_data(
 
                 rt_pi = rt_chart.overlay_plotitem(
                     name=fqme,
-                    axis_title=fqme,
+                    axis_title=flume.mkt.pair(),
                 )
 
                 rt_viz = rt_chart.draw_curve(
@@ -1491,8 +1538,9 @@ async def display_symbol_data(
                 ln,
                 godwidget,
                 feed,
+                # min_istream,
+
                 pis,
-                wap_in_history,
                 vlm_charts,
             )
 

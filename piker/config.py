@@ -187,6 +187,15 @@ def _conf_fn_w_ext(
     return f'{name}.toml'
 
 
+def get_conf_dir() -> Path:
+    '''
+    Return the user configuration directory ``Path``
+    on the local filesystem.
+
+    '''
+    return _config_dir
+
+
 def get_conf_path(
     conf_name: str = 'brokers',
 
@@ -300,9 +309,9 @@ def load_account(
 ) -> tuple[dict, Path]:
     '''
     Load a accounting (with positions) file from
-    $PIKER_CONFIG_DIR/accounting/account.<brokername>.<acctid>.toml.
+    $CONFIG_DIR/accounting/account.<brokername>.<acctid>.toml
 
-    Where normally $PIKER_CONFIG_DIR = ~/.config/piker/
+    Where normally $CONFIG_DIR = ~/.config/piker/
     and we implicitly create a accounting subdir which should
     normally be linked to a git repo managed by the user B)
 
@@ -357,7 +366,13 @@ def load_ledger(
     acctid: str,
 
 ) -> tuple[dict, Path]:
+    '''
+    Load a ledger (TOML) file from user's config directory:
+    $CONFIG_DIR/accounting/ledgers/trades_<brokername>_<acctid>.toml
 
+    Return its `dict`-content and file path.
+
+    '''
     ldir: Path = _config_dir / 'accounting' / 'ledgers'
     if not ldir.is_dir():
         ldir.mkdir()

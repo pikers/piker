@@ -20,6 +20,7 @@ CLI commons.
 '''
 import os
 from contextlib import AsyncExitStack
+from types import ModuleType
 
 import click
 import trio
@@ -100,7 +101,6 @@ def pikerd(
                 registry_addr=reg_addr,
 
             ) as service_mngr,  # normally delivers a ``Services`` handle
-            trio.open_nursery() as n,
 
             AsyncExitStack() as stack,
         ):
@@ -154,6 +154,8 @@ def cli(
         assert os.path.isdir(configdir), f"`{configdir}` is not a valid path"
         config._override_config_dir(configdir)
 
+    # TODO: for typer see
+    # https://typer.tiangolo.com/tutorial/commands/context/
     ctx.ensure_object(dict)
 
     if not brokers:
@@ -161,7 +163,9 @@ def cli(
         from piker.brokers import __brokers__
         brokers = __brokers__
 
-    brokermods = [get_brokermod(broker) for broker in brokers]
+    brokermods: dict[str, ModuleType] = {
+        broker: get_brokermod(broker) for broker in brokers
+    }
     assert brokermods
 
     reg_addr: None | tuple[str, int] = None
@@ -227,11 +231,14 @@ def services(config, tl, ports):
 
 def _load_clis() -> None:
     from ..service import marketstore  # noqa
-    from ..service import elastic
-    from ..data import cli  # noqa
+    from ..service import elastic  # noqa
     from ..brokers import cli  # noqa
     from ..ui import cli  # noqa
     from ..watchlists import cli  # noqa
+
+    # typer implemented
+    from ..storage import cli  # noqa
+    from ..accounting import cli  # noqa
 
 
 # load downstream cli modules

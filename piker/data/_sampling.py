@@ -230,6 +230,7 @@ class Sampler:
         self,
         period_s: float,
         time_stamp: float | None = None,
+        info: dict | None = None,
 
     ) -> None:
         '''
@@ -258,10 +259,14 @@ class Sampler:
             try:
                 for stream in (subs - sent):
                     try:
-                        await stream.send({
+                        msg = {
                             'index': time_stamp or last_ts,
                             'period': period_s,
-                        })
+                        }
+                        if info:
+                            msg.update(info)
+
+                        await stream.send(msg)
                         sent.add(stream)
 
                     except (
@@ -287,9 +292,19 @@ class Sampler:
                 )
 
     @classmethod
-    async def broadcast_all(self) -> None:
-        for period_s in self.subscribers:
-            await self.broadcast(period_s)
+    async def broadcast_all(
+        self,
+        info: dict | None = None,
+    ) -> None:
+
+        # NOTE: take a copy of subs since removals can happen
+        # during the broadcast checkpoint which can cause
+        # a `RuntimeError` on interation of the underlying `dict`.
+        for period_s in list(self.subscribers):
+            await self.broadcast(
+                period_s,
+                info=info,
+            )
 
 
 @tractor.context
@@ -359,14 +374,21 @@ async def register_with_sampler(
 
                         # except broadcast requests from the subscriber
                         async for msg in stream:
-                            if msg == 'broadcast_all':
-                                await Sampler.broadcast_all()
+                            if 'broadcast_all' in msg:
+                                await Sampler.broadcast_all(
+                                    info=msg['broadcast_all'],
+                                )
                 finally:
                     if (
                         sub_for_broadcasts
                         and subs
                     ):
-                        subs.remove(stream)
+                        try:
+                            subs.remove(stream)
+                        except KeyError:
+                            log.warning(
+                                f'{stream._ctx.chan.uid} sub already removed!?'
+                            )
             else:
                 # if no shms are passed in we just wait until cancelled
                 # by caller.
@@ -463,6 +485,8 @@ async def open_sample_stream(
     cache_key: str | None = None,
     allow_new_sampler: bool = True,
 
+    ensure_is_active: bool = False,
+
 ) -> AsyncIterator[dict[str, float]]:
     '''
     Subscribe to OHLC sampling "step" events: when the time aggregation
@@ -505,11 +529,20 @@ async def open_sample_stream(
             },
         ) as (ctx, first)
     ):
-        async with (
-            ctx.open_stream() as istream,
+        if ensure_is_active:
+            assert len(first) > 1
 
-            # TODO: we don't need this task-bcasting right?
-            # istream.subscribe() as istream,
+        async with (
+            ctx.open_stream(
+                allow_overruns=True,
+            ) as istream,
+
+            # TODO: we DO need this task-bcasting so that
+            # for eg. the history chart update loop eventually
+            # receceives all backfilling event msgs such that
+            # the underlying graphics format arrays are
+            # re-allocated until all history is loaded!
+            istream.subscribe() as istream,
         ):
             yield istream
 
@@ -591,14 +624,14 @@ async def sample_and_broadcast(
                             'high',
                             'low',
                             'close',
-                            'bar_wap',  # can be optionally provided
+                            # 'bar_wap',  # can be optionally provided
                             'volume',
                         ]][-1] = (
                             o,
                             max(high, last),
                             min(low, last),
                             last,
-                            quote.get('bar_wap', 0),
+                            # quote.get('bar_wap', 0),
                             volume,
                         )
 
@@ -707,12 +740,20 @@ async def sample_and_broadcast(
                     )
 
 
-# a working tick-type-classes template
+# tick-type-classes template for all possible "lowest level" events
+# that can can be emitted by the "top of book" L1 queues and
+# price-matching (with eventual clearing) in a double auction
+# market (queuing) system.
 _tick_groups = {
     'clears': {'trade', 'dark_trade', 'last'},
     'bids': {'bid', 'bsize'},
     'asks': {'ask', 'asize'},
 }
+
+# XXX alo define the flattened set of all such "fundamental ticks"
+# so that it can be used as filter, eg. in the graphics display
+# loop to compute running windowed y-ranges B)
+_auction_ticks: set[str] = set.union(*_tick_groups.values())
 
 
 def frame_ticks(

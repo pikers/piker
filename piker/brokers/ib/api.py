@@ -51,9 +51,18 @@ import tractor
 from tractor import to_asyncio
 import pendulum
 from eventkit import Event
-import ib_insync as ibis
-from ib_insync.contract import (
+from ib_insync import (
+    client as ib_client,
+    IB,
     Contract,
+    Crypto,
+    Commodity,
+    Forex,
+    Future,
+    ContFuture,
+    Stock,
+)
+from ib_insync.contract import (
     ContractDetails,
     Option,
 )
@@ -70,15 +79,39 @@ from ib_insync.wrapper import (
     Wrapper,
     RequestError,
 )
-from ib_insync.client import Client as ib_Client
 import numpy as np
 
+# TODO: in hindsight, probably all imports should be
+# non-relative for backends so that non-builting backends
+# can be easily modelled after this style B)
 from piker import config
 from piker.brokers._util import (
     log,
     get_logger,
 )
-from piker.data._source import base_ohlc_dtype
+
+_bar_load_dtype: list[tuple[str, type]] = [
+    # NOTE XXX: only part that's diff
+    # from our default fields where
+    # time is normally an int.
+    # TODO: can we just cast to this
+    # at np.ndarray load time?
+    ('time', float),
+
+    ('open', float),
+    ('high', float),
+    ('low', float),
+    ('close', float),
+    ('volume', float),
+    ('count', int),
+]
+
+# Broker specific ohlc schema which includes a vwap field
+_ohlc_dtype: list[tuple[str, type]] = _bar_load_dtype.copy()
+_ohlc_dtype.insert(
+    0,
+    ('index', int),
+)
 
 
 _time_units = {
@@ -136,7 +169,7 @@ class NonShittyWrapper(Wrapper):
         return super().execDetails(reqId, contract, execu)
 
 
-class NonShittyIB(ibis.IB):
+class NonShittyIB(IB):
     '''
     The beginning of overriding quite a few decisions in this lib.
 
@@ -155,7 +188,7 @@ class NonShittyIB(ibis.IB):
 
         # XXX: just to override this wrapper
         self.wrapper = NonShittyWrapper(self)
-        self.client = ib_Client(self.wrapper)
+        self.client = ib_client.Client(self.wrapper)
         self.client._logger = get_logger(
             'ib_insync.client',
         )
@@ -295,7 +328,7 @@ def bars_to_np(bars: list) -> np.ndarray:
 
     nparr = np.array(
         np_ready,
-        dtype=base_ohlc_dtype,
+        dtype=_bar_load_dtype,
     )
     assert nparr['time'][0] == bars[0].date.timestamp()
     assert nparr['time'][-1] == bars[-1].date.timestamp()
@@ -351,9 +384,15 @@ class Client:
     def __init__(
         self,
 
-        ib: ibis.IB,
+        ib: IB,
+        config: dict[str, Any],
 
     ) -> None:
+
+        # stash `brokers.toml` config on client for user settings
+        # as needed throughout this backend (eg. vnc sockaddr).
+        self.conf = config
+
         self.ib = ib
         self.ib.RaiseRequestErrors = True
 
@@ -398,7 +437,7 @@ class Client:
 
         # optional "duration of time" equal to the
         # length of the returned history frame.
-        duration: Optional[str] = None,
+        duration: str | None = None,
 
         **kwargs,
 
@@ -450,6 +489,8 @@ class Client:
             # whatToShow='MIDPOINT',
             # whatToShow='TRADES',
         )
+
+        # tail case if no history for range or none prior.
         if not bars:
             # NOTE: there's 2 cases here to handle (and this should be
             # read alongside the implementation of
@@ -463,6 +504,32 @@ class Client:
             # TODO: we could maybe raise ``NoData`` instead if we
             # rewrite the method in the first case? right now there's no
             # way to detect a timeout.
+
+        # NOTE XXX: ensure minimum duration in bars B)
+        # => we recursively call this method until we get at least
+        # as many bars such that they sum in aggregate to the the
+        # desired total time (duration) at most.
+        elif (
+            end_dt
+            and (
+                (len(bars) * sample_period_s) < dt_duration.in_seconds()
+            )
+        ):
+            log.warning(
+                f'Recursing to get more bars from {end_dt} for {dt_duration}'
+            )
+            end_dt -= dt_duration
+            (
+                r_bars,
+                r_arr,
+                r_duration,
+            ) = await self.bars(
+                fqme,
+                start_dt=start_dt,
+                end_dt=end_dt,
+            )
+            r_bars.extend(bars)
+            bars = r_bars
 
         nparr = bars_to_np(bars)
         return bars, nparr, dt_duration
@@ -580,7 +647,7 @@ class Client:
 
                     # try get all possible contracts for symbol as per,
                     # https://interactivebrokers.github.io/tws-api/basic_contracts.html#fut
-                    con = ibis.Future(
+                    con = Future(
                         symbol=sym,
                         exchange=exch,
                     )
@@ -628,11 +695,11 @@ class Client:
         # it's the "front" contract returned here
         if front:
             con = (await self.ib.qualifyContractsAsync(
-                ibis.ContFuture(symbol, exchange=exchange)
+                ContFuture(symbol, exchange=exchange)
             ))[0]
         else:
             con = (await self.ib.qualifyContractsAsync(
-                ibis.Future(
+                Future(
                     symbol,
                     exchange=exchange,
                     lastTradeDateOrContractMonth=expiry,
@@ -651,7 +718,7 @@ class Client:
             return self._cons[conid]
         except KeyError:
             con: Contract = await self.ib.qualifyContractsAsync(
-                ibis.Contract(conId=conid)
+                Contract(conId=conid)
             )
             self._cons[conid] = con
             return con
@@ -762,7 +829,7 @@ class Client:
             # if '/' in symbol:
             #     currency = ''
             #     symbol, currency = symbol.split('/')
-            con = ibis.Forex(
+            con = Forex(
                 pair=''.join((symbol, currency)),
                 currency=currency,
             )
@@ -771,12 +838,12 @@ class Client:
         # commodities
         elif exch == 'CMDTY':  # eg. XAUUSD.CMDTY
             con_kwargs, bars_kwargs = _adhoc_symbol_map[symbol]
-            con = ibis.Commodity(**con_kwargs)
+            con = Commodity(**con_kwargs)
             con.bars_kwargs = bars_kwargs
 
         # crypto$
         elif exch == 'PAXOS':  # btc.paxos
-            con = ibis.Crypto(
+            con = Crypto(
                 symbol=symbol,
                 currency=currency,
             )
@@ -798,7 +865,7 @@ class Client:
                 primaryExchange = exch
                 exch = 'SMART'
 
-            con = ibis.Stock(
+            con = Stock(
                 symbol=symbol,
                 exchange=exch,
                 primaryExchange=primaryExchange,
@@ -896,7 +963,7 @@ class Client:
 
                 done, pending = await asyncio.wait(
                     [ready],
-                    timeout=0.1,
+                    timeout=0.01,
                 )
                 if ready in done:
                     break
@@ -1104,9 +1171,9 @@ def con2fqme(
             symbol = con.localSymbol.replace(' ', '')
 
         case (
-            ibis.Commodity()
+            Commodity()
             # search API endpoint returns std con box..
-            | ibis.Contract(secType='CMDTY')
+            | Contract(secType='CMDTY')
         ):
             # commodities and forex don't have an exchange name and
             # no real volume so we have to calculate the price
@@ -1115,7 +1182,7 @@ def con2fqme(
             # no real volume on this tract
             calc_price = True
 
-        case ibis.Forex() | ibis.Contract(secType='CASH'):
+        case Forex() | Contract(secType='CASH'):
             dst, src = con.localSymbol.split('.')
             symbol = ''.join([dst, src])
             suffix = con.exchange or 'idealpro'
@@ -1192,7 +1259,7 @@ async def load_aio_clients(
     # the API TCP in `ib_insync` connection can be flaky af so instead
     # retry a few times to get the client going..
     connect_retries: int = 3,
-    connect_timeout: float = 1,
+    connect_timeout: float = 10,
     disconnect_on_exit: bool = True,
 
 ) -> dict[str, Client]:
@@ -1206,7 +1273,7 @@ async def load_aio_clients(
     '''
     global _accounts2clients, _client_cache, _scan_ignore
 
-    conf = get_config()
+    conf: dict[str, Any] = get_config()
     ib = None
     client = None
 
@@ -1257,7 +1324,7 @@ async def load_aio_clients(
         ):
             continue
 
-        ib = NonShittyIB()
+        ib: IB = NonShittyIB()
 
         for i in range(connect_retries):
             try:
@@ -1272,7 +1339,7 @@ async def load_aio_clients(
                     timeout=connect_timeout,
                 )
                 # create and cache client
-                client = Client(ib)
+                client = Client(ib=ib, config=conf)
 
                 # update all actor-global caches
                 log.info(f"Caching client for {sockaddr}")
@@ -1291,7 +1358,7 @@ async def load_aio_clients(
             ) as ce:
                 _err = ce
                 log.warning(
-                    f'Failed to connect on {port} for {i} time with,\n'
+                    f'Failed to connect on {host}:{port} for {i} time with,\n'
                     f'{ib.client.apiError.value()}\n'
                     'retrying with a new client id..')
 
@@ -1376,7 +1443,7 @@ async def open_client_proxies() -> tuple[
             # TODO: maybe this should be the default in tractor?
             key=tractor.current_actor().uid,
 
-        ) as (cache_hit, (clients, from_aio)),
+        ) as (cache_hit, (clients, _)),
 
         AsyncExitStack() as stack
     ):
@@ -1405,7 +1472,7 @@ def get_preferred_data_client(
 
     '''
     conf = get_config()
-    data_accounts = conf['prefer_data_account']
+    data_accounts: list[str] = conf['prefer_data_account']
 
     for name in data_accounts:
         client = clients.get(f'ib.{name}')

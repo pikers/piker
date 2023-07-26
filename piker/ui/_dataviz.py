@@ -49,7 +49,7 @@ from ..data._formatters import (
     OHLCBarsAsCurveFmtr,  # OHLC converted to line
     StepCurveFmtr,  # "step" curve (like for vlm)
 )
-from ..data._pathops import (
+from ..data._timeseries import (
     slice_from_time,
 )
 from ._ohlc import (
@@ -371,8 +371,8 @@ class Viz(Struct):
         # the source data.
         if self._index_step is None:
 
-            index = self.shm.array[self.index_field]
-            isample = index[:16]
+            index: np.ndarray = self.shm.array[self.index_field]
+            isample: np.ndarray = index[-16:]
 
             mxdiff: None | float = None
             for step in np.diff(isample):
@@ -752,6 +752,7 @@ class Viz(Struct):
 
         profiler: Profiler | None = None,
         do_append: bool = True,
+        force_redraw: bool = False,
 
         **kwargs,
 
@@ -796,7 +797,7 @@ class Viz(Struct):
                 graphics,
             )
 
-        should_redraw: bool = False
+        should_redraw: bool = force_redraw or False
         ds_allowed: bool = True  # guard for m4 activation
 
         # TODO: probably specialize ``Renderer`` types instead of
@@ -906,6 +907,11 @@ class Viz(Struct):
             should_ds=should_ds,
             showing_src_data=showing_src_data,
 
+            # XXX: reallocate entire underlying "format graphics array"
+            # whenever the caller insists, such as on history
+            # backfills.
+            force_reformat=force_redraw,
+
             do_append=do_append,
         )
 
@@ -925,6 +931,7 @@ class Viz(Struct):
         reset_cache = False
         if (
             reset_cache
+            or should_redraw
         ):
             # assign output paths to graphicis obj but
             # after a coords-cache reset.

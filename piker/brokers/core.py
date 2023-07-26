@@ -29,7 +29,8 @@ import trio
 from ._util import log
 from . import get_brokermod
 from ..service import maybe_spawn_brokerd
-from .._cacheables import open_cached_client
+from . import open_cached_client
+from ..accounting import MktPair
 
 
 async def api(brokername: str, methname: str, **kwargs) -> dict:
@@ -116,15 +117,19 @@ async def bars(
         return await client.bars(symbol, **kwargs)
 
 
-async def symbol_info(
+async def mkt_info(
     brokermod: ModuleType,
-    symbol: str,
+    fqme: str,
     **kwargs,
-) -> Dict[str, Dict[str, Dict[str, Any]]]:
-    """Return symbol info from broker.
-    """
-    async with brokermod.get_client() as client:
-        return await client.symbol_info(symbol, **kwargs)
+
+) -> MktPair:
+    '''
+    Return MktPair info from broker including src and dst assets.
+
+    '''
+    return await brokermod.get_mkt_info(
+        fqme.replace(brokermod.name, '')
+    )
 
 
 async def search_w_brokerd(name: str, pattern: str) -> dict:

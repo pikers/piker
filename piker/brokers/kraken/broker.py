@@ -63,8 +63,8 @@ from piker.clearing._messages import (
     BrokerdPosition,
     BrokerdStatus,
 )
-from . import log
 from .api import (
+    log,
     Client,
     BrokerError,
     get_client,
@@ -422,7 +422,6 @@ def trades2pps(
 @tractor.context
 async def trades_dialogue(
     ctx: tractor.Context,
-    loglevel: str = None,
 
 ) -> AsyncIterator[dict[str, Any]]:
 
