@@ -605,7 +605,7 @@ class MktPair(Struct, frozen=True):
         if isinstance(self.dst, Asset):
             return str(self.dst.atype)
 
-        return 'unknown'
+        return 'UNKNOWN'
 
     @property
     def price_tick_digits(self) -> int:

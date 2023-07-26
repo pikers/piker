@@ -292,10 +292,20 @@ class Position(Struct):
         msg: BrokerdPosition,
 
     ) -> None:
+        '''
+        Hard-set the current position from a remotely-received
+        (normally via IPC) msg by applying the msg as the one (and
+        only) txn in the `._events` table thus forcing the current
+        asset allocation blindly.
 
+        '''
         mkt: MktPair = self.mkt
         now_dt: pendulum.DateTime = now()
         now_str: str = str(now_dt)
+
+        # XXX: wipe all prior txn history since we wanted it we wouldn't
+        # be using this method to compute our state!
+        self._events.clear()
 
         # NOTE WARNING XXX: we summarize the pos with a single
         # summary transaction (for now) until we either pass THIS
@@ -524,6 +534,9 @@ class Account(Struct):
             try:
                 mkt: MktPair = symcache.mktmaps[fqme]
             except KeyError:
+                if _mktmap_table is None:
+                    raise
+
                 # XXX: caller is allowed to provide a fallback
                 # mktmap table for the case where a new position is
                 # being added and the preloaded symcache didn't

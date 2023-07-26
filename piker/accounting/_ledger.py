@@ -199,6 +199,7 @@ class TransactionLedger(UserDict):
                 tid,
                 txdict,
                 pairs=symcache.pairs,
+                symcache=symcache,
             )
             yield txn
 
@@ -231,6 +232,7 @@ class TransactionLedger(UserDict):
         '''
         is_paper: bool = self.account == 'paper'
 
+        symcache: SymbologyCache = self._symcache
         towrite: dict[str, Any] = {}
         for tid, txdict in self.tx_sort(self.data.copy()):
             # write blank-str expiry for non-expiring assets
@@ -241,12 +243,18 @@ class TransactionLedger(UserDict):
                 txdict['expiry'] = ''
 
             # (maybe) re-write old acro-key
-            if is_paper:
+            if (
+                is_paper
+                # if symcache is empty/not supported (yet), don't
+                # bother xD
+                and symcache.mktmaps
+            ):
                 fqme: str = txdict.pop('fqsn', None) or txdict['fqme']
                 bs_mktid: str | None = txdict.get('bs_mktid')
 
                 if (
-                    fqme not in self._symcache.mktmaps
+
+                    fqme not in symcache.mktmaps
                     or (
                         # also try to see if this is maybe a paper
                         # engine ledger in which case the bs_mktid
@@ -257,10 +265,10 @@ class TransactionLedger(UserDict):
                 ):
                     # always take any (paper) bs_mktid if defined and
                     # in the backend's cache key set.
-                    if bs_mktid in self._symcache.mktmaps:
+                    if bs_mktid in symcache.mktmaps:
                         fqme: str = bs_mktid
                     else:
-                        best_fqme: str = list(self._symcache.search(fqme))[0]
+                        best_fqme: str = list(symcache.search(fqme))[0]
                         log.warning(
                             f'Could not find FQME: {fqme} in qualified set?\n'
                             f'Qualifying and expanding {fqme} -> {best_fqme}'
@@ -371,7 +379,7 @@ def open_trade_ledger(
     if symcache is None:
 
         # XXX: be mega pendantic and ensure the caller knows what
-        # they're doing..
+        # they're doing!
         if not allow_from_sync_code:
             raise RuntimeError(
                 'You MUST set `allow_from_sync_code=True` when '
