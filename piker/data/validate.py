@@ -81,8 +81,8 @@ _eps: dict[str, list[str]] = {
     # live order control and trading
     'brokerd': [
         'trades_dialogue',
-        # TODO: ledger normalizer helper?
-        # norm_trades(records: dict[str, Any]) -> TransactionLedger)
+        'open_trade_dialog',  # live order ctl
+        'norm_trade', # ledger normalizer for txns
     ],
 }
 
