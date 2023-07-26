@@ -141,8 +141,7 @@ async def shm_push_in_between(
     array = shm.array
     zeros = array[array['low'] == 0]
     if 0 < zeros.size < 1000:
-        tractor.breakpoint()
-
+        await tractor.pause()
 
 
 async def start_backfill(
@@ -255,7 +254,7 @@ async def start_backfill(
             #         f"{mkt.fqme}: skipping duplicate frame @ {next_start_dt}"
             #     )
             #     starts[start_dt] += 1
-            #     await tractor.breakpoint()
+            #     await tractor.pause()
             #     continue
 
             # elif starts[next_start_dt] > 6:
@@ -484,7 +483,7 @@ async def back_load_from_tsdb(
     if storemod.name == 'nativedb':
         return
 
-        await tractor.breakpoint()
+        await tractor.pause()
         assert shm._first.value == 0
 
     array = shm.array

@@ -177,7 +177,7 @@ def anal(
             # TODO: something better with tab completion..
             # is there something more minimal but nearly as
             # functional as ipython?
-            await tractor.breakpoint()
+            await tractor.pause()
 
     trio.run(main)
 
@@ -288,7 +288,7 @@ def ldshm(
 
                 # TODO: maybe only optionally enter this depending
                 # on some CLI flags and/or gap detection?
-                await tractor.breakpoint()
+                await tractor.pause()
 
                 # write to parquet file?
                 if write_parquet:

@@ -161,7 +161,7 @@ async def handle_viewmode_kb_inputs(
                 vlm_chart = chart.linked.subplots['volume']  # noqa
                 vlm_viz = vlm_chart.main_viz  # noqa
                 dvlm_pi = vlm_chart._vizs['dolla_vlm'].plot  # noqa
-                await tractor.breakpoint()
+                await tractor.pause()
                 view.interact_graphics_cycle()
 
             # SEARCH MODE #

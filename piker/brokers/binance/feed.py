@@ -265,7 +265,7 @@ async def open_history_client(
             ):
                 inow = round(time.time())
                 if (inow - times[-1]) > 60:
-                    await tractor.breakpoint()
+                    await tractor.pause()
 
             start_dt = from_timestamp(times[0])
             end_dt = from_timestamp(times[-1])

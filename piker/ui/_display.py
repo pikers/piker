@@ -462,7 +462,7 @@ async def graphics_update_loop(
         await trio.sleep(0)
 
         if ds.hist_vars['i_last'] < ds.hist_vars['i_last_append']:
-            await tractor.breakpoint()
+            await tractor.pause()
 
     # main real-time quotes update loop
     stream: tractor.MsgStream

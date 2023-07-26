@@ -323,7 +323,7 @@ async def open_trade_dialog(
 
                         if balance > 0:
                             balances[spot_asset] = (balance, last_update_t)
-                            # await tractor.breakpoint()
+                            # await tractor.pause()
 
                 # @position response:
                 # {'positions': [{'entryPrice': '0.0',
