@@ -19,6 +19,7 @@ CLI front end for trades ledger and position tracking management.
 
 '''
 from __future__ import annotations
+from pprint import pformat
 
 
 from rich.console import Console
@@ -264,7 +265,7 @@ def disect(
 
     # ledger dfs groupby-partitioned by fqme
     dfs: dict[str, pl.DataFrame]
-    # actual ledger ref filled in with all txns
+    # actual ledger instance
     ldgr: TransactionLedger
 
     pl.Config.set_tbl_cols(16)
@@ -277,7 +278,24 @@ def disect(
     ):
 
         # look up specific frame for fqme-selected asset
-        df = dfs[fqme]
+        if (df := dfs.get(fqme)) is None:
+            mktids2fqmes: dict[str, list[str]] = {}
+            for bs_mktid in dfs:
+                df: pl.DataFrame = dfs[bs_mktid]
+                fqmes: pl.Series[str] = df['fqme']
+                uniques: list[str] = fqmes.unique()
+                mktids2fqmes[bs_mktid] = set(uniques)
+                if fqme in uniques:
+                    break
+            print(
+                f'No specific ledger for fqme={fqme} could be found in\n'
+                f'{pformat(mktids2fqmes)}?\n'
+                f'Maybe the `{brokername}` backend uses something '
+                'else for its `bs_mktid` then the `fqme`?\n'
+                'Scanning for matches in unique fqmes per frame..\n'
+            )
+
+        # :pray:
         assert not df.is_empty()
 
         # TODO: we REALLY need a better console REPL for this

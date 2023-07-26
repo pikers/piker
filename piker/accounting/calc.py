@@ -428,7 +428,7 @@ def open_ledger_dfs(
 
     # break up into a frame per mkt / fqme
     dfs: dict[str, pl.DataFrame] = ldf.partition_by(
-        'fqme',
+        'bs_mktid',
         as_dict=True,
     )
 
