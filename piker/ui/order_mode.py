@@ -641,13 +641,13 @@ class OrderMode:
             group_key=True
         )
         for oid in oids:
-            dialog: Dialog = self.dialogs[oid]
-            self.client.cancel_nowait(uuid=oid)
-            cancel_status_close = self.multistatus.open_status(
-                f'cancelling order {oid}',
-                group_key=key,
-            )
-            dialog.last_status_close = cancel_status_close
+            if dialog := self.dialogs.get(oid):
+                self.client.cancel_nowait(uuid=oid)
+                cancel_status_close = self.multistatus.open_status(
+                    f'cancelling order {oid}',
+                    group_key=key,
+                )
+                dialog.last_status_close = cancel_status_close
 
     def cancel_all_orders(self) -> None:
         '''
