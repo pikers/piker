@@ -35,7 +35,7 @@ from piker.accounting import (
     # MktPair,
 )
 from piker.data import (
-    # SymbologyCache,
+    SymbologyCache,
     Struct,
 )
 from .api import (
@@ -55,6 +55,7 @@ def norm_trade(
     # processing from `.accounting`, this will be the table loaded
     # into `SymbologyCache.pairs`.
     pairs: dict[str, Struct],
+    symcache: SymbologyCache | None = None,
 
 ) -> Transaction:
 
