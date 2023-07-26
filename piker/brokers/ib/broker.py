@@ -857,10 +857,9 @@ async def emit_pp_update(
             ledger: dict = ledgers[acctid]
 
             # NOTE: don't override flex/previous entries with new API
-            # ones, just update with new fields!
+            # ones, just update with new fields or create new entry.
             for tid, tdict in trades_by_id.items():
-                # ledger.setdefault(tid, {}).update(tdict)
-                ledger[tid].update(tdict)
+                ledger.setdefault(tid, {}).update(tdict)
 
         # generate pp msgs and cross check with ib's positions data, relay
         # re-formatted pps as msgs to the ems.
