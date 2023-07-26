@@ -282,7 +282,7 @@ class GodWidget(QWidget):
             # TODO: probably stick this in some kinda `LooknFeel` API?
             for tracker in self.rt_linked.mode.trackers.values():
                 pp_nav = tracker.nav
-                if tracker.live_pp.size:
+                if tracker.live_pp.cumsize:
                     pp_nav.show()
                     pp_nav.hide_info()
                 else:

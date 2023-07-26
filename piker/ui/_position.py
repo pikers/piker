@@ -279,7 +279,7 @@ class SettingsPane:
 
         elif key != 'account':  # numeric fields entry
             try:
-                value = puterize(value)
+                value: float = puterize(value)
             except ValueError as err:
                 log.error(err.args[0])
                 return False
@@ -292,7 +292,7 @@ class SettingsPane:
                 lpos = mode.current_pp.live_pp
 
                 if alloc.size_unit == 'currency':
-                    dsize = lpos.dsize
+                    dsize: float = lpos.dsize
                     if dsize > value:
                         log.error(
                             f'limit must > then current pp: {dsize}'

@@ -261,7 +261,7 @@ async def handle_viewmode_kb_inputs(
             # show the pp size label only if there is
             # a non-zero pos existing
             tracker = order_mode.current_pp
-            if tracker.live_pp.size:
+            if tracker.live_pp.cumsize:
                 tracker.nav.show()
 
             # TODO: show pp config mini-params in status bar widget
