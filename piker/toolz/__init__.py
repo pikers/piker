@@ -28,6 +28,9 @@ from .profile import (
     timeit,
 )
 
+# TODO: other mods to include?
+# - DROP .trionics, already moved into tractor
+# - move in `piker.calc`
 
 __all__: list[str] = [
     'open_crash_handler',
