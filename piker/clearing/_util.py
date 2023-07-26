@@ -36,9 +36,6 @@ get_console_log = partial(
 )
 
 
-# TODO: use this in other backends like kraken which currently has
-# a less formalized version more or less:
-# `apiflows[reqid].maps.append(status_msg.to_dict())`
 class OrderDialogs(Struct):
     '''
     Order control dialog (and thus transaction) tracking via
