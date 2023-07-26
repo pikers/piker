@@ -74,6 +74,8 @@ from ._util import DataUnavailable
 
 log = get_logger(__name__)
 
+_no_symcache: bool = True
+
 
 class KucoinMktPair(Struct, frozen=True):
     '''
@@ -86,14 +88,14 @@ class KucoinMktPair(Struct, frozen=True):
 
     @property
     def price_tick(self) -> Decimal:
-        return Decimal(str(self.baseIncrement))
+        return Decimal(str(self.quoteIncrement))
 
     baseMaxSize: float
     baseMinSize: float
 
     @property
     def size_tick(self) -> Decimal:
-        return Decimal(str(self.baseMinSize))
+        return Decimal(str(self.quoteMinSize))
 
     enableTrading: bool
     feeCurrency: str
@@ -207,6 +209,7 @@ def get_config() -> BrokerConfig | None:
 
 
 class Client:
+
     def __init__(self) -> None:
         self._config: BrokerConfig | None = get_config()
         self._pairs: dict[str, KucoinMktPair] = {}
