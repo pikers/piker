@@ -127,8 +127,8 @@ def ppu(
         # after sum should be the remaining size the new
         # "direction" (aka, long vs. short) for this clear.
         if sign_change:
-            clear_size = accum_size
-            abs_diff = abs(accum_size)
+            clear_size: float = accum_size
+            abs_diff: float = abs(accum_size)
             asize_h.append(0)
             ppu_h.append(0)
 
@@ -149,7 +149,6 @@ def ppu(
             abs_diff > 0
             and is_clear
         ):
-
             cost_basis = (
                 # cost basis for this clear
                 clear_price * abs(clear_size)
@@ -159,12 +158,12 @@ def ppu(
             )
 
             if asize_h:
-                size_last = abs(asize_h[-1])
-                cb_last = ppu_h[-1] * size_last
-                ppu = (cost_basis + cb_last) / abs_new_size
+                size_last: float = abs(asize_h[-1])
+                cb_last: float = ppu_h[-1] * size_last
+                ppu: float = (cost_basis + cb_last) / abs_new_size
 
             else:
-                ppu = cost_basis / abs_new_size
+                ppu: float = cost_basis / abs_new_size
 
         else:
             # TODO: for PPU we should probably handle txs out
@@ -177,7 +176,7 @@ def ppu(
             # only the size changes not the price-per-unit
             # need to be updated since the ppu remains constant
             # and gets weighted by the new size.
-            ppu: float = ppu_h[-1]  # set to previous value
+            ppu: float = ppu_h[-1] if ppu_h else 0  # set to previous value
 
         # extend with new rolling metric for this step
         ppu_h.append(ppu)
@@ -436,7 +435,7 @@ def open_ledger_dfs(
     # - it'd be more ideal to use `ppt = df.groupby('fqme').agg([`
     # - ppu and bep calcs!
     for key in dfs:
-        df = dfs[key]
+        df = dfs[key].lazy()
 
         # TODO: pass back the current `Position` object loaded from
         # the account as well? Would provide incentive to do all
@@ -444,8 +443,99 @@ def open_ledger_dfs(
         # bs_mktid: str = df[0]['bs_mktid']
         # pos: Position = acnt.pps[bs_mktid]
 
-        dfs[key] = df.with_columns([
+        df = dfs[key] = df.with_columns([
+
             pl.cumsum('size').alias('cumsize'),
-        ])
+
+            # amount of source asset "sent" (via buy txns in
+            # the market) to acquire the dst asset, PER txn.
+            # when this value is -ve (i.e. a sell operation) then
+            # the amount sent is actually "returned".
+            (pl.col('price') * pl.col('size')).alias('dst_bot'),
+
+        ]).with_columns([
+
+            # rolling balance in src asset units
+            (pl.cumsum('dst_bot') * -1).alias('src_balance'),
+
+            # "position operation type" in terms of increasing the
+            # amount in the dst asset (entering) or decreasing the
+            # amount in the dst asset (exiting).
+            pl.when(
+                pl.col('size').sign() == pl.col('cumsize').sign()
+
+            ).then(
+                pl.lit('enter')  # see above, but is just price * size per txn
+
+            ).otherwise(
+                pl.when(pl.col('cumsize') == 0)
+                .then(pl.lit('exit_to_zero'))
+                .otherwise(pl.lit('exit'))
+            ).alias('descr'),
+
+        ]).with_columns([
+
+            pl.when(pl.col('cumsize') == pl.lit(0))
+            .then(pl.col('src_balance'))
+            .otherwise(pl.lit(None))
+            .forward_fill()
+            .fill_null(0)
+            .alias('pnl_since_nz'),
+
+        ]).with_columns([
+
+            pl.when(pl.col('cumsize') == 0)
+            .then(pl.col('pnl_since_nz'))
+            .otherwise(0)
+            .cumsum()
+            .alias('cum_pnl_since_nz')
+
+        ]).with_columns([
+
+            pl.when(
+                pl.col('descr') == pl.lit('enter')
+            ).then(
+                (
+                    pl.col('pnl_since_nz')
+                    -
+                    # -ve on buys (and no prior profits)
+                    pl.col('src_balance')
+                )# * pl.col('cumsize').sign()
+                /
+                pl.col('cumsize')
+            ).otherwise(
+                pl.lit(None)
+            ).forward_fill().alias('ppu_per_pos'),
+
+        ]).with_columns([
+            pl.when(pl.col('descr') != pl.lit('enter'))
+            .then(
+                (pl.col('price') - pl.col('ppu_per_pos')) * pl.col('size') * -1
+            )
+            .otherwise(0)
+            .alias('pnl_per_exit')
+
+        ]).with_columns([
+
+            #     (
+            #         # weight las ppu by the previous (txn row's)
+            #         # cumsize since sells may have happpened.
+            #         ((pl.col('last_ppu')
+            #           * pl.col('last_cumsize'))
+            #         - pl.col('net_pnl'))
+            #         + pl.col('i_dst_bot')
+            #     ) /
+            #     pl.col('cumsize')
+
+        # choose fields to emit for accounting puposes
+        ]).select([
+            pl.exclude([
+                'tid',
+                'dt',
+                'expiry',
+                'bs_mktid',
+                'etype',
+            ]),
+        ]).collect()
 
     yield dfs, ledger
