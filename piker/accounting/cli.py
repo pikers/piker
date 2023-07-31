@@ -268,7 +268,8 @@ def disect(
     # actual ledger instance
     ldgr: TransactionLedger
 
-    pl.Config.set_tbl_cols(16)
+    pl.Config.set_tbl_cols(-1)
+    pl.Config.set_tbl_rows(-1)
     with (
         open_crash_handler(),
         open_ledger_dfs(
