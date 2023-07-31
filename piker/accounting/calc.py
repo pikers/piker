@@ -511,6 +511,7 @@ def open_ledger_dfs(
         last_cumsize: float = 0
         last_ledger_pnl: float = 0
         last_pos_pnl: float = 0
+        last_is_enter: bool = False
 
         # imperatively compute the PPU (price per unit) and BEP
         # (break even price) iteratively over the ledger, oriented
@@ -519,7 +520,59 @@ def open_ledger_dfs(
             cumsize: float = row['cumsize']
             is_enter: bool = row['is_enter']
 
-            if not is_enter:
+            # ALWAYS reset per-position cum PnL
+            if last_cumsize == 0:
+                last_pos_pnl: float = 0
+
+            # a "position size INCREASING" transaction which "makes
+            # larger", in src asset unit terms, the trade's
+            # side-size of the destination asset:
+            # - "buying" (more) units of the dst asset
+            # - "selling" (more short) units of the dst asset
+            if is_enter:
+
+                ppu: float = (
+                    (
+                        (last_ppu * last_cumsize)
+                        +
+                        (row['price'] * row['size'])
+                    ) /
+                    cumsize
+                )
+
+                pos_bep: float = ppu
+                # When we "enter more" dst asset units (increase
+                # position state) AFTER having exitted some units
+                # the bep needs to be RECOMPUTED based on new ppu
+                # such that liquidation of the cumsize at the bep
+                # price results in a zero-pnl for the existing
+                # position (since the last one).
+                if (
+                    not last_is_enter
+                    and last_cumsize != 0
+                ):
+
+                    pos_bep: float = (
+                        (
+                            (ppu * cumsize)
+                            -
+                            last_pos_pnl
+                        )
+                        /
+                        cumsize
+                    )
+
+                df[i, 'ledger_bep'] = df[i, 'pos_bep'] = pos_bep
+
+            # a "position size DECREASING" transaction which "makes
+            # smaller" the trade's side-size of the destination
+            # asset:
+            # - selling previously bought units of the dst asset
+            #   (aka 'closing' a long position).
+            # - buying previously borrowed and sold (short) units
+            #   of the dst asset (aka 'covering'/'closing' a short
+            #   position).
+            else:
 
                 pnl = df[i, 'per_exit_pnl'] = (
                     (last_ppu - row['price'])
@@ -529,17 +582,14 @@ def open_ledger_dfs(
 
                 last_ledger_pnl = df[i, 'cum_ledger_pnl'] = last_ledger_pnl + pnl
 
-                # reset per-position cum PnL
-                if last_cumsize != 0:
-                    last_pos_pnl = df[i, 'cum_pos_pnl'] = last_pos_pnl + pnl
-                else:
-                    last_pos_pnl: float = 0
+                last_pos_pnl = df[i, 'cum_pos_pnl'] = last_pos_pnl + pnl
 
                 if cumsize == 0:
                     ppu: float = 0
                     last_ppu: float = 0
                 else:
                     ppu: float = last_ppu
+
 
                 if abs(cumsize) > 0:
                     # compute the "break even price" that
@@ -564,33 +614,9 @@ def open_ledger_dfs(
                     )
                     df[i, 'pos_bep'] = pos_bep
 
-            elif is_enter:
-
-                ppu: float = (
-                    (
-                        (last_ppu * last_cumsize)
-                        +
-                        (row['price'] * row['size'])
-                    )
-                    /
-                    cumsize
-                )
-
-                last_ppu: float = ppu
-
-                # TODO: case where we "enter more" dst asset units
-                # (increase position state) -> the bep needs to be
-                # recomputed based on new ppu..
-                pos_bep: float = (
-                    (
-                        (ppu * cumsize)
-                        -
-                        last_pos_pnl
-                    ) / cumsize
-                )
-                df[i, 'ledger_bep'] = df[i, 'pos_bep'] = pos_bep
-
             df[i, 'pos_ppu'] = ppu
+            last_ppu: float = ppu
             last_cumsize: float = cumsize
+            last_is_enter: bool = is_enter
 
     yield dfs, ledger
