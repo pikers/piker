@@ -435,15 +435,19 @@ def open_ledger_dfs(
     # - it'd be more ideal to use `ppt = df.groupby('fqme').agg([`
     # - ppu and bep calcs!
     for key in dfs:
-        df = dfs[key].lazy()
 
+        # covert to lazy form (since apparently we might need it
+        # eventually ...)
+        df = dfs[key]
+
+        ldf = df.lazy()
         # TODO: pass back the current `Position` object loaded from
         # the account as well? Would provide incentive to do all
         # this ledger loading inside a new async open_account().
         # bs_mktid: str = df[0]['bs_mktid']
         # pos: Position = acnt.pps[bs_mktid]
 
-        df = dfs[key] = df.with_columns([
+        df = dfs[key] = ldf.with_columns([
 
             pl.cumsum('size').alias('cumsize'),
 
@@ -473,59 +477,23 @@ def open_ledger_dfs(
                 .otherwise(pl.lit('exit'))
             ).alias('descr'),
 
-        ]).with_columns([
-
-            pl.when(pl.col('cumsize') == pl.lit(0))
-            .then(pl.col('src_balance'))
-            .otherwise(pl.lit(None))
-            .forward_fill()
-            .fill_null(0)
-            .alias('pnl_since_nz'),
+            (pl.col('cumsize').sign() == pl.col('size').sign())
+            .alias('is_enter'),
 
         ]).with_columns([
 
-            pl.when(pl.col('cumsize') == 0)
-            .then(pl.col('pnl_since_nz'))
-            .otherwise(0)
-            .cumsum()
-            .alias('cum_pnl_since_nz')
+            pl.lit(0, dtype=pl.Float64).alias('pos_ppu'),
+            pl.lit(0, dtype=pl.Float64).alias('per_exit_pnl'),
+            pl.lit(0, dtype=pl.Float64).alias('cum_pos_pnl'),
+            pl.lit(0, dtype=pl.Float64).alias('pos_bep'),
+            pl.lit(0, dtype=pl.Float64).alias('cum_ledger_pnl'),
+            pl.lit(None, dtype=pl.Float64).alias('ledger_bep'),
 
-        ]).with_columns([
-
-            pl.when(
-                pl.col('descr') == pl.lit('enter')
-            ).then(
-                (
-                    pl.col('pnl_since_nz')
-                    -
-                    # -ve on buys (and no prior profits)
-                    pl.col('src_balance')
-                )# * pl.col('cumsize').sign()
-                /
-                pl.col('cumsize')
-            ).otherwise(
-                pl.lit(None)
-            ).forward_fill().alias('ppu_per_pos'),
-
-        ]).with_columns([
-            pl.when(pl.col('descr') != pl.lit('enter'))
-            .then(
-                (pl.col('price') - pl.col('ppu_per_pos')) * pl.col('size') * -1
-            )
-            .otherwise(0)
-            .alias('pnl_per_exit')
-
-        ]).with_columns([
-
-            #     (
-            #         # weight las ppu by the previous (txn row's)
-            #         # cumsize since sells may have happpened.
-            #         ((pl.col('last_ppu')
-            #           * pl.col('last_cumsize'))
-            #         - pl.col('net_pnl'))
-            #         + pl.col('i_dst_bot')
-            #     ) /
-            #     pl.col('cumsize')
+            # TODO: instead of the iterative loop below i guess we
+            # could try using embedded lists to track which txns
+            # are part of which ppu / bep calcs? Not sure this will
+            # look any better nor be any more performant though xD
+            # pl.lit([[0]], dtype=pl.List).alias('list'),
 
         # choose fields to emit for accounting puposes
         ]).select([
@@ -537,5 +505,92 @@ def open_ledger_dfs(
                 'etype',
             ]),
         ]).collect()
+
+        # compute recurrence relations for ppu and bep
+        last_ppu: float = 0
+        last_cumsize: float = 0
+        last_ledger_pnl: float = 0
+        last_pos_pnl: float = 0
+
+        # imperatively compute the PPU (price per unit) and BEP
+        # (break even price) iteratively over the ledger, oriented
+        # to each position state.
+        for i, row in enumerate(df.iter_rows(named=True)):
+            cumsize: float = row['cumsize']
+            is_enter: bool = row['is_enter']
+
+            if not is_enter:
+
+                pnl = df[i, 'per_exit_pnl'] = (
+                    (last_ppu - row['price'])
+                    *
+                    row['size']
+                )
+
+                last_ledger_pnl = df[i, 'cum_ledger_pnl'] = last_ledger_pnl + pnl
+
+                # reset per-position cum PnL
+                if last_cumsize != 0:
+                    last_pos_pnl = df[i, 'cum_pos_pnl'] = last_pos_pnl + pnl
+                else:
+                    last_pos_pnl: float = 0
+
+                if cumsize == 0:
+                    ppu: float = 0
+                    last_ppu: float = 0
+                else:
+                    ppu: float = last_ppu
+
+                if abs(cumsize) > 0:
+                    # compute the "break even price" that
+                    # when the remaining cumsize is liquidated at
+                    # this price the net-pnl on the current position
+                    # will result in ZERO pnl from open to close B)
+                    ledger_bep: float = (
+                        (
+                            (ppu * cumsize)
+                            -
+                            last_ledger_pnl
+                        ) / cumsize
+                    )
+                    df[i, 'ledger_bep'] = ledger_bep
+
+                    pos_bep: float = (
+                        (
+                            (ppu * cumsize)
+                            -
+                            last_pos_pnl
+                        ) / cumsize
+                    )
+                    df[i, 'pos_bep'] = pos_bep
+
+            elif is_enter:
+
+                ppu: float = (
+                    (
+                        (last_ppu * last_cumsize)
+                        +
+                        (row['price'] * row['size'])
+                    )
+                    /
+                    cumsize
+                )
+
+                last_ppu: float = ppu
+
+                # TODO: case where we "enter more" dst asset units
+                # (increase position state) -> the bep needs to be
+                # recomputed based on new ppu..
+                pos_bep: float = (
+                    (
+                        (ppu * cumsize)
+                        -
+                        last_pos_pnl
+                    ) / cumsize
+                )
+                df[i, 'ledger_bep'] = df[i, 'pos_bep'] = pos_bep
+
+            df[i, 'pos_ppu'] = ppu
+            last_cumsize: float = cumsize
 
     yield dfs, ledger
