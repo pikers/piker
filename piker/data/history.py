@@ -644,6 +644,10 @@ async def tsdb_backfill(
             task_status.started()
             return
 
+        # TODO: fill in non-zero epoch time values ALWAYS!
+        # hist_shm._array['time'] = np.arange(
+        #     start=
+
         # NOTE: removed for now since it'll always break
         # on the first 60s of the venue open..
         # times: np.ndarray = array['time']
@@ -755,7 +759,6 @@ async def tsdb_backfill(
             )
         )
 
-
         # if len(hist_shm.array) < 2:
         # TODO: there's an edge case here to solve where if the last
         # frame before market close (at least on ib) was pushed and
@@ -774,7 +777,7 @@ async def tsdb_backfill(
         finally:
             return
 
-        # IF we need to continue backloading incrementall from the
+        # IF we need to continue backloading incrementally from the
         # tsdb client..
         tn.start_soon(
             back_load_from_tsdb,
@@ -836,10 +839,9 @@ async def manage_history(
     # from tractor._state import _runtime_vars
     # port = _runtime_vars['_root_mailbox'][1]
 
-    uid = tractor.current_actor().uid
+    uid: tuple = tractor.current_actor().uid
     name, uuid = uid
-    service = name.rstrip(f'.{mod.name}')
-
+    service: str = name.rstrip(f'.{mod.name}')
     fqme: str = mkt.get_fqme(delim_char='')
 
     # (maybe) allocate shm array for this broker/symbol which will
@@ -878,8 +880,8 @@ async def manage_history(
 
     # (for now) set the rt (hft) shm array with space to prepend
     # only a few days worth of 1s history.
-    days = 2
-    start_index = days*_secs_in_day
+    days: int = 2
+    start_index: int = days*_secs_in_day
     rt_shm._first.value = start_index
     rt_shm._last.value = start_index
     rt_zero_index = rt_shm.index - 1
@@ -892,7 +894,6 @@ async def manage_history(
     open_history_client = getattr(
         mod,
         'open_history_client',
-        None,
     )
     assert open_history_client
 
