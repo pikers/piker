@@ -353,13 +353,11 @@ def open_ledger_dfs(
     can update the ledger on exit.
 
     '''
-    from ._ledger import (
-        open_trade_ledger,
-    )
 
     if not ledger:
         import time
         from tractor._debug import open_crash_handler
+        from ._ledger import open_trade_ledger
 
         now = time.time()
         with (
@@ -388,7 +386,16 @@ def open_ledger_dfs(
             #     allow_reload=True,
             # )
 
+            yield ledger_to_dfs(ledger), ledger
+
+
+def ledger_to_dfs(
+    ledger: TransactionLedger,
+
+) -> dict[str, pl.DataFrame]:
+
     txns: dict[str, Transaction] = ledger.to_txns()
+
     # ldf = pl.DataFrame(
     #     list(txn.to_dict() for txn in txns.values()),
     ldf = pl.from_dicts(
@@ -615,8 +622,10 @@ def open_ledger_dfs(
                     df[i, 'pos_bep'] = pos_bep
 
             df[i, 'pos_ppu'] = ppu
+
+            # keep backrefs to suffice reccurence relation
             last_ppu: float = ppu
             last_cumsize: float = cumsize
             last_is_enter: bool = is_enter
 
-    yield dfs, ledger
+    return dfs
