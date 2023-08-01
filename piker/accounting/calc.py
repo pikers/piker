@@ -602,33 +602,14 @@ def ledger_to_dfs(
             if cumsize == 0:
                 last_ppu = ppu = 0
 
-            # compute the "break even price" that
-            # when the remaining cumsize is liquidated at
-            # this price the net-pnl on the current position
-            # will result in ZERO pnl from open to close B)
+            # compute the BEP: "break even price", a value that
+            # determines at what price the remaining cumsize can be
+            # liquidated such that the net-PnL on the current
+            # position will result in ZERO gain or loss from open
+            # to close including all txn costs B)
             if (
                 abs(cumsize) > 0  # non-exit-to-zero position txn
             ):
-
-                ledger_bep = pos_bep = ppu
-
-                # TODO: now that this
-                # recalc-bep-on-enters-based-on-new-ppu was
-                # factored out of the `is_enter` block above we can
-                # drop this if condition right?
-                #
-                # When we "enter more" dst asset units (aka
-                # increase position state) AFTER having exited some
-                # units (aka decreasing the pos size some) the bep
-                # needs to be RECOMPUTED based on new ppu such that
-                # liquidation of the cumsize at the bep price
-                # results in a zero-pnl for the existing position
-                # (since the last one).
-                # if (
-                #     not last_is_enter
-                #     and last_cumsize != 0
-                # ):
-
                 ledger_bep: float = (
                     (
                         (ppu * cumsize)
@@ -637,6 +618,13 @@ def ledger_to_dfs(
                     ) / cumsize
                 )
 
+                # NOTE: when we "enter more" dst asset units (aka
+                # increase position state) AFTER having exited some
+                # units (aka decreasing the pos size some) the bep
+                # needs to be RECOMPUTED based on new ppu such that
+                # liquidation of the cumsize at the bep price
+                # results in a zero-pnl for the existing position
+                # (since the last one).
                 # for position lifetime BEP we never can have
                 # a valid value once the position is "closed"
                 # / full exitted Bo
@@ -659,6 +647,5 @@ def ledger_to_dfs(
             # keep backrefs to suffice reccurence relation
             last_ppu: float = ppu
             last_cumsize: float = cumsize
-            # last_is_enter: bool = is_enter  # TODO: drop right?
 
     return dfs
