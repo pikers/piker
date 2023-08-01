@@ -159,7 +159,11 @@ def load_flex_trades(
     for acctid in trades_by_account:
         trades_by_id = trades_by_account[acctid]
 
-        with open_trade_ledger('ib', acctid) as ledger_dict:
+        with open_trade_ledger(
+            'ib',
+            acctid,
+            allow_from_sync_code=True,
+        ) as ledger_dict:
             tid_delta = set(trades_by_id) - set(ledger_dict)
             log.info(
                 'New trades detected\n'
